@@ -1,0 +1,37 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+TestResults/
+coverage/
+*.coverage
+StrykerOutput/
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+ios/
+android/
+
+# Secrets and local config (never commit)
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+*.p8
+*.pfx
+*.key
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Claude Code local settings
+.claude/settings.local.json
