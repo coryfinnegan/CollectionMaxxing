@@ -7,41 +7,37 @@
 3. **The scanner never waits on the network.** Barcodes decode on the device. Identification happens server-side and streams back.
 4. **External data is untrusted.** Provider APIs and the LLM are adapters behind interfaces. Their output is validated, cached and never trusted for authorization or rendering as HTML.
 5. **Testability is a design input.** Every I/O boundary is an interface with a fake. Time is injected (`TimeProvider`). See [09](09-testing-and-tdd.md).
-6. **Passwordless and keyless where possible.** Users have no passwords. The services use managed identity instead of connection-string secrets.
+6. **Passwordless, and no secrets in git.** Users have no passwords. Server secrets live in a locked-down folder on your PC (`.env` + Docker secrets), never in the repo.
 
 ## System context
 
 ```mermaid
 flowchart LR
   subgraph Clients
-    ios["iOS app<br/>Expo / React Native"]
-    web["Web app<br/>Expo web build"]
+    ios["iOS app<br/>Expo / React Native<br/>all recognition on-device:<br/>Apple Foundation Models + Vision"]
+    web["Web app<br/>Expo web build<br/>browse + manage only"]
   end
-  subgraph Azure["Azure (single region)"]
-    subgraph aca["Container Apps environment (VNet)"]
-      api["CollectionMaxxing.Api<br/>ASP.NET Core 10<br/>REST API, OIDC server,<br/>static web host, background jobs,<br/>image embeddings (ONNX)"]
-      mig[["db-migrate job<br/>EF Core bundle"]]
+  subgraph tailnet["Your Tailscale network (private, WireGuard)"]
+    subgraph pc["Your PC: Windows 11, Docker Compose"]
+      ts["Tailscale Serve<br/>HTTPS pc.tailnet.ts.net"]
+      api["CollectionMaxxing.Api<br/>ASP.NET Core 10<br/>REST API, OIDC server,<br/>static web host, background jobs"]
+      mig[["migrate<br/>EF Core bundle"]]
+      pg[("PostgreSQL 17<br/>pg_trgm")]
+      files[("files volume<br/>covers, exports")]
+      dash["Aspire Dashboard<br/>logs, traces, metrics"]
     end
-    pg[("PostgreSQL 17<br/>Flexible Server<br/>pg_trgm + pgvector<br/>private access")]
-    blob[("Blob Storage<br/>scan photos, cover cache")]
-    kv["Key Vault<br/>signing certs, API keys"]
-    mon["Application Insights<br/>+ Log Analytics"]
   end
   subgraph External["External services"]
-    claude["Anthropic API<br/>Claude vision"]
     meta["Open Library, Google Books,<br/>TMDB, IGDB, UPCitemdb"]
-    idp["Sign in with Apple,<br/>Google"]
   end
-  ios -- "HTTPS, bearer token" --> api
-  web -- "HTTPS, same-origin cookie" --> api
+  ios -- "Tailscale, bearer token" --> ts
+  web -- "Tailscale, same-origin cookie" --> ts
+  ts --> api
   api --> pg
-  api --> blob
-  api --> kv
-  api --> mon
+  api --> files
+  api -.-> dash
   mig --> pg
-  api --> claude
   api --> meta
-  api <--> idp
 ```
 
 The web app is served **from the same origin as the API**. That lets the browser use an HttpOnly session cookie, so no tokens live in JavaScript, and it removes CORS entirely. The iOS app uses standard OAuth 2.0 Authorization Code + PKCE and gets bearer tokens. See [07](07-authentication-and-authorization.md).
@@ -59,12 +55,10 @@ The web app is served **from the same origin as the API**. That lets the browser
 | Background work | `BackgroundService` + a Postgres job table (`FOR UPDATE SKIP LOCKED`) | Durable, multi-replica safe, no extra infrastructure |
 | HTTP resilience | `Microsoft.Extensions.Http.Resilience` | Retry with jitter that honours `Retry-After`, timeouts, circuit breakers, per-provider rate limiters |
 | Caching | `HybridCache` (memory) + `provider_cache` table (durable) | Provider responses are cached to respect quotas |
-| AI | Official **Anthropic C# SDK** (`Anthropic` NuGet), `claude-opus-5-5` | Structured outputs; see [02](02-scanning-and-recognition.md) |
-| Visual matching | **ONNX Runtime** (`Microsoft.ML.OnnxRuntime`) running an int8 image-embedding model (SigLIP 2 / CLIP, chosen by evals) in-process + **pgvector** (`Pgvector.EntityFrameworkCore`) | Recognises covers and cartridges by artwork; free and private, with no third party. See [02 §5](02-scanning-and-recognition.md#5-cover-recognition-identify-one-item-from-its-picture). |
+| Recognition | **None on the server.** All recognition runs on the iPhone with Apple frameworks (Vision, Foundation Models); the API only matches text against the catalogue | See [02](02-scanning-and-recognition.md#apple-frameworks-only-on-the-phone-0-per-scan) |
 | Images | SixLabors.ImageSharp | Validate, auto-orient, re-encode (strips EXIF/GPS), thumbnails. Its Split License is free at our scale; revisit if this ever goes commercial. |
-| Barcodes (server) | ZXing.Net | Multi-barcode decode on uploaded stills |
 | API docs | `Microsoft.AspNetCore.OpenApi` (OpenAPI 3.1) + Scalar UI (development only) | The TypeScript client is generated from this document |
-| Observability | OpenTelemetry → Azure Monitor | Traces, metrics, logs; one trace across app → API → providers |
+| Observability | OpenTelemetry → standalone **Aspire Dashboard** container on the PC | Traces, metrics, logs; one trace across app → API → providers |
 | Local orchestration | **Aspire** AppHost | One F5 starts Postgres, Azurite, the API and the Expo web dev server |
 | Packages | Central Package Management, `TreatWarningsAsErrors`, nullable enabled, `.editorconfig` | |
 
@@ -72,7 +66,7 @@ We deliberately avoid **MediatR and AutoMapper**. Both moved to commercial licen
 
 ### Front end (details in [05](05-frontend.md))
 
-Expo SDK 57 (React Native 0.86, React 19.2), TypeScript, Expo Router, TanStack Query, Zustand, VisionCamera v5 + its ML Kit barcode scanner, a client generated with orval from OpenAPI, and EAS Build/Submit/Update.
+Expo SDK 57 (React Native 0.86, React 19.2), TypeScript, Expo Router, TanStack Query, Zustand, VisionCamera v5 with a small Swift module for Apple Vision and Foundation Models (iOS only), a client generated with orval from OpenAPI. iOS builds come from GitHub's free macOS runners and are installed with AltStore (ADR-019).
 
 ## Solution structure
 
@@ -82,7 +76,7 @@ src/
   CollectionMaxxing.ServiceDefaults/  OTel, health checks, resilience defaults
   CollectionMaxxing.Domain/           Entities, value objects, domain services. No dependencies.
   CollectionMaxxing.Application/      Use-case handlers, ports (interfaces), DTOs
-  CollectionMaxxing.Infrastructure/   EF Core, provider clients, Claude client, blob, image, ZXing, ONNX image embedder
+  CollectionMaxxing.Infrastructure/   EF Core, provider clients, blob, image (re-encode your-photo covers)
   CollectionMaxxing.Api/              Composition root: endpoints, auth, OpenIddict, login pages, SPA host
 tests/
   CollectionMaxxing.Domain.Tests/
@@ -90,9 +84,9 @@ tests/
   CollectionMaxxing.Infrastructure.Tests/   Testcontainers Postgres, WireMock providers
   CollectionMaxxing.Api.Tests/              WebApplicationFactory: acceptance + authorization matrix
   CollectionMaxxing.Architecture.Tests/     Layering rules
-  CollectionMaxxing.Recognition.Evals/      Opt-in; real Claude calls on golden photos
+  CollectionMaxxing.Recognition.Evals/      Scores eval results uploaded by the on-phone eval runner
 app/                                        Expo app (iOS + web)
-infra/                                      Bicep
+deploy/                                     docker-compose.yml, Tailscale Serve config, backup jobs, runbooks
 ```
 
 ### Dependency rules (enforced by `Architecture.Tests`)
@@ -137,7 +131,7 @@ sequenceDiagram
   participant DB as Catalog (Postgres)
   participant P as Providers
   U->>App: Hold phone over 6 game cases
-  App->>App: ML Kit decodes 6 barcodes on device
+  App->>App: Apple Vision decodes 6 barcodes on device
   App->>App: Haptic tick, 6 lines on the receipt tray
   App->>API: POST /scan-sessions/{id}/barcodes (Idempotency-Key)
   API->>DB: Look up by GTIN
@@ -150,30 +144,24 @@ sequenceDiagram
   API->>DB: Insert items, remember barcode → release
 ```
 
-### Shelf photo
+### Shelf picture (all recognition on the phone)
 
 ```mermaid
 sequenceDiagram
   actor U as You
-  participant App as iOS app
+  participant App as iPhone (Foundation Models + Vision)
   participant API as API
-  participant Job as Scan worker
-  participant C as Claude
   participant P as Providers
-  U->>App: Take one photo of a shelf
-  App->>App: Resize to 2576 px long edge, JPEG
-  App->>API: POST /scan-sessions/{id}/photos (multipart)
-  API->>API: Validate, re-encode (strip EXIF), store blob
-  API-->>App: 202 Accepted (photoId)
-  API->>Job: Enqueue
-  Job->>Job: ZXing multi-decode (any visible barcodes)
-  Job->>C: Image + schema → items[]
-  C-->>Job: 17 items (title, type, platform, position)
+  U->>App: Hold steady on a shelf
+  App->>App: Auto-snap → on-device model streams 17 items (title, creator, kind)
+  App->>App: Vision text boxes → each item's exact box on the photo
+  App->>API: POST /scan-sessions/{id}/identify (text only, no photo)
   loop each item
-    Job->>P: Search catalogue (local first)
-    Job--)App: SSE candidate.added
+    API->>API: Catalogue trigram search
+    API->>P: Open Library / IGDB / TMDB search (cached)
+    API--)App: SSE candidate.updated → card
   end
-  U->>App: Review pins on photo, fix 2, "Add 17 items"
+  U->>App: Tap a card → photo with that spine boxed (drawn on the phone)
 ```
 
 ### Picture of one item (no barcode in view)
@@ -181,25 +169,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   actor U as You
-  participant App as iOS app
+  participant App as iPhone (Foundation Models + Vision)
   participant API as API
-  participant Job as Scan worker
-  participant V as Visual index<br/>(ONNX + pgvector)
-  participant C as Claude
   participant P as Providers
   U->>App: Hold up a loose N64 cart
-  App->>App: No barcode, steady, title text → auto-snap, receipt line "IDENTIFYING…"
-  App->>API: POST /scan-sessions/{id}/photos
-  API-->>App: 202 (photoId)
-  U->>App: Point at the next cart (pipelined)
-  API->>Job: Enqueue
-  Job->>Job: ZXing (no barcode found)
-  Job->>V: Fast path? (no confirmed photo of yours matches)
-  Job->>C: Photo → items[]: one cartridge, title, platform, completeness, region
-  Job->>V: Embed item crop → nearest artwork (top 20)
-  Job->>P: Search IGDB "Super Mario 64" / N64 → fetch + embed artwork
-  Job->>Job: Rerank (cartridge profile); margin OK → no tie-break call
-  Job--)App: SSE candidate.updated → "SUPER MARIO 64 · N64 · READY"
+  App->>App: Auto-snap → model reads "Super Mario 64", platform N64 (cart shape), loose cart
+  App->>App: Feature print vs your confirmed items (no match yet)
+  App->>API: POST /identify { title, platform: N64, completeness: cartOnly }
+  API->>P: IGDB "Super Mario 64" (cached)
+  API->>API: Score (cartridge profile) → Matched
+  API--)App: SSE → "SUPER MARIO 64 · N64 · READY"
+  U->>App: Add → its feature print is saved, so the next one matches instantly
 ```
 
 ## Cross-cutting concerns
@@ -212,7 +192,7 @@ sequenceDiagram
 | IDs | UUIDv7 (`Guid.CreateVersion7()`): time-ordered for index locality |
 | Concurrency | Optimistic, using Postgres `xmin` as the row version and exposed as an `ETag` |
 | Idempotency | `Idempotency-Key` on create/commit endpoints. Responses are stored for 24 h, so mobile retries are safe. |
-| Configuration | Options pattern with validation at startup (`ValidateOnStart`); secrets come only from Key Vault or user-secrets |
+| Configuration | Options pattern with validation at startup (`ValidateOnStart`); secrets come only from the PC's `.env`/Docker secrets (prod) or user-secrets (dev) |
 | Feature flags | `Microsoft.FeatureManagement` backed by config. Used for AI scanning and new providers. |
 | Logging | Structured logs with no PII or tokens. A user ID is fine; an email is not. |
 | Health | `/health/live`, `/health/ready` (DB + blob); a minimal readiness check for the external providers |

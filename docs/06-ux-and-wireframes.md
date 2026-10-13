@@ -55,36 +55,35 @@ flowchart TD
 ```
 
 **iOS tabs:** Library · **Scan** (centre, larger) · Me.
-**Web sidebar:** Library · Scan photos · Wishlist · Lent out · Locations · Import / export · Settings.
+**Web sidebar:** Library · Wishlist · Lent out · Locations · Import / export · Settings. There's no scanning on the web; it's an iPhone feature.
 
 ---
 
 ## iOS screens
 
-### M1 · Sign in
+### M1 · Pair with your server (first launch)
 
 ```
 ┌──────────────────────────────────────┐
 │                                      │
 │  CollectionMaxxing                   │
-│  Catalogue your shelves by pointing  │
-│  your phone at them.                 │
+│  Pair this iPhone with your library. │
 │                                      │
-│      [ shelf illustration of         │
-│        covers on a baseline ]        │
+│  1. On your computer, open           │
+│     https://pc.tailnet.ts.net        │
+│  2. Settings → Devices → Add a device│
+│  3. Scan the QR code shown there     │
 │                                      │
 │ ┌──────────────────────────────────┐ │
-│ │       Continue with Apple        │ │
+│ │          Scan QR code            │ │
 │ └──────────────────────────────────┘ │
-│ ┌──────────────────────────────────┐ │
-│ │       Continue with Google       │ │  (v1.1)
-│ └──────────────────────────────────┘ │
-│  Terms · Privacy                     │
+│        Enter a 6-digit code          │
 └──────────────────────────────────────┘
 ```
 
-- Opens the system auth sheet (ASWebAuthenticationSession). On iOS, Apple sign-in shows the native Face ID sheet inside it.
-- First sign-in creates your library. There's no onboarding carousel: the first screen after sign-in is the empty Library with one button, **Scan your first shelf**.
+- The QR code holds your server's address and a single-use token that's valid for 2 minutes, so there's nothing to type.
+- After pairing: **Use Face ID to open CollectionMaxxing?** (recommended), then the empty Library with **Scan your first shelf**.
+- Very first time ever (no owner yet): the web app asks for the **setup code** that the server printed on first start, and you create the owner account with a passkey (Windows Hello on the PC).
 
 ### M2 · Library
 
@@ -168,7 +167,7 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 └──────────────────────────────────────┘
 ```
 
-- The box comes from on-device text recognition matched to what Claude read. That makes it tight around the spine. If that fails, a softer dashed box shows Claude's approximate position.
+- The box *is* the text column or rectangle the phone found, so it's exact. The photo never leaves the phone; the box is drawn locally.
 - **Wrong item? Fix it** opens the alternatives and search (the same as Pick one in Review).
 - For a single-item picture (one cart, one sleeve), the photo shows that item and the counter is hidden.
 - If you already own it, the bottom section says **"You own this: Living room › Shelf 2"** instead of the add buttons.
@@ -243,13 +242,13 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 ```
 ┌──────────────────────────────────────┐
 │ Me                                   │
-│  [Your name]   Signed in with Apple  │
+│  [Your name]   Paired: this iPhone   │
 │  1,284 items · 9 locations           │
 │ ──────────────────────────────────── │
 │  Locations                         › │
 │  Export my data                    › │
-│  Signed-in devices                 › │
-│  Delete scan photos after adding  ◯  │
+│  Devices and browsers              › │
+│  Recognition                       › │
 │  About and data sources            › │
 │ ──────────────────────────────────── │
 │  Sign out                            │
@@ -257,7 +256,9 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 └──────────────────────────────────────┘
 ```
 
-- **Delete account** shows what will happen (your library and photos are deleted within 30 days, and this can't be undone), then requires a fresh sign-in. Required by App Store guideline 5.1.1(v).
+- **Recognition** shows which engine is active (Apple model or Vision text fallback) and whether Apple Intelligence is on.
+- **Security:** Face ID app lock on/off; **Unpair this iPhone**.
+- **Delete account** shows what will happen (your library and photos are deleted within 30 days, and this can't be undone), then requires a fresh sign-in.
 
 ---
 
@@ -267,11 +268,11 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 
 ```
 ┌───────────────┬──────────────────────────────────────────────────────────────┐
-│ Collection-   │ Library                     [⌕ Search 1,284]   [Scan photos] │
+│ Collection-   │ Library                     [⌕ Search 1,284]     [+ Add item] │
 │ Maxxing       │ Kind ▾  Format ▾  Platform ▾  Location ▾  Status ▾   ▦ / ☰   │
 │               │ ┌──┬──────┬────────────────────┬────────┬─────────┬────┬────┐ │
 │ Library       │ │☐ │cover │ Title              │ Format │Platform │Year│Loc │ │
-│ Scan photos   │ ├──┼──────┼────────────────────┼────────┼─────────┼────┼────┤ │
+│ Wishlist      │ ├──┼──────┼────────────────────┼────────┼─────────┼────┼────┤ │
 │ Wishlist      │ │☑ │ [ ]  │ Super Mario 64     │ Cart   │ N64     │1996│GR›1│ │
 │ Lent out      │ │☑ │ [ ]  │ Metroid Prime      │ Disc   │ GameCube│2002│GR›1│ │
 │ Locations     │ │☐ │ [ ]  │ Dune               │ Pbk    │ —       │1965│LR›2│ │
@@ -285,22 +286,9 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 - The grid view (▦) uses the same shelf-baseline layout as iOS.
 - At phone widths the sidebar collapses to a top bar and the table scrolls horizontally inside its box.
 
-### W2 · Scan photos (web)
+### W2 · No scanning on the web
 
-```
-┌───────────────┬──────────────────────────────────────────────────────────────┐
-│               │ Scan photos                                                  │
-│               │ ┌──────────────────────────────────────────────────────────┐ │
-│               │ │   Drop shelf photos here, or choose files                │ │
-│               │ │   JPEG, PNG or WebP · up to 15 MB each                   │ │
-│               │ └──────────────────────────────────────────────────────────┘ │
-│               │ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐       │
-│               │ │ shelf-1.jpg   │ │ shelf-2.jpg   │ │ bin-4.jpg     │       │
-│               │ │ 17 found ✓    │ │ reading…      │ │ queued        │       │
-│               │ └───────────────┘ └───────────────┘ └───────────────┘       │
-│               │ ── Review (same groups as iOS M5, two-column with photo) ──  │
-└───────────────┴──────────────────────────────────────────────────────────────┘
-```
+The web app is for browsing and managing the library. **+ Add item** opens typed search, or a manual entry when the catalogue has nothing. Bulk adds come from CSV import. All camera and recognition features are iPhone-only.
 
 ---
 
@@ -308,7 +296,7 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 
 ### First run
 
-Sign in with Apple → empty Library → **Scan your first shelf** → camera permission prompt (explained first: "CollectionMaxxing uses the camera to read barcodes and photograph your shelves. Photos are only sent when you scan.") → the scanner.
+Pair with the QR code from the web app → Face ID app lock (optional) → empty Library → **Scan your first shelf** → camera permission prompt (explained first: "CollectionMaxxing uses the camera to read barcodes and photograph your shelves. Photos are only sent when you scan.") → the scanner.
 
 ### Batch a box of games
 

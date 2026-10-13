@@ -1,137 +1,163 @@
-# 10 — Hosting and DevOps
+# 10 — Hosting and DevOps (self-hosted)
 
-## Why Azure
+**Decision (2026-10-12):** CollectionMaxxing is **self-hosted on your gaming PC**. There's no cloud hosting bill, and your data stays at home.
 
-.NET is first-class there. Managed identity removes most secrets. Aspire models the app and its dependencies for local dev and generates the deployment infrastructure. Entra External ID is an easy fallback for identity, and Container Apps scales to zero when idle. It's the lowest-friction home for a .NET backend. Alternatives (Fly.io, a VPS with Docker Compose, a home server) are listed in [ADR-008](12-decision-log.md#adr-008-azure-container-apps-hosting).
+**The machine:**
 
-## Production topology
+- Windows 11 Pro
+- Intel i9-13900KF (24 cores) and 32 GB RAM
+- NVIDIA RTX 4070 Ti (12 GB)
+- C: 1.8 TB SSD (326 GB free), F: 1.8 TB (415 GB free), plus D: and E:
+- Docker 24.0.7 and Tailscale already installed
+
+The app needs a tiny fraction of that: well under 1 CPU core and ~1 GB RAM at idle. You won't notice it while gaming.
+
+## How your iPhone reaches it: Tailscale
+
+You already have **Tailscale** installed. It puts your PC and your iPhone on a private, encrypted network (WireGuard) that works from anywhere: home Wi-Fi, a thrift store, cellular.
+
+- **Nothing is exposed to the internet.** No port forwarding, no public IP, no router changes.
+- **HTTPS for free.** `tailscale serve` gives the PC a real certificate for `https://<pc-name>.<your-tailnet>.ts.net` and forwards it to the API on `localhost`. That one URL serves the API and the web app.
+- **Who can reach it:** only devices signed in to your tailnet. Tailscale's free Personal plan covers you and a couple of family members. The app's own sign-in still applies on top.
+- **On the iPhone:** install the Tailscale app and turn on *VPN On Demand*, so it connects automatically when the CollectionMaxxing app needs it.
+
+*Later, if you ever want public share links or family without Tailscale:* a Cloudflare Tunnel can publish just the web app on a domain, with no open ports either. Not needed for v1.
+
+## What runs on the PC
 
 ```mermaid
 flowchart TB
-  subgraph gh["GitHub"]
-    repo["repo + Actions"]
-  end
-  subgraph eas["Expo EAS"]
-    build["iOS cloud builds"] --> tf["TestFlight / App Store"]
-  end
-  subgraph az["Azure: rg-collectionmaxxing-prod (one region)"]
-    acr["Container Registry (Basic)"]
-    subgraph vnet["VNet"]
-      subgraph cae["Container Apps environment"]
-        app["ca-api<br/>min 1 / max 3 replicas<br/>1 vCPU, 2 GiB"]
-        job["caj-db-migrate<br/>(manual trigger per deploy)"]
-      end
-      pg[("PostgreSQL Flexible Server<br/>Burstable B1ms, 32 GB<br/>private access, PITR 7 days")]
+  phone["iPhone (anywhere)<br/>Tailscale app"] -- "WireGuard" --> ts
+  browser["Browser on a tailnet device"] -- "WireGuard" --> ts
+  subgraph pc["Your PC: Windows 11 Pro"]
+    ts["Tailscale Serve<br/>https://pc.tailnet.ts.net → 127.0.0.1:8080"]
+    subgraph compose["Docker Compose: collectionmaxxing"]
+      api["api<br/>.NET 10: REST API + web app + jobs"]
+      mig[["migrate<br/>EF bundle, runs first"]]
+      pg[("postgres 17<br/>volume on C:")]
+      files[("files volume<br/>covers, your-photo covers, exports")]
+      dash["aspire-dashboard<br/>logs · traces · metrics"]
+      bak[["backup<br/>nightly"]]
     end
-    st[("Storage account<br/>scan-photos (30-day lifecycle)<br/>covers, exports, dp-keys")]
-    kv["Key Vault"]
-    id["User-assigned managed identity"]
-    mon["Log Analytics + App Insights"]
+    runner["GitHub Actions<br/>self-hosted runner (deploy only)"]
+    backups[("F:\\Backups\\CollectionMaxxing")]
   end
-  repo -- "OIDC federated login" --> acr
-  repo --> app
-  repo --> job
-  repo --> build
-  app --> pg & st & kv & mon
-  job --> pg
-  id -. "assigned to" .-> app & job
-  dns["[YOUR-DOMAIN]<br/>managed TLS cert"] --> app
+  ts --> api
+  api --> pg
+  api --> files
+  mig --> pg
+  api -. OTLP .-> dash
+  bak --> pg
+  bak --> backups
+  backups -. weekly, encrypted .-> offsite["Off-site copy<br/>(OneDrive or Backblaze B2)"]
+  api --> providers["Open Library · Google Books ·<br/>TMDB · IGDB · UPCitemdb"]
 ```
 
-| Resource | SKU / setting | Why |
+| Service | Image / tool | Notes |
 |---|---|---|
-| Container Apps (Consumption) | 1 vCPU / 2 GiB, **min replicas 1** in prod | Avoids cold starts on sign-in and scanning. The extra headroom is for the in-process image-embedding model (int8 ONNX, ~100 MB on disk, ~300 MB RAM, ~0.2 s per image). Drop to 0.5 vCPU / 1 GiB if load tests show it's enough. Set min replicas to 0 for "budget mode". |
-| PostgreSQL Flexible Server | Burstable **B1ms**, 32 GB, v17, PITR 7 days, private access, Entra auth; `azure.extensions` = `PG_TRGM,VECTOR` | Smallest always-on tier is plenty for a household. Even a seeded visual index (~15–35k vectors) is tens of MB. Scale up in place when needed. |
-| Storage | StorageV2, LRS, Hot; private containers; lifecycle rules | Photos, covers, exports, Data Protection keys |
-| Key Vault | Standard, RBAC mode, soft delete + purge protection | Certificates and third-party keys |
-| Container Registry | Basic | Managed-identity image pull (no registry passwords) |
-| Log Analytics + App Insights | Pay-as-you-go, 30-day retention, daily cap 1 GB | OpenTelemetry sink |
-| Custom domain | Managed certificate on Container Apps (free) | |
+| `api` | our .NET 10 image (chiseled, non-root), published to GitHub Container Registry (private) | Listens on `127.0.0.1:8080` only; Tailscale Serve is the only way in. Serves the web app from `wwwroot`. Background jobs (UPC pending queue, exports) run in-process. |
+| `migrate` | EF Core migration bundle | A one-shot container; `api` starts only after it succeeds |
+| `postgres` | `postgres:17` | Not published to the host at all; only `api`, `migrate` and `backup` can reach it on the compose network. `pg_trgm` is enabled by a migration. |
+| `files` | Docker volume | Replaces cloud blob storage (`IBlobStore` → file-system implementation) |
+| `aspire-dashboard` | Microsoft's standalone Aspire Dashboard | OpenTelemetry logs, traces and metrics in a browser, on `127.0.0.1` only |
+| `backup` | `postgres:17` + rclone, on a schedule | See Backups below |
+
+**Docker:** keep Docker Desktop (WSL2 backend), but **update it**. 24.0.7 is from 2023. Set it to start when you sign in, and turn on Windows' "Use my sign-in info to automatically finish setting up after an update", so the stack comes back after Windows Update reboots.
+
+**The GPU** isn't used: recognition runs on the iPhone with Apple's frameworks (ADR-017). It's there as a free upgrade path if the M3 evals ever show real misses, but that would mean going beyond Apple-only, so it'd be your call.
+
+## Availability: what if the PC is off?
+
+The phone does all the recognition itself, so the scanner keeps working when the PC is off or asleep:
+
+- Barcodes and pictures are read on the phone, and the catalogue match waits as **Queued**.
+- **"Do I own this?" still works**, because the phone keeps a synced copy of what you own (identifiers, titles and the feature prints of your items). This was moved into v1 for this reason.
+- Everything resolves automatically when the PC is reachable again.
+
+For results while you're out, the PC needs to be on. Either set Windows to **never sleep** (a gaming PC at idle draws roughly 70–120 W, so about **$8–15/month** of electricity if it's otherwise off a lot; much less extra if it's on most of the day anyway), or accept queued results until you're home. The same compose file runs unchanged on a small always-on mini PC later if you want.
 
 ## Environments
 
-| Env | Where | Data | Purpose |
-|---|---|---|---|
-| **Local** | Your PC via **Aspire AppHost** | Postgres + Azurite containers (Docker Desktop) | Daily dev. `dotnet run --project src/CollectionMaxxing.AppHost` starts everything, including the Expo web dev server, and opens the Aspire dashboard (logs, traces, metrics). |
-| **CI (ephemeral)** | GitHub Actions runner | Testcontainers | PR checks + Playwright E2E with fakes |
-| **Staging revision** | Same Container App, new **revision** at 0% traffic with a `staging` label URL | Prod DB (migrations are expand/contract) | Smoke + ZAP before traffic shifts |
-| **Production** | Container Apps | Prod | You |
+| Env | Where | Purpose |
+|---|---|---|
+| **Local dev** | Your PC, via **Aspire AppHost** (Postgres container, API, Expo web dev server) | Day-to-day development and tests |
+| **CI** | GitHub-hosted runners, Testcontainers | Every PR: build, tests, scans, web E2E |
+| **Production** | The same PC, via **Docker Compose** under `C:\CollectionMaxxing` | The app you use |
 
-A separate staging environment with its own database adds about $16/month. That's not worth it for one user. Add it if/when other people use the app.
+Dev and prod sit side by side without conflict: different compose project names, ports and volumes.
 
-## Deployment pipeline (on merge to `main`)
+## Deployment (on merge to `main`)
 
 ```
+GitHub-hosted runner                         Self-hosted runner on your PC (deploy job only)
+───────────────────                          ───────────────────────────────────────────────
 1. build & test (same as PR)
-2. build web (expo export --platform web) → copy into Api/wwwroot
-3. dotnet publish /t:PublishContainer → push ACR (tag = git SHA)
-4. build EF migration bundle → push as a job image
-5. run caj-db-migrate (expand-only migrations) → wait for success
-6. deploy new revision of ca-api with 0% traffic, label "staging"
-7. smoke tests against the staging label URL (health, sign-in page, authenticated read via a test token)
-8. shift traffic 100% → new revision (keep the previous one active for 24 h for instant rollback)
-9. post-deploy: availability check + error-rate watch (10 min); auto-rollback on failure
+2. build web (expo export) → wwwroot
+3. build api + migrate images → GHCR   ───►  4. docker compose pull
+   (tag = git SHA)                           5. docker compose run --rm migrate   (expand-only migrations)
+                                             6. docker compose up -d api           (~5 s restart)
+                                             7. smoke test https://pc.tailnet.ts.net/health/ready
+                                             8. failed? set the previous tag in .env → up -d (rollback)
 ```
 
-**Rollback:** shift traffic back to the previous revision (seconds). Expand/contract migrations keep the old revision compatible with the new schema.
+- **Rollback** pins the previous image tag. Expand/contract migrations keep the previous image compatible with the new schema.
+- **The self-hosted runner only runs the `deploy` job, for `main`, in this private repo.** PR code never runs on your PC. That matters, because a self-hosted runner executes whatever the workflow tells it to.
+- **iPhone app:** see *Getting the app on your iPhone for $0* below.
+- **CI minutes:** a private repo gets 2,000 free Linux minutes a month on GitHub-hosted runners, plenty for PR checks. GitHub's default **$0 spending limit** means overage is blocked, never billed. If you ever hit the cap, the PR checks can also run on your self-hosted runner, since only you push to this repo.
 
-**iOS pipeline (on tag `v*`):** `eas build --platform ios --profile preview` → `eas submit` to TestFlight. Production releases are manual through `eas submit --profile production`. JS-only hotfixes go out with `eas update --channel production`.
+## Getting the app on your iPhone for $0
 
-## Infrastructure as code
+No Apple Developer Program ($99/yr), no Mac, no TestFlight:
 
-- **Bicep** in `infra/`, deployed with **azd** (`azd provision`, `azd deploy`). It's initially generated from the Aspire app model, then owned and edited by hand.
-- One parameter file per environment. No portal click-ops; drift is checked by a weekly `what-if` workflow.
-- Bootstrap steps (one-time, documented in `infra/README.md`):
-  1. Create the subscription and resource group.
-  2. Create the GitHub OIDC federated credential.
-  3. Create the Apple Sign-in key.
-  4. `azd provision`.
+1. **Build:** a GitHub Actions workflow on a macOS runner (it needs an image with Xcode 27, for iOS 27's Foundation Models) runs `expo prebuild` and `xcodebuild` with code signing disabled. It packages an **unsigned `.ipa`** as a workflow artifact. A private repo's free macOS budget is ~200 minutes a month, about 8–12 builds. Builds are only needed when native code or dependencies change, or for a release.
+2. **Sign + install:** **AltServer** (free) runs on this PC and signs the `.ipa` with your **free Apple ID**; the **AltStore** app on your iPhone installs it.
+3. **Keep it alive:** free signatures expire after **7 days**. AltStore re-signs in the background whenever the phone and the PC are on the same Wi-Fi, which happens every night at home. Your data survives re-signing.
+4. **One-time:** turn on Developer Mode on the iPhone and trust your developer certificate.
 
-## Observability
+**Limits that come with a free Apple ID:**
 
-| Signal | Tooling | Key items |
+- 3 sideloaded apps (AltStore + CollectionMaxxing + a dev build);
+- 10 app IDs a week;
+- no paid-only capabilities: no push notifications, no Sign in with Apple, no Apple Private Cloud Compute.
+
+The plan avoids all three. Sign-in uses passkeys and QR pairing ([07](07-authentication-and-authorization.md)); there are no push notifications (results wait in the app, and backup alerts come by email); hard cases go to Fix it. An **M0 spike** confirms that the on-device Foundation Model and Vision work in a free-signed app before we build on them.
+
+## Backups and recovery
+
+| What | How | Retention |
 |---|---|---|
-| Traces | OpenTelemetry → App Insights | One trace per scan from app → API → providers/Claude, with candidate counts and scores as attributes |
-| Metrics | OTel meters | `scan.candidates{resolution}`, `provider.latency{provider}`, `provider.errors`, `ai.tokens{direction}`, `ai.cost_usd`, `upc.quota.remaining` |
-| Logs | `ILogger` (structured) → App Insights | Redacted; correlation via trace ID |
-| Dashboards | Azure Workbook "CollectionMaxxing ops" | Scan funnel, match-rate by provider, AI spend vs budget, p95 latency, errors |
-| Uptime | App Insights availability test on `/health/ready` every 5 min | Email/push alert |
-| Mobile crashes | Sentry (free tier) via `@sentry/react-native`, **no PII**, or Expo's own crash reporting | Symbolicated iOS crashes |
+| Database | `pg_dump` (custom format) nightly at 3 a.m. → `F:\Backups\CollectionMaxxing` (a different drive from the Docker volume on C:) | 14 daily, 8 weekly, 12 monthly |
+| Files (covers, your-photo covers) | Mirrored nightly to the same backup folder | Same |
+| **Off-site** | Weekly **encrypted** copy (rclone `crypt`) to **Backblaze B2's free 10 GB** or a free OneDrive (5 GB). Your data (database dumps + covers) fits comfortably, so it's $0. | 12 weeks |
+| Your own escape hatch | Export (CSV + JSON) from the app any time | — |
+| Health | The backup job pings a free heartbeat check (Healthchecks.io); a missed night sends you an **email** | — |
+| **Restore drill** | Restore into the dev stack and check the item counts. Done before v1 and then twice a year, using the runbook in `deploy/RESTORE.md`. | — |
 
-## Backup and disaster recovery
+Turn on **BitLocker** on the drives that hold the Docker volumes and backups, so a stolen or failed-and-recycled drive doesn't leak your data.
 
-| | Target | How |
-|---|---|---|
-| Database RPO | ≤ 5 min | Flexible Server point-in-time restore (7-day window, extendable to 35) |
-| Database RTO | ≤ 2 h | PITR to a new server and repoint the connection (scripted in `infra/runbooks/restore-db.md`) |
-| Long-term | Weekly `pg_dump` → blob container with a **time-based immutability** policy, 12 weeks | An ACA scheduled job |
-| Blobs | Soft delete 14 days + versioning on `covers` and `exports` | Storage settings |
-| Your own escape hatch | Export (CSV + JSON) from the app any time | |
-| Drill | Restore to a scratch server **before launch**, then yearly | Runbook |
+## Observability (light)
 
-## Cost estimate (monthly, USD, approximate; check with the Azure pricing calculator)
+- **Aspire Dashboard** (standalone container) for logs, traces and metrics. One trace per scan goes from the phone through the API to the providers.
+- **Logs** are also written to rotating files on the `files` volume, so they survive restarts.
+- **Uptime:** optional. An Uptime Kuma container, or the Healthchecks.io ping, can notify you if `/health/ready` fails.
 
-| Item | Estimate |
+## Cost
+
+| Item | Monthly |
 |---|---|
-| Container Apps: 1 always-on replica (1 vCPU / 2 GiB, for the embedding model); partly covered by the monthly free grant | $15–25 |
-| PostgreSQL Flexible Server B1ms + 32 GB storage | $15–18 |
-| Storage + Key Vault + Container Registry Basic | $6–7 |
-| Log Analytics / App Insights (under the free ingestion allowance with a daily cap) | $0–3 |
-| Claude API: initial cataloguing (one-off ~$10–25 incl. a few hundred single-item pictures at ~$0.03–0.05), then | $1–5 |
-| Metadata APIs (free tiers) | $0 (optional UPCitemdb DEV: $99 for one month of bulk import) |
-| Domain | ~$1–2 |
-| **Azure + AI total** | **≈ $40–55 / month** |
-| Apple Developer Program | $99 / year |
-| Expo EAS | Free tier is enough for a solo app (limited build minutes/month) |
+| Hosting (your PC, Docker, Tailscale Personal, Aspire Dashboard) | **$0** |
+| Electricity | ~$0–15, depending on how much the PC would be on anyway |
+| Off-site backup (Backblaze B2 free 10 GB, or free OneDrive) | **$0** |
+| Recognition (Apple frameworks on the phone) | **$0** |
+| Apple Developer Program | **$0**: not needed; free Apple ID + AltStore sideloading |
+| GitHub (private repo, Actions minutes, $0 spending limit) | **$0** |
+| Domain | not needed; Tailscale provides the HTTPS name |
 
-**Budget mode (≈ $10–15/month):** Container Apps min replicas 0 (accept ~3–8 s cold starts, including loading the embedding model), Postgres on the Azure free account's 12-month B1ms offer, and GitHub Container Registry instead of ACR.
+## Local developer setup (Windows, this PC)
 
-**Guardrails:** an Azure **budget alert** at $50 and $70, plus the app's own AI budget breaker.
-
-## Local developer setup (Windows)
-
-1. Install the .NET 10 SDK, Node 22 LTS (or the version Expo 57 recommends), Docker Desktop, the Aspire CLI/templates, VS 2026 or Rider, and VS Code.
-2. `git clone`, then `dotnet user-secrets set …` for the provider keys (each one is optional; the fakes are used when a key is missing).
-3. `dotnet run --project src/CollectionMaxxing.AppHost`. This starts Postgres, Azurite, the API (with migrations applied) and Expo web, and opens the Aspire dashboard.
-4. iPhone: install the EAS development build once (`eas build --profile development`), then `npx expo start` and scan the QR code.
-5. `dotnet test` runs everything except the evals. Docker must be running for Testcontainers.
+1. Install the .NET 10 SDK, Node 22 LTS (or what Expo 57 recommends), an **updated Docker Desktop**, and **AltServer** (plus Apple's iTunes and iCloud for Windows, which it needs). Tailscale is already installed.
+2. `git clone` → `dotnet user-secrets set …` for provider keys. Each is optional; fakes are used when a key is missing.
+3. `dotnet run --project src/CollectionMaxxing.AppHost`: Postgres, the API (migrations applied) and Expo web, plus the Aspire dashboard.
+4. iPhone: build the dev client with the macOS workflow, install it with AltStore, then `npx expo start` on the PC. The dev build reaches your PC over Tailscale too, so you can test away from home.
+5. `dotnet test` runs everything except the on-phone evals. Docker must be running for Testcontainers.
+6. Production setup: `deploy/README.md` covers the compose file, `.env`, `tailscale serve`, the runner and the backup schedule. It's about an hour, once.

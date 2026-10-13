@@ -15,11 +15,11 @@
 | Layer | Project | Share of tests | Speed | What it covers |
 |---|---|---|---|---|
 | Domain unit | `Domain.Tests` | ~55% | < 1 ms each | GTIN/ISBN parsing, classification, title normalisation, scoring, invariants (e.g. you can't lend a sold item) |
-| Application | `Application.Tests` | ~20% | fast | Handlers with fakes for external ports (providers, Claude, blob) and a shared real Postgres: resolution chain ordering, duplicate detection, commit rules, quota behaviour |
-| Integration | `Infrastructure.Tests` | ~15% | seconds | EF mappings + queries on real Postgres, migrations, provider clients against WireMock fixtures, ImageSharp/ZXing on fixture images, Claude client against a WireMock'd Messages API |
+| Application | `Application.Tests` | ~20% | fast | Handlers with fakes for external ports (providers, blob) and a shared real Postgres: resolution chain ordering, duplicate detection, commit rules, quota behaviour |
+| Integration | `Infrastructure.Tests` | ~15% | seconds | EF mappings + queries on real Postgres, migrations, provider clients against WireMock fixtures, ImageSharp on fixture images |
 | API acceptance | `Api.Tests` | ~8% | seconds | Full HTTP pipeline: auth, authorization matrix, validation, Problem Details, idempotency, ETags, SSE |
 | End-to-end | Maestro (iOS), Playwright (web) | ~2% | minutes | Critical journeys only |
-| AI evals | `Recognition.Evals` | separate | minutes, costs money | Real Claude calls on golden photos, scored |
+| AI evals | `Recognition.Evals` + on-phone runner | separate | minutes, free | The golden photos run on your iPhone through both engines (Apple model, Vision text). Results are uploaded and scored by the .NET eval project. |
 
 ## Tooling
 
@@ -37,7 +37,7 @@
 | Mutation testing | **Stryker.NET** on Domain + Application (nightly) | — |
 | Coverage | coverlet + ReportGenerator | Jest `--coverage` |
 | Components | — | React Native Testing Library |
-| E2E | — | **Maestro** (iOS simulator on EAS / macOS runner), **Playwright** (web) |
+| E2E | — | **Maestro** (iOS simulator on a GitHub macOS runner, release tags only to save free minutes), **Playwright** (web) |
 
 ## Quality gates
 
@@ -51,7 +51,7 @@
 | OpenAPI | snapshot approved; `oasdiff breaking` clean | every PR |
 | Generated TS client | committed and up to date | every PR |
 | Web E2E (Playwright) | green against the ephemeral CI stack | every PR to `main` |
-| iOS E2E (Maestro) | green | nightly + release tags |
+| iOS E2E (Maestro) | green | release tags (GitHub macOS runner, within the free minutes) |
 | AI eval | no metric regresses more than 2 points vs. baseline | before any prompt/model/scorer change merges (manually triggered workflow) |
 
 ## How each layer handles its dependencies
@@ -60,8 +60,7 @@
 |---|---|---|---|
 | Postgres | Domain: n/a (pure). Application handlers: **real Postgres**, using one shared Testcontainers instance per test run with a Respawn reset per test (~10–50 ms each). These are "sociable" unit tests, and that beats faking EF. | real (Testcontainers) | real (container) |
 | Providers (Open Library, TMDB…) | fake `ICatalogProvider` | WireMock with recorded fixtures | `FakeCatalogProvider` seeded with ~50 known items |
-| Claude | fake `IVisionIdentifier` | WireMock'd Messages API (verifies request shape: model, schema, image-first, no PII) | `FakeVisionIdentifier` returns canned items for fixture photos |
-| Image embedder | `FakeImageEmbedder` (deterministic vectors keyed by fixture) | the **real** ONNX model on ~10 fixture images, asserting that a photo of a cover is nearer its own artwork than its neighbours; Postgres from the `pgvector/pgvector` image so `vector` + HNSW are real | fake |
+| Apple Vision + Foundation Models (`cm-vision`) | `FakeVisionEngine` replaying barcode/OCR/model JSON captured from your iPhone | n/a | real on your iPhone (manual smoke checklist + the on-phone eval runner) |
 | Blob storage | in-memory `IBlobStore` | Azurite (Testcontainers) | Azurite |
 | Camera | n/a | n/a | `FakeScannerSource` (injects codes) |
 | Clock | `FakeTimeProvider` | `FakeTimeProvider` | real |
@@ -97,7 +96,7 @@ Kent Beck-style test list. Each line becomes one red test.
 - [ ] The cover profile uses the visual term; the shelf-spine profile ignores it
 - [ ] Loose-cartridge profile: a platform mismatch outweighs a strong visual match
 - [ ] Visual similarity is rescaled to 0–1 and clamped (negative cosine → 0)
-- [ ] Vectors from different embedding-model versions are never compared (throws)
+- [ ] The art term is ignored (weights redistributed) when the phone sent no distances
 
 ### Domain: inference from a picture
 
@@ -126,22 +125,21 @@ Kent Beck-style test list. Each line becomes one red test.
 - [ ] Confirming a candidate persists barcode → release for future lookups
 - [ ] A user-created release is invisible to other libraries
 
-### Application: picture recognition
+### Picture recognition (TypeScript on the phone + Application on the server)
 
-- [ ] A barcode found by ZXing in a picture takes the barcode path, and neither Claude nor the visual index is called
-- [ ] Claude returns one item filling the frame → single-item route (cover/cartridge scoring profile)
-- [ ] Claude returns several items → per-item route; spines get no visual lookup, fronts and cartridges do
-- [ ] Claude returns no items → photo status `nothing_found`, no candidates, cost recorded
-- [ ] Highlight: an item's `visible_text` matching OCR boxes → union box, `box_source = ocr`
-- [ ] Highlight: no OCR match above threshold → Claude's box, `box_source = model`
-- [ ] Highlight: an imported photo (no client boxes) uses server-side text detection
-- [ ] A visual-index hit on your own confirmed photo at cosine ≥ 0.93 matches immediately without calling Claude (fast path)
-- [ ] Another library's confirmed photos are never returned by the visual index
-- [ ] Claude's candidates and the visual-index candidates are merged and de-duplicated by release
-- [ ] The tie-break call runs only when the margin is < 0.08 or the two signals disagree
-- [ ] A tie-break answer of "none" → Ambiguous with the top 3, never a guess
-- [ ] Confirming a single-item picture candidate stores the photo embedding linked to the release
-- [ ] Changing the embedding model queues a re-index and excludes stale vectors from queries
+- [ ] Spine grouping: OCR lines from a rotated-shelf fixture group into the expected columns (pure TS)
+- [ ] Rectangle splitting: a floor-spread fixture yields one item per cover, each with its inner text
+- [ ] Engine selection: Apple model unavailable, declined, timed out or out of context → that snap goes through the Vision text engine (fixture-driven fakes)
+- [ ] Apple model items are matched to Vision text boxes by visible text for highlights
+- [ ] A model title with no catalogue match never becomes Matched (grounding rule)
+- [ ] Local match: a feature print close to one of your confirmed items matches on the phone with no server call (offline)
+- [ ] `/identify` rejects any image payload and items > 16 KB
+- [ ] A barcode found in a picture takes the barcode path; no artwork search runs for it
+- [ ] Spine profile: "DUNE FRANK HERBERT" picks the novel over the film because the creator matches
+- [ ] Cartridge profile: a platform mismatch outweighs a strong artwork match
+- [ ] Another library's feature-print backups are never returned
+- [ ] Confirming a picture candidate stores its feature print on the phone and backs it up (opaque) to the API
+- [ ] `:art` distances re-score a close call (original vs *Player's Choice*) correctly
 
 ### Api: acceptance and security
 
@@ -151,7 +149,6 @@ Kent Beck-style test list. Each line becomes one red test.
 - [ ] Every endpoint declares an authorization requirement (reflection)
 - [ ] Upload over 15 MB → 413; a PDF renamed `.jpg` → 415; a 50k × 50k PNG bomb → 422
 - [ ] Uploaded JPEG with GPS EXIF → the stored blob has no EXIF
-- [ ] Picture request to Claude (WireMock): image first, items schema with `view` and box, no user identifiers; the tie-break request labels "Image 1" as the user's photo and sends candidate artwork as bytes, not URLs
 - [ ] A viewer can scan (barcodes and pictures) and sees ownership on each candidate, but commit returns 403
 - [ ] The photo-scan limit returns 429 with `Retry-After`
 - [ ] PATCH with a stale `If-Match` → 412
@@ -190,7 +187,7 @@ Kent Beck-style test list. Each line becomes one red test.
   - DVD/Blu-ray covers, discs only, a few book covers
   - some shot badly on purpose: glare, angle, low light
 
-  Truth is `{ title, platform?, format, completeness, edition? }`. Metrics: **top-1 and top-3 accuracy per item kind**, platform accuracy, completeness accuracy, how often the tie-break call is used and whether it was right, and the fast-path hit rate on repeat snaps. The same harness compares embedding models (SigLIP 2 vs CLIP) and visual weights.
+  Truth is `{ title, platform?, format, completeness, edition? }`. Metrics: **top-1 and top-3 accuracy per item kind**, platform accuracy, completeness accuracy, **which engine/step resolved each item** (Apple model, Vision text, artwork comparison, Fix it), and the on-phone hit rate on repeat snaps.
 - Stored in a **private** location (Git LFS in a private repo, or a blob container), never public.
 
 **Metrics:**
@@ -203,6 +200,8 @@ Kent Beck-style test list. Each line becomes one red test.
 | Type / platform accuracy | per-field |
 | Cost per photo | from `usage` |
 | Latency p50 / p95 | wall clock |
+
+**On-phone eval runner (no Mac needed):** the Apple model and Apple Vision only run on Apple hardware, and development happens on Windows. So dev builds include a hidden **Run evals** screen. It runs the golden set through both engines on your iPhone and uploads per-photo results (engine, items, latency, refusals, thermal state) to the API, where the eval report is built. This is how the M3 decision gate is measured, and how we re-check after each iOS release.
 
 **How it runs:** `dotnet test tests/CollectionMaxxing.Recognition.Evals --filter Category=Eval` with `RUN_EVALS=1`. It's a manually triggered GitHub workflow that reports to the job summary and stores results as `evals/results/<date>-<git-sha>.json` for trend tracking. A full run costs about **$3–6**. The same harness compares models and effort levels side by side, which is how a cheaper-model decision would be made with data.
 

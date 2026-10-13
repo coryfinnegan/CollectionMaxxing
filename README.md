@@ -25,15 +25,15 @@ The same library is available on the web, where bulk editing in a table is easie
 | Architecture | Modular monolith: Domain / Application / Infrastructure / Api, enforced by architecture tests | [01](docs/01-architecture.md) |
 | Front end | **Expo (React Native) + TypeScript**. One codebase for iOS and web, with cloud iOS builds so no Mac is needed | [05](docs/05-frontend.md) |
 | Scanning | **One scanner, no modes.** Barcodes are read on the device, many per frame. With no barcode in view, the phone auto-snaps a picture when it's steady on something, and the server works out whether it's one item (a cart, a sleeve, a box) or a whole shelf. Every result says up front if you already own it. | [02](docs/02-scanning-and-recognition.md) |
-| AI | Anthropic API, `claude-opus-5-5` vision with structured JSON output, plus a **self-hosted visual index** (an image-embedding model running in .NET + pgvector) that matches artwork and learns from every item you confirm. About $0.03–0.05 per single-item picture, $0 for repeats, $0.05–0.12 per shelf picture. | [02](docs/02-scanning-and-recognition.md) |
+| Recognition | **iPhone only, Apple frameworks only, $0 per scan.** Vision reads barcodes and text. **Apple's on-device Foundation Model (iOS 27) reads each picture**: items, titles, platform, edition. Vision feature prints compare artwork on the phone. The server grounds everything against the catalogue from **text only**, and photos stay on the phone. Items it can't resolve go to a quick Fix it search. No third-party AI, no models to host. **The web app does no recognition.** | [02](docs/02-scanning-and-recognition.md) |
 | Metadata | Open Library, Google Books, TMDB, IGDB, UPCitemdb, all behind one provider interface with caching | [02](docs/02-scanning-and-recognition.md) |
-| Auth | Passwordless: Sign in with Apple, passkeys, Google. OpenIddict (OIDC server) + ASP.NET Core Identity | [07](docs/07-authentication-and-authorization.md) |
+| Auth | Passwordless: a one-time setup code creates the owner; **passkeys** on the web; the iPhone is **paired by QR code**, with an optional Face ID app lock. OpenIddict + ASP.NET Core Identity. Reachable only over Tailscale. | [07](docs/07-authentication-and-authorization.md) |
 | Authorization | Deny by default. Resource-based library roles (Owner / Editor / Viewer) and an automated authorization-matrix test | [07](docs/07-authentication-and-authorization.md) |
 | Security | OWASP API Top 10 mapped to controls, threat model, EXIF stripping, LLM prompt-injection containment | [08](docs/08-security-and-privacy.md) |
 | Testing | Strict TDD. xUnit v3, Testcontainers (real Postgres), WireMock, Verify, Maestro, Playwright, AI eval suite | [09](docs/09-testing-and-tdd.md) |
-| Hosting | Azure Container Apps + Postgres Flexible Server + Blob + Key Vault, managed identity throughout, Bicep, GitHub Actions | [10](docs/10-hosting-and-devops.md) |
-| Cost | About $40–55/month, plus Apple's $99/year | [10](docs/10-hosting-and-devops.md) |
-| Delivery | Six milestones, M0 (walking skeleton) through M5 (App Store), about 14 part-time weeks | [11](docs/11-roadmap.md) |
+| Hosting | **Self-hosted on your gaming PC**: Docker Compose (API + Postgres + backups), reached privately from your iPhone anywhere through **Tailscale** (already installed; no open ports). GitHub Actions builds; a deploy-only runner on the PC rolls out. | [10](docs/10-hosting-and-devops.md) |
+| Cost | **$0, full stop** (electricity aside): self-hosted, free Apple ID with sideloading (no $99 membership), free tiers everywhere else | [10](docs/10-hosting-and-devops.md) |
+| Delivery | Six milestones, M0 (walking skeleton) through M5 (hardening + v1 on your iPhone), about 14 part-time weeks | [11](docs/11-roadmap.md) |
 
 **Wireframes and mockups:** a design canvas with low-fi wireframes and high-fi mockups for the key iOS screens and the web library.
 Link: <https://claude.ai/artifact/FBBMc4KUa33nCXaHLpCZhe>. The ASCII wireframes with interaction notes are in [docs/06](docs/06-ux-and-wireframes.md).
@@ -61,16 +61,18 @@ These are the calls I could not make for you. Each one has a recommended default
 | # | Question | Default if you say nothing |
 |---|---|---|
 | D1 | OK with **Expo / React Native** for the front end? The alternatives were .NET MAUI + Blazor, and native SwiftUI + a separate web app. See [ADR-003](docs/12-decision-log.md#adr-003-expo-react-native-for-ios-and-web). | Expo |
-| D2 | **Own the identity server** (OpenIddict, free, more code) or **Microsoft Entra External ID** (managed, free tier, less control)? | OpenIddict |
-| D3 | Is about **$40–55/month on Azure** OK, or do you want the ~$10–15/month budget mode? | Standard |
-| D4 | OK to send shelf photos to **Anthropic's API** for identification? Anthropic does not train on API data. Photos are stripped of location data first. | Yes |
-| D5 | Do you have an **Apple Developer Program** membership ($99/year)? TestFlight and Sign in with Apple need one. | Buy one in M0 |
+| D2 | ~~Own the identity server or use Entra External ID?~~ **Resolved by self-hosting:** OpenIddict inside the API. Setup code → passkeys on the web; the iPhone is paired by QR code. | Resolved |
+| D3 | ~~Azure budget~~ **Resolved 2026-10-12: self-hosted on your PC**, $0 hosting. | Resolved |
+| D4 | ~~Cloud AI for hard cases?~~ **Decided 2026-10-12: no third-party AI.** Apple's on-device frameworks only. | Resolved |
+| D5 | ~~Apple Developer Program ($99/yr)?~~ **Decided 2026-10-12: no.** The app is built on GitHub's free macOS runners and sideloaded with your free Apple ID through AltStore (auto re-signed weekly by your PC). | Resolved |
 | D6 | **Household sharing** (a partner or kids as members of your library) in v1, or later? The data model supports it either way. | v1.1 |
 | D7 | ~~Collection value (market price per item)?~~ **Decided 2026-10-12: no pricing of any kind**, neither market value nor price paid. The app is purely a collection tracker. | Resolved |
 | D8 | Roughly **how many items**, and do you have **existing spreadsheets/lists** to import? This affects the import priority and API quotas. | ~2,000, CSV import in v1.1 |
 | D9 | **Music** (CDs, vinyl, cassettes) or **LaserDisc**, in scope or not? They are easy to add later through Discogs. | Out of v1 |
-| D10 | A **domain name** for the API and web app. | Placeholder `[YOUR-DOMAIN]` |
-| D11 | Which **game platforms** should the visual index pre-learn, so loose carts and boxes match on the first snap? (Movies are learned as you go.) | NES, SNES, N64, Game Boy family, Genesis, PS1, PS2, GameCube |
+| D10 | ~~Domain name~~ **Not needed:** Tailscale gives the PC an HTTPS name (`<pc>.<tailnet>.ts.net`). | Resolved |
+| D12 | ~~Which iPhone do you scan with?~~ **Decided 2026-10-12: iPhone 17 Pro.** It qualifies, so Apple's on-device model is the expected primary reader, confirmed by the M3 gate on that phone. | Resolved |
+| D13 | Should the PC **stay awake 24/7**, so results resolve while you're out? (Scanning and "do I own this?" work on the phone either way.) | Yes; disable sleep |
+| D11 | ~~Artwork index platforms~~ **No longer needed.** With Apple frameworks only, there's no artwork index: the phone compares artwork against your own items and the top candidates. | Resolved |
 
 ## Repository layout (planned)
 
@@ -81,6 +83,6 @@ CollectionMaxxing/
 ├─ src/                         ← .NET solution (M0)
 ├─ tests/                       ← .NET test projects (M0)
 ├─ app/                         ← Expo app: iOS + web (M0)
-├─ infra/                       ← Bicep (M0)
+├─ deploy/                      ← Docker Compose, Tailscale Serve, backups, runbooks (M0)
 └─ .github/workflows/           ← CI/CD (M0)
 ```

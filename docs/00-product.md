@@ -27,13 +27,13 @@ There are no modes. The scanner looks at what's in front of it and does the righ
 
 1. **Multi-barcode, live.** Lay items barcode-up (for example 6–10 game cases on the floor) and hold the phone over them. Every barcode in each camera frame is decoded on the device. Each new one gives a haptic tick and lands on the receipt tray.
 2. **Sweep.** Keep the scanner open and sweep across a stack. Codes are de-duplicated within the session, so you can't double-add by accident. Tapping **+1** on a tray line records a genuine second copy.
-3. **One item with no barcode → automatic picture (AI + visual match).** Hold up the item and keep it steady:
+3. **One item with no barcode → automatic picture (on-device text + artwork matching).** Hold up the item and keep it steady:
    - a loose N64 or Game Boy cartridge
    - a VHS sleeve or a bare tape
    - a game box, a disc, a cover
 
-   The phone snaps it by itself (a barcode in view always wins), then identifies it from the picture. It reads the label, uses the cartridge shape for the platform, and compares the artwork against known covers. You don't wait: move to the next item and each one resolves onto the receipt in a few seconds. A box of 10 loose carts takes about a minute.
-4. **Many items → automatic picture of the whole shelf (AI).** Point at a shelf of spines or a floor spread of covers and hold steady. Claude identifies every readable item (typically 10–30 per photo). Any barcodes visible in the still are also decoded on the server. This is the path for books on shelves and rows of VHS tapes.
+   The phone snaps it by itself (a barcode in view always wins), then identifies it from the picture. It reads the label, uses the cartridge shape for the platform, and compares the artwork against known covers. All of that runs on the iPhone, so it's free and the photo stays on your phone. You don't wait: move to the next item and each one resolves onto the receipt in a few seconds. A box of 10 loose carts takes about a minute.
+4. **Many items → automatic picture of the whole shelf (AI).** Point at a shelf of spines or a floor spread of covers and hold steady. The phone reads every legible spine and cover itself (typically 10–30 per photo), with no cloud AI involved. This is the path for books on shelves and rows of VHS tapes.
 
 Every result also says whether **you already own it**, so the same scanner answers "do I own this?" at a thrift store. Nothing is added until you tap **Add**.
 
@@ -41,13 +41,13 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 
 ## Scope by release
 
-### v1.0 (MVP, first App Store release)
+### v1.0 (MVP: self-hosted, installed on your iPhone with a free Apple ID)
 
-- Sign in with Apple (iOS and web) and passkeys (web)
+- One-time owner setup with a passkey (web); iPhone paired by QR code, with an optional Face ID app lock
 - One personal library per user: **books, VHS, DVD, Blu-ray, 4K UHD, video games** (+ "other")
 - **One scanner, no modes:** barcodes (many per frame, continuous) plus automatic pictures when no barcode is in view, all onto one receipt tray; works offline and resolves when back online
-- **Single-item pictures (AI + visual match):** loose cartridges, VHS sleeves and tapes, boxes, discs; your photo shown beside the matched artwork; "use my photo" as the cover
-- **Shelf pictures (AI):** shelves, stacks, floor spreads; results stream in as cards; tap one to see **that item boxed on your photo** so you can find it on the shelf
+- **Single-item pictures (on-device text + artwork matching):** loose cartridges, VHS sleeves and tapes, boxes, discs; your photo shown beside the matched artwork; "use my photo" as the cover
+- **Shelf pictures (on-device):** shelves, stacks, floor spreads; results stream in as cards; tap one to see **that item boxed on your photo** so you can find it on the shelf
 - **Import from Photos:** run shelf pictures you already took through the same pipeline
 - **Review and commit:** matched / ambiguous (pick from top 3) / not found (search manually); bulk set location and status
 - **Ownership on every result** ("You own this: Shelf B"), so the scanner doubles as "do I own this?" at the thrift store, loose carts included
@@ -55,16 +55,15 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 - Library browse: grid of covers, search, filters (type, format, platform, location, status, tag), sort
 - Item detail and edit: condition, completeness (CIB / loose / sealed…), location, notes, tags, acquired date, status (Owned / Wishlist / Lent / Sold)
 - Locations (for example "Living room › Shelf 2", "Garage › Bin 4")
-- Web app with the same features, plus a table view, bulk edit and photo-upload scanning
-- Export (CSV + JSON) and in-app account deletion (an App Store requirement)
+- Web app for **browsing and managing** the library: table view, bulk edit, search, locations, export. **No scanning or recognition on the web**; that's iPhone-only.
+- Export (CSV + JSON) and account deletion
+- **Offline "do I own this?"**: the phone keeps a synced copy of what you own, so checks work even when the PC at home is off or unreachable
 
 ### v1.1
 
 - Household sharing (invite members as Editor or Viewer)
-- Google sign-in, plus a native one-tap Sign in with Apple sheet (token exchange)
 - CSV import (generic + Goodreads/CLZ/LibraryThing exports)
 - Lending tracker with reminders
-- Offline ownership answers for barcodes (owned-barcode set cached on device)
 - Stats (counts by format, platform, decade; recently added)
 
 ### v2 (ideas, not committed)
@@ -77,6 +76,8 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 - On-device OCR pre-pass to cut AI cost on dense shelves
 
 ## Non-goals (for v1)
+
+- Scanning or recognition in the web app (iPhone only, Apple frameworks only)
 
 - A marketplace or social network
 - Digital libraries (Steam, Kindle, Plex). Physical media only.
@@ -92,8 +93,9 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 | Barcode match rate (auto-matched, no user fix) | ≥ 90% books, ≥ 75% movies/games (UPC data is patchier) |
 | Shelf-photo recall (items found vs. items readable) | ≥ 85% on the eval set |
 | Shelf-photo precision (correct title) | ≥ 90% on the eval set |
-| Single-item picture top-1 accuracy | ≥ 90% boxes/covers, ≥ 85% VHS sleeves, ≥ 80% loose cartridges (eval set) |
-| Single-item picture time to answer | ≤ 8 s first time; ≤ 1 s for a repeat of something you've confirmed before |
+| Single-item picture top-1 accuracy (default, no LLM) | ≥ 88% boxes/covers, ≥ 80% VHS sleeves, ≥ 70% loose cartridges (eval set) |
+| AI cost per scan (default) | **$0**: recognition runs on the phone |
+| Single-item picture time to answer | ≤ 2 s first time; instant (and offline) for a repeat of something you've confirmed before |
 | "Do I own this?" answer time (barcode) | under 1.5 s online, instant offline (v1.1) |
 
 The AI targets are measured by the eval suite in [09](09-testing-and-tdd.md#ai-evals). We tune prompts and models against them, not by gut feel.

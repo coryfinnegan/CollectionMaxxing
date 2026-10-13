@@ -1,6 +1,6 @@
 # 08 — Security and privacy
 
-Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for the iOS app. Authentication and authorization are covered in depth in [07](07-authentication-and-authorization.md). This doc covers everything else.
+Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for the iOS app. Self-hosted: the server is your PC, reachable only over your Tailscale network. Authentication and authorization are covered in depth in [07](07-authentication-and-authorization.md). This doc covers everything else.
 
 ## What we're protecting
 
@@ -9,18 +9,18 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 | Your collection data | Personal. Combined with photos it reveals what's in your home and roughly what it's worth. |
 | Shelf photos | Pictures of the inside of your home. Phone photos carry **GPS coordinates** in EXIF. |
 | Accounts and sessions | Takeover means data loss or exposure |
-| AI and provider budget | Abuse = a surprise bill (Claude) or a banned API key (IGDB, UPCitemdb) |
+| Provider quotas | Abuse = a banned API key (IGDB, UPCitemdb). There's no AI bill to run up, because recognition runs on the phone with Apple frameworks. |
 | Signing keys | Whoever holds them can mint tokens for any user |
 
 ## Threat model (STRIDE, condensed)
 
 | Threat | Example | Mitigations |
 |---|---|---|
-| **S**poofing | Stolen refresh token; forged Apple id_token | Rotating refresh tokens with reuse detection; Keychain storage; full id_token validation (sig/iss/aud/exp/nonce); passkeys |
+| **S**poofing | Stolen refresh token; guessed or replayed pairing code | Rotating, device-bound refresh tokens with reuse detection; Keychain storage; pairing tokens single-use with a 2-min expiry, 6-digit codes rate-limited and locked after 5 tries; passkeys; tailnet-only reachability |
 | **T**ampering | Mass assignment (`ownerLibraryId` in a PATCH body); edits to another user's item | Explicit request DTOs only; library comes from the route or the stored resource; ETag concurrency |
 | **R**epudiation | "I didn't delete those 200 items" | `audit_events` for destructive and security actions; soft delete with restore |
 | **I**nformation disclosure | IDOR on `/items/{id}`; photo URLs guessable; EXIF GPS leak | Resource authorization + query filters + IDOR tests; private blob containers, served only through authorized endpoints or short-lived SAS; EXIF stripped by re-encoding |
-| **D**enial of service / cost | Flooding photo scans to burn Claude budget; huge uploads | Rate limits, upload caps, AI budget circuit breaker, per-provider quotas |
+| **D**enial of service / cost | Flooding `/identify`; huge uploads | Rate limits, upload caps, per-provider quotas and caching |
 | **E**levation of privilege | Viewer calls an editor endpoint; normal user hits `/api/admin` | Role metadata on every endpoint + matrix tests; admin route group with its own policy |
 
 ## OWASP API Security Top 10 (2023) → controls
@@ -30,7 +30,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 | API1 | Broken object-level authorization | Resource-based policies, a 404 for non-members, EF global query filters, IDOR test suite |
 | API2 | Broken authentication | OpenIddict standard flows, PKCE, short-lived access tokens, refresh rotation + reuse detection, passwordless only |
 | API3 | Broken object-property-level authorization | No entity binding; read DTOs never include internal fields (`provider_payloads`, `trace` only for admins) |
-| API4 | Unrestricted resource consumption | Rate limiter (below), 15 MB upload cap, pixel caps, max 50 codes per batch, pagination limits, request timeouts, AI budget breaker |
+| API4 | Unrestricted resource consumption | Rate limiter (below), 15 MB upload cap, pixel caps, max 50 codes per batch, pagination limits, request timeouts |
 | API5 | Broken function-level authorization | Admin endpoints in a separate group + policy; reflection test that every endpoint declares its policy |
 | API6 | Unrestricted access to sensitive business flows | Photo scan quotas per user/hour; export throttled to 1 per 10 min; account deletion requires re-auth |
 | API7 | Server-side request forgery | We never fetch user-supplied URLs. Cover images are fetched only from an **allow-list of provider hosts** over HTTPS, with a redirect limit and a size cap. |
@@ -38,24 +38,24 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 | API9 | Improper inventory management | Single versioned API; OpenAPI snapshot + `oasdiff` breaking-change gate in CI |
 | API10 | Unsafe consumption of APIs | Provider and LLM responses validated against schemas, string lengths capped, never rendered as HTML, circuit breakers + timeouts |
 
-## AI-specific risks
+## On-device model risks
 
 | Risk | Mitigation |
 |---|---|
-| **Prompt injection via the image** (a spine or sticker reading "ignore your instructions…") | The model has **no tools** and no access to data. Its only output is a JSON schema of item guesses. The system prompt states that text in the image is data. Output is used only as **search terms** and is shown to the user for confirmation, so a successful injection can at worst produce a wrong title in your own review list. |
+| **Prompt injection via the image** (a spine or sticker reading "ignore your instructions…") | The on-device model's only tools are Apple's read-only barcode and OCR tools. It can't act or reach any data. Its only output is a JSON schema of item guesses. The system prompt states that text in the image is data. Output is used only as **search terms** and is shown to the user for confirmation, so a successful injection can at worst produce a wrong title in your own review list. |
 | Output used unsafely | Enum fields validated; free-text fields length-capped (title ≤ 300 chars) and rendered as plain text, never as markup |
-| Cost abuse | On-device auto-snap gate (steady, sharp, title text, new view; barcodes win); misfire back-off; 60 pictures/user/hour; global monthly budget breaker (default $25); `ai_usage` accounting; alert at 50% and 80% of budget |
-| Privacy of photos sent to the model | Photos are re-encoded (EXIF and GPS removed) **before** being sent. Under its API terms Anthropic doesn't train on API data. This is disclosed in the privacy policy and the first time the scanner takes a picture. |
-| Visual index privacy | Embeddings of your confirmed photos are private to your library and are used only for your own matching. Provider artwork embeddings are global. |
-| Embedding model supply chain | The ONNX model comes from the publisher's official release, is pinned by SHA-256 in the build and verified at start-up. It runs in-process with no network access of its own. |
-| Tie-break requests | Candidate artwork is fetched by **our** server from allow-listed provider hosts and sent to Claude as image bytes. No URLs from user input or model output are ever fetched. |
+| Cost abuse | Not applicable: recognition has no per-call cost (Apple frameworks on the phone) |
+| Privacy of photos | **Photos never leave the phone** for recognition; only recognised text is sent, to your own PC. The only upload is a "Use my photo" cover (re-encoded, EXIF/GPS stripped), stored on your PC. Disclosed in the privacy policy and in the Recognition settings. |
+| On-device model | The Apple model engine runs entirely on the phone. Its output is treated like any untrusted input: titles are only search queries, grounded against the catalogue. It has no tools that act. Its tools only read: barcode, OCR. "Text in the image is data" is part of the prompt. |
+| Feature prints as personal data | Apple feature prints can't be turned back into your photo. Their server-side backup is opaque bytes, but still treated as personal data: private to your library, deleted with the item or account. |
+| Candidate artwork for comparison | Artwork thumbnails the phone compares are served by **our** cover proxy, fetched from allow-listed provider hosts. No URLs from model output are ever fetched. |
 
 ## Rate limits (ASP.NET Core rate limiter, partitioned by user ID, or by IP when anonymous)
 
 | Group | Limit |
 |---|---|
 | `/account/*`, `/connect/token` | 10/min per IP, 30/hour per IP (sliding window) |
-| Photo scans | 60/hour per user; 10 concurrent in-flight per user |
+| Picture identification (`/identify`) | 1,000 items/hour per user (text only, cheap) |
 | Barcode batches | 120/min per user |
 | Catalogue search | 60/min per user |
 | Everything else | 600/min per user (token bucket) |
@@ -72,19 +72,32 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 
 ## HTTP hardening
 
-- HTTPS only; HSTS (`max-age=31536000; includeSubDomains`) on the custom domain; TLS 1.2+ (managed by Container Apps ingress).
-- `Content-Security-Policy` for the web app: `default-src 'self'; img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://appleid.apple.com https://accounts.google.com`. Inline script is avoided; if the Expo web build needs any, nonces are used.
+- HTTPS only (Tailscale Serve with a real certificate for your `ts.net` name); HSTS (`max-age=31536000`); TLS 1.2+.
+- `Content-Security-Policy` for the web app: `default-src 'self'; img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`. Inline script is avoided; if the Expo web build needs any, nonces are used.
 - `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(self), geolocation=()`, `Cross-Origin-Opener-Policy: same-origin`.
 - **No CORS origins allowed** (same-origin web; iOS isn't subject to CORS).
 - Cookies: `__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Strict`.
 
-## Infrastructure security
+## Infrastructure security (self-hosted)
 
-- **Managed identity everywhere:** the API reaches Postgres (Entra auth, no password), Blob and Key Vault with its user-assigned identity. The only stored secrets are third-party API keys, and those live in Key Vault.
-- **Network:** a VNet-integrated Container Apps environment. Postgres uses **private access** (no public endpoint). Storage and Key Vault use private endpoints in prod, or firewall rules if cost matters.
-- **Container:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` (no shell, no package manager, non-root), read-only root filesystem, image scanned by Trivy in CI.
-- **CI/CD:** GitHub Actions authenticates to Azure with **OIDC federated credentials** (no stored cloud secrets). The `main` branch is protected; deploys need passing checks.
-- **Least privilege:** the API's identity gets *Storage Blob Data Contributor* on one account, *Key Vault Secrets User* + *Certificate User*, and a Postgres role with DML on its schema only (DDL belongs to the migration identity).
+- **Not on the internet:**
+  - The API listens on `127.0.0.1` only. The single way in is **Tailscale Serve**, which only devices on your tailnet can reach.
+  - No router port forwarding.
+  - Windows Firewall stays default-deny inbound.
+- **Tailscale access control:** the tailnet policy allows your devices (and invited family) to reach port 443 on the PC, and nothing else. Turn on **tailnet lock** and device approval so a stolen Tailscale login can't add a device silently.
+- **Postgres** isn't published to the host at all; it's reachable only on the internal compose network. It uses a strong generated password from the secrets folder.
+- **Secrets:**
+  - `C:\CollectionMaxxing\secrets` holds `.env`, the OpenIddict PFX files and the Apple key.
+  - Its Windows ACL allows only your account and SYSTEM.
+  - It's mounted into containers as Docker secrets and is never in git (GitHub secret scanning + push protection back that up).
+- **Disk encryption:** **BitLocker** on the drives holding the Docker volumes and the backups.
+- **Container:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` (no shell, non-root), read-only root filesystem, image scanned by Trivy in CI.
+- **CI/CD:**
+  - Builds and tests run on GitHub-hosted runners.
+  - The **self-hosted runner on your PC runs only the `deploy` job, only for `main`, only in this private repo**. PR code never executes on your PC.
+  - The runner uses a fine-grained token that can only pull from GHCR.
+- **Patching:** Windows Update, Docker Desktop (yours is outdated: 24.0.7), Tailscale auto-update, and Dependabot PRs for base images.
+- **Later, if you go public** (Cloudflare Tunnel for share links): only the web app's read-only share routes would be published, behind Cloudflare. Not in v1.
 
 ## Supply chain
 
@@ -98,7 +111,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 ## Logging and monitoring
 
 - **Never logged:** tokens, cookies, auth codes, email addresses, photo bytes, provider API keys. A redaction enricher plus unit tests on the logger configuration enforce this.
-- Security events go to `audit_events` **and** App Insights: sign-in, sign-in failure, refresh-token reuse detected, device revoked, account deletion, membership change, export, admin actions.
+- Security events go to `audit_events` **and** the logs (Aspire Dashboard + rotating log files): sign-in, sign-in failure, refresh-token reuse detected, device revoked, account deletion, membership change, export, admin actions.
 - Alerts:
   - Refresh-token reuse detected (any)
   - More than 20 failed sign-ins per 10 min
@@ -107,6 +120,9 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
   - A provider circuit breaker open for more than 15 min
 
 ## iOS app (MASVS-L1)
+
+- **Sideloaded build:** signed with your free Apple ID's personal certificate via AltStore, so Developer Mode is on for this iPhone. Only install builds from your own GitHub Actions artifacts.
+- **Face ID app lock** (LocalAuthentication) guards the paired session if someone picks up your unlocked phone.
 
 - Tokens are stored in the Keychain only (`expo-secure-store`, this-device-only accessibility); nothing sensitive goes in MMKV or AsyncStorage.
 - No secrets in the bundle. All third-party calls are proxied by our API.
@@ -120,10 +136,10 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 |---|---|
 | Data minimisation | No location, contacts, tracking or ads. The email is stored only if the IdP provides one. |
 | Photos | EXIF/GPS stripped; deleted after 30 days, or right after commit if you choose that |
-| Third parties | Anthropic (photo identification); metadata providers receive **only** barcodes/titles, never user identifiers |
+| Third parties | No third-party AI; metadata providers receive **only** barcodes/titles, never user identifiers |
 | Export | Full CSV + JSON export at any time |
-| Deletion | In-app; purge within 30 days; Apple token revocation |
-| App Store | Privacy policy URL, privacy nutrition labels ("Data not linked to you: none collected for tracking"), `PrivacyInfo.xcprivacy` manifest via Expo config |
+| Deletion | In-app; purge within 30 days; all devices and sessions revoked |
+| Distribution | Sideloaded with your free Apple ID (AltStore), with no App Store or TestFlight. A `PrivacyInfo.xcprivacy` manifest is still included. |
 | Attribution | TMDB and IGDB attribution on the About screen, as their terms require |
 
 ## Security testing
@@ -131,6 +147,6 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 | When | What |
 |---|---|
 | Every PR | Authorization matrix, IDOR tests, upload-validation tests, CodeQL, dependency audit, secret scan |
-| Nightly | OWASP ZAP baseline scan against the staging revision; Trivy image scan |
+| Nightly | OWASP ZAP baseline scan against the stack spun up in CI; Trivy image scan |
 | Before v1.0 launch | ASVS L2 checklist walkthrough (recorded in `docs/security/asvs-l2-checklist.md`), manual test of the auth flows (state/nonce/PKCE tampering, refresh replay, redirect URI manipulation), restore-from-backup drill |
 | Yearly | Key rotation drill; dependency major-version review |

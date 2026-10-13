@@ -32,7 +32,7 @@ erDiagram
   SCAN_SESSION ||--o{ SCAN_CANDIDATE : produces
   SCAN_CANDIDATE }o--o| RELEASE : "matched to"
   SCAN_CANDIDATE }o--o| ITEM : "committed as"
-  RELEASE ||--o{ IMAGE_EMBEDDING : "looks like"
+  ITEM ||--o{ ITEM_FEATURE_PRINT : "looks like"
   ITEM }o--o{ TAG : tagged
 ```
 
@@ -43,7 +43,9 @@ erDiagram
 | Table | Key columns | Notes |
 |---|---|---|
 | `users` (ASP.NET Identity) | `id`, `display_name`, `email` (nullable; may be an Apple private relay address), `created_at`, `deleted_at` | No password hash column is ever populated (passwordless) |
-| `user_logins` / `user_passkeys` (Identity) | provider + key / credential id + public key | Apple `sub`, Google `sub`, WebAuthn credentials |
+| `user_passkeys` (Identity) | credential id + public key + name | WebAuthn credentials (no external login providers) |
+| `device_pairings` | `id`, `user_id`, `token_hash`, `code_hash` (6-digit fallback), `expires_at` (2 min), `used_at`, `attempts`, `device_name`, `authorization_id` | Single use; the plaintext token only ever appears in the QR code |
+| `setup_codes` | `id`, `purpose` (`setup`/`recovery`), `code_hash`, `expires_at`, `used_at` | Setup works only while there's no owner; recovery codes come from the PC CLI |
 | OpenIddict tables | applications, authorizations, scopes, tokens | Managed by OpenIddict's EF stores |
 | `libraries` | `id`, `name`, `created_at` | Every user gets a personal library at sign-up |
 | `library_members` | `library_id`, `user_id`, `role` (`owner`/`editor`/`viewer`), `joined_at` | PK (`library_id`, `user_id`). Exactly one owner per library. |
@@ -59,7 +61,7 @@ erDiagram
 | `assets` | `id`, `kind` (`cover`/`scan_photo`/`user_photo`), `blob_path`, `content_type`, `width`, `height`, `sha256`, `source_url`, `owner_library_id` | Covers are fetched once from allow-listed hosts and served by us |
 | `provider_cache` | `provider`, `key`, `payload jsonb`, `fetched_at`, `expires_at` | PK (`provider`, `key`) |
 | `provider_quota` | `provider`, `day`, `used`, `limit` | UPCitemdb's daily cap |
-| `image_embeddings` | `id`, `asset_id`, `release_id`, `work_id`, `source` (`provider_art`/`seed`/`user_photo`), `subject` (`box`/`cover`/`cartridge`/`sleeve`/`label`/`disc`), `model` (name + version), `embedding vector(768)`, `owner_library_id` (null = global), `created_at` | **pgvector** HNSW index (`vector_cosine_ops`). User photos are private to their library (filtered like releases). Queries always filter on `model` = the current version. |
+| `item_feature_prints` | `id`, `library_id`, `item_id`, `release_id`, `revision` (Apple feature-print revision), `data bytea` (opaque), `created_at` | **Backup and sync only.** Apple feature prints are computed and compared on the phone; the server never reads them. Lets a new phone restore instant matching. |
 
 **`format` values:** `hardcover`, `paperback`, `mass_market`, `vhs`, `betamax`, `laserdisc`, `dvd`, `bluray`, `uhd_bluray`, `game_cartridge`, `game_disc`, `game_card`, `other`.
 
@@ -78,15 +80,14 @@ erDiagram
 | Table | Key columns | Notes |
 |---|---|---|
 | `scan_sessions` | `id`, `library_id`, `user_id`, `status` (`open`/`committed`/`abandoned`), `default_location_id`, `default_status`, `created_at`, `committed_at` | Sessions abandoned after 7 days are cleaned up |
-| `scan_photos` | `id`, `session_id`, `asset_id`, `trigger` (`auto`/`shutter`/`import`), `text_boxes jsonb` (on-device OCR words + rects, used for highlights), `detected` (`none`/`single`/`multi`, set by the server), `status` (`queued`/`processing`/`done`/`failed`), `ai_usage_id`, `error` | |
-| `scan_candidates` | `id`, `session_id`, `seq`, `source` (`barcode`/`photo_barcode`/`shelf_ai`/`cover_ai`/`visual_index`/`search`), `raw_code`, `symbology`, `visible_text`, `photo_id`, `box` (x, y, w, h normalised 0–1), `box_source` (`ocr`/`model`), `resolution` (`pending`/`matched`/`ambiguous`/`not_found`/`error`), `matched_release_id`, `score`, `visual_score`, `inferred jsonb` (completeness, region, edition marks, box/manual visible), `tie_break` (`none`/`used`/`overruled`), `alternatives jsonb`, `trace jsonb`, `decision` (`undecided`/`accepted`/`rejected`), `copies int`, `already_owned_count`, `created_item_id`, `idempotency_key` | Unique (`session_id`, `idempotency_key`) |
+| `scan_snaps` | `id`, `session_id`, `trigger` (`auto`/`shutter`/`import`), `engine` (`apple_model`/`vision_pipeline`), `fell_back` (bool, with the reason: unavailable/declined/context), `item_count`, `asset_id` (null unless the photo was uploaded: "Use my photo"), `created_at` | Metadata only; the photo itself stays on the phone |
+| `scan_candidates` | `id`, `session_id`, `seq`, `source` (`barcode`/`picture_apple_model`/`picture_text`/`search`), `raw_code`, `symbology`, `visible_text` (what the phone read), `snap_id`, `local_id` (the phone's id for the item, so it can draw the box), `box` (x, y, w, h normalised 0–1), `box_source` (`ocr`/`rect`), `resolution` (`pending`/`matched`/`ambiguous`/`not_found`/`error`), `matched_release_id`, `score`, `art_distance` (feature-print distance reported by the phone, close calls only), `inferred jsonb` (completeness, region, edition marks, box/manual visible),  `alternatives jsonb`, `trace jsonb`, `decision` (`undecided`/`accepted`/`rejected`), `copies int`, `already_owned_count`, `created_item_id`, `idempotency_key` | Unique (`session_id`, `idempotency_key`) |
 | `jobs` | `id`, `type`, `payload jsonb`, `status`, `attempts`, `run_after`, `locked_by`, `locked_until`, `last_error` | Polled with `FOR UPDATE SKIP LOCKED` |
 
 ### Operations
 
 | Table | Purpose |
 |---|---|
-| `ai_usage` | `id`, `user_id`, `library_id`, `purpose`, `model`, `input_tokens`, `output_tokens`, `cost_micros`, `created_at`. Feeds per-user limits and the budget breaker. |
 | `match_feedback` | Which alternative the user picked versus what we ranked first. Feeds the evals. |
 | `audit_events` | `id`, `actor_user_id`, `library_id`, `action`, `entity_type`, `entity_id`, `at`, `ip_hash`, `details jsonb`. Security-relevant and destructive actions. |
 | `idempotency_keys` | `user_id`, `key`, `request_hash`, `response_status`, `response_body`, `expires_at` |
@@ -103,15 +104,14 @@ erDiagram
 
 - **Library search** (your items): `pg_trgm` similarity on `works.normalized_title` + `items.custom_title`, combined with structured filters. Thousands of rows per library is trivial.
 - **Catalogue search** (adding new things): the local catalogue first, using the same trigram index, then providers.
-- **Visual search** (pictures): pgvector nearest-neighbour query on `image_embeddings`, filtered to global rows plus your library's rows, at the current model version. HNSW keeps it in the low milliseconds even with hundreds of thousands of vectors.
 - Full-text search (`tsvector`) is a v2 consideration for notes and synopsis.
-- Extensions: `pg_trgm` and `vector` (pgvector), both allow-listed on Azure Flexible Server through the `azure.extensions` server parameter. EF Core mapping uses `Pgvector.EntityFrameworkCore`.
+- Extensions: `pg_trgm`, enabled by a migration (`CREATE EXTENSION IF NOT EXISTS pg_trgm`). No vector database: artwork comparison happens on the phone.
 
 ## Migrations
 
 - EF Core migrations, one per PR that changes the model. Reviewed like code.
-- **Expand/contract only.** Never rename or drop in one step. That lets a new revision run beside the old one during deploy (see [10](10-hosting-and-devops.md)).
-- Deployed by an **EF migration bundle** (`efbundle`) running as a Container Apps job *before* traffic shifts.
+- **Expand/contract only.** Never rename or drop in one step. That keeps a rollback to the previous image safe (see [10](10-hosting-and-devops.md)).
+- Deployed by an **EF migration bundle** (`efbundle`) running as the one-shot `migrate` compose service *before* the API restarts.
 - CI applies every migration from an empty database in Testcontainers, and checks that the model snapshot has no pending changes.
 
 ## Data lifecycle
@@ -119,9 +119,9 @@ erDiagram
 | Data | Retention |
 |---|---|
 | Items | Until you delete them; soft-deleted for 30 days, then purged |
-| Scan photos | 30 days (blob lifecycle rule), or immediately after commit if you turn on "Delete scan photos after adding" |
+| Scan photos | Stay on your phone and are cleared from its cache after Review. Uploaded only for "Use my photo" covers (kept with the item, on your PC). |
 | Abandoned scan sessions | 7 days |
-| Visual-index vectors from your photos | As long as the item exists (a vector, not the photo); deleted with the item or the account |
+| Feature prints of your items | On the phone, plus an opaque backup on the server, as long as the item exists; deleted with the item or the account |
 | Provider cache | 30 days (re-fetched on demand) |
 | Audit events | 1 year |
 | Deleted account | Library data purged within 30 days; audit entries anonymized |
