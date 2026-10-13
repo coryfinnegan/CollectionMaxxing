@@ -20,7 +20,7 @@ public class NotImplementedProblemTests(ApiFixture api) : ApiTest(api)
     {
         var library = await CreateLibraryAsync();
 
-        using var response = await ClientFor(library, LibraryRole.Viewer).GetAsync($"/api/v1/libraries/{library.Id}/items");
+        using var response = await ClientFor(library, LibraryRole.Viewer).GetAsync($"/api/v1/libraries/{library.Id}/members");
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotImplemented);
         response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
@@ -51,6 +51,6 @@ public class NotImplementedProblemTests(ApiFixture api) : ApiTest(api)
             .Where(e => e.Metadata.GetMetadata<StubEndpointMetadata>() is not null)
             .ToList();
 
-        stubs.Count.ShouldBeGreaterThan(50);
+        stubs.ShouldNotBeEmpty(); // the count shrinks as streams build their endpoints, so don't pin a number
     }
 }

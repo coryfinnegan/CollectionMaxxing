@@ -646,16 +646,6 @@
                 }
               }
             }
-          },
-          "501": {
-            "description": "Not Implemented",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
           }
         }
       }
@@ -710,16 +700,6 @@
           },
           "404": {
             "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -799,16 +779,6 @@
           },
           "404": {
             "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1707,7 +1677,7 @@
             "name": "kind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/WorkKind"
+              "type": "string"
             }
           },
           {
@@ -1728,7 +1698,7 @@
             "name": "status",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ItemStatus"
+              "type": "string"
             }
           },
           {
@@ -1819,16 +1789,6 @@
                 }
               }
             }
-          },
-          "501": {
-            "description": "Not Implemented",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
           }
         }
       },
@@ -1887,6 +1847,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Unprocessable Entity",
             "content": {
@@ -1909,26 +1879,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1977,6 +1927,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -1989,26 +1949,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2083,6 +2023,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "412": {
             "description": "Precondition Failed",
             "content": {
@@ -2105,26 +2055,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2172,6 +2102,16 @@
           "204": {
             "description": "No Content"
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "412": {
             "description": "Precondition Failed",
             "content": {
@@ -2194,26 +2134,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2262,6 +2182,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -2274,26 +2204,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2362,6 +2272,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -2374,26 +2294,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2453,6 +2353,16 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -2465,26 +2375,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2546,16 +2436,6 @@
           },
           "404": {
             "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {

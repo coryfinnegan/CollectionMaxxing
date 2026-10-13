@@ -25,4 +25,23 @@ public sealed class Library : Common.IConcurrencyVersioned
     public DateTimeOffset CreatedAt { get; private set; }
 
     public uint Version { get; private set; }
+
+    /// <summary>Renames the library. The name is trimmed; it can't be blank or longer than <see cref="MaxNameLength"/>.</summary>
+    public Common.Result Rename(string? name)
+    {
+        var trimmed = name?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return Common.Result.Failure(new Common.DomainError(Common.ErrorKind.Validation, "library.name_required", "Give the library a name.", "name"));
+        }
+
+        if (trimmed.Length > MaxNameLength)
+        {
+            return Common.Result.Failure(new Common.DomainError(
+                Common.ErrorKind.Validation, "library.name_too_long", $"A library name can be at most {MaxNameLength} characters.", "name"));
+        }
+
+        Name = trimmed;
+        return Common.Result.Success();
+    }
 }

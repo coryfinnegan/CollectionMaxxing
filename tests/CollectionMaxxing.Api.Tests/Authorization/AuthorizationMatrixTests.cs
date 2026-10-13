@@ -43,7 +43,8 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         var otherLibrary = await CreateLibraryAsync();
         var locationId = await TestData.CreateLocationAsync(Db, library.Id, "Seeded shelf");
         var sessionId = await TestData.CreateScanSessionAsync(Db, library);
-        return new World(library, otherLibrary.OwnerId, locationId, sessionId);
+        var itemId = await TestData.CreateItemAsync(Db, library);
+        return new World(library, otherLibrary.OwnerId, locationId, sessionId, itemId);
     }
 
     private HttpClient ClientFor(Actor actor, World world) => actor switch
@@ -57,7 +58,7 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         _ => throw new ArgumentOutOfRangeException(nameof(actor)),
     };
 
-    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid LocationId, Guid SessionId)
+    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid LocationId, Guid SessionId, Guid ItemId)
     {
         /// <summary>Replaces <c>{libraryId:guid}</c>-style route parameters with real ids.</summary>
         public string Fill(string route) => RouteParameter().Replace(route, match => match.Groups["name"].Value switch
@@ -66,6 +67,7 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
 
             // A scan session's id is looked up (the stored session decides the library); any other id is never read by a stub.
             "id" when route.StartsWith("/api/v1/scan-sessions/", StringComparison.Ordinal) => SessionId.ToString(),
+            "id" when route.Contains("/items/", StringComparison.Ordinal) => ItemId.ToString(),
             "id" => LocationId.ToString(),
             "cid" or "userId" or "assetId" => Guid.CreateVersion7().ToString(),
             "token" => "a-token",
