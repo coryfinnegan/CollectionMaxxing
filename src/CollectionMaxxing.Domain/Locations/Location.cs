@@ -6,7 +6,7 @@ namespace CollectionMaxxing.Domain.Locations;
 /// A place in the physical tree: Room › Shelf › Bin. Changes go through <see cref="LocationTree"/>,
 /// which enforces the rules that involve more than one location.
 /// </summary>
-public sealed class Location : ILibraryScoped
+public sealed class Location : ILibraryScoped, IConcurrencyVersioned
 {
     public const int MaxNameLength = 100;
 
@@ -34,6 +34,8 @@ public sealed class Location : ILibraryScoped
     public string Name { get; private set; }
 
     public int SortOrder { get; private set; }
+
+    public uint Version { get; private set; }
 
     internal void Rename(string name) => Name = name;
 
