@@ -17,11 +17,38 @@ public sealed class PostgresFixture : IAsyncLifetime
 {
     static PostgresFixture()
     {
-        // Docker Desktop 24 (API 1.43) rejects the newer API version Testcontainers asks for by default.
-        // Every Docker release since accepts 1.43 too, so pin it unless the caller already chose one.
-        if (Environment.GetEnvironmentVariable("DOCKER_API_VERSION") is null)
+        // Testcontainers asks for a newer Docker API than old daemons (e.g. Docker Desktop 24, API 1.43) accept,
+        // and Docker 29+ refuses anything older than 1.44. Pin the client to whatever the local daemon reports,
+        // unless the caller already chose a version.
+        if (Environment.GetEnvironmentVariable("DOCKER_API_VERSION") is null && TryGetDaemonApiVersion() is { } version)
         {
-            Environment.SetEnvironmentVariable("DOCKER_API_VERSION", "1.43");
+            Environment.SetEnvironmentVariable("DOCKER_API_VERSION", version);
+        }
+    }
+
+    private static string? TryGetDaemonApiVersion()
+    {
+        try
+        {
+            using var docker = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = "version --format {{.Server.APIVersion}}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            });
+            if (docker is null || !docker.WaitForExit(TimeSpan.FromSeconds(15)) || docker.ExitCode != 0)
+            {
+                return null;
+            }
+
+            var version = docker.StandardOutput.ReadToEnd().Trim();
+            return version.Length > 0 ? version : null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null; // no docker CLI on PATH: let Testcontainers use its default
         }
     }
 

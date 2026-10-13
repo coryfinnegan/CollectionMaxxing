@@ -7,6 +7,9 @@
     <IsPackable>false</IsPackable>
     <!-- We run the AppHost from the IDE or `dotnet run`, never through the Aspire CLI bundle. -->
     <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    <!-- Aspire pulls OS-specific dashboard/orchestration packages, so a lock file written on Windows
+         never matches Linux CI. This project is dev-only, so it opts out of lock files. -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
