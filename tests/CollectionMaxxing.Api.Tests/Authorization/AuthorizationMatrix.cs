@@ -105,7 +105,6 @@ public static class AuthorizationMatrix
     private const int Ok = 200;
     private const int Created = 201;
     private const int NoContent = 204;
-    private const int BadRequest = 400;
     private const int Unauthorized = 401;
     private const int Forbidden = 403;
     private const int NotFound = 404;
