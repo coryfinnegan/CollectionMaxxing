@@ -8,16 +8,16 @@ permissions:
   contents: read
 jobs:
   interface:
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - name: Select newest Xcode
         run: |
           ls -d /Applications/Xcode*
-          X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          X=/Applications/Xcode_27.0.app; ls -d "$X" || X=$(ls -d /Applications/Xcode_27.0*.app | head -1)
           sudo xcode-select -s "$X"
           xcodebuild -version
-          xcodebuild -showsdks | grep -i ios
+          xcodebuild -showsdks | grep -i ios; xcrun --sdk iphoneos --show-sdk-version
       - name: Extract FoundationModels interface
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
