@@ -83,6 +83,7 @@ tests/
   CollectionMaxxing.Application.Tests/
   CollectionMaxxing.Infrastructure.Tests/   Testcontainers Postgres, WireMock providers
   CollectionMaxxing.Api.Tests/              WebApplicationFactory: acceptance + authorization matrix
+  CollectionMaxxing.TestSupport/            Shared fixtures: Testcontainers Postgres, test auth scheme, library builders
   CollectionMaxxing.Architecture.Tests/     Layering rules
   CollectionMaxxing.Recognition.Evals/      Scores eval results uploaded by the on-phone eval runner
 app/                                        Expo app (iOS + web)
@@ -98,7 +99,7 @@ Api ──► Application ──► Domain
 ```
 
 - **Domain** references nothing except the BCL: no EF, no ASP.NET, no HTTP.
-- **Application** references Domain only. It defines ports such as `ICatalogProvider`, `IVisionIdentifier`, `IBlobStore`, `IAppDbContext` and `IClock`.
+- **Application** references Domain, plus EF Core's abstractions so `IAppDbContext` can expose `DbSet<T>`. There's no Npgsql and no ASP.NET, and an architecture test enforces that. It defines ports such as `ICatalogProvider`, `IVisionIdentifier`, `IBlobStore`, `IAppDbContext` and `IClock`.
 - **Infrastructure** implements the ports. It is the only project that touches the network, the database driver or the file system.
 - **Api** wires everything, owns the HTTP and auth concerns, and contains no business rules.
 - Endpoint classes may not reference `DbContext` directly; they call application handlers.

@@ -237,7 +237,7 @@ What this task must not do, even if it seems helpful.
 The verifier gets the brief, the diff and the linked doc sections, in a fresh context. It checks:
 
 - **Scope:** does the PR do what the brief says, and nothing more?
-- **Tests that bite:** would the tests fail if the code were wrong? It runs mutation testing on the changed code.
+- **Tests that bite:** would the tests fail if the code were wrong? It runs mutation testing on the changed code. Until Stryker supports xUnit v3, it breaks at least 3 key rules by hand and checks that a test fails each time.
 - **Security:** authorization on every new endpoint, IDOR, input validation, and no secrets or personal data (the repo is public).
 - **Docs:** it matches the plan, and the verifier flags any doc that now needs updating.
 - **Conventions:** the [01](01-architecture.md) dependency rules and the [09](09-testing-and-tdd.md) working agreement.

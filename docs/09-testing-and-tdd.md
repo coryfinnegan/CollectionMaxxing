@@ -39,7 +39,7 @@
 | Snapshots | **Verify** (OpenAPI doc, prompt templates, provider mappings, CSV export format) | Jest snapshots (sparingly) |
 | Time | `Microsoft.Extensions.TimeProvider.Testing` | Jest fake timers |
 | Architecture rules | **ArchUnitNET** | eslint import boundaries |
-| Mutation testing | **Stryker.NET** on Domain + Application (nightly) | — |
+| Mutation testing | **Stryker.NET** on Domain + Application (nightly). *As of 2026-10, Stryker can't drive xUnit v3 here, so verifiers hand-mutate key rules until it can.* | — |
 | Coverage | coverlet + ReportGenerator | Jest `--coverage` |
 | Components | — | React Native Testing Library |
 | E2E | — | **Maestro** (iOS simulator on a GitHub macOS runner, release tags only, because it's slow), **Playwright** (web) |
