@@ -1,0 +1,31 @@
+name: spike-apple-model
+on:
+  push:
+    branches: [w0/spike-apple-model]
+    paths: ['spikes/apple-model/**', '.github/workflows/spike-apple-model.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  interface:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          ls -d /Applications/Xcode*
+          X=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i ios
+      - name: Extract FoundationModels interface
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "$SDK"
+          mkdir -p out
+          find "$SDK" -path '*FoundationModels*' > out/files.txt
+          find "$SDK" -path '*FoundationModels*' -name '*.swiftinterface' ! -name '*.private.*' ! -name '*.package.*' -exec cp {} out/ \; || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foundationmodels-interface
+          path: out
