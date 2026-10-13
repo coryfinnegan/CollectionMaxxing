@@ -14,6 +14,28 @@ public sealed class Tag : ILibraryScoped, IConcurrencyVersioned
     public string Name { get; set; } = string.Empty;
 
     public uint Version { get; private set; }
+
+    /// <summary>Trims the name and checks it: required, at most <see cref="MaxNameLength"/>, no control characters.</summary>
+    public static Result<string> ValidateName(string? name)
+    {
+        var trimmed = name?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return new DomainError(ErrorKind.Validation, "tag.name_required", "A name is required.", "name");
+        }
+
+        if (trimmed.Length > MaxNameLength)
+        {
+            return new DomainError(ErrorKind.Validation, "tag.name_too_long", $"A name can be at most {MaxNameLength} characters.", "name");
+        }
+
+        if (trimmed.Any(char.IsControl))
+        {
+            return new DomainError(ErrorKind.Validation, "tag.name_invalid", "A name can't contain control characters.", "name");
+        }
+
+        return trimmed;
+    }
 }
 
 /// <summary>Puts a tag on an item. Both must be in <see cref="LibraryId"/>, which the database enforces.</summary>

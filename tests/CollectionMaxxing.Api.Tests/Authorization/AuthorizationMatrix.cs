@@ -110,6 +110,8 @@ public static class AuthorizationMatrix
     private const int Forbidden = 403;
     private const int NotFound = 404;
     private const int Stub = 501;
+    private const int BadRequest = 400;
+    private const int PreconditionFailed = 412;
 
     private const string Json = "{}";
 
@@ -185,9 +187,9 @@ public static class AuthorizationMatrix
         Everyone("GET", "/join/{token}", null, Ok),
 
         // ---- Libraries and members (LIB), invites (ID) -----------------------------------------------------
-        SignedIn("GET", "/api/v1/libraries"),
-        InLibrary("GET", Libraries, LibraryRole.Viewer),
-        InLibrary("PATCH", Libraries, LibraryRole.Owner, Json),
+        SignedIn("GET", "/api/v1/libraries", allowed: Ok),
+        InLibrary("GET", Libraries, LibraryRole.Viewer, allowed: Ok),
+        InLibrary("PATCH", Libraries, LibraryRole.Owner, """{ "name": "Renamed" }""", Ok),
         InLibrary("GET", $"{Libraries}/members", LibraryRole.Viewer),
         InLibrary("PATCH", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner, Json),
         InLibrary("DELETE", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner),
@@ -201,21 +203,21 @@ public static class AuthorizationMatrix
         InLibrary("PATCH", $"{Libraries}/locations/{{id:guid}}", LibraryRole.Editor, """{ "name": "Renamed" }""", Ok),
         InLibrary("DELETE", $"{Libraries}/locations/{{id:guid}}", LibraryRole.Editor, allowed: NoContent),
 
-        // ---- Items, stats (LIB) ----------------------------------------------------------------------------
-        InLibrary("GET", $"{Libraries}/items", LibraryRole.Viewer),
-        InLibrary("POST", $"{Libraries}/items", LibraryRole.Editor, Json, headers: Idempotent),
-        InLibrary("GET", $"{Libraries}/items/{{id:guid}}", LibraryRole.Viewer),
-        InLibrary("PATCH", $"{Libraries}/items/{{id:guid}}", LibraryRole.Editor, Json, headers: IfMatch),
-        InLibrary("DELETE", $"{Libraries}/items/{{id:guid}}", LibraryRole.Editor, headers: IfMatch),
-        InLibrary("POST", $"{Libraries}/items/{{id:guid}}:restore", LibraryRole.Editor),
-        InLibrary("POST", $"{Libraries}/items/{{id:guid}}:rematch", LibraryRole.Editor, Json),
-        InLibrary("POST", $"{Libraries}/items:bulk", LibraryRole.Editor, Json),
-        InLibrary("GET", $"{Libraries}/stats", LibraryRole.Viewer),
+        // ---- Items, stats (LIB): built. A stale If-Match (412) and an empty body (400) prove the handler was reached. ----
+        InLibrary("GET", $"{Libraries}/items", LibraryRole.Viewer, allowed: Ok),
+        InLibrary("POST", $"{Libraries}/items", LibraryRole.Editor, """{ "manual": { "title": "Seeded" } }""", Created, headers: Idempotent),
+        InLibrary("GET", $"{Libraries}/items/{{id:guid}}", LibraryRole.Viewer, allowed: Ok),
+        InLibrary("PATCH", $"{Libraries}/items/{{id:guid}}", LibraryRole.Editor, """{ "notes": "x" }""", PreconditionFailed, headers: IfMatch),
+        InLibrary("DELETE", $"{Libraries}/items/{{id:guid}}", LibraryRole.Editor, allowed: PreconditionFailed, headers: IfMatch),
+        InLibrary("POST", $"{Libraries}/items/{{id:guid}}:restore", LibraryRole.Editor, allowed: Ok),
+        InLibrary("POST", $"{Libraries}/items/{{id:guid}}:rematch", LibraryRole.Editor, Json, BadRequest),
+        InLibrary("POST", $"{Libraries}/items:bulk", LibraryRole.Editor, Json, BadRequest),
+        InLibrary("GET", $"{Libraries}/stats", LibraryRole.Viewer, allowed: Ok),
 
-        // ---- Tags (LIB) ------------------------------------------------------------------------------------
-        InLibrary("GET", $"{Libraries}/tags", LibraryRole.Viewer),
-        InLibrary("POST", $"{Libraries}/tags", LibraryRole.Editor, Json),
-        InLibrary("DELETE", $"{Libraries}/tags/{{id:guid}}", LibraryRole.Editor),
+        // ---- Tags (LIB): built ----------------------------------------------------------------------------
+        InLibrary("GET", $"{Libraries}/tags", LibraryRole.Viewer, allowed: Ok),
+        InLibrary("POST", $"{Libraries}/tags", LibraryRole.Editor, """{ "name": "New tag" }""", Created),
+        InLibrary("DELETE", $"{Libraries}/tags/{{id:guid}}", LibraryRole.Editor, allowed: NoContent),
 
         // ---- Ownership (SCAN) ------------------------------------------------------------------------------
         InLibrary("GET", $"{Libraries}/ownership", LibraryRole.Viewer, query: "code=0045496870010"),
