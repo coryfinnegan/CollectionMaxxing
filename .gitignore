@@ -18,6 +18,8 @@ web-build/
 *.tsbuildinfo
 ios/
 android/
+# local Expo modules keep their hand-written Swift in modules/<name>/ios
+!app/modules/*/ios/
 
 # Secrets and local config (never commit)
 .env
