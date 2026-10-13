@@ -375,3 +375,23 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - CI and iOS builds are unlimited and free.
   - Anyone can read the code and the plan.
   - Deploys lag a merge by up to ~2 minutes (the deployer's poll interval).
+
+## ADR-023: Spend tokens only where judgement matters
+
+- **Status:** Accepted (your direction, 2026-10-13: "4 agents is good but I want to do everything I can to minimize token usage")
+- **Context:** With 4 agents at once, your Claude plan's usage limits are the binding budget.
+- **Decision:**
+  - **Model tiers per brief:** Haiku (mechanical, low effort), Sonnet (the default, medium effort), Sonnet at high effort for lead planning and the locked areas. **No Opus** (your call, 2026-10-13: "keeping it to Claude with haiku and sonnet").
+  - **No tokens on boilerplate:** generators and formatters write it.
+  - **A Wave 0 reference slice** that briefs say to copy.
+  - **Quiet test output** through `scripts/check`.
+  - **Small contexts:** a short root `CLAUDE.md`, per-folder rules, deny-read on build output and generated code, a fresh lead session per wave, at most 2 fix rounds.
+  - **Cheaper verification:** CI first; the verifier sees the diff only; no verifier for docs- and config-only PRs.
+  - **Local models** (Ollama on your GPU) are trialled once, in Wave 1, for chores. GitHub Copilot Free is your own autocomplete. ChatGPT/Codex isn't used in the build.
+- **Alternatives:**
+  - Opus everywhere: best quality, but it exhausts the limits fastest.
+  - Local models as builders: $0, but too unreliable for multi-file agentic TDD on a 12 GB GPU.
+  - A mix of vendors: more free quota, but two sets of conventions to maintain.
+- **Consequences:**
+  - The same plan uses much less of your limits.
+  - The lead owns tier choices and adjusts them after each wave, based on first-time pass rates.

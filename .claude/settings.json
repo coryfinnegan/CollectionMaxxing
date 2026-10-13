@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/bin/**)",
+      "Read(**/obj/**)",
+      "Read(**/node_modules/**)",
+      "Read(**/package-lock.json)",
+      "Read(**/packages.lock.json)",
+      "Read(**/src/api/generated/**)"
+    ]
+  }
+}

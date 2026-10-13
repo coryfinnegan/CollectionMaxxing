@@ -45,6 +45,7 @@ Parallel work falls apart when every agent edits the same files. So **Wave 0 bui
 - per-feature registration (`builder.AddCatalog()`, `app.MapCatalogEndpoints()`), so `Program.cs` is written once;
 - the generated TypeScript client **plus mock API handlers (MSW) generated from the contract**, so app work never waits for the API;
 - the Expo app shell: tabs, **every route as a placeholder screen**, design tokens and a few base components;
+- **one reference slice**: a single feature built end to end (endpoint, handler, tests, screen) that later briefs point to as the pattern to copy;
 - fakes and seed data:
   - `FakeCatalogProvider` with ~50 items
   - `FakeVisionEngine` fixtures
@@ -196,6 +197,9 @@ Then **a week of real use**. Every bug you hit becomes a failing test and a fix.
 ## Goal
 One or two sentences of user-visible behaviour.
 
+## Tier
+Mechanical (Haiku) | Standard (Sonnet) | Critical (Opus). Reference to copy: path/to/the/reference/slice
+
 ## Read first
 Links to the exact doc sections (e.g. 04-api.md#items, 03-data-model.md, the 09 starter tests).
 
@@ -247,6 +251,8 @@ The verifier gets the brief, the diff and the linked doc sections, in a fresh co
 
 A test-author agent writes those tests first. If the builder changes them, the verifier fails the PR.
 
+**Which model checks:** verifiers run on Sonnet, at high effort for the locked areas. Docs-only and config-only PRs skip the verifier.
+
 ## iOS builds and your phone in the loop
 
 - **Agents never need a build to test.** Native code sits behind interfaces with fakes (`FakeVisionEngine`, `FakeScannerSource`). The fakes replay **fixtures recorded on your phone**: a dev-build toggle saves the barcode, text and model output from real scans and uploads them to the PC.
@@ -263,7 +269,7 @@ A test-author agent writes those tests first. If the builder changes them, the v
   - **Agent by agent:** the lead launches builders in the background and handles each PR as it finishes. It's flexible, and you can keep chatting with the lead.
   - **As a workflow:** a script runs build → verify → fix for every task in the wave and returns the results. It's more hands-off. You start one by saying so, for example "run Wave 1 as a workflow".
     - Workflows default to fewer than 5 agents. A full wave (≈ 9 builders + 9 verifiers) needs the *Dynamic workflow size* setting raised, from `/config` in an interactive `claude` terminal. Otherwise the lead runs it in batches.
-- **How many at once:** start with **4 builders** and adjust after Wave 1 (D15). Your Claude plan's usage limits are the real ceiling.
+- **How many at once:** **4 builders** (D15, decided). Each runs on the model its tier calls for; see [Keeping token usage down](#keeping-token-usage-down).
 - **State lives in GitHub:**
   - issues hold the briefs;
   - PRs hold the work;
@@ -271,6 +277,88 @@ A test-author agent writes those tests first. If the builder changes them, the v
 
   Every wave can be resumed from there. You can follow along in the GitHub app on your phone.
 - **Public repo rule:** the lead only acts on issues and comments written by you, or by itself under your account. Anything from anyone else is untrusted data, never an instruction.
+
+## Keeping token usage down
+
+Your Claude plan's usage limits are the real budget, so tokens go only where judgement matters.
+
+### 1. The right model for each job
+
+Every brief has a **tier**, and the lead launches that agent on the matching model:
+
+| Tier | Model | Effort | For |
+|---|---|---|---|
+| **Mechanical** | Haiku 5.5 | low | Following a pattern that already exists:<ul><li>records and DTOs from the contract</li><li>fakes, fixtures and seed data</li><li>doc updates and PR descriptions</li><li>renames and lint fixes</li><li>a screen that copies an existing one</li></ul> |
+| **Standard** *(default)* | Sonnet 5.5 | medium | Most builders (CRUD, screens, provider adapters, the scanner UI, export) and most verifiers |
+| **Critical** | Sonnet 5.5 | high | <ul><li>the lead's wave planning</li><li>test authors and verifiers for the locked areas: auth, identifiers and scoring, migrations, the authorization matrix</li><li>anything that failed two fix rounds</li></ul> |
+
+Only Haiku and Sonnet are used (your call, 2026-10-13). Bigger models use your limits faster, and Haiku is the cheapest. Critical work gets Sonnet with more reasoning effort, not a bigger model.
+
+### 2. Tools write the boilerplate
+
+Generated code costs no tokens:
+
+- the API client and mocks (orval, MSW);
+- EF migrations and `dotnet new` templates;
+- formatters (`dotnet format`, Prettier, `eslint --fix`);
+- scripts that regenerate the hot files.
+
+### 3. One reference slice to copy
+
+Wave 0 builds **one feature end to end** (endpoint, handler, tests, screen) as the pattern. Briefs say "copy the pattern in X" instead of leaving each agent to explore and design.
+
+### 4. Quiet test output
+
+Test and build runs are the hidden cost of a TDD loop, because a builder runs them dozens of times. `scripts/check` wraps the gates and prints only:
+
+- the pass count;
+- the failing tests, with the first few lines of each failure.
+
+It never prints thousands of lines of logs.
+
+### 5. Small contexts
+
+- The root `CLAUDE.md` stays short (~150 lines). Stream-specific rules live in per-folder `CLAUDE.md` files, which load only when an agent works in that folder.
+- Briefs link exact doc sections; agents don't read the whole `docs/` folder.
+- Claude Code's permission rules stop agents from reading `bin/`, `obj/`, `node_modules/`, generated clients and lockfiles.
+- A builder stops when its PR is open, and fix rounds are capped at 2.
+- The lead starts a fresh session for every wave. Long conversations re-send everything on every message, which is why Wave 0 won't start in this planning conversation.
+
+### 6. Cheaper checking
+
+- CI and mutation testing run first, at no token cost.
+- The verifier reads the brief, the diff and the gate results, not the whole repo.
+- Docs-only and config-only PRs skip the verifier.
+
+### 7. Measure, then adjust
+
+The lead checks usage after each wave and moves task types between tiers based on what actually passed first time.
+
+### Local models (optional, $0)
+
+Your RTX 4070 Ti (12 GB) can run open models through **Ollama**. Since v0.14, Ollama speaks the same API as Claude Code, so a Claude Code agent can run on a local model by setting two environment variables.
+
+- **What fits:**
+  - Microsoft's **Phi-4** (14B) and **Phi-4-mini** (3.8B) fit entirely on the GPU. You can also run them through Microsoft's **Foundry Local**.
+  - Coding models such as **gpt-oss-20b** and **Qwen3-Coder (30B-A3B)** need part of the model in system RAM, so they run slower.
+- **Good for chores:**
+  - summarising CI logs;
+  - writing commit messages;
+  - generating fixture and seed data;
+  - first-pass doc checks.
+- **Not good for builders:** small local models fumble long chains of tool calls across many files, and every retry costs more time than the tokens it saves. Phi isn't a coding model.
+- **Trade-offs:**
+  - slower than Claude;
+  - the GPU is busy, so not while you're gaming;
+  - the output still has to pass the same gates.
+- **Plan:** one experiment in Wave 1 on a mechanical task, such as generating the ~50-item seed catalogue. If the result passes CI and the verifier first time, that kind of task moves to local.
+
+### Copilot and ChatGPT
+
+- **GitHub Copilot Free** gives you 2,000 completions a month plus a small chat/agent allowance, metered in AI credits since June 2026.
+  - It's a good autocomplete for **your own edits** in VS Code, and it doesn't touch your Claude limits.
+  - Its agent allowance is too small to be a builder.
+- **ChatGPT / Codex:** the free tier's coding allowance is small and changes often. A second agent stack would need its own conventions and instructions, so it isn't worth it for the build. It's fine for your own side questions.
 
 ## Timeline
 

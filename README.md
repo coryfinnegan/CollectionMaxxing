@@ -75,7 +75,7 @@ These are the calls I could not make for you. Each one has a recommended default
 | D13 | ~~Keep the PC awake 24/7?~~ **Decided 2026-10-12: yes.** It's already on around the clock for Plex, ErsatzTV and Jellyfin, so it costs nothing extra. | Resolved |
 | D11 | ~~Artwork index platforms~~ **No longer needed.** With Apple frameworks only, there's no artwork index: the phone compares artwork against your own items and the top candidates. | Resolved |
 | D14 | ~~Public or private repo?~~ **Decided 2026-10-13: public.** CI and iOS builds are free with no limits. Because anyone can read it:<br/>• no secrets, photos or personal data go in the repo;<br/>• your PC pulls deploys, so nothing outside can push code to it;<br/>• agents only take briefs from you.<br/>See [ADR-022](docs/12-decision-log.md#adr-022-public-repository). | Resolved |
-| D15 | How many **agents at once**? Your Claude plan's usage limits are the real ceiling. | 4, adjusted after Wave 1 |
+| D15 | ~~How many agents at once?~~ **Decided 2026-10-13: 4.** Model tiers keep token use down: Haiku for mechanical work, Sonnet for everything else (high effort for risky areas). No Opus. See [13](docs/13-agent-orchestration.md#keeping-token-usage-down). | Resolved |
 | D16 | How hands-on? **(a)** approve each wave's plan, with a checkpoint after each wave; **(b)** the lead runs waves back to back and stops only at checkpoints | (a) |
 
 ## Repository layout (planned)
