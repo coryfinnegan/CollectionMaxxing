@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "cm-vision result shapes",
+  "description": "Single source of truth for what Swift returns. src/contract.ts, ios/CmVisionContract.swift and the fixtures are all checked against it.",
+  "$defs": {
+    "Rect": {
+      "description": "Normalised 0..1, origin top-left.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number" },
+        "height": { "type": "number" }
+      }
+    },
+    "TextLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "confidence", "box"],
+      "properties": {
+        "text": { "type": "string" },
+        "confidence": { "type": "number" },
+        "box": { "$ref": "#/$defs/Rect" }
+      }
+    },
+    "FeaturePrint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "data"],
+      "properties": {
+        "revision": { "type": "number" },
+        "data": { "type": "string", "description": "base64" }
+      }
+    },
+    "DetectedCode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "symbology", "bounds"],
+      "properties": {
+        "value": { "type": "string" },
+        "symbology": { "enum": ["ean-13", "ean-8", "upc-e", "qr", "code-128"] },
+        "bounds": { "$ref": "#/$defs/Rect" }
+      }
+    },
+    "FixtureRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capturedAt", "engine", "input", "output"],
+      "properties": {
+        "capturedAt": { "type": "string" },
+        "engine": { "type": "string" },
+        "input": {},
+        "output": {}
+      }
+    }
+  }
+}
