@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/CollectionMaxxing.AppHost/CollectionMaxxing.AppHost.csproj" />
     <Project Path="src/CollectionMaxxing.Api/CollectionMaxxing.Api.csproj" />
     <Project Path="src/CollectionMaxxing.Application/CollectionMaxxing.Application.csproj" />
     <Project Path="src/CollectionMaxxing.Domain/CollectionMaxxing.Domain.csproj" />

@@ -1,0 +1,20 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.1">
+
+  <!-- Development orchestration only: one F5 starts Postgres and the API. Never deployed. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- We run the AppHost from the IDE or `dotnet run`, never through the Aspire CLI bundle. -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CollectionMaxxing.Api\CollectionMaxxing.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+
+</Project>
