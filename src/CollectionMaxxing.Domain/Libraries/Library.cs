@@ -1,7 +1,7 @@
 namespace CollectionMaxxing.Domain.Libraries;
 
 /// <summary>The unit of sharing: everything a household owns lives in one library.</summary>
-public sealed class Library
+public sealed class Library : Common.IConcurrencyVersioned
 {
     public const int MaxNameLength = 100;
 
@@ -23,4 +23,6 @@ public sealed class Library
     public string Name { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
+
+    public uint Version { get; private set; }
 }

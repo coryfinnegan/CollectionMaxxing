@@ -236,4 +236,18 @@ public class LocationEndpointsTests(ApiFixture api) : ApiTest(api)
     }
 
     private static StringContent MergePatch(string json) => new(json, Encoding.UTF8, "application/merge-patch+json");
+
+    [Fact]
+    public async Task Deleting_a_location_that_holds_items_is_a_conflict_not_a_server_error()
+    {
+        var library = await CreateLibraryAsync();
+        var shelf = await TestData.CreateLocationAsync(Db, library.Id, "Shelf");
+        await TestData.CreateItemAsync(Db, library, locationId: shelf);
+
+        var response = await ClientFor(library, LibraryRole.Editor).DeleteAsync(LocationUrl(library.Id, shelf));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
+        (await ReadJsonAsync(response)).GetProperty("type").GetString().ShouldBe("urn:collectionmaxxing:problem:conflict.foreign_key");
+    }
 }

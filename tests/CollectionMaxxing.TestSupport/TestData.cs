@@ -1,6 +1,10 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Locations;
+using CollectionMaxxing.Domain.Scanning;
+using CollectionMaxxing.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.TestSupport;
@@ -36,6 +40,11 @@ public static class TestData
             Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7());
 
         await using var context = db.CreateContext();
+        foreach (var userId in new[] { library.OwnerId, library.EditorId, library.ViewerId, library.OutsiderId })
+        {
+            context.Users.Add(NewUser(userId));
+        }
+
         context.Libraries.Add(new Library(library.Id, name, Now));
         context.LibraryMembers.AddRange(
             new LibraryMember(library.Id, library.OwnerId, LibraryRole.Owner, Now),
@@ -43,6 +52,87 @@ public static class TestData
             new LibraryMember(library.Id, library.ViewerId, LibraryRole.Viewer, Now));
         await context.SaveChangesAsync();
         return library;
+    }
+
+    public static AppUser NewUser(Guid id) => new()
+    {
+        Id = id,
+        UserName = id.ToString("N"),
+        NormalizedUserName = id.ToString("N").ToUpperInvariant(),
+        DisplayName = "Test user",
+        CreatedAt = Now,
+    };
+
+    /// <summary>Adds a user who belongs to no library.</summary>
+    public static async Task<Guid> CreateUserAsync(PostgresFixture db)
+    {
+        var id = Guid.CreateVersion7();
+        await using var context = db.CreateContext();
+        context.Users.Add(NewUser(id));
+        await context.SaveChangesAsync();
+        return id;
+    }
+
+    /// <summary>Adds a work with one release. A release owned by a library is private to it; otherwise it is global.</summary>
+    public static async Task<Guid> CreateReleaseAsync(PostgresFixture db, Guid? ownerLibraryId = null)
+    {
+        var work = new Work { Id = Guid.CreateVersion7(), Kind = WorkKind.Film, Title = "Jurassic Park", SortTitle = "Jurassic Park", NormalizedTitle = "jurassic park", CreatedAt = Now };
+        var release = new Release
+        {
+            Id = Guid.CreateVersion7(),
+            WorkId = work.Id,
+            Format = ReleaseFormat.Dvd,
+            Source = ReleaseSource.Provider,
+            OwnerLibraryId = ownerLibraryId,
+            CreatedAt = Now,
+        };
+
+        await using var context = db.CreateContext();
+        context.Works.Add(work);
+        context.Releases.Add(release);
+        await context.SaveChangesAsync();
+        return release.Id;
+    }
+
+    /// <summary>Adds an item (of a fresh release unless one is given) and returns its id.</summary>
+    public static async Task<Guid> CreateItemAsync(PostgresFixture db, TestLibrary library, Guid? releaseId = null, Guid? locationId = null)
+    {
+        var item = new Item
+        {
+            Id = Guid.CreateVersion7(),
+            LibraryId = library.Id,
+            ReleaseId = releaseId ?? await CreateReleaseAsync(db),
+            LocationId = locationId,
+            Status = ItemStatus.Owned,
+            CoverChoice = CoverChoice.Release,
+            AddedVia = AddedVia.Manual,
+            CreatedAt = Now,
+            CreatedBy = library.OwnerId,
+            UpdatedAt = Now,
+        };
+
+        await using var context = db.CreateContext();
+        context.Items.Add(item);
+        await context.SaveChangesAsync();
+        return item.Id;
+    }
+
+    /// <summary>Adds an open scan session started by the library's editor and returns its id.</summary>
+    public static async Task<Guid> CreateScanSessionAsync(PostgresFixture db, TestLibrary library)
+    {
+        var session = new ScanSession
+        {
+            Id = Guid.CreateVersion7(),
+            LibraryId = library.Id,
+            UserId = library.EditorId,
+            Status = ScanSessionStatus.Open,
+            CreatedAt = Now,
+        };
+
+        await using var context = db.CreateContext();
+        context.ScanSessions.Add(session);
+        await context.SaveChangesAsync();
+        return session.Id;
     }
 
     /// <summary>Adds a location through the domain rules and returns its id.</summary>

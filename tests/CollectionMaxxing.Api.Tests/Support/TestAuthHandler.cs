@@ -7,7 +7,8 @@ using Microsoft.Extensions.Options;
 namespace CollectionMaxxing.Api.Tests.Support;
 
 /// <summary>
-/// The test sign-in: the caller's user id travels in the <c>X-Test-User</c> header. No header means anonymous.
+/// The test sign-in: the caller's user id travels in the <c>X-Test-User</c> header, and any platform roles (e.g. <c>admin</c>,
+/// comma separated) in <c>X-Test-Roles</c>. No user header means anonymous.
 /// Real sign-in (passkeys, pairing) arrives in a later task; every test written against this keeps working.
 /// </summary>
 public sealed class TestAuthHandler(
@@ -18,6 +19,7 @@ public sealed class TestAuthHandler(
 {
     public const string SchemeName = "Test";
     public const string UserHeader = "X-Test-User";
+    public const string RolesHeader = "X-Test-Roles";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -26,7 +28,14 @@ public sealed class TestAuthHandler(
             return Task.FromResult(AuthenticateResult.NoResult());
         }
 
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, value.ToString())], SchemeName);
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, value.ToString()) };
+        if (Request.Headers.TryGetValue(RolesHeader, out var roles))
+        {
+            claims.AddRange(roles.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(role => new Claim(ClaimTypes.Role, role)));
+        }
+
+        var identity = new ClaimsIdentity(claims, SchemeName);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }

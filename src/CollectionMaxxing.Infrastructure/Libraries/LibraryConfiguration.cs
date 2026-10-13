@@ -1,4 +1,5 @@
 using CollectionMaxxing.Domain.Libraries;
+using CollectionMaxxing.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -36,5 +37,9 @@ internal sealed class LibraryMemberConfiguration : IEntityTypeConfiguration<Libr
             .IsUnique();
 
         builder.HasOne<Library>().WithMany().HasForeignKey(m => m.LibraryId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<AppUser>().WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Cascade);
+
+        // "Which libraries is this user in?" is asked on every request.
+        builder.HasIndex(m => m.UserId);
     }
 }

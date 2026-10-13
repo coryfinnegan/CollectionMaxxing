@@ -19,6 +19,9 @@ public static class DependencyInjection
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IIdGenerator, Uuid7IdGenerator>();
 
+        // Identity maps its passkey table only for store schema version 3; the model needs to see that setting.
+        services.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(AppDbContextOptions.ConfigureIdentityStores);
+
         // The connection string is read when the context is first used, not at startup, so tools that start the
         // app without a database (OpenAPI generation, `dotnet ef`) still work.
         services.AddDbContext<AppDbContext>((provider, options) =>

@@ -8,40 +8,113 @@ namespace CollectionMaxxing.Infrastructure.Tests.Persistence;
 
 public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
 {
-    [Fact]
-    public async Task Migrations_create_exactly_the_tables_of_this_slice_with_snake_case_names()
+    /// <summary>Every table of the v1 schema (docs/03), including those ASP.NET Core Identity and OpenIddict bring along.</summary>
+    private static readonly string[] ExpectedTables =
+    [
+        // Identity and tenancy
+        "users", "roles", "user_roles", "user_claims", "role_claims", "user_logins", "user_tokens", "user_passkeys",
+        "openiddict_applications", "openiddict_authorizations", "openiddict_scopes", "openiddict_tokens",
+        "device_pairings", "setup_codes", "libraries", "library_members", "library_invites",
+
+        // Catalogue
+        "works", "releases", "release_identifiers", "assets", "platforms", "provider_cache", "provider_quota",
+
+        // Your stuff
+        "items", "locations", "tags", "item_tags", "item_feature_prints",
+
+        // Scanning and operations
+        "scan_sessions", "scan_snaps", "scan_candidates", "jobs", "match_feedback", "audit_events", "idempotency_keys",
+    ];
+
+    private async Task<List<string>> QueryStringsAsync(string sql)
     {
         await using var connection = new NpgsqlConnection(Db.ConnectionString);
         await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(
-            "select table_name from information_schema.tables where table_schema = 'public' order by 1", connection);
+        await using var command = new NpgsqlCommand(sql, connection);
 
-        var tables = new List<string>();
+        var values = new List<string>();
         await using var reader = await command.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            tables.Add(reader.GetString(0));
+            values.Add(reader.GetString(0));
         }
 
-        tables.ShouldBe(["__EFMigrationsHistory", "library_members", "libraries", "locations"], ignoreOrder: true);
+        return values;
+    }
+
+    [Fact]
+    public async Task Migrations_create_exactly_the_tables_of_docs_03_with_snake_case_names()
+    {
+        var tables = await QueryStringsAsync("select table_name from information_schema.tables where table_schema = 'public' order by 1");
+
+        tables.ShouldBe([.. ExpectedTables, "__EFMigrationsHistory"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public void The_migration_snapshot_matches_the_model()
+    {
+        // docs/03: CI checks that the model snapshot has no pending changes. Add a migration when the model changes.
+        using var context = Db.CreateContext();
+
+        context.Database.HasPendingModelChanges().ShouldBeFalse("Run `dotnet ef migrations add <Name>` for the model change.");
     }
 
     [Fact]
     public async Task Columns_use_snake_case()
     {
-        await using var connection = new NpgsqlConnection(Db.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(
-            "select column_name from information_schema.columns where table_name = 'locations' order by 1", connection);
-
-        var columns = new List<string>();
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            columns.Add(reader.GetString(0));
-        }
+        var columns = await QueryStringsAsync("select column_name from information_schema.columns where table_name = 'locations' order by 1");
 
         columns.ShouldBe(["id", "library_id", "name", "parent_id", "sort_order"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Every_table_and_column_name_is_lower_snake_case()
+    {
+        var offenders = await QueryStringsAsync(
+            """
+            select table_name || '.' || column_name from information_schema.columns
+            where table_schema = 'public' and table_name <> '__EFMigrationsHistory' and column_name !~ '^[a-z][a-z0-9_]*$'
+            """);
+
+        offenders.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task The_trigram_and_case_insensitive_text_extensions_are_installed()
+    {
+        var extensions = await QueryStringsAsync("select extname from pg_extension");
+
+        extensions.ShouldContain("pg_trgm");
+        extensions.ShouldContain("citext");
+    }
+
+    [Fact]
+    public async Task Titles_are_searchable_by_trigram_similarity_through_gin_indexes()
+    {
+        var definitions = await QueryStringsAsync("select indexdef from pg_indexes where schemaname = 'public'");
+
+        definitions.ShouldContain(d => d.Contains("ON public.works USING gin (normalized_title gin_trgm_ops)", StringComparison.Ordinal));
+        definitions.ShouldContain(d => d.Contains("ON public.items USING gin (custom_title gin_trgm_ops)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Passkeys_are_stored_for_users()
+    {
+        var columns = await QueryStringsAsync("select column_name from information_schema.columns where table_name = 'user_passkeys'");
+
+        columns.ShouldContain("credential_id");
+        columns.ShouldContain("user_id");
+    }
+
+    [Fact]
+    public async Task Users_have_a_display_name_and_an_optional_email()
+    {
+        var nullable = await QueryStringsAsync(
+            "select column_name || ':' || is_nullable from information_schema.columns where table_name = 'users'");
+
+        nullable.ShouldContain("display_name:NO");
+        nullable.ShouldContain("email:YES");
+        nullable.ShouldContain("deleted_at:YES");
     }
 
     [Fact]
@@ -49,15 +122,7 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
     {
         await TestData.CreateLibraryAsync(Db);
 
-        await using var connection = new NpgsqlConnection(Db.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand("select role from library_members order by 1", connection);
-        var roles = new List<string>();
-        await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            roles.Add(reader.GetString(0));
-        }
+        var roles = await QueryStringsAsync("select role from library_members order by 1");
 
         roles.ShouldBe(["editor", "owner", "viewer"]);
     }
@@ -66,11 +131,23 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
     public async Task A_library_can_have_only_one_owner()
     {
         var library = await TestData.CreateLibraryAsync(Db);
+        var anotherUser = await TestData.CreateUserAsync(Db);
 
         await using var context = Db.CreateContext();
-        context.LibraryMembers.Add(new LibraryMember(library.Id, Guid.CreateVersion7(), LibraryRole.Owner, DateTimeOffset.UnixEpoch));
+        context.LibraryMembers.Add(new LibraryMember(library.Id, anotherUser, LibraryRole.Owner, DateTimeOffset.UnixEpoch));
 
         await Should.ThrowAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task A_member_must_be_a_real_user()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+
+        await using var context = Db.CreateContext();
+        context.LibraryMembers.Add(new LibraryMember(library.Id, Guid.CreateVersion7(), LibraryRole.Viewer, DateTimeOffset.UnixEpoch));
+
+        await SchemaAssert.FailsWithAsync(PostgresErrorCodes.ForeignKeyViolation, () => context.SaveChangesAsync());
     }
 
     [Fact]
@@ -84,7 +161,20 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
         var tree = new LocationTree(library.Id, []);
         context.Locations.Add(tree.Add(Guid.CreateVersion7(), null, "Garage", null).Value);
 
-        await Should.ThrowAsync<DbUpdateException>(() => context.SaveChangesAsync());
+        await SchemaAssert.FailsWithAsync(PostgresErrorCodes.UniqueViolation, () => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Location_names_are_unique_ignoring_case_even_when_the_domain_check_is_bypassed()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        await TestData.CreateLocationAsync(Db, library.Id, "Garage");
+
+        await using var context = Db.CreateContext();
+        var tree = new LocationTree(library.Id, []);
+        context.Locations.Add(tree.Add(Guid.CreateVersion7(), null, "GARAGE", null).Value);
+
+        await SchemaAssert.FailsWithAsync(PostgresErrorCodes.UniqueViolation, () => context.SaveChangesAsync());
     }
 
     [Fact]
@@ -108,6 +198,55 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
         var roomRow = await context.Locations.SingleAsync(l => l.Id == room);
         context.Locations.Remove(roomRow);
 
-        await Should.ThrowAsync<DbUpdateException>(() => context.SaveChangesAsync());
+        await SchemaAssert.FailsWithAsync(PostgresErrorCodes.ForeignKeyViolation, () => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task A_location_cannot_have_a_parent_in_another_library_even_when_the_domain_check_is_bypassed()
+    {
+        var mine = await TestData.CreateLibraryAsync(Db);
+        var theirs = await TestData.CreateLibraryAsync(Db);
+        var theirRoom = await TestData.CreateLocationAsync(Db, theirs.Id, "Room");
+
+        await using var context = Db.CreateContext();
+        var hijacked = new LocationTree(mine.Id, []).Add(Guid.CreateVersion7(), null, "Shelf", null).Value;
+        context.Locations.Add(hijacked);
+        context.Entry(hijacked).Property(l => l.ParentId).CurrentValue = theirRoom;
+
+        await SchemaAssert.FailsWithAsync(PostgresErrorCodes.ForeignKeyViolation, () => context.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task An_item_cannot_be_put_in_a_location_of_another_library()
+    {
+        var mine = await TestData.CreateLibraryAsync(Db);
+        var theirs = await TestData.CreateLibraryAsync(Db);
+        var theirRoom = await TestData.CreateLocationAsync(Db, theirs.Id, "Room");
+
+        await SchemaAssert.FailsWithAsync(
+            PostgresErrorCodes.ForeignKeyViolation,
+            () => TestData.CreateItemAsync(Db, mine, locationId: theirRoom));
+    }
+
+    [Fact]
+    public async Task An_item_can_be_put_in_a_location_of_its_own_library()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var room = await TestData.CreateLocationAsync(Db, library.Id, "Room");
+
+        await TestData.CreateItemAsync(Db, library, locationId: room);
+    }
+
+    [Fact]
+    public async Task A_location_that_holds_items_cannot_be_deleted()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var room = await TestData.CreateLocationAsync(Db, library.Id, "Room");
+        await TestData.CreateItemAsync(Db, library, locationId: room);
+
+        await using var context = Db.CreateContext(library.ActingAs(LibraryRole.Owner));
+        context.Locations.Remove(await context.Locations.SingleAsync(l => l.Id == room));
+
+        await SchemaAssert.FailsWithAsync(PostgresErrorCodes.ForeignKeyViolation, () => context.SaveChangesAsync());
     }
 }

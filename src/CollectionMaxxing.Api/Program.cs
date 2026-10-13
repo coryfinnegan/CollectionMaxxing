@@ -1,6 +1,15 @@
 using CollectionMaxxing.Api.Accounts;
+using CollectionMaxxing.Api.Admin;
+using CollectionMaxxing.Api.Auth;
+using CollectionMaxxing.Api.Catalog;
 using CollectionMaxxing.Api.Foundation;
+using CollectionMaxxing.Api.Invites;
+using CollectionMaxxing.Api.Items;
+using CollectionMaxxing.Api.Libraries;
 using CollectionMaxxing.Api.Locations;
+using CollectionMaxxing.Api.Ownership;
+using CollectionMaxxing.Api.Scanning;
+using CollectionMaxxing.Api.Tags;
 using CollectionMaxxing.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,7 +19,16 @@ builder.AddServiceDefaults();
 builder.Services.AddApiFoundation();
 builder.Services.AddInfrastructure();
 builder.Services.AddAccounts();
+builder.Services.AddSignIn();
+builder.Services.AddInvites();
+builder.Services.AddLibraries();
 builder.Services.AddLocations();
+builder.Services.AddItems();
+builder.Services.AddTags();
+builder.Services.AddOwnership();
+builder.Services.AddScanning();
+builder.Services.AddCatalog();
+builder.Services.AddAdmin();
 
 var app = builder.Build();
 
@@ -19,7 +37,16 @@ app.UseApiFoundation();
 // Then one MapX() per feature.
 app.MapDefaultEndpoints();
 app.MapAccountEndpoints();
+app.MapSignInEndpoints();
+app.MapInviteEndpoints();
+app.MapLibraryEndpoints();
 app.MapLocationEndpoints();
+app.MapItemEndpoints();
+app.MapTagEndpoints();
+app.MapOwnershipEndpoints();
+app.MapScanningEndpoints();
+app.MapCatalogEndpoints();
+app.MapAdminEndpoints();
 
 app.Run();
 

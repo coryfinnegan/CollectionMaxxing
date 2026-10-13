@@ -1,0 +1,62 @@
+using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Items;
+
+namespace CollectionMaxxing.Application.Items;
+
+// Response shapes of the items endpoints (docs/04). Fields are the contract: change them deliberately.
+
+/// <summary>An item as it appears in a list: enough to draw a row or a card.</summary>
+public sealed record ItemSummaryDto(
+    Guid Id,
+    Guid ReleaseId,
+    Guid WorkId,
+    string Title,
+    WorkKind Kind,
+    ReleaseFormat Format,
+    string? Platform,
+    int? Year,
+    ItemStatus Status,
+    ItemCondition? Condition,
+    Guid? LocationId,
+    string? CoverUrl,
+    DateTimeOffset CreatedAt);
+
+/// <summary>Your copy of a release.</summary>
+public sealed record ItemDto(
+    Guid Id,
+    Guid ReleaseId,
+    ItemStatus Status,
+    ItemCondition? Condition,
+    ItemCompleteness? Completeness,
+    Guid? LocationId,
+    string? Notes,
+    DateOnly? AcquiredOn,
+    string? LentTo,
+    DateOnly? LentOn,
+    string? CustomTitle,
+    Guid? CustomCoverAssetId,
+    CoverChoice CoverChoice,
+    AddedVia AddedVia,
+    IReadOnlyList<Guid> TagIds,
+    DateTimeOffset CreatedAt,
+    Guid CreatedBy,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? DeletedAt);
+
+/// <summary>Another copy of the same work that the library owns (maybe on a different format).</summary>
+public sealed record OtherCopyDto(Guid ItemId, Guid ReleaseId, ReleaseFormat Format, string? Platform, ItemStatus Status, Guid? LocationId);
+
+/// <summary>An item with its work and release, and the other copies of that work.</summary>
+public sealed record ItemDetailDto(ItemDto Item, WorkDto Work, ReleaseDto Release, IReadOnlyList<OtherCopyDto> OtherCopies);
+
+/// <summary>What a bulk change did.</summary>
+public sealed record BulkItemsResultDto(int Affected);
+
+/// <summary>Counts for the library's stats screen.</summary>
+public sealed record StatsDto(
+    int Total,
+    IReadOnlyDictionary<string, int> ByKind,
+    IReadOnlyDictionary<string, int> ByFormat,
+    IReadOnlyDictionary<string, int> ByPlatform,
+    IReadOnlyDictionary<string, int> ByDecade);

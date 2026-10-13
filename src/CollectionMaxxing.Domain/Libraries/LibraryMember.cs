@@ -3,7 +3,7 @@ using CollectionMaxxing.Domain.Common;
 namespace CollectionMaxxing.Domain.Libraries;
 
 /// <summary>A user's membership of a library, with their role. A library has exactly one owner.</summary>
-public sealed class LibraryMember : ILibraryScoped
+public sealed class LibraryMember : ILibraryScoped, IConcurrencyVersioned
 {
     // EF Core materialises entities through this constructor.
     private LibraryMember()
@@ -26,4 +26,6 @@ public sealed class LibraryMember : ILibraryScoped
     public LibraryRole Role { get; private set; }
 
     public DateTimeOffset JoinedAt { get; private set; }
+
+    public uint Version { get; private set; }
 }

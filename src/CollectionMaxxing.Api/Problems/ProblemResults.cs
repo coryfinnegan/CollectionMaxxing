@@ -17,6 +17,14 @@ public static class ProblemResults
             type: code is null ? null : TypeFor(code),
             extensions: Extensions(code));
 
+    /// <summary>501: the endpoint is in the v1 contract but nobody has built it yet. The one helper every stub uses.</summary>
+    public static IResult NotImplemented() =>
+        Problem(
+            StatusCodes.Status501NotImplemented,
+            "Not implemented",
+            "This endpoint is part of the v1 contract but has not been built yet.",
+            "not_implemented");
+
     /// <summary>Turns a business-rule failure into 400 (validation), 404 (not found) or 409 (conflict).</summary>
     public static IResult ToProblem(this DomainError error) => error.Kind switch
     {

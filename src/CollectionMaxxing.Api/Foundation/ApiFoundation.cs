@@ -24,6 +24,8 @@ public static class ApiFoundation
         // A malformed body is a 400 in every environment (by default Development throws instead, which becomes a 500).
         services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
         services.AddExceptionHandler<UniqueViolationExceptionHandler>();
+        services.AddExceptionHandler<ForeignKeyViolationExceptionHandler>();
+        services.AddExceptionHandler<ConcurrentUpdateExceptionHandler>();
 
         services.AddApiAuth();
 
