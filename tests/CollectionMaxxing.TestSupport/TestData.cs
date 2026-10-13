@@ -163,4 +163,40 @@ public static class TestData
             .ThenBy(l => l.Name)
             .ToListAsync();
     }
+
+    /// <summary>Adds a tag straight to the table and returns its id. Names are unique per library, ignoring case.</summary>
+    public static async Task<Guid> CreateTagAsync(PostgresFixture db, Guid libraryId, string name)
+    {
+        var tag = new Tag { Id = Guid.CreateVersion7(), LibraryId = libraryId, Name = name };
+
+        await using var context = db.CreateContext();
+        context.Tags.Add(tag);
+        await context.SaveChangesAsync();
+        return tag.Id;
+    }
+
+    /// <summary>Puts a tag on an item, in the same library.</summary>
+    public static async Task AttachTagAsync(PostgresFixture db, Guid libraryId, Guid itemId, Guid tagId)
+    {
+        await using var context = db.CreateContext();
+        context.ItemTags.Add(new ItemTag { LibraryId = libraryId, ItemId = itemId, TagId = tagId });
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>Counts a library's item-tag links straight from the table, ignoring the caller filter.</summary>
+    public static async Task<int> CountItemTagsAsync(PostgresFixture db, Guid libraryId)
+    {
+        await using var context = db.CreateContext();
+        return await context.ItemTags.IgnoreQueryFilters().CountAsync(t => t.LibraryId == libraryId);
+    }
+
+    /// <summary>Reads a library's tag names straight from the table, ignoring the caller filter.</summary>
+    public static async Task<List<string>> ReadTagNamesAsync(PostgresFixture db, Guid libraryId)
+    {
+        await using var context = db.CreateContext();
+        return await context.Tags.IgnoreQueryFilters().AsNoTracking()
+            .Where(t => t.LibraryId == libraryId)
+            .Select(t => t.Name)
+            .ToListAsync();
+    }
 }
