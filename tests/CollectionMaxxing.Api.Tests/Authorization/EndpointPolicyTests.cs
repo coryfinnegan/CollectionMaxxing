@@ -50,18 +50,27 @@ public class EndpointPolicyTests(ApiFixture api)
     }
 
     [Fact]
-    public void Every_protected_endpoint_has_a_row_in_the_authorization_matrix()
+    public void Every_endpoint_has_a_row_in_the_authorization_matrix_anonymous_ones_included()
     {
         var covered = AuthorizationMatrix.Cases.Select(c => (c.Method, c.Route)).ToHashSet();
 
         var missing = AllEndpoints()
-            .Where(e => !AllowsAnonymous(e))
+            .Where(e => !AuthorizationMatrix.NotInMatrix.Contains(e.RoutePattern.RawText!))
             .SelectMany(e => HttpMethods(e).Select(method => (Method: method, Route: e.RoutePattern.RawText!)))
             .Where(endpoint => !covered.Contains(endpoint))
             .Select(endpoint => $"{endpoint.Method} {endpoint.Route}")
             .ToList();
 
         missing.ShouldBeEmpty("Add a row for each of these to AuthorizationMatrix.Cases.");
+    }
+
+    [Fact]
+    public void The_matrix_lets_anonymous_callers_through_on_exactly_the_allow_listed_endpoints()
+    {
+        var anonymousRows = AuthorizationMatrix.Cases.Where(c => c.Anonymous != 401).Select(c => c.Route).Distinct().Order().ToList();
+        var allowedRoutes = AuthorizationMatrix.AnonymousAllowList.Except(AuthorizationMatrix.NotInMatrix).Order().ToList();
+
+        anonymousRows.ShouldBe(allowedRoutes);
     }
 
     [Fact]
@@ -74,6 +83,34 @@ public class EndpointPolicyTests(ApiFixture api)
         var stale = AuthorizationMatrix.Cases.Where(c => !real.Contains((c.Method, c.Route))).Select(c => c.Name).ToList();
 
         stale.ShouldBeEmpty("These matrix rows don't match any endpoint (renamed or removed?).");
+    }
+
+    [Fact]
+    public void Scan_session_endpoints_declare_the_minimum_role_they_need_in_the_sessions_library()
+    {
+        var sessionEndpoints = AllEndpoints()
+            .Where(e => e.RoutePattern.RawText!.StartsWith("/api/v1/scan-sessions/", StringComparison.Ordinal))
+            .ToList();
+
+        sessionEndpoints.ShouldNotBeEmpty();
+        sessionEndpoints
+            .Where(e => e.Metadata.GetMetadata<RequireScanSessionRoleMetadata>() is null)
+            .Select(Describe)
+            .ShouldBeEmpty("Endpoints under /scan-sessions/{id} must call RequireScanSessionRole.");
+    }
+
+    [Fact]
+    public void Admin_endpoints_require_the_admin_policy()
+    {
+        var adminEndpoints = AllEndpoints()
+            .Where(e => e.RoutePattern.RawText!.StartsWith("/api/admin/", StringComparison.Ordinal))
+            .ToList();
+
+        adminEndpoints.ShouldNotBeEmpty();
+        adminEndpoints
+            .Where(e => !e.Metadata.GetOrderedMetadata<IAuthorizeData>().Any(a => a.Policy == Policies.Admin))
+            .Select(Describe)
+            .ShouldBeEmpty("Endpoints under /api/admin must require the admin policy.");
     }
 
     [Fact]

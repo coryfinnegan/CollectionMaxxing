@@ -17,7 +17,8 @@ public static class AuthSetup
 
         // Deny by default: an endpoint with no authorization metadata still needs a signed-in user.
         services.AddAuthorizationBuilder()
-            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())
+            .AddPolicy(Policies.Admin, policy => policy.RequireAuthenticatedUser().RequireRole(Roles.Admin));
         services.AddSingleton<IAuthorizationHandler, LibraryRoleHandler>();
         return services;
     }

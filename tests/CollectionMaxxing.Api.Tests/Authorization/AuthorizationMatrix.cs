@@ -1,3 +1,5 @@
+using CollectionMaxxing.Domain.Libraries;
+
 namespace CollectionMaxxing.Api.Tests.Authorization;
 
 /// <summary>The kinds of caller the matrix tries against every endpoint.</summary>
@@ -17,12 +19,16 @@ public enum Actor
 
     /// <summary>The owner of the library under test.</summary>
     Owner,
+
+    /// <summary>A signed-in platform administrator who belongs to no library: the admin role is not a library role.</summary>
+    Admin,
 }
 
 /// <summary>
 /// One endpoint and the HTTP status each kind of caller must get. <c>Route</c> is the route template exactly as
-/// the endpoint declares it; <c>{libraryId}</c> and <c>{id}</c> are filled in with a seeded library and location
-/// (see <see cref="AuthorizationMatrixTests"/> for how to seed more).
+/// the endpoint declares it; route values are filled in with seeded ids (see <see cref="AuthorizationMatrixTests"/>
+/// for how to seed more). <c>Query</c> and <c>Headers</c> are what a valid call needs besides its body.
+/// While an endpoint is a stub, "allowed" means 501; when a stream builds it, change that column to its real status.
 /// </summary>
 public sealed record EndpointCase(
     string Method,
@@ -34,6 +40,13 @@ public sealed record EndpointCase(
     int Editor,
     int Owner)
 {
+    /// <summary>What a platform admin gets. Defaults to what any other non-member gets.</summary>
+    public int? Admin { get; init; }
+
+    public string? Query { get; init; }
+
+    public IReadOnlyDictionary<string, string>? Headers { get; init; }
+
     public string Name => $"{Method} {Route}";
 
     public int ExpectedFor(Actor actor) => actor switch
@@ -43,6 +56,7 @@ public sealed record EndpointCase(
         Actor.Viewer => Viewer,
         Actor.Editor => Editor,
         Actor.Owner => Owner,
+        Actor.Admin => Admin ?? OtherUser,
         _ => throw new ArgumentOutOfRangeException(nameof(actor)),
     };
 }
@@ -53,8 +67,32 @@ public sealed record EndpointCase(
 /// </summary>
 public static class AuthorizationMatrix
 {
-    /// <summary>Endpoints that may be called without signing in. Anything else must require a signed-in caller.</summary>
+    /// <summary>
+    /// Endpoints that may be called without signing in (docs/07, "Proving it: tests"). Anything else must require a
+    /// signed-in caller. Each of these is a row below whose Anonymous column is not 401.
+    /// </summary>
     public static readonly IReadOnlyList<string> AnonymousAllowList =
+    [
+        "/health/live",
+        "/health/ready",
+        "/openapi/{documentName}.json",
+
+        // Sign-in, setup, recovery and joining by invite: the ceremonies that create the signed-in caller.
+        "/setup",
+        "/account/login",
+        "/account/recover",
+        "/account/passkey/creation-options",
+        "/account/passkey/request-options",
+        "/account/passkey/register",
+        "/join/{token}",
+
+        // OpenIddict's token endpoints (the iPhone redeems its pairing here).
+        "/connect/token",
+        "/connect/revoke",
+    ];
+
+    /// <summary>Platform plumbing that isn't part of the API contract, so it has no matrix row.</summary>
+    public static readonly IReadOnlyList<string> NotInMatrix =
     [
         "/health/live",
         "/health/ready",
@@ -62,16 +100,141 @@ public static class AuthorizationMatrix
     ];
 
     private const string Libraries = "/api/v1/libraries/{libraryId:guid}";
+    private const string Sessions = "/api/v1/scan-sessions/{id:guid}";
+
+    private const int Ok = 200;
+    private const int Created = 201;
+    private const int NoContent = 204;
+    private const int Unauthorized = 401;
+    private const int Forbidden = 403;
+    private const int NotFound = 404;
+    private const int Stub = 501;
+
+    private const string Json = "{}";
+
+    private static readonly IReadOnlyDictionary<string, string> Idempotent = new Dictionary<string, string> { ["Idempotency-Key"] = "test-key-1" };
+    private static readonly IReadOnlyDictionary<string, string> IfMatch = new Dictionary<string, string> { ["If-Match"] = "\"1\"" };
+
+    /// <summary>Anonymous: 401. Any signed-in caller: <paramref name="allowed"/>.</summary>
+    private static EndpointCase SignedIn(string method, string route, string? body = null, int allowed = Stub, string? query = null) =>
+        new(method, route, body, Unauthorized, allowed, allowed, allowed, allowed) { Admin = allowed, Query = query };
+
+    /// <summary>Anyone at all, anonymous included, gets <paramref name="allowed"/>.</summary>
+    private static EndpointCase Anyone(string method, string route, string? body = null) =>
+        new(method, route, body, Stub, Stub, Stub, Stub, Stub) { Admin = Stub };
+
+    /// <summary>Library endpoint: not a member 404, role below <paramref name="minimum"/> 403, otherwise <paramref name="allowed"/>.</summary>
+    private static EndpointCase InLibrary(
+        string method,
+        string route,
+        LibraryRole minimum,
+        string? body = null,
+        int allowed = Stub,
+        string? query = null,
+        IReadOnlyDictionary<string, string>? headers = null) =>
+        new(
+            method,
+            route,
+            body,
+            Unauthorized,
+            NotFound,
+            minimum <= LibraryRole.Viewer ? allowed : Forbidden,
+            minimum <= LibraryRole.Editor ? allowed : Forbidden,
+            allowed)
+        { Query = query, Headers = headers };
+
+    /// <summary>Platform admin only: any other signed-in caller, library owners included, gets 403.</summary>
+    private static EndpointCase AdminOnly(string method, string route) =>
+        new(method, route, null, Unauthorized, Forbidden, Forbidden, Forbidden, Forbidden) { Admin = Stub };
 
     public static readonly IReadOnlyList<EndpointCase> Cases =
     [
-        //            method    route                                  body                       anon other viewer editor owner
-        new EndpointCase("GET",    "/api/v1/me",                       null,                        401, 200, 200, 200, 200),
+        // ---- Account and session (ID) ----------------------------------------------------------------------
+        new EndpointCase("GET", "/api/v1/me", null, Unauthorized, Ok, Ok, Ok, Ok) { Admin = Ok },
+        SignedIn("PATCH", "/api/v1/me", Json),
+        SignedIn("DELETE", "/api/v1/me"),
+        SignedIn("GET", "/api/v1/me/sessions"),
+        SignedIn("DELETE", "/api/v1/me/sessions/{id:guid}"),
+        SignedIn("POST", "/api/v1/me/devices/pair"),
+        SignedIn("GET", "/api/v1/me/export"),
 
-        new EndpointCase("GET",    $"{Libraries}/locations",           null,                        401, 404, 200, 200, 200),
-        new EndpointCase("POST",   $"{Libraries}/locations",           """{ "name": "New shelf" }""", 401, 404, 403, 201, 201),
-        new EndpointCase("PATCH",  $"{Libraries}/locations/{{id:guid}}", """{ "name": "Renamed" }""", 401, 404, 403, 200, 200),
-        new EndpointCase("DELETE", $"{Libraries}/locations/{{id:guid}}", null,                      401, 404, 403, 204, 204),
+        // ---- Sign-in, setup, recovery, tokens (ID): the only anonymous endpoints ---------------------------
+        Anyone("POST", "/connect/token"),
+        Anyone("POST", "/connect/revoke"),
+        Anyone("GET", "/setup"),
+        Anyone("POST", "/setup", Json),
+        Anyone("GET", "/account/login"),
+        Anyone("POST", "/account/login", Json),
+        SignedIn("POST", "/account/logout"),
+        Anyone("POST", "/account/passkey/creation-options", Json),
+        Anyone("POST", "/account/passkey/request-options"),
+        Anyone("POST", "/account/passkey/register", Json),
+        Anyone("POST", "/account/recover", Json),
+        Anyone("GET", "/join/{token}"),
+
+        // ---- Libraries and members (LIB), invites (ID) -----------------------------------------------------
+        SignedIn("GET", "/api/v1/libraries"),
+        InLibrary("GET", Libraries, LibraryRole.Viewer),
+        InLibrary("PATCH", Libraries, LibraryRole.Owner, Json),
+        InLibrary("GET", $"{Libraries}/members", LibraryRole.Viewer),
+        InLibrary("PATCH", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner, Json),
+        InLibrary("DELETE", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner),
+        InLibrary("GET", $"{Libraries}/invites", LibraryRole.Owner),
+        InLibrary("POST", $"{Libraries}/invites", LibraryRole.Owner, Json),
+        InLibrary("DELETE", $"{Libraries}/invites/{{id:guid}}", LibraryRole.Owner),
+
+        // ---- Locations (LIB): built ------------------------------------------------------------------------
+        InLibrary("GET", $"{Libraries}/locations", LibraryRole.Viewer, allowed: Ok),
+        InLibrary("POST", $"{Libraries}/locations", LibraryRole.Editor, """{ "name": "New shelf" }""", Created),
+        InLibrary("PATCH", $"{Libraries}/locations/{{id:guid}}", LibraryRole.Editor, """{ "name": "Renamed" }""", Ok),
+        InLibrary("DELETE", $"{Libraries}/locations/{{id:guid}}", LibraryRole.Editor, allowed: NoContent),
+
+        // ---- Items, stats (LIB) ----------------------------------------------------------------------------
+        InLibrary("GET", $"{Libraries}/items", LibraryRole.Viewer),
+        InLibrary("POST", $"{Libraries}/items", LibraryRole.Editor, Json, headers: Idempotent),
+        InLibrary("GET", $"{Libraries}/items/{{id:guid}}", LibraryRole.Viewer),
+        InLibrary("PATCH", $"{Libraries}/items/{{id:guid}}", LibraryRole.Editor, Json, headers: IfMatch),
+        InLibrary("DELETE", $"{Libraries}/items/{{id:guid}}", LibraryRole.Editor, headers: IfMatch),
+        InLibrary("POST", $"{Libraries}/items/{{id:guid}}:restore", LibraryRole.Editor),
+        InLibrary("POST", $"{Libraries}/items/{{id:guid}}:rematch", LibraryRole.Editor, Json),
+        InLibrary("POST", $"{Libraries}/items:bulk", LibraryRole.Editor, Json),
+        InLibrary("GET", $"{Libraries}/stats", LibraryRole.Viewer),
+
+        // ---- Tags (LIB) ------------------------------------------------------------------------------------
+        InLibrary("GET", $"{Libraries}/tags", LibraryRole.Viewer),
+        InLibrary("POST", $"{Libraries}/tags", LibraryRole.Editor, Json),
+        InLibrary("DELETE", $"{Libraries}/tags/{{id:guid}}", LibraryRole.Editor),
+
+        // ---- Ownership (SCAN) ------------------------------------------------------------------------------
+        InLibrary("GET", $"{Libraries}/ownership", LibraryRole.Viewer, query: "code=0045496870010"),
+
+        // ---- Scanning (SCAN): a viewer may scan, an editor commits. Addressed by session id. ---------------
+        InLibrary("POST", $"{Libraries}/scan-sessions", LibraryRole.Viewer, Json),
+        InLibrary("GET", Sessions, LibraryRole.Viewer),
+        InLibrary("GET", $"{Sessions}/events", LibraryRole.Viewer),
+        InLibrary("POST", $"{Sessions}/barcodes", LibraryRole.Viewer, Json, headers: Idempotent),
+        InLibrary("POST", $"{Sessions}/identify", LibraryRole.Viewer, Json),
+        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:art", LibraryRole.Viewer, Json),
+        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/photo", LibraryRole.Editor),
+        InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, Json),
+        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json),
+        InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, headers: Idempotent),
+        InLibrary("DELETE", Sessions, LibraryRole.Editor),
+
+        // ---- Catalogue (CAT): any signed-in caller; feature prints are per library ----------------------------
+        SignedIn("GET", "/api/v1/catalog/search", query: "q=jurassic"),
+        SignedIn("GET", "/api/v1/catalog/lookup", query: "code=0045496870010"),
+        SignedIn("GET", "/api/v1/catalog/releases/{id:guid}"),
+        SignedIn("GET", "/api/v1/catalog/releases/{id:guid}/artwork"),
+        SignedIn("GET", "/api/v1/catalog/platforms"),
+        SignedIn("GET", "/media/covers/{assetId:guid}"),
+        InLibrary("GET", $"{Libraries}/feature-prints", LibraryRole.Viewer),
+        InLibrary("PUT", $"{Libraries}/feature-prints", LibraryRole.Editor, Json),
+
+        // ---- Admin: the platform admin role, not a library role ----------------------------------------------
+        AdminOnly("GET", "/api/admin/ai-usage"),
+        AdminOnly("POST", "/api/admin/catalog/releases/{id:guid}:verify"),
+        AdminOnly("GET", "/api/admin/jobs"),
     ];
 
     /// <summary>One theory row per endpoint and caller, so a failure names both.</summary>
