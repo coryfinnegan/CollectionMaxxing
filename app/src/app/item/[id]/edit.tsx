@@ -1,5 +1,7 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { useLocalSearchParams } from 'expo-router';
+import { ItemEditScreen } from '@/features/item/ItemEditScreen';
 
 export default function Route() {
-  return <Placeholder name="Edit item" description="Change an item's details, location, status and notes." />;
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return <ItemEditScreen id={id} />;
 }

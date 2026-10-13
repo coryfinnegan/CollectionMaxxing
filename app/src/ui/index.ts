@@ -1,7 +1,12 @@
 export { Button } from './Button';
 export { Card } from './Card';
+export { Chip } from './Chip';
+export { Cover } from './Cover';
 export { EmptyState } from './EmptyState';
+export { FormatBadge } from './FormatBadge';
 export { ListRow } from './ListRow';
 export { Screen } from './Screen';
+export { Sheet } from './Sheet';
+export { Snackbar } from './Snackbar';
 export { Text } from './Text';
 export { TextField } from './TextField';

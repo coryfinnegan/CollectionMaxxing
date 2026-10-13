@@ -1,5 +1,5 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { LibraryView } from '@/features/library/LibraryView';
 
 export default function Route() {
-  return <Placeholder name="Wishlist" description="Items you want but do not own yet." />;
+  return <LibraryView title="Wishlist" fixedStatus="wishlist" />;
 }
