@@ -33,7 +33,6 @@ Agents write code quickly. These are what set the pace:
 | **Lead** | One Claude Code session per wave. It starts fresh and reads this doc, the wave's issues and `git log`. | Plans the wave, writes briefs as GitHub issues, launches builders, integrates and merges, triggers iOS builds, reports to you |
 | **Builder** | One agent per task, in its own worktree and branch | Works test-first to the brief, runs the local gates, opens a PR |
 | **Verifier** | One fresh agent per PR | Tries to break it: the brief, the docs, security, test quality. Returns **PASS** or a list of findings. |
-| **Test author** | A separate agent, **for risky areas only** | Writes the failing tests from the spec. The builder isn't allowed to change them. |
 
 ## The trick: build the shared stuff first
 
@@ -249,7 +248,7 @@ The verifier gets the brief, the diff and the linked doc sections, in a fresh co
 - the authorization matrix;
 - migrations.
 
-A test-author agent writes those tests first. If the builder changes them, the verifier fails the PR.
+The brief lists those tests as **locked acceptance tests**. The builder writes them first and doesn't weaken them, and the verifier checks that each one exists and bites. *(A separate test-author agent was dropped to save tokens.)*
 
 **Which model checks:** verifiers run on Sonnet, at high effort for the locked areas. Docs-only and config-only PRs skip the verifier.
 
@@ -262,6 +261,8 @@ A test-author agent writes those tests first. If the builder changes them, the v
 - **The PC:** each builder's tests start their own Postgres container. 4–6 builders run comfortably alongside Plex. Raise the WSL memory cap from 4 GB to **8 GB** while agents are building.
 
 ## Running it in Claude Code
+
+The step-by-step version is in the **[lead runbook](agents/lead-runbook.md)**.
 
 - **The lead** is a Claude Code session in the desktop app on this PC, started fresh for each wave.
 - **Builders and verifiers** are background agents, each in its own **git worktree**. They run locally on the PC, so they can use Docker for Testcontainers. Cloud sessions would work for code, but they can't reach your Docker or your tailnet, so they aren't needed.
@@ -335,6 +336,8 @@ It never prints thousands of lines of logs.
 The lead checks usage after each wave and moves task types between tiers based on what actually passed first time.
 
 ### Local models (optional, $0)
+
+*Decided 2026-10-13: not used. The owner chose Claude only (Haiku and Sonnet). This section is kept for reference.*
 
 Your RTX 4070 Ti (12 GB) can run open models through **Ollama**. Since v0.14, Ollama speaks the same API as Claude Code, so a Claude Code agent can run on a local model by setting two environment variables.
 
