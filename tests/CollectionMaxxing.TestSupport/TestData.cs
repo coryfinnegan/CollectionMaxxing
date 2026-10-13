@@ -60,4 +60,17 @@ public static class TestData
         await context.SaveChangesAsync();
         return added.Value.Id;
     }
+
+    /// <summary>Reads a library's locations straight from the table, ignoring the caller filter.</summary>
+    public static async Task<List<Location>> ReadLocationsAsync(PostgresFixture db, Guid libraryId)
+    {
+        await using var context = db.CreateContext();
+        return await context.Locations
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(l => l.LibraryId == libraryId)
+            .OrderBy(l => l.SortOrder)
+            .ThenBy(l => l.Name)
+            .ToListAsync();
+    }
 }

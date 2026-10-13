@@ -31,6 +31,8 @@ dotnet_naming_style.underscore_camel.capitalization = camel_case
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.CA1303.severity = none
 dotnet_diagnostic.CA1848.severity = none
+# Use cases are written as Feature.Command and Feature.Handler (docs/01), which means nested public types.
+dotnet_diagnostic.CA1034.severity = none
 # Result<T>.Success(...) factories are idiomatic.
 dotnet_diagnostic.CA1000.severity = none
 dotnet_diagnostic.CA2225.severity = none
