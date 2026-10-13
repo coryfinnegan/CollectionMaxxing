@@ -19,6 +19,10 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:collectionmaxxing"] = connectionString,
+
+                // Tests sign in over and over from one address; the rate limit is tested on its own (Auth/RateLimitTests).
+                ["Auth:RateLimit:PermitLimit"] = "100000",
+                ["Auth:Setup:IssueOnStartup"] = "false",
             }));
 
         builder.ConfigureTestServices(services =>

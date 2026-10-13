@@ -48,6 +48,12 @@ app.MapScanningEndpoints();
 app.MapCatalogEndpoints();
 app.MapAdminEndpoints();
 
+// `dotnet run --project src/CollectionMaxxing.Api -- --recovery-code` prints a one-time recovery code and exits instead of serving.
+if (await app.TryRunAdminCommandAsync(args))
+{
+    return;
+}
+
 app.Run();
 
 /// <summary>Lets the test project start the real app.</summary>

@@ -18,11 +18,6 @@ public static class AdminEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
-        // Spend by day and user.
-        admin.MapGet("/ai-usage", () => StubEndpoints.NotImplemented())
-            .WithName("GetAiUsage").WithTags("Admin")
-            .Produces<AiUsageDto>().IsStub();
-
         // Promote a user-created release to global.
         admin.MapPost("/catalog/releases/{id:guid}:verify", (Guid id) => StubEndpoints.NotImplemented())
             .WithName("VerifyRelease").WithTags("Admin")

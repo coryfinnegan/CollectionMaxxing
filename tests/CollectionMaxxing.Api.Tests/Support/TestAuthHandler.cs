@@ -9,12 +9,13 @@ namespace CollectionMaxxing.Api.Tests.Support;
 /// <summary>
 /// The test sign-in: the caller's user id travels in the <c>X-Test-User</c> header, and any platform roles (e.g. <c>admin</c>,
 /// comma separated) in <c>X-Test-Roles</c>. No user header means anonymous.
-/// Real sign-in (passkeys, pairing) arrives in a later task; every test written against this keeps working.
+/// Real sign-in (passkeys) is covered by the tests in Auth/ with <c>AuthApp</c>; every other test keeps using this one.
 /// </summary>
 public sealed class TestAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
-    UrlEncoder encoder)
+    UrlEncoder encoder,
+    TimeProvider time)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "Test";
@@ -28,7 +29,13 @@ public sealed class TestAuthHandler(
             return Task.FromResult(AuthenticateResult.NoResult());
         }
 
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, value.ToString()) };
+        // Every test user "just signed in with a passkey", so endpoints that need a recent one let them through.
+        // The re-auth tests use real sign-in instead (see Auth/AuthApp).
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, value.ToString()),
+            new("auth_time", time.GetUtcNow().ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
+        };
         if (Request.Headers.TryGetValue(RolesHeader, out var roles))
         {
             claims.AddRange(roles.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

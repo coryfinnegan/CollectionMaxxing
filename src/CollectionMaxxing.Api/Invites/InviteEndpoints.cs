@@ -25,7 +25,8 @@ public static class InviteEndpoints
             .WithName("CreateInvite").WithTags("Invites")
             .Produces<CreatedInviteDto>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
-            .RequireLibraryRole(LibraryRole.Owner).IsStub();
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .RequireLibraryRole(LibraryRole.Owner).RequireRecentPasskey().IsStub();
 
         library.MapDelete("/invites/{id:guid}", (Guid libraryId, Guid id) => StubEndpoints.NotImplemented())
             .WithName("RevokeInvite").WithTags("Invites")
