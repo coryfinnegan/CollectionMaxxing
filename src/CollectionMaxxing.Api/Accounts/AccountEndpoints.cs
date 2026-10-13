@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
@@ -33,7 +34,7 @@ public static class AccountEndpoints
             .WithName("DeleteMe").WithTags("Account")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization().RequireRecentPasskey().IsStub();
 
         app.MapGet("/api/v1/me/sessions", () => StubEndpoints.NotImplemented())
             .WithName("ListSessions").WithTags("Account")
@@ -52,7 +53,7 @@ public static class AccountEndpoints
             .WithName("PairDevice").WithTags("Account")
             .Produces<PairDeviceDto>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization().RequireRecentPasskey().IsStub();
 
         app.MapGet("/api/v1/me/export", () => StubEndpoints.NotImplemented())
             .WithName("StartExport").WithTags("Account")

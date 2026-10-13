@@ -164,7 +164,9 @@ public static class AuthorizationMatrix
         SignedIn("GET", "/api/v1/me/export"),
 
         // ---- Sign-in, setup, recovery, tokens (ID): the only anonymous endpoints ---------------------------
-        Anyone("POST", "/connect/token"),
+        // OpenIddict now fronts the token endpoint and rejects a request that is not a form-encoded grant (400); a well-formed grant
+        // reaches the stub (501), which Auth/TokenEndpointTests checks. Revocation is added with the grants (ID-2).
+        Everyone("POST", "/connect/token", Json, BadRequest),
         Anyone("POST", "/connect/revoke"),
 
         // Built (ID-1). The world always has an owner, so setup is closed: 404 for everyone.

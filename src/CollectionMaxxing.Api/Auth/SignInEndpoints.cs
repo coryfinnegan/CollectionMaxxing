@@ -6,17 +6,18 @@ namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
 /// First-run setup, passkey sign-in and recovery, and the OpenIddict token endpoints (docs/07, "Flows"). These are the
-/// only endpoints that answer anonymous callers, and each one is on the allow-list in the authorization matrix. Sign-in
-/// is built by the ID stream; the pages (<c>GET /setup</c>, <c>/account/login</c>, <c>/join/{token}</c>) are for browsers and
-/// the <c>/connect/*</c> endpoints belong to OpenIddict, so those are left out of the OpenAPI document.
+/// only endpoints that answer anonymous callers, and each one is on the allow-list in the authorization matrix. The pages
+/// (<c>GET /setup</c>, <c>/account/login</c>, <c>/join/{token}</c>) are for browsers and the <c>/connect/*</c> endpoints belong
+/// to OpenIddict, so those are left out of the OpenAPI document. Every endpoint that takes a code or a passkey is rate-limited.
 /// </summary>
 public static class SignInEndpoints
 {
-    public static IServiceCollection AddSignIn(this IServiceCollection services) => services;
+    public static IServiceCollection AddSignIn(this IServiceCollection services) => SignInServices.Add(services);
 
     public static IEndpointRouteBuilder MapSignInEndpoints(this IEndpointRouteBuilder app)
     {
-        // OpenIddict's token endpoints (iPhone): grants urn:cm:device_pairing and refresh_token; revocation.
+        // OpenIddict's token endpoint (iPhone): grants urn:cm:device_pairing and refresh_token. OpenIddict is configured and
+        // passes valid requests through to here; the grants themselves are built by ID-2. Revocation is added by ID-2 too.
         app.MapPost("/connect/token", () => StubEndpoints.NotImplemented())
             .WithName("Token").WithTags("Sign-in")
             .ExcludeFromDescription().AllowAnonymous().IsStub();
@@ -25,59 +26,83 @@ public static class SignInEndpoints
             .ExcludeFromDescription().AllowAnonymous().IsStub();
 
         // Setup exists only while there is no owner; afterwards it answers 404.
-        app.MapGet("/setup", () => StubEndpoints.NotImplemented())
+        app.MapGet("/setup", async (GetSetupStatus.Handler status, SpaPage spa, CancellationToken cancellationToken) =>
+                await status.IsOpenAsync(cancellationToken) ? spa.Index() : Results.NotFound())
             .WithName("SetupPage").WithTags("Sign-in")
-            .ExcludeFromDescription().AllowAnonymous().IsStub();
-        app.MapPost("/setup", (SetupRequest body) => StubEndpoints.NotImplemented())
+            .ExcludeFromDescription().AllowAnonymous();
+        app.MapPost("/setup", (SetupRequest body, HttpContext http, PasskeyCeremonies ceremonies, CancellationToken cancellationToken) =>
+                ceremonies.StartSetupAsync(http, body, cancellationToken))
             .WithName("Setup").WithTags("Sign-in")
             .Produces<PasskeyOptionsDto>()
             .ProducesValidationProblem()
-            .AllowAnonymous().IsStub();
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
 
         // Passkey sign-in and sign-out for the web app.
-        app.MapGet("/account/login", () => StubEndpoints.NotImplemented())
+        app.MapGet("/account/login", (SpaPage spa) => spa.Index())
             .WithName("LoginPage").WithTags("Sign-in")
-            .ExcludeFromDescription().AllowAnonymous().IsStub();
-        app.MapPost("/account/login", (PasskeyLoginRequest body) => StubEndpoints.NotImplemented())
+            .ExcludeFromDescription().AllowAnonymous();
+        app.MapPost("/account/login", (PasskeyLoginRequest body, HttpContext http, PasskeyCeremonies ceremonies) =>
+                ceremonies.LoginAsync(http, body))
             .WithName("Login").WithTags("Sign-in")
             .Produces<SignedInDto>()
+            .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .AllowAnonymous().IsStub();
-        app.MapPost("/account/logout", () => StubEndpoints.NotImplemented())
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
+        app.MapPost("/account/logout", (Func<HttpContext, Task<IResult>>)PasskeyCeremonies.LogoutAsync)
             .WithName("Logout").WithTags("Sign-in")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
         // Passkey ceremonies: while setting up, joining by invite, recovering or adding a passkey from Settings.
-        app.MapPost("/account/passkey/creation-options", (PasskeyCreationOptionsRequest body) => StubEndpoints.NotImplemented())
+        app.MapPost(
+                "/account/passkey/creation-options",
+                (PasskeyCreationOptionsRequest body, HttpContext http, PasskeyCeremonies ceremonies, CancellationToken cancellationToken) =>
+                    ceremonies.CreationOptionsAsync(http, body, cancellationToken))
             .WithName("PasskeyCreationOptions").WithTags("Sign-in")
             .Produces<PasskeyOptionsDto>()
             .ProducesValidationProblem()
-            .AllowAnonymous().IsStub();
-        app.MapPost("/account/passkey/request-options", () => StubEndpoints.NotImplemented())
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
+        app.MapPost("/account/passkey/request-options", (HttpContext http, PasskeyCeremonies ceremonies) => ceremonies.RequestOptionsAsync(http))
             .WithName("PasskeyRequestOptions").WithTags("Sign-in")
             .Produces<PasskeyOptionsDto>()
-            .AllowAnonymous().IsStub();
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
         app.MapPost(
                 "/account/passkey/register",
-                ([FromQuery(Name = "invite")] string? invite, PasskeyRegistrationRequest body) => StubEndpoints.NotImplemented())
+                ([FromQuery(Name = "invite")] string? invite, PasskeyRegistrationRequest body, HttpContext http, PasskeyCeremonies ceremonies, CancellationToken cancellationToken) =>
+                    ceremonies.RegisterAsync(http, invite, body, cancellationToken))
             .WithName("PasskeyRegister").WithTags("Sign-in")
             .Produces<SignedInDto>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
-            .AllowAnonymous().IsStub();
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
 
         // Recovery after losing every passkey: a one-time code from the PC's command line.
-        app.MapPost("/account/recover", (RecoverRequest body) => StubEndpoints.NotImplemented())
+        app.MapPost("/account/recover", (RecoverRequest body, HttpContext http, PasskeyCeremonies ceremonies, CancellationToken cancellationToken) =>
+                ceremonies.StartRecoveryAsync(http, body, cancellationToken))
             .WithName("Recover").WithTags("Sign-in")
             .Produces<PasskeyOptionsDto>()
             .ProducesValidationProblem()
-            .AllowAnonymous().IsStub();
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status410Gone)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
 
-        // The page a family member opens from an invite link.
-        app.MapGet("/join/{token}", (string token) => StubEndpoints.NotImplemented())
+        // The page a family member opens from an invite link. Whether the invite is valid is checked when they register (ID-3).
+        app.MapGet("/join/{token}", (SpaPage spa) => spa.Index())
             .WithName("JoinPage").WithTags("Sign-in")
-            .ExcludeFromDescription().AllowAnonymous().IsStub();
+            .ExcludeFromDescription().AllowAnonymous();
 
         return app;
     }

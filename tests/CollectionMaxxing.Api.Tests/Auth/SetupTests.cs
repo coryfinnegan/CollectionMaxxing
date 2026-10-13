@@ -150,7 +150,7 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
         var stored = await context.SetupCodes.SingleAsync();
         stored.CodeHash.ShouldNotContain(code);
         stored.CodeHash.ShouldNotBe(code);
-        stored.ExpiresAt.ShouldBe(App.Time.GetUtcNow() + TimeSpan.FromHours(24));
+        stored.ExpiresAt.ShouldBe(App.Time.GetUtcNow() + TimeSpan.FromHours(24), TimeSpan.FromMilliseconds(1)); // Postgres keeps microseconds
     }
 
     [Fact]

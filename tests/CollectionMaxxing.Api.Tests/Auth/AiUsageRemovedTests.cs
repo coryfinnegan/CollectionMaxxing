@@ -9,11 +9,12 @@ public class AiUsageRemovedTests(ApiFixture api) : ApiTest(api)
     [Fact]
     public async Task Get_ai_usage_is_404_even_for_the_admin()
     {
+        // (An anonymous caller gets 401 here, like for any path that doesn't exist: the fallback policy asks everyone to sign in first.)
         using var admin = Api.CreateClient(Guid.CreateVersion7(), roles: "admin");
-        using var anonymous = Api.CreateClient();
+        using var owner = Api.CreateClient(Guid.CreateVersion7());
 
         (await admin.GetAsync("/api/admin/ai-usage")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        (await anonymous.GetAsync("/api/admin/ai-usage")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await owner.GetAsync("/api/admin/ai-usage")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]

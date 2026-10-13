@@ -30,14 +30,22 @@ public sealed class AuthApp : IAsyncDisposable
         {
             builder.UseEnvironment("Development");
             builder.ConfigureAppConfiguration((_, configuration) =>
-                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                var values = new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:collectionmaxxing"] = connectionString,
                     ["Auth:RelyingPartyId"] = "localhost",
                     ["Auth:SecretsPath"] = _secretsPath,
                     ["Auth:Setup:IssueOnStartup"] = "false",
                     ["Auth:RateLimit:PermitLimit"] = "10000",
-                }.Concat(settings ?? []).ToDictionary()));
+                };
+                foreach (var (key, value) in settings ?? [])
+                {
+                    values[key] = value;
+                }
+
+                configuration.AddInMemoryCollection(values);
+            });
             builder.ConfigureLogging(logging =>
             {
                 logging.SetMinimumLevel(LogLevel.Trace);
@@ -51,6 +59,8 @@ public sealed class AuthApp : IAsyncDisposable
             });
         });
     }
+
+    public string SecretsPath => _secretsPath;
 
     public FakeTimeProvider Time { get; }
 
