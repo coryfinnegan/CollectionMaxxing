@@ -3,7 +3,6 @@ using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
-using NSubstitute;
 
 namespace CollectionMaxxing.Application.Tests.Catalog.Providers;
 
@@ -43,21 +42,30 @@ public class CatalogProviderPortTests
     }
 
     [Fact]
-    public async Task A_provider_can_be_implemented_and_faked_against_the_port()
+    public async Task A_provider_can_be_implemented_against_the_port()
     {
         var id = new Identifier(IdentifierType.Isbn13, "9780306406157");
         var release = new ProviderRelease { Provider = "fake", ExternalId = "1", Title = "A Book", Kind = WorkKind.Book };
-        var provider = Substitute.For<ICatalogProvider>();
-        provider.Name.Returns("fake");
-        provider.Supports(WorkKind.Book).Returns(true);
-        provider.LookupAsync(id, Arg.Any<CancellationToken>()).Returns(release);
-        provider.SearchAsync(Arg.Any<CatalogQuery>(), Arg.Any<CancellationToken>())
-            .Returns(new List<ProviderRelease> { release });
+        ICatalogProvider provider = new FakeProvider(release);
 
+        provider.Name.ShouldBe("fake");
         (await provider.LookupAsync(id, CancellationToken.None)).ShouldBe(release);
         (await provider.SearchAsync(new CatalogQuery { Title = "A Book" }, CancellationToken.None)).ShouldHaveSingleItem();
         provider.Supports(WorkKind.Book).ShouldBeTrue();
         provider.Supports(WorkKind.Game).ShouldBeFalse();
+    }
+
+    private sealed class FakeProvider(ProviderRelease release) : ICatalogProvider
+    {
+        public string Name => "fake";
+
+        public bool Supports(WorkKind kind) => kind == WorkKind.Book;
+
+        public Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct) =>
+            Task.FromResult<ProviderRelease?>(release);
+
+        public Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ProviderRelease>>([release]);
     }
 
     [Fact]
@@ -110,11 +118,21 @@ public class CatalogProviderPortTests
         var read = new ReadItem { Title = cleaned.Title, Platform = cleaned.Platform, Format = cleaned.Format, Year = cleaned.Year };
         var alien = new ProviderRelease
         {
-            Provider = "tmdb", ExternalId = "348", Title = "Alien", Kind = WorkKind.Film, Format = ReleaseFormat.Dvd, Year = 1979,
+            Provider = "tmdb",
+            ExternalId = "348",
+            Title = "Alien",
+            Kind = WorkKind.Film,
+            Format = ReleaseFormat.Dvd,
+            Year = 1979,
         };
         var aliens = new ProviderRelease
         {
-            Provider = "tmdb", ExternalId = "679", Title = "Aliens", Kind = WorkKind.Film, Format = ReleaseFormat.Dvd, Year = 1986,
+            Provider = "tmdb",
+            ExternalId = "679",
+            Title = "Aliens",
+            Kind = WorkKind.Film,
+            Format = ReleaseFormat.Dvd,
+            Year = 1986,
         };
 
         var result = MatchScorer.Evaluate(

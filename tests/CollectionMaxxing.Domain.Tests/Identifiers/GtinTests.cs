@@ -130,13 +130,27 @@ public class GtinTests
     [Theory]
     [InlineData("73513537")]
     [InlineData("96385074")]
-    [InlineData("12345670")]
+    [InlineData("55123457")]
     public void An_eight_digit_code_that_is_not_a_UPC_E_is_read_as_an_EAN_8(string ean8)
     {
         Gtin.TryParse(ean8, out var gtin).ShouldBeTrue();
 
         gtin.ShouldNotBeNull();
         gtin.Value.ShouldBe(ean8);
+    }
+
+    // 12345670 is a valid EAN-8 and, by coincidence, a valid UPC-E too. Without the symbology it is read as UPC-E (see
+    // the remarks on Gtin.TryParse); a caller that knows it scanned an EAN-8 asks for that explicitly.
+    [Fact]
+    public void An_eight_digit_code_valid_both_ways_is_a_UPC_E_unless_the_caller_says_it_is_an_EAN_8()
+    {
+        Gtin.TryParse("12345670", out var guessed).ShouldBeTrue();
+        Gtin.TryParseEan8("12345670", out var ean8).ShouldBeTrue();
+
+        guessed.ShouldNotBeNull();
+        guessed.Value.ShouldBe("0123456000070");
+        ean8.ShouldNotBeNull();
+        ean8.Value.ShouldBe("12345670");
     }
 
     // ---- add-ons, whitespace, hyphens, junk ---------------------------------------------------
