@@ -13,7 +13,15 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// </para>
 /// <para>
 /// When the read supplied a datum but the release does not have it (no year, no platform on file), the term scores a
-/// neutral 0.5: it neither counts as agreement nor as a mismatch.
+/// neutral 0.5: it neither counts as agreement nor as a mismatch. The art term follows the same rule once any candidate
+/// of an <see cref="Evaluate"/> run has a distance: a candidate the phone did not compare is neutral on art, so it can
+/// not beat a compared one just because the art term was dropped for it alone.
+/// </para>
+/// <para>
+/// Three guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
+/// 2005" is not "Madden NFL 2004"), and the year in a title is never taken for the release year. A known platform or
+/// title-year conflict caps the score below the Matched threshold. And Matched needs at least two signals that were
+/// actually compared (both sides present), or an exact barcode match; thinner evidence is at most Ambiguous.
 /// </para>
 /// </remarks>
 public static class MatchScorer
@@ -21,12 +29,21 @@ public static class MatchScorer
     private const double Neutral = 0.5;
     private const int Decimals = 9;
 
+    /// <summary>A Match needs this many signals compared on both sides, unless a barcode matched exactly.</summary>
+    private const int MinimumComparedSignals = 2;
+
     /// <summary>
     /// The score of one release, from 0 to 1, rounded to nine decimals so that exact boundaries compare exactly. An exact
     /// identifier match is 1.0 whatever the title says. A known platform mismatch caps the score at
-    /// <see cref="ScoringThresholds.PlatformMismatchCap"/>.
+    /// <see cref="ScoringThresholds.PlatformMismatchCap"/>, and different years in the two titles at
+    /// <see cref="ScoringThresholds.TitleYearMismatchCap"/>. This scores the release on its own: the art term is left out
+    /// when the read has no distance for it. <see cref="Evaluate"/> scores a whole set and treats a candidate without a
+    /// distance as neutral once another has one.
     /// </summary>
-    public static double Score(ReadItem read, CandidateRelease release, ScoringProfile profile)
+    public static double Score(ReadItem read, CandidateRelease release, ScoringProfile profile) =>
+        ScoreCore(read, release, profile, otherCandidatesWereCompared: false).Score;
+
+    private static ScoredRelease ScoreCore(ReadItem read, CandidateRelease release, ScoringProfile profile, bool otherCandidatesWereCompared)
     {
         ArgumentNullException.ThrowIfNull(read);
         ArgumentNullException.ThrowIfNull(release);
@@ -34,32 +51,40 @@ public static class MatchScorer
 
         if (SharesAnIdentifier(read, release))
         {
-            return 1.0;
+            return new ScoredRelease(release, 1.0) { IsExactIdentifierMatch = true };
         }
 
         var weights = profile.Weights;
-        var (readTitle, readYear) = SplitTitleAndYear(read);
 
         double weightSum = 0;
         double weighted = 0;
+        var compared = 0;
 
-        void Add(double weight, double similarity)
+        // A term takes part when its weight is positive. It counts as a compared signal only when the release could
+        // answer it too; a neutral score is no evidence either way.
+        void Add(double weight, double similarity, bool bothSidesPresent)
         {
             if (weight > 0)
             {
                 weightSum += weight;
                 weighted += weight * similarity;
+                if (bothSidesPresent)
+                {
+                    compared++;
+                }
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(readTitle))
+        var titleYearConflict = false;
+        if (!string.IsNullOrWhiteSpace(read.Title))
         {
-            Add(weights.Title, TitleNormalizer.Similarity(readTitle, release.Title));
+            Add(weights.Title, TitleNormalizer.Similarity(read.Title, release.Title), !string.IsNullOrWhiteSpace(release.Title));
+            titleYearConflict = TitleNormalizer.TitleYearsConflict(read.Title, release.Title);
         }
 
         if (read.Format is not null || read.Kind is not null)
         {
-            Add(weights.Type, TypeAgreement(read, release));
+            Add(weights.Type, TypeAgreement(read, release), TypeIsCompared(read, release));
         }
 
         var platformMismatch = false;
@@ -67,32 +92,37 @@ public static class MatchScorer
         {
             var agreement = PlatformAgreement(read.Platform, release.Platform);
             platformMismatch = agreement == 0.0;
-            Add(weights.Platform, agreement);
+            Add(weights.Platform, agreement, PlatformNames.Canonicalize(release.Platform) is not null);
         }
 
-        if (readYear is not null)
+        // Only a year that was read as a year: the year inside a title belongs to the title (see TitleNormalizer).
+        if (read.Year is { } readYear)
         {
-            Add(weights.Year, YearProximity(readYear.Value, release.Year));
+            Add(weights.Year, YearProximity(readYear, release.Year), release.Year is not null);
         }
 
         if (!string.IsNullOrWhiteSpace(read.Creator))
         {
-            Add(weights.Creator, CreatorSimilarity(read.Creator, release.Creators));
+            Add(weights.Creator, CreatorSimilarity(read.Creator, release.Creators), release.Creators.Count > 0);
         }
 
         if (!string.IsNullOrWhiteSpace(read.Edition))
         {
-            Add(weights.Edition, EditionSimilarity(read.Edition, release.Edition));
+            Add(weights.Edition, EditionSimilarity(read.Edition, release.Edition), !string.IsNullOrWhiteSpace(release.Edition));
         }
 
         if (VisualSimilarity(read, release) is { } visual)
         {
-            Add(weights.Art, visual);
+            Add(weights.Art, visual, bothSidesPresent: true);
+        }
+        else if (otherCandidatesWereCompared)
+        {
+            Add(weights.Art, Neutral, bothSidesPresent: false);
         }
 
         if (weightSum <= 0)
         {
-            return 0.0;
+            return new ScoredRelease(release, 0.0);
         }
 
         var score = weighted / weightSum;
@@ -101,12 +131,22 @@ public static class MatchScorer
             score = Math.Min(score, profile.Thresholds.PlatformMismatchCap);
         }
 
-        return Math.Round(Math.Clamp(score, 0.0, 1.0), Decimals);
+        if (titleYearConflict)
+        {
+            score = Math.Min(score, profile.Thresholds.TitleYearMismatchCap);
+        }
+
+        return new ScoredRelease(release, Math.Round(Math.Clamp(score, 0.0, 1.0), Decimals))
+        {
+            ComparedSignals = compared,
+            HasKnownConflict = platformMismatch || titleYearConflict,
+        };
     }
 
     /// <summary>
     /// Scores every candidate, orders them best first (ties keep their input order) and decides the outcome from the best
-    /// score and its lead over the second. No candidates is NotFound.
+    /// score and its lead over the second. No candidates is NotFound. A best score that rests on fewer than two compared
+    /// signals (and is not an exact barcode match), or on a known conflict, is at most Ambiguous.
     /// </summary>
     public static MatchResult Evaluate(ReadItem read, IReadOnlyList<CandidateRelease> releases, ScoringProfile profile)
     {
@@ -114,8 +154,11 @@ public static class MatchScorer
         ArgumentNullException.ThrowIfNull(releases);
         ArgumentNullException.ThrowIfNull(profile);
 
+        // Once the phone compared the picture with any candidate, one it did not compare is neutral, not exempt.
+        var anyArtCompared = releases.Any(release => VisualSimilarity(read, release) is not null);
+
         var ranked = releases
-            .Select(release => new ScoredRelease(release, Score(read, release, profile)))
+            .Select(release => ScoreCore(read, release, profile, anyArtCompared))
             .OrderByDescending(scored => scored.Score)
             .ToList();
 
@@ -124,7 +167,13 @@ public static class MatchScorer
             return new MatchResult(MatchOutcome.NotFound, ranked);
         }
 
-        var outcome = Classify(ranked[0].Score, ranked.Count > 1 ? ranked[1].Score : null, profile.Thresholds);
+        var best = ranked[0];
+        var outcome = Classify(best.Score, ranked.Count > 1 ? ranked[1].Score : null, profile.Thresholds);
+        if (outcome == MatchOutcome.Matched && !best.IsExactIdentifierMatch && (best.ComparedSignals < MinimumComparedSignals || best.HasKnownConflict))
+        {
+            outcome = MatchOutcome.Ambiguous;
+        }
+
         return new MatchResult(outcome, ranked);
     }
 
@@ -166,22 +215,12 @@ public static class MatchScorer
         return false;
     }
 
-    // A year in the read wins; otherwise a trailing year in the title ("Alien 1979") stands in for it.
-    private static (string? Title, int? Year) SplitTitleAndYear(ReadItem read)
-    {
-        if (string.IsNullOrWhiteSpace(read.Title))
-        {
-            return (null, read.Year);
-        }
-
-        if (read.Year is not null)
-        {
-            return (read.Title, read.Year);
-        }
-
-        var (_, year) = TitleNormalizer.SplitTrailingYear(read.Title);
-        return (read.Title, year);
-    }
+    // Whether the type term set two real values against each other. A format is compared when the release has one; a kind
+    // when neither side says Other, which is also the "unknown" default of a candidate that has no kind.
+    private static bool TypeIsCompared(ReadItem read, CandidateRelease release) =>
+        read.Format is not null
+            ? release.Format is not null
+            : read.Kind is { } kind && kind != WorkKind.Other && release.Kind != WorkKind.Other;
 
     private static double TypeAgreement(ReadItem read, CandidateRelease release)
     {

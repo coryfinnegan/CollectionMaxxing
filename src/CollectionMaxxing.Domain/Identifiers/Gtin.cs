@@ -40,8 +40,8 @@ public sealed record Gtin
     }
 
     /// <summary>
-    /// Reads a scanned or typed barcode: UPC-A (12 digits), UPC-E or EAN-8 (8 digits), or EAN-13, with spaces, hyphens
-    /// and 2 or 5 digit add-ons tolerated. Never throws.
+    /// Reads a scanned or typed barcode: UPC-A (12 digits), UPC-E or EAN-8 (8 digits), EAN-13, or a GTIN-14 whose
+    /// indicator digit is 0 (read as the GTIN-13), with spaces, hyphens and 2 or 5 digit add-ons tolerated. Never throws.
     /// </summary>
     /// <remarks>
     /// An 8 digit code is ambiguous without knowing the symbology (UPC-E or EAN-8). When the first digit is 0 or 1 and
@@ -64,6 +64,12 @@ public sealed record Gtin
                 return true;
             case 13 when Gs1CheckDigit.IsValid(text):
                 gtin = new Gtin(text);
+                return true;
+            case 14 when text[0] == '0' && Gs1CheckDigit.IsValid(text):
+                // A GTIN-14 with indicator 0 is the GTIN-13 it wraps (the check digit is the same). Any other GTIN-14
+                // names a carton or case, a different trade item; cutting it down to 12 digits would be another
+                // product's UPC-A, so it is rejected.
+                gtin = new Gtin(text[1..]);
                 return true;
             case 8:
                 if (TryExpandUpcE(text, out var expanded))

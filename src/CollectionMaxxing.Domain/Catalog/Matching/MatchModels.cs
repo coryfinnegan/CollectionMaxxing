@@ -18,7 +18,10 @@ public sealed record ReadItem
     /// <summary>The platform as read ("N64", "Nintendo 64"). <see cref="PlatformNames"/> decides what counts as the same.</summary>
     public string? Platform { get; init; }
 
-    /// <summary>A year that was printed on the item. A trailing year in <see cref="Title"/> is used when this is null.</summary>
+    /// <summary>
+    /// The release year that was printed on the item (a copyright or release date). A year inside <see cref="Title"/>
+    /// ("Madden NFL 2005") is part of the title, not a release year, and never stands in for this one.
+    /// </summary>
     public int? Year { get; init; }
 
     /// <summary>The author, director or developer that was read.</summary>
@@ -32,7 +35,8 @@ public sealed record ReadItem
 
     /// <summary>
     /// Feature-print distances the phone measured against candidate artwork, keyed by <see cref="CandidateRelease.Key"/>
-    /// (docs/02 section 5). Null or empty when there was no artwork comparison, which drops the art term.
+    /// (docs/02 section 5). Null or empty when there was no artwork comparison, which drops the art term. Once any
+    /// candidate of an evaluation has a usable distance, a candidate without one scores neutral on the art term instead.
     /// </summary>
     public IReadOnlyDictionary<string, double>? ArtDistances { get; init; }
 }
@@ -62,7 +66,10 @@ public sealed record CandidateRelease
 
 public enum MatchOutcome
 {
-    /// <summary>Score at least 0.90 and a lead of at least 0.08 over the runner-up: included by default.</summary>
+    /// <summary>
+    /// Score at least 0.90 and a lead of at least 0.08 over the runner-up, from at least two compared signals or an exact
+    /// barcode match, with no known conflict: included by default.
+    /// </summary>
     Matched,
 
     /// <summary>Score at least 0.60 but not a clear winner: the person picks from the top few.</summary>
@@ -72,7 +79,20 @@ public enum MatchOutcome
     NotFound,
 }
 
-public sealed record ScoredRelease(CandidateRelease Release, double Score);
+public sealed record ScoredRelease(CandidateRelease Release, double Score)
+{
+    /// <summary>
+    /// How many terms were actually compared: the profile gives them weight and both the read and the release had the
+    /// datum. A term the release could not answer (no year, no platform on file) scores neutral and is not counted.
+    /// </summary>
+    public int ComparedSignals { get; init; }
+
+    /// <summary>The read and the release share a barcode or catalogue number.</summary>
+    public bool IsExactIdentifierMatch { get; init; }
+
+    /// <summary>A known conflict (the wrong platform, or a different year in the title) capped the score.</summary>
+    public bool HasKnownConflict { get; init; }
+}
 
 /// <summary>The verdict and every candidate, best first. Take the first three for the "Pick one" list.</summary>
 public sealed record MatchResult(MatchOutcome Outcome, IReadOnlyList<ScoredRelease> Ranked);

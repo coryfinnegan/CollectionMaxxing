@@ -84,7 +84,9 @@ public static partial class TitleNormalizer
     /// How alike two titles are, from 0 (nothing in common) to 1 (the same after normalising). Takes the better of an
     /// edit-distance ratio (forgives misreads and plurals) and a word-overlap ratio (forgives word order). A sequel
     /// number that only one side has costs a quarter of the score, so "Metroid Prime" does not match "Metroid Prime 2".
-    /// A trailing year ("Alien 1979") is ignored if that gives a better match.
+    /// A trailing year ("Alien 1979") is ignored if that gives a better match, unless both titles carry a year and the
+    /// years differ: then the year is part of each title's identity ("Madden NFL 2005" is not "Madden NFL 2004") and is
+    /// compared like any other word.
     /// </summary>
     public static double Similarity(string? a, string? b)
     {
@@ -93,6 +95,11 @@ public static partial class TitleNormalizer
         if (left.Length == 0 || right.Length == 0)
         {
             return 0.0;
+        }
+
+        if (YearsConflict(left, right))
+        {
+            return Core(left, right);
         }
 
         var leftNoYear = WithoutTrailingYear(left);
@@ -116,17 +123,31 @@ public static partial class TitleNormalizer
         return best;
     }
 
-    /// <summary>Splits a trailing four digit year (1900 to 2099) off a title: "Alien 1979" gives ("Alien", 1979).</summary>
-    internal static (string Title, int? Year) SplitTrailingYear(string title)
+    /// <summary>
+    /// True when both titles contain a four digit year (1900 to 2099) and the years are not the same: an annual series
+    /// ("Madden NFL 2005" against "Madden NFL 2004"). A year that only one title has is not a conflict.
+    /// </summary>
+    internal static bool TitleYearsConflict(string? a, string? b) => YearsConflict(Normalize(a), Normalize(b));
+
+    private static bool YearsConflict(string normalizedLeft, string normalizedRight)
     {
-        var trimmed = title.TrimEnd();
-        var space = trimmed.LastIndexOf(' ');
-        if (space > 0 && IsYear(trimmed.AsSpan(space + 1), out var year))
+        var left = YearsIn(normalizedLeft);
+        var right = YearsIn(normalizedRight);
+        return left.Count > 0 && right.Count > 0 && !left.SetEquals(right);
+    }
+
+    private static HashSet<int> YearsIn(string normalized)
+    {
+        var years = new HashSet<int>();
+        foreach (var token in normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            return (trimmed[..space].TrimEnd(), year);
+            if (IsYear(token, out var year))
+            {
+                years.Add(year);
+            }
         }
 
-        return (title, null);
+        return years;
     }
 
     private static string WithoutTrailingYear(string normalized)

@@ -28,8 +28,43 @@ public sealed record ScoringThresholds
     /// </summary>
     public double PlatformMismatchCap { get; init; } = 0.85;
 
-    /// <summary>Stub for the red commit: wired up in the fix.</summary>
+    /// <summary>
+    /// The most a release can score when both titles carry a year and the years differ ("Madden NFL 2004" for a read of
+    /// "Madden NFL 2005"). Keep it below <see cref="MatchedScore"/>, for the same reason as <see cref="PlatformMismatchCap"/>.
+    /// </summary>
     public double TitleYearMismatchCap { get; init; } = 0.85;
+
+    /// <summary>
+    /// Checks that the settings cannot defeat the guards: each cap must be a number from 0 up to, but not including,
+    /// <see cref="MatchedScore"/>, or a known-wrong release could be scored high enough to be auto-added.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A setting is invalid; the message names every one.</exception>
+    public void Validate()
+    {
+        var problems = new List<string>();
+        if (!double.IsFinite(MatchedScore))
+        {
+            problems.Add($"{nameof(MatchedScore)} must be a finite number (it is {MatchedScore}).");
+        }
+        else
+        {
+            CheckCap(nameof(PlatformMismatchCap), PlatformMismatchCap);
+            CheckCap(nameof(TitleYearMismatchCap), TitleYearMismatchCap);
+        }
+
+        if (problems.Count > 0)
+        {
+            throw new InvalidOperationException("Invalid scoring thresholds. " + string.Join(' ', problems));
+        }
+
+        void CheckCap(string name, double cap)
+        {
+            if (!double.IsFinite(cap) || cap < 0 || cap >= MatchedScore)
+            {
+                problems.Add($"{name} must be at least 0 and below {nameof(MatchedScore)} ({MatchedScore}), but it is {cap}.");
+            }
+        }
+    }
 }
 
 /// <summary>A named set of weights and the thresholds to apply, for one way of reading an item.</summary>
@@ -71,17 +106,27 @@ public sealed record ScoringOptions
 
     public ScoringWeights BareLabel { get; init; } = new(0.55, 0.15, 0.15, 0.10, 0, 0, 0.05);
 
-    /// <summary>Stub for the red commit: wired up in the fix.</summary>
-    public void Validate() => _ = Thresholds;
+    /// <summary>
+    /// Fails fast on settings that would let a wrong release through (see <see cref="ScoringThresholds.Validate"/>).
+    /// Call it when the options are bound at startup, so that a bad configuration stops the app from starting;
+    /// <see cref="Profile"/> checks again on every use.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A setting is invalid.</exception>
+    public void Validate() => Thresholds.Validate();
 
     /// <summary>The profile for one way of reading an item, carrying these options' thresholds.</summary>
-    public ScoringProfile Profile(ScoringProfileKind kind) => kind switch
+    /// <exception cref="InvalidOperationException">The options are invalid (see <see cref="Validate"/>).</exception>
+    public ScoringProfile Profile(ScoringProfileKind kind)
     {
-        ScoringProfileKind.BarcodeProduct => new ScoringProfile(nameof(BarcodeProduct), BarcodeProduct, Thresholds),
-        ScoringProfileKind.ShelfSpine => new ScoringProfile(nameof(ShelfSpine), ShelfSpine, Thresholds),
-        ScoringProfileKind.Cover => new ScoringProfile(nameof(Cover), Cover, Thresholds),
-        ScoringProfileKind.LooseCartridge => new ScoringProfile(nameof(LooseCartridge), LooseCartridge, Thresholds),
-        ScoringProfileKind.BareLabel => new ScoringProfile(nameof(BareLabel), BareLabel, Thresholds),
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown scoring profile."),
-    };
+        Validate();
+        return kind switch
+        {
+            ScoringProfileKind.BarcodeProduct => new ScoringProfile(nameof(BarcodeProduct), BarcodeProduct, Thresholds),
+            ScoringProfileKind.ShelfSpine => new ScoringProfile(nameof(ShelfSpine), ShelfSpine, Thresholds),
+            ScoringProfileKind.Cover => new ScoringProfile(nameof(Cover), Cover, Thresholds),
+            ScoringProfileKind.LooseCartridge => new ScoringProfile(nameof(LooseCartridge), LooseCartridge, Thresholds),
+            ScoringProfileKind.BareLabel => new ScoringProfile(nameof(BareLabel), BareLabel, Thresholds),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown scoring profile."),
+        };
+    }
 }
