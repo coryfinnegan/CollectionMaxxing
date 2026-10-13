@@ -36,7 +36,7 @@ jobs:
           echo "Using $newest"
           sudo xcode-select -s "$newest/Contents/Developer"
           xcodebuild -version
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22

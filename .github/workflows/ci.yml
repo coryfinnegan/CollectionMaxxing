@@ -49,7 +49,7 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "No app/package.json yet; skipping app checks."
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
