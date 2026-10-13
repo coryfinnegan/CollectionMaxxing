@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\CollectionMaxxing.Domain\CollectionMaxxing.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- IAppDbContext exposes DbSet<T>; Application never references a database driver. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+
+</Project>

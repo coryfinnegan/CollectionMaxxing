@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Domain\CollectionMaxxing.Domain.csproj" />
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Application\CollectionMaxxing.Application.csproj" />
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Infrastructure\CollectionMaxxing.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Api\CollectionMaxxing.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TngTech.ArchUnitNET.xUnitV3" />
+  </ItemGroup>
+
+</Project>
