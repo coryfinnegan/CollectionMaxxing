@@ -29,3 +29,26 @@ jobs:
         with:
           name: foundationmodels-interface
           path: out
+      - name: Generate project
+        working-directory: spikes/apple-model
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build (iphoneos, Release, unsigned)
+        working-directory: spikes/apple-model
+        run: |
+          set -o pipefail
+          xcodebuild -project CMSpike.xcodeproj -scheme CMSpike -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tee build.log | tail -40
+      - name: Package ipa
+        working-directory: spikes/apple-model
+        run: |
+          mkdir -p ipa/Payload
+          cp -R build/Build/Products/Release-iphoneos/CMSpike.app ipa/Payload/
+          (cd ipa && zip -qry ../CMSpike.ipa Payload)
+          ls -la CMSpike.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CMSpike-ipa
+          path: spikes/apple-model/CMSpike.ipa
