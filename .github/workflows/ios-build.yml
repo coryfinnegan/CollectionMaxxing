@@ -46,6 +46,10 @@ jobs:
         if: steps.detect.outputs.present == 'true'
         working-directory: app
         run: npm ci
+      - name: Generate the API client from the contract
+        if: steps.detect.outputs.present == 'true'
+        working-directory: app
+        run: npm run generate
       - name: Prebuild native project
         if: steps.detect.outputs.present == 'true'
         working-directory: app
