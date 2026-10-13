@@ -1,14 +1,16 @@
 // The quiet gate: generate, typecheck, lint, test, then a one-line summary per step.
 // On failure it prints only the first lines of what broke and exits non-zero.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const maxLines = 20;
 const logDir = mkdtempSync(join(tmpdir(), 'cm-app-check-'));
 
+// The root gate (scripts/check.*) runs this without installing first, so install when needed.
 const steps = [
+  ...(existsSync('node_modules/orval') ? [] : [['install', 'npm', ['ci', '--silent', '--no-audit', '--no-fund']]]),
   ['generate', 'npm', ['run', 'generate', '--silent']],
   ['typecheck', 'npx', ['tsc', '--noEmit']],
   ['lint', 'npx', ['eslint', 'src', '--max-warnings', '0']],
