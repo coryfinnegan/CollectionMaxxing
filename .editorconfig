@@ -40,6 +40,9 @@ dotnet_diagnostic.CA2225.severity = none
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1861.severity = none
 dotnet_diagnostic.CA1515.severity = none
+dotnet_diagnostic.CA1859.severity = none
+# Passing TestContext.Current.CancellationToken everywhere is noise for short tests.
+dotnet_diagnostic.xUnit1051.severity = none
 
 # EF Core generates these.
 [**/Migrations/*.cs]
