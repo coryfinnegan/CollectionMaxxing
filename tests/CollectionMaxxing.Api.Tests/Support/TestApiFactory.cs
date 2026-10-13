@@ -1,0 +1,34 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace CollectionMaxxing.Api.Tests.Support;
+
+/// <summary>The real API pipeline, pointed at the test Postgres, with the header-based test sign-in.</summary>
+public sealed class TestApiFactory(string connectionString) : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Development, because the OpenAPI document is only served there.
+        builder.UseEnvironment("Development");
+
+        builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:collectionmaxxing"] = connectionString,
+            }));
+
+        builder.ConfigureTestServices(services =>
+            services
+                .AddAuthentication(options =>
+                {
+                    options.DefaultScheme = TestAuthHandler.SchemeName;
+                    options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                    options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+                })
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { }));
+    }
+}
