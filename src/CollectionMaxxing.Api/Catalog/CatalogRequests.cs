@@ -1,13 +1,12 @@
 using CollectionMaxxing.Application.Catalog;
-using CollectionMaxxing.Domain.Catalog;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CollectionMaxxing.Api.Catalog;
 
-/// <summary>Query of <c>GET /api/v1/catalog/search</c>.</summary>
+/// <summary>Query of <c>GET /api/v1/catalog/search</c>. <c>kind</c> is text (minimal APIs bind enums case-sensitively; the API spells them lower snake_case); the handler validates it.</summary>
 public sealed record CatalogSearchQuery(
     [FromQuery(Name = "q")] string Q,
-    [FromQuery(Name = "kind")] WorkKind? Kind = null,
+    [FromQuery(Name = "kind")] string? Kind = null,
     [FromQuery(Name = "platform")] string? Platform = null,
     [FromQuery(Name = "year")] int? Year = null,
     [FromQuery(Name = "limit")] int? Limit = null);

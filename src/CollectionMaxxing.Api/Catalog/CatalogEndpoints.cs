@@ -13,54 +13,53 @@ namespace CollectionMaxxing.Api.Catalog;
 /// </summary>
 public static class CatalogEndpoints
 {
-    public static IServiceCollection AddCatalog(this IServiceCollection services) => services.AddCatalogProviders();
-
     public static IEndpointRouteBuilder MapCatalogEndpoints(this IEndpointRouteBuilder app)
     {
         var catalog = app.MapGroup("/api/v1/catalog");
 
         // Local catalogue first, then providers; merged and scored.
-        catalog.MapGet("/search", ([AsParameters] CatalogSearchQuery query) => StubEndpoints.NotImplemented())
+        catalog.MapGet("/search", Search)
             .WithName("SearchCatalog").WithTags("Catalog")
             .Produces<Page<CatalogSearchResultDto>>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
-        catalog.MapGet("/lookup", ([AsParameters] CatalogLookupQuery query) => StubEndpoints.NotImplemented())
+        catalog.MapGet("/lookup", Lookup)
             .WithName("LookupCatalogCode").WithTags("Catalog")
             .Produces<CatalogLookupDto>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
-        catalog.MapGet("/releases/{id:guid}", (Guid id) => StubEndpoints.NotImplemented())
+        catalog.MapGet("/releases/{id:guid}", Release)
             .WithName("GetRelease").WithTags("Catalog")
             .Produces<ReleaseDto>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
-        catalog.MapGet("/releases/{id:guid}/artwork", (Guid id) => StubEndpoints.NotImplemented())
+        catalog.MapGet("/releases/{id:guid}/artwork", Artwork)
             .WithName("ListReleaseArtwork").WithTags("Catalog")
             .Produces<Page<ArtworkDto>>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
-        catalog.MapGet("/platforms", () => StubEndpoints.NotImplemented())
+        catalog.MapGet("/platforms", Platforms)
             .WithName("ListPlatforms").WithTags("Catalog")
             .Produces<Page<PlatformDto>>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
         // Cover image proxy with long cache headers. The web <img> path will need a signed URL (decided when it is built).
-        app.MapGet("/media/covers/{assetId:guid}", (Guid assetId) => StubEndpoints.NotImplemented())
+        app.MapGet("/media/covers/{assetId:guid}", Cover)
             .WithName("GetCover").WithTags("Catalog")
             .Produces(StatusCodes.Status200OK, null, "image/jpeg", "image/png", "image/webp")
+            .Produces(StatusCodes.Status304NotModified)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
         // Backup and restore of your items' Apple feature prints. Opaque to the server.
         var library = app.MapLibraryGroup();
@@ -77,5 +76,61 @@ public static class CatalogEndpoints
             .RequireLibraryRole(LibraryRole.Editor).IsStub();
 
         return app;
+    }
+
+    private static async Task<IResult> Search(
+        [AsParameters] CatalogSearchQuery query, SearchCatalog.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(
+            new SearchCatalog.Query(query.Q, query.Kind, query.Platform, query.Year, query.Limit), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
+    }
+
+    private static async Task<IResult> Lookup(
+        [AsParameters] CatalogLookupQuery query, LookupCatalog.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new LookupCatalog.Query(query.Code), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
+    }
+
+    private static async Task<IResult> Release(Guid id, GetRelease.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new GetRelease.Query(id), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
+    }
+
+    private static async Task<IResult> Artwork(Guid id, ListReleaseArtwork.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new ListReleaseArtwork.Query(id), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
+    }
+
+    private static async Task<IResult> Platforms(ListPlatforms.Handler handler, CancellationToken cancellationToken) =>
+        TypedResults.Ok(await handler.HandleAsync(cancellationToken));
+
+    private static async Task<IResult> Cover(
+        Guid assetId, HttpContext http, GetCover.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new GetCover.Query(assetId), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return result.Error!.ToProblem();
+        }
+
+        var cover = result.Value;
+        var headers = http.Response.Headers;
+        headers.XContentTypeOptions = "nosniff";
+
+        // A global image is the same for every signed-in user; a library's own image must never sit in a shared cache.
+        headers.CacheControl = cover.IsPrivate ? "private, max-age=86400" : "public, max-age=31536000, immutable";
+        headers.ETag = cover.ETag;
+
+        if (http.Request.Headers.IfNoneMatch.Contains(cover.ETag))
+        {
+            await cover.Content.DisposeAsync();
+            return TypedResults.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        return TypedResults.Stream(cover.Content, cover.ContentType);
     }
 }

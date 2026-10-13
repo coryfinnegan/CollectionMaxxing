@@ -235,12 +235,15 @@ public static class AuthorizationMatrix
         InLibrary("DELETE", Sessions, LibraryRole.Editor),
 
         // ---- Catalogue (CAT): any signed-in caller; feature prints are per library ----------------------------
-        SignedIn("GET", "/api/v1/catalog/search", query: "q=jurassic"),
-        SignedIn("GET", "/api/v1/catalog/lookup", query: "code=0045496870010"),
-        SignedIn("GET", "/api/v1/catalog/releases/{id:guid}"),
-        SignedIn("GET", "/api/v1/catalog/releases/{id:guid}/artwork"),
-        SignedIn("GET", "/api/v1/catalog/platforms"),
-        SignedIn("GET", "/media/covers/{assetId:guid}"),
+        SignedIn("GET", "/api/v1/catalog/search", allowed: Ok, query: "q=jurassic"),
+        SignedIn("GET", "/api/v1/catalog/lookup", allowed: Ok, query: "code=0045496870010"),
+
+        // The matrix's ids are not releases or assets, so a signed-in caller gets the "no such thing" 404; who sees which
+        // real release or cover (global, own library, another library) is covered by the catalogue tests.
+        SignedIn("GET", "/api/v1/catalog/releases/{id:guid}", allowed: NotFound),
+        SignedIn("GET", "/api/v1/catalog/releases/{id:guid}/artwork", allowed: NotFound),
+        SignedIn("GET", "/api/v1/catalog/platforms", allowed: Ok),
+        SignedIn("GET", "/media/covers/{assetId:guid}", allowed: NotFound),
         InLibrary("GET", $"{Libraries}/feature-prints", LibraryRole.Viewer),
         InLibrary("PUT", $"{Libraries}/feature-prints", LibraryRole.Editor, Json),
 
