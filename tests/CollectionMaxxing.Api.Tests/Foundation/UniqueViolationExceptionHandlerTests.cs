@@ -1,8 +1,8 @@
 using CollectionMaxxing.Api.Problems;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using NSubstitute;
 using Npgsql;
+using NSubstitute;
 
 namespace CollectionMaxxing.Api.Tests.Foundation;
 
