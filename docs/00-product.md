@@ -7,7 +7,8 @@ Cataloguing a physical media collection should take about as long as carrying it
 ## Who it's for
 
 - **You first:** a collector with a lot of books, VHS, DVDs/Blu-rays and video games across shelves, bins and closets.
-- **Later:** your household (shared library) and possibly other collectors. The architecture is multi-user from day one so opening it up is a config change, not a rewrite.
+- **Your household (v1):** family members join your library by invite, as **Editor** (scan, add, edit) or **Viewer** (browse, and check "do I own this?").
+- **Later:** possibly other collectors. The architecture is multi-user from day one, so opening it up is a config change, not a rewrite.
 
 ## Jobs to be done
 
@@ -20,6 +21,7 @@ Cataloguing a physical media collection should take about as long as carrying it
 | J5 | lend something out | record who has it | I get it back |
 | J6 | want to browse or show off | see my collection as cover art, filtered by format/platform | it's fun to use |
 | J7 | worry about losing the data | export everything | the data is mine |
+| J8 | live with other people who buy media too | share one library with them | nobody in the house buys a second copy |
 
 ## One scanner: point it at anything
 
@@ -44,7 +46,8 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 ### v1.0 (MVP: self-hosted, installed on your iPhone with a free Apple ID)
 
 - One-time owner setup with a passkey (web); iPhone paired by QR code, with an optional Face ID app lock
-- One personal library per user: **books, VHS, DVD, Blu-ray, 4K UHD, video games** (+ "other")
+- One shared library for your household: **books, VHS, DVD, Blu-ray, 4K UHD, video games** (+ "other")
+- **Household sharing:** invite family members as **Editor** or **Viewer**; each one has their own passkey and pairs their own iPhone; items show who added them
 - **One scanner, no modes:** barcodes (many per frame, continuous) plus automatic pictures when no barcode is in view, all onto one receipt tray; works offline and resolves when back online
 - **Single-item pictures (on-device text + artwork matching):** loose cartridges, VHS sleeves and tapes, boxes, discs; your photo shown beside the matched artwork; "use my photo" as the cover
 - **Shelf pictures (on-device):** shelves, stacks, floor spreads; results stream in as cards; tap one to see **that item boxed on your photo** so you can find it on the shelf
@@ -61,7 +64,6 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 
 ### v1.1
 
-- Household sharing (invite members as Editor or Viewer)
 - CSV import (generic + Goodreads/CLZ/LibraryThing exports)
 - Lending tracker with reminders
 - Stats (counts by format, platform, decade; recently added)
@@ -73,7 +75,6 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 - Android (Expo makes this cheap)
 - Music: CD, vinyl, cassette via Discogs
 - iOS widgets and App Intents ("Hey Siri, do I own Metroid Prime?")
-- On-device OCR pre-pass to cut AI cost on dense shelves
 
 ## Non-goals (for v1)
 
@@ -96,7 +97,7 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 | Single-item picture top-1 accuracy (default, no LLM) | ≥ 88% boxes/covers, ≥ 80% VHS sleeves, ≥ 70% loose cartridges (eval set) |
 | AI cost per scan (default) | **$0**: recognition runs on the phone |
 | Single-item picture time to answer | ≤ 2 s first time; instant (and offline) for a repeat of something you've confirmed before |
-| "Do I own this?" answer time (barcode) | under 1.5 s online, instant offline (v1.1) |
+| "Do I own this?" answer time (barcode) | under 1.5 s online, instant offline |
 
 The AI targets are measured by the eval suite in [09](09-testing-and-tdd.md#ai-evals). We tune prompts and models against them, not by gut feel.
 

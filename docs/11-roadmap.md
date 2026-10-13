@@ -7,24 +7,24 @@ flowchart LR
   M0["M0<br/>Walking skeleton<br/>~2 wks"] --> M1["M1<br/>Library core<br/>~2 wks"]
   M1 --> M2["M2<br/>Scanner +<br/>barcodes<br/>~3 wks"]
   M2 --> M3["M3<br/>Picture recognition<br/>(auto-snap)<br/>~3 wks"]
-  M3 --> M4["M4<br/>Web polish +<br/>data safety<br/>~2 wks"]
+  M3 --> M4["M4<br/>Household +<br/>web polish +<br/>data safety<br/>~3 wks"]
   M4 --> M5["M5<br/>Hardening +<br/>v1 install<br/>~2 wks"]
 ```
-*(About 14 part-time weeks to v1.0. Treat it as an estimate, not a commitment.)*
+*(About 15 part-time weeks to v1.0. Treat it as an estimate, not a commitment.)*
 
 ---
 
 ## M0 — Walking skeleton (≈ 2 weeks)
 
-**Goal:** the thinnest end-to-end slice, deployed. Sign in on your iPhone and see "Hello, [name]" from the production API.
+**Goal:** the thinnest end-to-end slice, deployed. Pair your iPhone and see "Hello, [name]" from the production API on your PC.
 
 - [ ] Git repo (private, GitHub), branch protection, `CLAUDE.md` with the TDD working agreement and links to these docs
 - [ ] .NET solution skeleton (`.slnx`, Central Package Management, analyzers, `.editorconfig`), all projects + test projects
 - [ ] Architecture tests in place from the first commit
-- [ ] Aspire AppHost: Postgres, Azurite, API, Expo web
+- [ ] Aspire AppHost: Postgres, API, Expo web
 - [ ] ASP.NET Core Identity + OpenIddict: **setup code → owner passkey** (web), **QR device pairing** (custom grant) for the iPhone, Face ID app lock
 - [ ] `GET /api/v1/me`, with the authorization-matrix harness and every-endpoint-has-a-policy test (already useful with 1 endpoint)
-- [ ] Expo app: Router, tabs shell, sign-in, token storage/refresh, generated API client
+- [ ] Expo app: Router, tabs shell, QR pairing, token storage/refresh, generated API client
 - [ ] **Self-hosting on your PC:** update Docker Desktop; `deploy/docker-compose.yml` (api, migrate, postgres, aspire-dashboard, backup); `tailscale serve` HTTPS; secrets folder + ACL; BitLocker check
 - [ ] GitHub Actions CI on hosted runners → images to GHCR; **self-hosted runner** on the PC for the `deploy` job only (pull, migrate, restart, smoke, rollback)
 - [ ] Nightly backups to F:\ + weekly encrypted off-site copy; heartbeat check
@@ -91,10 +91,22 @@ flowchart LR
 - You've catalogued at least 3 real shelves and a box of loose carts without touching anything but Review.
 - Auto-snap misfires (pictures with nothing found) under 10% in a real session.
 
-## M4 — Web polish and data safety (≈ 2 weeks)
+## M4 — Household sharing, web polish and data safety (≈ 3 weeks)
+
+- [ ] **Household sharing:**
+  - invites on the web (Editor/Viewer, link + QR code, single use, 7 days, revocable);
+  - the `/join` page with passkey creation;
+  - the Members page (change role; remove → devices revoked);
+  - "Added by" on items;
+  - the conflict prompt when two people edit the same item ("Sam changed this. Reload?").
+- [ ] **Family onboarding:**
+  - Tailscale invite + an ACL that allows only the PC's HTTPS port;
+  - AltStore with their own Apple ID on your AltServer;
+  - **Settings → Get the iPhone app** (latest `.ipa` served by your PC);
+  - a one-page guide.
 
 - [ ] Export (CSV + JSON zip) through a background job
-- [ ] Account deletion (re-auth, Apple token revocation, purge job)
+- [ ] Account deletion (fresh passkey, revoke all devices and sessions, purge job)
 - [ ] **Offline "do I own this?" cache** on the phone (owned identifiers, titles, feature prints), synced, so checks work when the PC is off
 - [ ] Signed-in devices list + revoke
 - [ ] Recently deleted bin; audit events
@@ -102,7 +114,7 @@ flowchart LR
 - [ ] Web table polish: column chooser, inline edits, range select
 - [ ] Accessibility pass (VoiceOver, Dynamic Type, contrast)
 
-**Exit criteria:** you could lose your phone **and** the PC's main drive and still have your data (restore from F:\ and from the off-site copy both tested); the accessibility checklist passes.
+**Exit criteria:** a family member joins by invite, pairs their own iPhone and scans into the shared library; a Viewer can check ownership but can't change anything; you could lose your phone **and** the PC's main drive and still have your data (restore from F:\ and from the off-site copy both tested); the accessibility checklist passes.
 
 ## M5 — Hardening and v1 on your iPhone (≈ 2 weeks)
 
@@ -111,7 +123,7 @@ flowchart LR
 - [ ] Load sanity check (k6): 20 concurrent scanners for 10 minutes on the PC (while a game is running), p95 < 500 ms
 - [ ] Privacy manifest; a short privacy note in the About screen
 - [ ] Provider attribution (TMDB, IGDB) on the About screen
-- [ ] v1.0 build installed via AltStore with background re-signing confirmed over a couple of weeks; Tailscale VPN On Demand; household-member onboarding doc
+- [ ] v1.0 build installed via AltStore with background re-signing confirmed over a couple of weeks; Tailscale VPN On Demand; a family member's iPhone re-signing through the same AltServer
 
 **Exit criteria:** v1.0 on your iPhone (sideloaded, auto re-signing), used for a real week of cataloguing at home and out (thrift store over cellular via Tailscale), with no data-loss scares.
 
@@ -121,7 +133,7 @@ flowchart LR
 
 | Release | Items |
 |---|---|
-| **v1.1** | Household sharing (invites, roles in the UI), CSV import (generic, Goodreads, CLZ, LibraryThing), lending reminders, stats, photo tiling for dense shelves (if the evals call for it) |
+| **v1.1** | CSV import (generic, Goodreads, CLZ, LibraryThing), lending reminders, stats, photo tiling for dense shelves (if the evals call for it) |
 | **v2** | Public share links, Android, music formats (Discogs), widgets/App Intents |
 
 ## Risks and mitigations

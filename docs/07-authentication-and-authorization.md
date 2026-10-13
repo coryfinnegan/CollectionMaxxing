@@ -77,7 +77,28 @@ sequenceDiagram
 - **Device-bound:** every phone has its own authorization, and Settings → Devices lists them by name with their last-seen time. **Revoke** kills its tokens immediately, and its access token expires within 10 minutes.
 - **Refresh rotation:** OpenIddict rotates refresh tokens. Replaying a used one **revokes that device's whole chain**, so a stolen refresh token dies the moment either copy is used.
 - **Face ID app lock** (optional, on by default): the app asks for Face ID when it opens or comes back after 5 minutes. It uses Apple's LocalAuthentication, which needs no paid capability.
-- **Household (v1.1):** the owner creates an invite. The new member sets up their own passkey on the web through the invite link, then pairs their own phone. Nobody can join without an invite.
+
+### Family members: invite → passkey → pair
+
+```mermaid
+sequenceDiagram
+  participant O as You (owner, web, recent passkey)
+  participant API as API
+  participant F as Family member (their device, on your tailnet)
+  O->>API: Settings → Members → Invite (name, Editor or Viewer)
+  API-->>O: Link + QR code (single use, 7 days, revocable)
+  O-->>F: Send the link (text, AirDrop…)
+  F->>API: GET /join/{token} → "Join Cory's library as Editor"
+  F->>API: Create a passkey (Face ID / Windows Hello)
+  API->>API: Invite unused, unexpired, unrevoked? → mark accepted → create user + membership
+  API-->>F: Set-Cookie __Host-cm → your Library
+  F->>API: (to scan) Settings → Devices → Add a device → pair their iPhone with the QR code
+```
+
+- **Nobody joins without an invite.** The link also only works from your tailnet, so the person must be added to Tailscale first. That's two independent gates.
+- Each member has **their own passkeys and their own paired devices**. Nothing is shared between accounts.
+- **Removing a member** deletes their membership and revokes all their devices and sessions immediately. Their account is deactivated, since it has no library left. The items they added stay and still show who added them.
+- **The owner can't be removed.** Transferring ownership is a separate action that needs a fresh passkey.
 
 ### Sign out, devices and deletion
 
@@ -109,11 +130,11 @@ Request (only possible from a device on your tailnet)
 | Add / edit / delete items, commit scans | | ✓ | ✓ |
 | Manage locations and tags | | ✓ | ✓ |
 | Rename library, export | | | ✓ |
-| Invite / remove members, change roles (v1.1) | | | ✓ |
+| Invite / remove members, change roles | | | ✓ |
 | Add / revoke devices for themselves | ✓ | ✓ | ✓ |
 | Transfer ownership / delete library | | | ✓ (re-auth) |
 
-In v1 there's one user: you, the owner of one library. Roles still exist and are tested from the start, so household sharing in v1.1 needs no security redesign.
+In v1 there's one library, yours. Family members join it by invite as Editor or Viewer. The authorization-matrix test covers every role from the very first endpoint.
 
 ### Implementation
 
@@ -136,7 +157,7 @@ lib.MapPost("/items", AddItem.Handle).RequireLibraryRole(LibraryRole.Editor);
 
 ### Proving it: tests
 
-1. **Every-endpoint-has-a-policy test.** It reflects over `EndpointDataSource` and fails if any endpoint lacks `RequireLibraryRole`, `RequireAuthorization` or `AllowAnonymous`. Anonymous endpoints must be on an explicit allow-list (`/health/*`, `/setup` while no owner exists, `/account/login`, the token endpoint, static files).
+1. **Every-endpoint-has-a-policy test.** It reflects over `EndpointDataSource` and fails if any endpoint lacks `RequireLibraryRole`, `RequireAuthorization` or `AllowAnonymous`. Anonymous endpoints must be on an explicit allow-list (`/health/*`, `/setup` while no owner exists, `/account/login`, `/join/{token}` with a valid invite, the token endpoint, static files).
 2. **Authorization matrix.** One table-driven test lists every endpoint with its expected status for `anonymous`, `other-user`, `viewer`, `editor`, `owner` and `admin`. It runs against the real pipeline (WebApplicationFactory + Testcontainers Postgres) on every PR.
 3. **IDOR tests:** user B requests user A's item, session, photo, cover and export by ID, and expects 404 every time.
 4. **Setup and pairing tests:**
@@ -147,6 +168,12 @@ lib.MapPost("/items", AddItem.Handle).RequireLibraryRole(LibraryRole.Editor);
    - a revoked device's refresh token fails;
    - a replayed refresh token revokes that device's chain.
 5. **Token tests:** expired, wrong-audience and missing-scope tokens are rejected.
+6. **Invite tests:**
+   - an invite works once; expired or revoked invites fail;
+   - the member gets exactly the invited role;
+   - only the owner can invite, and only with a recent passkey;
+   - removing a member makes their refresh tokens and cookie fail at once;
+   - the owner can't be removed.
 
 ## Keys and secrets
 

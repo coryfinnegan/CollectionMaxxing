@@ -4,10 +4,10 @@
 
 **Why this beats the alternatives for this project** (the full ADR is in [12](12-decision-log.md#adr-003-expo-react-native-for-ios-and-web)):
 
-1. **You're on Windows.** Native iOS builds normally need a Mac with Xcode, and that includes .NET MAUI's iOS builds. **GitHub's free macOS runners compile the iOS app in the cloud** (an unsigned build). You install it on your iPhone with your **free Apple ID** through AltStore, which runs on your PC and re-signs it every week. No Mac, and no $99 membership.
+1. **You're on Windows.** Native iOS builds need Xcode on a Mac, whatever the framework. That includes .NET MAUI: its one Mac-free shortcut, Hot Restart, needs the paid membership and is gone from Visual Studio 2026. **GitHub's free macOS runners compile the iOS app in the cloud** (an unsigned build). You install it on your iPhone with your **free Apple ID** through AltStore, which runs on your PC and re-signs it every week. No Mac, and no $99 membership.
 2. **Scanning quality.** `react-native-vision-camera` v5 gives full control of the iPhone camera, and a small Swift module plugs Apple's Vision and Foundation Models straight into its frames and stills.
 3. **One codebase for iOS and web.** Expo Router targets both. Platform-specific pieces (the camera, a dense web table) live in `.ios.tsx` / `.web.tsx` files.
-4. **Fast iteration.** Hot reload against the dev server over Tailscale, and a huge ecosystem.
+4. **Fast iteration without spending build minutes.** Most changes are JavaScript, which reloads live on your iPhone from the dev server on your PC (over Tailscale). The cloud Mac is needed only when native code or dependencies change. With SwiftUI, Flutter or MAUI, every change would be a ~20-minute cloud build.
 
 What you give up: the front end isn't C#. The contract between C# and TypeScript is enforced by the generated client and CI, so the API stays the single source of truth.
 
@@ -130,7 +130,7 @@ The on-device recognition needs one small native module in Swift (`modules/cm-vi
 | Scan barcodes into the tray | Yes: decoded on device, queued |
 | Resolve / commit | No: queued until online, then automatic |
 | Pictures | Fully processed on the phone; the catalogue match waits as QUEUED until you're online. Your own confirmed items match instantly, offline. |
-| "You own this" for barcodes while offline | v1.1 (owned-identifier set cached on device) |
+| "You own this" while offline | Yes: the phone keeps a synced copy of what the library owns (identifiers, titles, feature prints) |
 | Edits to items | No (v1 shows "You're offline" on save) |
 
 ## Token handling (iOS)
@@ -161,6 +161,14 @@ The on-device recognition needs one small native module in Swift (`modules/cm-vi
 - 10 new app IDs per week.
 - Apple capabilities that need a paid team are off-limits: no push notifications, no Sign in with Apple, no associated domains, no Apple Private Cloud Compute. The plan doesn't use any of them.
 - Camera, Vision, LocalAuthentication (Face ID) and the on-device Foundation Model need no paid capability. **This is confirmed in an M0 spike before we build on it.**
+
+**Family members' iPhones:**
+
+- The same `.ipa` works for everyone. Each person installs AltStore with **their own free Apple ID** (so the app limits are per person) through the AltServer on your PC, and their phone re-signs on your home Wi-Fi like yours.
+- The web app offers the latest build under **Settings → Get the iPhone app**.
+- Someone who doesn't live with you can use **SideStore** (free), which re-signs on the phone itself with no PC.
+- Family who only browse don't need the app: the web app works in Safari, or on Android.
+- iPhones without Apple Intelligence use the Vision text engine automatically.
 
 *If a public repo is ever fine with you:* GitHub-hosted runners are unlimited for public repos, so the build budget stops mattering.
 

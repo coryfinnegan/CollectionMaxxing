@@ -27,7 +27,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-003: Expo (React Native) for iOS and web
 
-- **Status:** Proposed (**Decision needed: D1**); iOS builds amended by **ADR-019** (GitHub Actions macOS runners + AltStore instead of EAS)
+- **Status:** **Accepted** (D1, 2026-10-12: keep Expo "only if it lets me do iOS without a Mac and without paying Apple"). It does: GitHub's free macOS runners build it and AltStore installs it with a free Apple ID (ADR-019, replacing EAS). It's also the only option where everyday changes skip the cloud Mac: JavaScript reloads live from your PC, so the free macOS minutes go only to native changes. .NET MAUI's Mac-free route, Hot Restart, needs the paid membership and was removed in Visual Studio 2026. SwiftUI and Flutter need a cloud build for every change.
 - **Context:**
   - iOS is required and web is required.
   - The best possible camera/barcode scanning matters most.
@@ -262,7 +262,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-018: Self-hosted on your gaming PC, reached through Tailscale
 
-- **Status:** Accepted; distribution and auth amended by **ADR-019** (no paid Apple membership). Originally accepted (your direction, 2026-10-12: "This is going to be a self hosted app")
+- **Status:** Accepted; distribution and auth amended by **ADR-019** (no paid Apple membership). D13 settled: the PC stays on 24/7, as it already does for Plex, ErsatzTV and Jellyfin. Originally accepted (your direction, 2026-10-12: "This is going to be a self hosted app")
 - **Context:**
   - The app is personal and self-hosted.
   - The PC (Windows 11 Pro, i9-13900KF, 32 GB RAM, RTX 4070 Ti, plenty of disk) already runs Docker and Tailscale.
@@ -314,3 +314,23 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - Developer Mode stays on.
   - Build budget of ~8–12 native builds a month.
   - If Apple tightens free provisioning, the $99 membership is a drop-in fallback with no code changes.
+
+## ADR-020: Household sharing in v1
+
+- **Status:** Accepted (your direction, 2026-10-12: "Family sharing should be in v1")
+- **Context:** The data model, roles and authorization-matrix test were already multi-user. Only the invite flow, the members UI and onboarding were deferred to v1.1.
+- **Decision:**
+  - One library per household, owned by you. Family members join it by **invite** (link + QR code, single use, 7 days, revocable), as **Editor** or **Viewer**.
+  - Each member creates their own passkey through the invite and pairs their own iPhone. No shared accounts.
+  - Members are managed on the web (owner only). Items show who added them.
+  - Removing a member revokes their devices and sessions at once.
+  - Family reach the PC through Tailscale: the free plan allows 6 users, and an ACL limits them to the app's HTTPS port.
+  - Family install the app with AltStore and their own free Apple ID, or use only the web app.
+  - It lands in **M4**, which grows from ~2 to ~3 weeks.
+- **Alternatives:**
+  - One shared account: no attribution, and you can't revoke one person.
+  - Separate libraries with sharing between them: needs a library switcher and more UI, with no benefit for one household.
+- **Consequences:**
+  - v1 is about 15 part-time weeks instead of 14.
+  - Concurrent edits are real now, so the ETag/412 path gets a friendly prompt.
+  - Each family member's phone needs your home Wi-Fi weekly for re-signing, or SideStore.

@@ -59,7 +59,7 @@ The web app is served **from the same origin as the API**. That lets the browser
 | Images | SixLabors.ImageSharp | Validate, auto-orient, re-encode (strips EXIF/GPS), thumbnails. Its Split License is free at our scale; revisit if this ever goes commercial. |
 | API docs | `Microsoft.AspNetCore.OpenApi` (OpenAPI 3.1) + Scalar UI (development only) | The TypeScript client is generated from this document |
 | Observability | OpenTelemetry → standalone **Aspire Dashboard** container on the PC | Traces, metrics, logs; one trace across app → API → providers |
-| Local orchestration | **Aspire** AppHost | One F5 starts Postgres, Azurite, the API and the Expo web dev server |
+| Local orchestration | **Aspire** AppHost | One F5 starts Postgres, the API and the Expo web dev server |
 | Packages | Central Package Management, `TreatWarningsAsErrors`, nullable enabled, `.editorconfig` | |
 
 We deliberately avoid **MediatR and AutoMapper**. Both moved to commercial licensing in 2025, and we don't need them: handlers are plain classes injected into endpoints, and mapping is explicit. The same goes for **FluentAssertions** (v8 is commercial); we use Shouldly instead.
@@ -199,4 +199,4 @@ sequenceDiagram
 
 ## Why not microservices, serverless functions or a separate worker?
 
-One person builds this, and the traffic is a single household's. A second deployable doubles CI/CD, auth wiring and failure modes for no benefit. The scan worker is a `BackgroundService` in the same process. The job table makes it safe to run several replicas. If AI scanning ever needs independent scaling, the worker project can move into its own Container App without code changes, because it talks only to the job table and the ports.
+One person builds this, and the traffic is a single household's. A second deployable doubles CI/CD, auth wiring and failure modes for no benefit. The scan worker is a `BackgroundService` in the same process. The job table makes it safe to run several replicas. If AI scanning ever needs independent scaling, the worker project can move into its own container in the compose file without code changes, because it talks only to the job table and the ports.

@@ -18,7 +18,7 @@ You already have **Tailscale** installed. It puts your PC and your iPhone on a p
 
 - **Nothing is exposed to the internet.** No port forwarding, no public IP, no router changes.
 - **HTTPS for free.** `tailscale serve` gives the PC a real certificate for `https://<pc-name>.<your-tailnet>.ts.net` and forwards it to the API on `localhost`. That one URL serves the API and the web app.
-- **Who can reach it:** only devices signed in to your tailnet. Tailscale's free Personal plan covers you and a couple of family members. The app's own sign-in still applies on top.
+- **Who can reach it:** only devices signed in to your tailnet. Tailscale's free Personal plan allows **6 users with unlimited devices**: you plus 5 family members. The app's own sign-in still applies on top.
 - **On the iPhone:** install the Tailscale app and turn on *VPN On Demand*, so it connects automatically when the CollectionMaxxing app needs it.
 
 *Later, if you ever want public share links or family without Tailscale:* a Cloudflare Tunnel can publish just the web app on a domain, with no open ports either. Not needed for v1.
@@ -30,7 +30,7 @@ flowchart TB
   phone["iPhone (anywhere)<br/>Tailscale app"] -- "WireGuard" --> ts
   browser["Browser on a tailnet device"] -- "WireGuard" --> ts
   subgraph pc["Your PC: Windows 11 Pro"]
-    ts["Tailscale Serve<br/>https://pc.tailnet.ts.net → 127.0.0.1:8080"]
+    ts["Tailscale Serve<br/>https://pc.tailnet.ts.net → 127.0.0.1:5480"]
     subgraph compose["Docker Compose: collectionmaxxing"]
       api["api<br/>.NET 10: REST API + web app + jobs"]
       mig[["migrate<br/>EF bundle, runs first"]]
@@ -55,7 +55,7 @@ flowchart TB
 
 | Service | Image / tool | Notes |
 |---|---|---|
-| `api` | our .NET 10 image (chiseled, non-root), published to GitHub Container Registry (private) | Listens on `127.0.0.1:8080` only; Tailscale Serve is the only way in. Serves the web app from `wwwroot`. Background jobs (UPC pending queue, exports) run in-process. |
+| `api` | our .NET 10 image (chiseled, non-root), published to GitHub Container Registry (private) | Listens on `127.0.0.1:5480` only (SABnzbd already holds 8080; the port is set in `.env`); Tailscale Serve is the only way in. Serves the web app from `wwwroot`. Background jobs (UPC pending queue, exports) run in-process. |
 | `migrate` | EF Core migration bundle | A one-shot container; `api` starts only after it succeeds |
 | `postgres` | `postgres:17` | Not published to the host at all; only `api`, `migrate` and `backup` can reach it on the compose network. `pg_trgm` is enabled by a migration. |
 | `files` | Docker volume | Replaces cloud blob storage (`IBlobStore` → file-system implementation) |
@@ -74,7 +74,21 @@ The phone does all the recognition itself, so the scanner keeps working when the
 - **"Do I own this?" still works**, because the phone keeps a synced copy of what you own (identifiers, titles and the feature prints of your items). This was moved into v1 for this reason.
 - Everything resolves automatically when the PC is reachable again.
 
-For results while you're out, the PC needs to be on. Either set Windows to **never sleep** (a gaming PC at idle draws roughly 70–120 W, so about **$8–15/month** of electricity if it's otherwise off a lot; much less extra if it's on most of the day anyway), or accept queued results until you're home. The same compose file runs unchanged on a small always-on mini PC later if you want.
+**Decided (D13):** the PC is already on 24/7 for Plex, ErsatzTV and Jellyfin, so results resolve while you're out at no extra cost. If it's ever off, results queue until it's back. The same compose file runs unchanged on a small always-on mini PC later if you want.
+
+## Sharing the PC with Plex, ErsatzTV and Jellyfin
+
+Checked on the PC on 2026-10-12:
+
+- **Ports:**
+  - Plex (32400) and ErsatzTV (8409) aren't touched.
+  - **SABnzbd already holds `127.0.0.1:8080`**, so the API listens on `127.0.0.1:5480` (configurable in `.env`).
+  - Postgres isn't published to the host at all.
+- **Tailscale Serve** has no configuration yet, so CollectionMaxxing takes HTTPS 443 on the PC's `ts.net` name. If you later put Jellyfin behind Tailscale Serve too, give it another HTTPS port.
+- **CPU, GPU and RAM:**
+  - The media servers transcode on the GPU and CPU. This app uses no GPU and well under one core.
+  - Cap Docker's WSL2 VM in `%UserProfile%\.wslconfig` (`memory=4GB`), so it never squeezes ErsatzTV (~2.5 GB) or Plex. By default WSL2 can take up to half your RAM.
+- **Docker Desktop wasn't running** when checked. Set it to start when you sign in, the way Plex and ErsatzTV already do.
 
 ## Environments
 
@@ -102,7 +116,7 @@ GitHub-hosted runner                         Self-hosted runner on your PC (depl
 
 - **Rollback** pins the previous image tag. Expand/contract migrations keep the previous image compatible with the new schema.
 - **The self-hosted runner only runs the `deploy` job, for `main`, in this private repo.** PR code never runs on your PC. That matters, because a self-hosted runner executes whatever the workflow tells it to.
-- **iPhone app:** see *Getting the app on your iPhone for $0* below.
+- **iPhone app:** see *Getting the app on your iPhone for $0* below. The deploy job also copies the newest `.ipa` artifact into the `files` volume, so you and your family can get it from the web app under **Settings → Get the iPhone app**.
 - **CI minutes:** a private repo gets 2,000 free Linux minutes a month on GitHub-hosted runners, plenty for PR checks. GitHub's default **$0 spending limit** means overage is blocked, never billed. If you ever hit the cap, the PR checks can also run on your self-hosted runner, since only you push to this repo.
 
 ## Getting the app on your iPhone for $0
@@ -120,7 +134,13 @@ No Apple Developer Program ($99/yr), no Mac, no TestFlight:
 - 10 app IDs a week;
 - no paid-only capabilities: no push notifications, no Sign in with Apple, no Apple Private Cloud Compute.
 
-The plan avoids all three. Sign-in uses passkeys and QR pairing ([07](07-authentication-and-authorization.md)); there are no push notifications (results wait in the app, and backup alerts come by email); hard cases go to Fix it. An **M0 spike** confirms that the on-device Foundation Model and Vision work in a free-signed app before we build on them.
+**Family iPhones:**
+
+- Each person uses **their own free Apple ID** in AltStore, so these limits are per person, with the same AltServer on your PC. Their phones re-sign on your home Wi-Fi.
+- Family who don't live with you can use **SideStore** (free), which re-signs on the phone itself.
+- Family who only browse need no app: the web app works in Safari.
+
+The plan avoids all three paid-only capabilities. Sign-in uses passkeys and QR pairing ([07](07-authentication-and-authorization.md)); there are no push notifications (results wait in the app, and backup alerts come by email); hard cases go to Fix it. An **M0 spike** confirms that the on-device Foundation Model and Vision work in a free-signed app before we build on them.
 
 ## Backups and recovery
 
@@ -145,8 +165,8 @@ Turn on **BitLocker** on the drives that hold the Docker volumes and backups, so
 
 | Item | Monthly |
 |---|---|
-| Hosting (your PC, Docker, Tailscale Personal, Aspire Dashboard) | **$0** |
-| Electricity | ~$0–15, depending on how much the PC would be on anyway |
+| Hosting (your PC, Docker, Tailscale Personal for up to 6 people, Aspire Dashboard) | **$0** |
+| Electricity | **$0 extra**: the PC is already on 24/7 for Plex, ErsatzTV and Jellyfin |
 | Off-site backup (Backblaze B2 free 10 GB, or free OneDrive) | **$0** |
 | Recognition (Apple frameworks on the phone) | **$0** |
 | Apple Developer Program | **$0**: not needed; free Apple ID + AltStore sideloading |

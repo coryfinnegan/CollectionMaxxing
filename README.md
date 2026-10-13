@@ -32,8 +32,8 @@ The same library is available on the web, where bulk editing in a table is easie
 | Security | OWASP API Top 10 mapped to controls, threat model, EXIF stripping, LLM prompt-injection containment | [08](docs/08-security-and-privacy.md) |
 | Testing | Strict TDD. xUnit v3, Testcontainers (real Postgres), WireMock, Verify, Maestro, Playwright, AI eval suite | [09](docs/09-testing-and-tdd.md) |
 | Hosting | **Self-hosted on your gaming PC**: Docker Compose (API + Postgres + backups), reached privately from your iPhone anywhere through **Tailscale** (already installed; no open ports). GitHub Actions builds; a deploy-only runner on the PC rolls out. | [10](docs/10-hosting-and-devops.md) |
-| Cost | **$0, full stop** (electricity aside): self-hosted, free Apple ID with sideloading (no $99 membership), free tiers everywhere else | [10](docs/10-hosting-and-devops.md) |
-| Delivery | Six milestones, M0 (walking skeleton) through M5 (hardening + v1 on your iPhone), about 14 part-time weeks | [11](docs/11-roadmap.md) |
+| Cost | **$0, full stop** (the PC is already on 24/7 for Plex and Jellyfin): self-hosted, free Apple ID with sideloading (no $99 membership), free tiers everywhere else | [10](docs/10-hosting-and-devops.md) |
+| Delivery | Six milestones, M0 (walking skeleton) through M5 (hardening + v1 on your iPhone), about 15 part-time weeks | [11](docs/11-roadmap.md) |
 
 **Wireframes and mockups:** a design canvas with low-fi wireframes and high-fi mockups for the key iOS screens and the web library.
 Link: <https://claude.ai/artifact/FBBMc4KUa33nCXaHLpCZhe>. The ASCII wireframes with interaction notes are in [docs/06](docs/06-ux-and-wireframes.md).
@@ -60,18 +60,18 @@ These are the calls I could not make for you. Each one has a recommended default
 
 | # | Question | Default if you say nothing |
 |---|---|---|
-| D1 | OK with **Expo / React Native** for the front end? The alternatives were .NET MAUI + Blazor, and native SwiftUI + a separate web app. See [ADR-003](docs/12-decision-log.md#adr-003-expo-react-native-for-ios-and-web). | Expo |
+| D1 | ~~Expo / React Native?~~ **Decided 2026-10-12: Expo**, because it builds iOS with no Mac of your own and no paid membership, and everyday changes reload on your iPhone without a cloud build. See [ADR-003](docs/12-decision-log.md#adr-003-expo-react-native-for-ios-and-web). | Resolved |
 | D2 | ~~Own the identity server or use Entra External ID?~~ **Resolved by self-hosting:** OpenIddict inside the API. Setup code → passkeys on the web; the iPhone is paired by QR code. | Resolved |
 | D3 | ~~Azure budget~~ **Resolved 2026-10-12: self-hosted on your PC**, $0 hosting. | Resolved |
 | D4 | ~~Cloud AI for hard cases?~~ **Decided 2026-10-12: no third-party AI.** Apple's on-device frameworks only. | Resolved |
 | D5 | ~~Apple Developer Program ($99/yr)?~~ **Decided 2026-10-12: no.** The app is built on GitHub's free macOS runners and sideloaded with your free Apple ID through AltStore (auto re-signed weekly by your PC). | Resolved |
-| D6 | **Household sharing** (a partner or kids as members of your library) in v1, or later? The data model supports it either way. | v1.1 |
+| D6 | ~~Household sharing in v1 or later?~~ **Decided 2026-10-12: v1.** Family members join your library by invite, as Editor or Viewer. See [ADR-020](docs/12-decision-log.md#adr-020-household-sharing-in-v1). | Resolved |
 | D7 | ~~Collection value (market price per item)?~~ **Decided 2026-10-12: no pricing of any kind**, neither market value nor price paid. The app is purely a collection tracker. | Resolved |
 | D8 | Roughly **how many items**, and do you have **existing spreadsheets/lists** to import? This affects the import priority and API quotas. | ~2,000, CSV import in v1.1 |
 | D9 | **Music** (CDs, vinyl, cassettes) or **LaserDisc**, in scope or not? They are easy to add later through Discogs. | Out of v1 |
 | D10 | ~~Domain name~~ **Not needed:** Tailscale gives the PC an HTTPS name (`<pc>.<tailnet>.ts.net`). | Resolved |
 | D12 | ~~Which iPhone do you scan with?~~ **Decided 2026-10-12: iPhone 17 Pro.** It qualifies, so Apple's on-device model is the expected primary reader, confirmed by the M3 gate on that phone. | Resolved |
-| D13 | Should the PC **stay awake 24/7**, so results resolve while you're out? (Scanning and "do I own this?" work on the phone either way.) | Yes; disable sleep |
+| D13 | ~~Keep the PC awake 24/7?~~ **Decided 2026-10-12: yes.** It's already on around the clock for Plex, ErsatzTV and Jellyfin, so it costs nothing extra. | Resolved |
 | D11 | ~~Artwork index platforms~~ **No longer needed.** With Apple frameworks only, there's no artwork index: the phone compares artwork against your own items and the top candidates. | Resolved |
 
 ## Repository layout (planned)

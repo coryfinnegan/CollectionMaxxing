@@ -42,14 +42,14 @@ erDiagram
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `users` (ASP.NET Identity) | `id`, `display_name`, `email` (nullable; may be an Apple private relay address), `created_at`, `deleted_at` | No password hash column is ever populated (passwordless) |
+| `users` (ASP.NET Identity) | `id`, `display_name`, `email` (nullable; optional, never used to sign in), `created_at`, `deleted_at` | No password hash column is ever populated (passwordless) |
 | `user_passkeys` (Identity) | credential id + public key + name | WebAuthn credentials (no external login providers) |
 | `device_pairings` | `id`, `user_id`, `token_hash`, `code_hash` (6-digit fallback), `expires_at` (2 min), `used_at`, `attempts`, `device_name`, `authorization_id` | Single use; the plaintext token only ever appears in the QR code |
 | `setup_codes` | `id`, `purpose` (`setup`/`recovery`), `code_hash`, `expires_at`, `used_at` | Setup works only while there's no owner; recovery codes come from the PC CLI |
 | OpenIddict tables | applications, authorizations, scopes, tokens | Managed by OpenIddict's EF stores |
-| `libraries` | `id`, `name`, `created_at` | Every user gets a personal library at sign-up |
+| `libraries` | `id`, `name`, `created_at` | Created for the owner at setup. Invited family members join it instead of getting an empty one of their own. |
 | `library_members` | `library_id`, `user_id`, `role` (`owner`/`editor`/`viewer`), `joined_at` | PK (`library_id`, `user_id`). Exactly one owner per library. |
-| `library_invites` (v1.1) | `id`, `library_id`, `role`, `token_hash`, `expires_at`, `accepted_by` | Only the hash of the token is stored |
+| `library_invites` | `id`, `library_id`, `role` (`editor`/`viewer`), `name` (who it's for), `token_hash`, `created_by`, `expires_at` (7 days), `accepted_by`, `accepted_at`, `revoked_at` | Single use, revocable; only the hash of the token is stored |
 
 ### Catalogue (shared)
 

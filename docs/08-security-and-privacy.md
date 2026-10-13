@@ -84,10 +84,11 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
   - The API listens on `127.0.0.1` only. The single way in is **Tailscale Serve**, which only devices on your tailnet can reach.
   - No router port forwarding.
   - Windows Firewall stays default-deny inbound.
-- **Tailscale access control:** the tailnet policy allows your devices (and invited family) to reach port 443 on the PC, and nothing else. Turn on **tailnet lock** and device approval so a stolen Tailscale login can't add a device silently.
+- **Tailscale access control:** the tailnet policy lets family members reach only the PC's HTTPS port, plus the Plex/Jellyfin ports if you share those over Tailscale, and nothing else on your network.
+- **Invites:** single use, a 7-day expiry, revocable, and stored as a hash. They only work from the tailnet, and joining requires creating a passkey. Turn on **tailnet lock** and device approval so a stolen Tailscale login can't add a device silently.
 - **Postgres** isn't published to the host at all; it's reachable only on the internal compose network. It uses a strong generated password from the secrets folder.
 - **Secrets:**
-  - `C:\CollectionMaxxing\secrets` holds `.env`, the OpenIddict PFX files and the Apple key.
+  - `C:\CollectionMaxxing\secrets` holds `.env` and the OpenIddict PFX files.
   - Its Windows ACL allows only your account and SYSTEM.
   - It's mounted into containers as Docker secrets and is never in git (GitHub secret scanning + push protection back that up).
 - **Disk encryption:** **BitLocker** on the drives holding the Docker volumes and the backups.

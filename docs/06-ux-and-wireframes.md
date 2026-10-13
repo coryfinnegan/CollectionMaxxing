@@ -38,7 +38,7 @@ matched = blue + check + "Ready"; needs a pick = orange + split arrow + "Pick on
 
 ```mermaid
 flowchart TD
-  SignIn[Sign in] --> Library
+  Pair[Pair with your server] --> Library
   subgraph Tabs
     Library --> Item[Item detail]
     Item --> Edit[Edit item]
@@ -55,7 +55,7 @@ flowchart TD
 ```
 
 **iOS tabs:** Library · **Scan** (centre, larger) · Me.
-**Web sidebar:** Library · Wishlist · Lent out · Locations · Import / export · Settings. There's no scanning on the web; it's an iPhone feature.
+**Web sidebar:** Library · Wishlist · Lent out · Locations · Members · Import / export · Settings. There's no scanning on the web; it's an iPhone feature.
 
 ---
 
@@ -225,6 +225,7 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 │  Status         Owned      [ Lend ]  │
 │  Tags           sci-fi               │
 │  Notes          Slipcover missing    │
+│  Added by       Sam                  │
 │ ──────────────────────────────────── │
 │  Also in your library                │
 │  [cv] The Matrix · VHS · Shelf B     │
@@ -236,6 +237,7 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 - **Lend** asks "Lent to whom?" and sets the status to Lent, with a date (reminders in v1.1).
 - **Change match** re-runs search and swaps the release. Condition, location, notes and everything else about your copy is kept.
 - **Delete item** goes to "Recently deleted" for 30 days.
+- **Added by** appears once your library has more than one member.
 
 ### M7 · Me
 
@@ -243,7 +245,7 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 ┌──────────────────────────────────────┐
 │ Me                                   │
 │  [Your name]   Paired: this iPhone   │
-│  1,284 items · 9 locations           │
+│  1,284 items · 3 members             │
 │ ──────────────────────────────────── │
 │  Locations                         › │
 │  Export my data                    › │
@@ -258,6 +260,7 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 
 - **Recognition** shows which engine is active (Apple model or Vision text fallback) and whether Apple Intelligence is on.
 - **Security:** Face ID app lock on/off; **Unpair this iPhone**.
+- **Members** are managed on the web; the phone just shows the count.
 - **Delete account** shows what will happen (your library and photos are deleted within 30 days, and this can't be undone), then requires a fresh sign-in.
 
 ---
@@ -273,9 +276,9 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 │               │ ┌──┬──────┬────────────────────┬────────┬─────────┬────┬────┐ │
 │ Library       │ │☐ │cover │ Title              │ Format │Platform │Year│Loc │ │
 │ Wishlist      │ ├──┼──────┼────────────────────┼────────┼─────────┼────┼────┤ │
-│ Wishlist      │ │☑ │ [ ]  │ Super Mario 64     │ Cart   │ N64     │1996│GR›1│ │
-│ Lent out      │ │☑ │ [ ]  │ Metroid Prime      │ Disc   │ GameCube│2002│GR›1│ │
-│ Locations     │ │☐ │ [ ]  │ Dune               │ Pbk    │ —       │1965│LR›2│ │
+│ Lent out      │ │☑ │ [ ]  │ Super Mario 64     │ Cart   │ N64     │1996│GR›1│ │
+│ Locations     │ │☑ │ [ ]  │ Metroid Prime      │ Disc   │ GameCube│2002│GR›1│ │
+│ Members       │ │☐ │ [ ]  │ Dune               │ Pbk    │ —       │1965│LR›2│ │
 │ Import/export │ │…                                                          │ │
 │ Settings      │ └──────────────────────────────────────────────────────────┘ │
 │               │ 2 selected   [Move to…] [Set status…] [Add tag…] [Delete]   │
@@ -290,13 +293,45 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 
 The web app is for browsing and managing the library. **+ Add item** opens typed search, or a manual entry when the catalogue has nothing. Bulk adds come from CSV import. All camera and recognition features are iPhone-only.
 
+### W3 · Members (owner only)
+
+```
+┌───────────────┬──────────────────────────────────────────────────────────────┐
+│ Collection-   │ Members                                       [+ Invite]     │
+│ Maxxing       │                                                              │
+│               │ Name           Role        Devices        Last seen          │
+│ Library       │ Cory (you)     Owner       iPhone, PC     now                │
+│ Wishlist      │ Sam            Editor ▾    iPhone         2 h ago  Remove    │
+│ Lent out      │ Alex           Viewer ▾    web only       Tue      Remove    │
+│ Locations     │                                                              │
+│ Members       │ Pending invites                                              │
+│ Import/export │ Jordan · Viewer · expires in 6 days  [Copy link] [Revoke]    │
+│ Settings      │                                                              │
+└───────────────┴──────────────────────────────────────────────────────────────┘
+```
+
+- **+ Invite** asks for a name and a role, then shows a link and a QR code:
+  - **Editor** can scan, add and edit.
+  - **Viewer** can browse and check "do I own this?".
+- The link works once, for 7 days, and only from your tailnet, so add the person to Tailscale first. The page reminds you.
+- A role change takes effect immediately.
+- **Remove** asks you to confirm, then signs that person out everywhere. The items they added stay.
+- Members who aren't the owner see a read-only list.
+
 ---
 
 ## Key flows
 
 ### First run
 
-Pair with the QR code from the web app → Face ID app lock (optional) → empty Library → **Scan your first shelf** → camera permission prompt (explained first: "CollectionMaxxing uses the camera to read barcodes and photograph your shelves. Photos are only sent when you scan.") → the scanner.
+Pair with the QR code from the web app → Face ID app lock (optional) → empty Library → **Scan your first shelf** → camera permission prompt (explained first: "CollectionMaxxing uses the camera to read barcodes and photograph your shelves. Photos stay on your phone.") → the scanner.
+
+### Add a family member
+
+1. In the Tailscale admin console, **Invite user**. The free plan covers up to 6 people.
+2. On the web: Settings → **Members** → **+ Invite** → "Sam", **Editor** → send Sam the link.
+3. Sam opens it and taps **Create passkey**. Sam is now in your library.
+4. To scan, Sam installs the app with AltStore (Sam's own Apple ID, through your PC's AltServer) and pairs it from Settings → Devices → **Add a device**, the same way you did.
 
 ### Batch a box of games
 

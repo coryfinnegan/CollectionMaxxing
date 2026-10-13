@@ -61,7 +61,7 @@
 | Postgres | Domain: n/a (pure). Application handlers: **real Postgres**, using one shared Testcontainers instance per test run with a Respawn reset per test (~10–50 ms each). These are "sociable" unit tests, and that beats faking EF. | real (Testcontainers) | real (container) |
 | Providers (Open Library, TMDB…) | fake `ICatalogProvider` | WireMock with recorded fixtures | `FakeCatalogProvider` seeded with ~50 known items |
 | Apple Vision + Foundation Models (`cm-vision`) | `FakeVisionEngine` replaying barcode/OCR/model JSON captured from your iPhone | n/a | real on your iPhone (manual smoke checklist + the on-phone eval runner) |
-| Blob storage | in-memory `IBlobStore` | Azurite (Testcontainers) | Azurite |
+| File storage (covers, your photos) | in-memory `IBlobStore` | file-system `IBlobStore` in a temp folder | file-system `IBlobStore` |
 | Camera | n/a | n/a | `FakeScannerSource` (injects codes) |
 | Clock | `FakeTimeProvider` | `FakeTimeProvider` | real |
 
@@ -151,7 +151,9 @@ Kent Beck-style test list. Each line becomes one red test.
 - [ ] Uploaded JPEG with GPS EXIF → the stored blob has no EXIF
 - [ ] A viewer can scan (barcodes and pictures) and sees ownership on each candidate, but commit returns 403
 - [ ] The photo-scan limit returns 429 with `Retry-After`
-- [ ] PATCH with a stale `If-Match` → 412
+- [ ] PATCH with a stale `If-Match` → 412 (two family members editing the same item: the second gets "Sam changed this. Reload?")
+- [ ] An invite works once; an expired or revoked invite → 410; the member gets exactly the invited role
+- [ ] Removing a member → their refresh tokens and cookie session fail immediately; their items keep `created_by`
 - [ ] The SSE stream delivers `candidate.updated` after async resolution, and resumes from `Last-Event-ID`
 
 ### Front end
@@ -188,7 +190,7 @@ Kent Beck-style test list. Each line becomes one red test.
   - some shot badly on purpose: glare, angle, low light
 
   Truth is `{ title, platform?, format, completeness, edition? }`. Metrics: **top-1 and top-3 accuracy per item kind**, platform accuracy, completeness accuracy, **which engine/step resolved each item** (Apple model, Vision text, artwork comparison, Fix it), and the on-phone hit rate on repeat snaps.
-- Stored in a **private** location (Git LFS in a private repo, or a blob container), never public.
+- Stored in a **private** location (Git LFS in this private repo, or a folder on your PC), never public.
 
 **Metrics:**
 
@@ -198,18 +200,17 @@ Kent Beck-style test list. Each line becomes one red test.
 | Precision | correct predicted items ÷ predicted items |
 | Title accuracy | normalised title exact match (after the final catalogue match) |
 | Type / platform accuracy | per-field |
-| Cost per photo | from `usage` |
 | Latency p50 / p95 | wall clock |
 
 **On-phone eval runner (no Mac needed):** the Apple model and Apple Vision only run on Apple hardware, and development happens on Windows. So dev builds include a hidden **Run evals** screen. It runs the golden set through both engines on your iPhone and uploads per-photo results (engine, items, latency, refusals, thermal state) to the API, where the eval report is built. This is how the M3 decision gate is measured, and how we re-check after each iOS release.
 
-**How it runs:** `dotnet test tests/CollectionMaxxing.Recognition.Evals --filter Category=Eval` with `RUN_EVALS=1`. It's a manually triggered GitHub workflow that reports to the job summary and stores results as `evals/results/<date>-<git-sha>.json` for trend tracking. A full run costs about **$3–6**. The same harness compares models and effort levels side by side, which is how a cheaper-model decision would be made with data.
+**How it runs:** tap **Run evals** on your iPhone (dev build). The phone uploads its results, and `dotnet test tests/CollectionMaxxing.Recognition.Evals --filter Category=Eval` with `RUN_EVALS=1` scores them against the truth files and writes `evals/results/<date>-<git-sha>.json` for trend tracking. A run costs **$0**: everything runs on your phone and your PC.
 
 ## CI pipeline (PR)
 
 ```
 restore (locked) ─► build ─► format/lint ─┬─► unit (Domain, Application)
-                                           ├─► integration (Testcontainers: Postgres, Azurite; WireMock)
+                                           ├─► integration (Testcontainers: Postgres; WireMock)
                                            ├─► api acceptance + authz matrix
                                            ├─► arch tests
                                            ├─► openapi snapshot + oasdiff + generated-client check
