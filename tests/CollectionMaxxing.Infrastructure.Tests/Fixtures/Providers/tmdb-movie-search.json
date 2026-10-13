@@ -1,0 +1,16 @@
+{
+  "page": 1,
+  "total_results": 2,
+  "total_pages": 1,
+  "results": [
+    {
+      "id": 289,
+      "title": "Casablanca",
+      "release_date": "1943-01-23",
+      "overview": "A cynical American runs a nightclub in Morocco.",
+      "poster_path": "/5K7cOHoay2mZusSLezBOY0Qxh8a.jpg",
+      "genre_ids": [18, 10749]
+    },
+    { "id": 1, "title": "Casablanca Express", "release_date": "1989-11-03", "poster_path": null }
+  ]
+}

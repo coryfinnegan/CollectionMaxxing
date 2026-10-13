@@ -1,0 +1,14 @@
+{
+  "totalItems": 1,
+  "items": [
+    {
+      "id": "abc123",
+      "volumeInfo": {
+        "title": "Fantastic Mr Fox",
+        "authors": ["Roald Dahl"],
+        "industryIdentifiers": [{ "type": "ISBN_13", "identifier": "9780140328721" }],
+        "imageLinks": { "thumbnail": "https://cdn.example.net/cover.jpg" }
+      }
+    }
+  ]
+}

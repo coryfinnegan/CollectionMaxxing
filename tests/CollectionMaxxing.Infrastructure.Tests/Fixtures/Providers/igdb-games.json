@@ -1,0 +1,15 @@
+[
+  {
+    "id": 1074,
+    "name": "Super Mario 64",
+    "first_release_date": 835228800,
+    "summary": "Mario explores Princess Peach's castle.",
+    "cover": { "id": 89, "image_id": "co1xaz" },
+    "platforms": [{ "id": 4, "name": "Nintendo 64" }, { "id": 130, "name": "Nintendo Switch" }],
+    "involved_companies": [
+      { "id": 1, "developer": true, "publisher": false, "company": { "id": 70, "name": "Nintendo EAD" } },
+      { "id": 2, "developer": false, "publisher": true, "company": { "id": 71, "name": "Nintendo" } }
+    ]
+  },
+  { "id": 2, "name": "Mario Kart 64", "platforms": [{ "id": 4, "name": "Nintendo 64" }] }
+]

@@ -1,0 +1,8 @@
+{
+  "ISBN:9780140328721": {
+    "key": "/books/OL7353617M",
+    "title": "Fantastic Mr. Fox",
+    "authors": [{ "name": "Roald Dahl" }],
+    "cover": { "large": "https://evil.example.net/cover.jpg" }
+  }
+}

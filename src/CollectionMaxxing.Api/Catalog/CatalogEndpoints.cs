@@ -13,7 +13,7 @@ namespace CollectionMaxxing.Api.Catalog;
 /// </summary>
 public static class CatalogEndpoints
 {
-    public static IServiceCollection AddCatalog(this IServiceCollection services) => services;
+    public static IServiceCollection AddCatalog(this IServiceCollection services) => services.AddCatalogProviders();
 
     public static IEndpointRouteBuilder MapCatalogEndpoints(this IEndpointRouteBuilder app)
     {
