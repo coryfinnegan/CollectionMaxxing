@@ -1,0 +1,74 @@
+# Production compose skeleton (OPS-0). OPS-1 finalises it.
+# Image names are placeholders; CM_TAG is set by the deployer.
+name: collectionmaxxing
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: collectionmaxxing
+      POSTGRES_USER: collectionmaxxing
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Deliberately no "ports": not published to the host.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U collectionmaxxing"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: ghcr.io/coryfinnegan/collectionmaxxing-migrate:${CM_TAG:?set in .env}
+    restart: "no"
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ghcr.io/coryfinnegan/collectionmaxxing-api:${CM_TAG:?set in .env}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CM_API_PORT:-5480}:5480"
+    environment:
+      ASPNETCORE_URLS: http://+:5480
+      ConnectionStrings__Default: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      Files__Root: /data/files
+    volumes:
+      - files:/data/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CM_DASHBOARD_PORT:-18888}:18888"
+    environment:
+      DASHBOARD__FRONTEND__AUTHMODE: Unsecured # reachable on 127.0.0.1 only
+
+  backup:
+    image: ghcr.io/coryfinnegan/collectionmaxxing-backup:${CM_TAG:?set in .env}
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGDATABASE: collectionmaxxing
+      PGUSER: collectionmaxxing
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_SCHEDULE: ${CM_BACKUP_SCHEDULE:-0 3 * * *}
+    volumes:
+      - ${CM_BACKUP_DIR:?set in .env}:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  files:
