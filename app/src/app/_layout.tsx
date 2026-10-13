@@ -1,0 +1,43 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useState } from 'react';
+import { useColors } from '@/theme/tokens';
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+});
+
+const mockMode = process.env.EXPO_PUBLIC_API_MOCK === '1';
+
+export default function RootLayout() {
+  const colors = useColors();
+  // In mock mode, wait for MSW to start before any request goes out.
+  const [ready, setReady] = useState(!mockMode);
+  useEffect(() => {
+    if (!mockMode) return;
+    import('@/mocks/start').then(({ startMocking }) => startMocking()).then(() => setReady(true));
+  }, []);
+
+  if (!ready) return null;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <StatusBar style="auto" />
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.ink,
+          contentStyle: { backgroundColor: colors.ground },
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="pair" options={{ title: 'Pair with your server', headerShown: false }} />
+        <Stack.Screen name="item/[id]/index" options={{ title: 'Item' }} />
+        <Stack.Screen name="item/[id]/edit" options={{ title: 'Edit item' }} />
+        <Stack.Screen name="scanner" options={{ title: 'Scanner', presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="review" options={{ title: 'Review' }} />
+        <Stack.Screen name="result/[id]" options={{ title: 'Result' }} />
+      </Stack>
+    </QueryClientProvider>
+  );
+}
