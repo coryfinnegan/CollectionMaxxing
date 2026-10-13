@@ -1,0 +1,18 @@
+{
+  "code": "OK",
+  "total": 1,
+  "offset": 0,
+  "items": [
+    {
+      "ean": "0045496830434",
+      "title": "Super Mario 64 - Nintendo 64 (Cartridge Only)",
+      "upc": "045496830434",
+      "gtin": "00045496830434",
+      "brand": "Nintendo",
+      "description": "Platformer.",
+      "category": "Electronics > Video Games > Video Game Software",
+      "images": ["https://images.example-retailer.net/mario64.jpg"],
+      "offers": []
+    }
+  ]
+}

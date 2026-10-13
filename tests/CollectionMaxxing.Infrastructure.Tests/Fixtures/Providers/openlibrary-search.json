@@ -1,0 +1,16 @@
+{
+  "numFound": 2,
+  "start": 0,
+  "docs": [
+    {
+      "key": "/works/OL45883W",
+      "title": "Fantastic Mr Fox",
+      "author_name": ["Roald Dahl"],
+      "first_publish_year": 1970,
+      "cover_i": 8739161,
+      "isbn": ["0140328726", "9780140328721", "not-an-isbn"],
+      "publisher": ["Puffin"]
+    },
+    { "key": "/works/OL99999W", "title": "Mr Fox", "author_name": ["Helen Oyeyemi"], "first_publish_year": 2011 }
+  ]
+}

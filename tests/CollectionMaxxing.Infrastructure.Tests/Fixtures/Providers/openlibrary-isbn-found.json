@@ -1,0 +1,17 @@
+{
+  "ISBN:9780140328721": {
+    "key": "/books/OL7353617M",
+    "title": "Fantastic Mr. Fox",
+    "subtitle": "a play",
+    "authors": [{ "name": "Roald Dahl", "url": "https://openlibrary.org/authors/OL34184A/Roald_Dahl" }],
+    "publishers": [{ "name": "Puffin" }],
+    "publish_date": "October 1, 1988",
+    "number_of_pages": 96,
+    "identifiers": { "isbn_10": ["0140328726"], "isbn_13": ["9780140328721"], "openlibrary": ["OL7353617M"] },
+    "cover": {
+      "small": "https://covers.openlibrary.org/b/id/8739161-S.jpg",
+      "medium": "https://covers.openlibrary.org/b/id/8739161-M.jpg",
+      "large": "https://covers.openlibrary.org/b/id/8739161-L.jpg"
+    }
+  }
+}
