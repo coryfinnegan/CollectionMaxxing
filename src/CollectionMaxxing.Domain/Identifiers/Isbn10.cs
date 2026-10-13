@@ -20,6 +20,23 @@ public sealed record Isbn10
             return false;
         }
 
+        if (!IsValidDigits(text))
+        {
+            return false;
+        }
+
+        isbn = new Isbn10(text.ToUpperInvariant());
+        return true;
+    }
+
+    /// <summary>True when the ten characters are nine digits and a correct mod-11 check character (<c>X</c> or <c>x</c> for ten).</summary>
+    internal static bool IsValidDigits(string text)
+    {
+        if (text.Length != 10)
+        {
+            return false;
+        }
+
         var sum = 0;
         for (var i = 0; i < 10; i++)
         {
@@ -41,13 +58,7 @@ public sealed record Isbn10
             sum += digit * (10 - i);
         }
 
-        if (sum % 11 != 0)
-        {
-            return false;
-        }
-
-        isbn = new Isbn10(text.ToUpperInvariant());
-        return true;
+        return sum % 11 == 0;
     }
 
     /// <summary>Prefixes 978 and recomputes the check digit.</summary>
