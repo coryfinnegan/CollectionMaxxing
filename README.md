@@ -31,9 +31,9 @@ The same library is available on the web, where bulk editing in a table is easie
 | Authorization | Deny by default. Resource-based library roles (Owner / Editor / Viewer) and an automated authorization-matrix test | [07](docs/07-authentication-and-authorization.md) |
 | Security | OWASP API Top 10 mapped to controls, threat model, EXIF stripping, LLM prompt-injection containment | [08](docs/08-security-and-privacy.md) |
 | Testing | Strict TDD. xUnit v3, Testcontainers (real Postgres), WireMock, Verify, Maestro, Playwright, AI eval suite | [09](docs/09-testing-and-tdd.md) |
-| Hosting | **Self-hosted on your gaming PC**: Docker Compose (API + Postgres + backups), reached privately from your iPhone anywhere through **Tailscale** (already installed; no open ports). GitHub Actions builds; a deploy-only runner on the PC rolls out. | [10](docs/10-hosting-and-devops.md) |
+| Hosting | **Self-hosted on your gaming PC**: Docker Compose (API + Postgres + backups), reached privately from your iPhone anywhere through **Tailscale** (already installed; no open ports). GitHub Actions builds (free, since the repo is public); a deployer on the PC pulls and rolls out new versions. | [10](docs/10-hosting-and-devops.md) |
 | Cost | **$0, full stop** (the PC is already on 24/7 for Plex and Jellyfin): self-hosted, free Apple ID with sideloading (no $99 membership), free tiers everywhere else | [10](docs/10-hosting-and-devops.md) |
-| Delivery | Six milestones, M0 (walking skeleton) through M5 (hardening + v1 on your iPhone), about 15 part-time weeks | [11](docs/11-roadmap.md) |
+| Delivery | Six milestones, built by **parallel agents in five waves**: a serial foundation, then 4–6 agents at a time, each in its own worktree, with a verifier agent on every PR. About **2–3 weeks** to v1, with about an hour a day from you. | [11](docs/11-roadmap.md), [13](docs/13-agent-orchestration.md) |
 
 **Wireframes and mockups:** a design canvas with low-fi wireframes and high-fi mockups for the key iOS screens and the web library.
 Link: <https://claude.ai/artifact/FBBMc4KUa33nCXaHLpCZhe>. The ASCII wireframes with interaction notes are in [docs/06](docs/06-ux-and-wireframes.md).
@@ -53,6 +53,7 @@ Link: <https://claude.ai/artifact/FBBMc4KUa33nCXaHLpCZhe>. The ASCII wireframes 
 11. [Hosting and DevOps](docs/10-hosting-and-devops.md)
 12. [Roadmap](docs/11-roadmap.md)
 13. [Decision log (ADRs)](docs/12-decision-log.md)
+14. [Building it with parallel agents](docs/13-agent-orchestration.md)
 
 ## Decision needed
 
@@ -73,6 +74,9 @@ These are the calls I could not make for you. Each one has a recommended default
 | D12 | ~~Which iPhone do you scan with?~~ **Decided 2026-10-12: iPhone 17 Pro.** It qualifies, so Apple's on-device model is the expected primary reader, confirmed by the M3 gate on that phone. | Resolved |
 | D13 | ~~Keep the PC awake 24/7?~~ **Decided 2026-10-12: yes.** It's already on around the clock for Plex, ErsatzTV and Jellyfin, so it costs nothing extra. | Resolved |
 | D11 | ~~Artwork index platforms~~ **No longer needed.** With Apple frameworks only, there's no artwork index: the phone compares artwork against your own items and the top candidates. | Resolved |
+| D14 | ~~Public or private repo?~~ **Decided 2026-10-13: public.** CI and iOS builds are free with no limits. Because anyone can read it:<br/>• no secrets, photos or personal data go in the repo;<br/>• your PC pulls deploys, so nothing outside can push code to it;<br/>• agents only take briefs from you.<br/>See [ADR-022](docs/12-decision-log.md#adr-022-public-repository). | Resolved |
+| D15 | How many **agents at once**? Your Claude plan's usage limits are the real ceiling. | 4, adjusted after Wave 1 |
+| D16 | How hands-on? **(a)** approve each wave's plan, with a checkpoint after each wave; **(b)** the lead runs waves back to back and stops only at checkpoints | (a) |
 
 ## Repository layout (planned)
 

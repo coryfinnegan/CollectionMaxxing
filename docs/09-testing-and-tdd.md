@@ -9,6 +9,11 @@
 5. **Tests are deterministic.** Time comes from `FakeTimeProvider`, IDs from an injectable generator, and there are no real network calls (WireMock). The database is **real Postgres** (Testcontainers), never the EF in-memory provider, which hides real SQL behaviour.
 6. **Test names state behaviour.** `Upc_a_with_bad_check_digit_is_rejected`, not `TestGtin3`.
 7. **A test that's hard to write is design feedback.** Fix the design rather than mocking deeper.
+8. **Agents follow the same rules, plus two more:**
+   - in risky areas, the tests come from a separate agent and are locked;
+   - a verifier agent checks every PR, including a mutation run on the changed code.
+
+   See [13](13-agent-orchestration.md#the-verifier).
 
 ## Test pyramid
 
@@ -37,7 +42,7 @@
 | Mutation testing | **Stryker.NET** on Domain + Application (nightly) | — |
 | Coverage | coverlet + ReportGenerator | Jest `--coverage` |
 | Components | — | React Native Testing Library |
-| E2E | — | **Maestro** (iOS simulator on a GitHub macOS runner, release tags only to save free minutes), **Playwright** (web) |
+| E2E | — | **Maestro** (iOS simulator on a GitHub macOS runner, release tags only, because it's slow), **Playwright** (web) |
 
 ## Quality gates
 
@@ -51,7 +56,7 @@
 | OpenAPI | snapshot approved; `oasdiff breaking` clean | every PR |
 | Generated TS client | committed and up to date | every PR |
 | Web E2E (Playwright) | green against the ephemeral CI stack | every PR to `main` |
-| iOS E2E (Maestro) | green | release tags (GitHub macOS runner, within the free minutes) |
+| iOS E2E (Maestro) | green | release tags (GitHub macOS runner) |
 | AI eval | no metric regresses more than 2 points vs. baseline | before any prompt/model/scorer change merges (manually triggered workflow) |
 
 ## How each layer handles its dependencies
@@ -190,7 +195,7 @@ Kent Beck-style test list. Each line becomes one red test.
   - some shot badly on purpose: glare, angle, low light
 
   Truth is `{ title, platform?, format, completeness, edition? }`. Metrics: **top-1 and top-3 accuracy per item kind**, platform accuracy, completeness accuracy, **which engine/step resolved each item** (Apple model, Vision text, artwork comparison, Fix it), and the on-phone hit rate on repeat snaps.
-- Stored in a **private** location (Git LFS in this private repo, or a folder on your PC), never public.
+- The photos and truth files are stored **only on your PC** (and in its backups), never in the repo, which is public. Only aggregate scores are committed.
 
 **Metrics:**
 

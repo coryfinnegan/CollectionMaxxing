@@ -143,7 +143,7 @@ The on-device recognition needs one small native module in Swift (`modules/cm-vi
 
 | Channel | How | When |
 |---|---|---|
-| **Build** | GitHub Actions **macOS runner**: `expo prebuild` → `xcodebuild` with code signing disabled → zip into an unsigned `.ipa` → workflow artifact. ~15–25 min per build. A private repo gets ~200 free macOS minutes a month (2,000 minutes at a 10× multiplier), so roughly **8–12 builds a month**. GitHub's default $0 spending limit blocks overage rather than billing you. | on `v*` tags, or by hand |
+| **Build** | GitHub Actions **macOS runner**: `expo prebuild` → `xcodebuild` with code signing disabled → zip into an unsigned `.ipa` → workflow artifact. ~15–25 min per build. The repo is public, so GitHub's standard macOS runners are **free with no minute limit**. | on `v*` tags, or by hand |
 | **Install** | **AltStore**: AltServer runs on your PC and signs the `.ipa` with your **free Apple ID**; the AltStore app on your iPhone installs it. *Alternative:* Sideloadly (manual, no background refresh). | after each build |
 | **Stay installed** | Free-Apple-ID signatures last **7 days**. AltStore re-signs automatically in the background whenever your iPhone and the PC are on the same Wi-Fi, so at home it's invisible. Your data survives re-signing. | weekly, automatic |
 | **Dev builds** | Same pipeline with `expo-dev-client`; then `npx expo start` on the PC, reachable from the phone over Tailscale | when native code changes |
@@ -169,8 +169,6 @@ The on-device recognition needs one small native module in Swift (`modules/cm-vi
 - Someone who doesn't live with you can use **SideStore** (free), which re-signs on the phone itself with no PC.
 - Family who only browse don't need the app: the web app works in Safari, or on Android.
 - iPhones without Apple Intelligence use the Vision text engine automatically.
-
-*If a public repo is ever fine with you:* GitHub-hosted runners are unlimited for public repos, so the build budget stops mattering.
 
 No App Store, no TestFlight, no EAS Build (it needs Apple credentials from a paid team for device builds). The API base URL (your PC's Tailscale HTTPS name) comes from the QR code when you pair.
 

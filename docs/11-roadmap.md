@@ -1,32 +1,41 @@
 # 11 — Roadmap
 
-Six milestones. Each one ends in something you can **use on your phone**, not just merged code. The sizes assume one developer working part-time with Claude Code.
+Six milestones. Each one ends in something you can **use on your phone**, not just merged code. The milestones say *what* gets built. **Parallel agents** deliver them in five waves (*how*): see [13](13-agent-orchestration.md).
 
 ```mermaid
 flowchart LR
-  M0["M0<br/>Walking skeleton<br/>~2 wks"] --> M1["M1<br/>Library core<br/>~2 wks"]
-  M1 --> M2["M2<br/>Scanner +<br/>barcodes<br/>~3 wks"]
-  M2 --> M3["M3<br/>Picture recognition<br/>(auto-snap)<br/>~3 wks"]
-  M3 --> M4["M4<br/>Household +<br/>web polish +<br/>data safety<br/>~3 wks"]
-  M4 --> M5["M5<br/>Hardening +<br/>v1 install<br/>~2 wks"]
+  M0["M0<br/>Walking skeleton<br/>Wave 0 · 1–2 days"] --> M1["M1<br/>Library core<br/>Wave 1 · 2–3 days"]
+  M1 --> M2["M2<br/>Scanner +<br/>barcodes<br/>Waves 1–2 · ~day 7"]
+  M2 --> M3["M3<br/>Picture recognition<br/>Wave 3 · 4–7 days"]
+  M1 --> M4["M4<br/>Household + web +<br/>data safety<br/>Waves 2–3"]
+  M3 --> M5["M5<br/>Hardening +<br/>v1 install<br/>Wave 4 · 1–2 days"]
+  M4 --> M5
 ```
-*(About 15 part-time weeks to v1.0. Treat it as an estimate, not a commitment.)*
+*(About **2–3 weeks** of calendar time to v1.0, with about an hour a day of your time. It's an estimate: the lead re-estimates after each wave.)*
 
 ---
 
-## M0 — Walking skeleton (≈ 2 weeks)
+## M0 — Walking skeleton (Wave 0, ≈ 1–2 days)
 
 **Goal:** the thinnest end-to-end slice, deployed. Pair your iPhone and see "Hello, [name]" from the production API on your PC.
 
-- [ ] Git repo (private, GitHub), branch protection, `CLAUDE.md` with the TDD working agreement and links to these docs
+- [ ] Git repo (public, GitHub), branch protection on `main`, fork PRs need your approval, `CLAUDE.md` with the TDD working agreement and links to these docs
 - [ ] .NET solution skeleton (`.slnx`, Central Package Management, analyzers, `.editorconfig`), all projects + test projects
 - [ ] Architecture tests in place from the first commit
+- [ ] **Scaffolding for parallel agents** ([13](13-agent-orchestration.md#the-trick-build-the-shared-stuff-first)):
+  - the whole v1 schema + initial migration;
+  - the whole v1 OpenAPI contract with stubbed endpoints in the authorization matrix;
+  - per-feature registration;
+  - the generated client + MSW mocks;
+  - every app route as a placeholder;
+  - issue templates and labels.
 - [ ] Aspire AppHost: Postgres, API, Expo web
 - [ ] ASP.NET Core Identity + OpenIddict: **setup code → owner passkey** (web), **QR device pairing** (custom grant) for the iPhone, Face ID app lock
 - [ ] `GET /api/v1/me`, with the authorization-matrix harness and every-endpoint-has-a-policy test (already useful with 1 endpoint)
 - [ ] Expo app: Router, tabs shell, QR pairing, token storage/refresh, generated API client
 - [ ] **Self-hosting on your PC:** update Docker Desktop; `deploy/docker-compose.yml` (api, migrate, postgres, aspire-dashboard, backup); `tailscale serve` HTTPS; secrets folder + ACL; BitLocker check
-- [ ] GitHub Actions CI on hosted runners → images to GHCR; **self-hosted runner** on the PC for the `deploy` job only (pull, migrate, restart, smoke, rollback)
+- [ ] GitHub Actions CI on hosted runners → images to GHCR, with build attestations
+- [ ] A **pull-based deployer** on the PC: verify the attestation, pull, migrate, restart, smoke-test, roll back. There's no self-hosted runner, because the repo is public.
 - [ ] Nightly backups to F:\ + weekly encrypted off-site copy; heartbeat check
 - [ ] **$0 iPhone pipeline:** GitHub Actions macOS workflow → unsigned `.ipa`; AltServer on the PC + AltStore on the iPhone (free Apple ID, weekly auto re-sign); Developer Mode on
 - [ ] **Day-one spike:** a throwaway app that calls the on-device Foundation Model with an image, plus Vision barcode/text, built unsigned and installed with your free Apple ID on the iPhone 17 Pro. **If the model isn't available to free-signed apps, we know before building on it**; the Vision text engine becomes primary.
@@ -34,7 +43,7 @@ flowchart LR
 
 **Exit criteria:** a sideloaded build on your iPhone pairs with the server on your PC over Tailscale (including over cellular); CI is green; one merge to `main` deploys with zero manual steps; the day-one spike's answer is recorded.
 
-## M1 — Library core (≈ 2 weeks)
+## M1 — Library core (Wave 1, ≈ 2–3 days)
 
 **Goal:** a real, manually populated library on both platforms.
 
@@ -48,7 +57,7 @@ flowchart LR
 
 **Exit criteria:** you've added 25 real items by search on iOS and web; the authorization matrix covers every endpoint.
 
-## M2 — The scanner + barcodes (≈ 3 weeks)
+## M2 — The scanner + barcodes (Waves 1–2, done ≈ day 7)
 
 **Goal:** the core loop. Point at a stack and add it.
 
@@ -65,7 +74,7 @@ flowchart LR
 
 **Exit criteria:** catalogue one real box of 40+ games/DVDs in under 5 minutes; auto-match rate measured and recorded.
 
-## M3 — Picture recognition: auto-snap, single items, shelves (≈ 3 weeks)
+## M3 — Picture recognition: auto-snap, single items, shelves (Wave 3, ≈ 4–7 days)
 
 **Goal:** anything without a barcode (shelves of spines, loose cartridges, VHS sleeves and tapes, discs), using **only Apple frameworks on the iPhone**.
 
@@ -91,7 +100,7 @@ flowchart LR
 - You've catalogued at least 3 real shelves and a box of loose carts without touching anything but Review.
 - Auto-snap misfires (pictures with nothing found) under 10% in a real session.
 
-## M4 — Household sharing, web polish and data safety (≈ 3 weeks)
+## M4 — Household sharing, web polish and data safety (Waves 2–3, alongside the scanner)
 
 - [ ] **Household sharing:**
   - invites on the web (Editor/Viewer, link + QR code, single use, 7 days, revocable);
@@ -116,7 +125,7 @@ flowchart LR
 
 **Exit criteria:** a family member joins by invite, pairs their own iPhone and scans into the shared library; a Viewer can check ownership but can't change anything; you could lose your phone **and** the PC's main drive and still have your data (restore from F:\ and from the off-site copy both tested); the accessibility checklist passes.
 
-## M5 — Hardening and v1 on your iPhone (≈ 2 weeks)
+## M5 — Hardening and v1 on your iPhone (Wave 4, ≈ 1–2 days + a week of real use)
 
 - [ ] ASVS L2 checklist walkthrough; ZAP baseline clean; manual auth-flow abuse tests
 - [ ] Restore-from-backup drill
@@ -147,10 +156,10 @@ flowchart LR
 | Apple model: guardrail refusals (e.g. horror VHS covers), behaviour changes across iOS releases | Medium | Medium | Lean Vision text engine as the automatic per-snap fallback; the gate is measured on your iPhone 17 Pro; evals re-run each iOS release |
 | Free Apple ID limits (7-day signatures, 3 apps, no paid capabilities) or Apple changing sideloading rules | Medium | Medium | AltStore auto re-signs nightly at home; plan avoids paid capabilities; if it ever becomes unworkable, the $99 membership (TestFlight) is a drop-in fallback with no code changes |
 | On-device Foundation Model unavailable to free-signed apps | Low–Medium | High | Day-one spike in M0; the Vision text engine is the fallback primary |
-| GitHub's free macOS minutes run out (~8–12 builds/month) | Low | Low | Build only for native changes/releases; JS iterates on the dev server; a public repo would make minutes unlimited |
 | Native Swift module on a Windows machine | Medium | Medium | Keep `cm-vision` thin (wrappers only, no logic) behind a TS interface with a fake; GitHub's macOS runner compiles it; fixture JSON captured from your iPhone drives the tests |
 | Provider terms change (IGDB commercial terms, TMDB) | Low (personal use) | Medium | Provider interface makes swaps local; cached data keeps working |
 | PC off, asleep or rebooting when you're out | Medium | Low | Scanning and "do I own this?" work on the phone; matches queue and resolve later; D13 (keep it awake); same compose file can move to a mini PC |
 | Home server hygiene (backups, updates, disk failure) | Medium | High | Nightly backups to a second drive + weekly encrypted off-site copy, heartbeat alerts, restore drills, BitLocker |
+| Agent-built code passes CI but is wrong | Medium | High | Locked tests in risky areas, a verifier agent with mutation testing on every PR, your checkpoints on the device ([13](13-agent-orchestration.md#risks)) |
 | Scope creep (music, value, social) | High | Medium | v1 scope is locked in [00](00-product.md); everything else goes to the v1.1/v2 lists |
 | Owning the auth server is too much | Low | Medium | OpenIddict covers the hard parts; the attack surface is small because the server is tailnet-only |

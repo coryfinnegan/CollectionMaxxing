@@ -119,6 +119,15 @@ Application/
 
 Each use case is one handler class with one public method, a request record and a response record. For example: `SubmitBarcodes.Handler.HandleAsync(SubmitBarcodes.Command, CancellationToken)`.
 
+### Built for parallel agents
+
+Several agents build this at once ([13](13-agent-orchestration.md)), so the structure keeps them out of each other's files:
+
+- **Each feature registers itself** (`builder.AddCatalog()`, `app.MapCatalogEndpoints()`). `Program.cs` is written once and rarely changes.
+- **Entity configurations live in each feature's folder** and are picked up with `ApplyConfigurationsFromAssembly`, so nobody edits `AppDbContext` to add a table.
+- **Wave 0 creates the whole v1 schema** (from [03](03-data-model.md)) **and the whole v1 API contract** (from [04](04-api.md)). Every endpoint is stubbed behind its real authorization policy, so later work fills in behaviour instead of adding shared structure.
+- **The app mirrors this:** a folder per feature under `app/features/`, routes created up front, and mock API handlers generated from the contract.
+
 ## Key runtime flows
 
 ### Live barcode batch

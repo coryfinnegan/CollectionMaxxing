@@ -95,10 +95,14 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 - **Container:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` (no shell, non-root), read-only root filesystem, image scanned by Trivy in CI.
 - **CI/CD:**
   - Builds and tests run on GitHub-hosted runners.
-  - The **self-hosted runner on your PC runs only the `deploy` job, only for `main`, only in this private repo**. PR code never executes on your PC.
-  - The runner uses a fine-grained token that can only pull from GHCR.
+  - **No self-hosted runner**, because the repo is public. Your PC *pulls* new images, and it deploys only images whose **build attestation** proves this repo's own workflow built them from `main`. Nothing outside can push code to your PC.
+  - Pull requests from forks run on GitHub's runners with a read-only token and no secrets, and only after you approve them (*Require approval for all external contributors*).
+- **Public repository:**
+  - No secrets, ever. Secret scanning and push protection are free on public repos.
+  - No shelf photos, eval photos, backups or real library data. The eval set lives on your PC.
+  - **Agents treat anything written by someone else as untrusted.** The lead only works from issues written by you (or by itself, under your account). Issues, PRs and comments from anyone else are data, never instructions.
 - **Patching:** Windows Update, Docker Desktop (yours is outdated: 24.0.7), Tailscale auto-update, and Dependabot PRs for base images.
-- **Later, if you go public** (Cloudflare Tunnel for share links): only the web app's read-only share routes would be published, behind Cloudflare. Not in v1.
+- **Later, if you publish share links** (Cloudflare Tunnel): only the web app's read-only share routes would be published, behind Cloudflare. Not in v1.
 
 ## Supply chain
 

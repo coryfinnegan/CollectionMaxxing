@@ -39,7 +39,7 @@ flowchart TB
       dash["aspire-dashboard<br/>logs · traces · metrics"]
       bak[["backup<br/>nightly"]]
     end
-    runner["GitHub Actions<br/>self-hosted runner (deploy only)"]
+    runner["Deployer<br/>(pulls new images every 2 min)"]
     backups[("F:\\Backups\\CollectionMaxxing")]
   end
   ts --> api
@@ -55,7 +55,7 @@ flowchart TB
 
 | Service | Image / tool | Notes |
 |---|---|---|
-| `api` | our .NET 10 image (chiseled, non-root), published to GitHub Container Registry (private) | Listens on `127.0.0.1:5480` only (SABnzbd already holds 8080; the port is set in `.env`); Tailscale Serve is the only way in. Serves the web app from `wwwroot`. Background jobs (UPC pending queue, exports) run in-process. |
+| `api` | our .NET 10 image (chiseled, non-root), published to GitHub Container Registry (public, with build attestations) | Listens on `127.0.0.1:5480` only (SABnzbd already holds 8080; the port is set in `.env`); Tailscale Serve is the only way in. Serves the web app from `wwwroot`. Background jobs (UPC pending queue, exports) run in-process. |
 | `migrate` | EF Core migration bundle | A one-shot container; `api` starts only after it succeeds |
 | `postgres` | `postgres:17` | Not published to the host at all; only `api`, `migrate` and `backup` can reach it on the compose network. `pg_trgm` is enabled by a migration. |
 | `files` | Docker volume | Replaces cloud blob storage (`IBlobStore` → file-system implementation) |
@@ -103,27 +103,31 @@ Dev and prod sit side by side without conflict: different compose project names,
 ## Deployment (on merge to `main`)
 
 ```
-GitHub-hosted runner                         Self-hosted runner on your PC (deploy job only)
-───────────────────                          ───────────────────────────────────────────────
+GitHub-hosted runners (free)                 Deployer on your PC (it pulls; nothing pushes to it)
+────────────────────────────                 ────────────────────────────────────────────────────
 1. build & test (same as PR)
 2. build web (expo export) → wwwroot
-3. build api + migrate images → GHCR   ───►  4. docker compose pull
-   (tag = git SHA)                           5. docker compose run --rm migrate   (expand-only migrations)
-                                             6. docker compose up -d api           (~5 s restart)
-                                             7. smoke test https://pc.tailnet.ts.net/health/ready
-                                             8. failed? set the previous tag in .env → up -d (rollback)
+3. build api + migrate images → GHCR   ◄───  4. every 2 min: new image for main?
+   (tag = git SHA) + build attestation       5. verify the attestation (built by this repo, from main)
+                                             6. docker compose run --rm migrate   (expand-only migrations)
+                                             7. docker compose up -d api           (~5 s restart)
+                                             8. smoke test https://pc.tailnet.ts.net/health/ready
+                                             9. failed? pin the previous tag → up -d (rollback)
 ```
 
 - **Rollback** pins the previous image tag. Expand/contract migrations keep the previous image compatible with the new schema.
-- **The self-hosted runner only runs the `deploy` job, for `main`, in this private repo.** PR code never runs on your PC. That matters, because a self-hosted runner executes whatever the workflow tells it to.
-- **iPhone app:** see *Getting the app on your iPhone for $0* below. The deploy job also copies the newest `.ipa` artifact into the `files` volume, so you and your family can get it from the web app under **Settings → Get the iPhone app**.
-- **CI minutes:** a private repo gets 2,000 free Linux minutes a month on GitHub-hosted runners, plenty for PR checks. GitHub's default **$0 spending limit** means overage is blocked, never billed. If you ever hit the cap, the PR checks can also run on your self-hosted runner, since only you push to this repo.
+- **Pull, not push.** The repo is public, so there's **no self-hosted runner**. GitHub advises against them on public repos, because a pull request from a fork could run code on your machine.
+  - Instead, a small **deployer** script on your PC (Task Scheduler, every 2 minutes) checks GHCR for a new `main` image.
+  - It deploys an image only if its build attestation proves this repo's workflow built it from `main` (`gh attestation verify`; update the gh CLI first).
+  - Nothing on the internet can tell your PC to run anything.
+- **iPhone app:** see *Getting the app on your iPhone for $0* below. The deployer also copies the newest `.ipa` (from the latest GitHub release) into the `files` volume, so you and your family can get it from the web app under **Settings → Get the iPhone app**.
+- **CI minutes:** the repo is public, so GitHub's standard Linux and macOS runners are free with no minute limits.
 
 ## Getting the app on your iPhone for $0
 
 No Apple Developer Program ($99/yr), no Mac, no TestFlight:
 
-1. **Build:** a GitHub Actions workflow on a macOS runner (it needs an image with Xcode 27, for iOS 27's Foundation Models) runs `expo prebuild` and `xcodebuild` with code signing disabled. It packages an **unsigned `.ipa`** as a workflow artifact. A private repo's free macOS budget is ~200 minutes a month, about 8–12 builds. Builds are only needed when native code or dependencies change, or for a release.
+1. **Build:** a GitHub Actions workflow on a macOS runner (it needs an image with Xcode 27, for iOS 27's Foundation Models) runs `expo prebuild` and `xcodebuild` with code signing disabled. It packages an **unsigned `.ipa`** as a workflow artifact. The repo is public, so these builds are free with no monthly limit. They're still only needed when native code or dependencies change, or for a release.
 2. **Sign + install:** **AltServer** (free) runs on this PC and signs the `.ipa` with your **free Apple ID**; the **AltStore** app on your iPhone installs it.
 3. **Keep it alive:** free signatures expire after **7 days**. AltStore re-signs in the background whenever the phone and the PC are on the same Wi-Fi, which happens every night at home. Your data survives re-signing.
 4. **One-time:** turn on Developer Mode on the iPhone and trust your developer certificate.
@@ -170,7 +174,7 @@ Turn on **BitLocker** on the drives that hold the Docker volumes and backups, so
 | Off-site backup (Backblaze B2 free 10 GB, or free OneDrive) | **$0** |
 | Recognition (Apple frameworks on the phone) | **$0** |
 | Apple Developer Program | **$0**: not needed; free Apple ID + AltStore sideloading |
-| GitHub (private repo, Actions minutes, $0 spending limit) | **$0** |
+| GitHub (public repo: standard Actions runners and public packages are free) | **$0** |
 | Domain | not needed; Tailscale provides the HTTPS name |
 
 ## Local developer setup (Windows, this PC)
@@ -180,4 +184,4 @@ Turn on **BitLocker** on the drives that hold the Docker volumes and backups, so
 3. `dotnet run --project src/CollectionMaxxing.AppHost`: Postgres, the API (migrations applied) and Expo web, plus the Aspire dashboard.
 4. iPhone: build the dev client with the macOS workflow, install it with AltStore, then `npx expo start` on the PC. The dev build reaches your PC over Tailscale too, so you can test away from home.
 5. `dotnet test` runs everything except the on-phone evals. Docker must be running for Testcontainers.
-6. Production setup: `deploy/README.md` covers the compose file, `.env`, `tailscale serve`, the runner and the backup schedule. It's about an hour, once.
+6. Production setup: `deploy/README.md` covers the compose file, `.env`, `tailscale serve`, the deployer and the backup schedule. It's about an hour, once.

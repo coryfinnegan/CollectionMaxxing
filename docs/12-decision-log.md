@@ -270,7 +270,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 - **Decision:**
   - **Docker Compose** on the PC: `api` (.NET 10, serves the API and web app), a one-shot `migrate`, `postgres:17`, a `files` volume, the standalone **Aspire Dashboard**, and a nightly `backup` job.
   - **Tailscale** for access: `tailscale serve` provides HTTPS on `<pc>.<tailnet>.ts.net`. Nothing is exposed to the internet, and the API binds to `127.0.0.1`.
-  - **CI** on GitHub-hosted runners → GHCR. A **self-hosted runner limited to the deploy job** on `main` pulls, migrates, restarts and smoke-tests.
+  - **CI** on GitHub-hosted runners → GHCR. A **self-hosted runner limited to the deploy job** on `main` pulls, migrates, restarts and smoke-tests. *(Replaced by a pull-based deployer in ADR-022.)*
   - **iPhone distribution:** TestFlight internal testing (or ad hoc). No App Store listing.
   - **Auth:**
     - native Sign in with Apple + token exchange on the iPhone, with no redirects;
@@ -296,7 +296,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 - **Status:** Accepted (your direction, 2026-10-12: "I'm trying to spend 0 money here")
 - **Context:** The only remaining spend was the Apple Developer Program ($99/yr), needed for EAS device builds, TestFlight, Sign in with Apple, push notifications and Apple's Private Cloud Compute model.
 - **Decision:**
-  - **Build** unsigned `.ipa` files on GitHub Actions macOS runners (private repo: ~200 free macOS minutes a month, with a $0 spending limit).
+  - **Build** unsigned `.ipa` files on GitHub Actions macOS runners (free; unlimited since the repo went public, ADR-022).
   - **Install** with **AltStore**: AltServer runs on your PC, signs with your free Apple ID, and re-signs weekly in the background over home Wi-Fi. Sideloadly is the manual alternative.
   - **Auth without Apple sign-in:**
     - a one-time setup code creates the owner with a **passkey** (web);
@@ -334,3 +334,44 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - v1 is about 15 part-time weeks instead of 14.
   - Concurrent edits are real now, so the ETag/412 path gets a friendly prompt.
   - Each family member's phone needs your home Wi-Fi weekly for re-signing, or SideStore.
+
+## ADR-021: Delivery by parallel agents in waves
+
+- **Status:** Accepted (your direction, 2026-10-12: the estimates were "insanely long for something that will be entirely vibe coded")
+- **Context:** The 15-week estimate assumed one person writing code with an assistant. Agents write code quickly, so the real constraints are:
+  - merge conflicts in shared files;
+  - verifying code nobody reads line by line;
+  - your time on the iPhone;
+  - the iOS build budget;
+  - your Claude plan's usage limits.
+- **Decision:**
+  - **Five waves.** Wave 0 is a serial foundation that front-loads everything shared: the whole schema, the whole API contract with stubbed endpoints, wiring, app routes, mocks and fakes. Waves 1–4 run 4–6 builder agents at a time, each in its own git worktree.
+  - **A lead agent** writes briefs as GitHub issues, integrates and merges one PR at a time, and owns the hot files.
+  - **Every PR gets a verifier agent**, including a mutation-testing check.
+  - **Locked tests** cover auth, identifiers/scoring and migrations.
+  - **iOS builds are lead-only, at most daily.** Recognition prompts and thresholds are runtime-tunable, so tuning needs no build.
+  - **You approve wave plans and test at checkpoints.** You don't review code.
+- **Alternatives:**
+  - One agent working serially: simpler, but slow.
+  - Fully autonomous back-to-back waves: possible later (D16).
+  - Cloud agents: they can't reach your Docker or tailnet.
+- **Consequences:**
+  - ~2–3 weeks to v1 instead of ~15.
+  - Wave 0 is heavier and has to land before anything runs in parallel.
+  - Quality rests on automated gates rather than human code review, so those gates are themselves tested early: the authorization matrix and architecture tests exist from the first commit.
+
+## ADR-022: Public repository
+
+- **Status:** Accepted (your direction, 2026-10-13: "Make the repo public")
+- **Context:** A private repo gets ~200 free macOS minutes a month, about 8–12 iOS builds. With parallel agents (ADR-021), that was the tightest budget. On public repos, GitHub's standard runners are free with no minute limits.
+- **Decision:** the repo is public, with these guards:
+  - **No self-hosted runner** (a fork's PR could run code on it). A **pull-based deployer** on your PC deploys only images whose build attestation shows they were built by this repo's workflow from `main`. This replaces the runner in ADR-018.
+  - **Fork PRs** need your approval before workflows run. They run with read-only tokens and no secrets.
+  - **No secrets, photos, eval set, backups or real library data** in the repo. Secret scanning and push protection are on.
+  - **Agents treat other people's issues, PRs and comments as untrusted data.** Briefs come only from you or the lead.
+  - **GHCR images are public too.** They contain no secrets or data.
+- **Alternatives:** stay private with a budget of ~8–12 builds a month; a paid plan (ruled out by $0).
+- **Consequences:**
+  - CI and iOS builds are unlimited and free.
+  - Anyone can read the code and the plan.
+  - Deploys lag a merge by up to ~2 minutes (the deployer's poll interval).
