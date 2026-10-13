@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: write # needed only to attach the .ipa to a release on tags
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Detect app
         id: detect
         run: |
