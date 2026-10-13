@@ -105,6 +105,7 @@ public static class AuthorizationMatrix
     private const int Ok = 200;
     private const int Created = 201;
     private const int NoContent = 204;
+    private const int BadRequest = 400;
     private const int Unauthorized = 401;
     private const int Forbidden = 403;
     private const int NotFound = 404;
@@ -122,6 +123,10 @@ public static class AuthorizationMatrix
     /// <summary>Anyone at all, anonymous included, gets <paramref name="allowed"/>.</summary>
     private static EndpointCase Anyone(string method, string route, string? body = null) =>
         new(method, route, body, Stub, Stub, Stub, Stub, Stub) { Admin = Stub };
+
+    /// <summary>Anyone at all, anonymous included, gets exactly <paramref name="status"/>.</summary>
+    private static EndpointCase Everyone(string method, string route, string? body, int status) =>
+        new(method, route, body, status, status, status, status, status) { Admin = status };
 
     /// <summary>Library endpoint: not a member 404, role below <paramref name="minimum"/> 403, otherwise <paramref name="allowed"/>.</summary>
     private static EndpointCase InLibrary(
@@ -161,16 +166,21 @@ public static class AuthorizationMatrix
         // ---- Sign-in, setup, recovery, tokens (ID): the only anonymous endpoints ---------------------------
         Anyone("POST", "/connect/token"),
         Anyone("POST", "/connect/revoke"),
-        Anyone("GET", "/setup"),
-        Anyone("POST", "/setup", Json),
-        Anyone("GET", "/account/login"),
-        Anyone("POST", "/account/login", Json),
-        SignedIn("POST", "/account/logout"),
-        Anyone("POST", "/account/passkey/creation-options", Json),
-        Anyone("POST", "/account/passkey/request-options"),
-        Anyone("POST", "/account/passkey/register", Json),
-        Anyone("POST", "/account/recover", Json),
-        Anyone("GET", "/join/{token}"),
+
+        // Built (ID-1). The world always has an owner, so setup is closed: 404 for everyone.
+        Everyone("GET", "/setup", null, NotFound),
+        Everyone("POST", "/setup", Json, NotFound),
+        Everyone("GET", "/account/login", null, Ok),
+        Everyone("POST", "/account/login", Json, BadRequest),
+        SignedIn("POST", "/account/logout", allowed: NoContent),
+
+        // Starting a passkey ceremony with no code or token is refused for a stranger and allowed for a signed-in user
+        // (who just signed in, so the recent-passkey rule is met); the test admin has no row in the database.
+        new EndpointCase("POST", "/account/passkey/creation-options", Json, BadRequest, Ok, Ok, Ok, Ok) { Admin = Unauthorized },
+        Everyone("POST", "/account/passkey/request-options", null, Ok),
+        Everyone("POST", "/account/passkey/register", Json, BadRequest),
+        Everyone("POST", "/account/recover", Json, BadRequest),
+        Everyone("GET", "/join/{token}", null, Ok),
 
         // ---- Libraries and members (LIB), invites (ID) -----------------------------------------------------
         SignedIn("GET", "/api/v1/libraries"),
@@ -232,7 +242,6 @@ public static class AuthorizationMatrix
         InLibrary("PUT", $"{Libraries}/feature-prints", LibraryRole.Editor, Json),
 
         // ---- Admin: the platform admin role, not a library role ----------------------------------------------
-        AdminOnly("GET", "/api/admin/ai-usage"),
         AdminOnly("POST", "/api/admin/catalog/releases/{id:guid}:verify"),
         AdminOnly("GET", "/api/admin/jobs"),
     ];

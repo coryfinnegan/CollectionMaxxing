@@ -38,3 +38,6 @@ Thumbs.db
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Server secrets (setup code, signing keys): never commit
+secrets/
