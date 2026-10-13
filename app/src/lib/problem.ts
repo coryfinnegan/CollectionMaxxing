@@ -3,6 +3,7 @@ import { ApiError } from './http';
 
 const fieldCopy: Record<string, string> = {
   name: 'Give it a name.',
+  title: 'Give it a title.',
 };
 
 export function friendlyError(error: unknown, fallback = "That didn't work. Try again."): string {
@@ -15,6 +16,7 @@ export function friendlyError(error: unknown, fallback = "That didn't work. Try 
     if (status === 401) return 'Your session ended. Pair this device again.';
     if (status === 403) return "You don't have permission to change this library.";
     if (status === 404) return "That's no longer here. Refresh and try again.";
+    if (status === 412) return 'Someone changed this. Reload to see the latest.';
     if (status === 409) return problem.title ?? 'That conflicts with something that already exists.';
     return fallback;
   }

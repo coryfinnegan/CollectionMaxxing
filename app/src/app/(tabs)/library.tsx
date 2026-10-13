@@ -1,5 +1,5 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { LibraryView } from '@/features/library/LibraryView';
 
 export default function Route() {
-  return <Placeholder name="Library" description="Your collection as shelves of covers, with search, filters and sorting." />;
+  return <LibraryView title="Library" />;
 }

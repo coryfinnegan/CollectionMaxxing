@@ -1,5 +1,5 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { LibraryView } from '@/features/library/LibraryView';
 
 export default function Route() {
-  return <Placeholder name="Lent out" description="Items that are out on loan, and who has them." />;
+  return <LibraryView title="Lent out" fixedStatus="lent" />;
 }
