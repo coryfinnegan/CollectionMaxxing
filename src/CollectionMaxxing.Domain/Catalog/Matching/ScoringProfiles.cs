@@ -27,6 +27,9 @@ public sealed record ScoringThresholds
     /// <see cref="MatchedScore"/>: a right game on the wrong console must never be offered as a sure thing.
     /// </summary>
     public double PlatformMismatchCap { get; init; } = 0.85;
+
+    /// <summary>Stub for the red commit: wired up in the fix.</summary>
+    public double TitleYearMismatchCap { get; init; } = 0.85;
 }
 
 /// <summary>A named set of weights and the thresholds to apply, for one way of reading an item.</summary>
@@ -67,6 +70,9 @@ public sealed record ScoringOptions
     public ScoringWeights LooseCartridge { get; init; } = new(0.40, 0.05, 0.30, 0.05, 0, 0.05, 0.15);
 
     public ScoringWeights BareLabel { get; init; } = new(0.55, 0.15, 0.15, 0.10, 0, 0, 0.05);
+
+    /// <summary>Stub for the red commit: wired up in the fix.</summary>
+    public void Validate() => _ = Thresholds;
 
     /// <summary>The profile for one way of reading an item, carrying these options' thresholds.</summary>
     public ScoringProfile Profile(ScoringProfileKind kind) => kind switch
