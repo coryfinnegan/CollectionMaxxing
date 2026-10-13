@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared by every test project that needs Postgres: container fixture, Respawn reset, data builders. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Infrastructure\CollectionMaxxing.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Respawn" />
+  </ItemGroup>
+
+</Project>

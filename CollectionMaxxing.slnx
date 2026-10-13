@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CollectionMaxxing.AppHost/CollectionMaxxing.AppHost.csproj" />
+    <Project Path="src/CollectionMaxxing.Api/CollectionMaxxing.Api.csproj" />
+    <Project Path="src/CollectionMaxxing.Application/CollectionMaxxing.Application.csproj" />
+    <Project Path="src/CollectionMaxxing.Domain/CollectionMaxxing.Domain.csproj" />
+    <Project Path="src/CollectionMaxxing.Infrastructure/CollectionMaxxing.Infrastructure.csproj" />
+    <Project Path="src/CollectionMaxxing.ServiceDefaults/CollectionMaxxing.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CollectionMaxxing.Api.Tests/CollectionMaxxing.Api.Tests.csproj" />
+    <Project Path="tests/CollectionMaxxing.Application.Tests/CollectionMaxxing.Application.Tests.csproj" />
+    <Project Path="tests/CollectionMaxxing.Architecture.Tests/CollectionMaxxing.Architecture.Tests.csproj" />
+    <Project Path="tests/CollectionMaxxing.Domain.Tests/CollectionMaxxing.Domain.Tests.csproj" />
+    <Project Path="tests/CollectionMaxxing.Infrastructure.Tests/CollectionMaxxing.Infrastructure.Tests.csproj" />
+    <Project Path="tests/CollectionMaxxing.TestSupport/CollectionMaxxing.TestSupport.csproj" />
+  </Folder>
+</Solution>

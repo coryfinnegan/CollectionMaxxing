@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Entities, value objects, domain services. References nothing but the BCL. -->
+
+</Project>

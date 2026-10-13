@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Application\CollectionMaxxing.Application.csproj" />
+    <ProjectReference Include="..\CollectionMaxxing.TestSupport\CollectionMaxxing.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>

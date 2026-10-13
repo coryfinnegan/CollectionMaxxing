@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Contract pipeline. The OpenAPI document is generated at build time into contracts/openapi.json, but only when asked:
+         dotnet build src/CollectionMaxxing.Api -p:UpdateContract=true
+       A normal build leaves the committed file alone; the contract snapshot test in Api.Tests compares against it. -->
+  <PropertyGroup>
+    <OpenApiGenerateDocuments>false</OpenApiGenerateDocuments>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(UpdateContract)' == 'true'">
+    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <OpenApiDocumentsDirectory>$(MSBuildThisFileDirectory)..\..\contracts</OpenApiDocumentsDirectory>
+    <OpenApiGenerateDocumentsOptions>--file-name openapi</OpenApiGenerateDocumentsOptions>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CollectionMaxxing.Application\CollectionMaxxing.Application.csproj" />
+    <ProjectReference Include="..\CollectionMaxxing.Infrastructure\CollectionMaxxing.Infrastructure.csproj" />
+    <ProjectReference Include="..\CollectionMaxxing.ServiceDefaults\CollectionMaxxing.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- Design-time only: lets `dotnet ef` use this project as the startup project. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
