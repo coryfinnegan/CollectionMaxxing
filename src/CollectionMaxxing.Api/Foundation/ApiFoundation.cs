@@ -14,7 +14,10 @@ public static class ApiFoundation
     {
         // JSON: camelCase (the web default), enums as lowercase text.
         services.ConfigureHttpJsonOptions(options =>
-            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower)));
+        {
+            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
+            options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict; // numbers are numbers, never "12"
+        });
 
         // Errors: RFC 9457 Problem Details everywhere, including bare 401/403/404 and unexpected exceptions.
         services.AddProblemDetails();

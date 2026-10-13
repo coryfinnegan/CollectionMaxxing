@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace CollectionMaxxing.Api.Locations;
 
 /// <summary>Body of <c>POST …/locations</c>. A missing name is reported by the domain, with the same error as a blank one.</summary>
-public sealed record CreateLocationRequest(string? Name, Guid? ParentId, int? SortOrder);
+public sealed record CreateLocationRequest(string? Name = null, Guid? ParentId = null, int? SortOrder = null);
 
 /// <summary>
 /// Body of <c>PATCH …/locations/{id}</c> (JSON Merge Patch, RFC 7396). A property that is absent is left alone.
