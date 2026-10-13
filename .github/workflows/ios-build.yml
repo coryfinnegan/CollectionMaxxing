@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: xcode-27 # macOS 26 + Xcode 27 (iOS 27 SDK), actions/runner-images#14404
     timeout-minutes: 60
     permissions:
       contents: write # needed only to attach the .ipa to a release on tags
