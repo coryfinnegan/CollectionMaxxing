@@ -27,7 +27,7 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "No *.slnx yet; skipping backend checks."
           fi
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         if: steps.detect.outputs.present == 'true'
         with:
           global-json-file: global.json
