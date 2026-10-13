@@ -1,0 +1,23 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://dvd-back-1" },
+    "output": [{ "value": "0883929106000", "symbology": "ean-13", "bounds": { "x": 0.6, "y": 0.7, "width": 0.3, "height": 0.12 } }]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://paperback-back-1" },
+    "output": [
+      { "value": "9780441172719", "symbology": "ean-13", "bounds": { "x": 0.55, "y": 0.8, "width": 0.35, "height": 0.1 } },
+      { "value": "51299", "symbology": "code-128", "bounds": { "x": 0.1, "y": 0.8, "width": 0.2, "height": 0.08 } }
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://blank-wall" },
+    "output": []
+  }
+]

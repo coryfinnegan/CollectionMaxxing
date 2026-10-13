@@ -1,0 +1,29 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "scene": "one-dvd" },
+    "output": [
+      [{ "value": "0883929106000", "symbology": "ean-13", "bounds": { "x": 0.3, "y": 0.4, "width": 0.4, "height": 0.15 } }]
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "scene": "two-books-then-qr" },
+    "output": [
+      [{ "value": "9780441172719", "symbology": "ean-13", "bounds": { "x": 0.1, "y": 0.4, "width": 0.3, "height": 0.1 } }],
+      [
+        { "value": "9780441172719", "symbology": "ean-13", "bounds": { "x": 0.1, "y": 0.4, "width": 0.3, "height": 0.1 } },
+        { "value": "9780765326355", "symbology": "ean-13", "bounds": { "x": 0.6, "y": 0.4, "width": 0.3, "height": 0.1 } }
+      ],
+      [{ "value": "https://example.test/item/42", "symbology": "qr", "bounds": { "x": 0.4, "y": 0.4, "width": 0.2, "height": 0.2 } }]
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "scene": "empty-table" },
+    "output": []
+  }
+]

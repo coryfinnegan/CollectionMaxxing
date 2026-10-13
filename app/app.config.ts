@@ -11,6 +11,9 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: 'io.github.coryfinnegan.collectionmaxxing',
     supportsTablet: false,
+    infoPlist: {
+      NSCameraUsageDescription: 'CollectionMaxxing uses the camera to read barcodes and recognise items. Pictures are processed on your phone.',
+    },
   },
   web: {
     output: 'static',

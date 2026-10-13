@@ -1,0 +1,20 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "a": { "revision": 2, "data": "AQIDBA==" }, "b": { "revision": 2, "data": "AQIDCQ==" } },
+    "output": 5
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "a": { "revision": 2, "data": "AQIDBA==" }, "b": { "revision": 2, "data": "CQkJCQ==" } },
+    "output": 13.19
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "a": { "revision": 2, "data": "AQIDCQ==" }, "b": { "revision": 2, "data": "CQkJCQ==" } },
+    "output": 12.21
+  }
+]

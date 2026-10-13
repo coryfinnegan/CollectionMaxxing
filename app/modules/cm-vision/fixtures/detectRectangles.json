@@ -1,0 +1,24 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://shelf-of-three-dvds" },
+    "output": [
+      { "x": 0.05, "y": 0.1, "width": 0.28, "height": 0.8 },
+      { "x": 0.36, "y": 0.1, "width": 0.28, "height": 0.8 },
+      { "x": 0.67, "y": 0.1, "width": 0.28, "height": 0.8 }
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://single-record-sleeve" },
+    "output": [{ "x": 0.1, "y": 0.15, "width": 0.8, "height": 0.7 }]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://blank-wall" },
+    "output": []
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://dvd-spine-1" },
+    "output": { "revision": 2, "data": "AQIDBA==" }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://dvd-spine-1", "cropBox": { "x": 0.2, "y": 0.1, "width": 0.1, "height": 0.6 } },
+    "output": { "revision": 2, "data": "AQIDCQ==" }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": { "imageUri": "fixture://book-cover-1" },
+    "output": { "revision": 2, "data": "CQkJCQ==" }
+  }
+]
