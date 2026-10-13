@@ -202,10 +202,10 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Libraries}/items:bulk", LibraryRole.Editor, Json, BadRequest),
         InLibrary("GET", $"{Libraries}/stats", LibraryRole.Viewer, allowed: Ok),
 
-        // ---- Tags (LIB) ------------------------------------------------------------------------------------
-        InLibrary("GET", $"{Libraries}/tags", LibraryRole.Viewer),
-        InLibrary("POST", $"{Libraries}/tags", LibraryRole.Editor, Json),
-        InLibrary("DELETE", $"{Libraries}/tags/{{id:guid}}", LibraryRole.Editor),
+        // ---- Tags (LIB): built ----------------------------------------------------------------------------
+        InLibrary("GET", $"{Libraries}/tags", LibraryRole.Viewer, allowed: Ok),
+        InLibrary("POST", $"{Libraries}/tags", LibraryRole.Editor, """{ "name": "New tag" }""", Created),
+        InLibrary("DELETE", $"{Libraries}/tags/{{id:guid}}", LibraryRole.Editor, allowed: NoContent),
 
         // ---- Ownership (SCAN) ------------------------------------------------------------------------------
         InLibrary("GET", $"{Libraries}/ownership", LibraryRole.Viewer, query: "code=0045496870010"),
