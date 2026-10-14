@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Auth.KeyRing;
 using CollectionMaxxing.Application.Common;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -34,6 +35,9 @@ public static class AuthSetup
             .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())
             .AddPolicy(Policies.Admin, policy => policy.RequireAuthenticatedUser().RequireRole(Roles.Admin));
         services.AddSingleton<IAuthorizationHandler, LibraryRoleHandler>();
+
+        // The cookie and the passkey ceremony are sealed with Data Protection keys kept in a configured folder (Auth:KeyRing:Path).
+        services.AddPersistedKeyRing();
 
         services.AddTokenServer();
         services.AddAuthRateLimiting();

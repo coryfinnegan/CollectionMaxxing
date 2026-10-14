@@ -2,12 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Auth;
-using WebClient = CollectionMaxxing.Api.Tests.Auth.WebClient;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Domain.Accounts;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using WebClient = CollectionMaxxing.Api.Tests.Auth.WebClient;
 
 namespace CollectionMaxxing.Api.Tests.KeyRing;
 

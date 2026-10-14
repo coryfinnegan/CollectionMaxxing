@@ -63,7 +63,9 @@ public class PairingCleanupTests(ApiFixture api) : HardeningTest(api)
         (await RedeemTokenAsync(From("10.1.1.1"), offer.Token, "Cory's iPhone 17")).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         App.Time.Advance(TimeSpan.FromDays(3));
 
-        (await PurgeAsync()).ShouldBe(1);
+        // Advancing the clock also fires the background sweep, which may get to the row first, so only the outcome is asserted.
+        await PurgeAsync();
+        (await IdsAsync()).ShouldBeEmpty();
 
         (await browser.LoginAsync()).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var sessions = await browser.GetAsync("/api/v1/me/sessions");
