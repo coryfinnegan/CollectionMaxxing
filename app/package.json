@@ -3,11 +3,15 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@shopify/flash-list": "2.0.2",
     "@tanstack/react-query": "^5.104.2",
     "expo": "~57.0.28",
     "expo-constants": "~57.0.21",
     "expo-font": "~57.0.4",
+    "expo-haptics": "~57.0.3",
+    "expo-keep-awake": "~57.0.2",
     "expo-linking": "~57.0.12",
+    "expo-local-authentication": "~57.0.3",
     "expo-router": "~57.0.26",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
@@ -16,6 +20,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
+    "react-native-mmkv": "^4.3.2",
     "react-native-nitro-image": "^0.15.2",
     "react-native-nitro-modules": "^0.37.1",
     "react-native-qrcode-svg": "^6.3.26",
@@ -30,7 +35,9 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@faker-js/faker": "^10.6.0",
+    "@playwright/test": "^1.64.0",
     "@testing-library/react-native": "^14.1.0",
     "@types/jest": "^29.5.14",
     "@types/react": "~19.2.2",
@@ -51,6 +58,7 @@
     "generate": "orval && msw init public --no-save",
     "typecheck": "tsc --noEmit",
     "test": "jest",
+    "test:e2e": "playwright test",
     "check": "node scripts/check.mjs",
     "build:web": "expo export --platform web"
   },

@@ -10,7 +10,7 @@ const transformIgnorePatterns = preset.transformIgnorePatterns.map((pattern) =>
 module.exports = {
   preset: 'jest-expo',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
-  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/', '/playwright/'],
   transformIgnorePatterns,
   transform: {
     ...preset.transform,
