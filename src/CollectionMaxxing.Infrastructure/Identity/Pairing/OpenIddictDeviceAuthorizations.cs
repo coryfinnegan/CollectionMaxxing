@@ -46,6 +46,7 @@ internal sealed class OpenIddictDeviceAuthorizations(
     public async Task<IReadOnlyList<DeviceSession>> ListAsync(Guid userId, CancellationToken cancellationToken)
     {
         var found = new List<(Guid Id, DateTimeOffset Created, DateTimeOffset? LastSeen, bool Revoked)>();
+        var archivedNames = new Dictionary<Guid, string>();
         await foreach (var authorization in authorizations.FindBySubjectAsync(Subject(userId), cancellationToken))
         {
             var idText = (await authorizations.GetIdAsync(authorization, cancellationToken))!;
@@ -67,6 +68,10 @@ internal sealed class OpenIddictDeviceAuthorizations(
             // A replayed refresh token revokes every token of the phone but leaves a permanent authorization standing, so a phone
             // whose tokens have all been revoked is a revoked phone.
             found.Add((Guid.Parse(idText), created, lastSeen, revoked || (anyToken && !anyUsableToken)));
+            if (await DeviceNames.ReadAsync(authorizations, authorization, cancellationToken) is { } archived)
+            {
+                archivedNames[Guid.Parse(idText)] = archived;
+            }
         }
 
         var ids = found.Select(f => f.Id).ToList();
@@ -77,7 +82,7 @@ internal sealed class OpenIddictDeviceAuthorizations(
 
         return [.. found.Select(f => new DeviceSession(
             f.Id,
-            names.GetValueOrDefault(f.Id) ?? RedeemPairing.DefaultDeviceName,
+            names.GetValueOrDefault(f.Id) ?? archivedNames.GetValueOrDefault(f.Id) ?? RedeemPairing.DefaultDeviceName,
             f.Created,
             f.LastSeen,
             f.Revoked))];

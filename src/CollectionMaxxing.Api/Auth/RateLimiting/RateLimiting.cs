@@ -15,6 +15,11 @@ public static class RateLimiting
 
     public static IServiceCollection AddAuthRateLimiting(this IServiceCollection services)
     {
+        services.AddOptions<TrustedProxyOptions>()
+            .BindConfiguration(TrustedProxyOptions.SectionName)
+            .Validate(ClientAddressResolver.EntriesAreValid, "Auth:RateLimit:TrustedProxies must list IP addresses or ranges (for example 127.0.0.1 or 172.16.0.0/12).")
+            .ValidateOnStart();
+        services.AddSingleton<ClientAddressResolver>();
         services.AddRateLimiter(_ => { });
         services.AddOptions<RateLimiterOptions>().Configure<IOptions<AuthOptions>>((limiter, auth) =>
         {
@@ -23,10 +28,12 @@ public static class RateLimiting
             {
                 var settings = auth.Value.RateLimit;
 
-                // One bucket per caller address. (Behind Tailscale Serve everyone arrives from 127.0.0.1, so this is one bucket for
-                // the household: fine for a handful of people, and still stops guessing.)
+                // One bucket per caller address. Behind Tailscale Serve that is the forwarded client address, but only when the
+                // connection comes from a configured trusted proxy (Auth:RateLimit:TrustedProxies); otherwise it is the connection's
+                // own address, so a made-up X-Forwarded-For changes nothing. With no proxy configured, everyone behind it shares
+                // one bucket: safe, if cramped.
                 return RateLimitPartition.GetFixedWindowLimiter(
-                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    context.RequestServices.GetRequiredService<ClientAddressResolver>().Resolve(context),
                     _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = settings.PermitLimit,

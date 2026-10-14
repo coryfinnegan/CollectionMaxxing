@@ -25,6 +25,7 @@ public static class TokenEndpoint
         RedeemPairing.Handler redeem,
         IDeviceAuthorizations devices,
         PairingAttemptLimiter limiter,
+        ClientAddressResolver clients,
         CancellationToken cancellationToken)
     {
         var request = http.GetOpenIddictServerRequest()
@@ -32,7 +33,7 @@ public static class TokenEndpoint
 
         if (request.GrantType == OpenIddictSetup.DevicePairingGrant)
         {
-            return await PairAsync(http, request, redeem, limiter, cancellationToken);
+            return await PairAsync(http, request, redeem, limiter, clients, cancellationToken);
         }
 
         if (request.IsRefreshTokenGrantType())
@@ -48,13 +49,20 @@ public static class TokenEndpoint
         OpenIddictRequest request,
         RedeemPairing.Handler redeem,
         PairingAttemptLimiter limiter,
+        ClientAddressResolver clients,
         CancellationToken cancellationToken)
     {
-        var caller = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var caller = clients.Resolve(http);
         if (!limiter.TryAcquire(caller, out var retryAfter))
         {
             http.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
             return AuthProblems.TooManyAttempts();
+        }
+
+        // Five wrong codes lock this caller out, whatever it sends next. The pairing itself is untouched (see PairingAttemptLimiter).
+        if (limiter.IsLockedOut(caller))
+        {
+            return RefuseForPairing(PairingErrors.Invalid);
         }
 
         var result = await redeem.HandleAsync(
@@ -65,6 +73,11 @@ public static class TokenEndpoint
             cancellationToken);
         if (!result.IsSuccess)
         {
+            if (!string.IsNullOrWhiteSpace(request.GetParameter("pairing_code")?.ToString()))
+            {
+                limiter.RecordWrongCode(caller);
+            }
+
             return RefuseForPairing(result.Error!);
         }
 

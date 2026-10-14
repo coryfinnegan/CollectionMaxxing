@@ -19,7 +19,7 @@ public sealed class DevicePairing
 
     public DateTimeOffset? UsedAt { get; set; }
 
-    /// <summary>Wrong guesses of the 6-digit code; five locks the pairing.</summary>
+    /// <summary>Wrong guesses of the 6-digit code, tallied up to five. It is a record only: the guesser is locked out, not the pairing.</summary>
     public int Attempts { get; set; }
 
     public string? DeviceName { get; set; }

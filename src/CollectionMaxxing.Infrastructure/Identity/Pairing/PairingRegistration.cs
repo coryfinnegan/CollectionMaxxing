@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Accounts.Devices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Infrastructure.Identity.Pairing;
@@ -38,6 +39,11 @@ public static class PairingRegistration
     {
         services.AddOptions<ServerOptions>().BindConfiguration(ServerOptions.SectionName);
         services.TryAddScoped<IDeviceAuthorizations, OpenIddictDeviceAuthorizations>();
+
+        // Housekeeping: spent and expired pairing rows go once they are a day old.
+        services.AddOptions<PairingCleanupOptions>().BindConfiguration(PairingCleanupOptions.SectionName);
+        services.TryAddScoped<IDevicePairingCleanup, DevicePairingCleanup>();
+        services.AddHostedService<PairingCleanupService>();
         services.TryAddSingleton<IPublicServerUrl, ConfiguredServerUrl>();
         return services;
     }

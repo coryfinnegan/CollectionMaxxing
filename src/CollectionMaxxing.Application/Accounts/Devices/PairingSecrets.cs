@@ -12,7 +12,7 @@ public static class PairingSecrets
     /// <summary>A pairing is good for two minutes from the moment the web app makes it.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(2);
 
-    /// <summary>Wrong guesses of the 6-digit code a pairing survives. The fifth locks it: even the right code then fails.</summary>
+    /// <summary>Wrong guesses of the 6-digit code a caller gets per window. The fifth locks that caller out (not the pairing: strangers can't burn the owner's).</summary>
     public const int MaxWrongGuesses = 5;
 
     public const int CodeLength = 6;
@@ -26,7 +26,7 @@ public static class PairingSecrets
 
     /// <summary>
     /// What the database stores. The token is random and long, so a plain SHA-256 is enough; the point is that a copy of the database
-    /// can't pair a phone. (The code has only a million values, but a pairing lives for two minutes and locks after five wrong guesses.)
+    /// can't pair a phone. (The code has only a million values, but a pairing lives for two minutes and a caller is locked out after five wrong guesses.)
     /// </summary>
     public static string Hash(string secret) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));
 

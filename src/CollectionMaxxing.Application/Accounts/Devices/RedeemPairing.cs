@@ -57,14 +57,15 @@ public static class RedeemPairing
         }
 
         /// <summary>
-        /// Uses the pairing up, but only if it is still unused, in date and not locked: one statement, so two phones redeeming
-        /// the same pairing at the same moment can't both win. Returns who it was for, or null when it failed.
+        /// Uses the pairing up, but only if it is still unused and in date: one statement, so two phones redeeming the same
+        /// pairing at the same moment can't both win. Returns who it was for, or null when it failed. (Wrong guesses never lock
+        /// a pairing: they lock the guesser, in the token endpoint. A stranger must not be able to burn the owner's pairing.)
         /// </summary>
         private async Task<Claimed?> ClaimByTokenAsync(string tokenHash, string? codeHash, DateTimeOffset now, CancellationToken cancellationToken)
         {
             var claimed = await db.DevicePairings
                 .Where(p => p.TokenHash == tokenHash
-                    && p.UsedAt == null && p.ExpiresAt > now && p.Attempts < PairingSecrets.MaxWrongGuesses
+                    && p.UsedAt == null && p.ExpiresAt > now
                     && (codeHash == null || p.CodeHash == codeHash))
                 .ExecuteUpdateAsync(set => set.SetProperty(p => p.UsedAt, now), cancellationToken);
             if (claimed == 1)
@@ -88,7 +89,7 @@ public static class RedeemPairing
         {
             var claimed = await db.DevicePairings
                 .Where(p => p.CodeHash == codeHash
-                    && p.UsedAt == null && p.ExpiresAt > now && p.Attempts < PairingSecrets.MaxWrongGuesses)
+                    && p.UsedAt == null && p.ExpiresAt > now)
                 .ExecuteUpdateAsync(set => set.SetProperty(p => p.UsedAt, now), cancellationToken);
             if (claimed == 1)
             {
@@ -98,8 +99,8 @@ public static class RedeemPairing
                     .SingleAsync(cancellationToken);
             }
 
-            // Nobody can say which pairing a stranger's wrong code was aimed at, so it counts against every open one:
-            // five wrong guesses in two minutes lock them all, which is what keeps a million-value code safe.
+            // Nobody can say which pairing a stranger's wrong code was aimed at, so it is tallied on every open one. The tally is
+            // for the record only (it stops at the limit); keeping a million-value code safe is the guesser's own lockout.
             await CountWrongGuessAsync(_ => true, now, cancellationToken);
             return null;
         }
