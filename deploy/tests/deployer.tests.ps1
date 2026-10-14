@@ -2,14 +2,19 @@
 
 function Invoke-TestDeploy {
     <# Runs one real deployer pass against a throwaway root with the fake machine installed. #>
-    param([hashtable]$Machine = @{}, [hashtable]$State = $null, [switch]$DryRun)
+    param([hashtable]$Machine = @{}, [hashtable]$State = $null, [switch]$DryRun, [string]$RollbackTo = '', $StateText = $null, $EnvText = $null)
     $root = New-TestRoot
     try {
         if ($State) { Set-TestState -Root $root -State $State }
+        if ($null -ne $StateText) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $root 'state') | Out-Null
+            Set-Content -LiteralPath (Join-Path $root 'state/deployer-state.json') -Value $StateText
+        }
+        if ($null -ne $EnvText) { Set-Content -LiteralPath (Join-Path $root '.env') -Value $EnvText }
         New-FakeMachine $Machine | Out-Null
         Initialize-Cm -Apply (-not $DryRun)
         $ctx = New-TestContext -Root $root
-        $result = Invoke-CmDeploy -Ctx $ctx 6>$null
+        $result = Invoke-CmDeploy -Ctx $ctx -RollbackTo $RollbackTo 6>$null
         $log = if (Test-Path -LiteralPath $ctx.LogFile) { Get-Content -LiteralPath $ctx.LogFile -Raw } else { '' }
         [pscustomobject]@{ Result = $result; State = (Get-TestState -Root $root); Log = $log; Root = $root }
     }
@@ -99,13 +104,13 @@ Test-Case 'deployer: a known-bad image is not retried every two minutes' {
     Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
 }
 
-Test-Case 'deployer: a downgrade is refused' {
-    $state = @{ current = @{ sha = $script:Sha1; created = '2026-10-14T00:00:00.0000000Z' } }   # newer than the main image
-    $r = Invoke-TestDeploy -State $state
+Test-Case 'deployer: a downgrade is refused (judged by commit ancestry; see ops1b.tests.ps1 for the full set)' {
+    # The running commit (Sha2) is a descendant of the main image's commit (Sha1): main is behind what runs.
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-14T00:00:00.0000000Z' } } -Machine @{ Sha = $script:Sha1 }
     Assert-Equal 'downgrade-refused' $r.Result.Outcome
     Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
     Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
-    Assert-Equal $script:Sha1 $r.State.current.sha
+    Assert-Equal $script:Sha2 $r.State.current.sha
 }
 
 Test-Case 'deployer: the same image that is already running changes nothing' {

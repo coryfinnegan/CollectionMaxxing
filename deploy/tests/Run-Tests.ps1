@@ -3,15 +3,19 @@
   Runs every deploy test with one command and prints a quiet summary:  pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
 
 .DESCRIPTION
-  No network, no Docker daemon, nothing on the real machine is touched: every external command is replaced by a recorder
-  and the scripts run against throwaway folders in the temp directory. The compose tests call `docker compose config`,
-  which needs the docker CLI but not the daemon. The shell tests (backup) run with bash.
+  Nothing on the real machine is touched: every external command is replaced by a recorder and the scripts run against
+  throwaway folders in the temp directory. The compose tests call `docker compose config`, which needs the docker CLI
+  but not the daemon. The shell tests (backup) run with bash.
+
+  The one exception is the restore-drill suite (restore-drill.test.sh): it starts real throwaway Postgres containers
+  (cm-ops1-test-*, no network, no ports, no volumes, removed afterwards) and so needs a running Docker daemon and the
+  postgres:17 image. -SkipDocker leaves that suite out (the rest needs no daemon).
 
   -DockerBuild additionally builds the three Dockerfiles to prove they work. The images are tagged cm-ops1-test-* and
   only those tags are removed afterwards. Not part of the default run (it downloads base images and takes minutes).
 #>
 [CmdletBinding()]
-param([switch]$DockerBuild)
+param([switch]$DockerBuild, [switch]$SkipDocker)
 $ErrorActionPreference = 'Stop'
 $env:CM_TEST = '1'   # Invoke-Cm refuses to run anything for real while this is set and no fake runner is installed.
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -35,15 +39,20 @@ function Find-Bash {
     $null
 }
 $bash = Find-Bash
-if (-not $bash) {
-    Add-ExternalResults -Passed 0 -Failed @('FAIL backup shell tests: bash was not found (install Git for Windows, or run on Linux)')
-}
-else {
-    $lines = @(& $bash ((Join-Path $PSScriptRoot 'backup.test.sh') -replace '\\', '/') 2>&1 | ForEach-Object { "$_" })
+# backup.test.sh needs nothing but bash. restore-drill.test.sh starts real throwaway Postgres containers (named
+# cm-ops1-test-*, no network, no volumes, removed afterwards), so it needs a running Docker daemon: -SkipDocker leaves it out.
+$shellSuites = @('backup.test.sh')
+if (-not $SkipDocker) { $shellSuites += 'restore-drill.test.sh' }
+foreach ($suite in $shellSuites) {
+    if (-not $bash) {
+        Add-ExternalResults -Passed 0 -Failed @("FAIL ${suite}: bash was not found (install Git for Windows, or run on Linux)")
+        continue
+    }
+    $lines = @(& $bash ((Join-Path $PSScriptRoot $suite) -replace '\\', '/') 2>&1 | ForEach-Object { "$_" })
     # (Not named $passed: TestKit is dot-sourced, so its $script:Passed counter lives in this very scope.)
     $shellPassed = @($lines | Where-Object { $_ -like 'PASS *' }).Count
     $shellFailed = @($lines | Where-Object { $_ -like 'FAIL *' })
-    if ($shellPassed -eq 0 -and $shellFailed.Count -eq 0) { $shellFailed = @("FAIL backup shell tests ran nothing:`n     $($lines | Select-Object -Last 5 | Out-String)") }
+    if ($shellPassed -eq 0 -and $shellFailed.Count -eq 0) { $shellFailed = @("FAIL $suite ran nothing:`n     $($lines | Select-Object -Last 5 | Out-String)") }
     Add-ExternalResults -Passed $shellPassed -Failed $shellFailed
 }
 

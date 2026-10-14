@@ -27,6 +27,18 @@ pg_dump() {
 }
 pg_restore() { return 0; }
 curl() { echo "$*" >>"$curl_calls"; return 0; }
+# psql answers the three questions the manifest asks: table counts, newest migration id, and nothing else.
+# It never returns row data (a real psql could; the manifest code must only ever ask for counts).
+FAKE_PSQL_FAIL=0
+FAKE_COUNTS=$'items|3\nusers|1\n__EFMigrationsHistory|1'
+psql() {
+  [[ "$FAKE_PSQL_FAIL" == 1 ]] && return 2
+  local sql="$*"
+  if [[ "$sql" == *information_schema* ]]; then printf '%s\n' "$FAKE_COUNTS"
+  elif [[ "$sql" == *MigrationId* ]]; then echo "20261013153821_InitialCreate"
+  else echo "unexpected psql call: $sql" >&2; return 3
+  fi
+}
 
 # ---- 30 days of daily dumps --------------------------------------------------------------------------------------
 names=""
@@ -99,10 +111,60 @@ check "run: a failed dump leaves no partial file" "0" "$(ls -1 "$run_dir/db" | g
 setup_run "$run_dir"; : >"$curl_calls"
 FAKE_DUMP_FAIL=0 BACKUP_DIR="$run_dir" FILES_DIR="$run_dir/src" CM_HEARTBEAT_URL="https://hc.example/abc" cm_backup_run >/dev/null; rc=$?
 check "run: success returns 0" "0" "$rc"
-check "run: success writes a new dump" "1" "$(ls -1 "$run_dir/db" | grep -c "^collectionmaxxing-$(date -u +%Y)")"
+check "run: success writes a new dump" "1" "$(ls -1 "$run_dir/db" | grep -c "^collectionmaxxing-$(date -u +%Y).*\.dump$")"
 check "run: success writes a files archive that holds the files" "./a.jpg" "$(tar -tzf "$(ls -1 "$run_dir"/files/files-$(date -u +%Y)*.tar.gz | head -n1)" | grep a.jpg)"
 check "run: success prunes old dumps" "true" "$([[ "$(ls -1 "$run_dir/db" | wc -l | tr -d ' ')" -lt 31 ]] && echo true || echo false)"
 check "run: success pings the URL" "-fsS -m 10 --retry 3 -o /dev/null https://hc.example/abc" "$(cat "$curl_calls")"
+
+# ---- manifest ------------------------------------------------------------------------------------------------------
+mdir="$tmp/manifest"
+rm -rf "$mdir"; mkdir -p "$mdir/src/covers"
+echo "cover one SENTINEL-ROW-DATA" >"$mdir/src/covers/one.jpg"; echo "cover two" >"$mdir/src/covers/two.jpg"
+: >"$curl_calls"
+BACKUP_DIR="$mdir" FILES_DIR="$mdir/src" CM_HEARTBEAT_URL="https://hc.example/abc" cm_backup_run >/dev/null; rc=$?
+mf="$(ls -1 "$mdir"/db/collectionmaxxing-*.manifest.json 2>/dev/null | head -n1)"
+dump="$(ls -1 "$mdir"/db/collectionmaxxing-*.dump | head -n1)"
+check "manifest: a run writes one next to the dump with the same timestamp" "$(basename "${dump%.dump}").manifest.json" "$(basename "$mf")"
+check "manifest: the run still succeeds" "0" "$rc"
+check "manifest: records the row count of each table" "true" "$(grep -q '"items": 3' "$mf" && grep -q '"users": 1' "$mf" && echo true || echo false)"
+check "manifest: records the newest migration as the schema version" '"schemaVersion": "20261013153821_InitialCreate",' "$(grep schemaVersion "$mf" | sed 's/^ *//')"
+check "manifest: records the dump's sha256" "$(sha256sum "$dump" | cut -d' ' -f1)" "$(sed -n 's/.*"dumpSha256": "\([0-9a-f]*\)".*/\1/p' "$mf")"
+check "manifest: lists every file with its sha256" "true" "$(grep -q "\"path\": \"covers/one.jpg\", \"sha256\": \"$(sha256sum "$mdir/src/covers/one.jpg" | cut -d' ' -f1)\"" "$mf" && grep -q '"path": "covers/two.jpg"' "$mf" && echo true || echo false)"
+check "manifest: records the files archive and its sha256" "$(sha256sum "$(ls -1 "$mdir"/files/files-*.tar.gz | head -n1)" | cut -d' ' -f1)" "$(sed -n 's/.*"archiveSha256": "\([0-9a-f]*\)".*/\1/p' "$mf")"
+check "manifest: holds counts and hashes only, no row or file content" "0" "$(grep -c 'SENTINEL-ROW-DATA' "$mf" || true)"
+# Every line must be one of the known shapes: a number, a hash, a file name, a time or a table name. Nothing else can get in.
+odd="$(grep -vE '^\s*[]{}],?$|^\s*"(manifestVersion|dumpBytes|fileCount)": [0-9]+,?$|^\s*"(createdAt|timestamp|schemaVersion|dumpFile|archiveFile)": "[A-Za-z0-9_.:-]+",?$|^\s*"(dumpSha256|archiveSha256)": "[0-9a-f]{64}",?$|^\s*"(tableCountsBefore|tableCountsAfter|files)": [{[]$|^\s*"[A-Za-z0-9_]+": [0-9]+,?$|^\s*\{"path": "[A-Za-z0-9_./ -]+", "sha256": "[0-9a-f]{64}"\},?$' "$mf" || true)"
+check "manifest: every line is a count, a hash, a name or a time" "" "$odd"
+check "manifest: the file hash list is the files archive, not the live folder" "true" "$(grep -q '"fileCount": 2' "$mf" && echo true || echo false)"
+check "manifest: leaves no partial or temp file behind" "0" "$(find "$mdir" -name '*.partial' -o -name '.manifest-tmp*' | wc -l | tr -d ' ')"
+
+# A run that cannot read the database for the manifest fails (and pings /fail), and never prunes.
+setup_run "$run_dir"; : >"$curl_calls"
+FAKE_PSQL_FAIL=1 BACKUP_DIR="$run_dir" FILES_DIR="$run_dir/src" CM_HEARTBEAT_URL="https://hc.example/abc" cm_backup_run >/dev/null 2>&1; rc=$?
+FAKE_PSQL_FAIL=0
+check "manifest: no manifest means the run fails" "1" "$rc"
+check "manifest: a failed run pings /fail" "-fsS -m 10 --retry 3 -o /dev/null https://hc.example/abc/fail" "$(cat "$curl_calls")"
+check "manifest: a failed run never prunes" "30" "$(ls -1 "$run_dir/db" | grep -c '\.dump$')"
+check "manifest: a failed run leaves no manifest" "0" "$(ls -1 "$run_dir/db" | grep -c manifest || true)"
+
+# A failed dump writes no manifest.
+setup_run "$run_dir"
+FAKE_DUMP_FAIL=1 BACKUP_DIR="$run_dir" FILES_DIR="$run_dir/src" cm_backup_run >/dev/null 2>&1
+FAKE_DUMP_FAIL=0
+check "manifest: a failed dump writes no manifest" "0" "$(ls -1 "$run_dir/db" | grep -c manifest || true)"
+
+# Pruning a dump prunes its manifest; a kept dump keeps its manifest; foreign files stay.
+pm="$tmp/prune-manifest"
+rm -rf "$pm"; mkdir -p "$pm"
+for i in $(seq 0 29); do
+  d="$(date -d "2026-10-13 - $i days" +%Y%m%d)"
+  : >"$pm/collectionmaxxing-${d}-030000.dump"; echo '{}' >"$pm/collectionmaxxing-${d}-030000.manifest.json"
+done
+: >"$pm/collectionmaxxing-20260101-030000.manifest.json.keep"; : >"$pm/notes.manifest.json"
+cm_prune "$pm" collectionmaxxing dump >/dev/null
+check "manifest: pruned dumps take their manifests with them" "16" "$(ls -1 "$pm" | grep -c '^collectionmaxxing-.*\.manifest\.json$')"
+check "manifest: every kept dump still has its manifest" "0" "$(for f in "$pm"/*.dump; do [[ -f "${f%.dump}.manifest.json" ]] || echo missing; done | wc -l | tr -d ' ')"
+check "manifest: foreign files are never touched" "2" "$(ls -1 "$pm" | grep -cE '^(notes\.manifest\.json|.*\.keep)$')"
 
 # ---- schedule parsing ----------------------------------------------------------------------------------------------
 check "schedule: a daily 'M H * * *' is accepted" "0" "$(cm_seconds_until '0 3 * * *' >/dev/null; echo $?)"
