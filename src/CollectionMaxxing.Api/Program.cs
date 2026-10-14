@@ -11,6 +11,7 @@ using CollectionMaxxing.Api.Ownership;
 using CollectionMaxxing.Api.Scanning;
 using CollectionMaxxing.Api.Tags;
 using CollectionMaxxing.Infrastructure;
+using CollectionMaxxing.Infrastructure.Jobs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddApiFoundation();
 builder.Services.AddInfrastructure();
+builder.Services.AddJobs();
 builder.Services.AddAccounts();
 builder.Services.AddSignIn();
 builder.Services.AddInvites();
