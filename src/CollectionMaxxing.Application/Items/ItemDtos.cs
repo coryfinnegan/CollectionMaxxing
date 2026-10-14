@@ -22,7 +22,10 @@ public sealed record ItemSummaryDto(
     string? CoverUrl,
     DateTimeOffset CreatedAt);
 
-/// <summary>Your copy of a release.</summary>
+/// <summary>
+/// Your copy of a release. <c>CreatedBy</c> is who added it and <c>CreatedByName</c> is that person's display name (the "Added by" line);
+/// the name stays even after the person was removed from the library.
+/// </summary>
 public sealed record ItemDto(
     Guid Id,
     Guid ReleaseId,
@@ -42,7 +45,8 @@ public sealed record ItemDto(
     DateTimeOffset CreatedAt,
     Guid CreatedBy,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset? DeletedAt);
+    DateTimeOffset? DeletedAt,
+    string? CreatedByName = null);
 
 /// <summary>Another copy of the same work that the library owns (maybe on a different format).</summary>
 public sealed record OtherCopyDto(Guid ItemId, Guid ReleaseId, ReleaseFormat Format, string? Platform, ItemStatus Status, Guid? LocationId);

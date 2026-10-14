@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,7 @@ public static class UpdateItem
 {
     public sealed record Command(Guid LibraryId, Guid Id, string? IfMatch, ItemPatch Patch);
 
-    public sealed class Handler(IAppDbContext db, TimeProvider clock)
+    public sealed class Handler(IAppDbContext db, TimeProvider clock, IUserDirectory? users = null)
     {
         public async Task<Result<Versioned<ItemDto>>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -148,7 +149,7 @@ public static class UpdateItem
             }
 
             var currentTags = await ItemProjection.TagIdsAsync(db, libraryId, item.Id, cancellationToken);
-            return new Versioned<ItemDto>(ItemProjection.ToDto(item, currentTags), item.Version);
+            return new Versioned<ItemDto>(await ItemProjection.ToDtoAsync(item, currentTags, users, cancellationToken), item.Version);
         }
     }
 }

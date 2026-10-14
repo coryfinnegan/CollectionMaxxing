@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Common;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,7 @@ public static class GetItem
 {
     public sealed record Query(Guid LibraryId, Guid Id);
 
-    public sealed class Handler(IAppDbContext db)
+    public sealed class Handler(IAppDbContext db, IUserDirectory? users = null)
     {
         public async Task<Result<Versioned<ItemDetailDto>>> HandleAsync(Query query, CancellationToken cancellationToken)
         {
@@ -39,7 +40,7 @@ public static class GetItem
                 .ToListAsync(cancellationToken);
 
             var detail = new ItemDetailDto(
-                ItemProjection.ToDto(item, tagIds),
+                await ItemProjection.ToDtoAsync(item, tagIds, users, cancellationToken),
                 ItemProjection.ToWorkDto(loaded.Work),
                 ItemProjection.ToReleaseDto(loaded),
                 otherCopies);

@@ -2,6 +2,7 @@ using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries;
+using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Libraries;
 
 namespace CollectionMaxxing.Api.Libraries;
@@ -14,6 +15,9 @@ public static class LibraryEndpoints
         services.AddScoped<ListLibraries.Handler>();
         services.AddScoped<GetLibrary.Handler>();
         services.AddScoped<UpdateLibrary.Handler>();
+        services.AddScoped<ListMembers.Handler>();
+        services.AddScoped<UpdateMember.Handler>();
+        services.AddScoped<RemoveMember.Handler>();
         return services;
     }
 
@@ -39,23 +43,35 @@ public static class LibraryEndpoints
             .ProducesValidationProblem()
             .RequireLibraryRole(LibraryRole.Owner);
 
-        library.MapGet("/members", (Guid libraryId) => StubEndpoints.NotImplemented())
+        // Names and roles for every member; the owner also gets each member's devices and when they were last seen (ID-3a).
+        library.MapGet("/members", async (Guid libraryId, ListMembers.Handler handler, CancellationToken cancellationToken) =>
+                TypedResults.Ok(await handler.HandleAsync(libraryId, cancellationToken)))
             .WithName("ListMembers").WithTags("Libraries")
             .Produces<Page<MemberDto>>()
-            .RequireLibraryRole(LibraryRole.Viewer).IsStub();
+            .RequireLibraryRole(LibraryRole.Viewer);
 
-        library.MapPatch("/members/{userId:guid}", (Guid libraryId, Guid userId, UpdateMemberRequest body) => StubEndpoints.NotImplemented())
+        // A role change takes effect on the member's next request: roles are read from the database on every request.
+        library.MapPatch("/members/{userId:guid}", async (Guid libraryId, Guid userId, UpdateMemberRequest body, UpdateMember.Handler handler, CancellationToken cancellationToken) =>
+            {
+                var result = await handler.HandleAsync(new UpdateMember.Command(libraryId, userId, body.Role), cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : result.Error!.ToProblem();
+            })
             .WithName("UpdateMember").WithTags("Libraries")
             .Produces<MemberDto>()
             .ProducesValidationProblem()
-            .RequireLibraryRole(LibraryRole.Owner).IsStub();
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireLibraryRole(LibraryRole.Owner);
 
-        // Also revokes that member's devices and sessions. The owner can't be removed.
-        library.MapDelete("/members/{userId:guid}", (Guid libraryId, Guid userId) => StubEndpoints.NotImplemented())
+        // Also revokes that member's devices and sessions, at once. The owner can't be removed.
+        library.MapDelete("/members/{userId:guid}", async (Guid libraryId, Guid userId, RemoveMember.Handler handler, CancellationToken cancellationToken) =>
+            {
+                var result = await handler.HandleAsync(new RemoveMember.Command(libraryId, userId), cancellationToken);
+                return result.IsSuccess ? Results.NoContent() : result.Error!.ToProblem();
+            })
             .WithName("RemoveMember").WithTags("Libraries")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status409Conflict)
-            .RequireLibraryRole(LibraryRole.Owner).IsStub();
+            .RequireLibraryRole(LibraryRole.Owner);
 
         return app;
     }

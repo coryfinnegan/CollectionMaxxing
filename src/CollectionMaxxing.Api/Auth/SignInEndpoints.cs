@@ -89,6 +89,7 @@ public static class SignInEndpoints
             .Produces<SignedInDto>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound) // an invite that can't be used (ID-3a)
             .ProducesProblem(StatusCodes.Status410Gone)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
@@ -104,7 +105,8 @@ public static class SignInEndpoints
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
 
-        // The page a family member opens from an invite link. Whether the invite is valid is checked when they register (ID-3).
+        // The page a family member opens from an invite link. It is the same page for every token; the SPA asks GET /api/v1/invites/{token}
+        // whether the invite is usable, and the invite is only spent when they register (ID-3a).
         app.MapGet("/join/{token}", (SpaPage spa) => spa.Index())
             .WithName("JoinPage").WithTags("Sign-in")
             .ExcludeFromDescription().AllowAnonymous();

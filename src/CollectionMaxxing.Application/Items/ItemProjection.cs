@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
@@ -49,6 +50,19 @@ internal static class ItemProjection
         item.Id, item.ReleaseId, item.Status, item.Condition, item.Completeness, item.LocationId, item.Notes, item.AcquiredOn,
         item.LentTo, item.LentOn, item.CustomTitle, item.CustomCoverAssetId, item.CoverChoice, item.AddedVia, tagIds,
         item.CreatedAt, item.CreatedBy, item.UpdatedAt, item.DeletedAt);
+
+    /// <summary>The item as its DTO, with the display name of whoever added it ("Added by").</summary>
+    public static async Task<ItemDto> ToDtoAsync(Item item, IReadOnlyList<Guid> tagIds, IUserDirectory? users, CancellationToken cancellationToken)
+    {
+        var dto = ToDto(item, tagIds);
+        if (users is null)
+        {
+            return dto;
+        }
+
+        var names = await users.DisplayNamesAsync([item.CreatedBy], cancellationToken);
+        return dto with { CreatedByName = names.GetValueOrDefault(item.CreatedBy) };
+    }
 
     public static async Task<List<Guid>> TagIdsAsync(IAppDbContext db, Guid libraryId, Guid itemId, CancellationToken cancellationToken) =>
         await db.ItemTags.AsNoTracking()

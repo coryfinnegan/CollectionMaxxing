@@ -1,5 +1,8 @@
 using System.Text.Json;
+using CollectionMaxxing.Api.Invites;
 using CollectionMaxxing.Application.Accounts;
+using CollectionMaxxing.Application.Invites;
+using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -19,6 +22,8 @@ public sealed class PasskeyCeremonies(
     IUserClaimsPrincipalFactory<AppUser> claims,
     PlanCeremony.Handler plan,
     CompleteCeremony.Handler complete,
+    PlanInvite.Handler planInvite,
+    AcceptInvite.Handler acceptInvite,
     IMembershipReader memberships,
     CeremonyCookie ceremonies,
     TimeProvider time)
@@ -62,8 +67,11 @@ public sealed class PasskeyCeremonies(
 
         if (!string.IsNullOrWhiteSpace(body.InviteToken))
         {
-            // Joining by invite is ID-3. Until then no token is valid, and the ceremony never starts.
-            return AuthProblems.From(AccountErrors.CodeInvalid);
+            // Joining by invite (ID-3a). A token that is unknown, expired, used or revoked starts nothing, and says nothing about which.
+            var invited = await planInvite.HandleAsync(body.InviteToken, body.DisplayName, cancellationToken);
+            return invited.IsSuccess
+                ? await CreationOptionsAsync(http, invited.Value, invited.Value.DisplayName)
+                : Failed(invited.Error!);
         }
 
         if (AuthCookie.UserId(http.User) is not { } userId)
@@ -142,10 +150,18 @@ public sealed class PasskeyCeremonies(
         }
 
         var name = string.IsNullOrWhiteSpace(body.Name) ? null : body.Name.Trim()[..Math.Min(body.Name.Trim().Length, 100)];
-        var finished = await complete.HandleAsync(planned, ToCredential(attested.Passkey, name), cancellationToken);
+        var credentialMade = ToCredential(attested.Passkey, name);
+        var finished = planned.Purpose == CeremonyPurpose.Invite
+            ? await acceptInvite.HandleAsync(invite, planned, credentialMade, cancellationToken) // ID-3a: spends the invite, makes the user and the membership
+            : await complete.HandleAsync(planned, credentialMade, cancellationToken);
         if (!finished.IsSuccess)
         {
-            return AuthProblems.From(finished.Error!);
+            if (planned.Purpose == CeremonyPurpose.Invite)
+            {
+                ceremonies.Clear(http); // an invite that failed here is gone for this ceremony too
+            }
+
+            return Failed(finished.Error!);
         }
 
         ceremonies.Clear(http);
@@ -218,6 +234,10 @@ public sealed class PasskeyCeremonies(
     }
 
     // ---- helpers ------------------------------------------------------------------------------------------------------
+
+    /// <summary>A failed ceremony step as a response. An unusable invite is always the one fixed answer (see <see cref="InviteProblems"/>).</summary>
+    private static IResult Failed(DomainError error) =>
+        error == InviteErrors.Invalid ? InviteProblems.Invalid() : AuthProblems.From(error);
 
     private async Task SignInAsync(HttpContext http, Guid userId)
     {

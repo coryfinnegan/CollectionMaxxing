@@ -2,6 +2,8 @@ using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries.Members;
+using Microsoft.AspNetCore.Authentication;
 
 namespace CollectionMaxxing.Api.Auth;
 
@@ -11,7 +13,7 @@ namespace CollectionMaxxing.Api.Auth;
 /// </summary>
 public sealed class CurrentUserMiddleware(RequestDelegate next)
 {
-    public async Task InvokeAsync(HttpContext context, CurrentUser currentUser, IMembershipReader memberships)
+    public async Task InvokeAsync(HttpContext context, CurrentUser currentUser, IMembershipReader memberships, IUserDirectory users)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
@@ -19,6 +21,16 @@ public sealed class CurrentUserMiddleware(RequestDelegate next)
             {
                 // Signed in as someone we can't identify: refuse rather than carry on as nobody.
                 await ProblemResults.Problem(StatusCodes.Status401Unauthorized, "Unauthorized", "The sign-in has no valid user id.")
+                    .ExecuteAsync(context);
+                return;
+            }
+
+            // A member who was removed (or an account that was deleted) is refused from their very next call, whatever their cookie or
+            // access token still says. The cookie is forgotten too, so they are not stuck with a dead session.
+            if (await users.IsDeactivatedAsync(userId, context.RequestAborted))
+            {
+                await context.SignOutAsync(AuthCookie.Scheme);
+                await ProblemResults.Problem(StatusCodes.Status401Unauthorized, "Unauthorized", "This account is no longer active.", "account.deactivated")
                     .ExecuteAsync(context);
                 return;
             }
