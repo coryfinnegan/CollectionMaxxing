@@ -62,6 +62,7 @@ jobs:
         working-directory: app
         run: |
           npm ci
+          npm run generate # the API client is gitignored
           npx expo export --platform web --output-dir dist
           echo "dist=app/dist" >> "$GITHUB_OUTPUT"
 
