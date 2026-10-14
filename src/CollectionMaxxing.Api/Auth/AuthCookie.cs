@@ -81,7 +81,6 @@ public static class AuthCookie
         }
     }
 
-    /// <summary>The user id of a signed-in caller, or null.</summary>
-    public static Guid? UserId(ClaimsPrincipal user) =>
-        Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
+    /// <summary>The user id of a signed-in caller (cookie or bearer token), or null.</summary>
+    public static Guid? UserId(ClaimsPrincipal user) => Pairing.CurrentSession.UserId(user);
 }

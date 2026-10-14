@@ -4,8 +4,8 @@ namespace CollectionMaxxing.Application.Accounts;
 
 // Response shapes of the account, session and sign-in endpoints (docs/04, docs/07). Fields are the contract.
 
-/// <summary>A signed-in device or browser.</summary>
-public sealed record SessionDto(Guid Id, string DeviceName, string Kind, DateTimeOffset CreatedAt, DateTimeOffset? LastSeenAt, bool IsCurrent);
+/// <summary>A paired device. <c>Status</c> is <c>active</c>, or <c>revoked</c> (by the person, or because a stolen refresh token was replayed).</summary>
+public sealed record SessionDto(Guid Id, string DeviceName, string Kind, DateTimeOffset CreatedAt, DateTimeOffset? LastSeenAt, bool IsCurrent, string Status);
 
 /// <summary>A new device pairing: the payload of the QR code and its 6-digit fallback, valid for two minutes, single use.</summary>
 public sealed record PairDeviceDto(string ServerUrl, string Token, string Code, DateTimeOffset ExpiresAt);

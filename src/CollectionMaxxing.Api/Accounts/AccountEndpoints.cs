@@ -1,6 +1,8 @@
 using CollectionMaxxing.Api.Auth;
+using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
+using CollectionMaxxing.Application.Accounts.Devices;
 using CollectionMaxxing.Application.Common;
 
 namespace CollectionMaxxing.Api.Accounts;
@@ -10,6 +12,7 @@ public static class AccountEndpoints
     public static IServiceCollection AddAccounts(this IServiceCollection services)
     {
         services.AddScoped<GetMe.Handler>();
+        services.AddDevicePairing();
         return services;
     }
 
@@ -36,24 +39,36 @@ public static class AccountEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization().RequireRecentPasskey().IsStub();
 
-        app.MapGet("/api/v1/me/sessions", () => StubEndpoints.NotImplemented())
+        // Paired devices (ID-2). The phones are OpenIddict authorizations; revoking one ends its tokens at once.
+        app.MapGet("/api/v1/me/sessions", async (ICurrentUser user, HttpContext http, ListSessions.Handler handler, CancellationToken cancellationToken) =>
+                TypedResults.Ok(await handler.HandleAsync(user.UserId!.Value, CurrentSession.Id(http.User), cancellationToken)))
             .WithName("ListSessions").WithTags("Account")
             .Produces<Page<SessionDto>>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
-        app.MapDelete("/api/v1/me/sessions/{id:guid}", (Guid id) => StubEndpoints.NotImplemented())
+        app.MapDelete("/api/v1/me/sessions/{id:guid}", async (Guid id, ICurrentUser user, RevokeSession.Handler handler, CancellationToken cancellationToken) =>
+            {
+                var result = await handler.HandleAsync(user.UserId!.Value, id, cancellationToken);
+                return result.IsSuccess ? Results.NoContent() : result.Error!.ToProblem();
+            })
             .WithName("RevokeSession").WithTags("Account")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization().IsStub();
+            .RequireAuthorization();
 
-        app.MapPost("/api/v1/me/devices/pair", () => StubEndpoints.NotImplemented())
+        app.MapPost("/api/v1/me/devices/pair", async (ICurrentUser user, CreatePairing.Handler handler, CancellationToken cancellationToken) =>
+            {
+                var result = await handler.HandleAsync(user.UserId!.Value, cancellationToken);
+                return result.IsSuccess
+                    ? Results.Created((string?)null, result.Value)
+                    : ProblemResults.Problem(StatusCodes.Status401Unauthorized, "Unauthorized", result.Error!.Message, result.Error.Code);
+            })
             .WithName("PairDevice").WithTags("Account")
             .Produces<PairDeviceDto>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().RequireRecentPasskey().IsStub();
+            .RequireAuthorization().RequireRecentPasskey();
 
         app.MapGet("/api/v1/me/export", () => StubEndpoints.NotImplemented())
             .WithName("StartExport").WithTags("Account")

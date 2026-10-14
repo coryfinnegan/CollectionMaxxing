@@ -150,16 +150,6 @@
                 }
               }
             }
-          },
-          "501": {
-            "description": "Not Implemented",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
           }
         }
       }
@@ -204,16 +194,6 @@
                 }
               }
             }
-          },
-          "501": {
-            "description": "Not Implemented",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
           }
         }
       }
@@ -237,16 +217,6 @@
           },
           "401": {
             "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Not Implemented",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6700,7 +6670,8 @@
           "kind",
           "createdAt",
           "lastSeenAt",
-          "isCurrent"
+          "isCurrent",
+          "status"
         ],
         "type": "object",
         "properties": {
@@ -6727,6 +6698,9 @@
           },
           "isCurrent": {
             "type": "boolean"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },

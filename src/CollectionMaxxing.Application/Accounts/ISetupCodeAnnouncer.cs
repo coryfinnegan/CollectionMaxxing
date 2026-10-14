@@ -4,4 +4,7 @@ namespace CollectionMaxxing.Application.Accounts;
 public interface ISetupCodeAnnouncer
 {
     Task AnnounceAsync(string code, DateTimeOffset expiresAt, CancellationToken cancellationToken);
+
+    /// <summary>Takes the announced code away again (deletes <c>secrets/setup-code.txt</c>) once the owner exists and the code is spent.</summary>
+    Task WithdrawAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

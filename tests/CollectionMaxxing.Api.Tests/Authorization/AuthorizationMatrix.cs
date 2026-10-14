@@ -161,7 +161,7 @@ public static class AuthorizationMatrix
         SignedIn("DELETE", "/api/v1/me"),
         SignedIn("GET", "/api/v1/me/sessions", allowed: Ok),
         SignedIn("DELETE", "/api/v1/me/sessions/{id:guid}", allowed: NotFound), // the seeded id is no device of theirs
-        SignedIn("POST", "/api/v1/me/devices/pair", allowed: Created),
+        SignedIn("POST", "/api/v1/me/devices/pair", allowed: Created) with { Admin = Unauthorized }, // the matrix admin has no row in users, so has no account to pair
         SignedIn("GET", "/api/v1/me/export"),
 
         // ---- Sign-in, setup, recovery, tokens (ID): the only anonymous endpoints ---------------------------

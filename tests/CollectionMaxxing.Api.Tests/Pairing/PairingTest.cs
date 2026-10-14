@@ -44,6 +44,15 @@ public abstract class PairingTest(ApiFixture api) : AuthTest(api)
 
     protected virtual Dictionary<string, string?>? MoreSettings => null;
 
+    public override async ValueTask InitializeAsync()
+    {
+        await base.InitializeAsync();
+
+        // Token lifetimes are whole seconds. Starting the clock on a whole second makes "10 minutes" exactly 600, not 599.4.
+        var fraction = TimeSpan.FromTicks(App.Time.GetUtcNow().Ticks % TimeSpan.TicksPerSecond);
+        App.Time.Advance(TimeSpan.FromSeconds(1) - fraction);
+    }
+
     /// <summary>The phone's connection: no cookies, ever.</summary>
     protected HttpClient Phone => _phone ??= App.NewBrowser().Http;
 

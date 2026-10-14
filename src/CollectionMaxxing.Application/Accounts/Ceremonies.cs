@@ -154,15 +154,28 @@ public static class PlanCeremony
 /// <summary>Use case: the browser made the passkey. Finish what the plan allowed.</summary>
 public static class CompleteCeremony
 {
-    public sealed class Handler(IAccountStore accounts)
+    public sealed class Handler(IAccountStore accounts, ISetupCodeAnnouncer announcer)
     {
-        public Task<Result<SignedInDto>> HandleAsync(CeremonyPlan plan, PasskeyCredential passkey, CancellationToken cancellationToken) =>
-            plan.Purpose switch
+        public async Task<Result<SignedInDto>> HandleAsync(CeremonyPlan plan, PasskeyCredential passkey, CancellationToken cancellationToken)
+        {
+            switch (plan.Purpose)
             {
-                CeremonyPurpose.Setup => accounts.CreateOwnerAsync(plan.UserId, plan.DisplayName, passkey, plan.CodeId!.Value, cancellationToken),
-                CeremonyPurpose.Recovery => accounts.AddPasskeyAsync(plan.UserId, passkey, plan.CodeId, cancellationToken),
-                CeremonyPurpose.AddPasskey => accounts.AddPasskeyAsync(plan.UserId, passkey, null, cancellationToken),
-                _ => throw new ArgumentOutOfRangeException(nameof(plan), plan.Purpose, "This kind of ceremony is built by ID-3."),
-            };
+                case CeremonyPurpose.Setup:
+                    var created = await accounts.CreateOwnerAsync(plan.UserId, plan.DisplayName, passkey, plan.CodeId!.Value, cancellationToken);
+                    if (created.IsSuccess)
+                    {
+                        // The setup code is spent for good, so the copy left in secrets/setup-code.txt goes.
+                        await announcer.WithdrawAsync(cancellationToken);
+                    }
+
+                    return created;
+                case CeremonyPurpose.Recovery:
+                    return await accounts.AddPasskeyAsync(plan.UserId, passkey, plan.CodeId, cancellationToken);
+                case CeremonyPurpose.AddPasskey:
+                    return await accounts.AddPasskeyAsync(plan.UserId, passkey, null, cancellationToken);
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(plan), plan.Purpose, "This kind of ceremony is built by ID-3.");
+            }
+        }
     }
 }

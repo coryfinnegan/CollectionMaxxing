@@ -1,4 +1,4 @@
-using System.Security.Claims;
+using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
@@ -15,7 +15,7 @@ public sealed class CurrentUserMiddleware(RequestDelegate next)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
-            if (!Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+            if (CurrentSession.UserId(context.User) is not { } userId)
             {
                 // Signed in as someone we can't identify: refuse rather than carry on as nobody.
                 await ProblemResults.Problem(StatusCodes.Status401Unauthorized, "Unauthorized", "The sign-in has no valid user id.")

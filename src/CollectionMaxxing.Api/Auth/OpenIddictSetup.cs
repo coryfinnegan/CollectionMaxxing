@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Infrastructure.Identity;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
@@ -10,12 +11,12 @@ using OpenIddict.Validation.AspNetCore;
 namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
-/// OpenIddict as the token server of the iPhone app (docs/07). This task sets the server up completely (stores, endpoints, lifetimes,
-/// keys, validation of bearer tokens) so ID-2 only adds the pairing and refresh grants. The web uses the cookie, not tokens.
+/// OpenIddict as the token server of the iPhone app (docs/07): stores, endpoints, lifetimes, keys and validation of bearer tokens.
+/// The grants themselves (pairing, refresh) are in <c>Auth/Pairing</c>. The web uses the cookie, not tokens.
 /// </summary>
 public static class OpenIddictSetup
 {
-    /// <summary>The custom grant an iPhone uses to turn a QR-code pairing into tokens (ID-2 implements it).</summary>
+    /// <summary>The custom grant an iPhone uses to turn a QR-code pairing into tokens (see <c>TokenEndpoint</c>).</summary>
     public const string DevicePairingGrant = "urn:cm:device_pairing";
 
     public const string ApiScope = "api";
@@ -26,7 +27,7 @@ public static class OpenIddictSetup
             .AddCore(core => core.UseEntityFrameworkCore().UseDbContext<AppDbContext>().ReplaceDefaultEntities<Guid>())
             .AddServer(server =>
             {
-                server.SetTokenEndpointUris("/connect/token");
+                server.SetTokenEndpointUris("/connect/token").SetRevocationEndpointUris("/connect/revoke");
                 server.AllowCustomFlow(DevicePairingGrant).AllowRefreshTokenFlow();
                 server.RegisterScopes(ApiScope);
 
@@ -37,6 +38,13 @@ public static class OpenIddictSetup
                 server.SetAccessTokenLifetime(TimeSpan.FromMinutes(10));
                 server.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
 
+                // A refresh token works once. Using it a second time, even straight away, is a theft or a bug, and revokes the
+                // device's whole chain (OpenIddict's default allows 30 seconds of grace for a lost response; docs/07 allows none).
+                server.SetRefreshTokenReuseLeeway(TimeSpan.Zero);
+
+                // Revoking a refresh token unpairs the whole phone, not just that token.
+                server.AddEventHandler(RevokeDeviceOnRevocation.Descriptor);
+
                 // The API listens on 127.0.0.1 behind Tailscale Serve, which terminates TLS, so OpenIddict can't see HTTPS itself.
                 server.UseAspNetCore().EnableTokenEndpointPassthrough().DisableTransportSecurityRequirement();
             })
@@ -44,7 +52,15 @@ public static class OpenIddictSetup
             {
                 validation.UseLocalServer();
                 validation.UseAspNetCore();
+
+                // Check the phone's authorization on every request, so revoking it ends its access token now, not in ten minutes.
+                validation.EnableAuthorizationEntryValidation();
+                validation.EnableTokenEntryValidation();
             });
+
+        // OpenIddict's trace and debug lines print the tokens it creates and reads, and Information lines print whole requests (which
+        // include the pairing token and code). Nothing from it below Warning is worth the risk of a secret in a log (docs/08).
+        services.AddLogging(logging => logging.AddFilter("OpenIddict", LogLevel.Warning));
 
         // Keys are loaded when the server is first used, not at start-up, so tools that start the app without a server (OpenAPI
         // generation, `dotnet ef`) don't need them.

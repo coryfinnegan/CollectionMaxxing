@@ -1,0 +1,118 @@
+using System.Globalization;
+using System.Security.Claims;
+using CollectionMaxxing.Application.Accounts.Devices;
+using CollectionMaxxing.Domain.Common;
+using Microsoft.AspNetCore;
+using Microsoft.AspNetCore.Authentication;
+using OpenIddict.Abstractions;
+using OpenIddict.Server.AspNetCore;
+using static OpenIddict.Abstractions.OpenIddictConstants;
+
+namespace CollectionMaxxing.Api.Auth.Pairing;
+
+/// <summary>
+/// <c>POST /connect/token</c> for the iPhone (docs/07, "iPhone: pair once with a QR code"). OpenIddict has already read and
+/// validated the request, and, for a refresh token, has checked it against the database (valid, unused, in date, its device not
+/// revoked; a replayed one revokes the whole chain). What is left is ours: the pairing grant, and the user check on refresh. Signing
+/// in a principal makes OpenIddict issue the tokens, rotate the refresh token and slide its 90 days.
+/// </summary>
+public static class TokenEndpoint
+{
+    private const string Scheme = OpenIddictServerAspNetCoreDefaults.AuthenticationScheme;
+
+    public static async Task<IResult> HandleAsync(
+        HttpContext http,
+        RedeemPairing.Handler redeem,
+        IDeviceAuthorizations devices,
+        PairingAttemptLimiter limiter,
+        CancellationToken cancellationToken)
+    {
+        var request = http.GetOpenIddictServerRequest()
+            ?? throw new InvalidOperationException("The OpenIddict request can't be retrieved: is the token endpoint passthrough enabled?");
+
+        if (request.GrantType == OpenIddictSetup.DevicePairingGrant)
+        {
+            return await PairAsync(http, request, redeem, limiter, cancellationToken);
+        }
+
+        if (request.IsRefreshTokenGrantType())
+        {
+            return await RefreshAsync(http, devices, cancellationToken);
+        }
+
+        return Refuse(Errors.UnsupportedGrantType, "That grant type isn't supported.");
+    }
+
+    private static async Task<IResult> PairAsync(
+        HttpContext http,
+        OpenIddictRequest request,
+        RedeemPairing.Handler redeem,
+        PairingAttemptLimiter limiter,
+        CancellationToken cancellationToken)
+    {
+        var caller = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (!limiter.TryAcquire(caller, out var retryAfter))
+        {
+            http.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+            return AuthProblems.TooManyAttempts();
+        }
+
+        var result = await redeem.HandleAsync(
+            new RedeemPairing.Command(
+                request.GetParameter("pairing_token")?.ToString(),
+                request.GetParameter("pairing_code")?.ToString(),
+                request.GetParameter("device_name")?.ToString()),
+            cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return RefuseForPairing(result.Error!);
+        }
+
+        var identity = new ClaimsIdentity(Scheme, Claims.Name, Claims.Role);
+        identity.SetClaim(Claims.Subject, result.Value.UserId.ToString(null, CultureInfo.InvariantCulture));
+        var principal = new ClaimsPrincipal(identity);
+        principal.SetScopes(OpenIddictSetup.ApiScope, Scopes.OfflineAccess);
+        principal.SetAuthorizationId(result.Value.AuthorizationId.ToString(null, CultureInfo.InvariantCulture));
+        return SignIn(principal);
+    }
+
+    private static async Task<IResult> RefreshAsync(HttpContext http, IDeviceAuthorizations devices, CancellationToken cancellationToken)
+    {
+        // The principal OpenIddict rebuilt from the refresh token it just validated.
+        var principal = (await http.AuthenticateAsync(Scheme)).Principal;
+        if (principal is null || !Guid.TryParse(principal.GetClaim(Claims.Subject), out var userId))
+        {
+            return Refuse(Errors.InvalidGrant, "The refresh token is no longer valid.");
+        }
+
+        // A deleted user's phone must not keep working just because its refresh token has not expired.
+        if (!await devices.UserIsActiveAsync(userId, cancellationToken))
+        {
+            return Refuse(Errors.InvalidGrant, "The refresh token is no longer valid.");
+        }
+
+        return SignIn(principal);
+    }
+
+    private static IResult SignIn(ClaimsPrincipal principal)
+    {
+        // Everything we know about the phone goes into the access token (and, as always, the refresh token carries it on).
+        principal.SetDestinations(_ => [Destinations.AccessToken]);
+        return Results.SignIn(principal, authenticationScheme: Scheme);
+    }
+
+    private static IResult RefuseForPairing(DomainError error) =>
+        error == PairingErrors.Missing
+            ? Refuse(Errors.InvalidRequest, error.Message)
+            : Refuse(Errors.InvalidGrant, error.Message);
+
+    /// <summary>An OAuth error: 400 with <c>{ "error": …, "error_description": … }</c>, which is what a token client expects.</summary>
+    private static IResult Refuse(string error, string description) =>
+        Results.Forbid(
+            new AuthenticationProperties(new Dictionary<string, string?>
+            {
+                [OpenIddictServerAspNetCoreConstants.Properties.Error] = error,
+                [OpenIddictServerAspNetCoreConstants.Properties.ErrorDescription] = description,
+            }),
+            [Scheme]);
+}
