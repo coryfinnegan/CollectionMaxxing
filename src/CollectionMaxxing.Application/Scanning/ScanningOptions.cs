@@ -17,4 +17,7 @@ public sealed class ScanningOptions
 
     /// <summary>How many codes of one batch are looked up at the same time.</summary>
     public int Parallelism { get; set; } = 4;
+
+    /// <summary>The providers asked first for an ISBN, by their <c>Name</c>. The product lookup (UPCitemdb) is asked only when they know nothing.</summary>
+    public IReadOnlyList<string> BookProviders { get; set; } = ["openlibrary", "googlebooks"];
 }
