@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+# The API image: ASP.NET on Ubuntu "chiseled" (no shell, no package manager), running as the non-root app user.
+# Build from the repository root:
+#   docker build -f deploy/docker/Dockerfile.api -t collectionmaxxing-api .
+# To include the web app, run `expo export` first and add:  --build-arg WEB_DIST=app/dist
+# (The default folder only holds a placeholder, so the API serves its built-in "not installed yet" page.)
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet restore src/CollectionMaxxing.Api --locked-mode
+RUN dotnet publish src/CollectionMaxxing.Api -c Release -o /out --no-restore -p:UseAppHost=false
+# The files volume mounts here; creating it with the app user as owner lets a fresh volume be writable.
+RUN mkdir -p /data/files/covers /data/files/home
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS final
+ARG WEB_DIST=deploy/docker/no-web
+WORKDIR /app
+COPY --from=build /out .
+COPY ${WEB_DIST}/ /app/wwwroot/
+COPY --from=build --chown=1654:1654 /data /data
+# The base image sets ASPNETCORE_HTTP_PORTS=8080; this app listens on 5480 (compose publishes it on 127.0.0.1 only).
+ENV ASPNETCORE_HTTP_PORTS=5480 \
+    DOTNET_EnableDiagnostics=0
+EXPOSE 5480
+USER $APP_UID
+ENTRYPOINT ["dotnet", "CollectionMaxxing.Api.dll"]

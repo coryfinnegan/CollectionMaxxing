@@ -1,0 +1,99 @@
+# PROPOSED by OPS-1. The lead copies this file to .github/workflows/release.yml (a hot file; builders do not touch it).
+#
+# On every push to main it builds the api, migrate and backup images, pushes them to GHCR tagged with the commit SHA
+# (and a moving "main" tag) and signs a build attestation for each. The deployer on the owner's PC verifies that attestation
+# with `gh attestation verify --signer-workflow <owner>/<repo>/.github/workflows/release.yml` and requires the certificate
+# to say refs/heads/main, so the file name "release.yml" matters: do not rename it without changing the deployer.
+#
+# After copying: make the three GHCR packages public (Package settings > Change visibility), once, so the PC can pull
+# without logging in. They contain no secrets or data.
+name: Release images
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false # let a started build finish; the deployer only ever wants the newest main
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io
+      id-token: write # keyless signing of the attestation
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: api
+            file: deploy/docker/Dockerfile.api
+            context: .
+          - image: migrate
+            file: deploy/docker/Dockerfile.migrate
+            context: .
+          - image: backup
+            file: deploy/backup/Dockerfile.backup
+            context: deploy/backup
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Image name (GHCR needs lower case)
+        id: name
+        run: echo "repo=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/collectionmaxxing-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      # The web app is exported once and baked into the api image. Skipped until app/ exists.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: matrix.image == 'api' && hashFiles('app/package.json') != ''
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Export the web app
+        id: web
+        if: matrix.image == 'api' && hashFiles('app/package.json') != ''
+        working-directory: app
+        run: |
+          npm ci
+          npx expo export --platform web --output-dir dist
+          echo "dist=app/dist" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          provenance: false # the signed attestation below replaces the default one
+          build-args: ${{ matrix.image == 'api' && format('WEB_DIST={0}', steps.web.outputs.dist || 'deploy/docker/no-web') || '' }}
+          tags: |
+            ${{ steps.name.outputs.repo }}:${{ github.sha }}
+            ${{ steps.name.outputs.repo }}:main
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Attest the build (this is what the deployer checks)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ steps.name.outputs.repo }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

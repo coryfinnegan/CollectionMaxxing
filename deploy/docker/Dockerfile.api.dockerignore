@@ -1,0 +1,13 @@
+**/bin
+**/obj
+**/node_modules
+.git
+.claude
+.vs
+tests
+docs
+app/ios
+app/android
+app/.expo
+.env
+.env.*

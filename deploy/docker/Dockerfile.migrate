@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+# The migration job: a self-contained EF Core migrations bundle, run once per deploy by `docker compose run --rm migrate`.
+# Build from the repository root:
+#   docker build -f deploy/docker/Dockerfile.migrate -t collectionmaxxing-migrate .
+# Needs the environment variable ConnectionStrings__collectionmaxxing (compose sets it).
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet tool restore
+# First prove the packages match the committed lock files, then restore again for the linux-x64 runtime (the bundle is
+# self-contained). The second restore may add runtime packs to the lock file inside this build container only.
+RUN dotnet restore src/CollectionMaxxing.Api --locked-mode \
+ && dotnet restore src/CollectionMaxxing.Api -r linux-x64 --force-evaluate
+RUN dotnet ef migrations bundle \
+      --project src/CollectionMaxxing.Infrastructure \
+      --startup-project src/CollectionMaxxing.Api \
+      --configuration Release --self-contained -r linux-x64 --force \
+      -o /out/efbundle
+
+# Not the chiseled image on purpose: the entrypoint is a three-line shell script that turns the environment variable
+# into the bundle's --connection argument.
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-noble AS final
+WORKDIR /app
+COPY --from=build /out/efbundle /app/efbundle
+COPY deploy/docker/migrate.sh /app/migrate.sh
+RUN chmod 0555 /app/efbundle /app/migrate.sh
+ENV HOME=/tmp \
+    DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/.net \
+    DOTNET_EnableDiagnostics=0
+USER $APP_UID
+ENTRYPOINT ["/app/migrate.sh"]

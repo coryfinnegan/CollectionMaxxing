@@ -1,0 +1,11 @@
+**/bin
+**/obj
+**/node_modules
+.git
+.claude
+.vs
+tests
+docs
+app
+.env
+.env.*
