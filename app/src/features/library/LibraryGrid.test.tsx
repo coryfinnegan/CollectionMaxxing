@@ -1,13 +1,9 @@
-import { configure, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { LibraryView } from './LibraryView';
-
-// The first render in a cold Jest cache (CI) is slow, so wait longer than the 1s default.
-configure({ asyncUtilTimeout: 8000 });
-jest.setTimeout(30_000);
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
