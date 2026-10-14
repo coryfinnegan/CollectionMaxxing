@@ -102,6 +102,25 @@ internal sealed class OpenIddictDeviceAuthorizations(
         return true;
     }
 
+    public async Task RevokeAllAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var subject = Subject(userId);
+        var found = new List<object>();
+        await foreach (var authorization in authorizations.FindBySubjectAsync(subject, cancellationToken))
+        {
+            found.Add(authorization);
+        }
+
+        foreach (var authorization in found)
+        {
+            await authorizations.TryRevokeAsync(authorization, cancellationToken);
+            await tokens.RevokeByAuthorizationIdAsync((await authorizations.GetIdAsync(authorization, cancellationToken))!, cancellationToken);
+        }
+
+        // Anything issued to the user that no authorization covers goes too.
+        await tokens.RevokeBySubjectAsync(subject, cancellationToken);
+    }
+
     /// <summary>The OpenIddict <c>sub</c> of a user: their id as plain lowercase text.</summary>
     private static string Subject(Guid userId) => userId.ToString(null, CultureInfo.InvariantCulture);
 }

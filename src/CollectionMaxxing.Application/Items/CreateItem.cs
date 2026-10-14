@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
@@ -39,7 +40,7 @@ public static class CreateItem
         AddedVia? AddedVia,
         IReadOnlyList<Guid>? TagIds);
 
-    public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock)
+    public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock, IUserDirectory? users = null)
     {
         public async Task<Result<Versioned<ItemDto>>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -145,7 +146,7 @@ public static class CreateItem
             });
 
             await db.SaveChangesAsync(cancellationToken);
-            return new Versioned<ItemDto>(ItemProjection.ToDto(item, tagIds.Order().ToList()), item.Version);
+            return new Versioned<ItemDto>(await ItemProjection.ToDtoAsync(item, tagIds.Order().ToList(), users, cancellationToken), item.Version);
         }
 
         private async Task<Result<Versioned<ItemDto>>> ReplayAsync(
@@ -166,7 +167,7 @@ public static class CreateItem
             }
 
             var tagIds = await ItemProjection.TagIdsAsync(db, libraryId, item.Id, cancellationToken);
-            return new Versioned<ItemDto>(ItemProjection.ToDto(item, tagIds), item.Version);
+            return new Versioned<ItemDto>(await ItemProjection.ToDtoAsync(item, tagIds, users, cancellationToken), item.Version);
         }
 
         private static DomainError? Validate(Command command)

@@ -30,4 +30,10 @@ public interface IDeviceAuthorizations
     /// belongs to someone else. Revoking one that is already revoked is fine.
     /// </summary>
     Task<bool> RevokeAsync(Guid userId, Guid authorizationId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Revokes every phone of the user and every token they hold, at once (a member removed from the library, ID-3a). Doing it for a
+    /// user with no phones is fine.
+    /// </summary>
+    Task RevokeAllAsync(Guid userId, CancellationToken cancellationToken);
 }

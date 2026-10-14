@@ -9,4 +9,14 @@ public sealed record LibrarySummaryDto(Guid Id, string Name, LibraryRole Role);
 
 public sealed record LibraryDto(Guid Id, string Name, DateTimeOffset CreatedAt, LibraryRole Role);
 
-public sealed record MemberDto(Guid UserId, string DisplayName, LibraryRole Role, DateTimeOffset JoinedAt);
+/// <summary>
+/// A member of a library. <c>Devices</c> (names of the paired phones that still work) and <c>LastSeenAt</c> (when a phone was last heard
+/// from) are filled in for the owner only; everyone else gets <c>null</c> for both.
+/// </summary>
+public sealed record MemberDto(
+    Guid UserId,
+    string DisplayName,
+    LibraryRole Role,
+    DateTimeOffset JoinedAt,
+    IReadOnlyList<string>? Devices = null,
+    DateTimeOffset? LastSeenAt = null);

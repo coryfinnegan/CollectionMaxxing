@@ -86,6 +86,9 @@ public static class AuthorizationMatrix
         "/account/passkey/register",
         "/join/{token}",
 
+        // The join page asks what the invite is for (rate-limited; the same 404 for every token that isn't usable).
+        "/api/v1/invites/{token}",
+
         // OpenIddict's token endpoints (the iPhone redeems its pairing here).
         "/connect/token",
         "/connect/revoke",
@@ -185,16 +188,19 @@ public static class AuthorizationMatrix
         Everyone("POST", "/account/recover", Json, BadRequest),
         Everyone("GET", "/join/{token}", null, Ok),
 
-        // ---- Libraries and members (LIB), invites (ID) -----------------------------------------------------
+        // Built (ID-3a). The matrix's token is no invite, so everyone gets the one "not found" answer.
+        Everyone("GET", "/api/v1/invites/{token}", null, NotFound),
+
+        // ---- Libraries and members (LIB), invites (ID-3a): built ----------------------------------------------
         SignedIn("GET", "/api/v1/libraries", allowed: Ok),
         InLibrary("GET", Libraries, LibraryRole.Viewer, allowed: Ok),
         InLibrary("PATCH", Libraries, LibraryRole.Owner, """{ "name": "Renamed" }""", Ok),
-        InLibrary("GET", $"{Libraries}/members", LibraryRole.Viewer),
-        InLibrary("PATCH", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner, Json),
-        InLibrary("DELETE", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner),
-        InLibrary("GET", $"{Libraries}/invites", LibraryRole.Owner),
-        InLibrary("POST", $"{Libraries}/invites", LibraryRole.Owner, Json),
-        InLibrary("DELETE", $"{Libraries}/invites/{{id:guid}}", LibraryRole.Owner),
+        InLibrary("GET", $"{Libraries}/members", LibraryRole.Viewer, allowed: Ok),
+        InLibrary("PATCH", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner, """{ "role": "viewer" }""", NotFound), // the seeded id is no member
+        InLibrary("DELETE", $"{Libraries}/members/{{userId:guid}}", LibraryRole.Owner, allowed: NotFound), // the seeded id is no member
+        InLibrary("GET", $"{Libraries}/invites", LibraryRole.Owner, allowed: Ok),
+        InLibrary("POST", $"{Libraries}/invites", LibraryRole.Owner, """{ "name": "Sam", "role": "viewer" }""", Created),
+        InLibrary("DELETE", $"{Libraries}/invites/{{id:guid}}", LibraryRole.Owner, allowed: NotFound), // the seeded id is no invite
 
         // ---- Locations (LIB): built ------------------------------------------------------------------------
         InLibrary("GET", $"{Libraries}/locations", LibraryRole.Viewer, allowed: Ok),

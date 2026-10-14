@@ -23,7 +23,7 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
 
     /// <summary>What answers once the re-auth gate lets the call through: the endpoint's own status, or its 501 while it is a stub.</summary>
     private static HttpStatusCode PastTheGate(string endpoint) =>
-        endpoint == "POST /api/v1/me/devices/pair" ? HttpStatusCode.Created : HttpStatusCode.NotImplemented;
+        endpoint == "DELETE /api/v1/me" ? HttpStatusCode.NotImplemented : HttpStatusCode.Created;
 
     [Theory]
     [MemberData(nameof(Endpoints))]
@@ -34,7 +34,7 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
 
         var response = await CallAsync(browser, owner, endpoint);
 
-        // Past the re-auth gate: ID-2 built the pairing (201); the invite is still ID-3's stub (501).
+        // Past the re-auth gate: ID-2 built the pairing (201) and ID-3a the invite (201); deleting the account is still a stub (501).
         response.StatusCode.ShouldBe(PastTheGate(endpoint));
     }
 

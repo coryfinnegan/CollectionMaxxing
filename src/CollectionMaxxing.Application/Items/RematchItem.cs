@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Common;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,7 @@ public static class RematchItem
 {
     public sealed record Command(Guid LibraryId, Guid Id, Guid? ReleaseId);
 
-    public sealed class Handler(IAppDbContext db, TimeProvider clock)
+    public sealed class Handler(IAppDbContext db, TimeProvider clock, IUserDirectory? users = null)
     {
         public async Task<Result<Versioned<ItemDto>>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -43,7 +44,7 @@ public static class RematchItem
             }
 
             var tagIds = await ItemProjection.TagIdsAsync(db, command.LibraryId, item.Id, cancellationToken);
-            return new Versioned<ItemDto>(ItemProjection.ToDto(item, tagIds), item.Version);
+            return new Versioned<ItemDto>(await ItemProjection.ToDtoAsync(item, tagIds, users, cancellationToken), item.Version);
         }
     }
 }
