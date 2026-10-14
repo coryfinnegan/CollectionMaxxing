@@ -2803,9 +2803,85 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/libraries/{libraryId}/ownership/snapshot": {
+      "get": {
+        "tags": [
+          "Ownership"
+        ],
+        "operationId": "GetOwnershipSnapshot",
+        "parameters": [
+          {
+            "name": "libraryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
-          "501": {
-            "description": "Not Implemented",
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipSnapshotDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5898,6 +5974,10 @@
         "required": [
           "itemId",
           "releaseId",
+          "workId",
+          "title",
+          "format",
+          "platform",
           "status",
           "locationId",
           "locationPath"
@@ -5911,6 +5991,22 @@
           "releaseId": {
             "type": "string",
             "format": "uuid"
+          },
+          "workId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ReleaseFormat"
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "status": {
             "$ref": "#/components/schemas/ItemStatus"
@@ -5934,7 +6030,8 @@
         "required": [
           "owned",
           "count",
-          "copies"
+          "copies",
+          "sameWorkOtherFormat"
         ],
         "type": "object",
         "properties": {
@@ -5950,6 +6047,105 @@
             "items": {
               "$ref": "#/components/schemas/OwnedCopyDto"
             }
+          },
+          "sameWorkOtherFormat": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnedCopyDto"
+            }
+          }
+        }
+      },
+      "OwnershipSnapshotDto": {
+        "required": [
+          "entries",
+          "nextCursor",
+          "hasMore"
+        ],
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OwnershipSnapshotEntryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OwnershipSnapshotEntryDto": {
+        "required": [
+          "itemId",
+          "deleted",
+          "releaseId",
+          "workId",
+          "title",
+          "format",
+          "platform",
+          "identifiers",
+          "locationPath"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "releaseId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "workId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "format": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseFormat"
+              }
+            ]
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "identifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locationPath": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
