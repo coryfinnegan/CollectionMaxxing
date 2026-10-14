@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { installAuth } from '@/features/auth/bootstrap';
 import { useColors } from '@/theme/tokens';
 
 const queryClient = new QueryClient({
@@ -12,6 +13,9 @@ const mockMode = process.env.EXPO_PUBLIC_API_MOCK === '1';
 
 export default function RootLayout() {
   const colors = useColors();
+  const router = useRouter();
+  // 401s send the iPhone to pairing and the browser to sign-in; reauth_required opens a passkey prompt.
+  useEffect(() => installAuth(router), [router]);
   // In mock mode, wait for MSW to start before any request goes out.
   const [ready, setReady] = useState(!mockMode);
   useEffect(() => {
@@ -32,6 +36,9 @@ export default function RootLayout() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="pair" options={{ title: 'Pair with your server', headerShown: false }} />
+        <Stack.Screen name="setup" options={{ title: 'Set up', headerShown: false }} />
+        <Stack.Screen name="login" options={{ title: 'Sign in', headerShown: false }} />
+        <Stack.Screen name="join/[token]" options={{ title: 'Join', headerShown: false }} />
         <Stack.Screen name="item/[id]/index" options={{ title: 'Item' }} />
         <Stack.Screen name="item/[id]/edit" options={{ title: 'Edit item' }} />
         <Stack.Screen name="scanner" options={{ title: 'Scanner', presentation: 'fullScreenModal' }} />

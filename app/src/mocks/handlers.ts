@@ -2,6 +2,7 @@
 // Add handlers here as new endpoints land; unhandled requests bypass in mock mode and fail in tests.
 import { HttpResponse, http } from 'msw';
 import type { CreateLocationRequest, LocationDto, UpdateLocationRequest } from '@/api/generated/models';
+import { handlers as authHandlers } from './auth';
 import { handlers as bulkHandlers } from './bulk';
 import { handlers as catalogHandlers } from './catalog';
 import { MOCK_LIBRARY_ID, mockData, mockMe, newMockId } from './data';
@@ -17,7 +18,7 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
 const base = '*/api/v1/libraries/:libraryId/locations';
 
 export const handlers = [
-  ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers,
+  ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...authHandlers,
   http.get('*/api/v1/me', () => HttpResponse.json(mockMe())),
 
   http.get(base, () => HttpResponse.json({ items: mockData.locations, nextCursor: null })),
