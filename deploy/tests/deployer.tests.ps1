@@ -73,6 +73,13 @@ Test-Case 'deployer: an image attested for the wrong ref deploys nothing' {
     Assert-Match $r.Log 'refs/heads/main'
 }
 
+Test-Case 'deployer: a certificate with no source commit is refused (fails closed)' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ OmitCertDigest = $true }
+    Assert-Equal 'refused' $r.Result.Outcome
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+}
+
 Test-Case 'deployer: a failed smoke test pins the previous good tag and restarts' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ UnhealthyTags = @($script:Sha2) }
     Assert-Equal 'rolled-back' $r.Result.Outcome

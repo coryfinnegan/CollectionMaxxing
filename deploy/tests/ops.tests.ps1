@@ -51,9 +51,24 @@ Test-Case 'tailscale: a second site on the same name counts as foreign, and so d
     Set-FakeTailscale '{"TCP":{"443":{"HTTPS":true},"8443":{"HTTPS":true}},"Web":{"a.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:5480"}}},"a.ts.net:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8096"}}}}}'
     & $script:TsScript -Apply 6>$null
     Assert-Equal 4 $LASTEXITCODE
-    Set-FakeTailscale ($script:OurServe.TrimEnd('}') + ',"AllowFunnel":{"pc.tailnet.ts.net:443":true}}')
+}
+
+Test-Case 'tailscale: Funnel on for our own proxy is foreign (valid JSON, only the Funnel guard can refuse it)' {
+    $o = $script:OurServe | ConvertFrom-Json -AsHashtable
+    $o['AllowFunnel'] = @{ 'pc.tailnet.ts.net:443' = $true }
+    $json = $o | ConvertTo-Json -Depth 8 -Compress
+    Set-FakeTailscale $json
     & $script:TsScript -Apply 6>$null
     Assert-Equal 4 $LASTEXITCODE 'funnel exposes the app to the internet'
+    Assert-Equal 0 (Get-MutatingCalls).Count
+}
+
+Test-Case 'tailscale: an AllowFunnel key with Funnel off and our proxy is ours' {
+    $o = $script:OurServe | ConvertFrom-Json -AsHashtable
+    $o['AllowFunnel'] = @{ 'pc.tailnet.ts.net:443' = $false }
+    Set-FakeTailscale ($o | ConvertTo-Json -Depth 8 -Compress)
+    & $script:TsScript -Apply 6>$null
+    Assert-Equal 0 $LASTEXITCODE
     Assert-Equal 0 (Get-MutatingCalls).Count
 }
 

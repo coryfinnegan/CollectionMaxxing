@@ -78,6 +78,7 @@ function New-FakeMachine {
         Sha, Created            the commit and build time of the "main" image
         Up                      tag the stack currently runs
         BadAttest               image names whose `gh attestation verify` fails (exit 1)
+        OmitCertDigest          certificate has no sourceRepositoryDigest field
         AttestRef               branch the certificate claims (default refs/heads/main)
         MigrateExit             exit code of `compose run --rm migrate`
         UnhealthyTags           CM_TAG values whose api answers 503
@@ -125,6 +126,7 @@ function New-FakeMachine {
                 if ($line -match '^attestation verify oci://\S+collectionmaxxing-(\w+)@') {
                     if ($m.BadAttest -contains $Matches[1]) { return & $fail }
                     $cert = @{ sourceRepositoryRef = $m.AttestRef; sourceRepositoryDigest = $m.Sha; sourceRepositoryURI = 'https://github.com/coryfinnegan/CollectionMaxxing' }
+                    if ($m.OmitCertDigest) { $cert.Remove('sourceRepositoryDigest') }
                     return & $ok @((@(@{ verificationResult = @{ signature = @{ certificate = $cert } } }) | ConvertTo-Json -Depth 8 -Compress))
                 }
                 if ($line -match '^release download') {

@@ -74,7 +74,7 @@ function Test-CmAttestation {
         if (-not $cert) { continue }
         $ref = if ($cert.sourceRepositoryRef) { $cert.sourceRepositoryRef } else { $cert.githubWorkflowRef }
         if ($ref -ne 'refs/heads/main') { continue }
-        if ($cert.sourceRepositoryDigest -and $cert.sourceRepositoryDigest -ne $Sha) { continue }
+        if ($cert.sourceRepositoryDigest -ne $Sha) { continue }
         if ($cert.sourceRepositoryURI -and -not "$($cert.sourceRepositoryURI)".EndsWith($Ctx.Repo, [StringComparison]::OrdinalIgnoreCase)) { continue }
         return [pscustomobject]@{ Ok = $true; Reason = '' }
     }
