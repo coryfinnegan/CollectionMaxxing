@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Audit;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Common;
@@ -12,7 +13,7 @@ public static class RestoreItem
 
     public sealed record Command(Guid LibraryId, Guid Id);
 
-    public sealed class Handler(IAppDbContext db, TimeProvider clock, IUserDirectory? users = null)
+    public sealed class Handler(IAppDbContext db, TimeProvider clock, IAuditLog audit, IUserDirectory? users = null)
     {
         public async Task<Result<Versioned<ItemDto>>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -32,6 +33,7 @@ public static class RestoreItem
 
                 item.DeletedAt = null;
                 item.UpdatedAt = now;
+                audit.Record(AuditActions.ItemRestored, "item", item.Id, item.LibraryId);
                 await db.SaveChangesAsync(cancellationToken);
             }
 
