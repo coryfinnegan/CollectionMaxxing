@@ -150,8 +150,8 @@ public static class AuthorizationMatrix
         { Query = query, Headers = headers };
 
     /// <summary>Platform admin only: any other signed-in caller, library owners included, gets 403.</summary>
-    private static EndpointCase AdminOnly(string method, string route) =>
-        new(method, route, null, Unauthorized, Forbidden, Forbidden, Forbidden, Forbidden) { Admin = Stub };
+    private static EndpointCase AdminOnly(string method, string route, int allowed = Stub) =>
+        new(method, route, null, Unauthorized, Forbidden, Forbidden, Forbidden, Forbidden) { Admin = allowed };
 
     public static readonly IReadOnlyList<EndpointCase> Cases =
     [
@@ -250,7 +250,7 @@ public static class AuthorizationMatrix
 
         // ---- Admin: the platform admin role, not a library role ----------------------------------------------
         AdminOnly("POST", "/api/admin/catalog/releases/{id:guid}:verify"),
-        AdminOnly("GET", "/api/admin/jobs"),
+        AdminOnly("GET", "/api/admin/jobs", Ok),
     ];
 
     /// <summary>One theory row per endpoint and caller, so a failure names both.</summary>
