@@ -3,13 +3,18 @@ using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Admin;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Jobs;
 
 namespace CollectionMaxxing.Api.Admin;
 
 /// <summary>Operations endpoints for the platform administrator (docs/04, "Admin"). A separate route group and policy, not library roles.</summary>
 public static class AdminEndpoints
 {
-    public static IServiceCollection AddAdmin(this IServiceCollection services) => services;
+    public static IServiceCollection AddAdmin(this IServiceCollection services)
+    {
+        services.AddScoped<ListJobs.Handler>();
+        return services;
+    }
 
     public static IEndpointRouteBuilder MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
@@ -25,9 +30,10 @@ public static class AdminEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound).IsStub();
 
         // Failed and pending jobs.
-        admin.MapGet("/jobs", () => StubEndpoints.NotImplemented())
+        admin.MapGet("/jobs", async (ListJobs.Handler handler, CancellationToken cancellationToken) =>
+                TypedResults.Ok(await handler.HandleAsync(cancellationToken)))
             .WithName("ListJobs").WithTags("Admin")
-            .Produces<Page<AdminJobDto>>().IsStub();
+            .Produces<Page<AdminJobDto>>();
 
         return app;
     }
