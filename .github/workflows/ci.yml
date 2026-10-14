@@ -34,6 +34,9 @@ jobs:
       - name: Run quality gate
         if: steps.detect.outputs.present == 'true'
         run: bash scripts/check.sh
+      - name: Deploy script tests
+        if: steps.detect.outputs.present == 'true'
+        run: pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
 
   app:
     runs-on: ubuntu-latest
