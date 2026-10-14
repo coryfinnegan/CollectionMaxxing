@@ -45,7 +45,8 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         var sessionId = await TestData.CreateScanSessionAsync(Db, library);
         var itemId = await TestData.CreateItemAsync(Db, library);
         var tagId = await TestData.CreateTagAsync(Db, library.Id, "Seeded tag");
-        return new World(library, otherLibrary.OwnerId, locationId, sessionId, itemId, tagId);
+        var adminId = await TestData.CreateUserAsync(Db);
+        return new World(library, otherLibrary.OwnerId, locationId, sessionId, itemId, tagId, adminId);
     }
 
     private HttpClient ClientFor(Actor actor, World world) => actor switch
@@ -55,11 +56,11 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         Actor.Viewer => Api.CreateClient(world.Library.ViewerId),
         Actor.Editor => Api.CreateClient(world.Library.EditorId),
         Actor.Owner => Api.CreateClient(world.Library.OwnerId),
-        Actor.Admin => Api.CreateClient(Guid.CreateVersion7(), roles: "admin"),
+        Actor.Admin => Api.CreateClient(world.AdminId, roles: "admin"),
         _ => throw new ArgumentOutOfRangeException(nameof(actor)),
     };
 
-    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid LocationId, Guid SessionId, Guid ItemId, Guid TagId)
+    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid LocationId, Guid SessionId, Guid ItemId, Guid TagId, Guid AdminId)
     {
         /// <summary>Replaces <c>{libraryId:guid}</c>-style route parameters with real ids.</summary>
         public string Fill(string route) => RouteParameter().Replace(route, match => match.Groups["name"].Value switch
