@@ -170,9 +170,14 @@ const ownershipFor = (code: string): OwnershipDto => {
   return {
     owned: owned.length > 0,
     count: owned.length,
+    sameWorkOtherFormat: [],
     copies: owned.map((o) => ({
       itemId: o.itemId,
       releaseId: entry!.release.id,
+      workId: entry!.release.workId,
+      title: entry!.release.title,
+      format: entry!.release.format,
+      platform: entry!.release.platform?.name ?? null,
       status: 'owned',
       locationId: null,
       locationPath: o.locationPath,
