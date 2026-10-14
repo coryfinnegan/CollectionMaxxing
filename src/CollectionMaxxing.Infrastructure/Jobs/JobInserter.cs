@@ -37,11 +37,11 @@ internal static class JobInserter
         var inserted = await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO jobs (id, type, payload, status, attempts, run_after, created_at)
             SELECT {id}, {type}, {envelope}::jsonb, 'pending', 0, {runAfter}, {now}
-            WHERE {dedupeKey} IS NULL
+            WHERE {dedupeKey}::text IS NULL
                OR NOT EXISTS (
                    SELECT 1 FROM jobs
-                   WHERE payload ->> 'key' = {dedupeKey}
-                     AND ({activeOnly} = FALSE OR status IN ('pending', 'running')))
+                   WHERE payload ->> 'key' = {dedupeKey}::text
+                     AND ({activeOnly}::boolean = FALSE OR status IN ('pending', 'running')))
             """, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return inserted > 0;
