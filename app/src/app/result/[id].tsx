@@ -1,5 +1,7 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { useLocalSearchParams } from 'expo-router';
+import { ResultDetail } from '@/features/scan/cards/ResultDetail';
 
 export default function Route() {
-  return <Placeholder name="Result" description="The detail for one scan: what was recognised and the closest matches." />;
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return <ResultDetail id={id} />;
 }

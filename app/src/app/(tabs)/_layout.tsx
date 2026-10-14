@@ -31,7 +31,8 @@ export default function TabsLayout() {
           <Tabs.Screen name="library" options={{ title: 'Library' }} />
           <Tabs.Screen
             name="scan"
-            options={{ title: 'Scan', tabBarLabelStyle: { fontSize: 18, fontWeight: '800' } }}
+            // No scanning on the web (docs/06 W2): the tab only exists on the phone.
+            options={{ title: 'Scan', tabBarLabelStyle: { fontSize: 18, fontWeight: '800' }, ...(Platform.OS === 'web' ? { href: null } : {}) }}
           />
           <Tabs.Screen name="me/index" options={{ title: 'Me' }} />
           {sidebarOnly.map((name) => (

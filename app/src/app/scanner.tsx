@@ -1,5 +1,5 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { ScannerRoute } from '@/features/scan/scanner/ScannerRoute';
 
 export default function Route() {
-  return <Placeholder name="Scanner" description="Point the camera at barcodes, a single cart or sleeve, or a whole shelf. It works out which it is looking at." />;
+  return <ScannerRoute />;
 }
