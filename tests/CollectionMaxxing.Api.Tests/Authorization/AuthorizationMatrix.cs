@@ -218,8 +218,9 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Libraries}/tags", LibraryRole.Editor, """{ "name": "New tag" }""", Created),
         InLibrary("DELETE", $"{Libraries}/tags/{{id:guid}}", LibraryRole.Editor, allowed: NoContent),
 
-        // ---- Ownership (SCAN) ------------------------------------------------------------------------------
-        InLibrary("GET", $"{Libraries}/ownership", LibraryRole.Viewer, query: "code=0045496870010"),
+        // ---- Ownership (SCAN-1c): built ----------------------------------------------------------------------
+        InLibrary("GET", $"{Libraries}/ownership", LibraryRole.Viewer, allowed: Ok, query: "code=0045496870010"),
+        InLibrary("GET", $"{Libraries}/ownership/snapshot", LibraryRole.Viewer, allowed: Ok),
 
         // ---- Scanning (SCAN): a viewer may scan, an editor commits. Addressed by session id. ---------------
         InLibrary("POST", $"{Libraries}/scan-sessions", LibraryRole.Viewer, Json),
