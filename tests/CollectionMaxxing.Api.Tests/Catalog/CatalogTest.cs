@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace CollectionMaxxing.Api.Tests.Catalog;
 
@@ -49,6 +50,7 @@ public abstract class CatalogTest(ApiFixture api) : ApiTest(api)
             builder.ConfigureTestServices(services =>
             {
                 services.AddSingleton(new CatalogOptions { ProviderTimeout = TimeSpan.FromMilliseconds(300) });
+                services.RemoveAll<ICatalogProvider>();
                 foreach (var provider in providers)
                 {
                     services.AddSingleton(provider);
