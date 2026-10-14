@@ -164,7 +164,7 @@ lib.MapPost("/items", AddItem.Handle).RequireLibraryRole(LibraryRole.Editor);
    - the setup endpoints 404 once an owner exists;
    - a setup code works once;
    - a pairing token is single-use, expires after 2 minutes, and can only be created with a recent passkey assertion;
-   - 6-digit codes are rate-limited (5 tries, then locked);
+   - 6-digit codes are rate-limited per client address (5 wrong guesses lock that address for a minute, not the pairing; X-Forwarded-For is believed only from configured trusted proxies);
    - a revoked device's refresh token fails;
    - a replayed refresh token revokes that device's chain.
 5. **Token tests:** expired, wrong-audience and missing-scope tokens are rejected.
