@@ -58,9 +58,14 @@ services:
       Auth__Keys__SigningCertificatePath: /secrets/openiddict-signing.pfx
       Auth__Keys__EncryptionCertificatePath: /secrets/openiddict-encryption.pfx
       Auth__Keys__CertificatePassword: ${CM_CERT_PASSWORD:-}
-      # ASP.NET keeps its Data Protection key ring under $HOME; pointing HOME at the files volume keeps sign-ins valid
-      # across deploys (the volume is covered by BitLocker and the nightly backup).
-      HOME: /data/files/home
+      # The Data Protection key ring lives on the files volume so sign-ins survive deploys (the volume is covered by
+      # BitLocker and the nightly backup). The API refuses to start outside Development without it.
+      Auth__KeyRing__Path: /data/files/keyring
+      # Only believe X-Forwarded-For from Tailscale Serve, which reaches the container through the Docker bridge
+      # gateway (the API port is published on 127.0.0.1 only, so nothing else can be this peer). Without it every
+      # caller shares one rate-limit bucket and a stranger's bad pairing codes could lock the owner out.
+      # Confirm at the install checkpoint: if pairing attempts all log the same address, widen or fix this range.
+      Auth__RateLimit__TrustedProxies__0: 172.16.0.0/12
     volumes:
       - files:/data/files
       - ${CM_SECRETS_DIR:?set in .env}:/secrets
