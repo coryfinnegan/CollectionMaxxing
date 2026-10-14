@@ -1,12 +1,13 @@
 // The quiet gate: generate, typecheck, lint, test, then a one-line summary per step.
 // On failure it prints only the first lines of what broke and exits non-zero.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const maxLines = 20;
 const logDir = mkdtempSync(join(tmpdir(), 'cm-app-check-'));
+const jestJson = join(logDir, 'jest.json');
 
 // The root gate (scripts/check.*) runs this without installing first, so install when needed.
 const steps = [
@@ -14,8 +15,22 @@ const steps = [
   ['generate', 'npm', ['run', 'generate', '--silent']],
   ['typecheck', 'npx', ['tsc', '--noEmit']],
   ['lint', 'npx', ['eslint', 'src', '--max-warnings', '0']],
-  ['test', 'npx', ['jest', '--silent', '--reporters=summary', '--ci']],
+  ['test', 'npx', ['jest', '--silent', '--reporters=summary', '--ci', '--json', `--outputFile=${jestJson}`]],
 ];
+
+// The summary reporter hides which test failed, so read the JSON report and name them.
+function failedTestNames() {
+  try {
+    const report = JSON.parse(readFileSync(jestJson, 'utf8'));
+    return report.testResults.flatMap((file) => {
+      const name = file.name.replace(process.cwd(), '').replace(/^[\\/]/, '');
+      const tests = file.assertionResults.filter((a) => a.status === 'failed').map((a) => `${name} > ${a.fullName}`);
+      return tests.length > 0 || file.status !== 'failed' ? tests : [`${name} (suite failed to run)`];
+    });
+  } catch {
+    return [];
+  }
+}
 
 let failed = false;
 for (const [name, cmd, args] of steps) {
@@ -31,6 +46,7 @@ for (const [name, cmd, args] of steps) {
   const log = join(logDir, `${name}.log`);
   writeFileSync(log, output);
   console.log(`FAIL ${name} (${seconds}s)`);
+  if (name === 'test') for (const t of failedTestNames()) console.log(`     FAILED: ${t}`);
   const lines = output.split('\n').filter((l) => l.trim() !== '');
   for (const line of lines.slice(0, maxLines)) console.log(`     ${line}`);
   if (lines.length > maxLines) console.log(`     ... ${lines.length - maxLines} more lines`);
