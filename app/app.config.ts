@@ -23,6 +23,7 @@ const config: ExpoConfig = {
     'expo-router',
     ['expo-system-ui', {}],
     'expo-secure-store',
+    ['expo-local-authentication', { faceIDPermission: 'CollectionMaxxing uses Face ID to lock the app when you leave it.' }],
   ],
   experiments: {
     typedRoutes: true,
