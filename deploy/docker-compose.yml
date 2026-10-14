@@ -1,9 +1,17 @@
-# Production compose skeleton (OPS-0). OPS-1 finalises it.
-# Image names are placeholders; CM_TAG is set by the deployer.
+# Production stack (OPS-1). Run by the deployer from C:\CollectionMaxxing; see deploy/README.md.
+#
+# CM_TAG (the git SHA of the image to run) is passed by the deployer in the environment on every call; it is not stored in .env.
+# Everything is bound to 127.0.0.1. Tailscale Serve is the only way in from other devices. Postgres is not published at all.
+# The ports 8080, 8409, 32400 and 8096 belong to other apps on this PC and must never appear here.
 name: collectionmaxxing
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
 
 services:
   postgres:
+    <<: *hardening
     image: postgres:17
     restart: unless-stopped
     environment:
@@ -20,26 +28,42 @@ services:
       retries: 10
 
   migrate:
-    image: ghcr.io/coryfinnegan/collectionmaxxing-migrate:${CM_TAG:?set in .env}
+    <<: *hardening
+    image: ghcr.io/coryfinnegan/collectionmaxxing-migrate:${CM_TAG:?CM_TAG is passed by the deployer}
     restart: "no"
     environment:
-      ConnectionStrings__Default: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__collectionmaxxing: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
 
   api:
-    image: ghcr.io/coryfinnegan/collectionmaxxing-api:${CM_TAG:?set in .env}
+    <<: *hardening
+    image: ghcr.io/coryfinnegan/collectionmaxxing-api:${CM_TAG:?CM_TAG is passed by the deployer}
     restart: unless-stopped
+    cap_drop:
+      - ALL
     ports:
       - "127.0.0.1:${CM_API_PORT:-5480}:5480"
     environment:
-      ASPNETCORE_URLS: http://+:5480
-      ConnectionStrings__Default: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
+      ASPNETCORE_HTTP_PORTS: "5480"
+      ConnectionStrings__collectionmaxxing: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      Catalog__CoversRoot: /data/files/covers
       Files__Root: /data/files
+      # Sign-in. The relying-party id is the name people browse to (your Tailscale name); it can't change later without
+      # losing every passkey. The two PFX files and the one-time setup code live in the secrets folder (docs/07).
+      Auth__RelyingPartyId: ${CM_RELYING_PARTY_ID:?set in .env (your Tailscale name)}
+      Auth__SecretsPath: /secrets
+      Auth__Keys__SigningCertificatePath: /secrets/openiddict-signing.pfx
+      Auth__Keys__EncryptionCertificatePath: /secrets/openiddict-encryption.pfx
+      Auth__Keys__CertificatePassword: ${CM_CERT_PASSWORD:-}
+      # ASP.NET keeps its Data Protection key ring under $HOME; pointing HOME at the files volume keeps sign-ins valid
+      # across deploys (the volume is covered by BitLocker and the nightly backup).
+      HOME: /data/files/home
     volumes:
       - files:/data/files
+      - ${CM_SECRETS_DIR:?set in .env}:/secrets
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,15 +71,19 @@ services:
         condition: service_completed_successfully
 
   aspire-dashboard:
+    <<: *hardening
     image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
     restart: unless-stopped
     ports:
       - "127.0.0.1:${CM_DASHBOARD_PORT:-18888}:18888"
     environment:
-      DASHBOARD__FRONTEND__AUTHMODE: Unsecured # reachable on 127.0.0.1 only
+      # Reachable on 127.0.0.1 only (the port above) and inside the compose network (OTLP from the api).
+      DASHBOARD__FRONTEND__AUTHMODE: Unsecured
+      DASHBOARD__OTLP__AUTHMODE: Unsecured
 
   backup:
-    image: ghcr.io/coryfinnegan/collectionmaxxing-backup:${CM_TAG:?set in .env}
+    <<: *hardening
+    image: ghcr.io/coryfinnegan/collectionmaxxing-backup:${CM_TAG:?CM_TAG is passed by the deployer}
     restart: unless-stopped
     environment:
       PGHOST: postgres
@@ -63,8 +91,11 @@ services:
       PGUSER: collectionmaxxing
       PGPASSWORD: ${POSTGRES_PASSWORD}
       BACKUP_SCHEDULE: ${CM_BACKUP_SCHEDULE:-0 3 * * *}
+      TZ: ${CM_TZ:-UTC}
+      CM_HEARTBEAT_URL: ${CM_HEARTBEAT_URL:-}
     volumes:
       - ${CM_BACKUP_DIR:?set in .env}:/backups
+      - files:/data/files:ro
     depends_on:
       postgres:
         condition: service_healthy

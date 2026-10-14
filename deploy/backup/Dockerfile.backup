@@ -1,0 +1,14 @@
+# The nightly backup job: pg_dump (custom format) + an archive of the files volume + retention + a heartbeat ping.
+# Build context: this folder.   docker build -f deploy/backup/Dockerfile.backup deploy/backup
+FROM postgres:17
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates tzdata \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY backup-lib.sh backup.sh /opt/cm/
+RUN chmod 0555 /opt/cm/backup.sh /opt/cm/backup-lib.sh
+
+# The base image's entrypoint starts a database server; this image only runs the job.
+ENTRYPOINT ["/opt/cm/backup.sh"]
+CMD []
