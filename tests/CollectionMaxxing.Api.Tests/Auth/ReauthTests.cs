@@ -21,6 +21,10 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
         return browser.SendAsync(new HttpMethod(parts[0]), url, body);
     }
 
+    /// <summary>What answers once the re-auth gate lets the call through: the endpoint's own status, or its 501 while it is a stub.</summary>
+    private static HttpStatusCode PastTheGate(string endpoint) =>
+        endpoint == "POST /api/v1/me/devices/pair" ? HttpStatusCode.Created : HttpStatusCode.NotImplemented;
+
     [Theory]
     [MemberData(nameof(Endpoints))]
     public async Task An_assertion_4_minutes_59_seconds_old_is_fresh_enough(string endpoint)
@@ -30,8 +34,8 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
 
         var response = await CallAsync(browser, owner, endpoint);
 
-        // Past the re-auth gate: these endpoints are built by ID-2 and ID-3, so what answers is their 501.
-        response.StatusCode.ShouldBe(HttpStatusCode.NotImplemented);
+        // Past the re-auth gate: ID-2 built the pairing (201); the invite is still ID-3's stub (501).
+        response.StatusCode.ShouldBe(PastTheGate(endpoint));
     }
 
     [Theory]
@@ -60,7 +64,7 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
         (await browser.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
         var response = await CallAsync(browser, owner, endpoint);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.NotImplemented);
+        response.StatusCode.ShouldBe(PastTheGate(endpoint));
     }
 
     [Fact]

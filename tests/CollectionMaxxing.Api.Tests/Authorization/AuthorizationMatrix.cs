@@ -159,16 +159,16 @@ public static class AuthorizationMatrix
         new EndpointCase("GET", "/api/v1/me", null, Unauthorized, Ok, Ok, Ok, Ok) { Admin = Ok },
         SignedIn("PATCH", "/api/v1/me", Json),
         SignedIn("DELETE", "/api/v1/me"),
-        SignedIn("GET", "/api/v1/me/sessions"),
-        SignedIn("DELETE", "/api/v1/me/sessions/{id:guid}"),
-        SignedIn("POST", "/api/v1/me/devices/pair"),
+        SignedIn("GET", "/api/v1/me/sessions", allowed: Ok),
+        SignedIn("DELETE", "/api/v1/me/sessions/{id:guid}", allowed: NotFound), // the seeded id is no device of theirs
+        SignedIn("POST", "/api/v1/me/devices/pair", allowed: Created) with { Admin = Unauthorized }, // the matrix admin has no row in users, so has no account to pair
         SignedIn("GET", "/api/v1/me/export"),
 
         // ---- Sign-in, setup, recovery, tokens (ID): the only anonymous endpoints ---------------------------
         // OpenIddict now fronts the token endpoint and rejects a request that is not a form-encoded grant (400); a well-formed grant
         // reaches the stub (501), which Auth/TokenEndpointTests checks. Revocation is added with the grants (ID-2).
         Everyone("POST", "/connect/token", Json, BadRequest),
-        Anyone("POST", "/connect/revoke"),
+        Everyone("POST", "/connect/revoke", Json, BadRequest),
 
         // Built (ID-1). The world always has an owner, so setup is closed: 404 for everyone.
         Everyone("GET", "/setup", null, NotFound),

@@ -5,11 +5,11 @@ using AdminCommands = global::CollectionMaxxing.Api.Auth.AdminCommands;
 
 namespace CollectionMaxxing.Api.Tests.Auth;
 
-/// <summary>OpenIddict is set up completely in ID-1; the grants themselves are ID-2.</summary>
+/// <summary>OpenIddict is set up completely in ID-1; the grants themselves are ID-2 (see the Pairing tests).</summary>
 public class TokenServerTests(ApiFixture api) : AuthTest(api)
 {
     [Fact]
-    public async Task A_well_formed_pairing_grant_reaches_the_token_endpoint_which_is_a_stub_until_ID_2()
+    public async Task A_pairing_grant_with_a_token_nobody_issued_is_refused_as_invalid_grant()
     {
         using var browser = App.NewBrowser();
         using var form = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -20,7 +20,8 @@ public class TokenServerTests(ApiFixture api) : AuthTest(api)
 
         using var response = await browser.Http.PostAsync("/connect/token", form);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.NotImplemented);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("invalid_grant");
     }
 
     [Fact]
@@ -39,7 +40,7 @@ public class TokenServerTests(ApiFixture api) : AuthTest(api)
     {
         using var browser = App.NewBrowser();
         using var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["grant_type"] = "urn:cm:device_pairing" });
-        (await browser.Http.PostAsync("/connect/token", form)).StatusCode.ShouldBe(HttpStatusCode.NotImplemented);
+        (await browser.Http.PostAsync("/connect/token", form)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
         var secrets = new DirectoryInfo(App.SecretsPath);
         secrets.GetFiles("*.pfx").Select(f => f.Name).Order().ShouldBe(["openiddict-encryption.pfx", "openiddict-signing.pfx"]);

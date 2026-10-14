@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using Microsoft.AspNetCore.Mvc;
@@ -16,14 +17,18 @@ public static class SignInEndpoints
 
     public static IEndpointRouteBuilder MapSignInEndpoints(this IEndpointRouteBuilder app)
     {
-        // OpenIddict's token endpoint (iPhone): grants urn:cm:device_pairing and refresh_token. OpenIddict is configured and
-        // passes valid requests through to here; the grants themselves are built by ID-2. Revocation is added by ID-2 too.
-        app.MapPost("/connect/token", () => StubEndpoints.NotImplemented())
+        // OpenIddict's token endpoint (iPhone): grants urn:cm:device_pairing and refresh_token. OpenIddict reads and validates the
+        // request and passes it through to here; Auth/Pairing builds the answer. The pairing grant limits its own attempts (the grant
+        // type is in the body, which the ASP.NET rate limiter can't see).
+        app.MapPost("/connect/token", TokenEndpoint.HandleAsync)
             .WithName("Token").WithTags("Sign-in")
-            .ExcludeFromDescription().AllowAnonymous().IsStub();
-        app.MapPost("/connect/revoke", () => StubEndpoints.NotImplemented())
+            .ExcludeFromDescription().AllowAnonymous();
+
+        // Revocation is OpenIddict's too, and it answers before the request gets here (see RevokeDeviceOnRevocation). This route
+        // exists so the endpoint is on the allow-list and in the matrix; a request that does arrive wasn't a revocation request.
+        app.MapPost("/connect/revoke", () => ProblemResults.Problem(StatusCodes.Status400BadRequest, "Bad request", "Send a form-encoded revocation request with a token."))
             .WithName("RevokeToken").WithTags("Sign-in")
-            .ExcludeFromDescription().AllowAnonymous().IsStub();
+            .ExcludeFromDescription().AllowAnonymous();
 
         // Setup exists only while there is no owner; afterwards it answers 404.
         app.MapGet("/setup", async (GetSetupStatus.Handler status, SpaPage spa, CancellationToken cancellationToken) =>
