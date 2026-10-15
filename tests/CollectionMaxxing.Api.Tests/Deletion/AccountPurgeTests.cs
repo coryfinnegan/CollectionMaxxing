@@ -94,6 +94,7 @@ public class AccountPurgeTests(ApiFixture api) : DeletionTest(api)
         App.Time.Advance(30 * Day + TimeSpan.FromSeconds(1));
         await RunDueJobsAsync();
 
+        (await owner.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK); // 30 days on, the owner's old session has long expired
         var item = await ReadAsync(await owner.GetAsync($"/api/v1/libraries/{libraryId}/items/{itemId}"));
         item.GetProperty("item").GetProperty("createdByName").GetString().ShouldBe("Removed user");
         (await CountMembersAsync(libraryId)).ShouldBe(1, "Sam is no longer a member");

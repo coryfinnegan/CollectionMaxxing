@@ -161,7 +161,7 @@ public static class AuthorizationMatrix
         // ---- Account and session (ID) ----------------------------------------------------------------------
         new EndpointCase("GET", "/api/v1/me", null, Unauthorized, Ok, Ok, Ok, Ok) { Admin = Ok },
         SignedIn("PATCH", "/api/v1/me", Json),
-        SignedIn("DELETE", "/api/v1/me"),
+        SignedIn("DELETE", "/api/v1/me", allowed: Unauthorized), // LIB-2c: only ever the caller's own account, and only with a passkey assertion made for the request (none here), so 401 reauth_required for every role
         SignedIn("GET", "/api/v1/me/sessions", allowed: Ok),
         SignedIn("DELETE", "/api/v1/me/sessions/{id:guid}", allowed: NotFound), // the seeded id is no device of theirs
         SignedIn("POST", "/api/v1/me/devices/pair", allowed: Created) with { Admin = Unauthorized }, // the matrix admin has no row in users, so has no account to pair

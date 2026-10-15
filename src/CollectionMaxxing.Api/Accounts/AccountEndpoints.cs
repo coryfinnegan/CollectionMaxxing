@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Accounts.Deletion;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
@@ -13,6 +14,7 @@ public static class AccountEndpoints
     {
         services.AddScoped<GetMe.Handler>();
         services.AddDevicePairing();
+        services.AddAccountDeletion();
         return services;
     }
 
@@ -33,11 +35,8 @@ public static class AccountEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization().IsStub();
 
-        app.MapDelete("/api/v1/me", () => StubEndpoints.NotImplemented())
-            .WithName("DeleteMe").WithTags("Account")
-            .Produces(StatusCodes.Status204NoContent)
-            .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().RequireRecentPasskey().IsStub();
+        // Delete account (LIB-2c): a passkey assertion made for this request, then soft delete; the purge job follows in 30 days.
+        app.MapDeleteAccount();
 
         // Paired devices (ID-2). The phones are OpenIddict authorizations; revoking one ends its tokens at once.
         app.MapGet("/api/v1/me/sessions", async (ICurrentUser user, HttpContext http, ListSessions.Handler handler, CancellationToken cancellationToken) =>

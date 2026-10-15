@@ -255,7 +255,7 @@ public abstract class DeletionTest(ApiFixture api) : InviteTest(api)
 
         var targets = new List<(string Table, string Column)> { ("libraries", "id") };
         await using (var command = new NpgsqlCommand(
-            "select table_name, column_name from information_schema.columns where table_schema = 'public' and column_name in ('library_id', 'owner_library_id')",
+            "select table_name, column_name from information_schema.columns where table_schema = 'public' and column_name in ('library_id', 'owner_library_id') and table_name <> 'audit_events'",
             connection))
         await using (var reader = await command.ExecuteReaderAsync())
         {

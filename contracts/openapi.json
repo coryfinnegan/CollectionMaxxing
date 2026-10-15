@@ -97,6 +97,22 @@
           "Account"
         ],
         "operationId": "DeleteMe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DeleteAccountRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "No Content"
@@ -111,8 +127,8 @@
               }
             }
           },
-          "501": {
-            "description": "Not Implemented",
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5264,6 +5280,12 @@
             ],
             "format": "int32"
           }
+        }
+      },
+      "DeleteAccountRequest": {
+        "type": "object",
+        "properties": {
+          "credential": { }
         }
       },
       "DeletedItemDto": {
