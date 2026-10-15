@@ -21,9 +21,11 @@ type Props = {
   /** In dev builds only: the fake camera the "Scan these 6 codes" button drives. */
   devSource?: FakeScannerSource;
   tuning?: SessionTuning;
+  /** What Close does; defaults to going back. The route passes the close-scanner sheet here. */
+  onClose?: () => void;
 };
 
-export function ScannerScreen({ libraryId, source, preview, devSource, tuning }: Props) {
+export function ScannerScreen({ libraryId, source, preview, devSource, tuning, onClose }: Props) {
   const router = useRouter();
   const colors = useColors();
   const insets = useContext(SafeAreaInsetsContext) ?? { top: 0, bottom: 0, left: 0, right: 0 };
@@ -44,7 +46,7 @@ export function ScannerScreen({ libraryId, source, preview, devSource, tuning }:
       {preview}
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { paddingTop: insets.top + spacing.sm }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg }}>
-          <Button label="Close" variant="secondary" onPress={() => router.back()} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
+          <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
           <Text variant="heading" accessibilityRole="header" style={{ color: '#FFFFFF' }}>
             Scanner
           </Text>

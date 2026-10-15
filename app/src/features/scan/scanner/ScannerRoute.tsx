@@ -8,7 +8,7 @@ import { LazyCameraPreview } from './LazyCameraPreview';
 import { ScannerScreen } from './ScannerScreen';
 import { FakeScannerSource, VisionCameraSource } from './ScannerSource';
 
-export function ScannerRoute() {
+export function ScannerRoute({ onClose }: { onClose?: () => void }) {
   if (Platform.OS === 'web') {
     return (
       <Screen title="Scanner">
@@ -16,10 +16,10 @@ export function ScannerRoute() {
       </Screen>
     );
   }
-  return <PhoneScanner />;
+  return <PhoneScanner onClose={onClose} />;
 }
 
-function PhoneScanner() {
+function PhoneScanner({ onClose }: { onClose?: () => void }) {
   const { libraryId, isLoading } = useActiveLibraryId();
   const camera = useMemo(() => new VisionCameraSource(), []);
   const devSource = useMemo(() => (__DEV__ ? new FakeScannerSource() : undefined), []);
@@ -30,5 +30,5 @@ function PhoneScanner() {
       </Screen>
     );
   }
-  return <ScannerScreen libraryId={libraryId} source={camera} preview={<LazyCameraPreview source={camera} />} devSource={devSource} />;
+  return <ScannerScreen libraryId={libraryId} source={camera} preview={<LazyCameraPreview source={camera} />} devSource={devSource} onClose={onClose} />;
 }
