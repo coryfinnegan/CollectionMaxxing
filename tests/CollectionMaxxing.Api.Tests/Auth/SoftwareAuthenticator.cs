@@ -15,6 +15,9 @@ public sealed class SoftwareAuthenticator(string rpId = "localhost", string orig
     private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     private uint _signCount;
 
+    /// <summary>Report a signature counter of 0 every time, as Apple's iCloud passkeys do. The server can then not tell a replay from the counter.</summary>
+    public bool CounterStaysZero { get; init; }
+
     public byte[] CredentialId { get; } = RandomNumberGenerator.GetBytes(32);
 
     public string CredentialIdText => WebEncoders.Base64UrlEncode(CredentialId);
@@ -86,7 +89,7 @@ public sealed class SoftwareAuthenticator(string rpId = "localhost", string orig
         data.AddRange(SHA256.HashData(Encoding.UTF8.GetBytes(rpId)));
         data.Add(flags);
         var counter = new byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(counter, ++_signCount);
+        BinaryPrimitives.WriteUInt32BigEndian(counter, CounterStaysZero ? 0 : ++_signCount);
         data.AddRange(counter);
         if (includeCredential)
         {
