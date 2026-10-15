@@ -201,7 +201,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-016: Apple's on-device model as the primary reader, where it qualifies
 
-- **Status:** Proposed, and expected to pass: your scanning phone is an **iPhone 17 Pro** (D12), which qualifies. The M3 gate on that phone makes the final call. **Amended by ADR-019:** the Private Cloud Compute tier is dropped (it needs App Store distribution), and the on-device model must work in a free-signed app, checked in an M0 spike.
+- **Status:** Proposed, and expected to pass: your scanning phone is an **iPhone 17 Pro** (D12), which qualifies. The M3 gate on that phone makes the final call. **Amended by ADR-019:** the Private Cloud Compute tier is dropped (it needs App Store distribution), and the on-device model must work in a free-signed app, checked in an M0 spike. **Spike answer (PR #5, 2026-10-14): yes.** In a free-signed AltStore install on iOS 27.2, the model reported `available` with `.vision` and `.guidedGeneration`, and read a book cover from an image into a `@Generable` struct in 2.64 s. Vision read the EAN-13 in 0.06 s and the text in 0.19 s.
 - **Context:**
   - iOS 27's Foundation Models framework accepts images on the on-device model, with guided generation (`@Generable`), streaming and image-aware tool calling (WWDC26 sessions 241 and 237).
   - It's free, private and on-device, and it can do in one call what the Vision pipeline does with hand-written heuristics: split a shelf into items, read sideways spines, infer platform, edition and completeness.
