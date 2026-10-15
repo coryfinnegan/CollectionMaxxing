@@ -63,8 +63,12 @@ public sealed class FileExportStore : IExportStore
         }
     }
 
-    public Task DeleteAsync(Guid exportId, CancellationToken cancellationToken)
+    public Task DeleteAsync(Guid exportId, CancellationToken cancellationToken) => TryDeleteAsync(exportId, cancellationToken);
+
+    /// <summary>True when the export file (and any half-written one) is gone; false when one is locked or otherwise can't be deleted right now.</summary>
+    public Task<bool> TryDeleteAsync(Guid exportId, CancellationToken cancellationToken)
     {
+        var gone = true;
         foreach (var path in new[] { PathOf(exportId), PathOf(exportId) + Partial })
         {
             try
@@ -75,9 +79,13 @@ public sealed class FileExportStore : IExportStore
             {
                 // the folder is gone too: nothing to delete
             }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                gone = false; // in use right now: the caller keeps its record and tries again
+            }
         }
 
-        return Task.CompletedTask;
+        return Task.FromResult(gone);
     }
 
     public Task<int> DeleteCreatedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)
@@ -157,6 +165,15 @@ public sealed class ExportJobs(AppDbContext db) : IExportJobs
         var type = BuildExport.JobType;
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"DELETE FROM jobs WHERE type = {type} AND payload -> 'data' ->> 'userId' = {user}", cancellationToken);
+    }
+
+    public async Task DeleteForUserAsync(Guid userId, IReadOnlyCollection<Guid> exportIds, CancellationToken cancellationToken)
+    {
+        var user = userId.ToString();
+        var type = BuildExport.JobType;
+        var ids = exportIds.Select(id => id.ToString()).ToArray();
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"DELETE FROM jobs WHERE type = {type} AND payload -> 'data' ->> 'userId' = {user} AND payload -> 'data' ->> 'exportId' = ANY({ids})", cancellationToken);
     }
 
     private sealed record StateRow(Guid UserId, string Status);

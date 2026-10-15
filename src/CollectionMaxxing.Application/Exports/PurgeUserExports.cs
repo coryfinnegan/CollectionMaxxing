@@ -12,11 +12,16 @@ public sealed class PurgeUserExports(IExportJobs jobs, IExportStore store) : IUs
     public async Task PurgeAsync(Guid userId, CancellationToken cancellationToken)
     {
         // Files first, then the rows that name them: a crash in between leaves a row to find them by, never a file nobody can name.
+        // A file that is stuck keeps its row (the daily purge sweep finds the person by it and tries again) and does not stop the rest of the purge.
+        var gone = new List<Guid>();
         foreach (var exportId in await jobs.ListIdsForUserAsync(userId, cancellationToken))
         {
-            await store.DeleteAsync(exportId, cancellationToken);
+            if (await store.TryDeleteAsync(exportId, cancellationToken))
+            {
+                gone.Add(exportId);
+            }
         }
 
-        await jobs.DeleteForUserAsync(userId, cancellationToken);
+        await jobs.DeleteForUserAsync(userId, gone, cancellationToken);
     }
 }

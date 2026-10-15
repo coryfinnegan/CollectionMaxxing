@@ -72,9 +72,15 @@ public static class PurgeAccount
                 .Where(m => !db.LibraryMembers.IgnoreQueryFilters().Any(other => other.LibraryId == m.LibraryId && other.UserId != userId))
                 .Select(m => m.LibraryId)
                 .ToListAsync(cancellationToken);
+            // A library with an image file that is stuck stays, with its owner's place in it and the row of that file, until the file is gone:
+            // that is how the daily sweep knows to come back. Everything that identifies the person is erased regardless.
+            var kept = new List<Guid>();
             foreach (var libraryId in libraries)
             {
-                await PurgeLibraryAsync(libraryId, cancellationToken);
+                if (!await PurgeLibraryAsync(libraryId, cancellationToken))
+                {
+                    kept.Add(libraryId);
+                }
             }
 
             // In libraries that carry on, the invite they used says who it was for and who accepted it. Both go; that it was used stays.
@@ -83,7 +89,7 @@ public static class PurgeAccount
                 .ExecuteUpdateAsync(
                     set => set.SetProperty(i => i.Name, RemovedUserName).SetProperty(i => i.AcceptedBy, (Guid?)null),
                     cancellationToken);
-            await db.LibraryMembers.IgnoreQueryFilters().Where(m => m.UserId == userId).ExecuteDeleteAsync(cancellationToken);
+            await db.LibraryMembers.IgnoreQueryFilters().Where(m => m.UserId == userId && !kept.Contains(m.LibraryId)).ExecuteDeleteAsync(cancellationToken);
 
             foreach (var step in userSteps ?? [])
             {
@@ -101,22 +107,27 @@ public static class PurgeAccount
 
         /// <summary>
         /// Removes a library, its rows in the order the foreign keys allow, and its image files. Files go before the rows that name them, so
-        /// a crash can leave a row without a file (harmless, and found again) but never a file nothing points to.
+        /// a crash can leave a row without a file (harmless, and found again) but never a file nothing points to. A file that is stuck keeps its
+        /// row and the library row; returns false then (the rest of the library is gone), true when nothing is left.
         /// </summary>
-        private async Task PurgeLibraryAsync(Guid libraryId, CancellationToken cancellationToken)
+        private async Task<bool> PurgeLibraryAsync(Guid libraryId, CancellationToken cancellationToken)
         {
             foreach (var step in steps)
             {
                 await step.PurgeAsync(libraryId, cancellationToken);
             }
 
-            var blobPaths = await db.Assets.IgnoreQueryFilters().AsNoTracking()
+            var assets = await db.Assets.IgnoreQueryFilters().AsNoTracking()
                 .Where(a => a.OwnerLibraryId == libraryId)
-                .Select(a => a.BlobPath)
+                .Select(a => new { a.Id, a.BlobPath })
                 .ToListAsync(cancellationToken);
-            foreach (var blobPath in blobPaths)
+            var stuck = new List<Guid>();
+            foreach (var asset in assets)
             {
-                await files.DeleteAsync(blobPath, cancellationToken);
+                if (!await files.TryDeleteAsync(asset.BlobPath, cancellationToken))
+                {
+                    stuck.Add(asset.Id);
+                }
             }
 
             // Scanning first (candidates point at snaps and items), then the items and what hangs from them.
@@ -138,10 +149,15 @@ public static class PurgeAccount
                 .ExecuteUpdateAsync(set => set.SetProperty(r => r.CoverAssetId, (Guid?)null), cancellationToken);
 
             await db.Releases.IgnoreQueryFilters().Where(r => r.OwnerLibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
-            await db.Assets.IgnoreQueryFilters().Where(a => a.OwnerLibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
+            await db.Assets.IgnoreQueryFilters().Where(a => a.OwnerLibraryId == libraryId && !stuck.Contains(a.Id)).ExecuteDeleteAsync(cancellationToken);
+            if (stuck.Count > 0)
+            {
+                return false;
+            }
 
             // The library row last: its members go with it (cascade), so until now a crashed purge still knows which library it was on.
             await db.Libraries.IgnoreQueryFilters().Where(l => l.Id == libraryId).ExecuteDeleteAsync(cancellationToken);
+            return true;
         }
     }
 }

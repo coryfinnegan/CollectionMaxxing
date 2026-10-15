@@ -1,6 +1,7 @@
 using System.Globalization;
 using CollectionMaxxing.Application.Accounts.Deletion;
 using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Exports;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Infrastructure.Catalog;
 using CollectionMaxxing.Infrastructure.Jobs;
@@ -131,11 +132,19 @@ internal sealed class IdentityPurgeBacklog(AppDbContext db) : IPurgeBacklog
     {
         // A purged user has no place in any library, no passkey, and the tombstone's name. Whatever is left of those means the purge isn't finished.
         // (Re-queueing a user who is in fact purged would be harmless: the purge finds nothing to do.)
+        // An export record is kept while its file is stuck; it names the person in its payload.
+        var exportType = BuildExport.JobType;
+        var withExports = await db.Database.SqlQuery<Guid>($"""
+            SELECT DISTINCT (payload -> 'data' ->> 'userId')::uuid AS "Value"
+            FROM jobs
+            WHERE type = {exportType} AND payload -> 'data' ->> 'userId' IS NOT NULL
+            """).ToListAsync(cancellationToken);
         return await db.Users.AsNoTracking()
             .Where(u => u.DeletedAt != null && u.DeletedAt <= deletedBefore)
             .Where(u => u.DisplayName != PurgeAccount.RemovedUserName
                 || db.LibraryMembers.IgnoreQueryFilters().Any(m => m.UserId == u.Id)
-                || db.Set<IdentityUserPasskey<Guid>>().Any(p => p.UserId == u.Id))
+                || db.Set<IdentityUserPasskey<Guid>>().Any(p => p.UserId == u.Id)
+                || withExports.Contains(u.Id))
             .OrderBy(u => u.DeletedAt)
             .Select(u => u.Id)
             .Take(500) // a home server has a handful; the rest are picked up tomorrow
@@ -146,7 +155,7 @@ internal sealed class IdentityPurgeBacklog(AppDbContext db) : IPurgeBacklog
 /// <summary>Deactivates an account in one transaction that also looks at who belongs to the libraries it owns.</summary>
 internal sealed class IdentityAccountDeactivation(AppDbContext db, TimeProvider time) : IAccountDeactivation
 {
-    public async Task<bool> DeactivateUnlessLibraryHasMembersAsync(Guid userId, CancellationToken cancellationToken)
+    public async Task<bool> DeactivateUnlessLibraryHasMembersAsync(Guid userId, Func<CancellationToken, Task> whileDeactivating, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -168,6 +177,7 @@ internal sealed class IdentityAccountDeactivation(AppDbContext db, TimeProvider 
             return false; // leaving the transaction without a commit puts the user back as they were
         }
 
+        await whileDeactivating(cancellationToken); // an exception leaves without a commit: the user is put back as they were
         await transaction.CommitAsync(cancellationToken);
         return true;
     }
@@ -176,7 +186,8 @@ internal sealed class IdentityAccountDeactivation(AppDbContext db, TimeProvider 
 /// <summary>
 /// Deletes cover and photo files from the PC's folder. A path can never point outside that folder. A file that is already gone is fine. A file
 /// that can't be deleted right now (a virus scanner has it open, say) is tried a few times; if it still can't be deleted it is reported in the
-/// log, by path, and the purge carries on, because one stuck file must not stop a person's account from ever being purged.
+/// log, by path, and the purge carries on, because one stuck file must not stop a person's identity from being erased. The purge keeps the
+/// record of a stuck file (<see cref="TryDeleteAsync"/> says false) and the daily sweep tries again until it is gone.
 /// </summary>
 public sealed class FileAccountFiles : IAccountFiles
 {
@@ -193,17 +204,20 @@ public sealed class FileAccountFiles : IAccountFiles
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     }
 
-    public async Task DeleteAsync(string blobPath, CancellationToken cancellationToken)
+    public async Task DeleteAsync(string blobPath, CancellationToken cancellationToken) => await TryDeleteAsync(blobPath, cancellationToken);
+
+    /// <summary>True when the file is gone (or was never there or is not a safe path); false when it is stuck and still on disk.</summary>
+    public async Task<bool> TryDeleteAsync(string blobPath, CancellationToken cancellationToken)
     {
         if (!BlobPaths.IsSafe(blobPath))
         {
-            return;
+            return true;
         }
 
         var full = Path.GetFullPath(Path.Combine(_root, blobPath.Replace('/', Path.DirectorySeparatorChar)));
         if (!full.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
-            return;
+            return true;
         }
 
         for (var attempt = 0; ; attempt++)
@@ -211,18 +225,18 @@ public sealed class FileAccountFiles : IAccountFiles
             try
             {
                 File.Delete(full); // no error if it is already gone
-                return;
+                return true;
             }
             catch (DirectoryNotFoundException)
             {
-                return; // the folder is gone too: nothing to delete
+                return true; // the folder is gone too: nothing to delete
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 if (attempt >= RetryDelays.Length)
                 {
-                    _logger.LogWarning(exception, "Could not delete the file {BlobPath} while purging an account; it is left on disk.", blobPath);
-                    return;
+                    _logger.LogWarning(exception, "Could not delete the file {BlobPath} while purging an account; it is left on disk and will be tried again.", blobPath);
+                    return false;
                 }
 
                 await Task.Delay(RetryDelays[attempt], _time, cancellationToken);

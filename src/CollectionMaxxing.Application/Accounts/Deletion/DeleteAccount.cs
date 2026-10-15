@@ -50,24 +50,31 @@ public static class DeleteAccount
 
             // Deactivating is what shuts every way in at once: from the next request the web session and the phone's access token are
             // refused, the refresh grant and the passkey sign-in fail. It also checks the members again, in the same step: someone who
-            // joined since the check above would otherwise be left in a library with no owner. If that happened nothing has changed
-            // yet except the queued purge, which does nothing for an account that was never deleted.
-            if (!await deactivation.DeactivateUnlessLibraryHasMembersAsync(userId, cancellationToken))
+            // joined since the check above would otherwise be left in a library with no owner. The rest of the clean-up runs in that same
+            // transaction: if any of it fails, nothing is deactivated, so the person can try again and no invite or audit row is lost.
+            // If members turned up, nothing has changed except the queued purge, which does nothing for an account that was never deleted.
+            var deactivated = await deactivation.DeactivateUnlessLibraryHasMembersAsync(
+                userId,
+                async token =>
+                {
+                    // Invites they sent die with them; so do their places in other people's libraries (their own library stays until the purge).
+                    await db.LibraryInvites.IgnoreQueryFilters()
+                        .Where(i => i.CreatedBy == userId && i.AcceptedAt == null && i.RevokedAt == null)
+                        .ExecuteUpdateAsync(set => set.SetProperty(i => i.RevokedAt, now), token);
+                    await db.LibraryMembers.IgnoreQueryFilters()
+                        .Where(m => m.UserId == userId && m.Role != LibraryRole.Owner)
+                        .ExecuteDeleteAsync(token);
+
+                    await devices.RevokeAllAsync(userId, token);
+                    audit.Record(AccountAuditActions.Deleted, "user", userId, null);
+                    await db.SaveChangesAsync(token);
+                },
+                cancellationToken);
+            if (!deactivated)
             {
                 return Result.Failure(AccountDeletionErrors.LibraryHasMembers);
             }
 
-            // Invites they sent die with them; so do their places in other people's libraries (their own library stays until the purge).
-            await db.LibraryInvites.IgnoreQueryFilters()
-                .Where(i => i.CreatedBy == userId && i.AcceptedAt == null && i.RevokedAt == null)
-                .ExecuteUpdateAsync(set => set.SetProperty(i => i.RevokedAt, now), cancellationToken);
-            await db.LibraryMembers.IgnoreQueryFilters()
-                .Where(m => m.UserId == userId && m.Role != LibraryRole.Owner)
-                .ExecuteDeleteAsync(cancellationToken);
-
-            await devices.RevokeAllAsync(userId, cancellationToken);
-            audit.Record(AccountAuditActions.Deleted, "user", userId, null);
-            await db.SaveChangesAsync(cancellationToken);
             return Result.Success();
         }
     }
