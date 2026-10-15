@@ -61,6 +61,9 @@ services:
       # The Data Protection key ring lives on the files volume so sign-ins survive deploys (the volume is covered by
       # BitLocker and the nightly backup). The API refuses to start outside Development without it.
       Auth__KeyRing__Path: /data/files/keyring
+      # Export zips (LIB-2b) go on the files volume: the API runs as a non-root user and can't write beside the app.
+      # They expire after 24 hours, and the hourly cleanup job deletes them.
+      Exports__Path: /data/files/exports
       # Only believe X-Forwarded-For from Tailscale Serve, which reaches the container through the Docker bridge
       # gateway (the API port is published on 127.0.0.1 only, so nothing else can be this peer). Without it every
       # caller shares one rate-limit bucket and a stranger's bad pairing codes could lock the owner out.
