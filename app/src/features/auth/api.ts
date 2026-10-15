@@ -14,7 +14,6 @@ export type SessionDto = {
   isCurrent: boolean;
 };
 export type PairDeviceDto = { serverUrl: string; token: string; code: string; expiresAt: string };
-export type InvitePreview = { ownerName: string; role: 'viewer' | 'editor' };
 
 const post = async <T>(url: string, body?: object): Promise<T> =>
   (await customFetch<{ data: T }>(url, { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) })).data;
@@ -35,10 +34,6 @@ export const finishRegistration = (credential: PasskeyJson, options: { name?: st
 export const requestLoginOptions = () => post<PasskeyOptions>('/account/passkey/request-options');
 export const finishLogin = (credential: PasskeyJson) => post<SignedIn>('/account/login', { credential });
 export const logout = () => customFetch('/account/logout', { method: 'POST' });
-
-/** Who is inviting, and as what. Assumed endpoint: the contract lands with ID-3 (see the PR notes). */
-export const getInvitePreview = async (token: string): Promise<InvitePreview> =>
-  (await customFetch<{ data: InvitePreview }>(`/api/v1/invites/${encodeURIComponent(token)}`)).data;
 
 export const listSessions = async (): Promise<SessionDto[]> =>
   (await customFetch<{ data: { items: SessionDto[] } }>('/api/v1/me/sessions')).data.items;
