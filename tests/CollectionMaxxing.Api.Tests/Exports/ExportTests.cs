@@ -27,8 +27,8 @@ namespace CollectionMaxxing.Api.Tests.Exports;
 /// </summary>
 public class ExportTests(ApiFixture api) : ApiTest(api)
 {
-    // Real "now": the sign-in certificate is minted on the real clock and must be valid at the fake one too.
-    private static readonly DateTimeOffset Start = new(DateTimeOffset.UtcNow.Ticks / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond, TimeSpan.Zero);
+    // A day ahead of the real clock: the sign-in certificate is minted on the real clock so must be valid at the fake one too, and jobs due "tomorrow" are never picked up by the other test hosts' real-time workers sharing this database.
+    private static readonly DateTimeOffset Start = new(DateTimeOffset.UtcNow.AddDays(1).Ticks / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond, TimeSpan.Zero);
 
     private sealed class Host : IAsyncDisposable
     {
