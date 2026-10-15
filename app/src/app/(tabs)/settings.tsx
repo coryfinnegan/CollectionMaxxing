@@ -1,5 +1,5 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { SettingsScreen } from '@/features/me/SettingsScreen';
 
 export default function Route() {
-  return <Placeholder name="Settings" description="Preferences for this browser and your library." />;
+  return <SettingsScreen />;
 }
