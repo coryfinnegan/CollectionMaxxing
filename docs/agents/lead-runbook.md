@@ -29,11 +29,13 @@ Prompt skeleton:
 - **Standard tier:** the lead reviews the diff itself, looking at dependencies, secrets, authorization on new endpoints and hot files. Send it to a verifier only if something looks off.
 - **Docs-only and config-only PRs:** no verifier.
 - **Findings:** a *major* finding that's a trap for later agents gets fixed before the next wave builds on it. Small fixes go to a fresh small builder (FND-1b and FND-3b were examples). Never resume a large builder just for a small fix, because reloading its context costs more.
+- **Fix builders get their own worktree.** The lead session can't write into another agent's worktree, and a subagent launched without `isolation: "worktree"` inherits that block. Launch the fix builder with isolation, have it `git checkout -B fix/<slug> origin/<pr-branch>`, and push with `git push origin HEAD:<pr-branch>` (fast-forward only).
+- **Builders that finish but can't reproduce** (a CI-only flake, say) get two rounds at most, then park the issue with the evidence in a comment.
 
 ## Merging (one at a time)
 
 1. Wait for CI on the PR's head commit. Poll `gh api repos/<repo>/commits/<sha>/check-runs` every 10 s, rather than using `gh pr checks --watch`, which can report an older run.
-2. If the branch is behind and hot files conflict: rebase in the builder's worktree, regenerate the hot files (migration, lockfile, contract snapshot), run `scripts/check.ps1`, then `git push --force-with-lease` to the PR branch. Never force-push `main`.
+2. If the branch conflicts with `main`: `git fetch origin main && git merge FETCH_HEAD` on the PR branch (never rebase or force-push; the app's Auto-fix expects merges). Keep both sides, regenerate the hot files (migration, lockfile, contract snapshot), run `scripts/check.ps1`, then push normally. If the PR's builder is still running, send it the conflict instead of merging yourself.
 3. `gh pr merge <P> --squash --delete-branch --subject "[WN][TASK] Summary (#P)"`.
 4. If a task depended on this one, remove its `status:blocked` label.
 5. Clean up the worktree:
@@ -55,6 +57,10 @@ Prompt skeleton:
 - **`dotnet format`** occasionally crashes (Roslyn AccessViolation). Re-run it.
 - **The contract snapshot's operation order** can change when endpoints move between route groups. Diff it semantically before worrying.
 - **Stryker.NET can't run xUnit v3 yet.** Verifiers mutate by hand.
+- **Docker Desktop may be off** after a reboot. Testcontainers then fails with "Failed to connect to Docker endpoint". Check `docker version` before launching builders, and start Docker Desktop if needed (no admin).
+- **Logs of a CI attempt that was re-run:** `gh run view --log` shows nothing for the failed attempt. Use `gh api repos/<repo>/actions/runs/<id>/attempts/1/jobs`, then `gh api repos/<repo>/actions/jobs/<job>/logs`.
+- **A worktree that won't delete** is usually held by a leftover process from its agent (for example `node playwright/serve.mjs`). Stop only the processes whose command line points into that worktree, then remove it.
+- **Tests that start a real `JobWorker`** race other test hosts in the shared database. Remove the hosted worker in the test host and run jobs explicitly through `JobRunner` (SCAN-1a's `TestApiFactory` does this).
 
 ## End of a wave
 
