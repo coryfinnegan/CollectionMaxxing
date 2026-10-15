@@ -8,7 +8,7 @@ import { spacing } from '@/theme/tokens';
 import { Button, Text } from '@/ui';
 import { getBiometrics, getSettingsStorage } from './services';
 
-export const LOCK_GRACE_MS = 30_000;
+export const LOCK_GRACE_MS = 5 * 60_000;
 const KEY = 'face-id-lock';
 
 /** On unless the person turned it off (docs/07). */

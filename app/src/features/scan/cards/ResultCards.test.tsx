@@ -1,4 +1,10 @@
+import { onlineManager } from '@tanstack/react-query';
 import { screen } from '@testing-library/react-native';
+import { MemoryOwnedStorage, setOwnedStorage } from '@/features/offline/ownedCache';
+import { syncLibrary } from '@/features/offline/sync';
+import { MOCK_LIBRARY_ID } from '@/mocks/data';
+import { resetOwnershipMock } from '@/mocks/ownership';
+import { useLibraryStore } from '@/state/library';
 import { AccessibilityInfo, Animated } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { renderWithProviders } from '@/test/render';
@@ -19,6 +25,43 @@ const dune = {
 } as unknown as CandidateDto;
 
 afterEach(() => jest.restoreAllMocks());
+
+const failed = (code: string) =>
+  ({ id: `x-${code}`, seq: 1, rawCode: code, resolution: 'error', alreadyOwnedCount: 0, ownedAt: [], decision: 'undecided', release: null }) as unknown as CandidateDto;
+
+describe('result cards when the server cannot answer', () => {
+  beforeEach(async () => {
+    resetOwnershipMock();
+    setOwnedStorage(new MemoryOwnedStorage());
+    useLibraryStore.setState({ activeLibraryId: MOCK_LIBRARY_ID });
+    onlineManager.setOnline(true);
+    await syncLibrary(MOCK_LIBRARY_ID, () => 0);
+    onlineManager.setOnline(false);
+  });
+  afterEach(() => {
+    onlineManager.setOnline(true);
+    useLibraryStore.setState({ activeLibraryId: null });
+  });
+  afterAll(() => setOwnedStorage(undefined));
+
+  it('says what you own and where, from the local copy, with how old it is', async () => {
+    await renderWithProviders(<ResultCards cards={[failed('042100005264')]} actions={actions} />);
+    expect(await screen.findByText('You own 1: Living room › Shelf B')).toBeTruthy();
+    expect(screen.getByText(/^Based on your last sync, /)).toBeTruthy();
+  });
+
+  it('says "Not in your library" for a code the copy does not hold', async () => {
+    await renderWithProviders(<ResultCards cards={[failed('4006381333931')]} actions={actions} />);
+    expect(await screen.findByText('Not in your library')).toBeTruthy();
+    expect(screen.getByText(/^Based on your last sync, /)).toBeTruthy();
+  });
+
+  it('leaves a card the server resolved exactly as it was', async () => {
+    await renderWithProviders(<ResultCards cards={[dune]} actions={actions} />);
+    expect(await screen.findByText('You own 1')).toBeTruthy();
+    expect(screen.queryByText(/Based on your last sync/)).toBeNull();
+  });
+});
 
 describe('result cards', () => {
   it('slides a new card in over a short time', async () => {

@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Platform, View, useWindowDimensions } from 'react-native';
 import { Sidebar } from '@/components/Sidebar';
+import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
 import { AppLockGate } from '@/features/me/appLock';
 import { WIDE_BREAKPOINT, useColors } from '@/theme/tokens';
 
@@ -14,6 +15,7 @@ export default function TabsLayout() {
 
   return (
     <AppLockGate>
+    <OwnedDataBridge />
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
       {wide ? <Sidebar /> : null}
       <View style={{ flex: 1 }}>

@@ -1,4 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { getOwnedCache, MemoryOwnedStorage, setOwnedStorage } from '@/features/offline/ownedCache';
+import { createOwnedIndex } from '@/features/offline/ownedIndex';
+import { entry } from '@/features/offline/testData';
 import { setTrayStore } from '@/features/scan/tray/storage';
 import { MemoryKeyValueStore, createTrayStore } from '@/features/scan/tray/trayStore';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
@@ -52,6 +55,23 @@ describe('Settings > Recognition', () => {
     expect(screen.queryByText('Recognition')).toBeNull();
     expect(screen.queryByLabelText('Unpair this iPhone')).toBeNull();
     expect(screen.getByLabelText('Sign out')).toBeTruthy();
+  });
+});
+
+describe('Settings > Sign out', () => {
+  it('empties the offline owned copy', async () => {
+    const storage = new MemoryOwnedStorage();
+    setOwnedStorage(storage);
+    getOwnedCache('lib-1').commit({ index: createOwnedIndex([entry({ title: 'Jaws' })]), cursor: 'c1', syncedAt: 1 });
+    configureAuth({ platform: 'web' });
+    await renderWithProviders(<SettingsScreen />);
+
+    await fireEvent.press(screen.getByLabelText('Sign out'));
+
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    expect(getOwnedCache('lib-1').state.syncedAt).toBeNull();
+    expect(storage.getString('owned-index-v1:lib-1')).toBeUndefined();
+    setOwnedStorage(undefined);
   });
 });
 

@@ -5,7 +5,8 @@ import { AccessibilityInfo, Animated, Pressable, View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Cover, Text } from '@/ui';
-import { describeCandidate, slideDuration } from './copy';
+import { useOwnedLookup } from '@/features/offline/hooks';
+import { describeCandidate, ownedCopy, slideDuration } from './copy';
 
 export function useReduceMotion(): boolean {
   const [reduce, setReduce] = useState(false);
@@ -19,6 +20,33 @@ export function useReduceMotion(): boolean {
     };
   }, []);
   return reduce;
+}
+
+/**
+ * "Do I own this?" for a card the catalogue lookup has not resolved (offline, or it failed). The server answers when it
+ * can; otherwise the local copy does, with how old it is.
+ */
+function OwnedAnswerLine({ code }: { code: string | null }) {
+  const answer = useOwnedLookup(code);
+  const first = answer.owned[0];
+  const text = first
+    ? `${ownedCopy(answer.owned.length)}${first.locationPath ? `: ${first.locationPath}` : ''}`
+    : answer.notInLibrary
+      ? answer.notInLibraryText
+      : null;
+  if (!text) return null;
+  return (
+    <View accessibilityLiveRegion="polite">
+      <Text variant="label" tone={first ? 'scan' : 'muted'}>
+        {text}
+      </Text>
+      {answer.staleMessage ? (
+        <Text variant="caption" tone="muted">
+          {answer.staleMessage}
+        </Text>
+      ) : null}
+    </View>
+  );
 }
 
 export type CardActions = {
@@ -84,6 +112,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
             {copy.status}
           </Text>
         ) : null}
+        {copy.kind === 'pending' || copy.kind === 'error' ? <OwnedAnswerLine code={candidate.rawCode} /> : null}
         {addable && (accepted || wishlisted) ? (
           <Text variant="label" tone="scan">
             {wishlisted ? 'On your wishlist' : 'Added to this scan'}
