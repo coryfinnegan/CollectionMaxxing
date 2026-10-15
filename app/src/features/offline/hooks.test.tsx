@@ -7,6 +7,7 @@ import { resetOwnershipMock, upsertOwned } from '@/mocks/ownership';
 import { server } from '@/mocks/server';
 import { useLibraryStore } from '@/state/library';
 import { renderWithProviders } from '@/test/render';
+import { getBulkItemsMutationKey, getRematchItemMutationKey } from '@/api/generated/items/items';
 import { useOwnedLookup, useOwnedSync } from './hooks';
 import { getOwnedCache, MemoryOwnedStorage, setOwnedStorage } from './ownedCache';
 import { syncLibrary } from './sync';
@@ -110,11 +111,33 @@ describe('useOwnedLookup online', () => {
 });
 
 describe('useOwnedSync', () => {
-  function Syncer() {
+  function Syncer({ mutationKey = ['createItem'] }: { mutationKey?: readonly unknown[] }) {
     useOwnedSync();
-    const add = useMutation({ mutationKey: ['createItem'], mutationFn: async () => 'ok' });
+    const add = useMutation({ mutationKey, mutationFn: async () => 'ok' });
     return <Text onPress={() => add.mutate()}>add</Text>;
   }
+
+  it.each([
+    ['bulk item changes', getBulkItemsMutationKey()],
+    ['rematching an item', getRematchItemMutationKey()],
+  ])('re-syncs after %s', async (_label, mutationKey) => {
+    let calls = 0;
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership/snapshot', ({ request }) => {
+        calls += 1;
+        return HttpResponse.json({ entries: [], nextCursor: new URL(request.url).searchParams.get('since') ?? '0', hasMore: false });
+      }),
+    );
+
+    await renderWithProviders(<Syncer mutationKey={mutationKey} />);
+    await waitFor(() => expect(calls).toBe(1));
+
+    await act(async () => {
+      screen.getByText('add').props.onPress();
+    });
+
+    await waitFor(() => expect(calls).toBe(2));
+  });
 
   it('syncs on start and again after the user adds an item', async () => {
     let calls = 0;

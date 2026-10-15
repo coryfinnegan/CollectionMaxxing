@@ -3,6 +3,15 @@
 import { onlineManager, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
+import {
+  getBulkItemsMutationKey,
+  getCreateItemMutationKey,
+  getDeleteItemMutationKey,
+  getRematchItemMutationKey,
+  getRestoreItemMutationKey,
+  getUpdateItemMutationKey,
+} from '@/api/generated/items/items';
+import { getCommitScanSessionMutationKey, getDecideCandidateMutationKey } from '@/api/generated/scanning/scanning';
 import { useGetOwnership } from '@/api/generated/ownership/ownership';
 import type { GetOwnershipParams } from '@/api/generated/models';
 import { useLibraryStore } from '@/state/library';
@@ -97,7 +106,17 @@ export function useOwnedLookup(query: OwnedQuery | null, now: () => number = Dat
 const RETRY_MS = [15_000, 30_000, 60_000, 120_000, 300_000];
 
 /** Mutations whose success changes what the library owns; the copy syncs after each. */
-const OWNERSHIP_MUTATIONS = new Set(['createItem', 'deleteItem', 'restoreItem', 'updateItem', 'bulkUpdateItems', 'commitScanSession', 'decideCandidate']);
+// Built from the generated key getters so a rename breaks the build instead of silently stopping the sync.
+const OWNERSHIP_MUTATIONS = new Set<string>([
+  getCreateItemMutationKey()[0],
+  getDeleteItemMutationKey()[0],
+  getRestoreItemMutationKey()[0],
+  getUpdateItemMutationKey()[0],
+  getBulkItemsMutationKey()[0],
+  getRematchItemMutationKey()[0],
+  getCommitScanSessionMutationKey()[0],
+  getDecideCandidateMutationKey()[0],
+]);
 
 /**
  * Keeps the local copy fresh: syncs on start, on coming to the foreground, and after the user adds or deletes items. A
