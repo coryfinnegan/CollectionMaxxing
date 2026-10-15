@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,7 @@ public static class DecideCandidate
 {
     public sealed record Command(Guid SessionId, Guid CandidateId, CandidateDecision? Decision, Guid? ReleaseId, int? Copies);
 
-    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser, CandidateResolver resolver)
+    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser, CandidateResolver resolver, MatchFeedbackRecorder feedback)
     {
         public async Task<Result<CandidateDto>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -88,6 +89,8 @@ public static class DecideCandidate
             }
 
             var owned = await resolver.OwnedAsync(libraryId, new EnsuredRelease(releaseId, false), cancellationToken);
+            var rankedFirst = alternatives.Count > 0 ? alternatives[0].ReleaseId : candidate.MatchedReleaseId;
+            await feedback.RecordPickAsync(candidate, rankedFirst, releaseId, cancellationToken);
             var trace = CandidateJson.ReadTrace(candidate.TraceJson);
             candidate.MatchedReleaseId = releaseId;
             candidate.Resolution = CandidateResolution.Matched;

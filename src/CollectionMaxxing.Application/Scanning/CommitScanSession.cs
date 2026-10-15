@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Operations;
@@ -21,7 +22,7 @@ public static class CommitScanSession
 
     public sealed record Command(Guid SessionId, string? IdempotencyKey);
 
-    public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock)
+    public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock, BarcodeLearner learner)
     {
         public async Task<Result<CommitResultDto>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -114,6 +115,8 @@ public static class CommitScanSession
                     }
                 }
             }
+
+            await learner.LearnAsync(accepted, cancellationToken); // the next scan of these barcodes is a local hit
 
             // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
             if (created.Count > 0)

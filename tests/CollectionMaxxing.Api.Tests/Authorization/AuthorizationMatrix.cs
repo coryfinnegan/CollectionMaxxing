@@ -233,10 +233,10 @@ public static class AuthorizationMatrix
         InLibrary("GET", $"{Libraries}/ownership/snapshot", LibraryRole.Viewer, allowed: Ok),
 
         // ---- Scanning (SCAN-1a): a viewer may scan, an editor commits. Addressed by session id; a session is its starter's own. ----
-        // events, identify, :art and photo are still stubs (SCAN-1b, Wave 3).
+        // identify, :art and photo are still stubs (Wave 3).
         InLibrary("POST", $"{Libraries}/scan-sessions", LibraryRole.Viewer, Json, allowed: Created),
         InLibrary("GET", Sessions, LibraryRole.Viewer, allowed: Ok),
-        InLibrary("GET", $"{Sessions}/events", LibraryRole.Viewer),
+        InLibrary("GET", $"{Sessions}/events", LibraryRole.Viewer, allowed: Ok), // SSE: the matrix reads only the headers
         InLibrary("POST", $"{Sessions}/barcodes", LibraryRole.Viewer, "{\"codes\":[{\"value\":\"not-a-code\"}]}", allowed: Ok, headers: Idempotent),
         InLibrary("POST", $"{Sessions}/identify", LibraryRole.Viewer, Json),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:art", LibraryRole.Viewer, Json),
