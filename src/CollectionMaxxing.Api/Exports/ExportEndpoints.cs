@@ -2,7 +2,6 @@ using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Exports;
-using CollectionMaxxing.Infrastructure.Exports;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace CollectionMaxxing.Api.Exports;
@@ -14,17 +13,6 @@ namespace CollectionMaxxing.Api.Exports;
 /// </summary>
 public static class ExportEndpoints
 {
-    /// <summary>Registers this feature's handlers, file store and jobs.</summary>
-    public static IServiceCollection AddExports(this IServiceCollection services)
-    {
-        services.AddExportStorage();
-        services.AddSingleton<ExportLinks>();
-        services.AddScoped<StartExport.Handler>();
-        services.AddScoped<GetExport.Handler>();
-        services.AddScoped<OpenExport.Handler>();
-        return services;
-    }
-
     public static IEndpointRouteBuilder MapExportEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/v1/me/export", async (ICurrentUser user, StartExport.Handler handler, CancellationToken cancellationToken) =>

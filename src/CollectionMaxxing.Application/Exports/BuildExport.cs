@@ -34,7 +34,7 @@ public static class BuildExport
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
         WriteIndented = false,
     };
 

@@ -11,7 +11,9 @@ using CollectionMaxxing.Infrastructure.Jobs;
 using CollectionMaxxing.TestSupport;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -25,7 +27,8 @@ namespace CollectionMaxxing.Api.Tests.Exports;
 /// </summary>
 public class ExportTests(ApiFixture api) : ApiTest(api)
 {
-    private static readonly DateTimeOffset Start = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
+    // Real "now": the sign-in certificate is minted on the real clock and must be valid at the fake one too.
+    private static readonly DateTimeOffset Start = new(DateTimeOffset.UtcNow.Ticks / TimeSpan.TicksPerMillisecond * TimeSpan.TicksPerMillisecond, TimeSpan.Zero);
 
     private sealed class Host : IAsyncDisposable
     {
@@ -201,13 +204,23 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         context.Platforms.Add(platform);
         var work = new Work
         {
-            Id = Guid.CreateVersion7(), Kind = WorkKind.Game, Title = "Chrono Trigger", SortTitle = "Chrono Trigger",
-            NormalizedTitle = "chrono trigger", OriginalYear = 1995, CreatedAt = Start,
+            Id = Guid.CreateVersion7(),
+            Kind = WorkKind.Game,
+            Title = "Chrono Trigger",
+            SortTitle = "Chrono Trigger",
+            NormalizedTitle = "chrono trigger",
+            OriginalYear = 1995,
+            CreatedAt = Start,
         };
         var release = new Release
         {
-            Id = Guid.CreateVersion7(), WorkId = work.Id, Format = ReleaseFormat.Cartridge, PlatformId = platform.Id,
-            ReleaseDate = new DateOnly(1995, 3, 11), Source = ReleaseSource.Provider, CreatedAt = Start,
+            Id = Guid.CreateVersion7(),
+            WorkId = work.Id,
+            Format = ReleaseFormat.GameCartridge,
+            PlatformId = platform.Id,
+            ReleaseDate = new DateOnly(1995, 3, 11),
+            Source = ReleaseSource.Provider,
+            CreatedAt = Start,
         };
         context.Works.Add(work);
         context.Releases.Add(release);
@@ -232,8 +245,16 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
 
     private static Item NewItem(TestLibrary library, Guid releaseId, string? customTitle = null) => new()
     {
-        Id = Guid.CreateVersion7(), LibraryId = library.Id, ReleaseId = releaseId, Status = ItemStatus.Owned, CoverChoice = CoverChoice.Release,
-        AddedVia = AddedVia.Manual, CreatedAt = Start, CreatedBy = library.OwnerId, UpdatedAt = Start, CustomTitle = customTitle,
+        Id = Guid.CreateVersion7(),
+        LibraryId = library.Id,
+        ReleaseId = releaseId,
+        Status = ItemStatus.Owned,
+        CoverChoice = CoverChoice.Release,
+        AddedVia = AddedVia.Manual,
+        CreatedAt = Start,
+        CreatedBy = library.OwnerId,
+        UpdatedAt = Start,
+        CustomTitle = customTitle,
     };
 
     [Fact]
@@ -250,7 +271,7 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         row["library"].ShouldBe("Test library");
         row["title"].ShouldBe("Chrono Trigger");
         row["kind"].ShouldBe("game");
-        row["format"].ShouldBe("cartridge");
+        row["format"].ShouldBe("game_cartridge");
         row["platform"].ShouldBe("Super Nintendo");
         row["year"].ShouldBe("1995");
         row["status"].ShouldBe("lent");
@@ -261,7 +282,7 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         row["acquired_on"].ShouldBe("2001-05-06");
         row["identifiers"].ShouldBe("gtin13:0045496830067");
         row["added_by"].ShouldBe("Test user");
-        row["added_at"].ShouldBe("2026-10-14T12:00:00.0000000Z");
+        row["added_at"].ShouldBe(Start.UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
     }
 
     [Fact]
@@ -364,7 +385,7 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         var started = await StartAsync(client);
         await using (var context = Db.CreateContext())
         {
-            await context.LibraryMembers.Where(m => m.UserId == seeded.Library.EditorId).ExecuteDeleteAsync();
+            await context.LibraryMembers.IgnoreQueryFilters().Where(m => m.UserId == seeded.Library.EditorId).ExecuteDeleteAsync();
         }
 
         await host.RunJobsAsync();
@@ -460,7 +481,7 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         var seeded = await SeedAsync();
         await using (var context = Db.CreateContext())
         {
-            await context.Users.ExecuteUpdateAsync(s => s.SetProperty(u => u.Email, u => u.Id.ToString().Substring(0, 8) + "@secret.example"));
+            await context.Users.ExecuteUpdateAsync(s => s.SetProperty(u => u.Email, u => u.Id.ToString() + "@secret.example"));
         }
 
         await using var host = new Host(Api);

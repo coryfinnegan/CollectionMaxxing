@@ -98,7 +98,7 @@ public sealed class ExportJobs(AppDbContext db) : IExportJobs
         var id = exportId.ToString();
         var type = BuildExport.JobType;
         return (await db.Database.SqlQuery<StateRow>($"""
-            SELECT (payload -> 'data' ->> 'userId')::uuid AS "UserId", status AS "Status"
+            SELECT (payload -> 'data' ->> 'userId')::uuid AS user_id, status
             FROM jobs
             WHERE type = {type} AND payload -> 'data' ->> 'exportId' = {id}
             LIMIT 1
