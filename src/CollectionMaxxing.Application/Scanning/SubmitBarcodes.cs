@@ -65,11 +65,6 @@ public static class SubmitBarcodes
                 return ScanningErrors.SessionNotFound;
             }
 
-            if (session.Status != ScanSessionStatus.Open)
-            {
-                return ScanningErrors.SessionClosed;
-            }
-
             var key = ScanSessions.IdempotencyKeyFor("barcodes", session.Id, command.IdempotencyKey!.Trim());
             var lines = Normalise(command.Codes!);
             var hash = RequestHash(session.Id, lines);
@@ -89,6 +84,12 @@ public static class SubmitBarcodes
                     }
 
                     db.IdempotencyKeys.Remove(previous); // expired: the key can be used again
+                }
+
+                // After the replay, so a retry that arrives once the session has closed still gets the original answer.
+                if (session.Status != ScanSessionStatus.Open)
+                {
+                    return ScanningErrors.SessionClosed;
                 }
 
                 var lineKeys = lines.Select(l => l.Key).ToList();

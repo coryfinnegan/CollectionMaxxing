@@ -50,6 +50,14 @@ public sealed class ScanSessionOwnerFilter(IsMySession.Handler mine) : IEndpoint
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var http = context.HttpContext;
+
+        // Runs ahead of the role filter, so keep failing closed here for an endpoint that forgot RequireScanSessionRole.
+        if (http.GetEndpoint()?.Metadata.GetMetadata<RequireScanSessionRoleMetadata>() is null)
+        {
+            throw new InvalidOperationException(
+                $"{http.GetEndpoint()?.DisplayName} is in the scan-session route group but doesn't call RequireScanSessionRole.");
+        }
+
         if (!Guid.TryParse(http.Request.RouteValues["id"]?.ToString(), out var sessionId)
             || !await mine.HandleAsync(sessionId, http.RequestAborted))
         {

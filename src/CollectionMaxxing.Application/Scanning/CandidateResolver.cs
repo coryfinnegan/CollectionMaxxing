@@ -56,7 +56,7 @@ public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, O
         candidate.Score = null;
         candidate.AlternativesJson = null;
         candidate.AlreadyOwnedCount = 0;
-        candidate.Decision = CandidateDecision.Undecided;
+        var undecided = candidate.Decision == CandidateDecision.Undecided; // a decision the person already made is theirs; the job never overwrites it
         var ownedAt = new List<string>();
 
         if (resolution.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
@@ -84,7 +84,10 @@ public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, O
                     ownedAt = OwnedAt(owned);
 
                     // An exactly owned release is skipped unless the user adds another copy; anything else is added.
-                    candidate.Decision = owned.Count > 0 ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                    if (undecided)
+                    {
+                        candidate.Decision = owned.Count > 0 ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                    }
                 }
 
                 if (i == 0 && resolution.Verdict == ResolutionVerdict.Ambiguous)

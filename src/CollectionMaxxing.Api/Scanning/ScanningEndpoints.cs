@@ -28,7 +28,6 @@ public static class ScanningEndpoints
             .RequireLibraryRole(LibraryRole.Viewer);
 
         var sessions = app.MapScanSessionGroup();
-        sessions.AddEndpointFilter<ScanSessionOwnerFilter>();
 
         sessions.MapGet("/{id:guid}", GetSession)
             .WithName("GetScanSession").WithTags("Scanning")
