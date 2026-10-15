@@ -134,7 +134,7 @@ public sealed class BarcodeResolver(
 
         var result = MatchScorer.Evaluate(read, candidates.Select(c => c.ToCandidate()).ToList(), CatalogProjection.Profile);
         var byKey = candidates.ToDictionary(c => $"{c.Provider}:{c.ExternalId}", StringComparer.Ordinal);
-        steps.Add(new TraceStep("scorer", result.Outcome.ToString().ToLowerInvariant(), 0, result.Ranked.FirstOrDefault()?.Score));
+        steps.Add(new TraceStep("scorer", result.Outcome.ToString().ToLowerInvariant(), 0, (result.Ranked.Count > 0 ? result.Ranked[0].Score : (double?)null)));
         if (result.Outcome == MatchOutcome.NotFound)
         {
             return new BarcodeResolution(ResolutionVerdict.NotFound, [], product.Title, steps);

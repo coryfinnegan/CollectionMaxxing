@@ -24,7 +24,7 @@ public static class ScanningStorage
 /// across requests and across processes, never blocks anything else, and is released when disposed (or when the connection
 /// drops, so a crashed request can't leave a session locked).
 /// </summary>
-internal sealed class PostgresSessionLock(AppDbContext db) : ISessionLock
+public sealed class PostgresSessionLock(AppDbContext db) : ISessionLock
 {
     public async Task<IAsyncDisposable> AcquireAsync(Guid sessionId, CancellationToken cancellationToken)
     {
@@ -73,7 +73,7 @@ internal sealed class PostgresSessionLock(AppDbContext db) : ISessionLock
 }
 
 /// <summary>UPCitemdb as the scanner's product lookup. It reports why there was no answer: unknown code, quota spent, or provider down.</summary>
-internal sealed class UpcProductLookup(UpcItemDbProvider upc) : IProductLookup
+public sealed class UpcProductLookup(UpcItemDbProvider upc) : IProductLookup
 {
     public async Task<ProductLookupResult> LookupAsync(Domain.Identifiers.Identifier id, CancellationToken cancellationToken)
     {

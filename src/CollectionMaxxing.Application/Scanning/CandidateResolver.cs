@@ -118,7 +118,7 @@ public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, O
         db.ScanCandidates.Attach(candidate).Property(c => c.VisibleText).CurrentValue = text.Length > 2000 ? text[..2000] : text;
 
     private static StoredAlternative AlternativeOf(
-        ResolutionOption option, Guid releaseId, IReadOnlyDictionary<Guid, Catalog.ReleaseDto> known, int ownedCount)
+        ResolutionOption option, Guid releaseId, Dictionary<Guid, Catalog.ReleaseDto> known, int ownedCount)
     {
         if (option.Provider is { } provider)
         {

@@ -68,7 +68,7 @@ public sealed class TextSearchResolver(
         timeout.CancelAfter(options.ResolveBudget);
         var asked = _providers.Where(p => Enum.GetValues<WorkKind>().Any(p.Supports)).ToList();
         var query = new CatalogQuery { Title = text, Limit = Limit };
-        var answers = await Task.WhenAll(asked.Select(p => AskAsync(p, query, timeout.Token, steps, cancellationToken)));
+        var answers = await Task.WhenAll(asked.Select(p => AskAsync(p, query, steps, cancellationToken, timeout.Token)));
 
         var known = pool.Select(o => CatalogProjection.DuplicateKey(o.Scoring.Title, o.Scoring.Year, o.Scoring.Platform)).ToHashSet(StringComparer.Ordinal);
         foreach (var found in answers.SelectMany(a => a))
@@ -86,7 +86,7 @@ public sealed class TextSearchResolver(
 
         var result = MatchScorer.Evaluate(read, pool.Select(o => o.Scoring).ToList(), CatalogProjection.Profile);
         var byKey = pool.ToDictionary(o => o.Scoring.Key, o => o.Option, StringComparer.Ordinal);
-        steps.Add(new TraceStep("scorer", result.Outcome.ToString().ToLowerInvariant(), 0, result.Ranked.FirstOrDefault()?.Score));
+        steps.Add(new TraceStep("scorer", result.Outcome.ToString().ToLowerInvariant(), 0, (result.Ranked.Count > 0 ? result.Ranked[0].Score : (double?)null)));
         if (result.Outcome == MatchOutcome.NotFound)
         {
             return new BarcodeResolution(ResolutionVerdict.NotFound, [], null, steps);
@@ -98,7 +98,7 @@ public sealed class TextSearchResolver(
     }
 
     private async Task<IReadOnlyList<ProviderRelease>> AskAsync(
-        ICatalogProvider provider, CatalogQuery query, CancellationToken budget, List<TraceStep> steps, CancellationToken callerToken)
+        ICatalogProvider provider, CatalogQuery query, List<TraceStep> steps, CancellationToken callerToken, CancellationToken budget)
     {
         var started = Stopwatch.GetTimestamp();
         var outcome = "miss";

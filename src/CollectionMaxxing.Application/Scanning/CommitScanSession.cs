@@ -44,7 +44,7 @@ public static class CommitScanSession
             var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
             if (previous is not null && previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
             {
-                return JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options) ?? ScanningErrors.AlreadyCommitted;
+                return JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options) is { } again ? again : ScanningErrors.AlreadyCommitted;
             }
 
             if (session.Status == ScanSessionStatus.Committed)
