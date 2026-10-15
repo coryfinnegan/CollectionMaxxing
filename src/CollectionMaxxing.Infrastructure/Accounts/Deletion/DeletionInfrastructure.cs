@@ -1,6 +1,7 @@
 using System.Globalization;
 using CollectionMaxxing.Application.Accounts.Deletion;
 using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Infrastructure.Catalog;
 using CollectionMaxxing.Infrastructure.Jobs;
 using CollectionMaxxing.Infrastructure.Persistence;
@@ -9,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using OpenIddict.Abstractions;
 
 namespace CollectionMaxxing.Infrastructure.Accounts.Deletion;
@@ -22,9 +24,16 @@ public static class AccountDeletionRegistration
     public static IServiceCollection AddAccountPurge(this IServiceCollection services)
     {
         services.TryAddScoped<IDeletedAccounts, IdentityDeletedAccounts>();
+        services.TryAddScoped<IPurgeBacklog, IdentityPurgeBacklog>();
+        services.TryAddScoped<IAccountDeactivation, IdentityAccountDeactivation>();
         services.TryAddSingleton<IAccountFiles>(provider =>
-            new FileAccountFiles(provider.GetRequiredService<IConfiguration>()[CatalogInfrastructure.CoversRootKey] ?? Path.Combine("data", "covers")));
+            new FileAccountFiles(
+                provider.GetRequiredService<IConfiguration>()[CatalogInfrastructure.CoversRootKey] ?? Path.Combine("data", "covers"),
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<ILogger<FileAccountFiles>>()));
         services.AddJobHandler<PurgeAccountPayload, PurgeAccount.Handler>(PurgeAccount.JobType);
+        services.AddJobHandler<PurgeSweep.Payload, PurgeSweep.Handler>(PurgeSweep.JobType);
+        services.AddRecurringJob(PurgeSweep.JobType, TimeSpan.FromDays(1));
         return services;
     }
 }
@@ -36,7 +45,7 @@ internal sealed class IdentityDeletedAccounts(
     IOpenIddictTokenManager tokens) : IDeletedAccounts
 {
     /// <summary>What "Added by" says for a person who is gone.</summary>
-    internal const string RemovedUserName = "Removed user";
+    internal const string RemovedUserName = PurgeAccount.RemovedUserName;
 
     public Task<DateTimeOffset?> DeletedAtAsync(Guid userId, CancellationToken cancellationToken) =>
         db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => u.DeletedAt).SingleOrDefaultAsync(cancellationToken);
@@ -115,38 +124,109 @@ internal sealed class IdentityDeletedAccounts(
     }
 }
 
-/// <summary>Deletes cover and photo files from the PC's folder. A path can never point outside that folder.</summary>
-internal sealed class FileAccountFiles : IAccountFiles
+/// <summary>Deleted accounts whose purge is overdue, found in the user table.</summary>
+internal sealed class IdentityPurgeBacklog(AppDbContext db) : IPurgeBacklog
 {
-    private readonly string _root;
+    public async Task<IReadOnlyList<Guid>> UsersAwaitingPurgeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken)
+    {
+        // A purged user has no place in any library, no passkey, and the tombstone's name. Whatever is left of those means the purge isn't finished.
+        // (Re-queueing a user who is in fact purged would be harmless: the purge finds nothing to do.)
+        return await db.Users.AsNoTracking()
+            .Where(u => u.DeletedAt != null && u.DeletedAt <= deletedBefore)
+            .Where(u => u.DisplayName != PurgeAccount.RemovedUserName
+                || db.LibraryMembers.IgnoreQueryFilters().Any(m => m.UserId == u.Id)
+                || db.Set<IdentityUserPasskey<Guid>>().Any(p => p.UserId == u.Id))
+            .OrderBy(u => u.DeletedAt)
+            .Select(u => u.Id)
+            .Take(500) // a home server has a handful; the rest are picked up tomorrow
+            .ToListAsync(cancellationToken);
+    }
+}
 
-    public FileAccountFiles(string root)
+/// <summary>Deactivates an account in one transaction that also looks at who belongs to the libraries it owns.</summary>
+internal sealed class IdentityAccountDeactivation(AppDbContext db, TimeProvider time) : IAccountDeactivation
+{
+    public async Task<bool> DeactivateUnlessLibraryHasMembersAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        // The update locks the user's row until the transaction ends. An invite being accepted into this person's library locks the same row
+        // first (IdentityInviteAcceptance), so one of the two waits for the other: either the member is already there when the members are
+        // counted below, or the invite finds the owner deleted and is refused.
+        await db.Users
+            .Where(u => u.Id == userId && u.DeletedAt == null)
+            .ExecuteUpdateAsync(set => set.SetProperty(u => u.DeletedAt, now), cancellationToken);
+
+        var hasMembers = await db.LibraryMembers.IgnoreQueryFilters().AsNoTracking()
+            .Where(m => m.UserId == userId && m.Role == LibraryRole.Owner)
+            .AnyAsync(
+                owned => db.LibraryMembers.IgnoreQueryFilters().Any(other => other.LibraryId == owned.LibraryId && other.UserId != userId),
+                cancellationToken);
+        if (hasMembers)
+        {
+            return false; // leaving the transaction without a commit puts the user back as they were
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+}
+
+/// <summary>
+/// Deletes cover and photo files from the PC's folder. A path can never point outside that folder. A file that is already gone is fine. A file
+/// that can't be deleted right now (a virus scanner has it open, say) is tried a few times; if it still can't be deleted it is reported in the
+/// log, by path, and the purge carries on, because one stuck file must not stop a person's account from ever being purged.
+/// </summary>
+public sealed class FileAccountFiles : IAccountFiles
+{
+    private static readonly TimeSpan[] RetryDelays = [TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2)];
+
+    private readonly string _root;
+    private readonly TimeProvider _time;
+    private readonly ILogger _logger;
+
+    public FileAccountFiles(string root, TimeProvider? time = null, ILogger? logger = null)
     {
         _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        _time = time ?? TimeProvider.System;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     }
 
-    public Task DeleteAsync(string blobPath, CancellationToken cancellationToken)
+    public async Task DeleteAsync(string blobPath, CancellationToken cancellationToken)
     {
         if (!BlobPaths.IsSafe(blobPath))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         var full = Path.GetFullPath(Path.Combine(_root, blobPath.Replace('/', Path.DirectorySeparatorChar)));
         if (!full.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        try
+        for (var attempt = 0; ; attempt++)
         {
-            File.Delete(full); // no error if it is already gone
-        }
-        catch (DirectoryNotFoundException)
-        {
-            // the folder is gone too: nothing to delete
-        }
+            try
+            {
+                File.Delete(full); // no error if it is already gone
+                return;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return; // the folder is gone too: nothing to delete
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= RetryDelays.Length)
+                {
+                    _logger.LogWarning(exception, "Could not delete the file {BlobPath} while purging an account; it is left on disk.", blobPath);
+                    return;
+                }
 
-        return Task.CompletedTask;
+                await Task.Delay(RetryDelays[attempt], _time, cancellationToken);
+            }
+        }
     }
 }

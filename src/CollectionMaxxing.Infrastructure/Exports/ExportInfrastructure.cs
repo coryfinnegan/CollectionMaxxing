@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Accounts.Deletion;
 using CollectionMaxxing.Application.Exports;
 using CollectionMaxxing.Infrastructure.Jobs;
 using CollectionMaxxing.Infrastructure.Persistence;
@@ -62,6 +63,23 @@ public sealed class FileExportStore : IExportStore
         }
     }
 
+    public Task DeleteAsync(Guid exportId, CancellationToken cancellationToken)
+    {
+        foreach (var path in new[] { PathOf(exportId), PathOf(exportId) + Partial })
+        {
+            try
+            {
+                File.Delete(path); // no error if it is already gone
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // the folder is gone too: nothing to delete
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task<int> DeleteCreatedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(_root))
@@ -122,6 +140,25 @@ public sealed class ExportJobs(AppDbContext db) : IExportJobs
             .SingleOrDefault();
     }
 
+    public async Task<IReadOnlyList<Guid>> ListIdsForUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var user = userId.ToString();
+        var type = BuildExport.JobType;
+        return await db.Database.SqlQuery<Guid>($"""
+            SELECT (payload -> 'data' ->> 'exportId')::uuid AS "Value"
+            FROM jobs
+            WHERE type = {type} AND payload -> 'data' ->> 'userId' = {user}
+            """).ToListAsync(cancellationToken);
+    }
+
+    public async Task DeleteForUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var user = userId.ToString();
+        var type = BuildExport.JobType;
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"DELETE FROM jobs WHERE type = {type} AND payload -> 'data' ->> 'userId' = {user}", cancellationToken);
+    }
+
     private sealed record StateRow(Guid UserId, string Status);
 }
 
@@ -137,6 +174,7 @@ public static class ExportInfrastructure
         services.TryAddSingleton<IExportStore>(provider =>
             new FileExportStore(provider.GetRequiredService<IConfiguration>()[PathKey] ?? Path.Combine("data", "exports")));
         services.TryAddScoped<IExportJobs, ExportJobs>();
+        services.AddScoped<IUserPurgeStep, PurgeUserExports>(); // a deleted person's export files and export jobs go with the account
         services.AddJobHandler<BuildExport.Payload, BuildExport.Handler>(BuildExport.JobType);
         services.AddJobHandler<CleanupExports.Payload, CleanupExports.Handler>(CleanupExports.JobType);
         services.AddRecurringJob(CleanupExports.JobType, TimeSpan.FromHours(1));

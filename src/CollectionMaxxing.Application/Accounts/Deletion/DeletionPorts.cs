@@ -57,3 +57,33 @@ public interface ILibraryPurgeStep
 {
     Task PurgeAsync(Guid libraryId, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Other features register one of these when they keep something for a person rather than for a library (an export file, say), so it
+/// would outlive them if the purge only looked at libraries. It runs once for the user being purged, after their libraries, and can run again.
+/// </summary>
+public interface IUserPurgeStep
+{
+    Task PurgeAsync(Guid userId, CancellationToken cancellationToken);
+}
+
+/// <summary>Finds deleted accounts whose purge is overdue, so the daily sweep can queue it again (<see cref="PurgeSweep"/>).</summary>
+public interface IPurgeBacklog
+{
+    /// <summary>
+    /// Users deleted on or before <paramref name="deletedBefore"/> that still hold something a purge removes: a place in a library, a passkey,
+    /// or a name other than the tombstone's. A purged user holds none of these, so they are not listed.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> UsersAwaitingPurgeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken);
+}
+
+/// <summary>Marks the account deleted, but only if that leaves no library behind without an owner.</summary>
+public interface IAccountDeactivation
+{
+    /// <summary>
+    /// Deactivates the account (it can't sign in; every session is refused from the next request) unless it owns a library that other people
+    /// belong to. The check and the change are one step that also holds off an invite being accepted at the same moment, so a member
+    /// cannot slip in between them. Returns false, changing nothing, when the library has members. Doing it twice is fine.
+    /// </summary>
+    Task<bool> DeactivateUnlessLibraryHasMembersAsync(Guid userId, CancellationToken cancellationToken);
+}

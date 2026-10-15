@@ -13,8 +13,8 @@ public sealed record PurgeAccountPayload(Guid UserId);
 /// everything in it and its image files; the user's place in any other library; their sign-in material; and the identity in the audit
 /// trail. Items they added to a library that carries on stay, and say "Added by" a removed user.
 /// The job is queued by <see cref="DeleteAccount"/> to run when the 30 days are over. Safe to repeat: every step finds what is left and
-/// removes that, so a purge that crashed halfway finishes on the next run. A run before the 30 days are over, or for an account that was
-/// never deleted, does nothing.
+/// removes that, so a purge that crashed halfway finishes on the next run. A run for an account that was never deleted does nothing; a run
+/// before the 30 days are over queues itself again for the day they are. A job that died is queued again by <see cref="PurgeSweep"/>.
 /// </summary>
 public static class PurgeAccount
 {
@@ -22,6 +22,9 @@ public static class PurgeAccount
 
     /// <summary>How long a deleted account's data is kept (docs/03, "Data lifecycle").</summary>
     public static readonly TimeSpan Retention = TimeSpan.FromDays(30);
+
+    /// <summary>What an invite says for a person who is gone (and what "Added by" says: <c>IdentityDeletedAccounts</c> uses the same words).</summary>
+    public const string RemovedUserName = "Removed user";
 
     public static string DedupeKey(Guid userId) => $"{JobType}:{userId:N}";
 
@@ -32,13 +35,33 @@ public static class PurgeAccount
         IAccountFiles files,
         IEnumerable<ILibraryPurgeStep> steps,
         AnonymiseAuditActor.Handler anonymiseAudit,
-        IAuditLog audit) : IJobHandler<PurgeAccountPayload>
+        IAuditLog audit,
+        IEnumerable<IUserPurgeStep>? userSteps = null,
+        IJobQueue? jobs = null) : IJobHandler<PurgeAccountPayload>
     {
         public async Task HandleAsync(PurgeAccountPayload payload, CancellationToken cancellationToken)
         {
             var userId = payload.UserId;
-            if (await accounts.DeletedAtAsync(userId, cancellationToken) is not { } deletedAt || clock.GetUtcNow() < deletedAt + Retention)
+            if (await accounts.DeletedAtAsync(userId, cancellationToken) is not { } deletedAt)
             {
+                return; // never deleted (or not there): nothing to do
+            }
+
+            var due = deletedAt + Retention;
+            if (clock.GetUtcNow() < due)
+            {
+                // This job was queued by an earlier attempt to delete the account, so it fires before the date the account is actually due
+                // (the dedupe key made the later attempt reuse it). Finishing quietly would lose the purge: queue it again for the right day.
+                // The key names that day, so a job that runs twice queues it once, and it is not the key of the job that is running now.
+                if (jobs is not null)
+                {
+                    await jobs.EnqueueAsync(
+                        JobType,
+                        new PurgeAccountPayload(userId),
+                        new JobEnqueueOptions(due, $"{DedupeKey(userId)}:{due.ToUnixTimeSeconds()}"),
+                        cancellationToken);
+                }
+
                 return;
             }
 
@@ -54,7 +77,18 @@ public static class PurgeAccount
                 await PurgeLibraryAsync(libraryId, cancellationToken);
             }
 
+            // In libraries that carry on, the invite they used says who it was for and who accepted it. Both go; that it was used stays.
+            await db.LibraryInvites.IgnoreQueryFilters()
+                .Where(i => i.AcceptedBy == userId)
+                .ExecuteUpdateAsync(
+                    set => set.SetProperty(i => i.Name, RemovedUserName).SetProperty(i => i.AcceptedBy, (Guid?)null),
+                    cancellationToken);
             await db.LibraryMembers.IgnoreQueryFilters().Where(m => m.UserId == userId).ExecuteDeleteAsync(cancellationToken);
+
+            foreach (var step in userSteps ?? [])
+            {
+                await step.PurgeAsync(userId, cancellationToken);
+            }
 
             await accounts.ScrubAuditTrailAsync(userId, cancellationToken);
             await anonymiseAudit.HandleAsync(userId, cancellationToken);
