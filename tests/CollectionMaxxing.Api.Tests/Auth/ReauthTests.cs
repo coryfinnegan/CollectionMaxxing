@@ -8,7 +8,8 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
 {
     public static TheoryData<string> Endpoints =>
     [
-        "DELETE /api/v1/me",
+        // "DELETE /api/v1/me" left this list in LIB-2c: deleting an account needs a passkey assertion made for the request itself, which is stricter
+        // than "recent" (a sign-in 4 minutes ago no longer counts). See Deletion/DeleteAccountTests.
         "POST /api/v1/libraries/{lib}/invites",
         "POST /api/v1/me/devices/pair",
     ];
@@ -21,10 +22,6 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
         return browser.SendAsync(new HttpMethod(parts[0]), url, body);
     }
 
-    /// <summary>What answers once the re-auth gate lets the call through: the endpoint's own status, or its 501 while it is a stub.</summary>
-    private static HttpStatusCode PastTheGate(string endpoint) =>
-        endpoint == "DELETE /api/v1/me" ? HttpStatusCode.NotImplemented : HttpStatusCode.Created;
-
     [Theory]
     [MemberData(nameof(Endpoints))]
     public async Task An_assertion_4_minutes_59_seconds_old_is_fresh_enough(string endpoint)
@@ -34,8 +31,8 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
 
         var response = await CallAsync(browser, owner, endpoint);
 
-        // Past the re-auth gate: ID-2 built the pairing (201) and ID-3a the invite (201); deleting the account is still a stub (501).
-        response.StatusCode.ShouldBe(PastTheGate(endpoint));
+        // Past the re-auth gate: ID-2 built the pairing (201) and ID-3a the invite (201).
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
     }
 
     [Theory]
@@ -64,7 +61,7 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
         (await browser.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
         var response = await CallAsync(browser, owner, endpoint);
 
-        response.StatusCode.ShouldBe(PastTheGate(endpoint));
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
     }
 
     [Fact]

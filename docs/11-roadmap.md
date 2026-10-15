@@ -38,7 +38,7 @@ flowchart LR
 - [ ] A **pull-based deployer** on the PC: verify the attestation, pull, migrate, restart, smoke-test, roll back. There's no self-hosted runner, because the repo is public.
 - [ ] Nightly backups to F:\ + weekly encrypted off-site copy; heartbeat check
 - [ ] **$0 iPhone pipeline:** GitHub Actions macOS workflow → unsigned `.ipa`; AltServer on the PC + AltStore on the iPhone (free Apple ID, weekly auto re-sign); Developer Mode on
-- [ ] **Day-one spike:** a throwaway app that calls the on-device Foundation Model with an image, plus Vision barcode/text, built unsigned and installed with your free Apple ID on the iPhone 17 Pro. **If the model isn't available to free-signed apps, we know before building on it**; the Vision text engine becomes primary.
+- [x] **Day-one spike:** a throwaway app that calls the on-device Foundation Model with an image, plus Vision barcode/text, built unsigned and installed with your free Apple ID on the iPhone 17 Pro. **If the model isn't available to free-signed apps, we know before building on it**; the Vision text engine becomes primary. **Answered yes on 2026-10-14 (PR #5):** the model works with image input in a free-signed app on iOS 27.2.
 - [ ] Observability: OTel → Aspire Dashboard; rotating log files; `/health/ready` check
 
 **Exit criteria:** a sideloaded build on your iPhone pairs with the server on your PC over Tailscale (including over cellular); CI is green; one merge to `main` deploys with zero manual steps; the day-one spike's answer is recorded.

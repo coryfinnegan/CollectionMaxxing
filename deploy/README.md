@@ -154,6 +154,16 @@ It never runs `docker system prune`, `docker volume prune`, `docker rm` on anyth
 
 State lives in `C:\CollectionMaxxing\state`, logs in `C:\CollectionMaxxing\logs` (1 MB each, 5 kept). The log never contains the database password or the heartbeat URL.
 
+**If the state file is lost** (deleted, or its path is wrong) while the stack is running, or `.env` / the compose file pins a `CM_TAG`, the deployer refuses (exit 4, ALERT) instead of treating it as a first deploy, because it could not tell an older commit from a newer one. Seed the state by hand with the commit the running api was built from:
+
+```powershell
+$env:CM_TAG = 'x'   # any value; compose needs it set to read the stack
+$sha = docker inspect (docker compose -p collectionmaxxing -f C:\CollectionMaxxing\repo\deploy\docker-compose.yml --env-file C:\CollectionMaxxing\.env ps -q api) --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+New-Item -ItemType Directory -Force C:\CollectionMaxxing\state | Out-Null
+@{ current = @{ sha = $sha.Trim() } } | ConvertTo-Json | Set-Content C:\CollectionMaxxing\state\deployer-state.json
+```
+The sha must be 40 lowercase hex characters. A true first deploy (no state, nothing running, no pinned tag) is unaffected.
+
 **Exit codes:** 0 fine or nothing to do (also "already up to date", "known bad, waiting for a newer one", a dry run), 1 deploy failed or rolled back (migration failed, smoke test failed, crashed), 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state), 5 the `.ipa` sync failed its checksum after a good deploy.
 
 **Refusals are loud.** Every non-zero result of a real (`-Apply`) run writes a line starting `ALERT deploy <outcome>` to `deployer.log` and pings `<CM_HEARTBEAT_URL>/fail` with the reason as the body: the same free healthchecks.io check the nightly backup uses, so you get the same email. (A deploy alert also marks that check "down" until the next good backup ping; that is the price of using one channel.) With no heartbeat URL the log line is the only alert. A failed ping never changes the exit code. The poller repeats the ping every 2 minutes while the cause persists; healthchecks only emails on the change.

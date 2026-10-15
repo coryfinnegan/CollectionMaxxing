@@ -204,6 +204,26 @@ function Read-CmStateStrict {
     [pscustomobject]@{ Ok = $true; State = $state; Reason = '' }
 }
 
+function Test-CmUnseededInstall {
+    <#
+      Called when no deployed commit is on record. A true first deploy has no running stack and no pinned CM_TAG. If a
+      stack is running (or .env / the compose file pins a tag) the state file was lost or points at the wrong place, and
+      deploying "whatever main is" could be a downgrade, so the caller must refuse. Returns $null when it is a first
+      deploy, otherwise the reason.
+    #>
+    param($Ctx, [hashtable]$EnvMap)
+    $seed = "seed it with the deployed commit: write {""current"":{""sha"":""<40-char sha of the running api image>""}} to $($Ctx.StateFile) (deploy/README.md, 'If the state file is lost')"
+    if ("$($EnvMap['CM_TAG'])".Trim()) { return "no deployed commit on record at $($Ctx.StateFile), but .env pins CM_TAG=$($EnvMap['CM_TAG']), so something is already deployed; refusing to treat this as a first deploy; $seed" }
+    if (Test-Path -LiteralPath $Ctx.ComposeFile) {
+        $text = Get-Content -LiteralPath $Ctx.ComposeFile -Raw
+        if ($text -match '(?m)^[^#\r\n]*\$\{CM_TAG:?-') { return "no deployed commit on record at $($Ctx.StateFile), but $($Ctx.ComposeFile) pins a default CM_TAG, so something is already deployed; refusing to treat this as a first deploy; $seed" }
+    }
+    $ps = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = 'state-check' } -Arguments (Get-CmComposeArgs $Ctx @('ps', '-q', '--status', 'running'))
+    if ($ps.ExitCode -ne 0) { return "no deployed commit on record at $($Ctx.StateFile) and docker compose could not say whether a stack is running; refusing to treat this as a first deploy; $seed" }
+    if (@($ps.Output | Where-Object { "$_".Trim() }).Count -gt 0) { return "no deployed commit on record at $($Ctx.StateFile), but a stack is already running; refusing to treat this as a first deploy; $seed" }
+    $null
+}
+
 # ---- loud failures -----------------------------------------------------------------------------------------------------
 
 function New-CmResult {
@@ -324,6 +344,13 @@ function Invoke-CmDeployCore {
         }
         $state = $read.State
         $current = $state['current']
+        if (-not $current) {
+            $unseeded = Test-CmUnseededInstall -Ctx $Ctx -EnvMap $envMap
+            if ($unseeded) {
+                Write-CmLog $unseeded 'ERROR'
+                return New-CmResult 'refused' 4 $unseeded
+            }
+        }
 
         # 1. The newest main image.
         $apiMain = Get-CmImageRef $Ctx 'api' 'main'

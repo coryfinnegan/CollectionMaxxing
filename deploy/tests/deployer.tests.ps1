@@ -47,6 +47,35 @@ Test-Case 'deployer: the first ever deploy works with no state file' {
     Assert-Equal $script:Sha2 $r.State.current.sha
 }
 
+Test-Case 'deployer: a missing state file with a stack already running is refused, loudly' {
+    $r = Invoke-TestDeploy -Machine @{ RunningServices = @('abc123') }
+    Assert-Equal 'refused' $r.Result.Outcome
+    Assert-Equal 4 $r.Result.ExitCode
+    Assert-Match $r.Log 'ALERT deploy refused'
+    Assert-Match $r.Log 'state file'
+    Assert-Match $r.Log 'current'
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
+    Assert-Equal 1 (Get-Calls 'curl' '*/fail*').Count
+}
+
+Test-Case 'deployer: a missing state file with CM_TAG pinned in .env is refused' {
+    $envText = @('POSTGRES_PASSWORD=test-only-password', 'CM_BACKUP_DIR=/tmp/cm-test-backups', 'CM_API_PORT=5480', 'CM_DASHBOARD_PORT=18888',
+        'CM_HEARTBEAT_URL=https://hc.example/test-uuid', 'CM_RELYING_PARTY_ID=pc.tailnet.ts.net', 'CM_SECRETS_DIR=/tmp/cm-test-secrets', 'CM_TAG=latest')
+    $r = Invoke-TestDeploy -EnvText $envText
+    Assert-Equal 'refused' $r.Result.Outcome
+    Assert-Equal 4 $r.Result.ExitCode
+    Assert-Match $r.Log 'ALERT deploy refused'
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+}
+
+Test-Case 'deployer: a missing state file and nothing running or pinned is still a first deploy' {
+    $r = Invoke-TestDeploy -Machine @{ RunningServices = @() }
+    Assert-Equal 'deployed' $r.Result.Outcome
+    Assert-Equal 0 $r.Result.ExitCode
+    Assert-Equal $script:Sha2 $r.State.current.sha
+}
+
 Test-Case 'deployer: the .ipa sync is the last step of a good deploy' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState)
     $lastIndex = $global:CmCalls.Count - 1
