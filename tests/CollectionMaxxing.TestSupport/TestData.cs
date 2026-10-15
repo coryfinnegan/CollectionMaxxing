@@ -117,14 +117,14 @@ public static class TestData
         return item.Id;
     }
 
-    /// <summary>Adds an open scan session started by the library's editor and returns its id.</summary>
-    public static async Task<Guid> CreateScanSessionAsync(PostgresFixture db, TestLibrary library)
+    /// <summary>Adds an open scan session started by <paramref name="userId"/> (the library's editor unless given) and returns its id.</summary>
+    public static async Task<Guid> CreateScanSessionAsync(PostgresFixture db, TestLibrary library, Guid? userId = null)
     {
         var session = new ScanSession
         {
             Id = Guid.CreateVersion7(),
             LibraryId = library.Id,
-            UserId = library.EditorId,
+            UserId = userId ?? library.EditorId,
             Status = ScanSessionStatus.Open,
             CreatedAt = Now,
         };
