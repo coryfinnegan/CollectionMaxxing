@@ -88,6 +88,7 @@ function New-FakeMachine {
         Graph                   commit graph: sha -> array of all its ancestors (default: Sha2 descends from Sha1)
         FetchFails              make `git fetch` fail
         AlertFails              make the failure-alert ping fail
+        RunningServices         container ids that `compose ps -q --status running` lists (default: none)
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -96,7 +97,7 @@ function New-FakeMachine {
         IpaBytes = [byte[]](1, 2, 3, 4); IpaSha256 = 'auto'; Digest = $script:Digest
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
-    $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false
+    $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     $global:CmMachine = $m
     $global:CmRunner = {
@@ -121,6 +122,7 @@ function New-FakeMachine {
                     } | ConvertTo-Json -Depth 6 -Compress
                     return & $ok @($json)
                 }
+                if ($line -match '^compose .* ps -q') { return & $ok @($m.RunningServices) }
                 if ($line -match '^compose .* config --format json') { return & $ok @(($m.ComposeConfig | ConvertTo-Json -Depth 8 -Compress)) }
                 if ($line -match '^compose .* run --rm migrate') { return [pscustomobject]@{ ExitCode = $m.MigrateExit; Output = @() } }
                 if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
