@@ -94,6 +94,30 @@ describe('AppLockGate', () => {
     expect(fake.prompts).toBe(before);
   });
 
+  it('uses the five-minute grace period from docs/07', () => {
+    expect(LOCK_GRACE_MS).toBe(5 * 60_000);
+  });
+
+  it('does not ask again at 4:59 away', async () => {
+    await mount();
+    const before = fake.prompts;
+    await send('background');
+    clock = 4 * 60_000 + 59_000;
+    await send('active');
+    expect(fake.prompts).toBe(before);
+  });
+
+  it('asks again at 5:01 away', async () => {
+    await mount();
+    const before = fake.prompts;
+    await send('background');
+    clock = 5 * 60_000 + 1_000;
+    fake.succeed = false;
+    await send('active');
+    expect(await screen.findByText('CollectionMaxxing is locked')).toBeTruthy();
+    expect(fake.prompts).toBeGreaterThan(before);
+  });
+
   it('does nothing when the lock is off, and the setting persists', async () => {
     const storage = new MemoryKeyValueStore();
     setSettingsStorage(storage);

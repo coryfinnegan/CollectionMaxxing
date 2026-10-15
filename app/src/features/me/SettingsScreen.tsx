@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { logout } from '@/features/auth/api';
+import { clearOwnedData } from '@/features/offline/ownedCache';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
@@ -73,6 +74,7 @@ export function SecuritySection() {
   const signOut = useMutation({
     mutationFn: logout,
     onSuccess: () => {
+      clearOwnedData(); // the offline "do I own this?" copy must not outlive the sign-in
       queryClient.clear();
       router.replace('/login');
     },
