@@ -9,6 +9,7 @@ import { MOCK_LIBRARY_ID, mockData, mockMe, newMockId } from './data';
 import { handlers as itemsHandlers } from './items';
 import { handlers as librariesHandlers } from './libraries';
 import { handlers as scanHandlers } from './scan';
+import { handlers as scanReviewHandlers } from './scan-review';
 
 const problem = (status: number, title: string, errors?: Record<string, string[]>) =>
   HttpResponse.json(
@@ -19,7 +20,7 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
 const base = '*/api/v1/libraries/:libraryId/locations';
 
 export const handlers = [
-  ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...authHandlers, ...scanHandlers,
+  ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...authHandlers, ...scanReviewHandlers, ...scanHandlers,
   http.get('*/api/v1/me', () => HttpResponse.json(mockMe())),
 
   http.get(base, () => HttpResponse.json({ items: mockData.locations, nextCursor: null })),
