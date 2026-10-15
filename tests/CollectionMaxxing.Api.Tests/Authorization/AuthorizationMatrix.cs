@@ -216,6 +216,7 @@ public static class AuthorizationMatrix
         InLibrary("DELETE", $"{Libraries}/items/{{id:guid}}", LibraryRole.Editor, allowed: PreconditionFailed, headers: IfMatch),
         InLibrary("POST", $"{Libraries}/items/{{id:guid}}:restore", LibraryRole.Editor, allowed: Ok),
         InLibrary("POST", $"{Libraries}/items/{{id:guid}}:rematch", LibraryRole.Editor, Json, BadRequest),
+        InLibrary("GET", $"{Libraries}/items:deleted", LibraryRole.Editor, allowed: Ok),
         InLibrary("POST", $"{Libraries}/items:bulk", LibraryRole.Editor, Json, BadRequest),
         InLibrary("GET", $"{Libraries}/stats", LibraryRole.Viewer, allowed: Ok),
 

@@ -16,6 +16,14 @@ internal sealed class SteppingClock(DateTimeOffset start) : TimeProvider
     public void Advance(TimeSpan by) => _now += by;
 }
 
+/// <summary>An audit log that records nothing: these tests are about item rules, not the trail (see the Trash and Audit tests).</summary>
+internal sealed class NoAudit : Application.Audit.IAuditLog
+{
+    public void Record(string action, string? entityType, Guid? entityId, Guid? libraryId, IReadOnlyDictionary<string, object>? details = null)
+    {
+    }
+}
+
 public class ItemLifecycleTests(PostgresFixture db) : DatabaseTest(db)
 {
     private static readonly DateTimeOffset Start = new(2026, 6, 1, 9, 0, 0, TimeSpan.Zero);
@@ -31,7 +39,7 @@ public class ItemLifecycleTests(PostgresFixture db) : DatabaseTest(db)
     {
         await using var context = Db.CreateContext(library.ActingAs(LibraryRole.Editor));
         var version = (await context.Items.SingleAsync(i => i.Id == itemId)).Version;
-        var result = await new DeleteItem.Handler(context, clock).HandleAsync(
+        var result = await new DeleteItem.Handler(context, clock, new NoAudit()).HandleAsync(
             new DeleteItem.Command(library.Id, itemId, $"\"{version}\""), CancellationToken.None);
         result.IsSuccess.ShouldBeTrue();
     }
@@ -39,7 +47,7 @@ public class ItemLifecycleTests(PostgresFixture db) : DatabaseTest(db)
     private async Task<Domain.Common.Result<Versioned<ItemDto>>> RestoreAsync(TestLibrary library, Guid itemId, SteppingClock clock)
     {
         await using var context = Db.CreateContext(library.ActingAs(LibraryRole.Editor));
-        return await new RestoreItem.Handler(context, clock).HandleAsync(new RestoreItem.Command(library.Id, itemId), CancellationToken.None);
+        return await new RestoreItem.Handler(context, clock, new NoAudit()).HandleAsync(new RestoreItem.Command(library.Id, itemId), CancellationToken.None);
     }
 
     [Fact]

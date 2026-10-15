@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Audit;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Common;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ public static class DeleteItem
 {
     public sealed record Command(Guid LibraryId, Guid Id, string? IfMatch);
 
-    public sealed class Handler(IAppDbContext db, TimeProvider clock)
+    public sealed class Handler(IAppDbContext db, TimeProvider clock, IAuditLog audit)
     {
         public async Task<Result> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -28,6 +29,7 @@ public static class DeleteItem
             var now = clock.GetUtcNow();
             item.DeletedAt = now;
             item.UpdatedAt = now;
+            audit.Record(AuditActions.ItemDeleted, "item", item.Id, item.LibraryId);
             try
             {
                 await db.SaveChangesAsync(cancellationToken);

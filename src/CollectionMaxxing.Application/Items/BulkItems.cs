@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Audit;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
@@ -21,7 +22,7 @@ public static class BulkItems
 
     public sealed record Command(Guid LibraryId, IReadOnlyList<Guid>? Ids, BulkOperation? Operation, BulkChange? Patch);
 
-    public sealed class Handler(IAppDbContext db, TimeProvider clock)
+    public sealed class Handler(IAppDbContext db, TimeProvider clock, IAuditLog audit)
     {
         public async Task<Result<BulkItemsResultDto>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -66,6 +67,9 @@ public static class BulkItems
                     item.DeletedAt = now;
                     item.UpdatedAt = now;
                 }
+
+                audit.Record(
+                    AuditActions.ItemsBulkDeleted, "item", null, libraryId, new Dictionary<string, object> { ["count"] = items.Count });
             }
             else
             {
