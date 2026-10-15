@@ -107,6 +107,7 @@ public static class AuthorizationMatrix
 
     private const int Ok = 200;
     private const int Created = 201;
+    private const int Accepted = 202;
     private const int NoContent = 204;
     private const int Unauthorized = 401;
     private const int Forbidden = 403;
@@ -165,7 +166,9 @@ public static class AuthorizationMatrix
         SignedIn("GET", "/api/v1/me/sessions", allowed: Ok),
         SignedIn("DELETE", "/api/v1/me/sessions/{id:guid}", allowed: NotFound), // the seeded id is no device of theirs
         SignedIn("POST", "/api/v1/me/devices/pair", allowed: Created) with { Admin = Unauthorized }, // the matrix admin has no row in users, so has no account to pair
-        SignedIn("GET", "/api/v1/me/export"),
+        SignedIn("GET", "/api/v1/me/export", allowed: Accepted), // LIB-2b: starts a job for the caller's own libraries; any signed-in person may
+        SignedIn("GET", "/api/v1/me/export/{id:guid}", allowed: NotFound), // the seeded id is no export of theirs
+        SignedIn("GET", "/api/v1/me/export/{id:guid}/download", allowed: NotFound),
 
         // ---- Sign-in, setup, recovery, tokens (ID): the only anonymous endpoints ---------------------------
         // OpenIddict now fronts the token endpoint and rejects a request that is not a form-encoded grant (400); a well-formed grant
