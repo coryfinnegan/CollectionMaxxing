@@ -1,5 +1,6 @@
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Auth.Pairing;
+using CollectionMaxxing.Api.Exports;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Accounts.Devices;
@@ -13,6 +14,7 @@ public static class AccountEndpoints
     {
         services.AddScoped<GetMe.Handler>();
         services.AddDevicePairing();
+        services.AddExports(); // LIB-2b; the lead may move this line to Program.cs
         return services;
     }
 
@@ -70,11 +72,8 @@ public static class AccountEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization().RequireRecentPasskey();
 
-        app.MapGet("/api/v1/me/export", () => StubEndpoints.NotImplemented())
-            .WithName("StartExport").WithTags("Account")
-            .Produces<ExportDto>(StatusCodes.Status202Accepted)
-            .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().IsStub();
+        // Export my data (LIB-2b): the start route plus its status and download siblings.
+        app.MapExportEndpoints();
 
         return app;
     }
