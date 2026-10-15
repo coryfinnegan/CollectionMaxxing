@@ -1,0 +1,47 @@
+// Small builders shared by the review tests.
+import type { CandidateDto, ReleaseDto } from '@/api/generated/models';
+
+export const release = (n: number, title: string, extra: Partial<ReleaseDto> = {}): ReleaseDto => ({
+  id: `c1000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+  workId: `c2000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+  title,
+  format: 'dvd',
+  platform: null,
+  region: null,
+  edition: null,
+  publisher: null,
+  releaseDate: null,
+  year: 1990,
+  creators: [],
+  pageCount: null,
+  runtimeMinutes: null,
+  coverUrl: null,
+  source: 'user',
+  identifiers: [],
+  ...extra,
+});
+
+let n = 0;
+export const candidate = (extra: Partial<CandidateDto> = {}): CandidateDto => ({
+  id: `b9000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
+  seq: n,
+  source: 'barcode',
+  rawCode: `code-${n}`,
+  symbology: 'ean-13',
+  visibleText: null,
+  localId: null,
+  box: null,
+  boxSource: null,
+  resolution: 'matched',
+  score: 1,
+  artDistance: null,
+  release: null,
+  inferred: null,
+  alternatives: null,
+  decision: 'undecided',
+  copies: 1,
+  alreadyOwnedCount: 0,
+  ownedAt: [],
+  createdItemId: null,
+  ...extra,
+});

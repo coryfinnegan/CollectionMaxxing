@@ -1,5 +1,5 @@
-import { ScannerRoute } from '@/features/scan/scanner/ScannerRoute';
+import { ScannerWithClose } from '@/features/scan/close/ScannerWithClose';
 
 export default function Route() {
-  return <ScannerRoute />;
+  return <ScannerWithClose />;
 }
