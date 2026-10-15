@@ -9,7 +9,8 @@ Everything here was written and tested **without touching the real machine**. Ev
 | `docker-compose.yml`, `.env.example` | The production stack, bound to `127.0.0.1` only |
 | `deployer/` | `Deploy-CollectionMaxxing.ps1` (the deployer), `Install-Deployer.ps1` / `Uninstall-Deployer.ps1` (the scheduled task), `Sync-Ipa.ps1`, `New-Secrets.ps1`, shared `Cm.*.ps1` |
 | `tailscale/` | `Set-TailscaleServe.ps1` |
-| `backup/` | The backup image: `Dockerfile.backup`, `backup.sh`, `backup-lib.sh` |
+| `backup/` | The backup image: `Dockerfile.backup`, `backup.sh`, `backup-lib.sh` (dump, files archive, manifest, retention, heartbeat) |
+| `RESTORE.md` | The runbook for the restore drill (twice a year) and for a real restore. The drill itself is `scripts/restore-drill.ps1` / `scripts/restore-drill.sh` |
 | `docker/` | `Dockerfile.api`, `Dockerfile.migrate` |
 | `proposed/release.yml` | The CI workflow that builds and signs the images (the lead copies it to `.github/workflows/`) |
 | `tests/` | `pwsh -NoProfile -File deploy/tests/Run-Tests.ps1` runs everything and prints one summary line |
@@ -111,6 +112,8 @@ docker compose -p collectionmaxxing -f C:\CollectionMaxxing\repo\deploy\docker-c
 Get-ChildItem F:\Backups\CollectionMaxxing -Recurse
 ```
 (`exec` here needs `CM_TAG` set; take it from `C:\CollectionMaxxing\state\deployer-state.json` > `current.sha`, and run `$env:CM_TAG='<sha>'` first.) Expect `database dumped to db/collectionmaxxing-<time>.dump` and `files archived to files/files-<time>.tar.gz`, and those two files on F:. Nightly runs happen at `CM_BACKUP_SCHEDULE` (default 03:00 in `CM_TZ`). Retention is 14 daily, 8 weekly and 12 monthly; a failed night never deletes anything.
+
+Each dump has a **manifest** next to it, `db/collectionmaxxing-<time>.manifest.json`: the row count of every table (read just before and just after the dump), the newest migration, the sha256 of the dump and of the files archive, and a sha256 list of every file in the archive. Counts, hashes, file names and times only: no row data, no file content. The restore drill compares a restored backup against it. A run that cannot write the manifest counts as failed (and pings `/fail`); the manifest is pruned together with its dump.
 **Undo:** delete the files in the backup folder.
 
 ### 9. Heartbeat (an email when a night is missed)
@@ -133,7 +136,7 @@ Nothing here is set up. When you want it (docs/10): create a free Backblaze B2 b
 | 1 | `git clone` into `C:\CollectionMaxxing\repo` |
 | 2 | Copies `.env.example` to `.env` (you edit it) |
 | 3 | `New-Secrets.ps1 -Apply`: writes two `.pfx` files |
-| 5, and every 2 minutes after | `docker pull` of the three images; `gh attestation verify`; `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; writes `state\deployer-state.json` and `logs\deployer.log*`; `docker run --rm ... sh -c "cp ..."` (the `.ipa` copy) and `gh release download` |
+| 5, and every 2 minutes after | `git -C ...\repo fetch origin main` (only when a new image appeared) and read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify`; `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; writes `state\deployer-state.json` and `logs\deployer.log*`; `docker run --rm ... sh -c "cp ..."` (the `.ipa` copy) and `gh release download` |
 | 6 | `tailscale serve --bg --https=443 http://127.0.0.1:5480` |
 | 7 | `schtasks /Create ...` (one task) |
 | 8 | `backup.sh once` inside the backup container |
@@ -143,14 +146,26 @@ It never runs `docker system prune`, `docker volume prune`, `docker rm` on anyth
 ## How the deployer decides (for review)
 
 1. `docker pull` of `...collectionmaxxing-api:main`; its `org.opencontainers.image.revision` label is the commit SHA.
-2. Same SHA as the running one: stop. A SHA that already failed here: skip until a newer one appears. A build time older than the running one: **downgrade refused**.
+2. Same SHA as the running one: stop. A SHA that already failed here: skip until a newer one appears. Then the **ancestry guard**: `git -C C:\CollectionMaxxing\repo fetch origin main`, then `git merge-base --is-ancestor <running sha> <new sha>`. The new commit must be a strict descendant of the running one. An older commit, a diverged branch, a commit the clone has never seen, a running commit the clone does not know (or a state file that cannot be read), or a failed fetch all **refuse the deploy** (exit 4). Build times and run numbers play no part. The first ever deploy has nothing to compare with.
 3. Pull `api`, `migrate` and `backup` at that SHA. For each, `gh attestation verify oci://...@sha256:<digest> --repo coryfinnegan/CollectionMaxxing --signer-workflow coryfinnegan/CollectionMaxxing/.github/workflows/release.yml`, **and** the certificate must say `refs/heads/main` (and the same commit). Any failure: log it, do nothing.
 4. `docker compose run --rm migrate` (expand-only migrations, so the running api stays compatible). Failure: the api is not touched.
 5. `docker compose up -d api backup aspire-dashboard` with `CM_TAG=<sha>`, then up to 12 smoke tests of `http://127.0.0.1:5480/health/ready` 5 seconds apart.
 6. Success: record the SHA as last good, then sync the `.ipa`. Failure: remember the SHA as bad, `up -d` with the previous good tag, and smoke test again.
 
-State lives in `C:\CollectionMaxxing\state`, logs in `C:\CollectionMaxxing\logs` (1 MB each, 5 kept). The log never contains the database password or the heartbeat URL. Exit codes: 0 fine or nothing to do, 1 deploy failed or rolled back, 2 config refused, 3 Docker or GHCR not reachable.
+State lives in `C:\CollectionMaxxing\state`, logs in `C:\CollectionMaxxing\logs` (1 MB each, 5 kept). The log never contains the database password or the heartbeat URL.
+
+**Exit codes:** 0 fine or nothing to do (also "already up to date", "known bad, waiting for a newer one", a dry run), 1 deploy failed or rolled back (migration failed, smoke test failed, crashed), 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state), 5 the `.ipa` sync failed its checksum after a good deploy.
+
+**Refusals are loud.** Every non-zero result of a real (`-Apply`) run writes a line starting `ALERT deploy <outcome>` to `deployer.log` and pings `<CM_HEARTBEAT_URL>/fail` with the reason as the body: the same free healthchecks.io check the nightly backup uses, so you get the same email. (A deploy alert also marks that check "down" until the next good backup ping; that is the price of using one channel.) With no heartbeat URL the log line is the only alert. A failed ping never changes the exit code. The poller repeats the ping every 2 minutes while the cause persists; healthchecks only emails on the change.
+
+**Rolling back on purpose** is the one way to go to an older commit, and it is separate from the poller:
+
+```powershell
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Deploy-CollectionMaxxing.ps1 -RollbackTo <40-char sha>          # dry run: prints the plan
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Deploy-CollectionMaxxing.ps1 -RollbackTo <40-char sha> -Apply
+```
+The target must be an **older commit of the running one** (a newer one is a normal deploy; a diverged or unknown one is refused). Its three images get the same attestation proof as any deploy. No migration runs (they are expand-only). If the older version fails its smoke test, the version that was running is pinned again and the run exits 1. On success the commit you rolled back from is remembered as bad, so the poller does not put it straight back; a newer commit on main deploys normally.
 
 ## Changing the code
 
-Run `pwsh -NoProfile -File deploy/tests/Run-Tests.ps1` (about 30 seconds; needs Git for Windows' bash, or Linux). `-DockerBuild` also builds the three Dockerfiles as `cm-ops1-test-*` images and removes only those tags. Tests never touch the real Docker, GitHub, Tailscale or Task Scheduler: every external command goes through `Invoke-Cm`, which the tests replace with a recorder.
+Run `pwsh -NoProfile -File deploy/tests/Run-Tests.ps1` (about a minute and a half; needs Git for Windows' bash, or Linux). Most of it needs no Docker daemon; the restore-drill suite starts real throwaway Postgres containers (`cm-ops1-test-*`, no network, no ports, no volumes, removed afterwards) and needs Docker running and the `postgres:17` image, and `-SkipDocker` leaves it out. `-DockerBuild` also builds the three Dockerfiles as `cm-ops1-test-*` images and removes only those tags. Tests never touch the real Docker, GitHub, Tailscale or Task Scheduler: every external command goes through `Invoke-Cm`, which the tests replace with a recorder.

@@ -4,18 +4,31 @@
 
 .DESCRIPTION
   Finds the newest main image on GHCR, checks its build attestation (built by this repo's release workflow from
-  refs/heads/main), refuses downgrades, migrates, restarts the api, smoke tests /health/ready and, if that fails,
-  pins the previous good tag and restarts. A second run while one is active exits at once.
+  refs/heads/main), refuses to go backwards (the new commit must descend from the deployed one: git merge-base
+  --is-ancestor; an unknown deployed commit is refused), migrates, restarts the api, smoke tests /health/ready and, if
+  that fails, pins the previous good tag and restarts. A second run while one is active exits at once.
+
+  Refusals are loud: a refused, failed or rolled-back deploy exits non-zero, writes an ALERT line to the log and pings
+  <CM_HEARTBEAT_URL>/fail (the free check the nightly backup already uses).
 
   Without -Apply this script changes nothing: it checks the config and prints the commands a real run would make.
-  -WhatIf does the same. Exit codes: 0 done or nothing to do, 1 deploy failed or rolled back, 2 config refused,
-  3 Docker or GHCR not reachable.
+  -WhatIf does the same.
+  Exit codes: 0 done or nothing to do, 1 deploy failed or rolled back, 2 config refused, 3 Docker or GHCR not reachable,
+  4 refused (not a descendant, not attested, unreadable state), 5 the .ipa sync failed (checksum).
 
 .PARAMETER Apply
   Really deploy. The scheduled task passes this; running by hand without it is safe.
 
+.PARAMETER RollbackTo
+  The explicit rollback path, the only way back to an older commit: a full 40 character commit hash that is an
+  ancestor of the deployed one. Its images must be attested like any other; no migration runs. The commit rolled back
+  from is not redeployed until a newer one lands on main. Needs -Apply to do anything.
+
 .EXAMPLE
   pwsh -NoProfile -File Deploy-CollectionMaxxing.ps1            # dry run: prints the plan
+
+.EXAMPLE
+  pwsh -NoProfile -File Deploy-CollectionMaxxing.ps1 -RollbackTo <sha>          # dry run of a rollback
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -25,6 +38,7 @@ param(
     [string]$Repo = 'coryfinnegan/CollectionMaxxing',
     [int]$SmokeRetries = 12,
     [int]$SmokeDelaySeconds = 5,
+    [string]$RollbackTo = '',
     [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
@@ -35,5 +49,5 @@ $ErrorActionPreference = 'Stop'
 $doApply = $Apply.IsPresent -and -not $WhatIfPreference
 Initialize-Cm -Apply $doApply
 $ctx = New-CmContext -Root $Root -ComposeFile $ComposeFile -EnvFile $EnvFile -Repo $Repo -SmokeRetries $SmokeRetries -SmokeDelaySeconds $SmokeDelaySeconds
-$result = Invoke-CmDeploy -Ctx $ctx
+$result = Invoke-CmDeploy -Ctx $ctx -RollbackTo $RollbackTo
 exit $result.ExitCode

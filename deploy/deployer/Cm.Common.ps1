@@ -40,12 +40,19 @@ function Add-CmLogLine {
     Add-Content -LiteralPath $Path -Value $Line -Encoding utf8
 }
 
+function Hide-CmSecrets {
+    <# Masks every known secret (database password, heartbeat URL) in a piece of text. #>
+    param([string]$Text)
+    foreach ($secret in @($global:CmSecrets)) {
+        if ($secret) { $Text = $Text.Replace($secret, '***') }
+    }
+    $Text
+}
+
 function Write-CmLog {
     <# Prints a line and, in apply mode, appends it to the rotating log file. Known secrets are masked. #>
     param([Parameter(Mandatory)][string]$Message, [string]$Level = 'INFO')
-    foreach ($secret in @($global:CmSecrets)) {
-        if ($secret) { $Message = $Message.Replace($secret, '***') }
-    }
+    $Message = Hide-CmSecrets $Message
     $line = '{0:u} {1,-5} {2}' -f [DateTime]::UtcNow, $Level, $Message
     Write-Host $line
     if ($global:CmApply -and $global:CmLogFile) { Add-CmLogLine -Path $global:CmLogFile -Line $line }

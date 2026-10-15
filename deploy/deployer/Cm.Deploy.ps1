@@ -16,6 +16,7 @@ function New-CmContext {
     $name = ($Repo -split '/')[1].ToLowerInvariant()
     [pscustomobject]@{
         Root              = $Root
+        RepoDir           = Join-Path $Root 'repo'
         ComposeFile       = $ComposeFile
         EnvFile           = $EnvFile
         Repo              = $Repo
@@ -104,6 +105,9 @@ function Get-CmPlan {
     $plan = @()
     $plan += Format-CmCommand 'docker' @('pull', (Get-CmImageRef $Ctx 'api' 'main'))
     $plan += Format-CmCommand 'docker' @('image', 'inspect', (Get-CmImageRef $Ctx 'api' 'main'), '--format', '{{json .}}')
+    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'fetch', '--quiet', 'origin', 'main')
+    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'merge-base', '--is-ancestor', '<deployed sha>', $tag)
+    $plan += '(the deploy is refused unless the new commit descends from the deployed one; an unknown deployed commit is refused too)'
     foreach ($name in 'api', 'migrate', 'backup') {
         $plan += Format-CmCommand 'docker' @('pull', (Get-CmImageRef $Ctx $name $tag))
         $plan += Format-CmCommand 'gh' @('attestation', 'verify', "oci://$($Ctx.ImagePrefix)$name@<digest>", '--repo', $Ctx.Repo,
@@ -114,6 +118,26 @@ function Get-CmPlan {
     $plan += Format-CmCommand 'curl' @('-s', '-m', '5', '-w', '%{http_code}', $Ctx.SmokeUrl)
     $plan += '(if the smoke test fails: the same up -d with CM_TAG=<previous good sha>)'
     $plan += '(then: Sync-Ipa.ps1 copies the newest .ipa from the latest GitHub release into the files volume)'
+    $plan += '(any refusal, failure or rollback exits non-zero, writes an ALERT line to the log and pings <CM_HEARTBEAT_URL>/fail)'
+    $plan
+}
+
+function Get-CmRollbackPlan {
+    param($Ctx, [string]$Target)
+    $sha = if ($Target) { $Target } else { '<target sha>' }
+    $plan = @()
+    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'fetch', '--quiet', 'origin', 'main')
+    $plan += "(refused unless $sha is an older commit of the deployed one: git merge-base --is-ancestor $sha <deployed sha>)"
+    foreach ($name in 'api', 'migrate', 'backup') {
+        $plan += Format-CmCommand 'docker' @('pull', (Get-CmImageRef $Ctx $name $sha))
+        $plan += Format-CmCommand 'gh' @('attestation', 'verify', "oci://$($Ctx.ImagePrefix)$name@<digest>", '--repo', $Ctx.Repo,
+            '--signer-workflow', "$($Ctx.Repo)/.github/workflows/release.yml", '--format', 'json')
+    }
+    $plan += '(no migration: migrations are expand-only, so the older api runs on the newer schema)'
+    $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services)) @{ CM_TAG = $sha }
+    $plan += Format-CmCommand 'curl' @('-s', '-m', '5', '-w', '%{http_code}', $Ctx.SmokeUrl)
+    $plan += '(if the older version is not healthy: the same up -d with CM_TAG=<the version that was running>)'
+    $plan += '(on success the commit rolled back from is remembered as bad, so the poller does not put it straight back)'
     $plan
 }
 
@@ -129,21 +153,148 @@ function Get-CmComposeGuard {
     Test-CmConfig -EnvMap $EnvMap -ComposeConfig $config
 }
 
-function Invoke-CmDeploy {
-    <#
-      One deployer run. Returns @{ Outcome; ExitCode }.
-      Outcomes: dry-run, busy, config-error, no-docker, up-to-date, known-bad, refused, downgrade-refused, deployed,
-                migrate-failed, rolled-back, failed.
-    #>
-    param($Ctx)
-    function Result($outcome, $code) { [pscustomobject]@{ Outcome = $outcome; ExitCode = $code } }
+# ---- the ancestry guard ------------------------------------------------------------------------------------------------
 
+function Update-CmRepo {
+    <# Fetches main into the deployer's clone so the commits to compare exist locally. Apply mode only. True on success. #>
+    param($Ctx)
+    $r = Invoke-Cm -Mutating -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'fetch', '--quiet', 'origin', 'main')
+    $r.ExitCode -eq 0
+}
+
+function Test-CmAncestry {
+    <#
+      Decides by commit ancestry (git merge-base --is-ancestor), never by build time or run number, whether Target may
+      replace Current. Ok only when Target is a strict descendant of Current.
+      Relation: descendant, equal, ancestor (Target is older), diverged, unknown-current, unknown-target.
+      Anything git cannot answer (no clone, a commit it has never seen, a malformed hash) fails closed.
+    #>
+    param($Ctx, [string]$Current, [string]$Target)
+    function Answer($ok, $relation, $reason) { [pscustomobject]@{ Ok = $ok; Relation = $relation; Reason = $reason } }
+    $short = { param($s) if ("$s".Length -ge 12) { "$s".Substring(0, 12) } else { "'$s'" } }
+
+    if ("$Current" -cnotmatch '^[0-9a-f]{40}$') { return Answer $false 'unknown-current' "the deployed commit $(& $short $Current) is not a full commit hash, so the new one cannot be checked against it" }
+    if ("$Target" -cnotmatch '^[0-9a-f]{40}$') { return Answer $false 'unknown-target' "the target commit $(& $short $Target) is not a full commit hash" }
+
+    foreach ($which in @(@('unknown-current', $Current), @('unknown-target', $Target))) {
+        $r = Invoke-Cm -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'cat-file', '-e', ($which[1] + '^{commit}'))
+        if ($r.ExitCode -ne 0) {
+            $what = if ($which[0] -eq 'unknown-current') { 'the deployed commit' } else { 'the new commit' }
+            return Answer $false $which[0] "$what $(& $short $which[1]) is not in the local clone at $($Ctx.RepoDir), so the order of the two cannot be checked"
+        }
+    }
+    if ($Current -eq $Target) { return Answer $false 'equal' "commit $(& $short $Target) is the one already deployed" }
+
+    $forward = Invoke-Cm -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'merge-base', '--is-ancestor', $Current, $Target)
+    if ($forward.ExitCode -eq 0) { return Answer $true 'descendant' '' }
+    if ($forward.ExitCode -ne 1) { return Answer $false 'unknown-current' 'git could not compare the two commits' }
+    $backward = Invoke-Cm -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'merge-base', '--is-ancestor', $Target, $Current)
+    if ($backward.ExitCode -eq 0) { return Answer $false 'ancestor' "commit $(& $short $Target) is older than the deployed $(& $short $Current)" }
+    Answer $false 'diverged' "commit $(& $short $Target) has diverged from the deployed $(& $short $Current) (it is not a descendant of it)"
+}
+
+function Read-CmStateStrict {
+    <# Like Read-CmState, but a state file that exists and cannot be read is a problem, not "nothing deployed yet". #>
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ Ok = $true; State = @{}; Reason = '' } }
+    try { $state = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -AsHashtable } catch { $state = $null }
+    if ($state -isnot [hashtable]) {
+        return [pscustomobject]@{ Ok = $false; State = @{}; Reason = "the state file $Path exists but cannot be read; refusing to treat this as a first deploy" }
+    }
+    [pscustomobject]@{ Ok = $true; State = $state; Reason = '' }
+}
+
+# ---- loud failures -----------------------------------------------------------------------------------------------------
+
+function New-CmResult {
+    <# Exit codes: 0 done or nothing to do, 1 failed or rolled back, 2 config refused, 3 Docker/GHCR unreachable, 4 refused, 5 .ipa sync failed. #>
+    param([string]$Outcome, [int]$Code, [string]$Reason = '')
+    [pscustomobject]@{ Outcome = $Outcome; ExitCode = $Code; Reason = $Reason }
+}
+
+function Initialize-CmRun {
+    <# Reads .env, sets the log file and the secrets to mask, points the smoke test at the configured port. Returns the .env table. #>
+    param($Ctx)
     $envMap = Read-CmEnvFile -Path $Ctx.EnvFile
     Initialize-Cm -Apply $global:CmApply -LogFile $Ctx.LogFile -Secrets @($envMap['POSTGRES_PASSWORD'], $envMap['CM_HEARTBEAT_URL'])
     $apiPort = 0
     if ([int]::TryParse("$($envMap['CM_API_PORT'])", [ref]$apiPort) -and -not (Test-CmPort 'CM_API_PORT' $apiPort)) {
         $Ctx.SmokeUrl = "http://127.0.0.1:$apiPort/health/ready"
     }
+    $envMap
+}
+
+function Send-CmAlert {
+    <#
+      A refused, failed or rolled-back run is announced twice: an ALERT line in the deployer log, and a ping of
+      <CM_HEARTBEAT_URL>/fail (the same free check the nightly backup uses; healthchecks.io emails on it) with the reason
+      as the body. A failed ping is logged and changes nothing: the exit code stays what the deploy decided.
+    #>
+    param($Ctx, $Result)
+    $reason = if ($Result.Reason) { $Result.Reason } else { 'no reason recorded; see the lines above in the log' }
+    $envMap = Initialize-CmRun -Ctx $Ctx
+    Write-CmLog "ALERT deploy $($Result.Outcome) (exit $($Result.ExitCode)): $reason" 'ERROR'
+    $base = "$($envMap['CM_HEARTBEAT_URL'])".Trim()
+    if (-not $base) {
+        Write-CmLog 'CM_HEARTBEAT_URL is not set in .env, so no failure ping was sent; this log line is the only alert' 'WARN'
+        return
+    }
+    $body = Hide-CmSecrets "ALERT deploy $($Result.Outcome): $reason"
+    if ($body.Length -gt 900) { $body = $body.Substring(0, 900) }
+    $sink = if ($IsWindows) { 'NUL' } else { '/dev/null' }
+    $ping = Invoke-Cm -Command 'curl' -Arguments @('-fsS', '-m', '10', '--retry', '3', '-o', $sink, '--data-raw', $body, ($base.TrimEnd('/') + '/fail'))
+    if ($ping.ExitCode -ne 0) { Write-CmLog 'alert ping failed (the log line above is still the alert)' 'WARN' }
+}
+
+# ---- one deploy ----------------------------------------------------------------------------------------------------------
+
+function Get-CmVerifiedImages {
+    <# Pulls api, migrate and backup at one commit and proves each came from this repo's workflow on main at that commit. #>
+    param($Ctx, [string]$Sha)
+    $infos = @{}
+    foreach ($name in 'api', 'migrate', 'backup') {
+        $ref = Get-CmImageRef $Ctx $name $Sha
+        $p = Invoke-Cm -Mutating -Command 'docker' -Arguments @('pull', '--quiet', $ref)
+        $info = if ($p.ExitCode -eq 0) { Get-CmImageInfo -Ctx $Ctx -Ref $ref } else { $null }
+        if (-not $info -or $info.Revision -ne $Sha) {
+            return [pscustomobject]@{ Ok = $false; Reason = "$ref is missing or is not built from $Sha; nothing deployed"; Infos = $null }
+        }
+        $check = Test-CmAttestation -Ctx $Ctx -Info $info -Sha $Sha
+        if (-not $check.Ok) { return [pscustomobject]@{ Ok = $false; Reason = "$($check.Reason); nothing deployed"; Infos = $null } }
+        $infos[$name] = $info
+    }
+    [pscustomobject]@{ Ok = $true; Reason = ''; Infos = $infos }
+}
+
+function Invoke-CmDeploy {
+    <#
+      One deployer run. Returns @{ Outcome; ExitCode; Reason }. Without -RollbackTo it is the normal poll; with it, the
+      explicit rollback path (the only way to go back to an older commit).
+      Outcomes and exit codes:
+        0  dry-run, busy, up-to-date, known-bad, deployed, manual-rollback
+        1  migrate-failed, rolled-back, failed, rollback-failed, crashed
+        2  config-error
+        3  no-docker
+        4  refused, downgrade-refused, rollback-refused
+        5  ipa-failed
+      Every non-zero outcome of a real (-Apply) run is logged as ALERT and pinged to <CM_HEARTBEAT_URL>/fail.
+    #>
+    param($Ctx, [string]$RollbackTo = '')
+    try {
+        $result = if ($RollbackTo) { Invoke-CmRollbackCore -Ctx $Ctx -Target $RollbackTo } else { Invoke-CmDeployCore -Ctx $Ctx }
+    }
+    catch {
+        $message = "the deployer crashed: $($_.Exception.Message)"
+        Write-CmLog $message 'ERROR'
+        $result = New-CmResult 'crashed' 1 $message
+    }
+    if ($result.ExitCode -ne 0 -and $global:CmApply) { Send-CmAlert -Ctx $Ctx -Result $result }
+    $result
+}
+
+function Invoke-CmDeployCore {
+    param($Ctx)
+    $envMap = Initialize-CmRun -Ctx $Ctx
 
     if (-not $global:CmApply) {
         Write-CmLog 'DRY RUN: nothing will be changed. Add -Apply to deploy for real.'
@@ -151,82 +302,89 @@ function Invoke-CmDeploy {
         foreach ($p in $problems) { Write-CmLog "config problem: $p" 'WARN' }
         Write-CmLog 'A real run would make these calls, in order:'
         foreach ($line in Get-CmPlan -Ctx $Ctx) { Write-CmLog "  $line" }
-        return Result 'dry-run' 0
+        return New-CmResult 'dry-run' 0
     }
 
     $lock = Enter-CmLock -Path $Ctx.LockFile
     if (-not $lock) {
         Write-CmLog 'another deployer run is in progress; exiting' 'INFO'
-        return Result 'busy' 0
+        return New-CmResult 'busy' 0
     }
     try {
         $problems = @(Get-CmComposeGuard -Ctx $Ctx -EnvMap $envMap)
         if ($problems.Count -gt 0) {
             foreach ($p in $problems) { Write-CmLog "config refused: $p" 'ERROR' }
-            return Result 'config-error' 2
+            return New-CmResult 'config-error' 2 ($problems -join '; ')
         }
 
-        $state = Read-CmState -Path $Ctx.StateFile
+        $read = Read-CmStateStrict -Path $Ctx.StateFile
+        if (-not $read.Ok) {
+            Write-CmLog $read.Reason 'ERROR'
+            return New-CmResult 'refused' 4 $read.Reason
+        }
+        $state = $read.State
         $current = $state['current']
 
         # 1. The newest main image.
         $apiMain = Get-CmImageRef $Ctx 'api' 'main'
         $pull = Invoke-Cm -Mutating -Command 'docker' -Arguments @('pull', '--quiet', $apiMain)
         if ($pull.ExitCode -ne 0) {
-            Write-CmLog "could not pull $apiMain (is Docker running, and is there a main image yet?)" 'ERROR'
-            return Result 'no-docker' 3
+            $message = "could not pull $apiMain (is Docker running, and is there a main image yet?)"
+            Write-CmLog $message 'ERROR'
+            return New-CmResult 'no-docker' 3 $message
         }
         $api = Get-CmImageInfo -Ctx $Ctx -Ref $apiMain
         if (-not $api -or $api.Revision -notmatch '^[0-9a-f]{40}$') {
-            Write-CmLog "$apiMain has no usable build revision label; nothing deployed" 'ERROR'
-            return Result 'refused' 0
+            $message = "$apiMain has no usable build revision label; nothing deployed"
+            Write-CmLog $message 'ERROR'
+            return New-CmResult 'refused' 4 $message
         }
         $sha = $api.Revision
 
-        if ($current -and $current['sha'] -eq $sha) { return Result 'up-to-date' 0 }
+        if ($current -and $current['sha'] -eq $sha) { return New-CmResult 'up-to-date' 0 }
         if ($state['failedSha'] -eq $sha) {
             Write-CmLog "image $($sha.Substring(0, 12)) already failed here; waiting for a newer one" 'INFO'
-            return Result 'known-bad' 0
+            return New-CmResult 'known-bad' 0
         }
 
-        # 2. Never go backwards.
-        if ($current -and $current['created'] -and $api.Created) {
-            if ((ConvertTo-CmUtc $api.Created) -lt (ConvertTo-CmUtc $current['created'])) {
-                Write-CmLog "refusing a downgrade: main image $($sha.Substring(0, 12)) is older than the deployed $("$($current['sha'])".Substring(0, 12))" 'WARN'
-                return Result 'downgrade-refused' 0
+        # 2. Never go backwards: the new commit must descend from the deployed one (git, not clocks). The first ever
+        #    deploy has nothing to compare with. A deployed commit this clone does not know fails closed.
+        if ($current) {
+            if (-not (Update-CmRepo -Ctx $Ctx)) {
+                $message = "could not fetch main into $($Ctx.RepoDir), so the new commit cannot be checked against the deployed one; nothing deployed"
+                Write-CmLog $message 'ERROR'
+                return New-CmResult 'downgrade-refused' 4 $message
+            }
+            $order = Test-CmAncestry -Ctx $Ctx -Current "$($current['sha'])" -Target $sha
+            if (-not $order.Ok) {
+                $message = "refusing to deploy $($sha.Substring(0, 12)): $($order.Reason)"
+                Write-CmLog $message 'WARN'
+                return New-CmResult 'downgrade-refused' 4 $message
             }
         }
 
         # 3. All three images at that commit, each proven to come from this repo's workflow on main.
-        $infos = @{}
-        foreach ($name in 'api', 'migrate', 'backup') {
-            $ref = Get-CmImageRef $Ctx $name $sha
-            $p = Invoke-Cm -Mutating -Command 'docker' -Arguments @('pull', '--quiet', $ref)
-            $info = if ($p.ExitCode -eq 0) { Get-CmImageInfo -Ctx $Ctx -Ref $ref } else { $null }
-            if (-not $info -or $info.Revision -ne $sha) {
-                Write-CmLog "$ref is missing or is not built from $sha; nothing deployed" 'ERROR'
-                return Result 'refused' 0
-            }
-            $check = Test-CmAttestation -Ctx $Ctx -Info $info -Sha $sha
-            if (-not $check.Ok) {
-                Write-CmLog "$($check.Reason); nothing deployed" 'ERROR'
-                return Result 'refused' 0
-            }
-            $infos[$name] = $info
+        $verified = Get-CmVerifiedImages -Ctx $Ctx -Sha $sha
+        if (-not $verified.Ok) {
+            Write-CmLog $verified.Reason 'ERROR'
+            return New-CmResult 'refused' 4 $verified.Reason
         }
+        $infos = $verified.Infos
         if ($infos['api'].Digest -ne $api.Digest) {
-            Write-CmLog 'the main tag moved while checking; nothing deployed, will retry' 'WARN'
-            return Result 'refused' 0
+            $message = 'the main tag moved while checking; nothing deployed, will retry'
+            Write-CmLog $message 'WARN'
+            return New-CmResult 'refused' 4 $message
         }
         Write-CmLog "deploying $($sha.Substring(0, 12)) (attestations verified)"
 
         # 4. Migrate (expand-only migrations, so the running api stays compatible), then restart the api.
         $mig = Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $sha } -Arguments (Get-CmComposeArgs $Ctx @('run', '--rm', 'migrate'))
         if ($mig.ExitCode -ne 0) {
-            Write-CmLog 'migration failed; the running api was not touched' 'ERROR'
+            $message = "migration failed for $($sha.Substring(0, 12)); the running api was not touched"
+            Write-CmLog $message 'ERROR'
             $state['failedSha'] = $sha
             Write-CmState -Path $Ctx.StateFile -State $state
-            return Result 'migrate-failed' 1
+            return New-CmResult 'migrate-failed' 1 $message
         }
         $up = Invoke-CmUp -Ctx $Ctx -Tag $sha
         $healthy = ($up.ExitCode -eq 0) -and (Invoke-CmSmokeTest -Ctx $Ctx)
@@ -241,8 +399,14 @@ function Invoke-CmDeploy {
             $state.Remove('failedSha')
             Write-CmState -Path $Ctx.StateFile -State $state
             Write-CmLog "deployed $($sha.Substring(0, 12)); smoke test passed"
-            try { Invoke-CmIpaSync -Ctx $Ctx -Tag $sha | Out-Null } catch { Write-CmLog ".ipa sync failed: $($_.Exception.Message)" 'WARN' }
-            return Result 'deployed' 0
+            try { $ipa = Invoke-CmIpaSync -Ctx $Ctx -Tag $sha }
+            catch { $ipa = [pscustomobject]@{ Outcome = 'error'; ExitCode = 1; Detail = $_.Exception.Message } }
+            if ($ipa.ExitCode -ne 0) {
+                $message = ".ipa sync failed after a good deploy of $($sha.Substring(0, 12)) ($($ipa.Outcome)); the previous .ipa is still served"
+                Write-CmLog $message 'ERROR'
+                return New-CmResult 'ipa-failed' 5 $message
+            }
+            return New-CmResult 'deployed' 0
         }
 
         # 5. Rollback: pin the previous good tag and restart.
@@ -251,12 +415,91 @@ function Invoke-CmDeploy {
         if ($current) {
             Write-CmLog "smoke test failed; pinning previous good $("$($current['sha'])".Substring(0, 12))" 'ERROR'
             Invoke-CmUp -Ctx $Ctx -Tag $current['sha'] | Out-Null
-            if (Invoke-CmSmokeTest -Ctx $Ctx) { Write-CmLog 'rolled back; the previous version is healthy' 'WARN' }
-            else { Write-CmLog 'rolled back but the previous version is not healthy either; check the stack' 'ERROR' }
-            return Result 'rolled-back' 1
+            if (Invoke-CmSmokeTest -Ctx $Ctx) { Write-CmLog 'rolled back; the previous version is healthy' 'WARN'; $tail = 'the previous version is healthy again' }
+            else { Write-CmLog 'rolled back but the previous version is not healthy either; check the stack' 'ERROR'; $tail = 'the previous version is NOT healthy either; check the stack' }
+            return New-CmResult 'rolled-back' 1 "the smoke test failed for $($sha.Substring(0, 12)); rolled back to $("$($current['sha'])".Substring(0, 12)); $tail"
         }
-        Write-CmLog 'smoke test failed and there is no previous good version to return to' 'ERROR'
-        Result 'failed' 1
+        $message = "smoke test failed for $($sha.Substring(0, 12)) and there is no previous good version to return to"
+        Write-CmLog $message 'ERROR'
+        New-CmResult 'failed' 1 $message
+    }
+    finally {
+        Exit-CmLock $lock
+    }
+}
+
+function Invoke-CmRollbackCore {
+    <#
+      The explicit rollback path: go back to an OLDER commit of the deployed one on purpose. The target is held to the
+      same proof as any deploy (images at that commit, attested from main). No migration runs (they are expand-only, so
+      the older api runs on the newer schema). The commit rolled back from is remembered as bad so the poller does not
+      put it straight back; a newer commit on main still deploys normally.
+    #>
+    param($Ctx, [string]$Target)
+    $envMap = Initialize-CmRun -Ctx $Ctx
+
+    if (-not $global:CmApply) {
+        Write-CmLog "DRY RUN: nothing will be changed. Add -Apply to roll back to $Target for real."
+        $problems = @(Get-CmComposeGuard -Ctx $Ctx -EnvMap $envMap)
+        foreach ($p in $problems) { Write-CmLog "config problem: $p" 'WARN' }
+        Write-CmLog 'A real rollback would make these calls, in order:'
+        foreach ($line in Get-CmRollbackPlan -Ctx $Ctx -Target $Target) { Write-CmLog "  $line" }
+        return New-CmResult 'dry-run' 0
+    }
+
+    function Refuse($message) { Write-CmLog $message 'ERROR'; New-CmResult 'rollback-refused' 4 $message }
+
+    $lock = Enter-CmLock -Path $Ctx.LockFile
+    if (-not $lock) {
+        Write-CmLog 'another deployer run is in progress; exiting' 'INFO'
+        return New-CmResult 'busy' 0
+    }
+    try {
+        $problems = @(Get-CmComposeGuard -Ctx $Ctx -EnvMap $envMap)
+        if ($problems.Count -gt 0) {
+            foreach ($p in $problems) { Write-CmLog "config refused: $p" 'ERROR' }
+            return New-CmResult 'config-error' 2 ($problems -join '; ')
+        }
+        $read = Read-CmStateStrict -Path $Ctx.StateFile
+        if (-not $read.Ok) { return Refuse $read.Reason }
+        $state = $read.State
+        $current = $state['current']
+        if (-not $current -or -not $current['sha']) { return Refuse 'rollback refused: no deployed commit is on record, so there is nothing to roll back from' }
+        if ($Target -cnotmatch '^[0-9a-f]{40}$') { return Refuse "rollback refused: '$Target' is not a full (40 character, lower case) commit hash" }
+
+        if (-not (Update-CmRepo -Ctx $Ctx)) { return Refuse "rollback refused: could not fetch main into $($Ctx.RepoDir) to check the order of the commits" }
+        $order = Test-CmAncestry -Ctx $Ctx -Current "$($current['sha'])" -Target $Target
+        if ($order.Relation -ne 'ancestor') {
+            $why = if ($order.Relation -eq 'descendant') { "commit $($Target.Substring(0, 12)) is newer than the deployed one; that is a normal deploy, not a rollback" } else { $order.Reason }
+            return Refuse "rollback refused: $why"
+        }
+
+        $verified = Get-CmVerifiedImages -Ctx $Ctx -Sha $Target
+        if (-not $verified.Ok) { return Refuse "rollback refused: $($verified.Reason)" }
+        Write-CmLog "rolling back from $("$($current['sha'])".Substring(0, 12)) to $($Target.Substring(0, 12)) (attestations verified)" 'WARN'
+
+        $up = Invoke-CmUp -Ctx $Ctx -Tag $Target
+        $healthy = ($up.ExitCode -eq 0) -and (Invoke-CmSmokeTest -Ctx $Ctx)
+        if (-not $healthy) {
+            Invoke-CmUp -Ctx $Ctx -Tag $current['sha'] | Out-Null
+            $back = if (Invoke-CmSmokeTest -Ctx $Ctx) { "$("$($current['sha'])".Substring(0, 12)) is running again" } else { 'the previous version is NOT healthy either; check the stack' }
+            $message = "the older version $($Target.Substring(0, 12)) did not pass the smoke test; $back"
+            Write-CmLog $message 'ERROR'
+            return New-CmResult 'rollback-failed' 1 $message
+        }
+
+        $from = "$($current['sha'])"
+        $state['current'] = @{
+            sha          = $Target
+            created      = $verified.Infos['api'].Created
+            deployedAt   = [DateTime]::UtcNow.ToString('o')
+            rolledBackFrom = $from
+            digests      = @{ api = $verified.Infos['api'].Digest; migrate = $verified.Infos['migrate'].Digest; backup = $verified.Infos['backup'].Digest }
+        }
+        $state['failedSha'] = $from
+        Write-CmState -Path $Ctx.StateFile -State $state
+        Write-CmLog "rolled back to $($Target.Substring(0, 12)); smoke test passed. $($from.Substring(0, 12)) will not be redeployed; a newer commit on main will."
+        New-CmResult 'manual-rollback' 0
     }
     finally {
         Exit-CmLock $lock

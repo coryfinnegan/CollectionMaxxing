@@ -85,6 +85,9 @@ function New-FakeMachine {
         ComposeConfig           object returned by `docker compose config`
         PullFails               make `docker pull` fail (Docker not running)
         IpaBytes, IpaSha256     what `gh release download` puts in the stage folder ($null IpaSha256 = no checksum file)
+        Graph                   commit graph: sha -> array of all its ancestors (default: Sha2 descends from Sha1)
+        FetchFails              make `git fetch` fail
+        AlertFails              make the failure-alert ping fail
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -92,6 +95,8 @@ function New-FakeMachine {
         MigrateExit = 0; UnhealthyTags = @(); ComposeConfig = (New-GoodComposeConfig); PullFails = $false
         IpaBytes = [byte[]](1, 2, 3, 4); IpaSha256 = 'auto'; Digest = $script:Digest
     }
+    $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
+    $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     $global:CmMachine = $m
     $global:CmRunner = {
@@ -141,7 +146,29 @@ function New-FakeMachine {
                 }
                 return & $ok
             }
+            'git' {
+                # A little commit graph: $m.Graph maps a commit to every ancestor of it. A commit that is not a key is unknown.
+                $a = @($Arguments)
+                if ($a[0] -eq '-C') { $a = @($a | Select-Object -Skip 2) }
+                switch ($a[0]) {
+                    'fetch' { if ($m.FetchFails) { return & $fail 128 } return & $ok }
+                    'cat-file' {
+                        $sha = "$($a[2])" -replace '\^\{commit\}$', ''
+                        if ($m.Graph.ContainsKey($sha)) { return & $ok } else { return & $fail 128 }
+                    }
+                    'merge-base' {
+                        $x = $a[2]; $y = $a[3]
+                        if ($x -eq $y -or @($m.Graph[$y]) -contains $x) { return & $ok } else { return & $fail 1 }
+                    }
+                    default { return & $ok }
+                }
+            }
             'curl' {
+                if ($line -match '/fail$') {
+                    # The failure alert (a ping of <heartbeat url>/fail with the reason as the body).
+                    if ($m.AlertFails) { return & $fail 22 }
+                    return & $ok @('')
+                }
                 $code = if ($m.UnhealthyTags -contains $m.Up) { '503' } else { '200' }
                 return & $ok @($code)
             }
@@ -178,7 +205,7 @@ function Set-TestState {
 function Get-TestState {
     param([string]$Root)
     $p = Join-Path $Root 'state/deployer-state.json'
-    if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw | ConvertFrom-Json -AsHashtable } else { @{} }
+    if (Test-Path -LiteralPath $p) { try { Get-Content -LiteralPath $p -Raw | ConvertFrom-Json -AsHashtable } catch { @{ unreadable = $true } } } else { @{} }
 }
 
 function New-TestContext {
