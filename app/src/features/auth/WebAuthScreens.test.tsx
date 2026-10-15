@@ -110,16 +110,10 @@ describe('JoinScreen', () => {
     expect(passkeys.created).toHaveLength(1);
   });
 
-  it('explains an expired invite', async () => {
-    await renderWithProviders(<JoinScreen token="expired-invite" />);
+  it.each(['expired-invite', 'used-invite', 'who-knows'])('shows the same message for the bad, used or expired token %s', async (token) => {
+    await renderWithProviders(<JoinScreen token={token} />);
 
-    expect(await screen.findByText(/invite has expired or was already used/)).toBeTruthy();
-  });
-
-  it('explains an unknown invite', async () => {
-    await renderWithProviders(<JoinScreen token="who-knows" />);
-
-    expect(await screen.findByText(/invite link isn't valid/)).toBeTruthy();
+    expect(await screen.findByText("This invite link isn't valid anymore. Ask for a new one.")).toBeTruthy();
   });
 
   it('says so when the passkey prompt is cancelled', async () => {

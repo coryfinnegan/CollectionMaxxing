@@ -8,7 +8,11 @@ import { handlers as catalogHandlers } from './catalog';
 import { MOCK_LIBRARY_ID, mockData, mockMe, newMockId } from './data';
 import { handlers as itemsHandlers } from './items';
 import { handlers as librariesHandlers } from './libraries';
+<<<<<<< HEAD
 import { handlers as ownershipHandlers } from './ownership';
+=======
+import { handlers as membersHandlers } from './members';
+>>>>>>> d6cfe6d857e5ec7185ec4456853e8210b86b8fb6
 import { handlers as scanHandlers } from './scan';
 import { handlers as scanReviewHandlers } from './scan-review';
 
@@ -21,7 +25,7 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
 const base = '*/api/v1/libraries/:libraryId/locations';
 
 export const handlers = [
-  ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanHandlers,
+  ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanHandlers,
   http.get('*/api/v1/me', () => HttpResponse.json(mockMe())),
 
   http.get(base, () => HttpResponse.json({ items: mockData.locations, nextCursor: null })),

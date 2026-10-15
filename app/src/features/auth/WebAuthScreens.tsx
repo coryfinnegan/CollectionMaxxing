@@ -1,8 +1,8 @@
 // Web-only screens: first-run setup, passkey sign-in and joining by invite.
-import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { getInvitePreview } from './api';
+import { useGetInvitePreview } from '@/api/generated/invites/invites';
+import type { LibraryRole } from '@/api/generated/models';
 import { type FlowContext, ceremonyMessage, joinWithInvite, setUpOwner, signInWithPasskey } from './flows';
 import { getPasskeys } from './services';
 import { Button, Card, Screen, Text, TextField } from '@/ui';
@@ -94,19 +94,23 @@ export function LoginScreen() {
   );
 }
 
-const roleLabel = { editor: 'Editor', viewer: 'Viewer' } as const;
+const roleLabel: Record<LibraryRole, string> = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
+
+/** One message for a bad, used or expired invite: the page must not say which. */
+const invalidInviteCopy = "This invite link isn't valid anymore. Ask for a new one.";
 
 export function JoinScreen({ token }: { token: string }) {
   const { busy, error, run, unsupported } = useCeremony('join');
   const [displayName, setDisplayName] = useState('');
-  const invite = useQuery({ queryKey: ['invite', token], queryFn: () => getInvitePreview(token), retry: false });
+  const preview = useGetInvitePreview(token, { query: { retry: false } });
+  const invite = { ...preview, data: preview.data?.status === 200 ? preview.data.data : undefined };
 
   if (invite.isError) {
     return (
       <Screen title="Join a library">
         <Card>
           <Text accessibilityRole="alert" tone="danger">
-            {ceremonyMessage(invite.error, 'join')}
+            {invalidInviteCopy}
           </Text>
         </Card>
       </Screen>
