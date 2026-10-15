@@ -4,6 +4,7 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Jobs;
+using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Operations;
@@ -186,10 +187,13 @@ public static class SubmitBarcodes
 
             foreach (var candidate in toResolve.Where(c => c.Resolution == CandidateResolution.Pending))
             {
+                // A code that found the UPC allowance spent waits for the next reset instead of being tried (and given up on) now.
+                var waitForQuota = UpcQuotaWindow.IsSpent(answers[candidate.Id]);
+                var runAfter = waitForQuota ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : (DateTimeOffset?)null;
                 await jobs.EnqueueAsync(
                     ResolveJobType,
                     new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId),
-                    new JobEnqueueOptions(DedupeKey: $"{ResolveJobType}:{candidate.Id}"),
+                    new JobEnqueueOptions(runAfter, waitForQuota ? UpcQuotaWindow.DedupeKey(candidate.Id, runAfter!.Value) : $"{ResolveJobType}:{candidate.Id}"),
                     cancellationToken);
             }
         }

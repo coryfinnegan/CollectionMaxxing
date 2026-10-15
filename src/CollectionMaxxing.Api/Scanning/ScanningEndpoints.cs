@@ -35,11 +35,11 @@ public static class ScanningEndpoints
             .ProducesValidationProblem()
             .RequireScanSessionRole(LibraryRole.Viewer);
 
-        // Server-sent events: candidate.added, candidate.updated, photo.status, session.status. Resume with Last-Event-ID. (SCAN-1b)
-        sessions.MapGet("/{id:guid}/events", (Guid id) => StubEndpoints.NotImplemented())
+        // Server-sent events: candidate.added, candidate.updated, photo.status, session.status. Resume with Last-Event-ID.
+        sessions.MapGet("/{id:guid}/events", Events.ScanEventsEndpoint.StreamAsync)
             .WithName("StreamScanSessionEvents").WithTags("Scanning")
             .Produces(StatusCodes.Status200OK, contentType: "text/event-stream")
-            .RequireScanSessionRole(LibraryRole.Viewer).IsStub();
+            .RequireScanSessionRole(LibraryRole.Viewer);
 
         sessions.MapPost("/{id:guid}/barcodes", SubmitBarcodes)
             .WithName("ScanBarcodes").WithTags("Scanning")

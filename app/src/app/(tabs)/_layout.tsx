@@ -1,10 +1,12 @@
 import { Tabs } from 'expo-router';
 import { Platform, View, useWindowDimensions } from 'react-native';
 import { Sidebar } from '@/components/Sidebar';
+import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
+import { AppLockGate } from '@/features/me/appLock';
 import { WIDE_BREAKPOINT, useColors } from '@/theme/tokens';
 
 // Pages that only appear in the web sidebar, never in the phone tab bar.
-const sidebarOnly = ['wishlist', 'lent-out', 'members', 'settings', 'me/locations', 'me/export', 'me/devices', 'me/delete'];
+const sidebarOnly = ['wishlist', 'lent-out', 'members', 'settings', 'me/locations', 'me/export', 'me/devices', 'me/deleted', 'me/delete'];
 
 export default function TabsLayout() {
   const colors = useColors();
@@ -12,6 +14,8 @@ export default function TabsLayout() {
   const wide = Platform.OS === 'web' && width >= WIDE_BREAKPOINT;
 
   return (
+    <AppLockGate>
+    <OwnedDataBridge />
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
       {wide ? <Sidebar /> : null}
       <View style={{ flex: 1 }}>
@@ -41,6 +45,7 @@ export default function TabsLayout() {
         </Tabs>
       </View>
     </View>
+    </AppLockGate>
   );
 }
 
@@ -53,6 +58,7 @@ function titleFor(name: string): string {
     'me/locations': 'Locations',
     'me/export': 'Import and export',
     'me/devices': 'Devices and browsers',
+    'me/deleted': 'Recently deleted',
     'me/delete': 'Delete account',
   };
   return titles[name] ?? name;

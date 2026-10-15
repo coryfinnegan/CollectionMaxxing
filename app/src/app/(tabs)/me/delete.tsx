@@ -1,5 +1,5 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { DeleteAccountScreen } from '@/features/me/DeleteAccountScreen';
 
 export default function Route() {
-  return <Placeholder name="Delete account" description="Delete your library and photos. This can't be undone." />;
+  return <DeleteAccountScreen />;
 }
