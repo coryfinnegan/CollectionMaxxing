@@ -8,11 +8,8 @@ import { handlers as catalogHandlers } from './catalog';
 import { MOCK_LIBRARY_ID, mockData, mockMe, newMockId } from './data';
 import { handlers as itemsHandlers } from './items';
 import { handlers as librariesHandlers } from './libraries';
-<<<<<<< HEAD
 import { handlers as ownershipHandlers } from './ownership';
-=======
 import { handlers as membersHandlers } from './members';
->>>>>>> d6cfe6d857e5ec7185ec4456853e8210b86b8fb6
 import { handlers as scanHandlers } from './scan';
 import { handlers as scanReviewHandlers } from './scan-review';
 
