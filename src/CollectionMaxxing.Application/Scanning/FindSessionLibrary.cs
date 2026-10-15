@@ -19,3 +19,17 @@ public static class FindSessionLibrary
                 .SingleOrDefaultAsync(cancellationToken);
     }
 }
+
+/// <summary>
+/// Use case: is this scan session the caller's own? A session belongs to its library and to the user who started it, so
+/// another member of the same library (even the owner) gets 404 for it, never its contents.
+/// </summary>
+public static class IsMySession
+{
+    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser)
+    {
+        public async Task<bool> HandleAsync(Guid sessionId, CancellationToken cancellationToken) =>
+            currentUser.UserId is { } userId
+            && await db.ScanSessions.AnyAsync(s => s.Id == sessionId && s.UserId == userId, cancellationToken);
+    }
+}

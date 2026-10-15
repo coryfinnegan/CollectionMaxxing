@@ -11,5 +11,7 @@ public static class ScanSessionRoutes
     /// 403 before the endpoint runs, and throws for an endpoint that forgot <c>RequireScanSessionRole</c> (fail closed).
     /// </summary>
     public static RouteGroupBuilder MapScanSessionGroup(this IEndpointRouteBuilder app) =>
-        app.MapGroup(Prefix).AddEndpointFilter<ScanSessionAccessFilter>();
+        app.MapGroup(Prefix)
+            .AddEndpointFilter<ScanSessionOwnerFilter>() // first: someone else's session is 404 whatever the caller's role
+            .AddEndpointFilter<ScanSessionAccessFilter>();
 }

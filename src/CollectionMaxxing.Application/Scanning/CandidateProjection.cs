@@ -1,0 +1,152 @@
+using System.Text.Json;
+using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Scanning;
+using Microsoft.EntityFrameworkCore;
+
+namespace CollectionMaxxing.Application.Scanning;
+
+/// <summary>What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or a key.</summary>
+internal sealed record StoredTrace(IReadOnlyList<TraceStep> Steps, IReadOnlyList<string> OwnedAt);
+
+/// <summary>One entry of a candidate's <c>alternatives</c>: a release the person can pick, with its own ownership.</summary>
+public sealed record StoredAlternative(
+    Guid ReleaseId,
+    string Title,
+    string Format,
+    string? Platform,
+    int? Year,
+    double Score,
+    IReadOnlyList<string> Creators,
+    string? CoverUrl,
+    int AlreadyOwnedCount);
+
+internal static class CandidateJson
+{
+    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+
+    public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
+
+    public static StoredTrace ReadTrace(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new StoredTrace([], []);
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<StoredTrace>(json, Options) ?? new StoredTrace([], []);
+        }
+        catch (JsonException)
+        {
+            return new StoredTrace([], []);
+        }
+    }
+
+    public static IReadOnlyList<StoredAlternative> ReadAlternatives(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<StoredAlternative>>(json, Options) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public static JsonElement? ReadElement(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>Maps candidates to their response shape, loading the releases they point at in a few queries.</summary>
+internal static class CandidateProjection
+{
+    public static async Task<List<CandidateDto>> ToDtosAsync(
+        IAppDbContext db, IReadOnlyList<ScanCandidate> candidates, CancellationToken cancellationToken)
+    {
+        var releaseIds = candidates.Select(c => c.MatchedReleaseId).OfType<Guid>().Distinct().ToList();
+        var releases = await LoadReleasesAsync(db, releaseIds, cancellationToken);
+        return candidates.Select(c => ToDto(c, c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null)).ToList();
+    }
+
+    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release) => new(
+        c.Id,
+        c.Seq,
+        c.Source,
+        c.RawCode,
+        c.Symbology,
+        c.VisibleText,
+        c.LocalId,
+        c.BoxX is { } x && c.BoxY is { } y && c.BoxW is { } w && c.BoxH is { } h ? new BoxDto(x, y, w, h) : null,
+        c.BoxSource,
+        c.Resolution,
+        c.Score,
+        c.ArtDistance,
+        release,
+        CandidateJson.ReadElement(c.InferredJson),
+        CandidateJson.ReadElement(c.AlternativesJson),
+        c.Decision,
+        c.Copies,
+        c.AlreadyOwnedCount,
+        CandidateJson.ReadTrace(c.TraceJson).OwnedAt,
+        c.CreatedItemId);
+
+    /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>
+    public static async Task<Dictionary<Guid, ReleaseDto>> LoadReleasesAsync(
+        IAppDbContext db, IReadOnlyCollection<Guid> releaseIds, CancellationToken cancellationToken)
+    {
+        if (releaseIds.Count == 0)
+        {
+            return [];
+        }
+
+        var releases = await db.Releases.AsNoTracking().Where(r => releaseIds.Contains(r.Id)).ToListAsync(cancellationToken);
+        var workIds = releases.Select(r => r.WorkId).Distinct().ToList();
+        var works = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, cancellationToken);
+        var platformIds = releases.Select(r => r.PlatformId).OfType<Guid>().Distinct().ToList();
+        var platforms = platformIds.Count == 0
+            ? []
+            : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
+        var identifiers = (await db.ReleaseIdentifiers.AsNoTracking()
+                .Where(i => releaseIds.Contains(i.ReleaseId))
+                .OrderBy(i => i.Type).ThenBy(i => i.Value)
+                .ToListAsync(cancellationToken))
+            .ToLookup(i => i.ReleaseId);
+
+        return releases.ToDictionary(
+            r => r.Id,
+            r => ItemProjection.ToReleaseDto(new LoadedRelease(
+                r,
+                works[r.WorkId],
+                r.PlatformId is { } platformId && platforms.TryGetValue(platformId, out var platform) ? platform : null,
+                identifiers[r.Id].Select(i => new ReleaseIdentifierDto(i.Type, i.Value)).ToList())));
+    }
+
+    public static StoredAlternative AlternativeOf(ReleaseDto release, double score, int alreadyOwnedCount) => new(
+        release.Id, release.Title, EnumText.ToText(release.Format), release.Platform?.Name, release.Year, score, release.Creators,
+        release.CoverUrl, alreadyOwnedCount);
+}

@@ -14,7 +14,7 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         var endpoint = AuthorizationMatrix.Cases.Single(c => c.Name == endpointName);
         var world = await ArrangeWorldAsync();
         using var client = ClientFor(actor, world);
-        var url = world.Fill(endpoint.Route) + (endpoint.Query is null ? string.Empty : "?" + endpoint.Query);
+        var url = world.Fill(endpoint.Route, actor) + (endpoint.Query is null ? string.Empty : "?" + endpoint.Query);
         using var request = new HttpRequestMessage(new HttpMethod(endpoint.Method), url);
         if (endpoint.Body is not null)
         {
@@ -43,9 +43,43 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         var otherLibrary = await CreateLibraryAsync();
         var locationId = await TestData.CreateLocationAsync(Db, library.Id, "Seeded shelf");
         var sessionId = await TestData.CreateScanSessionAsync(Db, library);
+
+        // A scan session is its starter's own, so each kind of caller gets a session they started themselves.
+        var ownSessions = new Dictionary<Actor, Guid>
+        {
+            [Actor.Viewer] = await TestData.CreateScanSessionAsync(Db, library, library.ViewerId),
+            [Actor.Editor] = sessionId,
+            [Actor.Owner] = await TestData.CreateScanSessionAsync(Db, library, library.OwnerId),
+        };
         var itemId = await TestData.CreateItemAsync(Db, library);
         var tagId = await TestData.CreateTagAsync(Db, library.Id, "Seeded tag");
-        return new World(library, otherLibrary.OwnerId, locationId, sessionId, itemId, tagId);
+        var ownCandidates = new Dictionary<Actor, Guid>();
+        foreach (var (actor, session) in ownSessions)
+        {
+            ownCandidates[actor] = await AddCandidateAsync(library.Id, session);
+        }
+
+        return new World(library, otherLibrary.OwnerId, locationId, sessionId, itemId, tagId, ownSessions, ownCandidates);
+    }
+
+    private async Task<Guid> AddCandidateAsync(Guid libraryId, Guid sessionId)
+    {
+        var candidate = new Domain.Scanning.ScanCandidate
+        {
+            Id = Guid.CreateVersion7(),
+            LibraryId = libraryId,
+            SessionId = sessionId,
+            Seq = 1,
+            Source = Domain.Scanning.CandidateSource.Barcode,
+            RawCode = "0045496870010",
+            Resolution = Domain.Scanning.CandidateResolution.NotFound,
+            Decision = Domain.Scanning.CandidateDecision.Undecided,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        await using var context = Db.CreateContext();
+        context.ScanCandidates.Add(candidate);
+        await context.SaveChangesAsync();
+        return candidate.Id;
     }
 
     private HttpClient ClientFor(Actor actor, World world) => actor switch
@@ -59,18 +93,21 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         _ => throw new ArgumentOutOfRangeException(nameof(actor)),
     };
 
-    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid LocationId, Guid SessionId, Guid ItemId, Guid TagId)
+    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid LocationId, Guid SessionId, Guid ItemId, Guid TagId, IReadOnlyDictionary<Actor, Guid> OwnSessions, IReadOnlyDictionary<Actor, Guid> OwnCandidates)
     {
         /// <summary>Replaces <c>{libraryId:guid}</c>-style route parameters with real ids.</summary>
-        public string Fill(string route) => RouteParameter().Replace(route, match => match.Groups["name"].Value switch
+        public string Fill(string route, Actor actor) => RouteParameter().Replace(route, match => match.Groups["name"].Value switch
         {
             "libraryId" => Library.Id.ToString(),
 
             // A scan session's id is looked up (the stored session decides the library); any other id is never read by a stub.
-            "id" when route.StartsWith("/api/v1/scan-sessions/", StringComparison.Ordinal) => SessionId.ToString(),
+            "id" when route.StartsWith("/api/v1/scan-sessions/", StringComparison.Ordinal) =>
+                (OwnSessions.TryGetValue(actor, out var own) ? own : SessionId).ToString(),
             "id" when route.Contains("/items/", StringComparison.Ordinal) => ItemId.ToString(),
             "id" when route.Contains("/tags/", StringComparison.Ordinal) => TagId.ToString(),
             "id" => LocationId.ToString(),
+            "cid" when route.Contains("/scan-sessions/", StringComparison.Ordinal) =>
+                (OwnCandidates.TryGetValue(actor, out var candidate) ? candidate : OwnCandidates[Actor.Editor]).ToString(),
             "cid" or "userId" or "assetId" => Guid.CreateVersion7().ToString(),
             "token" => "a-token",
             var other => throw new InvalidOperationException($"The matrix has no seeded value for route parameter '{other}'. Add one in ArrangeWorldAsync."),
