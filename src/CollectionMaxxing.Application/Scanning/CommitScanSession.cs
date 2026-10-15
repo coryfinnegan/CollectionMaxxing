@@ -115,8 +115,12 @@ public static class CommitScanSession
                 }
             }
 
-            session.Status = ScanSessionStatus.Committed;
-            session.CommittedAt = now;
+            // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
+            if (created.Count > 0)
+            {
+                session.Status = ScanSessionStatus.Committed;
+                session.CommittedAt = now;
+            }
 
             var result = new CommitResultDto(created.Count, candidates.Count - accepted.Count, created);
             db.IdempotencyKeys.Add(new IdempotencyKey

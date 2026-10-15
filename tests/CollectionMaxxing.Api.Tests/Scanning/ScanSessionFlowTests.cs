@@ -230,8 +230,11 @@ public class ScanSessionFlowTests(ApiFixture api) : ScanTest(api)
     {
         var library = await CreateLibraryAsync();
         using var editor = As(library, LibraryRole.Editor);
+        var code = ScanData.Upc(9091);
+        await CatalogAsync("Kirby 64", code);
         var sessionId = await StartSessionAsync(editor, library.Id);
-        await CommitAsync(editor, sessionId);
+        await ScanAsync(editor, sessionId, code);
+        (await CommitAsync(editor, sessionId)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         (await editor.DeleteAsync(SessionUrl(sessionId))).StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }
