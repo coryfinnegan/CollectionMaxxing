@@ -26,7 +26,7 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
             request.Headers.Add(name, value);
         }
 
-        using var response = await client.SendAsync(request);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead); // an event stream never ends
 
         ((int)response.StatusCode).ShouldBe(endpoint.ExpectedFor(actor), $"{endpoint.Name} as {actor}");
     }

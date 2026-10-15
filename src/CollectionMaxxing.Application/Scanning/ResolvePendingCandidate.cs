@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
+using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Scanning;
@@ -7,10 +8,21 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Scanning;
 
+/// <summary>How a run of <see cref="ResolvePendingCandidate"/> ended, for a caller that works through many codes.</summary>
+public enum ResolveOutcome
+{
+    /// <summary>Nothing more to do for this code (resolved, given up on, or no longer waiting).</summary>
+    Done,
+
+    /// <summary>The UPC allowance is spent; the code waits for the next reset.</summary>
+    QuotaSpent,
+}
+
 /// <summary>
 /// Background job: resolves a code that its request ran out of time for. It runs as the person who scanned it, in their
 /// library, so what it reads and writes is what they could. If the providers still can't answer, the candidate becomes an
-/// Error (the person can search for it by hand) instead of waiting forever. Safe to run twice: a candidate that is no
+/// Error (the person can search for it by hand) instead of waiting forever, except when the daily UPC allowance is spent: then
+/// it stays Pending and is looked up again after the next reset (docs/02, "UPC quota strategy"). Safe to run twice: a candidate that is no
 /// longer Pending is left alone.
 /// </summary>
 public sealed class ResolvePendingCandidate(
@@ -18,9 +30,14 @@ public sealed class ResolvePendingCandidate(
     CurrentUser currentUser,
     BarcodeResolver external,
     CandidateResolver resolver,
-    ScanningOptions options) : IJobHandler<SubmitBarcodes.ResolveJob>
+    ScanningOptions options,
+    IJobQueue jobs,
+    TimeProvider clock) : IJobHandler<SubmitBarcodes.ResolveJob>
 {
-    public async Task HandleAsync(SubmitBarcodes.ResolveJob job, CancellationToken cancellationToken)
+    public async Task HandleAsync(SubmitBarcodes.ResolveJob job, CancellationToken cancellationToken) =>
+        await RunAsync(job, cancellationToken);
+
+    public async Task<ResolveOutcome> RunAsync(SubmitBarcodes.ResolveJob job, CancellationToken cancellationToken)
     {
         // A job has no signed-in caller; it takes the identity of the scan's owner, with the least role that can see the session.
         currentUser.Initialize(job.UserId, [new Membership(job.LibraryId, LibraryRole.Viewer)]);
@@ -29,13 +46,13 @@ public sealed class ResolvePendingCandidate(
             c => c.Id == job.CandidateId && c.SessionId == job.SessionId, cancellationToken);
         if (candidate is null || candidate.Resolution != CandidateResolution.Pending)
         {
-            return;
+            return ResolveOutcome.Done;
         }
 
         var open = await db.ScanSessions.AnyAsync(s => s.Id == job.SessionId && s.Status == ScanSessionStatus.Open, cancellationToken);
         if (!open || !Identifier.TryParse(candidate.RawCode, out var identifier))
         {
-            return;
+            return ResolveOutcome.Done;
         }
 
         var local = await resolver.FindLocalAsync([identifier], cancellationToken);
@@ -59,11 +76,21 @@ public sealed class ResolvePendingCandidate(
         }
 
         await resolver.ApplyAsync(job.LibraryId, candidate, answer, cancellationToken);
-        if (candidate.Resolution == CandidateResolution.Pending)
+        var quotaSpent = candidate.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(answer);
+        if (candidate.Resolution == CandidateResolution.Pending && !quotaSpent)
         {
             candidate.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        if (!quotaSpent)
+        {
+            return ResolveOutcome.Done;
+        }
+
+        var runAfter = UpcQuotaWindow.NextResetAfter(clock.GetUtcNow());
+        await jobs.EnqueueAsync(
+            SubmitBarcodes.ResolveJobType, job, new JobEnqueueOptions(runAfter, UpcQuotaWindow.DedupeKey(candidate.Id, runAfter)), cancellationToken);
+        return ResolveOutcome.QuotaSpent;
     }
 }
