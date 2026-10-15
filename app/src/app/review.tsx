@@ -1,5 +1,5 @@
-import { Placeholder } from '@/ui/Placeholder';
+import { ReviewRoute } from '@/features/review/ReviewRoute';
 
 export default function Route() {
-  return <Placeholder name="Review" description="Check what was found, fix anything that needs a pick, then add it all in one tap." />;
+  return <ReviewRoute />;
 }

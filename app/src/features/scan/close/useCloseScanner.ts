@@ -1,5 +1,5 @@
 // Runs the close-scanner machine: reads the tray, abandons the session on Discard, and navigates.
-import { useCallback, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { abandonScanSession } from '@/api/generated/scanning/scanning';
 import { ApiError } from '@/lib/http';
@@ -16,25 +16,19 @@ export const unreviewedCount = (store: StoreApi<TrayStore>) => store.getState().
 
 export function useCloseScanner({ store = getTrayStore(), onLeave, onReview }: Deps) {
   const [state, setState] = useState<CloseState>(initialClose);
+  // The machine's latest state, so two quick taps in one frame are judged against the real current phase.
   const current = useRef<CloseState>(initialClose);
-  const deps = useRef({ onLeave, onReview });
-  deps.current = { onLeave, onReview };
 
-  const dispatch = useCallback(
-    (event: CloseEvent) => {
-      const next = closeStep(current.current, event);
-      current.current = next.state;
-      setState(next.state);
-      run(next.effect);
-    },
-    // `run` only uses refs and stable store handles.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [store],
-  );
+  function dispatch(event: CloseEvent) {
+    const next = closeStep(current.current, event);
+    current.current = next.state;
+    setState(next.state);
+    run(next.effect);
+  }
 
   function run(effect: CloseEffect) {
-    if (effect === 'leave') deps.current.onLeave();
-    else if (effect === 'review') deps.current.onReview();
+    if (effect === 'leave') onLeave();
+    else if (effect === 'review') onReview();
     else if (effect === 'discard') void discard();
   }
 
