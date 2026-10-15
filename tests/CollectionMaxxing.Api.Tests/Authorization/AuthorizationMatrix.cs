@@ -232,18 +232,19 @@ public static class AuthorizationMatrix
         InLibrary("GET", $"{Libraries}/ownership", LibraryRole.Viewer, allowed: Ok, query: "code=0045496870010"),
         InLibrary("GET", $"{Libraries}/ownership/snapshot", LibraryRole.Viewer, allowed: Ok),
 
-        // ---- Scanning (SCAN): a viewer may scan, an editor commits. Addressed by session id. ---------------
-        InLibrary("POST", $"{Libraries}/scan-sessions", LibraryRole.Viewer, Json),
-        InLibrary("GET", Sessions, LibraryRole.Viewer),
+        // ---- Scanning (SCAN-1a): a viewer may scan, an editor commits. Addressed by session id; a session is its starter's own. ----
+        // events, identify, :art and photo are still stubs (SCAN-1b, Wave 3).
+        InLibrary("POST", $"{Libraries}/scan-sessions", LibraryRole.Viewer, Json, allowed: Created),
+        InLibrary("GET", Sessions, LibraryRole.Viewer, allowed: Ok),
         InLibrary("GET", $"{Sessions}/events", LibraryRole.Viewer),
-        InLibrary("POST", $"{Sessions}/barcodes", LibraryRole.Viewer, Json, headers: Idempotent),
+        InLibrary("POST", $"{Sessions}/barcodes", LibraryRole.Viewer, "{\"codes\":[{\"value\":\"not-a-code\"}]}", allowed: Ok, headers: Idempotent),
         InLibrary("POST", $"{Sessions}/identify", LibraryRole.Viewer, Json),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:art", LibraryRole.Viewer, Json),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/photo", LibraryRole.Editor),
-        InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, Json),
-        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json),
-        InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, headers: Idempotent),
-        InLibrary("DELETE", Sessions, LibraryRole.Editor),
+        InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, "{\"copies\":2}", allowed: Ok),
+        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no text: the handler is reached
+        InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, allowed: Ok, headers: Idempotent),
+        InLibrary("DELETE", Sessions, LibraryRole.Editor, allowed: NoContent),
 
         // ---- Catalogue (CAT): any signed-in caller; feature prints are per library ----------------------------
         SignedIn("GET", "/api/v1/catalog/search", allowed: Ok, query: "q=jurassic"),

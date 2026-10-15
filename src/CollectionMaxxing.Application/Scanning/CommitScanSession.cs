@@ -1,0 +1,163 @@
+using System.Text.Json;
+using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Items;
+using CollectionMaxxing.Domain.Operations;
+using CollectionMaxxing.Domain.Scanning;
+using Microsoft.EntityFrameworkCore;
+
+namespace CollectionMaxxing.Application.Scanning;
+
+/// <summary>
+/// Use case: add what the person accepted to the library, in one transaction. Every accepted candidate becomes an item
+/// (as many as its copies), with the session's default location and status. Anything undecided or rejected is left out.
+/// All or nothing: if any accepted item can't be added, none is, and the session stays open. Committing twice never adds
+/// anything: the same <c>Idempotency-Key</c> gets the first answer back, and any other request is a conflict.
+/// </summary>
+public static class CommitScanSession
+{
+    private static readonly TimeSpan KeyLifetime = TimeSpan.FromHours(24);
+
+    public sealed record Command(Guid SessionId, string? IdempotencyKey);
+
+    public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock)
+    {
+        public async Task<Result<CommitResultDto>> HandleAsync(Command command, CancellationToken cancellationToken)
+        {
+            var userId = currentUser.UserId
+                ?? throw new InvalidOperationException("CommitScanSession needs a signed-in caller; the endpoint requires authorization.");
+
+            var key = command.IdempotencyKey?.Trim();
+            if (string.IsNullOrEmpty(key) || key.Length > SubmitBarcodes.MaxKeyLength)
+            {
+                return ItemErrors.Invalid("idempotency.key_required", "Send an Idempotency-Key header of 1 to 200 characters.", "Idempotency-Key");
+            }
+
+            if (await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken) is not { } session)
+            {
+                return ScanningErrors.SessionNotFound;
+            }
+
+            var now = clock.GetUtcNow();
+            var storedKey = ScanSessions.IdempotencyKeyFor("commit", session.Id, key);
+            var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
+            if (previous is not null && previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
+            {
+                return JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options) is { } again ? again : ScanningErrors.AlreadyCommitted;
+            }
+
+            if (session.Status == ScanSessionStatus.Committed)
+            {
+                return ScanningErrors.AlreadyCommitted;
+            }
+
+            if (session.Status != ScanSessionStatus.Open)
+            {
+                return ScanningErrors.SessionClosed;
+            }
+
+            var candidates = await db.ScanCandidates
+                .Where(c => c.SessionId == session.Id)
+                .OrderBy(c => c.Seq)
+                .ToListAsync(cancellationToken);
+            var accepted = candidates
+                .Where(c => c.Decision == CandidateDecision.Accepted && c.MatchedReleaseId is not null && c.CreatedItemId is null)
+                .ToList();
+
+            // Check everything before changing anything: each release must still be one this library may use.
+            var releaseIds = accepted.Select(c => c.MatchedReleaseId!.Value).Distinct().ToList();
+            var usable = await db.Releases.AsNoTracking()
+                .Where(r => releaseIds.Contains(r.Id) && (r.OwnerLibraryId == null || r.OwnerLibraryId == session.LibraryId))
+                .Select(r => r.Id)
+                .ToListAsync(cancellationToken);
+            if (releaseIds.Any(id => !usable.Contains(id)))
+            {
+                return ScanningErrors.ReleaseUnavailable;
+            }
+
+            if (session.DefaultLocationId is { } locationId
+                && !await ItemProjection.LocationInLibraryAsync(db, session.LibraryId, locationId, cancellationToken))
+            {
+                return ScanningErrors.ReleaseUnavailable;
+            }
+
+            var created = new List<Guid>();
+            foreach (var candidate in accepted)
+            {
+                for (var copy = 0; copy < candidate.Copies; copy++)
+                {
+                    var item = new Item
+                    {
+                        Id = ids.NewId(),
+                        LibraryId = session.LibraryId,
+                        ReleaseId = candidate.MatchedReleaseId!.Value,
+                        Status = session.DefaultStatus ?? ItemStatus.Owned,
+                        Completeness = CompletenessOf(candidate),
+                        LocationId = session.DefaultLocationId,
+                        CoverChoice = CoverChoice.Release,
+                        AddedVia = candidate.Source switch
+                        {
+                            CandidateSource.Barcode => AddedVia.Barcode,
+                            CandidateSource.Search => AddedVia.Search,
+                            _ => AddedVia.Picture,
+                        },
+                        CreatedAt = now,
+                        CreatedBy = userId, // always the caller
+                        UpdatedAt = now,
+                    };
+                    db.Items.Add(item);
+                    created.Add(item.Id);
+                    if (copy == 0)
+                    {
+                        candidate.CreatedItemId = item.Id;
+                    }
+                }
+            }
+
+            // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
+            if (created.Count > 0)
+            {
+                session.Status = ScanSessionStatus.Committed;
+                session.CommittedAt = now;
+            }
+
+            var result = new CommitResultDto(created.Count, candidates.Count - accepted.Count, created);
+            db.IdempotencyKeys.Add(new IdempotencyKey
+            {
+                UserId = userId,
+                Key = storedKey,
+                RequestHash = session.Id.ToString(),
+                ResponseStatus = 200,
+                ResponseBodyJson = JsonSerializer.Serialize(result, CandidateJson.Options),
+                CreatedAt = now,
+                ExpiresAt = now + KeyLifetime,
+            });
+
+            // One SaveChanges is one transaction. A second commit racing this one loses on the session's row version.
+            await db.SaveChangesAsync(cancellationToken);
+            return result;
+        }
+
+        /// <summary>The completeness the phone read from a picture (loose cartridge, disc only...), if it said.</summary>
+        private static ItemCompleteness? CompletenessOf(ScanCandidate candidate)
+        {
+            if (CandidateJson.ReadElement(candidate.InferredJson) is not { ValueKind: JsonValueKind.Object } inferred
+                || !inferred.TryGetProperty("completeness", out var text)
+                || text.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            foreach (var value in Enum.GetValues<ItemCompleteness>())
+            {
+                if (EnumText.ToText(value) == text.GetString())
+                {
+                    return value;
+                }
+            }
+
+            return null;
+        }
+    }
+}

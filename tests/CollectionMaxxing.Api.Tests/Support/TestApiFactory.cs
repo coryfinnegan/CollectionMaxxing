@@ -1,3 +1,4 @@
+using CollectionMaxxing.Infrastructure.Jobs;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -26,6 +27,14 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
             }));
 
         builder.ConfigureTestServices(services =>
+        {
+            // No background worker in API tests: a test host with fake providers must not have its jobs claimed by another
+            // host's worker (which has the real providers). Tests that need a job run it themselves with JobRunner.
+            foreach (var worker in services.Where(d => d.ImplementationType == typeof(JobWorker)).ToList())
+            {
+                services.Remove(worker);
+            }
+
             services
                 .AddAuthentication(options =>
                 {
@@ -33,6 +42,7 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
                     options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
                     options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
                 })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { }));
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+        });
     }
 }
