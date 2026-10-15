@@ -47,6 +47,16 @@ public interface IAccountFiles
 {
     /// <summary>Deletes the file at <paramref name="blobPath"/> (a path in the cover store). A file that is already gone, or a path that isn't safe, is fine.</summary>
     Task DeleteAsync(string blobPath, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="DeleteAsync"/>, but says whether the file is gone: false means it is stuck (locked, say) and still on disk. The purge keeps
+    /// its record of the file until this returns true, so the daily sweep tries again. Stores that never get stuck can leave the default.
+    /// </summary>
+    async Task<bool> TryDeleteAsync(string blobPath, CancellationToken cancellationToken)
+    {
+        await DeleteAsync(blobPath, cancellationToken);
+        return true;
+    }
 }
 
 /// <summary>
@@ -56,4 +66,36 @@ public interface IAccountFiles
 public interface ILibraryPurgeStep
 {
     Task PurgeAsync(Guid libraryId, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Other features register one of these when they keep something for a person rather than for a library (an export file, say), so it
+/// would outlive them if the purge only looked at libraries. It runs once for the user being purged, after their libraries, and can run again.
+/// </summary>
+public interface IUserPurgeStep
+{
+    Task PurgeAsync(Guid userId, CancellationToken cancellationToken);
+}
+
+/// <summary>Finds deleted accounts whose purge is overdue, so the daily sweep can queue it again (<see cref="PurgeSweep"/>).</summary>
+public interface IPurgeBacklog
+{
+    /// <summary>
+    /// Users deleted on or before <paramref name="deletedBefore"/> that still hold something a purge removes: a place in a library (a library
+    /// is kept while one of its image files is stuck), a passkey, an export record (kept while its file is stuck), or a name other than the tombstone's. A purged user holds none of these, so they are not listed.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> UsersAwaitingPurgeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken);
+}
+
+/// <summary>Marks the account deleted, but only if that leaves no library behind without an owner.</summary>
+public interface IAccountDeactivation
+{
+    /// <summary>
+    /// Deactivates the account (it can't sign in; every session is refused from the next request) unless it owns a library that other people
+    /// belong to. The check and the change are one step that also holds off an invite being accepted at the same moment, so a member
+    /// cannot slip in between them. Returns false, changing nothing, when the library has members. Doing it twice is fine.
+    /// <paramref name="whileDeactivating"/> runs in the same transaction, after the check and before the commit: if it throws, the account is
+    /// not deactivated at all, so the person is still signed in and can try again.
+    /// </summary>
+    Task<bool> DeactivateUnlessLibraryHasMembersAsync(Guid userId, Func<CancellationToken, Task> whileDeactivating, CancellationToken cancellationToken);
 }

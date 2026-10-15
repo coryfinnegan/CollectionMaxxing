@@ -27,6 +27,19 @@ public interface IExportStore
     /// <summary>The file, or null when there is none (never made, or already cleaned up).</summary>
     Task<Stream?> OpenReadAsync(Guid exportId, CancellationToken cancellationToken);
 
+    /// <summary>Deletes the export file, if there is one. A file that is already gone is fine.</summary>
+    Task DeleteAsync(Guid exportId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="DeleteAsync"/>, but says whether the file is gone: false means it is stuck (locked, say) and still on disk, so the caller
+    /// keeps its record of the export and tries again later. Stores that never get stuck can leave the default.
+    /// </summary>
+    async Task<bool> TryDeleteAsync(Guid exportId, CancellationToken cancellationToken)
+    {
+        await DeleteAsync(exportId, cancellationToken);
+        return true;
+    }
+
     /// <summary>Deletes every export file created before <paramref name="cutoff"/> (and stray half-written ones). Returns how many.</summary>
     Task<int> DeleteCreatedBeforeAsync(DateTimeOffset cutoff, CancellationToken cancellationToken);
 }
@@ -41,4 +54,13 @@ public interface IExportJobs
 
     /// <summary>The export this user already has queued or running, if any.</summary>
     Task<Guid?> FindActiveAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>The ids of every export job of this user, whatever its state.</summary>
+    Task<IReadOnlyList<Guid>> ListIdsForUserAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>Removes the export jobs of this user from the queue. Their payloads name the person, so they go when the person does.</summary>
+    Task DeleteForUserAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>Removes just these export jobs of this user (the ones whose files are gone).</summary>
+    Task DeleteForUserAsync(Guid userId, IReadOnlyCollection<Guid> exportIds, CancellationToken cancellationToken);
 }

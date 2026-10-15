@@ -22,6 +22,7 @@ public static class DeleteAccountEndpoint
 {
     public static IServiceCollection AddAccountDeletion(this IServiceCollection services)
     {
+        services.AddSingleton<SpentChallenges>();
         services.AddScoped<FreshAssertion>();
         services.AddScoped<DeleteAccount.Handler>();
         return services.AddAccountPurge();
@@ -62,13 +63,21 @@ public static class DeleteAccountEndpoint
 /// minutes, and only by a passkey of the signed-in user. A sign-in a moment ago, an assertion kept from an earlier request or one used
 /// before all fail, and so does somebody else's passkey.
 /// </summary>
-public sealed class FreshAssertion(IPasskeyHandler<AppUser> passkeys, UserManager<AppUser> users, CeremonyCookie ceremonies, TimeProvider time)
+public sealed class FreshAssertion(IPasskeyHandler<AppUser> passkeys, UserManager<AppUser> users, CeremonyCookie ceremonies, SpentChallenges spent, TimeProvider time)
 {
     public async Task<bool> VerifyAsync(HttpContext http, Guid expectedUserId, JsonElement? credential)
     {
         var ceremony = ceremonies.Read(http, CeremonyKind.SignIn);
         ceremonies.Clear(http); // one challenge, one try, whatever happens next
         if (ceremony is null || credential is not { ValueKind: JsonValueKind.Object } answer)
+        {
+            return false;
+        }
+
+        // The ceremony cookie is stateless, so a copy of it can be put back. The server remembers which challenges it has already taken an
+        // answer to, and takes each one once, before checking the answer: a passkey that always reports a counter of 0 (iCloud's) can't
+        // tell a replay by itself.
+        if (!spent.TryClaim(ceremony.State))
         {
             return false;
         }
@@ -100,5 +109,31 @@ public sealed class FreshAssertion(IPasskeyHandler<AppUser> passkeys, UserManage
 
         await users.AddOrUpdatePasskeyAsync(asserted.User, asserted.Passkey); // keeps the signature counter current, so this assertion can't be replayed
         return true;
+    }
+}
+
+/// <summary>
+/// The challenges that have been answered once. A challenge is claimed the first time anyone presents it, whatever the answer was, and a
+/// claim is kept for as long as the ceremony cookie that carries it could still be accepted. The list lives in memory: a restart inside
+/// that window forgets it, which matters only to someone who holds both a recorded assertion and its cookie and gets the app restarted.
+/// </summary>
+public sealed class SpentChallenges(TimeProvider time)
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _claimed = new(StringComparer.Ordinal);
+
+    /// <summary>True the first time <paramref name="challengeState"/> is presented, false every time after.</summary>
+    public bool TryClaim(string challengeState)
+    {
+        var now = time.GetUtcNow();
+        foreach (var (key, expires) in _claimed)
+        {
+            if (expires <= now)
+            {
+                _claimed.TryRemove(key, out _);
+            }
+        }
+
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(challengeState)));
+        return _claimed.TryAdd(hash, now + CeremonyCookie.Lifetime + TimeSpan.FromMinutes(1));
     }
 }

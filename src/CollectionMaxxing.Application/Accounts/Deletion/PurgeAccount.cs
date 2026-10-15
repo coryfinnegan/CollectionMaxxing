@@ -13,8 +13,8 @@ public sealed record PurgeAccountPayload(Guid UserId);
 /// everything in it and its image files; the user's place in any other library; their sign-in material; and the identity in the audit
 /// trail. Items they added to a library that carries on stay, and say "Added by" a removed user.
 /// The job is queued by <see cref="DeleteAccount"/> to run when the 30 days are over. Safe to repeat: every step finds what is left and
-/// removes that, so a purge that crashed halfway finishes on the next run. A run before the 30 days are over, or for an account that was
-/// never deleted, does nothing.
+/// removes that, so a purge that crashed halfway finishes on the next run. A run for an account that was never deleted does nothing; a run
+/// before the 30 days are over queues itself again for the day they are. A job that died is queued again by <see cref="PurgeSweep"/>.
 /// </summary>
 public static class PurgeAccount
 {
@@ -22,6 +22,9 @@ public static class PurgeAccount
 
     /// <summary>How long a deleted account's data is kept (docs/03, "Data lifecycle").</summary>
     public static readonly TimeSpan Retention = TimeSpan.FromDays(30);
+
+    /// <summary>What an invite says for a person who is gone (and what "Added by" says: <c>IdentityDeletedAccounts</c> uses the same words).</summary>
+    public const string RemovedUserName = "Removed user";
 
     public static string DedupeKey(Guid userId) => $"{JobType}:{userId:N}";
 
@@ -32,13 +35,33 @@ public static class PurgeAccount
         IAccountFiles files,
         IEnumerable<ILibraryPurgeStep> steps,
         AnonymiseAuditActor.Handler anonymiseAudit,
-        IAuditLog audit) : IJobHandler<PurgeAccountPayload>
+        IAuditLog audit,
+        IEnumerable<IUserPurgeStep>? userSteps = null,
+        IJobQueue? jobs = null) : IJobHandler<PurgeAccountPayload>
     {
         public async Task HandleAsync(PurgeAccountPayload payload, CancellationToken cancellationToken)
         {
             var userId = payload.UserId;
-            if (await accounts.DeletedAtAsync(userId, cancellationToken) is not { } deletedAt || clock.GetUtcNow() < deletedAt + Retention)
+            if (await accounts.DeletedAtAsync(userId, cancellationToken) is not { } deletedAt)
             {
+                return; // never deleted (or not there): nothing to do
+            }
+
+            var due = deletedAt + Retention;
+            if (clock.GetUtcNow() < due)
+            {
+                // This job was queued by an earlier attempt to delete the account, so it fires before the date the account is actually due
+                // (the dedupe key made the later attempt reuse it). Finishing quietly would lose the purge: queue it again for the right day.
+                // The key names that day, so a job that runs twice queues it once, and it is not the key of the job that is running now.
+                if (jobs is not null)
+                {
+                    await jobs.EnqueueAsync(
+                        JobType,
+                        new PurgeAccountPayload(userId),
+                        new JobEnqueueOptions(due, $"{DedupeKey(userId)}:{due.ToUnixTimeSeconds()}"),
+                        cancellationToken);
+                }
+
                 return;
             }
 
@@ -49,12 +72,29 @@ public static class PurgeAccount
                 .Where(m => !db.LibraryMembers.IgnoreQueryFilters().Any(other => other.LibraryId == m.LibraryId && other.UserId != userId))
                 .Select(m => m.LibraryId)
                 .ToListAsync(cancellationToken);
+            // A library with an image file that is stuck stays, with its owner's place in it and the row of that file, until the file is gone:
+            // that is how the daily sweep knows to come back. Everything that identifies the person is erased regardless.
+            var kept = new List<Guid>();
             foreach (var libraryId in libraries)
             {
-                await PurgeLibraryAsync(libraryId, cancellationToken);
+                if (!await PurgeLibraryAsync(libraryId, cancellationToken))
+                {
+                    kept.Add(libraryId);
+                }
             }
 
-            await db.LibraryMembers.IgnoreQueryFilters().Where(m => m.UserId == userId).ExecuteDeleteAsync(cancellationToken);
+            // In libraries that carry on, the invite they used says who it was for and who accepted it. Both go; that it was used stays.
+            await db.LibraryInvites.IgnoreQueryFilters()
+                .Where(i => i.AcceptedBy == userId)
+                .ExecuteUpdateAsync(
+                    set => set.SetProperty(i => i.Name, RemovedUserName).SetProperty(i => i.AcceptedBy, (Guid?)null),
+                    cancellationToken);
+            await db.LibraryMembers.IgnoreQueryFilters().Where(m => m.UserId == userId && !kept.Contains(m.LibraryId)).ExecuteDeleteAsync(cancellationToken);
+
+            foreach (var step in userSteps ?? [])
+            {
+                await step.PurgeAsync(userId, cancellationToken);
+            }
 
             await accounts.ScrubAuditTrailAsync(userId, cancellationToken);
             await anonymiseAudit.HandleAsync(userId, cancellationToken);
@@ -67,22 +107,27 @@ public static class PurgeAccount
 
         /// <summary>
         /// Removes a library, its rows in the order the foreign keys allow, and its image files. Files go before the rows that name them, so
-        /// a crash can leave a row without a file (harmless, and found again) but never a file nothing points to.
+        /// a crash can leave a row without a file (harmless, and found again) but never a file nothing points to. A file that is stuck keeps its
+        /// row and the library row; returns false then (the rest of the library is gone), true when nothing is left.
         /// </summary>
-        private async Task PurgeLibraryAsync(Guid libraryId, CancellationToken cancellationToken)
+        private async Task<bool> PurgeLibraryAsync(Guid libraryId, CancellationToken cancellationToken)
         {
             foreach (var step in steps)
             {
                 await step.PurgeAsync(libraryId, cancellationToken);
             }
 
-            var blobPaths = await db.Assets.IgnoreQueryFilters().AsNoTracking()
+            var assets = await db.Assets.IgnoreQueryFilters().AsNoTracking()
                 .Where(a => a.OwnerLibraryId == libraryId)
-                .Select(a => a.BlobPath)
+                .Select(a => new { a.Id, a.BlobPath })
                 .ToListAsync(cancellationToken);
-            foreach (var blobPath in blobPaths)
+            var stuck = new List<Guid>();
+            foreach (var asset in assets)
             {
-                await files.DeleteAsync(blobPath, cancellationToken);
+                if (!await files.TryDeleteAsync(asset.BlobPath, cancellationToken))
+                {
+                    stuck.Add(asset.Id);
+                }
             }
 
             // Scanning first (candidates point at snaps and items), then the items and what hangs from them.
@@ -104,10 +149,15 @@ public static class PurgeAccount
                 .ExecuteUpdateAsync(set => set.SetProperty(r => r.CoverAssetId, (Guid?)null), cancellationToken);
 
             await db.Releases.IgnoreQueryFilters().Where(r => r.OwnerLibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
-            await db.Assets.IgnoreQueryFilters().Where(a => a.OwnerLibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
+            await db.Assets.IgnoreQueryFilters().Where(a => a.OwnerLibraryId == libraryId && !stuck.Contains(a.Id)).ExecuteDeleteAsync(cancellationToken);
+            if (stuck.Count > 0)
+            {
+                return false;
+            }
 
             // The library row last: its members go with it (cascade), so until now a crashed purge still knows which library it was on.
             await db.Libraries.IgnoreQueryFilters().Where(l => l.Id == libraryId).ExecuteDeleteAsync(cancellationToken);
+            return true;
         }
     }
 }

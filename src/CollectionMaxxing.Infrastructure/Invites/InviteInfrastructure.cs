@@ -84,6 +84,21 @@ internal sealed class IdentityInviteAcceptance(AppDbContext db, UserManager<AppU
             return InviteErrors.Invalid; // can't happen (the table refuses it), but an invite must never make an owner
         }
 
+        // Nobody joins the library of an owner who has deleted their account: it would be left with members and no owner at day 30.
+        // The owner's row is locked (FOR SHARE) until this transaction ends. Deleting an account updates that row, so it waits for us and then
+        // counts the new member (and refuses), or it got there first and we find the owner deleted here. Either way no member slips in between.
+        var ownerDeleted = await db.Database.SqlQuery<bool>($"""
+            SELECT (u.deleted_at IS NOT NULL) AS "Value"
+            FROM library_members m
+            JOIN users u ON u.id = m.user_id
+            WHERE m.library_id = {invite.LibraryId} AND m.role = 'owner'
+            FOR SHARE OF u
+            """).ToListAsync(cancellationToken);
+        if (ownerDeleted.Contains(true))
+        {
+            return InviteErrors.Invalid;
+        }
+
         var user = new AppUser
         {
             Id = userId,
