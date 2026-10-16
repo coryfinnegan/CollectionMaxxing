@@ -15,6 +15,8 @@ interface VisionReads {
 export interface RealSignalsDeps {
   /** A low-resolution snapshot of the camera right now, as a file uri; null when there is none. */
   snapshot(): Promise<string | null>;
+  /** Called with the snapshot's uri once Vision has read it (or failed to), so the file can be deleted. */
+  release?(uri: string): Promise<void>;
   vision(): Promise<VisionReads>;
   /** Starts motion readings; returns a stop function. */
   motion(onSample: (s: MotionSample) => void): Promise<SignalsUnsubscribe>;
@@ -77,8 +79,14 @@ export class RealFrameSignals implements FrameSignalsFeed {
     try {
       const uri = await this.deps.snapshot();
       if (!uri) return;
-      const vision = await this.deps.vision();
-      const [lines, rectangles, print] = await Promise.all([vision.recognizeText(uri), vision.detectRectangles(uri), vision.featurePrint(uri)]);
+      let lines, rectangles, print;
+      try {
+        const vision = await this.deps.vision();
+        [lines, rectangles, print] = await Promise.all([vision.recognizeText(uri), vision.detectRectangles(uri), vision.featurePrint(uri)]);
+      } finally {
+        // The snapshot is deleted as soon as it has been read (it never leaves the phone).
+        await this.deps.release?.(uri)?.catch(() => undefined);
+      }
       const viewHash = hashFromFeaturePrint(print.data);
       if (!viewHash) return;
       const signals: FrameSignals = {
