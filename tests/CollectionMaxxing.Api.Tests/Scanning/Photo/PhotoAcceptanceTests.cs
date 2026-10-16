@@ -84,8 +84,8 @@ public class PhotoAcceptanceTests : PhotoTest
     {
         var mine = await CreateLibraryAsync();
         var theirs = await CreateLibraryAsync();
-        var (theirSession, theirCandidate, _) = await ScanOneAsync(theirs);
-        var (mySession, myCandidate, _) = await ScanOneAsync(mine, number: 2);
+        var (theirSession, theirCandidate, _) = await ScanOneAsync(theirs, LibraryRole.Owner);
+        var (mySession, myCandidate, _) = await ScanOneAsync(mine, LibraryRole.Owner, number: 2);
         var theirItem = await TestData.CreateItemAsync(Db, theirs);
         var myItem = await TestData.CreateItemAsync(Db, mine);
         var theirPrivateRelease = await TestData.CreateReleaseAsync(Db, theirs.Id);
@@ -190,8 +190,8 @@ public class PhotoAcceptanceTests : PhotoTest
     {
         var mine = await CreateLibraryAsync();
         var theirs = await CreateLibraryAsync();
-        var (mySession, myCandidate, _) = await ScanOneAsync(mine);
-        var (theirSession, theirCandidate, _) = await ScanOneAsync(theirs, number: 2);
+        var (mySession, myCandidate, _) = await ScanOneAsync(mine, LibraryRole.Owner);
+        var (theirSession, theirCandidate, _) = await ScanOneAsync(theirs, LibraryRole.Owner, number: 2);
         var myItem = await TestData.CreateItemAsync(Db, mine);
         var theirItem = await TestData.CreateItemAsync(Db, theirs);
         var release = await TestData.CreateReleaseAsync(Db);

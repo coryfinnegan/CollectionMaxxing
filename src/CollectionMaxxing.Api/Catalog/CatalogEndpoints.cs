@@ -2,6 +2,7 @@ using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Libraries;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Catalog.FeaturePrints;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Libraries;
 
@@ -64,16 +65,19 @@ public static class CatalogEndpoints
         // Backup and restore of your items' Apple feature prints. Opaque to the server.
         var library = app.MapLibraryGroup();
 
-        library.MapGet("/feature-prints", (Guid libraryId, [AsParameters] FeaturePrintsQuery query) => StubEndpoints.NotImplemented())
+        library.MapGet("/feature-prints", ListFeaturePrintsAsync)
             .WithName("ListFeaturePrints").WithTags("Catalog")
             .Produces<Page<FeaturePrintDto>>()
-            .RequireLibraryRole(LibraryRole.Viewer).IsStub();
+            .ProducesValidationProblem()
+            .RequireLibraryRole(LibraryRole.Viewer);
 
-        library.MapPut("/feature-prints", (Guid libraryId, PutFeaturePrintsRequest body) => StubEndpoints.NotImplemented())
+        // Up to 200 prints of at most 16 KB each, all or nothing. An item or release that isn't this library's is a 404.
+        library.MapPut("/feature-prints", PutFeaturePrintsAsync)
             .WithName("PutFeaturePrints").WithTags("Catalog")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesValidationProblem()
-            .RequireLibraryRole(LibraryRole.Editor).IsStub();
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireLibraryRole(LibraryRole.Editor);
 
         return app;
     }
@@ -107,6 +111,20 @@ public static class CatalogEndpoints
 
     private static async Task<IResult> Platforms(ListPlatforms.Handler handler, CancellationToken cancellationToken) =>
         TypedResults.Ok(await handler.HandleAsync(cancellationToken));
+
+    private static async Task<IResult> ListFeaturePrintsAsync(
+        Guid libraryId, [AsParameters] FeaturePrintsQuery query, ListFeaturePrints.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new ListFeaturePrints.Query(libraryId, query.Since, query.Limit, query.Cursor), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
+    }
+
+    private static async Task<IResult> PutFeaturePrintsAsync(
+        Guid libraryId, PutFeaturePrintsRequest body, PutFeaturePrints.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new PutFeaturePrints.Command(libraryId, body.Prints), cancellationToken);
+        return result.IsSuccess ? TypedResults.NoContent() : result.Error!.ToProblem();
+    }
 
     private static async Task<IResult> Cover(
         Guid assetId, HttpContext http, GetCover.Handler handler, CancellationToken cancellationToken)

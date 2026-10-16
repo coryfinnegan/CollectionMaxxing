@@ -115,6 +115,7 @@ public static class AuthorizationMatrix
     private const int Stub = 501;
     private const int BadRequest = 400;
     private const int PreconditionFailed = 412;
+    private const int UnsupportedMediaType = 415;
 
     private const string Json = "{}";
 
@@ -233,14 +234,14 @@ public static class AuthorizationMatrix
         InLibrary("GET", $"{Libraries}/ownership/snapshot", LibraryRole.Viewer, allowed: Ok),
 
         // ---- Scanning (SCAN-1a): a viewer may scan, an editor commits. Addressed by session id; a session is its starter's own. ----
-        // identify, :art and photo are still stubs (Wave 3).
+        // identify and :art are still stubs (Wave 3). The photo upload (SCAN-2c) is built: no multipart body is sent here, so the handler answers 415.
         InLibrary("POST", $"{Libraries}/scan-sessions", LibraryRole.Viewer, Json, allowed: Created),
         InLibrary("GET", Sessions, LibraryRole.Viewer, allowed: Ok),
         InLibrary("GET", $"{Sessions}/events", LibraryRole.Viewer, allowed: Ok), // SSE: the matrix reads only the headers
         InLibrary("POST", $"{Sessions}/barcodes", LibraryRole.Viewer, "{\"codes\":[{\"value\":\"not-a-code\"}]}", allowed: Ok, headers: Idempotent),
         InLibrary("POST", $"{Sessions}/identify", LibraryRole.Viewer, Json),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:art", LibraryRole.Viewer, Json),
-        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/photo", LibraryRole.Editor),
+        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/photo", LibraryRole.Editor, allowed: UnsupportedMediaType),
         InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, "{\"copies\":2}", allowed: Ok),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no text: the handler is reached
         InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, allowed: Ok, headers: Idempotent),
@@ -259,8 +260,8 @@ public static class AuthorizationMatrix
         SignedIn("GET", "/api/v1/catalog/releases/{id:guid}/artwork", allowed: NotFound),
         SignedIn("GET", "/api/v1/catalog/platforms", allowed: Ok),
         SignedIn("GET", "/media/covers/{assetId:guid}", allowed: NotFound),
-        InLibrary("GET", $"{Libraries}/feature-prints", LibraryRole.Viewer),
-        InLibrary("PUT", $"{Libraries}/feature-prints", LibraryRole.Editor, Json),
+        InLibrary("GET", $"{Libraries}/feature-prints", LibraryRole.Viewer, allowed: Ok), // SCAN-2c: built
+        InLibrary("PUT", $"{Libraries}/feature-prints", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no prints: the handler is reached
 
         // ---- Admin: the platform admin role, not a library role ----------------------------------------------
         AdminOnly("POST", "/api/admin/catalog/releases/{id:guid}:verify"),

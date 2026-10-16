@@ -61,12 +61,17 @@ public static class ScanningEndpoints
             .ProducesValidationProblem()
             .RequireScanSessionRole(LibraryRole.Viewer).IsStub();
 
-        // Multipart crop, used as the item's cover ("Use my photo"). Not bound here, so the stub needs no antiforgery.
-        sessions.MapPost("/{id:guid}/candidates/{cid:guid}/photo", (Guid id, Guid cid) => StubEndpoints.NotImplemented())
+        // Multipart crop, used as the item's cover ("Use my photo"). JPEG only, at most 4 MB; stored without EXIF. Read from the stream
+        // by hand (see CandidatePhotoEndpoint), so there is no form binding and no antiforgery token: the usual bearer / X-CSRF rules protect it.
+        sessions.MapPost("/{id:guid}/candidates/{cid:guid}/photo", CandidatePhotoEndpoint.UploadAsync)
             .WithName("UploadCandidatePhoto").WithTags("Scanning")
-            .Accepts<IFormFile>("multipart/form-data")
+            .Accepts<CandidatePhotoForm>("multipart/form-data")
             .Produces<CandidateDto>()
-            .RequireScanSessionRole(LibraryRole.Editor).IsStub();
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .RequireScanSessionRole(LibraryRole.Editor);
 
         sessions.MapPatch("/{id:guid}/candidates/{cid:guid}", DecideCandidate)
             .WithName("DecideCandidate").WithTags("Scanning")

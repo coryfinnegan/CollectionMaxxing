@@ -10,13 +10,19 @@ public static class ScanEventNames
     public const string CandidateAdded = "candidate.added";
     public const string CandidateUpdated = "candidate.updated";
 
-    /// <summary>Defined for the picture path; nothing emits it before Wave 3.</summary>
+    /// <summary>A candidate's uploaded photo ("Use my photo") is stored and ready.</summary>
     public const string PhotoStatus = "photo.status";
     public const string SessionStatus = "session.status";
 }
 
 /// <summary>The session's state, as sent with <c>session.status</c>.</summary>
 public sealed record SessionStatusDto(Guid Id, ScanSessionStatus Status);
+
+/// <summary>What <c>photo.status</c> says: the photo uploaded for <see cref="CandidateId"/> is <c>ready</c> (stored; it becomes the item's cover on commit).</summary>
+public sealed record PhotoStatusDto(Guid CandidateId, string Status)
+{
+    public const string Ready = "ready";
+}
 
 /// <summary>
 /// One event for the wire. <see cref="Id"/> is the highest candidate <c>seq</c> the stream has shown so far (0 when none),
@@ -41,6 +47,7 @@ public sealed class ScanEventCursor
     private readonly Guid _sessionId;
     private readonly int _after;
     private readonly Dictionary<Guid, uint> _shown = [];
+    private readonly Dictionary<Guid, Guid> _photosShown = [];
     private bool _first = true;
     private int _highWater;
     private ScanSessionStatus? _statusShown;
@@ -100,6 +107,22 @@ public sealed class ScanEventCursor
             {
                 events.Add(new ScanEvent(ScanEventNames.CandidateUpdated, _highWater, dtos[candidate.Id]));
                 _shown[candidate.Id] = candidate.Version;
+            }
+        }
+
+        // A photo is ready when the candidate's snap holds an asset. A reconnecting client hears it again, which is harmless.
+        var photoAssets = await _db.ScanSnaps.AsNoTracking()
+            .Where(s => s.SessionId == _sessionId && s.AssetId != null)
+            .Select(s => new { s.Id, AssetId = s.AssetId!.Value })
+            .ToDictionaryAsync(s => s.Id, s => s.AssetId, cancellationToken);
+        foreach (var candidate in candidates)
+        {
+            if (candidate.SnapId is { } snapId
+                && photoAssets.TryGetValue(snapId, out var assetId)
+                && (!_photosShown.TryGetValue(candidate.Id, out var shownAsset) || shownAsset != assetId))
+            {
+                _photosShown[candidate.Id] = assetId;
+                events.Add(new ScanEvent(ScanEventNames.PhotoStatus, _highWater, new PhotoStatusDto(candidate.Id, PhotoStatusDto.Ready)));
             }
         }
 

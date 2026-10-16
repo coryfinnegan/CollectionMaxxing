@@ -265,7 +265,7 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
 
         var files = await ExportAsync(host, seeded.Library.OwnerId);
 
-        files.Keys.OrderBy(k => k).ShouldBe(["items.csv", "items.json", "locations.json", "tags.json"]);
+        files.Keys.OrderBy(k => k).ShouldBe(["feature-prints.json", "items.csv", "items.json", "locations.json", "photos.json", "tags.json"]);
         var rows = ParseCsv(files["items.csv"]);
         var row = rows.ShouldHaveSingleItem();
         row["library"].ShouldBe("Test library");
@@ -489,7 +489,7 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
 
         string.Join('\n', files.Values).ShouldNotContain("secret.example");
         string.Join('\n', files.Values).ShouldNotContain(seeded.Library.OwnerId.ToString());
-        files.Keys.OrderBy(k => k).ShouldBe(["items.csv", "items.json", "locations.json", "tags.json"]);
+        files.Keys.OrderBy(k => k).ShouldBe(["feature-prints.json", "items.csv", "items.json", "locations.json", "photos.json", "tags.json"]);
     }
 }
 
