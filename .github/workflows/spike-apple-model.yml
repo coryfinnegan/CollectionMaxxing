@@ -10,7 +10,7 @@ jobs:
   interface:
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Select newest Xcode
         run: |
           ls -d /Applications/Xcode*
@@ -25,7 +25,7 @@ jobs:
           mkdir -p out; ls -la "$SDK/System/Library/Frameworks/FoundationModels.framework" "$SDK/System/Library/Frameworks/FoundationModels.framework/Modules" | tee out/ls.txt
           find -L "$SDK/System/Library/Frameworks/FoundationModels.framework" -path '*FoundationModels*' > out/files.txt
           find -L "$SDK/System/Library/Frameworks/FoundationModels.framework" -path '*FoundationModels*' -name '*.swiftinterface' ! -name '*.private.*' ! -name '*.package.*' -exec cp {} out/ \; || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: foundationmodels-interface
           path: out
@@ -48,7 +48,7 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/CMSpike.app ipa/Payload/
           (cd ipa && zip -qry ../CMSpike.ipa Payload)
           ls -la CMSpike.ipa
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: CMSpike-ipa
           path: spikes/apple-model/CMSpike.ipa
