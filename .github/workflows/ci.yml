@@ -62,9 +62,18 @@ jobs:
         if: steps.detect.outputs.present == 'true'
         working-directory: app
         run: npm ci
+      # A warm Jest transform cache: cold runs on the 2-core runner made the first library tests time out (#87).
+      - uses: actions/cache@v4
+        if: steps.detect.outputs.present == 'true'
+        with:
+          path: app/.jest-cache
+          key: jest-${{ runner.os }}-${{ hashFiles('app/package-lock.json', 'app/jest.config.js') }}-${{ github.sha }}
+          restore-keys: jest-${{ runner.os }}-${{ hashFiles('app/package-lock.json', 'app/jest.config.js') }}-
       - name: Check
         if: steps.detect.outputs.present == 'true'
         working-directory: app
+        env:
+          JEST_CACHE_DIR: ${{ github.workspace }}/app/.jest-cache
         run: npm run check
 
   e2e:

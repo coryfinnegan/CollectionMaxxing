@@ -47,10 +47,75 @@ function checkSwiftContract(dir = moduleDir) {
   return problems;
 }
 
-module.exports = { checkSwiftContract, swiftKeys, swiftPending };
+/** The text of the `{ ... }` body that follows `header` (balanced braces), or '' when the header is absent. */
+function bodyAfter(source, header) {
+  const at = source.search(header);
+  if (at === -1) return '';
+  const open = source.indexOf('{', at);
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}' && --depth === 0) return source.slice(open + 1, i);
+  }
+  return '';
+}
+
+const returned = (body) => [...body.matchAll(/\breturn\s+"([^"\\]*)"/g)].map((m) => m[1]);
+const assigned = (source, name) => [...source.matchAll(new RegExp(`\\b${name}\\s*(?:=|:)\\s*"([^"\\\\]*)"`, 'g'))].map((m) => m[1]);
+
+/** Where Swift writes each schema enum field's values. Each takes the joined Swift sources and returns the strings. */
+const enumFields = {
+  symbology: (src) => returned(bodyAfter(src, /func symbologyName/)),
+  kind: (src) => returned(bodyAfter(src, /enum CmGenKind\b/)),
+  completeness: (src) => returned(bodyAfter(src, /enum CmGenCompleteness\b/)),
+  confidence: (src) => returned(bodyAfter(src, /enum CmGenConfidence\b/)),
+  reason: (src) => assigned(src, 'reason'),
+  outcome: (src) => [
+    ...[...bodyAfter(src, /enum CmOutcome\b/).matchAll(/\bcase\s+([^\n]+)/g)].flatMap((m) => m[1].split(',').map((n) => n.trim())),
+    ...assigned(src, 'outcome'),
+  ],
+  thermalState: (src) => returned(bodyAfter(src, /func thermalName/)),
+};
+
+/** Schema fields that have an `enum`, or just the values of one field. */
+function schemaEnumFields(field) {
+  const found = {};
+  for (const def of Object.values(loadSchema().$defs)) {
+    for (const [key, prop] of Object.entries(def.properties ?? {})) {
+      if (prop.enum) found[key] = prop.enum;
+    }
+  }
+  return field ? found[field] : Object.keys(found);
+}
+
+/**
+ * Compares the strings Swift uses for each enum field with the schema's enum: any Swift value outside it is wrong,
+ * and any schema value Swift never produces is reported too. `input` is the ios directory or {name: source}.
+ */
+function checkSwiftEnums(input = path.join(moduleDir, 'ios')) {
+  const sources =
+    typeof input === 'string'
+      ? Object.fromEntries(fs.readdirSync(input).filter((f) => f.endsWith('.swift')).map((f) => [f, fs.readFileSync(path.join(input, f), 'utf8')]))
+      : input;
+  const joined = Object.values(sources).join('\n');
+  const problems = [];
+  for (const [field, extract] of Object.entries(enumFields)) {
+    const allowed = schemaEnumFields(field);
+    const used = [...new Set(extract(joined))];
+    for (const value of used.filter((v) => !allowed.includes(v))) {
+      problems.push(`${field}: Swift uses "${value}", which is not in the schema enum [${allowed}]`);
+    }
+    for (const value of allowed.filter((v) => !used.includes(v))) {
+      problems.push(`${field}: schema value "${value}" is never produced by Swift (Swift has [${used}])`);
+    }
+  }
+  return problems;
+}
+
+module.exports = { checkSwiftContract, checkSwiftEnums, enumFields, schemaEnumFields, swiftKeys, swiftPending };
 
 if (require.main === module) {
-  const problems = checkSwiftContract();
+  const problems = [...checkSwiftContract(), ...checkSwiftEnums()];
   if (problems.length > 0) {
     console.error(problems.join('\n'));
     process.exit(1);

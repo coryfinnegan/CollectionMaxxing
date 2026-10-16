@@ -25,6 +25,15 @@ const config: ExpoConfig = {
     'expo-secure-store',
     ['expo-local-authentication', { faceIDPermission: 'CollectionMaxxing uses Face ID to lock the app when you leave it.' }],
     ['expo-sensors', { motionPermission: 'CollectionMaxxing uses motion to take the photo when your phone is steady.' }],
+    // Import from Photos (CAM-3d) uses the system picker only. No cameraPermission here: `false` would delete the
+    // NSCameraUsageDescription above, which the scanner's own camera needs.
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'CollectionMaxxing reads the photos you pick to recognise the items in them. Pictures are processed on your phone.',
+        microphonePermission: false,
+      },
+    ],
   ],
   experiments: {
     typedRoutes: true,

@@ -9,6 +9,8 @@ const transformIgnorePatterns = preset.transformIgnorePatterns.map((pattern) =>
 /** @type {import('jest').Config} */
 module.exports = {
   preset: 'jest-expo',
+  // CI restores this folder between runs, so the first test files don't pay for a cold Babel transform (#87).
+  ...(process.env.JEST_CACHE_DIR ? { cacheDirectory: process.env.JEST_CACHE_DIR } : {}),
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testPathIgnorePatterns: ['/node_modules/', '/dist/', '/playwright/'],
   transformIgnorePatterns,
