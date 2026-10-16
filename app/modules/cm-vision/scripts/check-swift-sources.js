@@ -49,7 +49,55 @@ const FILE_WRITES = [
 ];
 const UNSAFE_LOGGING = [/\bprint\s*\(/, /\bdebugPrint\s*\(/, /\bNSLog\s*\(/, /\bdump\s*\(/];
 const LOGGER_CALL = /\b(?:logger|log)\.(?:debug|info|notice|warning|error|fault|log|trace)\s*\(/;
-const IMAGE_LIKE = /\\\([^)]*(?:image|pixel|bytes|jpeg|png|base64|\bdata\b|cgImage|ciImage|attachment)/i;
+const IMAGE_NAME = /image|pixel|bytes|jpeg|png|base64|\bdata\b|cgImage|ciImage|attachment/i;
+
+/** The text of every `\( ... )` interpolation in `text`, with nested parentheses balanced. */
+function interpolations(text) {
+  const found = [];
+  for (let i = text.indexOf('\\('); i !== -1; i = text.indexOf('\\(', i + 2)) {
+    let depth = 1;
+    let j = i + 2;
+    for (; j < text.length && depth > 0; j++) {
+      if (text[j] === '(') depth++;
+      else if (text[j] === ')') depth--;
+    }
+    found.push(text.slice(i + 2, j - 1));
+  }
+  return found;
+}
+
+/** Each logger call as {line, text}, from its name to the matching closing parenthesis, so multi-line calls are whole. */
+function loggerCalls(source) {
+  const calls = [];
+  const start = new RegExp(LOGGER_CALL.source, 'g');
+  for (let m = start.exec(source); m; m = start.exec(source)) {
+    let depth = 1;
+    let inString = false;
+    let j = m.index + m[0].length;
+    for (; j < source.length && depth > 0; j++) {
+      const c = source[j];
+      if (inString) {
+        if (c === '\\') j++;
+        else if (c === '"') inString = false;
+      } else if (c === '"') inString = true;
+      else if (c === '(') depth++;
+      else if (c === ')') depth--;
+    }
+    calls.push({ line: source.slice(0, m.index).split('\n').length, text: source.slice(m.index, j) });
+  }
+  return calls;
+}
+
+/** Chains of string literals joined with `+`: {line, total}. Each literal may be short; the chain is what counts. */
+function concatenations(source) {
+  const chains = [];
+  const chain = /"((?:[^"\\]|\\.)*)"(?:\s*\+\s*"((?:[^"\\]|\\.)*)")+/g;
+  for (let m = chain.exec(source); m; m = chain.exec(source)) {
+    const total = [...m[0].matchAll(/"((?:[^"\\]|\\.)*)"/g)].reduce((sum, l) => sum + l[1].length, 0);
+    chains.push({ line: source.slice(0, m.index).split('\n').length, total });
+  }
+  return chains;
+}
 
 function loadSources(input) {
   if (typeof input !== 'string') return input;
@@ -79,8 +127,17 @@ function checkSwiftSources(input = path.resolve(__dirname, '..', 'ios')) {
       if (NETWORK.some((re) => re.test(line))) problems.push(`${where}: network use (the module makes no network calls)`);
       if (FILE_WRITES.some((re) => re.test(line))) problems.push(`${where}: writes a file or the photo library`);
       if (UNSAFE_LOGGING.some((re) => re.test(line))) problems.push(`${where}: logging with print/NSLog/dump (use the logger, counts and durations only)`);
-      if (LOGGER_CALL.test(line) && IMAGE_LIKE.test(line)) problems.push(`${where}: logging something that could be image data`);
     });
+    for (const { line, total } of concatenations(source)) {
+      if (total > MAX_LITERAL_LENGTH) {
+        problems.push(`${name}:${line}: concatenated string literals of ${total} characters in total (limit ${MAX_LITERAL_LENGTH})`);
+      }
+    }
+    for (const call of loggerCalls(source)) {
+      if (interpolations(call.text).some((expr) => IMAGE_NAME.test(expr))) {
+        problems.push(`${name}:${call.line}: logging something that could be image data`);
+      }
+    }
   }
   return problems;
 }
