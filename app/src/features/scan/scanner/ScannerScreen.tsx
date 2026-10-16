@@ -1,15 +1,19 @@
 // The scanner (docs/06 M3): camera behind everything, "Nice scan!" flash, result cards, the receipt bar.
 // It is given its sources, so tests and the dev menu drive it with a FakeScannerSource and no camera.
 import { useRouter } from 'expo-router';
-import { useContext, useMemo, useState, type ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useContext, useEffect, useMemo, useState, type MutableRefObject, type ReactNode } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
-import { ResultCards } from '../cards/ResultCards';
+import { NiceScanFlash } from '../autosnap/NiceScanFlash';
+import { DEFAULT_AUTO_SNAP_CONFIG } from '../autosnap/defaults';
+import { createCountingSnapHandler, useAutoSnap, type AutoSnapTuning, type SnapEvent } from '../autosnap/useAutoSnap';
+import type { AutoSnapConfig } from '../autosnap/types';
+import { ResultCards, useReduceMotion } from '../cards/ResultCards';
 import { useCardActions } from '../session/useCardActions';
 import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
 import { ReceiptBar } from '../tray/ReceiptBar';
 import { spacing, useColors } from '@/theme/tokens';
-import { Button, Text } from '@/ui';
+import { Button, Chip, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
 import type { FakeScannerSource, ScannerSource } from './ScannerSource';
 
@@ -23,9 +27,27 @@ type Props = {
   tuning?: SessionTuning;
   /** What Close does; defaults to going back. The route passes the close-scanner sheet here. */
   onClose?: () => void;
+  /** Each picture, from the shutter or auto-snap. The default only counts them; the pipeline is CAM-3b. */
+  onSnap?: (event: SnapEvent) => void;
+  /** The auto-snap thresholds. CAM-3b passes the server's values. */
+  autoSnapConfig?: AutoSnapConfig;
+  autoSnapTuning?: AutoSnapTuning;
+  /** Filled with a function that tells auto-snap whether the last picture found anything (misfires raise the thresholds). */
+  outcomeRef?: MutableRefObject<((found: boolean) => void) | null>;
 };
 
-export function ScannerScreen({ libraryId, source, preview, devSource, tuning, onClose }: Props) {
+export function ScannerScreen({
+  libraryId,
+  source,
+  preview,
+  devSource,
+  tuning,
+  onClose,
+  onSnap,
+  autoSnapConfig = DEFAULT_AUTO_SNAP_CONFIG,
+  autoSnapTuning,
+  outcomeRef,
+}: Props) {
   const router = useRouter();
   const colors = useColors();
   const insets = useContext(SafeAreaInsetsContext) ?? { top: 0, bottom: 0, left: 0, right: 0 };
@@ -34,6 +56,21 @@ export function ScannerScreen({ libraryId, source, preview, devSource, tuning, o
   const { canAdd } = useLibraryRole(libraryId);
   const actions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
   const [torch, setTorch] = useState(false);
+  const reduceMotion = useReduceMotion();
+  const [counter] = useState(() => createCountingSnapHandler());
+  const autoSnap = useAutoSnap({
+    source,
+    onSnap: onSnap ?? counter,
+    config: autoSnapConfig,
+    tuning: { flashMs: tuning?.flashMs, ...autoSnapTuning },
+  });
+  useEffect(() => {
+    if (!outcomeRef) return;
+    outcomeRef.current = autoSnap.reportOutcome;
+    return () => {
+      outcomeRef.current = null;
+    };
+  }, [outcomeRef, autoSnap.reportOutcome]);
 
   const toggleTorch = () => {
     const next = !torch;
@@ -60,16 +97,7 @@ export function ScannerScreen({ libraryId, source, preview, devSource, tuning, o
         </View>
 
         <View pointerEvents="none" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          {session.showNiceScan ? (
-            <View
-              accessibilityLiveRegion="polite"
-              style={{ backgroundColor: colors.scan, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: 999 }}
-            >
-              <Text variant="heading" style={{ color: colors.onScan }}>
-                Nice scan!
-              </Text>
-            </View>
-          ) : null}
+          <NiceScanFlash visible={session.showNiceScan || autoSnap.flash} reduceMotion={reduceMotion} />
         </View>
 
         {devSource ? (
@@ -82,6 +110,25 @@ export function ScannerScreen({ libraryId, source, preview, devSource, tuning, o
             />
           </View>
         ) : null}
+
+        <View pointerEvents="box-none" style={{ alignItems: 'center', gap: spacing.md, paddingBottom: spacing.md }}>
+          {autoSnap.hint ? (
+            <Chip
+              label="Try the torch or move closer"
+              onPress={() => {
+                if (!torch) toggleTorch();
+              }}
+            />
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Take picture"
+            onPress={autoSnap.takePicture}
+            style={{ width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFFFFF' }} />
+          </Pressable>
+        </View>
 
         <ResultCards cards={session.cards} actions={actions} />
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
