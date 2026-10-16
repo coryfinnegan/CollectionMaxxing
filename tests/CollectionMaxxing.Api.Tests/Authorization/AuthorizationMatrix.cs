@@ -246,6 +246,9 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, allowed: Ok, headers: Idempotent),
         InLibrary("DELETE", Sessions, LibraryRole.Editor, allowed: NoContent),
 
+        // ---- Recognition config (SCAN-2d): the phone fetches its prompt and thresholds; any signed-in member, not library-scoped ----
+        SignedIn("GET", "/api/v1/recognition/config", allowed: Ok),
+
         // ---- Catalogue (CAT): any signed-in caller; feature prints are per library ----------------------------
         SignedIn("GET", "/api/v1/catalog/search", allowed: Ok, query: "q=jurassic"),
         SignedIn("GET", "/api/v1/catalog/lookup", allowed: Ok, query: "code=0045496870010"),
