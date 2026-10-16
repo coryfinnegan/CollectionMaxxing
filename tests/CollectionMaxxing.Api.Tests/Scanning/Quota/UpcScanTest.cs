@@ -28,7 +28,7 @@ public abstract class UpcScanTest : ScanTest
     protected UpcScanTest(ApiFixture api, int dailyLimit)
         : base(api)
     {
-        Upc = WireMockServer.Start();
+        Upc = LoopbackWireMock.Start();
         Clock = new FakeTimeProvider(new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero).AddDays(Random.Shared.Next(2, 360)).AddHours(10));
         Options.ResolveBudget = TimeSpan.FromSeconds(5);
         Settings["Providers:UpcItemDb:BaseUrl"] = Upc.Url + "/";
