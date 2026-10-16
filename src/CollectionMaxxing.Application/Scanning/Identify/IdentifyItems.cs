@@ -21,6 +21,9 @@ public static class IdentifyItems
     /// <summary>The job that resolves an item a request ran out of time for. Carries ids only; the read is kept on the candidate.</summary>
     public const string ResolveJobType = "scan.identify_resolve";
 
+    private const string SafetyKey = ":safety";
+    private static readonly TimeSpan SafetyMargin = TimeSpan.FromSeconds(30);
+
     public sealed record ResolveJob(Guid LibraryId, Guid SessionId, Guid CandidateId, Guid UserId);
 
     public sealed record Command(Guid SessionId, IdentifyInput Input);
@@ -65,7 +68,7 @@ public static class IdentifyItems
             {
                 if (await db.ScanSnaps.AnyAsync(s => s.Id == snapId && s.SessionId == session.Id, cancellationToken))
                 {
-                    return await ReplayAsync(session.Id, snapId, cancellationToken);
+                    return await ReplayAsync(session, snapId, userId, cancellationToken);
                 }
 
                 // A snapId is unique everywhere; one taken by another session is refused without saying whose it is.
@@ -121,6 +124,10 @@ public static class IdentifyItems
                 }
 
                 await db.SaveChangesAsync(cancellationToken);
+
+                // A safety net queued before the slow lookups, due once this request's budget has long passed: if the request is cut
+                // off (a dropped connection, a crash) the rows still get resolved. It is a no-op for anything already resolved.
+                await EnqueueResolveJobsAsync(session, candidates, userId, SafetyKey, options.ResolveBudget + SafetyMargin, cancellationToken);
             }
 
             await ResolveAsync(session, fresh, userId, cancellationToken);
@@ -171,13 +178,20 @@ public static class IdentifyItems
             }
 
             await db.SaveChangesAsync(cancellationToken);
+            await EnqueueResolveJobsAsync(session, fresh.Select(f => f.Candidate), userId, null, null, cancellationToken);
+        }
 
-            foreach (var (candidate, _) in fresh.Where(f => f.Candidate.Resolution == CandidateResolution.Pending))
+        /// <summary>Queues the resolve job for each candidate still Pending. Safe to repeat: one job per candidate and key.</summary>
+        private async Task EnqueueResolveJobsAsync(
+            ScanSession session, IEnumerable<ScanCandidate> candidates, Guid userId, string? keySuffix, TimeSpan? delay, CancellationToken cancellationToken)
+        {
+            DateTimeOffset? runAfter = delay is { } d ? clock.GetUtcNow() + d : null;
+            foreach (var candidate in candidates.Where(c => c.Resolution == CandidateResolution.Pending))
             {
                 await jobs.EnqueueAsync(
                     ResolveJobType,
                     new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId),
-                    new JobEnqueueOptions(null, $"{ResolveJobType}:{candidate.Id}"),
+                    new JobEnqueueOptions(runAfter, $"{ResolveJobType}:{candidate.Id}{keySuffix}"),
                     cancellationToken);
             }
         }
@@ -229,12 +243,15 @@ public static class IdentifyItems
         private static ProviderAnswers Failed(string provider, string outcome, long started) =>
             new([], [new TraceStep(provider, outcome, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds)], true);
 
-        private async Task<Result<CandidatesDto>> ReplayAsync(Guid sessionId, Guid snapId, CancellationToken cancellationToken)
+        private async Task<Result<CandidatesDto>> ReplayAsync(ScanSession session, Guid snapId, Guid userId, CancellationToken cancellationToken)
         {
             var existing = await db.ScanCandidates.AsNoTracking()
-                .Where(c => c.SessionId == sessionId && c.SnapId == snapId)
+                .Where(c => c.SessionId == session.Id && c.SnapId == snapId)
                 .OrderBy(c => c.Seq)
                 .ToListAsync(cancellationToken);
+
+            // A first attempt that was cut off may have left rows with no job; queueing again is safe (deduped per candidate).
+            await EnqueueResolveJobsAsync(session, existing, userId, null, null, cancellationToken);
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, existing, cancellationToken));
         }
     }
