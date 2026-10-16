@@ -15,7 +15,11 @@ public sealed record ScannedCode(string? Value = null, string? Symbology = null,
 /// <summary>Body of <c>POST …/barcodes</c>: up to 50 codes per call. Needs an <c>Idempotency-Key</c> header.</summary>
 public sealed record BarcodeBatchRequest(IReadOnlyList<ScannedCode>? Codes = null);
 
-/// <summary>One item the phone read in a photo. At most 16 KB. No image is ever sent.</summary>
+/// <summary>
+/// One item the phone read in a photo. At most 16 KB. No image is ever sent. <c>Format</c> and <c>Year</c> are deliberate
+/// additions to the original contract (SCAN-2a): without the format a VHS and a DVD of one film are indistinguishable. Every
+/// field is a claim to check against the catalogue, never a verdict: the server decides the match.
+/// </summary>
 public sealed record IdentifyItem(
     string? LocalId = null,
     string? Text = null,
@@ -24,14 +28,20 @@ public sealed record IdentifyItem(
     string? Edition = null,
     ItemCompleteness? Completeness = null,
     CollectionMaxxing.Domain.Catalog.WorkKind? Kind = null,
+    CollectionMaxxing.Domain.Catalog.ReleaseFormat? Format = null,
+    int? Year = null,
     string? Platform = null,
     Guid? LocalMatchReleaseId = null);
 
-/// <summary>Body of <c>POST …/identify</c>: what the phone read from one photo.</summary>
+/// <summary>
+/// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 40 items, 256 KB). <c>FellBackFrom</c> says why
+/// the preferred engine wasn't used (a deliberate addition, SCAN-2a). Idempotent per <c>SnapId</c>.
+/// </summary>
 public sealed record IdentifyRequest(
     Guid? SnapId = null,
     SnapTrigger? Trigger = null,
     ScanEngine? Engine = null,
+    FallbackReason? FellBackFrom = null,
     IReadOnlyList<IdentifyItem>? Items = null);
 
 /// <summary>A feature-print distance the phone computed between the item and a release's artwork.</summary>

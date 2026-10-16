@@ -44,8 +44,9 @@ public class UpcQuotaTests(ApiFixture api) : UpcScanTest(api, dailyLimit: 1)
         Resolution(two[0]).ShouldBe("pending");
         UpcRequests.ShouldBe(1, "a spent quota makes no call");
         var jobs = await JobsFor(Id(two[0]));
-        jobs.Count.ShouldBe(1);
-        jobs[0].ShouldBe(UpcQuotaWindow.NextResetAfter(Clock.GetUtcNow()));
+        // Besides the job for after the reset, the request queued a safety-net resolve job that fires shortly after the request's own budget.
+        jobs.Count(at => at == UpcQuotaWindow.NextResetAfter(Clock.GetUtcNow())).ShouldBe(1);
+        jobs.Count.ShouldBe(2);
     }
 
     [Fact]
@@ -133,7 +134,7 @@ public class UpcQuotaTests(ApiFixture api) : UpcScanTest(api, dailyLimit: 1)
 
         Resolution((await GetSessionAsync(editor, sessionId)).GetProperty("candidates")[1]).ShouldBe("pending");
         UpcRequests.ShouldBe(1);
-        (await JobsFor(Id(waiting))).ShouldAllBe(at => at == UpcQuotaWindow.NextResetAfter(Clock.GetUtcNow()));
+        (await JobsFor(Id(waiting))).Count(at => at == UpcQuotaWindow.NextResetAfter(Clock.GetUtcNow())).ShouldBe(1);
     }
 
     [Fact]

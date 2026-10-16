@@ -1,0 +1,258 @@
+using System.Diagnostics;
+using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Jobs;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Scanning;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace CollectionMaxxing.Application.Scanning.Identify;
+
+/// <summary>
+/// Use case: the phone posts what it read from one picture (text and fields, never an image) and gets back candidates that are
+/// grounded in the catalogue, scored with the profile that fits each item, and already carry "you own this" (docs/02 sections
+/// 4 to 7, docs/04 <c>identify</c>). The model never decides a match alone: an item the catalogue and the providers cannot
+/// support is NotFound whatever the phone believed, and only the scorer's thresholds make a Matched. What resolves within the
+/// time budget is answered at once; the rest stays Pending for a background job and arrives as <c>candidate.updated</c>.
+/// Idempotent per <c>snapId</c>: a retry (or a twin) returns the same candidates and creates none.
+/// </summary>
+public static class IdentifyItems
+{
+    /// <summary>The job that resolves an item a request ran out of time for. Carries ids only; the read is kept on the candidate.</summary>
+    public const string ResolveJobType = "scan.identify_resolve";
+
+    private const string SafetyKey = ":safety";
+    private static readonly TimeSpan SafetyMargin = TimeSpan.FromSeconds(30);
+
+    public sealed record ResolveJob(Guid LibraryId, Guid SessionId, Guid CandidateId, Guid UserId);
+
+    public sealed record Command(Guid SessionId, IdentifyInput Input);
+
+    public sealed class Handler(
+        IAppDbContext db,
+        IIdGenerator ids,
+        ICurrentUser currentUser,
+        TimeProvider clock,
+        ISessionLock sessionLock,
+        IdentifyGrounding grounding,
+        CandidateResolver resolver,
+        IJobQueue jobs,
+        ScanningOptions options,
+        ILogger<Handler> logger)
+    {
+        public async Task<Result<CandidatesDto>> HandleAsync(Command command, CancellationToken cancellationToken)
+        {
+            var userId = currentUser.UserId
+                ?? throw new InvalidOperationException("IdentifyItems needs a signed-in caller; the endpoint requires authorization.");
+
+            if (IdentifyCleaning.Validate(command.Input) is { } invalid)
+            {
+                return invalid;
+            }
+
+            var session = await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken);
+            if (session is null)
+            {
+                return ScanningErrors.SessionNotFound;
+            }
+
+            var input = command.Input;
+            var snapId = input.SnapId!.Value;
+            var items = IdentifyCleaning.Clean(input.Items!);
+            var now = clock.GetUtcNow();
+
+            // Claim the snap and its rows under the session's lock, so a retry or a twin of this request finds them instead of racing them.
+            List<ScanCandidate> candidates;
+            List<(ScanCandidate Candidate, CleanItem Item)> fresh = [];
+            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
+            {
+                if (await db.ScanSnaps.AnyAsync(s => s.Id == snapId && s.SessionId == session.Id, cancellationToken))
+                {
+                    return await ReplayAsync(session, snapId, userId, cancellationToken);
+                }
+
+                // A snapId is unique everywhere; one taken by another session is refused without saying whose it is.
+                if (await db.ScanSnaps.IgnoreQueryFilters().AnyAsync(s => s.Id == snapId, cancellationToken))
+                {
+                    return IdentifyErrors.SnapInUse;
+                }
+
+                if (session.Status != ScanSessionStatus.Open)
+                {
+                    return ScanningErrors.SessionClosed;
+                }
+
+                db.ScanSnaps.Add(new ScanSnap
+                {
+                    Id = snapId,
+                    LibraryId = session.LibraryId,
+                    SessionId = session.Id,
+                    Trigger = input.Trigger!.Value,
+                    Engine = input.Engine!.Value,
+                    FellBack = input.FellBackFrom is not null,
+                    FallbackReason = input.FellBackFrom,
+                    ItemCount = items.Count,
+                    AssetId = null,
+                    CreatedAt = now,
+                });
+
+                var nextSeq = (await db.ScanCandidates.Where(c => c.SessionId == session.Id).MaxAsync(c => (int?)c.Seq, cancellationToken) ?? 0) + 1;
+                var source = input.Engine == ScanEngine.AppleModel ? CandidateSource.PictureAppleModel : CandidateSource.PictureText;
+                candidates = [];
+                for (var i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    var candidate = new ScanCandidate
+                    {
+                        Id = ids.NewId(),
+                        LibraryId = session.LibraryId,
+                        SessionId = session.Id,
+                        Seq = nextSeq++,
+                        Source = source,
+                        VisibleText = item.Facts.Text ?? item.Facts.Title,
+                        SnapId = snapId,
+                        LocalId = item.LocalId,
+                        Resolution = CandidateResolution.Pending,
+                        Decision = CandidateDecision.Undecided,
+                        InferredJson = StoredRead.Serialize(item.Facts, item.Profile),
+                        IdempotencyKey = $"snap:{snapId:N}:{i}",
+                        CreatedAt = now,
+                    };
+                    db.ScanCandidates.Add(candidate);
+                    candidates.Add(candidate);
+                    fresh.Add((candidate, item));
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+
+                // A safety net queued before the slow lookups, due once this request's budget has long passed: if the request is cut
+                // off (a dropped connection, a crash) the rows still get resolved. It is a no-op for anything already resolved.
+                await EnqueueResolveJobsAsync(session, candidates, userId, SafetyKey, options.ResolveBudget + SafetyMargin, cancellationToken);
+            }
+
+            await ResolveAsync(session, fresh, userId, cancellationToken);
+            return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, candidates, cancellationToken));
+        }
+
+        private async Task ResolveAsync(
+            ScanSession session, List<(ScanCandidate Candidate, CleanItem Item)> fresh, Guid userId, CancellationToken cancellationToken)
+        {
+            // The phone's own feature-print hit is a claim: honoured only for a release this library may use.
+            var claimed = fresh.Select(f => f.Item.LocalMatchReleaseId).OfType<Guid>().Distinct().ToList();
+            var usable = claimed.Count == 0
+                ? []
+                : (await db.Releases.AsNoTracking()
+                    .Where(r => claimed.Contains(r.Id) && (r.OwnerLibraryId == null || r.OwnerLibraryId == session.LibraryId))
+                    .Select(r => r.Id)
+                    .ToListAsync(cancellationToken)).ToHashSet();
+
+            var answers = new Dictionary<Guid, BarcodeResolution>();
+            var local = new Dictionary<Guid, LocalPool>();
+            var toAsk = new List<(ScanCandidate Candidate, CleanItem Item)>();
+            foreach (var (candidate, item) in fresh)
+            {
+                if (item.LocalMatchReleaseId is { } claim && usable.Contains(claim))
+                {
+                    answers[candidate.Id] = new BarcodeResolution(
+                        ResolutionVerdict.Matched, [new ResolutionOption(claim, null, 1.0)], null, [new TraceStep("feature_print", "hit", 0, 1.0)]);
+                }
+                else if (item.Facts.SearchText is null)
+                {
+                    answers[candidate.Id] = grounding.Score(item.Facts, item.Profile, LocalPool.Empty, ProviderAnswers.None);
+                }
+                else
+                {
+                    local[candidate.Id] = await grounding.FindLocalAsync(item.Facts, cancellationToken);
+                    toAsk.Add((candidate, item));
+                }
+            }
+
+            foreach (var (candidate, item, providers) in await AskProvidersAsync(toAsk, cancellationToken))
+            {
+                answers[candidate.Id] = grounding.Score(item.Facts, item.Profile, local[candidate.Id], providers);
+            }
+
+            foreach (var (candidate, _) in fresh)
+            {
+                await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            await EnqueueResolveJobsAsync(session, fresh.Select(f => f.Candidate), userId, null, null, cancellationToken);
+        }
+
+        /// <summary>Queues the resolve job for each candidate still Pending. Safe to repeat: one job per candidate and key.</summary>
+        private async Task EnqueueResolveJobsAsync(
+            ScanSession session, IEnumerable<ScanCandidate> candidates, Guid userId, string? keySuffix, TimeSpan? delay, CancellationToken cancellationToken)
+        {
+            DateTimeOffset? runAfter = delay is { } d ? clock.GetUtcNow() + d : null;
+            foreach (var candidate in candidates.Where(c => c.Resolution == CandidateResolution.Pending))
+            {
+                await jobs.EnqueueAsync(
+                    ResolveJobType,
+                    new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId),
+                    new JobEnqueueOptions(runAfter, $"{ResolveJobType}:{candidate.Id}{keySuffix}"),
+                    cancellationToken);
+            }
+        }
+
+        /// <summary>Asks the providers about several items at once within the request's budget. An item the budget runs out on comes back with a failed answer, which scores as Pending.</summary>
+        private async Task<List<(ScanCandidate Candidate, CleanItem Item, ProviderAnswers Answers)>> AskProvidersAsync(
+            List<(ScanCandidate Candidate, CleanItem Item)> toAsk, CancellationToken cancellationToken)
+        {
+            if (toAsk.Count == 0)
+            {
+                return [];
+            }
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(options.ResolveBudget);
+            using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
+            var started = Stopwatch.GetTimestamp();
+
+            var tasks = toAsk.Select(async entry =>
+            {
+                try
+                {
+                    await gate.WaitAsync(timeout.Token);
+                    try
+                    {
+                        return (entry.Candidate, entry.Item, Answers: await grounding.AskProvidersAsync(entry.Item.Facts, cancellationToken, timeout.Token));
+                    }
+                    finally
+                    {
+                        gate.Release();
+                    }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return (entry.Candidate, entry.Item, Answers: Failed("budget", "timeout", started));
+                }
+#pragma warning disable CA1031 // Whatever goes wrong with one item must not fail the picture.
+                catch (Exception exception) when (exception is not OperationCanceledException)
+#pragma warning restore CA1031
+                {
+                    logger.LogWarning("Looking up a scanned item failed ({Failure}); leaving it pending.", exception.GetType().Name);
+                    return (entry.Candidate, entry.Item, Answers: Failed("resolver", "failed", started));
+                }
+            }).ToList();
+
+            return [.. await Task.WhenAll(tasks)];
+        }
+
+        private static ProviderAnswers Failed(string provider, string outcome, long started) =>
+            new([], [new TraceStep(provider, outcome, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds)], true);
+
+        private async Task<Result<CandidatesDto>> ReplayAsync(ScanSession session, Guid snapId, Guid userId, CancellationToken cancellationToken)
+        {
+            var existing = await db.ScanCandidates.AsNoTracking()
+                .Where(c => c.SessionId == session.Id && c.SnapId == snapId)
+                .OrderBy(c => c.Seq)
+                .ToListAsync(cancellationToken);
+
+            // A first attempt that was cut off may have left rows with no job; queueing again is safe (deduped per candidate).
+            await EnqueueResolveJobsAsync(session, existing, userId, null, null, cancellationToken);
+            return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, existing, cancellationToken));
+        }
+    }
+}
