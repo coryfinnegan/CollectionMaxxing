@@ -91,6 +91,7 @@ public static class ScanningEndpoints
         // Creates items for the accepted candidates in one transaction.
         sessions.MapPost("/{id:guid}/commit", Commit)
             .WithName("CommitScanSession").WithTags("Scanning")
+            .Accepts<CommitScanRequest>(isOptional: true, "application/json")
             .Produces<CommitResultDto>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -138,7 +139,7 @@ public static class ScanningEndpoints
     private static async Task<IResult> DecideCandidate(
         Guid id, Guid cid, DecideCandidateRequest body, DecideCandidate.Handler handler, CancellationToken cancellationToken)
     {
-        var result = await handler.HandleAsync(new DecideCandidate.Command(id, cid, body.Decision, body.ReleaseId, body.Copies), cancellationToken);
+        var result = await handler.HandleAsync(new DecideCandidate.Command(id, cid, body.Decision, body.ReleaseId, body.Copies, body.Format, body.Platform, body.Edition), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
     }
 
@@ -150,9 +151,18 @@ public static class ScanningEndpoints
     }
 
     private static async Task<IResult> Commit(
-        Guid id, [FromHeader(Name = "Idempotency-Key")] string idempotencyKey, CommitScanSession.Handler handler, CancellationToken cancellationToken)
+        Guid id,
+        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        CommitScanSession.Handler handler,
+        CancellationToken cancellationToken,
+        CommitScanRequest? body = null)
     {
-        var result = await handler.HandleAsync(new CommitScanSession.Command(id, idempotencyKey), cancellationToken);
+        var options = body is null
+            ? null
+            : new CommitOptions(
+                body.AddTo, body.Status, body.Condition,
+                body.Overrides?.Select(o => new CommitOverride(o?.CandidateId, o?.LocationId, o?.Status, o?.Condition, o?.Copies)).ToList());
+        var result = await handler.HandleAsync(new CommitScanSession.Command(id, idempotencyKey, options), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
     }
 

@@ -10,7 +10,8 @@ namespace CollectionMaxxing.Api.Scanning.Events;
 /// <summary>
 /// <c>GET /scan-sessions/{id}/events</c>: server-sent events for one scan session (docs/04, "Example: SSE event"). The
 /// route's filters have already checked the caller owns the session. The <c>id:</c> of an event is the highest candidate
-/// <c>seq</c> shown so far, so a client that reconnects with <c>Last-Event-ID</c> gets only what it missed. A comment line
+/// <c>changeSeq</c> (the session's change counter) shown so far, so a client that reconnects with <c>Last-Event-ID</c> gets
+/// every candidate that was added or changed after it, and only those. A comment line
 /// goes out every heartbeat; the stream ends when the session does (committed or abandoned).
 /// </summary>
 public static class ScanEventsEndpoint

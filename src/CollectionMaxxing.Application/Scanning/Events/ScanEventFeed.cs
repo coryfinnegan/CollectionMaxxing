@@ -19,9 +19,10 @@ public static class ScanEventNames
 public sealed record SessionStatusDto(Guid Id, ScanSessionStatus Status);
 
 /// <summary>
-/// One event for the wire. <see cref="Id"/> is the highest candidate <c>seq</c> the stream has shown so far (0 when none),
-/// so it never goes backwards and <c>Last-Event-ID</c> says how far a reconnecting client got. <see cref="Data"/> is a
-/// <see cref="CandidateDto"/> or a <see cref="SessionStatusDto"/>.
+/// One event for the wire. <see cref="Id"/> is the highest candidate <c>changeSeq</c> the stream has shown so far (0 when
+/// none): the session's change counter, which goes up with every insert and update of a candidate, so it never goes backwards
+/// and <c>Last-Event-ID</c> says exactly how far a reconnecting client got. <see cref="Data"/> is a <see cref="CandidateDto"/>
+/// or a <see cref="SessionStatusDto"/>.
 /// </summary>
 public sealed record ScanEvent(string Name, int Id, object Data);
 
@@ -30,17 +31,19 @@ public sealed record ScanEventBatch(IReadOnlyList<ScanEvent> Events, bool Sessio
 
 /// <summary>
 /// The events of one session for one connected client. The database is the source of truth: each <see cref="NextAsync"/>
-/// compares the session's candidates with what this client has already been shown, so a change made by any request or
-/// background job (in any process) reaches the client, and nothing is lost between a slow code being Pending and resolved.
-/// The first look sends every candidate the client doesn't have (everything after <c>Last-Event-ID</c> on a reconnect),
-/// then the session's status. Not thread-safe: one per connection.
+/// looks for candidates whose change counter is past the highest this client has been shown, so a change made by any request
+/// or background job (in any process) reaches the client, and nothing is lost between a slow code being Pending and resolved.
+/// The counter is handed out in commit order (see <see cref="ScanCandidate.ChangeSeq"/>), so a look can never skip a change
+/// that commits late. The first look sends everything after <c>Last-Event-ID</c> on a reconnect (a candidate that was only
+/// updated while the client was away comes back as <c>candidate.updated</c>), then the session's status. Not thread-safe: one
+/// per connection.
 /// </summary>
 public sealed class ScanEventCursor
 {
     private readonly IAppDbContext _db;
     private readonly Guid _sessionId;
     private readonly int _after;
-    private readonly Dictionary<Guid, uint> _shown = [];
+    private readonly HashSet<Guid> _known = [];
     private bool _first = true;
     private int _highWater;
     private ScanSessionStatus? _statusShown;
@@ -63,43 +66,31 @@ public sealed class ScanEventCursor
         }
 
         var candidates = await _db.ScanCandidates.AsNoTracking()
-            .Where(c => c.SessionId == _sessionId).OrderBy(c => c.Seq).ToListAsync(cancellationToken);
+            .Where(c => c.SessionId == _sessionId).OrderBy(c => c.ChangeSeq).ToListAsync(cancellationToken);
 
-        var added = new List<ScanCandidate>();
-        var updated = new List<ScanCandidate>();
-        foreach (var candidate in candidates)
+        if (_first)
         {
-            if (_first && candidate.Seq <= _after)
+            // A reconnecting client has every candidate it was shown before it left: those not changed since Last-Event-ID, and
+            // those created before the newest of them (creation order is change order), even if they have changed since.
+            var knownSeq = candidates.Where(c => c.ChangeSeq <= _after).Select(c => c.Seq).DefaultIfEmpty(0).Max();
+            foreach (var candidate in candidates.Where(c => c.ChangeSeq <= _after || c.Seq <= knownSeq))
             {
-                _shown[candidate.Id] = candidate.Version; // the client has it from before the reconnect
+                _known.Add(candidate.Id);
             }
-            else if (!_shown.TryGetValue(candidate.Id, out var version))
-            {
-                added.Add(candidate);
-            }
-            else if (version != candidate.Version)
-            {
-                updated.Add(candidate);
-            }
+
+            _first = false;
         }
 
-        _first = false;
         var events = new List<ScanEvent>();
-        var changed = added.Concat(updated).ToList();
+        var changed = candidates.Where(c => c.ChangeSeq > _highWater).ToList();
         if (changed.Count > 0)
         {
             var dtos = (await CandidateProjection.ToDtosAsync(_db, changed, cancellationToken)).ToDictionary(d => d.Id);
-            foreach (var candidate in added)
+            foreach (var candidate in changed)
             {
-                _highWater = Math.Max(_highWater, candidate.Seq);
-                events.Add(new ScanEvent(ScanEventNames.CandidateAdded, _highWater, dtos[candidate.Id]));
-                _shown[candidate.Id] = candidate.Version;
-            }
-
-            foreach (var candidate in updated)
-            {
-                events.Add(new ScanEvent(ScanEventNames.CandidateUpdated, _highWater, dtos[candidate.Id]));
-                _shown[candidate.Id] = candidate.Version;
+                _highWater = Math.Max(_highWater, candidate.ChangeSeq);
+                var name = _known.Add(candidate.Id) ? ScanEventNames.CandidateAdded : ScanEventNames.CandidateUpdated;
+                events.Add(new ScanEvent(name, candidate.ChangeSeq, dtos[candidate.Id]));
             }
         }
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Application.Scanning;
 
 /// <summary>What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or a key.</summary>
-internal sealed record StoredTrace(IReadOnlyList<TraceStep> Steps, IReadOnlyList<string> OwnedAt);
+internal sealed record StoredTrace(IReadOnlyList<TraceStep> Steps, IReadOnlyList<string> OwnedAt, DateTimeOffset? RetryAfter = null);
 
 /// <summary>One entry of a candidate's <c>alternatives</c>: a release the person can pick, with its own ownership.</summary>
 public sealed record StoredAlternative(
@@ -93,7 +94,17 @@ internal static class CandidateProjection
         return candidates.Select(c => ToDto(c, c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null)).ToList();
     }
 
-    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release) => new(
+    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release)
+    {
+        var trace = CandidateJson.ReadTrace(c.TraceJson);
+        var waitingForQuota = c.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(trace.Steps);
+        var edits = c.EditedFormat is null && c.EditedPlatform is null && c.EditedEdition is null
+            ? null
+            : new CandidateEditsDto(c.EditedFormat, c.EditedPlatform, c.EditedEdition);
+        return ToDto(c, release, trace, waitingForQuota, edits);
+    }
+
+    private static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool waitingForQuota, CandidateEditsDto? edits) => new(
         c.Id,
         c.Seq,
         c.Source,
@@ -112,8 +123,13 @@ internal static class CandidateProjection
         c.Decision,
         c.Copies,
         c.AlreadyOwnedCount,
-        CandidateJson.ReadTrace(c.TraceJson).OwnedAt,
-        c.CreatedItemId);
+        trace.OwnedAt,
+        c.CreatedItemId,
+        c.ChangeSeq,
+        edits,
+        c.UserEdited,
+        c.Resolution == CandidateResolution.Pending ? (waitingForQuota ? PendingReason.Quota : PendingReason.Lookup) : null,
+        waitingForQuota ? trace.RetryAfter : null);
 
     /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>
     public static async Task<Dictionary<Guid, ReleaseDto>> LoadReleasesAsync(
