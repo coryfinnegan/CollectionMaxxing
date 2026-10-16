@@ -15,6 +15,7 @@ test.describe('members and join', () => {
 
     const link = page.getByLabel('Invite link', { exact: true });
     await expect(link).toContainText('/join/');
+    const joinPath = new URL((await link.innerText()).trim()).pathname; // follow the link the dialog actually shows
     await expect(page.getByText("It won't be shown again")).toBeVisible();
     await shot('invite-link');
 
@@ -23,10 +24,10 @@ test.describe('members and join', () => {
     // The list never carries the link again.
     await expect(page.getByLabel('Invite link', { exact: true })).toHaveCount(0);
 
-    // A second, separate browser context opens the invite and joins. The mock only knows the token "valid-invite".
+    // A second, separate browser context opens the invite the dialog showed and joins.
     const other = await browser.newContext({ baseURL });
     const guest = await other.newPage();
-    await guest.goto('/join/valid-invite');
+    await guest.goto(joinPath);
     await expect(guest.getByRole('heading', { name: "Join Cory's library as Editor" })).toBeVisible();
     await guest.getByRole('textbox', { name: 'Your name' }).fill('Taylor');
     await guest.getByRole('button', { name: 'Create passkey' }).click();

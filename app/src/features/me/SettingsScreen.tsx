@@ -3,12 +3,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { logout } from '@/features/auth/api';
-import { clearOwnedData } from '@/features/offline/ownedCache';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
 import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { useLockSetting } from './appLock';
+import { clearLocalData } from './localData';
 import { getBiometrics, getVision } from './services';
 import { unpairThisDevice } from './unpair';
 
@@ -84,12 +84,12 @@ export function SecuritySection() {
   const [message, setMessage] = useState<string | null>(null);
 
   const signOut = useMutation({
-    mutationFn: logout,
-    onSuccess: () => {
-      clearOwnedData(); // the offline "do I own this?" copy must not outlive the sign-in
-      queryClient.clear();
-      router.replace('/login');
+    // Every registered clearer runs (the offline "do I own this?" copy must not outlive the sign-in), then the query cache.
+    mutationFn: async () => {
+      await logout();
+      await clearLocalData(queryClient);
     },
+    onSuccess: () => router.replace('/login'),
     onError: (e) => setMessage(friendlyError(e)),
   });
 

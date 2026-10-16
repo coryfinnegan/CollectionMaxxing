@@ -86,6 +86,7 @@ export class VisionCameraSource implements ScannerSource {
   onFrameSignals(cb: (s: FrameSignals) => void): Unsubscribe {
     this.signals ??= new RealFrameSignals({
       snapshot: async () => (await this.camera?.snapshot()) ?? null,
+      release: async (uri) => this.camera?.releaseSnapshot(uri),
       vision: async () => (await import('@/native/cm-vision')).visionEngine,
       motion: startDeviceMotion,
       barcodesInView: () => (Date.now() - this.lastCodesAt < BARCODE_MEMORY_MS ? this.lastCodeCount : 0),
@@ -126,6 +127,8 @@ export interface CameraHandle {
   capture(): Promise<CapturedPhoto>;
   /** A cheap, low-resolution look at the camera now (file uri), or null. */
   snapshot(): Promise<string | null>;
+  /** Deletes a snapshot once it has been read. */
+  releaseSnapshot(uri: string): Promise<void>;
 }
 
 /** A barcode seen this recently still counts as in view (the decoder reports only frames that have one). */

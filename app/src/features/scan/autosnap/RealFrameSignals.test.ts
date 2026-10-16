@@ -41,6 +41,14 @@ describe('real frame signals', () => {
     expect(await read(deps({ snapshot: async () => null }))).toEqual([]);
     expect(await read(deps({ vision: async () => Promise.reject(new Error('no vision')) }))).toEqual([]);
   });
+
+  it('hands the snapshot back once Vision has read it, even when Vision fails', async () => {
+    const released: string[] = [];
+    const release = async (u: string) => void released.push(u);
+    await read(deps({ release }));
+    await read(deps({ release, vision: async () => Promise.reject(new Error('no vision')) }));
+    expect(released).toEqual(['file:///snap.jpg', 'file:///snap.jpg']);
+  });
 });
 
 describe('motion tracker', () => {

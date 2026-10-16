@@ -5,22 +5,24 @@ const path = require('node:path');
 
 const moduleDir = path.resolve(__dirname, '..');
 
-// Shapes NAT-2b (Swift) has not implemented yet. NAT-2b must empty this list; until then the Swift
-// check skips them, and fails if Swift already emits one that is still listed here.
-const swiftPending = ['ModelItem', 'ModelCapabilities', 'ReadItemsResult', 'DeviceStatus'];
-
+// Shapes the Swift side has not implemented yet. Empty since NAT-2b; the Swift check skips a listed shape and
+// fails if Swift already emits one that is still listed here.
+const swiftPending = [];
 
 function loadSchema() {
   return JSON.parse(fs.readFileSync(path.join(moduleDir, 'contract.schema.json'), 'utf8'));
 }
 
-/** Keys of each `// contract: Name` block in the Swift contract file. */
+/**
+ * Keys of each `// contract: Name` block in the Swift contract file: dictionary-literal lines ("key": value)
+ * and assignments (item["key"] = value, how optional keys are added), in source order.
+ */
 function swiftKeys(swiftSource) {
   const result = {};
   const parts = swiftSource.split(/^\s*\/\/ contract: (\w+)\s*$/m);
   // parts = [preamble, name1, body1, name2, body2, ...]
   for (let i = 1; i < parts.length; i += 2) {
-    const keys = [...parts[i + 1].matchAll(/^\s*"([A-Za-z]+)"\s*:/gm)].map((m) => m[1]);
+    const keys = [...parts[i + 1].matchAll(/^\s*"([A-Za-z]+)"\s*:|\[\s*"([A-Za-z]+)"\s*\]\s*=(?!=)/gm)].map((m) => m[1] ?? m[2]);
     result[parts[i]] = keys;
   }
   return result;

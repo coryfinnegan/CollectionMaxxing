@@ -1,28 +1,61 @@
 import ExpoModulesCore
 import Vision
 
-// Deliberately thin: call Vision, shape the result with CmContract, nothing else.
-// NAT-2 seam (not implemented): Foundation Models image input uses
-// `Attachment(cgImage, orientation:)` inside the prompt builder, guarded by
-// `SystemLanguageModel.default.capabilities.contains(.vision)`.
+// Deliberately thin: call Apple (Vision, Foundation Models), shape the result with CmContract, nothing else.
+// The prompt, timeouts and limits arrive from TypeScript; no prompt text lives here.
 public class CmVisionModule: Module {
   public func definition() -> ModuleDefinition {
     Name("CmVision")
 
+    // One `onItem` event per finished item while a read runs; the payload is a ModelItem.
+    Events("onItem")
+
+    // "The module is loaded". Whether the model can read pictures is `modelCapabilities`.
     AsyncFunction("isAvailable") { () -> Bool in
       return true
     }
 
-    AsyncFunction("recognizeText") { (imageUri: String) -> [[String: Any]] in
-      let request = VNRecognizeTextRequest()
-      request.recognitionLevel = .accurate
-      request.usesLanguageCorrection = false
-      try CmVisionRunner.perform(request, imageUri: imageUri)
-      let observations: [VNRecognizedTextObservation] = request.results ?? []
-      return observations.compactMap { observation in
-        guard let top = observation.topCandidates(1).first else { return nil }
-        return CmContract.textLine(text: top.string, confidence: top.confidence, box: observation.boundingBox)
+    AsyncFunction("recognizeText") { (imageUri: String, orientations: [Int]?) -> [[String: Any]] in
+      let image = try CmImage.load(imageUri)
+      let passes = (orientations?.isEmpty ?? true) ? [0] : orientations!
+      var lines: [[String: Any]] = []
+      for rotation in passes {
+        lines.append(contentsOf: try CmText.recognize(image, rotation: rotation))
       }
+      return lines
+    }
+
+    AsyncFunction("modelCapabilities") { () -> [String: Any] in
+      if #available(iOS 27.0, *) {
+        return CmModelReader.capabilities()
+      }
+      return CmContract.modelCapabilities(
+        available: false, vision: false, guidedGeneration: false, contextSize: nil, reason: "osTooOld")
+    }
+
+    // Never rejects: a declined, timed-out, oversized or unavailable read resolves with its outcome.
+    AsyncFunction("readItems") { [weak self] (imageUri: String, options: [String: Any], promise: Promise) in
+      let unavailable = CmContract.readItemsResult(items: [], unreadableCount: 0, outcome: "unavailable", elapsedMs: 0)
+      guard let request = CmReadRequest(options) else {
+        promise.resolve(unavailable)
+        return
+      }
+      guard #available(iOS 27.0, *) else {
+        promise.resolve(unavailable)
+        return
+      }
+      Task.detached(priority: .userInitiated) {
+        let result = await CmModelReader.read(imageUri: imageUri, request: request) { item in
+          self?.sendEvent("onItem", item)
+        }
+        promise.resolve(result)
+      }
+    }
+
+    AsyncFunction("deviceStatus") { () -> [String: Any] in
+      return CmContract.deviceStatus(
+        thermalState: CmDevice.thermalName(ProcessInfo.processInfo.thermalState),
+        osVersion: CmDevice.osVersion())
     }
 
     AsyncFunction("detectRectangles") { (imageUri: String) -> [[String: Any]] in
@@ -93,14 +126,7 @@ final class CmVisionBadPrintException: Exception {
 
 enum CmVisionRunner {
   static func perform(_ request: VNRequest, imageUri: String) throws {
-    let url: URL
-    if let parsed = URL(string: imageUri), parsed.isFileURL {
-      url = parsed
-    } else if imageUri.hasPrefix("/") {
-      url = URL(fileURLWithPath: imageUri)
-    } else {
-      throw CmVisionBadImageException(imageUri)
-    }
+    let url = try CmImage.fileURL(imageUri)
     let handler = VNImageRequestHandler(url: url, options: [:])
     try handler.perform([request])
   }
