@@ -43,5 +43,10 @@ export const candidate = (extra: Partial<CandidateDto> = {}): CandidateDto => ({
   alreadyOwnedCount: 0,
   ownedAt: [],
   createdItemId: null,
+  changeSeq: n,
+  edits: null,
+  userEdited: false,
+  pendingReason: null,
+  retryAfter: null,
   ...extra,
 });

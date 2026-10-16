@@ -157,6 +157,11 @@ const newCandidate = (session: MockSession, code: string, symbology: string | nu
     alreadyOwnedCount: 0,
     ownedAt: [],
     createdItemId: null,
+    changeSeq: session.seq,
+    edits: null,
+    userEdited: false,
+    pendingReason: null,
+    retryAfter: null,
   };
   if (code === DEV_CODES.unreadable) return { ...base, resolution: 'error' };
   if (!entry) return base;
