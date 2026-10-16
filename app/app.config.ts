@@ -24,6 +24,7 @@ const config: ExpoConfig = {
     ['expo-system-ui', {}],
     'expo-secure-store',
     ['expo-local-authentication', { faceIDPermission: 'CollectionMaxxing uses Face ID to lock the app when you leave it.' }],
+    ['expo-sensors', { motionPermission: 'CollectionMaxxing uses motion to take the photo when your phone is steady.' }],
   ],
   experiments: {
     typedRoutes: true,
