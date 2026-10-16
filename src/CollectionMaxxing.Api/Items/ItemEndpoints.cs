@@ -27,6 +27,7 @@ public static class ItemEndpoints
         services.AddScoped<RestoreItem.Handler>();
         services.AddScoped<RematchItem.Handler>();
         services.AddScoped<BulkItems.Handler>();
+        services.AddScoped<RestoreItems.Handler>();
         services.AddScoped<GetStats.Handler>();
         return services;
     }
@@ -87,6 +88,14 @@ public static class ItemEndpoints
 
         library.MapPost("/items:bulk", Bulk)
             .WithName("BulkItems").WithTags("Items")
+            .Produces<BulkItemsResultDto>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireLibraryRole(LibraryRole.Editor);
+
+        // Undo for many deletes at once (Review's Undo after a commit): all or nothing, in one transaction.
+        library.MapPost("/items:restore", RestoreMany)
+            .WithName("RestoreItems").WithTags("Items")
             .Produces<BulkItemsResultDto>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -212,6 +221,13 @@ public static class ItemEndpoints
         };
         var patch = body.Patch is { } p ? new BulkChange(p.LocationId, p.Status, p.AddTagIds, p.RemoveTagIds) : null;
         var result = await handler.HandleAsync(new BulkItems.Command(libraryId, body.Ids, operation, patch), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToItemProblem();
+    }
+
+    private static async Task<IResult> RestoreMany(
+        Guid libraryId, RestoreItemsRequest body, RestoreItems.Handler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new RestoreItems.Command(libraryId, body.Ids), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToItemProblem();
     }
 
