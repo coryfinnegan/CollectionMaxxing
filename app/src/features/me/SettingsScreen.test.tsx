@@ -11,11 +11,29 @@ import { mockAccount, resetMockAccount } from '@/mocks/me';
 import { makeQueryClient, renderWithProviders } from '@/test/render';
 import { useLockSetting } from './appLock';
 import { registerLocalDataClearer } from './localData';
-import { type Biometrics, setBiometrics, setSettingsStorage, setVision } from './services';
+import { RecognitionConfigStore } from '@/features/scan/recognition/config';
+import { setRecognition } from '@/features/scan/recognition/device';
+import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
+import { RecordingVision } from '@/features/scan/recognition/fakes';
+import { type Biometrics, setBiometrics, setSettingsStorage } from './services';
 import { SettingsScreen } from './SettingsScreen';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
+/** The real selector over a fake vision engine, so Settings reads what the scanner would use. */
+function recognitionWith(capabilities: object) {
+  const vision = new RecordingVision({}, { capabilities: capabilities as never });
+  const store = new RecognitionConfigStore({
+    storage: new MemoryKeyValueStore(),
+    fetcher: async () => {
+      throw new Error('offline');
+    },
+  });
+  setRecognition({ store, selector: new EngineSelector({ vision, settings: () => store.current() }) });
+}
+const ready = { available: true, vision: true, guidedGeneration: true, contextSize: 4096 };
+const unavailable = (reason: string) => ({ available: false, vision: false, guidedGeneration: false, contextSize: null, reason });
 
 const bio: Biometrics = { isAvailable: async () => true, authenticate: async () => true };
 let tokenStore: MemoryTokenStore;
@@ -28,12 +46,13 @@ beforeEach(() => {
   setBiometrics(bio);
   setSettingsStorage(new MemoryKeyValueStore());
   useLockSetting.getState().reload();
-  setVision({ isAvailable: async () => true });
+  recognitionWith(ready);
 });
 afterEach(() => {
   resetAuth();
   setTrayStore(undefined);
   setSettingsStorage(undefined);
+  setRecognition(undefined);
 });
 
 describe('Settings > Recognition', () => {
@@ -41,13 +60,26 @@ describe('Settings > Recognition', () => {
     await renderWithProviders(<SettingsScreen />);
     expect(await screen.findByText('Engine: Apple on-device model')).toBeTruthy();
     expect(screen.getByText(/Apple Intelligence is on/)).toBeTruthy();
+    expect(screen.getByText('Apple Intelligence: On')).toBeTruthy();
   });
 
   it('shows the Vision fallback and explains it in one line', async () => {
-    setVision({ isAvailable: async () => false });
+    recognitionWith(unavailable('appleIntelligenceOff'));
     await renderWithProviders(<SettingsScreen />);
     expect(await screen.findByText('Engine: Vision text fallback')).toBeTruthy();
     expect(screen.getByText(/Apple Intelligence isn't available/)).toBeTruthy();
+    expect(screen.getByText('Apple Intelligence: Off')).toBeTruthy();
+  });
+
+  it.each([
+    ['modelNotReady', 'Apple Intelligence: Still getting ready'],
+    ['osTooOld', 'Apple Intelligence: Needs a newer iOS'],
+    ['notSupported', 'Apple Intelligence: Not on this iPhone'],
+  ])('names why the model is unavailable (%s)', async (reason, label) => {
+    recognitionWith(unavailable(reason));
+    await renderWithProviders(<SettingsScreen />);
+    expect(await screen.findByText('Engine: Vision text fallback')).toBeTruthy();
+    expect(screen.getByText(label)).toBeTruthy();
   });
 
   it('is hidden on the web, which only offers Sign out', async () => {
