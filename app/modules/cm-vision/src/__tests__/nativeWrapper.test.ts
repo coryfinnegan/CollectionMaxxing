@@ -143,4 +143,61 @@ describe('the native wrapper', () => {
       ['file:///a.jpg', [0, 90, 270]],
     ]);
   });
+
+  describe('overlapping readItems calls run one at a time', () => {
+    const okResult: ReadItemsResult = { items: [], unreadableCount: 0, outcome: 'ok', elapsedMs: 1 };
+    const deferred = () => {
+      let resolve!: (r: ReadItemsResult) => void;
+      let reject!: (e: Error) => void;
+      const promise = new Promise<ReadItemsResult>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    it('starts the second native call only after the first resolves', async () => {
+      const first = deferred();
+      const second = deferred();
+      mockNative.readItems.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+      const a = visionEngine.readItems('file:///a.jpg', options);
+      const b = visionEngine.readItems('file:///b.jpg', options);
+      await flush();
+      expect(mockNative.readItems).toHaveBeenCalledTimes(1);
+
+      first.resolve(okResult);
+      await a;
+      await flush();
+      expect(mockNative.readItems).toHaveBeenCalledTimes(2);
+      second.resolve(okResult);
+      await b;
+    });
+
+    it('gives each caller only its own items', async () => {
+      mockNative.readItems.mockImplementation(async (uri: string) => {
+        mockNative.emit(item(0, uri));
+        await flush();
+        return okResult;
+      });
+      const got: Record<string, string[]> = { a: [], b: [] };
+      await Promise.all([
+        visionEngine.readItems('A', options, (i) => got.a.push(i.title)),
+        visionEngine.readItems('B', options, (i) => got.b.push(i.title)),
+      ]);
+      expect(got).toEqual({ a: ['A'], b: ['B'] });
+    });
+
+    it('does not let a failed call block the next one', async () => {
+      const first = deferred();
+      mockNative.readItems.mockReturnValueOnce(first.promise).mockResolvedValueOnce(okResult);
+      const a = visionEngine.readItems('file:///a.jpg', options);
+      const b = visionEngine.readItems('file:///b.jpg', options);
+      first.reject(new Error('boom'));
+      expect((await a).outcome).toBe('unavailable');
+      expect((await b).outcome).toBe('ok');
+      expect(mockNative.readItems).toHaveBeenCalledTimes(2);
+    });
+  });
 });
