@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Detect solution
         id: detect
         run: |
@@ -27,7 +27,7 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "No *.slnx yet; skipping backend checks."
           fi
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         if: steps.detect.outputs.present == 'true'
         with:
           global-json-file: global.json
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Detect app
         id: detect
         run: |
@@ -52,7 +52,7 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "No app/package.json yet; skipping app checks."
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
@@ -63,7 +63,7 @@ jobs:
         working-directory: app
         run: npm ci
       # A warm Jest transform cache: cold runs on the 2-core runner made the first library tests time out (#87).
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         if: steps.detect.outputs.present == 'true'
         with:
           path: app/.jest-cache
@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Detect Playwright specs
         id: detect
         run: |
@@ -90,7 +90,7 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "No app/playwright.config.ts yet; skipping e2e."
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
