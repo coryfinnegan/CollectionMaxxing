@@ -1,0 +1,159 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://book-cover-1"
+    },
+    "output": {
+      "items": [
+        {
+          "visibleText": "Dune Frank Herbert Ace Books",
+          "title": "Dune",
+          "kind": "book",
+          "order": 0,
+          "confidence": "high",
+          "creator": "Frank Herbert"
+        }
+      ],
+      "unreadableCount": 0,
+      "outcome": "ok",
+      "elapsedMs": 700
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://n64-cart-1"
+    },
+    "output": {
+      "items": [
+        {
+          "visibleText": "Nintendo 64 Super Mario 64",
+          "title": "Super Mario 64",
+          "kind": "game",
+          "order": 0,
+          "confidence": "high",
+          "platform": "Nintendo 64",
+          "completeness": "looseCart",
+          "editionMarks": "Player's Choice"
+        }
+      ],
+      "unreadableCount": 0,
+      "outcome": "ok",
+      "elapsedMs": 650
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://vhs-sleeve-1"
+    },
+    "output": {
+      "items": [
+        {
+          "visibleText": "THE MATRIX Warner Home Video",
+          "title": "The Matrix",
+          "kind": "vhs",
+          "order": 0,
+          "confidence": "medium",
+          "completeness": "boxed"
+        }
+      ],
+      "unreadableCount": 0,
+      "outcome": "ok",
+      "elapsedMs": 800
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://shelf-of-three-spines"
+    },
+    "output": {
+      "items": [
+        {
+          "visibleText": "THE MATRIX",
+          "title": "The Matrix",
+          "kind": "dvd",
+          "order": 0,
+          "confidence": "high"
+        },
+        {
+          "visibleText": "ALIEN Collector's Edition",
+          "title": "Alien",
+          "kind": "bluray",
+          "order": 1,
+          "confidence": "medium",
+          "editionMarks": "Collector's Edition"
+        },
+        {
+          "visibleText": "Dun",
+          "title": "Dune",
+          "kind": "book",
+          "order": 2,
+          "confidence": "low",
+          "creator": "Frank Herbert"
+        }
+      ],
+      "unreadableCount": 1,
+      "outcome": "ok",
+      "elapsedMs": 2400
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://refused-photo"
+    },
+    "output": {
+      "items": [],
+      "unreadableCount": 0,
+      "outcome": "declined",
+      "elapsedMs": 300
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://slow-shelf"
+    },
+    "output": {
+      "items": [],
+      "unreadableCount": 0,
+      "outcome": "timeout",
+      "elapsedMs": 8000
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://huge-shelf"
+    },
+    "output": {
+      "items": [],
+      "unreadableCount": 0,
+      "outcome": "contextExceeded",
+      "elapsedMs": 1200
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://no-model"
+    },
+    "output": {
+      "items": [],
+      "unreadableCount": 0,
+      "outcome": "unavailable",
+      "elapsedMs": 0
+    }
+  }
+]

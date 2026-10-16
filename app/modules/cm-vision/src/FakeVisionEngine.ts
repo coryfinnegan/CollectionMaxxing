@@ -1,16 +1,72 @@
 import { fixtures, sameJson, type FixtureSet } from './fixtures';
-import type { DetectedCode, FeaturePrint, Rect, TextLine, VisionEngine } from './types';
+import type {
+  DetectedCode,
+  DeviceStatus,
+  FeaturePrint,
+  ModelCapabilities,
+  ModelItem,
+  ReadItemsOptions,
+  ReadItemsResult,
+  Rect,
+  TextLine,
+  VisionEngine,
+} from './types';
+
+export const CAPABLE_MODEL: ModelCapabilities = { available: true, vision: true, guidedGeneration: true, contextSize: 4096 };
+
+export interface FakeVisionOptions {
+  capabilities?: ModelCapabilities;
+  deviceStatus?: DeviceStatus;
+}
 
 /** Replays fixture JSON; fails loudly for an input it has no fixture for. */
 export class FakeVisionEngine implements VisionEngine {
-  constructor(private readonly set: FixtureSet = fixtures) {}
+  private capabilities: ModelCapabilities;
+  private status: DeviceStatus;
+
+  constructor(
+    private readonly set: FixtureSet = fixtures,
+    options: FakeVisionOptions = {},
+  ) {
+    this.capabilities = options.capabilities ?? CAPABLE_MODEL;
+    this.status = options.deviceStatus ?? { thermalState: 'nominal', osVersion: '26.0' };
+  }
+
+  /** Per-test configuration, e.g. Apple Intelligence off or the model not ready. */
+  setCapabilities(capabilities: ModelCapabilities): void {
+    this.capabilities = capabilities;
+  }
+
+  setDeviceStatus(status: DeviceStatus): void {
+    this.status = status;
+  }
+
+  async modelCapabilities(): Promise<ModelCapabilities> {
+    return this.capabilities;
+  }
+
+  async deviceStatus(): Promise<DeviceStatus> {
+    return this.status;
+  }
+
+  /** Streams each fixture item to `onItem` in `order`, then resolves. Never throws for a recorded outcome. */
+  async readItems(imageUri: string, _options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
+    const result = this.replay('readItems', { imageUri });
+    const items = [...result.items].sort((a, b) => a.order - b.order);
+    for (const item of items) onItem?.(item);
+    return { ...result, items };
+  }
 
   async isAvailable(): Promise<boolean> {
     return true;
   }
 
-  async recognizeText(imageUri: string): Promise<TextLine[]> {
-    return this.replay('recognizeText', { imageUri });
+  async recognizeText(imageUri: string, options?: { orientations?: (0 | 90 | 270)[] }): Promise<TextLine[]> {
+    const lines: TextLine[] = [];
+    for (const orientation of options?.orientations ?? [0]) {
+      lines.push(...this.replay('recognizeText', orientation === 0 ? { imageUri } : { imageUri, orientation }));
+    }
+    return lines;
   }
 
   async detectRectangles(imageUri: string): Promise<Rect[]> {

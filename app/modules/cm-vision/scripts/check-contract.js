@@ -5,6 +5,11 @@ const path = require('node:path');
 
 const moduleDir = path.resolve(__dirname, '..');
 
+// Shapes NAT-2b (Swift) has not implemented yet. NAT-2b must empty this list; until then the Swift
+// check skips them, and fails if Swift already emits one that is still listed here.
+const swiftPending = ['ModelItem', 'ModelCapabilities', 'ReadItemsResult', 'DeviceStatus'];
+
+
 function loadSchema() {
   return JSON.parse(fs.readFileSync(path.join(moduleDir, 'contract.schema.json'), 'utf8'));
 }
@@ -26,7 +31,11 @@ function checkSwiftContract(dir = moduleDir) {
   const schema = loadSchema();
   const swift = swiftKeys(fs.readFileSync(path.join(dir, 'ios', 'CmVisionContract.swift'), 'utf8'));
   const problems = [];
-  for (const name of ['Rect', 'TextLine', 'FeaturePrint', 'DetectedCode']) {
+  for (const name of Object.keys(schema.$defs).filter((n) => n !== 'FixtureRecord')) {
+    if (swiftPending.includes(name)) {
+      if (swift[name]) problems.push(`${name}: Swift now emits it; remove it from swiftPending`);
+      continue;
+    }
     const expected = Object.keys(schema.$defs[name].properties).sort();
     const actual = [...(swift[name] ?? [])].sort();
     if (JSON.stringify(expected) !== JSON.stringify(actual)) {
@@ -36,7 +45,7 @@ function checkSwiftContract(dir = moduleDir) {
   return problems;
 }
 
-module.exports = { checkSwiftContract, swiftKeys };
+module.exports = { checkSwiftContract, swiftKeys, swiftPending };
 
 if (require.main === module) {
   const problems = checkSwiftContract();
