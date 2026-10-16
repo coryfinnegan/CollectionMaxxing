@@ -2567,6 +2567,87 @@
         }
       }
     },
+    "/api/v1/libraries/{libraryId}/items:restore": {
+      "post": {
+        "tags": [
+          "Items"
+        ],
+        "operationId": "RestoreItems",
+        "parameters": [
+          {
+            "name": "libraryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreItemsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkItemsResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/libraries/{libraryId}/stats": {
       "get": {
         "tags": [
@@ -4025,6 +4106,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CommitScanRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -4944,7 +5041,12 @@
           "copies",
           "alreadyOwnedCount",
           "ownedAt",
-          "createdItemId"
+          "createdItemId",
+          "changeSeq",
+          "edits",
+          "userEdited",
+          "pendingReason",
+          "retryAfter"
         ],
         "type": "object",
         "properties": {
@@ -5073,6 +5175,72 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "changeSeq": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "edits": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CandidateEditsDto"
+              }
+            ]
+          },
+          "userEdited": {
+            "type": "boolean"
+          },
+          "pendingReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PendingReason"
+              }
+            ]
+          },
+          "retryAfter": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CandidateEditsDto": {
+        "required": [
+          "format",
+          "platform",
+          "edition"
+        ],
+        "type": "object",
+        "properties": {
+          "format": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseFormat"
+              }
+            ]
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "edition": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5152,6 +5320,52 @@
           }
         }
       },
+      "CommitOverrideRequest": {
+        "type": "object",
+        "properties": {
+          "candidateId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "locationId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemStatus"
+              }
+            ]
+          },
+          "condition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemCondition"
+              }
+            ]
+          },
+          "copies": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "CommitResultDto": {
         "required": [
           "created",
@@ -5173,6 +5387,47 @@
             "items": {
               "type": "string",
               "format": "uuid"
+            }
+          }
+        }
+      },
+      "CommitScanRequest": {
+        "type": "object",
+        "properties": {
+          "addTo": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemStatus"
+              }
+            ]
+          },
+          "condition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemCondition"
+              }
+            ]
+          },
+          "overrides": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CommitOverrideRequest"
             }
           }
         }
@@ -5411,6 +5666,28 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "format": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseFormat"
+              }
+            ]
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "edition": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6882,6 +7159,13 @@
           }
         }
       },
+      "PendingReason": {
+        "enum": [
+          "quota",
+          "lookup",
+          null
+        ]
+      },
       "PlatformDto": {
         "required": [
           "id",
@@ -7277,6 +7561,21 @@
               "string"
             ],
             "format": "uuid"
+          }
+        }
+      },
+      "RestoreItemsRequest": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },
