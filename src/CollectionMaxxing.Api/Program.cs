@@ -8,6 +8,7 @@ using CollectionMaxxing.Api.Items;
 using CollectionMaxxing.Api.Libraries;
 using CollectionMaxxing.Api.Locations;
 using CollectionMaxxing.Api.Ownership;
+using CollectionMaxxing.Api.Recognition;
 using CollectionMaxxing.Api.Scanning;
 using CollectionMaxxing.Api.Tags;
 using CollectionMaxxing.Api.Trash;
@@ -35,6 +36,7 @@ builder.Services.AddTrashPurge();
 builder.Services.AddTags();
 builder.Services.AddOwnership();
 builder.Services.AddScanning();
+builder.Services.AddRecognition();
 builder.Services.AddCatalog();
 builder.Services.AddAdmin();
 
@@ -54,6 +56,7 @@ app.MapTrashEndpoints();
 app.MapTagEndpoints();
 app.MapOwnershipEndpoints();
 app.MapScanningEndpoints();
+app.MapRecognition();
 app.MapCatalogEndpoints();
 app.MapAdminEndpoints();
 
