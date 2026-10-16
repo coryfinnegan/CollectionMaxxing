@@ -90,10 +90,14 @@ public class ScanSessionFlowTests(ApiFixture api) : ScanTest(api)
         using var viewer = As(library, LibraryRole.Viewer);
         var sessionId = await StartSessionAsync(viewer, library.Id);
         await ScanAsync(viewer, sessionId, ScanData.Upc(9010), ScanData.Upc(9011));
+
+        // since is the session's change counter (a candidate's changeSeq), not its position: SCAN-1d.
+        var seenUpTo = (await GetSessionAsync(viewer, sessionId)).GetProperty("candidates").EnumerateArray()
+            .Max(c => c.GetProperty("changeSeq").GetInt32());
         await ScanAsync(viewer, sessionId, ScanData.Upc(9012));
 
         var all = await GetSessionAsync(viewer, sessionId);
-        var later = await GetSessionAsync(viewer, sessionId, since: 2);
+        var later = await GetSessionAsync(viewer, sessionId, since: seenUpTo);
 
         all.GetProperty("candidates").GetArrayLength().ShouldBe(3);
         later.GetProperty("candidates").EnumerateArray().Select(c => c.GetProperty("seq").GetInt32()).ShouldBe([3]);

@@ -82,9 +82,12 @@ public class ScanEventsTests : ScanTest
         await using (var first = await SseClient.ConnectAsync(editor, EventsUrl(sessionId)))
         {
             var seen = await first.ReadUntilAsync("session.status");
-            seen.Where(e => e.Name == "candidate.added").Select(e => e.Seq).ShouldBe([1, 2]);
-            lastId = seen.Last(e => e.Name == "candidate.added").Id!;
-            lastId.ShouldBe("2");
+            // Events come in change order, which is not always scan order (two codes resolve at once).
+            seen.Where(e => e.Name == "candidate.added").Select(e => e.Seq).Order().ShouldBe([1, 2]);
+
+            // The id is the session's change counter (SCAN-1d): the highest changeSeq shown, which a resolve update also moves.
+            lastId = seen.Last().Id!;
+            lastId.ShouldBe(seen.Where(e => e.Name != "session.status").Max(e => e.Data!.Value.GetProperty("changeSeq").GetInt32()).ToString());
         }
 
         await ScanAsync(editor, sessionId, codes[2]); // scanned while the phone was away
@@ -93,7 +96,8 @@ public class ScanEventsTests : ScanTest
         var replayed = await second.ReadUntilAsync("session.status");
         replayed.Select(e => e.Name).ShouldBe(["candidate.added", "session.status"]);
         replayed[0].Seq.ShouldBe(3);
-        replayed[0].Id.ShouldBe("3");
+        int.Parse(replayed[0].Id!).ShouldBeGreaterThan(int.Parse(lastId));
+        replayed[0].Id.ShouldBe(replayed[0].Data!.Value.GetProperty("changeSeq").GetInt32().ToString());
     }
 
     [Fact]
