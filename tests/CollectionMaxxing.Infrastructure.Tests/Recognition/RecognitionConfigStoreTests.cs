@@ -154,12 +154,20 @@ public sealed class RecognitionConfigStoreTests : IDisposable
     // The right title on the wrong console, against a different title on the right console.
     private static readonly CandidateRelease RightTitleWrongConsole = new()
     {
-        Key = "title-wins", Title = "Zelda", Kind = WorkKind.Game, Format = ReleaseFormat.GameCartridge, Platform = "Super Nintendo",
+        Key = "title-wins",
+        Title = "Zelda",
+        Kind = WorkKind.Game,
+        Format = ReleaseFormat.GameCartridge,
+        Platform = "Super Nintendo",
     };
 
     private static readonly CandidateRelease RightConsoleOtherTitle = new()
     {
-        Key = "platform-wins", Title = "Zelda Ocarina of Time", Kind = WorkKind.Game, Format = ReleaseFormat.GameCartridge, Platform = "Nintendo 64",
+        Key = "platform-wins",
+        Title = "Zelda Ocarina of Time",
+        Kind = WorkKind.Game,
+        Format = ReleaseFormat.GameCartridge,
+        Platform = "Nintendo 64",
     };
 
     private static string TopKey(IOptionsMonitor<ScoringOptions> options) =>
