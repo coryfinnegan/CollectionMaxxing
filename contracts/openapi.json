@@ -4099,6 +4099,39 @@
         }
       }
     },
+    "/api/v1/recognition/config": {
+      "get": {
+        "tags": [
+          "Recognition"
+        ],
+        "operationId": "GetRecognitionConfig",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecognitionConfig"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/catalog/search": {
       "get": {
         "tags": [
@@ -6926,6 +6959,119 @@
           }
         }
       },
+      "RecognitionAutoSnap": {
+        "required": [
+          "steadyMs",
+          "minSharpness",
+          "minTextBoxes",
+          "minRectangleCoverage",
+          "cooldownHashDistance",
+          "misfireRaise"
+        ],
+        "type": "object",
+        "properties": {
+          "steadyMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "minSharpness": {
+            "type": "number",
+            "format": "double"
+          },
+          "minTextBoxes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "minRectangleCoverage": {
+            "type": "number",
+            "format": "double"
+          },
+          "cooldownHashDistance": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "misfireRaise": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "RecognitionConfig": {
+        "required": [
+          "version",
+          "prompt",
+          "autoSnap",
+          "engine",
+          "splitting"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/RecognitionPrompt"
+          },
+          "autoSnap": {
+            "$ref": "#/components/schemas/RecognitionAutoSnap"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/RecognitionEngine"
+          },
+          "splitting": {
+            "$ref": "#/components/schemas/RecognitionSplitting"
+          }
+        }
+      },
+      "RecognitionEngine": {
+        "required": [
+          "modelTimeoutMs",
+          "maxItemsPerSnap"
+        ],
+        "type": "object",
+        "properties": {
+          "modelTimeoutMs": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxItemsPerSnap": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "RecognitionPrompt": {
+        "required": [
+          "template",
+          "outputRules"
+        ],
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string"
+          },
+          "outputRules": {
+            "type": "string"
+          }
+        }
+      },
+      "RecognitionSplitting": {
+        "required": [
+          "halvesWhenItemsOver",
+          "minSpineColumnWidth"
+        ],
+        "type": "object",
+        "properties": {
+          "halvesWhenItemsOver": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "minSpineColumnWidth": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "RecoverRequest": {
         "type": "object",
         "properties": {
@@ -7655,6 +7801,9 @@
     },
     {
       "name": "Scanning"
+    },
+    {
+      "name": "Recognition"
     },
     {
       "name": "Admin"

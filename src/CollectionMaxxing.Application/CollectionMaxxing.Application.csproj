@@ -5,6 +5,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The checked-in recognition defaults (SCAN-2d); an override file on the PC merges over them. -->
+    <EmbeddedResource Include="Recognition\recognition.defaults.json" LogicalName="CollectionMaxxing.Application.Recognition.recognition.defaults.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- IAppDbContext exposes DbSet<T>; Application never references a database driver. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
   </ItemGroup>
