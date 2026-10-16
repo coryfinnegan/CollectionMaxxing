@@ -37,7 +37,7 @@ internal sealed class ProviderHost : IDisposable
     /// <param name="settings">Configuration overrides, e.g. <c>["Providers:Tmdb:ApiKey"] = null</c>.</param>
     public static ProviderHost Create(PostgresFixture db, bool fakeTime = false, Dictionary<string, string?>? settings = null)
     {
-        var server = WireMockServer.Start();
+        var server = LoopbackWireMock.Start();
         var baseUrl = server.Url!.TrimEnd('/') + "/";
 
         var values = new Dictionary<string, string?>
