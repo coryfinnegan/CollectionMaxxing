@@ -69,6 +69,7 @@ public static class RecognitionConfigBuilder
         CommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
         MaxDepth = 16,
+        AllowDuplicateProperties = false,
     };
 
     /// <param name="defaultsJson">The checked-in defaults (<see cref="RecognitionDefaults.Json"/>); a bug if they are invalid.</param>
@@ -141,10 +142,25 @@ public static class RecognitionConfigBuilder
         {
             if (JsonNode.Parse(json, documentOptions: HandWritten) is JsonObject root)
             {
+                if (!HasOnlyValidText(root))
+                {
+                    problem = $"{what} has text that is not valid (a broken character escape).";
+                    return null;
+                }
+
                 return root;
             }
 
             problem = $"{what} must be a JSON object.";
+        }
+        catch (ArgumentException)
+        {
+            // A repeated key: the parser can throw this when it builds the object. Never say which key or what it held.
+            problem = $"{what} repeats a setting name; each may appear once.";
+        }
+        catch (InvalidOperationException)
+        {
+            problem = $"{what} has text that is not valid (a broken character escape).";
         }
         catch (JsonException e)
         {
@@ -155,6 +171,42 @@ public static class RecognitionConfigBuilder
 
         return null;
     }
+
+    /// <summary>
+    /// True when every key and string value reads back as well-formed UTF-16. The parser accepts a lone surrogate escape but
+    /// throws later, when the value is read or written, so it is found here instead.
+    /// </summary>
+    private static bool HasOnlyValidText(JsonNode? node)
+    {
+        try
+        {
+            switch (node)
+            {
+                case JsonObject obj:
+                    foreach (var (key, value) in obj)
+                    {
+                        if (!IsWellFormed(key) || !HasOnlyValidText(value))
+                        {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                case JsonArray array:
+                    return array.All(HasOnlyValidText);
+                case JsonValue value when value.TryGetValue<string>(out var text):
+                    return IsWellFormed(text);
+                default:
+                    return true;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsWellFormed(string text) => !text.EnumerateRunes().Any(rune => rune == System.Text.Rune.ReplacementChar);
 
     /// <summary>Lays <paramref name="overrides"/> over <paramref name="target"/>: objects merge key by key, anything else replaces.</summary>
     private static void Merge(JsonObject target, JsonObject overrides, string path, List<string> nulls)

@@ -129,8 +129,13 @@ public static class RecognitionConfigRules
             // direction overrides), could hide an instruction from the person editing the file.
             var category = Rune.GetUnicodeCategory(rune);
             var allowed = rune.Value is '\n' or '\r' or '\t';
-            if (!allowed && category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.OtherNotAssigned
-                or UnicodeCategory.PrivateUse or UnicodeCategory.Surrogate)
+            // Also refused: U+FFFD (what invalid bytes decode to), line and paragraph separators, combining marks and the
+            // Hangul filler U+3164 (blank-looking), none of which a prompt needs.
+            var hidden = category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.OtherNotAssigned
+                or UnicodeCategory.PrivateUse or UnicodeCategory.Surrogate
+                or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator or UnicodeCategory.NonSpacingMark
+                || rune == Rune.ReplacementChar || rune.Value == 0x3164;
+            if (!allowed && hidden)
             {
                 problems.Add($"{name} contains a control or invisible character (U+{rune.Value:X4}).");
                 return;

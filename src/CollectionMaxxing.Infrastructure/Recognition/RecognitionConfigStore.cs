@@ -49,6 +49,7 @@ public sealed partial class RecognitionConfigStore : IRecognitionSettings
     private volatile Snapshot _current;
     private FileStamp _seen = NotLookedAtYet;
     private FileStamp _unreadableAt = NotLookedAtYet;
+    private FileStamp _brokenAt = NotLookedAtYet;
     private string? _lastText;
 
     public RecognitionConfigStore(IOptions<RecognitionOptions> options, ILogger<RecognitionConfigStore> logger, TimeProvider? time = null)
@@ -72,6 +73,29 @@ public sealed partial class RecognitionConfigStore : IRecognitionSettings
     /// <inheritdoc />
     public ScoringOptions Scoring => Refresh().Scoring;
 
+    /// <summary>
+    /// Reads at most <paramref name="max"/> bytes of UTF-8 text from <paramref name="stream"/>, or returns null when there is
+    /// more than that. The size check before opening can be out of date by the time the file is read, so this one is the cap.
+    /// </summary>
+    public static string? ReadBounded(Stream stream, int max)
+    {
+        var buffer = new byte[max + 1];
+        var length = 0;
+        int read;
+        while (length < buffer.Length && (read = stream.Read(buffer, length, buffer.Length - length)) > 0)
+        {
+            length += read;
+        }
+
+        if (length > max)
+        {
+            return null;
+        }
+
+        using var reader = new StreamReader(new MemoryStream(buffer, 0, length), new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
+    }
+
     private Snapshot Refresh()
     {
         if (_path is null)
@@ -86,7 +110,15 @@ public sealed partial class RecognitionConfigStore : IRecognitionSettings
             // share a clock tick. The text is compared, so reading it again changes nothing unless it really changed.
             if (stamp != _seen || IsRecent(stamp))
             {
-                Load(stamp);
+                try
+                {
+                    Load(stamp);
+                }
+                catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
+                {
+                    // Whatever went wrong, the config that is serving keeps serving. Type only: messages can quote the file.
+                    LogBroken(e.GetType().Name);
+                }
             }
 
             return _current;
@@ -119,12 +151,11 @@ public sealed partial class RecognitionConfigStore : IRecognitionSettings
             return;
         }
 
-        string text;
+        string? text;
         try
         {
             using var stream = new FileStream(_path!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var reader = new StreamReader(stream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
-            text = reader.ReadToEnd();
+            text = ReadBounded(stream, MaxFileBytes);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -139,13 +170,36 @@ public sealed partial class RecognitionConfigStore : IRecognitionSettings
         }
 
         _seen = stamp;
+        if (text is null)
+        {
+            // Under the cap when it was measured, over it when read: the file grew in between.
+            LogTooBig(MaxFileBytes + 1L, MaxFileBytes);
+            return;
+        }
+
         if (text == _lastText)
         {
             return;
         }
 
+        RecognitionBuild build;
+        try
+        {
+            build = RecognitionConfigBuilder.Build(RecognitionDefaults.Json, text);
+        }
+        catch (Exception e) when (e is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Never the message (it can quote the file) and never the path: the type alone. Keep what is serving.
+            if (_brokenAt != stamp)
+            {
+                LogBroken(e.GetType().Name);
+                _brokenAt = stamp;
+            }
+
+            return;
+        }
+
         _lastText = text;
-        var build = RecognitionConfigBuilder.Build(RecognitionDefaults.Json, text);
         if (!build.IsValid)
         {
             var shown = string.Join(' ', build.Problems.Take(MaxProblemsLogged).Select(p => p.Length <= MaxProblemLength ? p : p[..MaxProblemLength] + "..."));
@@ -157,6 +211,9 @@ public sealed partial class RecognitionConfigStore : IRecognitionSettings
         _current = new Snapshot(config, build.Scoring!);
         LogReloaded(config.Version);
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The recognition override file could not be applied ({Failure}); keeping the last good config.")]
+    private partial void LogBroken(string failure);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The recognition override file is gone; keeping the last good config. Edit it to {{}} to go back to the defaults.")]
     private partial void LogGone();
