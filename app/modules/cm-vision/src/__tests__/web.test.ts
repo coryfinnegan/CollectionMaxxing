@@ -35,4 +35,16 @@ describe('index.web', () => {
       visionEngine.featurePrintDistance({ revision: 1, data: '' }, { revision: 1, data: '' }),
     ).rejects.toThrow(/not available on the web/);
   });
+
+  it('reports the model as unavailable and resolves a read with the unavailable outcome', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { visionEngine } = require('../index.web');
+    await expect(visionEngine.modelCapabilities()).resolves.toMatchObject({ available: false, vision: false, reason: 'notSupported' });
+    const onItem = jest.fn();
+    await expect(visionEngine.readItems('x', { prompt: 'p', timeoutMs: 1000 }, onItem)).resolves.toMatchObject({
+      items: [],
+      outcome: 'unavailable',
+    });
+    expect(onItem).not.toHaveBeenCalled();
+  });
 });

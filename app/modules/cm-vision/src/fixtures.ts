@@ -3,11 +3,14 @@ import detectBarcodes from '../fixtures/detectBarcodes.json';
 import detectRectangles from '../fixtures/detectRectangles.json';
 import featurePrint from '../fixtures/featurePrint.json';
 import featurePrintDistance from '../fixtures/featurePrintDistance.json';
+import readItems from '../fixtures/readItems.json';
 import recognizeText from '../fixtures/recognizeText.json';
-import type { DetectedCode, FeaturePrint, FixtureRecord, Rect, TextLine } from './types';
+import type { DetectedCode, FeaturePrint, FixtureRecord, ReadItemsResult, Rect, TextLine } from './types';
 
 export interface FixtureSet {
-  recognizeText: FixtureRecord<{ imageUri: string }, TextLine[]>[];
+  /** `orientation` absent means 0. */
+  recognizeText: FixtureRecord<{ imageUri: string; orientation?: 90 | 270 }, TextLine[]>[];
+  readItems: FixtureRecord<{ imageUri: string }, ReadItemsResult>[];
   detectRectangles: FixtureRecord<{ imageUri: string }, Rect[]>[];
   detectBarcodes: FixtureRecord<{ imageUri: string }, DetectedCode[]>[];
   featurePrint: FixtureRecord<{ imageUri: string; cropBox?: Rect }, FeaturePrint>[];
@@ -19,6 +22,7 @@ export interface FixtureSet {
 /** The hand-written fixtures; a dev build will later record real ones in the same format. */
 export const fixtures = {
   recognizeText,
+  readItems,
   detectRectangles,
   detectBarcodes,
   featurePrint,
