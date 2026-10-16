@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import schema from '../../contract.schema.json';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { checkSwiftContract, swiftKeys, swiftPending } = require('../../scripts/check-contract.js');
+const { checkSwiftContract, checkSwiftEnums, enumFields, schemaEnumFields, swiftKeys, swiftPending } = require('../../scripts/check-contract.js');
 import { CONTRACT_KEYS, keyListsAreComplete, OPTIONAL_KEYS } from '../contract';
 
 type Def = { properties: Record<string, unknown>; required: string[] };
@@ -56,5 +56,41 @@ describe('cm-vision contract', () => {
   it('a renamed key in Swift is reported', () => {
     const renamed = swiftKeys('// contract: TextLine\nreturn [\n "text": a,\n "score": b,\n "box": c,\n]\n');
     expect(renamed.TextLine).toEqual(['text', 'score', 'box']);
+  });
+
+  describe('enum values', () => {
+    const iosDir = path.join(__dirname, '..', '..', 'ios');
+    const realSources = (): Record<string, string> =>
+      Object.fromEntries(fs.readdirSync(iosDir).filter((f) => f.endsWith('.swift')).map((f) => [f, fs.readFileSync(path.join(iosDir, f), 'utf8')]));
+
+    it('the real Swift sources use only schema enum values, and all of them', () => {
+      expect(checkSwiftEnums()).toEqual([]);
+    });
+
+    it('a Swift enum string that is not in the schema enum is reported', () => {
+      const sources = realSources();
+      sources['CmModelReader.swift'] = sources['CmModelReader.swift'].replace('case ok, declined, timeout,', 'case ok, declined, timedOut,');
+      expect(checkSwiftEnums(sources).join('\n')).toMatch(/outcome.*timedOut/);
+    });
+
+    it('a schema enum value that Swift never produces is reported', () => {
+      const sources = realSources();
+      sources['CmVisionImage.swift'] = sources['CmVisionImage.swift'].replace('return "critical"', 'return "serious"');
+      expect(checkSwiftEnums(sources).join('\n')).toMatch(/thermalState.*critical/);
+    });
+
+    it('checks every enum field in the schema (outcome, reason, thermalState, kind, ...)', () => {
+      const inSchema: string[] = schemaEnumFields().sort();
+      expect(inSchema).toEqual(expect.arrayContaining(['outcome', 'reason', 'thermalState', 'kind', 'completeness', 'confidence', 'symbology']));
+      expect(Object.keys(enumFields).sort()).toEqual(inSchema);
+    });
+
+    it.each(['outcome', 'reason', 'thermalState', 'kind', 'completeness', 'confidence', 'symbology'])('%s: a typo in the Swift value is reported', (field) => {
+      const first: string = schemaEnumFields(field)[0];
+      const typo = Object.fromEntries(
+        Object.entries(realSources()).map(([n, src]) => [n, src.split(`"${first}"`).join('"typo"').replace(new RegExp(`\\b${first}\\b(?=[,\\n])`), 'typo')]),
+      );
+      expect(checkSwiftEnums(typo).join('\n')).toMatch(new RegExp(field));
+    });
   });
 });

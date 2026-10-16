@@ -65,4 +65,32 @@ describe('Swift sources keep the prompt out of Swift', () => {
   it('allows a log of counts and durations', () => {
     expect(checkSwiftSources({ 'X.swift': 'logger.info("items=\\(count) ms=\\(elapsed)")\n' })).toEqual([]);
   });
+
+  it('fails on concatenated short literals that are long together', () => {
+    const half = 'a'.repeat(MAX_LITERAL_LENGTH - 10);
+    const problems = checkSwiftSources({ 'X.swift': `let s = "${half}" + "${half}"\n` });
+    expect(problems.join('\n')).toMatch(/X\.swift:1: .*concatenat/);
+  });
+
+  it('fails on concatenated literals split across lines', () => {
+    const half = 'a'.repeat(MAX_LITERAL_LENGTH - 10);
+    expect(checkSwiftSources({ 'X.swift': `let s = "${half}" +\n  "${half}"\n` }).join('\n')).toMatch(/concatenat/);
+  });
+
+  it('allows short concatenated literals', () => {
+    expect(checkSwiftSources({ 'X.swift': 'let s = "abc" + "def"\n' })).toEqual([]);
+  });
+
+  it('fails on a multi-line logger call that interpolates image-like data', () => {
+    const code = 'logger.info(\n  "read \\(count)",\n  "\\(imageData)"\n)\n';
+    expect(checkSwiftSources({ 'X.swift': code }).join('\n')).toMatch(/image data/);
+  });
+
+  it('fails when a nested paren precedes the image-like name', () => {
+    expect(checkSwiftSources({ 'X.swift': 'logger.info("n=\\(f(1)) \\(jpegBytes)")\n' }).join('\n')).toMatch(/image data/);
+  });
+
+  it('still allows a multi-line logger call with counts only', () => {
+    expect(checkSwiftSources({ 'X.swift': 'logger.info(\n  "n=\\(count) ms=\\(ms)"\n)\n' })).toEqual([]);
+  });
 });

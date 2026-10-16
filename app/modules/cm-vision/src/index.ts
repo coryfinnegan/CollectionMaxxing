@@ -74,7 +74,16 @@ class NativeVisionEngine implements VisionEngine {
       return { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'notSupported' };
     }
   }
-  async readItems(imageUri: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
+  // onItem events carry no call id, so native reads must not overlap: each call waits for the one before it.
+  private readQueue: Promise<unknown> = Promise.resolve();
+
+  readItems(imageUri: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
+    const run = this.readQueue.then(() => this.readOne(imageUri, options, onItem));
+    this.readQueue = run; // readOne never rejects, so a failed call cannot block the next
+    return run;
+  }
+
+  private async readOne(imageUri: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
     let subscription: { remove(): void } | undefined;
     try {
       const native = this.native();
