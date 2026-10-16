@@ -7,50 +7,253 @@
       "description": "Normalised 0..1, origin top-left.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["x", "y", "width", "height"],
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
       "properties": {
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "width": { "type": "number" },
-        "height": { "type": "number" }
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
       }
     },
     "TextLine": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["text", "confidence", "box"],
+      "required": [
+        "text",
+        "confidence",
+        "box"
+      ],
       "properties": {
-        "text": { "type": "string" },
-        "confidence": { "type": "number" },
-        "box": { "$ref": "#/$defs/Rect" }
+        "text": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "box": {
+          "$ref": "#/$defs/Rect"
+        }
       }
     },
     "FeaturePrint": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "data"],
+      "required": [
+        "revision",
+        "data"
+      ],
       "properties": {
-        "revision": { "type": "number" },
-        "data": { "type": "string", "description": "base64" }
+        "revision": {
+          "type": "number"
+        },
+        "data": {
+          "type": "string",
+          "description": "base64"
+        }
       }
     },
     "DetectedCode": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["value", "symbology", "bounds"],
+      "required": [
+        "value",
+        "symbology",
+        "bounds"
+      ],
       "properties": {
-        "value": { "type": "string" },
-        "symbology": { "enum": ["ean-13", "ean-8", "upc-e", "qr", "code-128"] },
-        "bounds": { "$ref": "#/$defs/Rect" }
+        "value": {
+          "type": "string"
+        },
+        "symbology": {
+          "enum": [
+            "ean-13",
+            "ean-8",
+            "upc-e",
+            "qr",
+            "code-128"
+          ]
+        },
+        "bounds": {
+          "$ref": "#/$defs/Rect"
+        }
+      }
+    },
+    "ModelItem": {
+      "description": "One item the on-device model read. visibleText is a hint for matching, not verbatim truth: the model can complete words cut off at an edge.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "visibleText",
+        "title",
+        "kind",
+        "order",
+        "confidence"
+      ],
+      "properties": {
+        "visibleText": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "creator": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "book",
+            "vhs",
+            "dvd",
+            "bluray",
+            "uhdBluray",
+            "game",
+            "other"
+          ]
+        },
+        "platform": {
+          "type": "string"
+        },
+        "editionMarks": {
+          "type": "string"
+        },
+        "completeness": {
+          "enum": [
+            "looseCart",
+            "discOnly",
+            "boxed",
+            "manualVisible"
+          ]
+        },
+        "order": {
+          "type": "integer"
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        }
+      }
+    },
+    "ModelCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "vision",
+        "guidedGeneration",
+        "contextSize"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "vision": {
+          "type": "boolean"
+        },
+        "guidedGeneration": {
+          "type": "boolean"
+        },
+        "contextSize": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "osTooOld",
+            "notSupported",
+            "appleIntelligenceOff",
+            "modelNotReady"
+          ]
+        }
+      }
+    },
+    "ReadItemsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "unreadableCount",
+        "outcome",
+        "elapsedMs"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModelItem"
+          }
+        },
+        "unreadableCount": {
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "declined",
+            "timeout",
+            "contextExceeded",
+            "unavailable"
+          ]
+        },
+        "elapsedMs": {
+          "type": "number"
+        }
+      }
+    },
+    "DeviceStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "thermalState",
+        "osVersion"
+      ],
+      "properties": {
+        "thermalState": {
+          "enum": [
+            "nominal",
+            "fair",
+            "serious",
+            "critical"
+          ]
+        },
+        "osVersion": {
+          "type": "string"
+        }
       }
     },
     "FixtureRecord": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["capturedAt", "engine", "input", "output"],
+      "required": [
+        "capturedAt",
+        "engine",
+        "input",
+        "output"
+      ],
       "properties": {
-        "capturedAt": { "type": "string" },
-        "engine": { "type": "string" },
+        "capturedAt": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
         "input": {},
         "output": {}
       }

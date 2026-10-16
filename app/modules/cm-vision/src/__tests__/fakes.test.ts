@@ -2,7 +2,7 @@ import schema from '../../contract.schema.json';
 import { FakeBarcodeSource } from '../FakeBarcodeSource';
 import { FakeVisionEngine } from '../FakeVisionEngine';
 import { fixtures } from '../fixtures';
-import type { DetectedCode } from '../types';
+import type { DetectedCode, ModelCapabilities, ModelItem } from '../types';
 
 type Schema = Record<string, unknown>;
 const defs = schema.$defs as Record<string, Schema>;
@@ -11,6 +11,17 @@ const defs = schema.$defs as Record<string, Schema>;
 function problems(value: unknown, node: Schema, path: string): string[] {
   if (node.$ref) return problems(value, defs[String(node.$ref).split('/').pop()!], path);
   if (node.enum) return (node.enum as unknown[]).includes(value) ? [] : [`${path}: not in enum`];
+  if (Array.isArray(node.type)) {
+    const kinds = node.type as string[];
+    const actual = value === null ? 'null' : Number.isInteger(value) ? 'integer' : typeof value;
+    return kinds.includes(actual) ? [] : [`${path}: not one of ${kinds}`];
+  }
+  if (node.type === 'boolean') return typeof value === 'boolean' ? [] : [`${path}: not a boolean`];
+  if (node.type === 'integer') return Number.isInteger(value) ? [] : [`${path}: not an integer`];
+  if (node.type === 'array') {
+    if (!Array.isArray(value)) return [`${path}: not an array`];
+    return value.flatMap((v, i) => problems(v, node.items as Schema, `${path}[${i}]`));
+  }
   if (node.type === 'number') return typeof value === 'number' ? [] : [`${path}: not a number`];
   if (node.type === 'string') return typeof value === 'string' ? [] : [`${path}: not a string`];
   if (node.type === 'object') {
@@ -29,6 +40,7 @@ const all = [
   ['detectRectangles', fixtures.detectRectangles, 'Rect', true],
   ['detectBarcodes', fixtures.detectBarcodes, 'DetectedCode', true],
   ['featurePrint', fixtures.featurePrint, 'FeaturePrint', false],
+  ['readItems', fixtures.readItems, 'ReadItemsResult', false],
 ] as const;
 
 describe('fixtures', () => {
@@ -44,6 +56,20 @@ describe('fixtures', () => {
   it('barcode scenes and distances have at least 3 records', () => {
     expect(fixtures.barcodeScenes.length).toBeGreaterThanOrEqual(3);
     expect(fixtures.featurePrintDistance.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('model fixtures', () => {
+  it('are hand-written, cover the five scenes and every non-ok outcome, and hold no personal data', () => {
+    expect(fixtures.readItems.every((r) => r.engine === 'hand-written')).toBe(true);
+    const uris = fixtures.readItems.map((r) => r.input.imageUri);
+    for (const scene of ['book-cover-1', 'n64-cart-1', 'vhs-sleeve-1', 'shelf-of-three-spines', 'refused-photo']) {
+      expect(uris).toContain(`fixture://${scene}`);
+    }
+    const outcomes = new Set(fixtures.readItems.map((r) => r.output.outcome));
+    expect([...outcomes].sort()).toEqual(['contextExceeded', 'declined', 'ok', 'timeout', 'unavailable']);
+    const shelf = fixtures.readItems.find((r) => r.input.imageUri.endsWith('shelf-of-three-spines'))!;
+    expect(shelf.output.items).toHaveLength(3);
   });
 });
 
@@ -97,6 +123,85 @@ describe('FakeVisionEngine', () => {
   it('featurePrintDistance rejects prints it has no fixture for', async () => {
     const a = { revision: 2, data: 'AQIDBA==' };
     await expect(engine.featurePrintDistance(a, { revision: 2, data: 'AAAA' })).rejects.toThrow(/no featurePrintDistance fixture/);
+  });
+});
+
+describe('FakeVisionEngine model reading', () => {
+  const options = { prompt: 'read the items', timeoutMs: 5000 };
+
+  it('streams each item to onItem in order before it resolves', async () => {
+    const seen: ModelItem[] = [];
+    let resolved = false;
+    const pending = new FakeVisionEngine().readItems('fixture://shelf-of-three-spines', options, (i) => {
+      expect(resolved).toBe(false);
+      seen.push(i);
+    });
+    const result = await pending;
+    resolved = true;
+    expect(seen.map((i) => i.order)).toEqual([0, 1, 2]);
+    expect(result.items).toEqual(seen);
+    expect(result).toMatchObject({ outcome: 'ok', unreadableCount: 1 });
+  });
+
+  it('streams in order even when the recorded items are out of order', async () => {
+    const [record] = fixtures.readItems.filter((r) => r.input.imageUri.endsWith('shelf-of-three-spines'));
+    const shuffled = { ...record, output: { ...record.output, items: [...record.output.items].reverse() } };
+    const engine = new FakeVisionEngine({ ...fixtures, readItems: [shuffled] });
+    const orders: number[] = [];
+    await engine.readItems('fixture://shelf-of-three-spines', options, (i) => orders.push(i.order));
+    expect(orders).toEqual([0, 1, 2]);
+  });
+
+  it.each([
+    ['refused-photo', 'declined'],
+    ['slow-shelf', 'timeout'],
+    ['huge-shelf', 'contextExceeded'],
+    ['no-model', 'unavailable'],
+  ])('replays %s as the %s outcome without throwing or streaming', async (scene, outcome) => {
+    const onItem = jest.fn();
+    const result = await new FakeVisionEngine().readItems(`fixture://${scene}`, options, onItem);
+    expect(result.outcome).toBe(outcome);
+    expect(result.items).toEqual([]);
+    expect(onItem).not.toHaveBeenCalled();
+  });
+
+  it('works without an onItem callback', async () => {
+    await expect(new FakeVisionEngine().readItems('fixture://book-cover-1', options)).resolves.toMatchObject({ outcome: 'ok' });
+  });
+
+  it('fails loudly for a picture it has no fixture for', async () => {
+    await expect(new FakeVisionEngine().readItems('fixture://nope', options)).rejects.toThrow(/no readItems fixture.*fixture:\/\/nope/);
+  });
+
+  it('reports a capable model by default and is configurable per test', async () => {
+    const engine = new FakeVisionEngine();
+    await expect(engine.modelCapabilities()).resolves.toMatchObject({ available: true, vision: true, guidedGeneration: true });
+    const off: ModelCapabilities = { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' };
+    engine.setCapabilities(off);
+    await expect(engine.modelCapabilities()).resolves.toEqual(off);
+    const notReady: ModelCapabilities = { ...off, reason: 'modelNotReady' };
+    await expect(new FakeVisionEngine(fixtures, { capabilities: notReady }).modelCapabilities()).resolves.toEqual(notReady);
+  });
+
+  it('reports device status, configurable', async () => {
+    const engine = new FakeVisionEngine();
+    await expect(engine.deviceStatus()).resolves.toMatchObject({ thermalState: 'nominal' });
+    engine.setDeviceStatus({ thermalState: 'serious', osVersion: '26.1' });
+    await expect(engine.deviceStatus()).resolves.toEqual({ thermalState: 'serious', osVersion: '26.1' });
+  });
+
+  it('recognizeText defaults to orientation 0', async () => {
+    const lines = await new FakeVisionEngine().recognizeText('fixture://book-cover-1');
+    expect(lines.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert', 'Ace Books']);
+  });
+
+  it('recognizeText returns the lines of each orientation, in order, without de-duplicating', async () => {
+    const lines = await new FakeVisionEngine().recognizeText('fixture://book-cover-1', { orientations: [0, 90, 270] });
+    expect(lines.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert', 'Ace Books', 'ECUD', 'Dune']);
+  });
+
+  it('recognizeText fails loudly for an orientation with no fixture', async () => {
+    await expect(new FakeVisionEngine().recognizeText('fixture://dvd-spine-1', { orientations: [90] })).rejects.toThrow(/no recognizeText fixture/);
   });
 });
 
