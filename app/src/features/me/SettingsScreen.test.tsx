@@ -1,5 +1,6 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { getOwnedCache, MemoryOwnedStorage, setOwnedStorage } from '@/features/offline/ownedCache';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { clearOwnedData, getOwnedCache, MemoryOwnedStorage, setOwnedStorage } from '@/features/offline/ownedCache';
 import { createOwnedIndex } from '@/features/offline/ownedIndex';
 import { entry } from '@/features/offline/testData';
 import { setTrayStore } from '@/features/scan/tray/storage';
@@ -7,7 +8,7 @@ import { MemoryKeyValueStore, createTrayStore } from '@/features/scan/tray/trayS
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryTokenStore } from '@/lib/auth/tokenStore';
 import { mockAccount, resetMockAccount } from '@/mocks/me';
-import { renderWithProviders } from '@/test/render';
+import { makeQueryClient, renderWithProviders } from '@/test/render';
 import { useLockSetting } from './appLock';
 import { registerLocalDataClearer } from './localData';
 import { type Biometrics, setBiometrics, setSettingsStorage, setVision } from './services';
@@ -59,16 +60,38 @@ describe('Settings > Recognition', () => {
 });
 
 describe('Settings > Sign out', () => {
+  it('runs every registered local-data clearer and empties the query cache (web)', async () => {
+    const clearer = jest.fn();
+    const unregister = registerLocalDataClearer(clearer);
+    configureAuth({ platform: 'web' });
+    const queryClient = makeQueryClient();
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsScreen />
+      </QueryClientProvider>,
+    );
+    queryClient.setQueryData(['anything'], { cached: true });
+
+    await fireEvent.press(screen.getByLabelText('Sign out'));
+
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    expect(clearer).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(['anything'])).toBeUndefined();
+    unregister();
+  });
+
   it('empties the offline owned copy', async () => {
     const storage = new MemoryOwnedStorage();
     setOwnedStorage(storage);
     getOwnedCache('lib-1').commit({ index: createOwnedIndex([entry({ title: 'Jaws' })]), cursor: 'c1', syncedAt: 1 });
+    const unregister = registerLocalDataClearer(clearOwnedData); // the app registers this through OwnedDataBridge
     configureAuth({ platform: 'web' });
     await renderWithProviders(<SettingsScreen />);
 
     await fireEvent.press(screen.getByLabelText('Sign out'));
 
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    unregister();
     expect(getOwnedCache('lib-1').state.syncedAt).toBeNull();
     expect(storage.getString('owned-index-v1:lib-1')).toBeUndefined();
     setOwnedStorage(undefined);

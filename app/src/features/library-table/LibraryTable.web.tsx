@@ -7,6 +7,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { bulkItems, getStats } from '@/api/generated/items/items';
 import { listTags } from '@/api/generated/tags/tags';
 import type { BulkItemsRequest, ItemStatus, ItemSummaryDto } from '@/api/generated/models';
+import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useInvalidateLibrary } from '@/features/item/useItem';
 import { formatLabels, formats, kindLabels, kinds, statusLabels, statuses } from '@/features/library/labels';
 import { changeFilter, defaultState, hasActiveFilter, type ListState } from '@/features/library/query';
@@ -287,7 +288,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         <ScrollView horizontal testID="library-table-scroll" style={{ borderRadius: radius.md, borderWidth: 1, borderColor: colors.line }}>
           <View role="grid" accessibilityLabel={`${title} table`} style={{ width: tableWidth, backgroundColor: colors.surface }}>
             <View role="row" style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: colors.line }}>
-              <View style={{ width: CHECK_WIDTH, alignItems: 'center' }}>
+              <View role="cell" style={{ width: CHECK_WIDTH, alignItems: 'center' }}>
                 <Checkbox
                   label="Select all loaded items"
                   checked={allSelected}
@@ -341,7 +342,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                     backgroundColor: selected ? colors.ground : colors.surface,
                   }}
                 >
-                  <View style={{ width: CHECK_WIDTH, alignItems: 'center' }}>
+                  <View role="cell" style={{ width: CHECK_WIDTH, alignItems: 'center' }}>
                     <Checkbox
                       label={`Select ${item.title}`}
                       checked={selected}
@@ -388,6 +389,9 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           />
         ) : null}
       </ScrollView>
+      <View style={{ padding: spacing.lg }}>
+        <UndoSnackbar />
+      </View>
     </View>
   );
 }
@@ -408,7 +412,7 @@ function Checkbox({
     <Pressable
       accessibilityRole="checkbox"
       accessibilityLabel={label}
-      accessibilityState={{ checked: mixed ? 'mixed' : checked }}
+      aria-checked={mixed ? 'mixed' : checked}
       onPress={(event) => {
         // Keep the click from also selecting the row underneath.
         (event as { stopPropagation?: () => void })?.stopPropagation?.();

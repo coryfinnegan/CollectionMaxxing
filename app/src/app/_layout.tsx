@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter } from 'expo-router';
+import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { installAuth } from '@/features/auth/bootstrap';
@@ -26,6 +27,9 @@ export default function RootLayout() {
   if (!ready) return null;
   return (
     <QueryClientProvider client={queryClient}>
+      <Head>
+        <title>CollectionMaxxing</title>
+      </Head>
       <StatusBar style="auto" />
       <Stack
         screenOptions={{
