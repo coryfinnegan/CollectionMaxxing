@@ -30,6 +30,7 @@ public sealed class CleanUpScanSessions(IAppDbContext db, TimeProvider clock, IP
         // A background job has no signed-in caller, so the library filter is off on purpose.
         var expired = await db.ScanSessions.IgnoreQueryFilters().AsNoTracking()
             .Where(s => s.Status != ScanSessionStatus.Committed && s.CreatedAt < cutoff)
+            .Where(s => !db.ScanCandidates.IgnoreQueryFilters().Any(c => c.SessionId == s.Id && c.CreatedItemId != null)) // it made items: it was committed, whatever its status says
             .Select(s => s.Id)
             .ToListAsync(cancellationToken);
         if (expired.Count == 0)
