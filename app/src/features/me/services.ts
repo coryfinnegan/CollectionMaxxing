@@ -2,6 +2,7 @@
 // Face ID, the vision engine's availability, the setting storage and how a finished export reaches the person.
 import { Share } from 'react-native';
 import { apiBaseUrl } from '@/lib/http';
+import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { type KeyValueStore, MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 
 export interface Biometrics {
@@ -36,15 +37,16 @@ class DeviceBiometrics implements Biometrics {
 }
 
 export interface RecognitionStatus {
-  isAvailable(): Promise<boolean>;
+  /** The engine the next snap will try first, and the Apple Intelligence state behind that choice. */
+  state(): Promise<RecognitionState>;
 }
 
-/** The vision engine, loaded on first use so the native module stays out of the web bundle and out of tests. */
+/** The recognition selector's own answer, loaded on first use so the native module stays out of the web bundle and tests. */
 const deviceVision: RecognitionStatus = {
-  isAvailable: async () => {
+  state: async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { visionEngine } = require('@/native/cm-vision') as typeof import('@/native/cm-vision');
-    return visionEngine.isAvailable();
+    const { getRecognition } = require('@/features/scan/recognition/device') as typeof import('@/features/scan/recognition/device');
+    return getRecognition().selector.state();
   },
 };
 

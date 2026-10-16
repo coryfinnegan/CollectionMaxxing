@@ -88,3 +88,6 @@ export const DEFAULT_RECOGNITION_SETTINGS: RecognitionSettings = {
 
 /** The text the model is given: the template, then the output rules. */
 export const promptOf = (config: RecognitionConfig): string => `${config.prompt.template}\n\n${config.prompt.outputRules}`;
+
+/** The one status code the config fetch treats as "nothing new". */
+export const HTTP_NOT_MODIFIED = 304;
