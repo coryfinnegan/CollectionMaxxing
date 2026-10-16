@@ -37,7 +37,7 @@ export function Cover({ title, uri, width = 96 }: CoverProps) {
         justifyContent: 'flex-end',
       }}
     >
-      <Text variant="caption" tone="muted" numberOfLines={3}>
+      <Text variant="caption" numberOfLines={3}>
         {title}
       </Text>
     </View>

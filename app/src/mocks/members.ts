@@ -83,7 +83,7 @@ export const handlers = [
       revokedAt: null,
     };
     mockMembers.invites.push(invite);
-    const link = `https://pc.tailnet.ts.net/join/${MOCK_INVITE_TOKEN}-${mockMembers.nextId}`;
+    const link = `https://pc.tailnet.ts.net/join/${MOCK_INVITE_TOKEN}`;
     return HttpResponse.json({ invite, link, qrPayload: link }, { status: 201 });
   }),
 
