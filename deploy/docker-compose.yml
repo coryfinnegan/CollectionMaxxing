@@ -64,6 +64,10 @@ services:
       # Export zips (LIB-2b) go on the files volume: the API runs as a non-root user and can't write beside the app.
       # They expire after 24 hours, and the hourly cleanup job deletes them.
       Exports__Path: /data/files/exports
+      # Recognition tuning (SCAN-2d): an optional override of the prompt, thresholds and weights the phone fetches. Edit
+      # recognition/recognition.json beside this file; the API re-reads it on change, and a bad file is ignored (the last
+      # good config keeps serving). The folder is mounted, not the file, so an editor's save-by-replace is seen.
+      Recognition__ConfigPath: /config/recognition.json
       # Only believe X-Forwarded-For from Tailscale Serve, which reaches the container through the Docker bridge
       # gateway (the API port is published on 127.0.0.1 only, so nothing else can be this peer). Without it every
       # caller shares one rate-limit bucket and a stranger's bad pairing codes could lock the owner out.
@@ -72,6 +76,7 @@ services:
     volumes:
       - files:/data/files
       - ${CM_SECRETS_DIR:?set in .env}:/secrets
+      - ${CM_RECOGNITION_DIR:-./recognition}:/config:ro
     depends_on:
       postgres:
         condition: service_healthy
