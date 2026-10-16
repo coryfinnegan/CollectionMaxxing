@@ -4,7 +4,18 @@ import { useCallback, useRef } from 'react';
 import { useObjectOutput } from 'react-native-vision-camera';
 
 import { mapScannedObjects } from './mapScannedObjects';
-import type { DetectedCode, FeaturePrint, Rect, TextLine, VisionEngine } from './types';
+import type {
+  DetectedCode,
+  DeviceStatus,
+  FeaturePrint,
+  ModelCapabilities,
+  ModelItem,
+  ReadItemsOptions,
+  ReadItemsResult,
+  Rect,
+  TextLine,
+  VisionEngine,
+} from './types';
 
 export * from './types';
 export { FakeBarcodeSource } from './FakeBarcodeSource';
@@ -14,11 +25,16 @@ export { UnavailableVisionEngine } from './UnavailableVisionEngine';
 /** What ios/CmVisionModule.swift exposes; result keys are pinned by contract.schema.json. */
 interface NativeCmVision {
   isAvailable(): Promise<boolean>;
-  recognizeText(imageUri: string): Promise<TextLine[]>;
+  recognizeText(imageUri: string, orientations: number[]): Promise<TextLine[]>;
   detectRectangles(imageUri: string): Promise<Rect[]>;
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;
   featurePrint(imageUri: string, cropBox: Rect | null): Promise<FeaturePrint>;
   featurePrintDistance(a: FeaturePrint, b: FeaturePrint): Promise<number>;
+  modelCapabilities(): Promise<ModelCapabilities>;
+  /** Emits `onItem` events (payload: a ModelItem) while running, then resolves. */
+  readItems(imageUri: string, options: ReadItemsOptions): Promise<ReadItemsResult>;
+  deviceStatus(): Promise<DeviceStatus>;
+  addListener(event: 'onItem', listener: (item: ModelItem) => void): { remove(): void };
 }
 
 class NativeVisionEngine implements VisionEngine {
@@ -36,8 +52,8 @@ class NativeVisionEngine implements VisionEngine {
       return false; // e.g. Expo Go, which does not contain the module
     }
   }
-  recognizeText(imageUri: string) {
-    return this.native().recognizeText(imageUri);
+  recognizeText(imageUri: string, options?: { orientations?: (0 | 90 | 270)[] }) {
+    return this.native().recognizeText(imageUri, options?.orientations ?? [0]);
   }
   detectRectangles(imageUri: string) {
     return this.native().detectRectangles(imageUri);
@@ -50,6 +66,28 @@ class NativeVisionEngine implements VisionEngine {
   }
   featurePrintDistance(a: FeaturePrint, b: FeaturePrint) {
     return this.native().featurePrintDistance(a, b);
+  }
+  async modelCapabilities(): Promise<ModelCapabilities> {
+    try {
+      return await this.native().modelCapabilities();
+    } catch {
+      return { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'notSupported' };
+    }
+  }
+  async readItems(imageUri: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
+    let subscription: { remove(): void } | undefined;
+    try {
+      const native = this.native();
+      subscription = onItem ? native.addListener('onItem', onItem) : undefined;
+      return await native.readItems(imageUri, options);
+    } catch {
+      return { items: [], unreadableCount: 0, outcome: 'unavailable', elapsedMs: 0 };
+    } finally {
+      subscription?.remove();
+    }
+  }
+  deviceStatus() {
+    return this.native().deviceStatus();
   }
 }
 
