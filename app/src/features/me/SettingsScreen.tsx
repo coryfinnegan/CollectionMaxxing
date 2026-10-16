@@ -6,19 +6,29 @@ import { logout } from '@/features/auth/api';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
+import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { useLockSetting } from './appLock';
 import { clearLocalData } from './localData';
 import { getBiometrics, getVision } from './services';
 import { unpairThisDevice } from './unpair';
 
+const APPLE_INTELLIGENCE_LABEL: Record<RecognitionState['appleIntelligence'], string> = {
+  on: 'On',
+  appleIntelligenceOff: 'Off',
+  modelNotReady: 'Still getting ready',
+  osTooOld: 'Needs a newer iOS',
+  notSupported: 'Not on this iPhone',
+  unknown: 'Not known yet',
+};
+
 export function RecognitionSection() {
-  const [available, setAvailable] = useState<boolean | null>(null);
+  const [state, setState] = useState<RecognitionState | null>(null);
   useEffect(() => {
     let live = true;
     getVision()
-      .isAvailable()
-      .then((ok) => live && setAvailable(ok))
-      .catch(() => live && setAvailable(false));
+      .state()
+      .then((s) => live && setState(s))
+      .catch(() => live && setState({ engine: 'vision_pipeline', appleIntelligence: 'unknown' }));
     return () => {
       live = false;
     };
@@ -26,16 +36,18 @@ export function RecognitionSection() {
   return (
     <Card>
       <Text variant="heading">Recognition</Text>
-      {available === null ? (
-        <Text tone="muted">Checkingâ€¦</Text>
-      ) : available ? (
+      {state === null ? (
+        <Text tone="muted">Checking…</Text>
+      ) : state.engine === 'apple_model' ? (
         <>
           <Text>Engine: Apple on-device model</Text>
+          <Text>{`Apple Intelligence: ${APPLE_INTELLIGENCE_LABEL[state.appleIntelligence]}`}</Text>
           <Text tone="muted">Apple Intelligence is on. Covers are read on this iPhone and never leave it.</Text>
         </>
       ) : (
         <>
           <Text>Engine: Vision text fallback</Text>
+          <Text>{`Apple Intelligence: ${APPLE_INTELLIGENCE_LABEL[state.appleIntelligence]}`}</Text>
           <Text tone="muted">Apple Intelligence isn&apos;t available, so scans read the text on the cover instead. Turn it on in iOS Settings for better matches.</Text>
         </>
       )}

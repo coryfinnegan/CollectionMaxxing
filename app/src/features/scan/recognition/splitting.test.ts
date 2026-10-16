@@ -1,0 +1,48 @@
+import { DEFAULT_LOCAL_TUNING as T, DEFAULT_RECOGNITION_CONFIG as C } from './defaults';
+import { line } from './fakes';
+import { splitIntoPieces } from './splitting';
+
+describe('splitting Vision text into items', () => {
+  it('turns 12 spine lines in 12 columns into 12 items, left to right', () => {
+    const lines = Array.from({ length: 12 }, (_, i) => line(`Title ${i}`, 0.04 + i * 0.075, 0.1, 0.05, 0.6));
+    const shuffled = [...lines].reverse();
+    const { pieces } = splitIntoPieces(shuffled, [], C.splitting, T);
+    expect(pieces.map((p) => p.lines[0].text)).toEqual(lines.map((l) => l.text));
+  });
+
+  it('keeps the lines of one spine together, top to bottom', () => {
+    const lines = [line('Herbert', 0.1, 0.7, 0.05, 0.2), line('Dune', 0.1, 0.1, 0.05, 0.5), line('Emma', 0.3, 0.1, 0.05, 0.5)];
+    const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+    expect(pieces.map((p) => p.lines.map((l) => l.text))).toEqual([['Dune', 'Herbert'], ['Emma']]);
+  });
+
+  it('turns a single rectangle into one item', () => {
+    const lines = [line('Dune', 0.3, 0.2, 0.4, 0.1), line('Frank Herbert', 0.3, 0.3, 0.4, 0.05)];
+    const { pieces } = splitIntoPieces(lines, [{ x: 0.1, y: 0.1, width: 0.8, height: 0.8 }], C.splitting, T);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0].lines.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert']);
+    expect(pieces[0].box).toEqual({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
+  });
+
+  it('counts a rectangle with no text as unreadable', () => {
+    const lines = [line('Dune', 0.1, 0.2, 0.1, 0.1)];
+    const rects = [
+      { x: 0.05, y: 0.1, width: 0.3, height: 0.8 },
+      { x: 0.5, y: 0.1, width: 0.3, height: 0.8 },
+    ];
+    const split = splitIntoPieces(lines, rects, C.splitting, T);
+    expect(split.pieces).toHaveLength(1);
+    expect(split.unreadableCount).toBe(1);
+  });
+
+  it('reads flat text with no rectangles as the whole frame', () => {
+    const lines = [line('Super Mario 64', 0.2, 0.2, 0.6, 0.1), line('Nintendo 64', 0.3, 0.4, 0.4, 0.1)];
+    const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0].lines).toHaveLength(2);
+  });
+
+  it('returns nothing for no text', () => {
+    expect(splitIntoPieces([], [], C.splitting, T)).toEqual({ pieces: [], unreadableCount: 0 });
+  });
+});

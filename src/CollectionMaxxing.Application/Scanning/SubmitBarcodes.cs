@@ -35,6 +35,8 @@ public static class SubmitBarcodes
     /// <summary>The job that resolves a code a request ran out of time for. Carries ids only; the code is read from the candidate.</summary>
     public const string ResolveJobType = "scan.resolve_candidate";
 
+    private static readonly TimeSpan SafetyMargin = TimeSpan.FromSeconds(30);
+
     public sealed record ResolveJob(Guid LibraryId, Guid SessionId, Guid CandidateId, Guid UserId);
 
     public sealed class Handler(
@@ -81,7 +83,7 @@ public static class SubmitBarcodes
                 {
                     if (previous.ExpiresAt > now)
                     {
-                        return await ReplayAsync(previous, hash, session.Id, cancellationToken);
+                        return await ReplayAsync(previous, hash, session, userId, cancellationToken);
                     }
 
                     db.IdempotencyKeys.Remove(previous); // expired: the key can be used again
@@ -142,6 +144,12 @@ public static class SubmitBarcodes
                     ExpiresAt = now + KeyLifetime,
                 });
                 await db.SaveChangesAsync(cancellationToken);
+
+                // A safety net queued before the slow lookups, due once this request's budget has long passed: if the request is cut
+                // off (a dropped connection, a crash) the rows still get resolved. It is a no-op for anything already resolved.
+                await EnqueueAsync(
+                    session, fresh.Where(c => c.Resolution == CandidateResolution.Pending), userId, ":safety",
+                    clock.GetUtcNow() + options.ResolveBudget + SafetyMargin, cancellationToken);
             }
 
             await ResolveAsync(session, fresh, userId, cancellationToken);
@@ -247,18 +255,36 @@ public static class SubmitBarcodes
             return results;
         }
 
-        private async Task<Result<CandidatesDto>> ReplayAsync(IdempotencyKey previous, string hash, Guid sessionId, CancellationToken cancellationToken)
+        /// <summary>Queues the resolve job for each candidate given. Safe to repeat: one job per candidate and key.</summary>
+        private async Task EnqueueAsync(
+            ScanSession session, IEnumerable<ScanCandidate> candidates, Guid userId, string keySuffix, DateTimeOffset? runAfter, CancellationToken cancellationToken)
+        {
+            foreach (var candidate in candidates)
+            {
+                await jobs.EnqueueAsync(
+                    ResolveJobType,
+                    new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId),
+                    new JobEnqueueOptions(runAfter, $"{ResolveJobType}:{candidate.Id}{keySuffix}"),
+                    cancellationToken);
+            }
+        }
+
+        private async Task<Result<CandidatesDto>> ReplayAsync(IdempotencyKey previous, string hash, ScanSession session, Guid userId, CancellationToken cancellationToken)
         {
             if (previous.RequestHash != hash)
             {
                 return ItemErrors.KeyReused;
             }
 
+            var sessionId = session.Id;
             var candidateIds = JsonSerializer.Deserialize<List<Guid>>(previous.ResponseBodyJson ?? "[]") ?? [];
             var found = await db.ScanCandidates.AsNoTracking()
                 .Where(c => c.SessionId == sessionId && candidateIds.Contains(c.Id))
                 .ToDictionaryAsync(c => c.Id, cancellationToken);
             var ordered = candidateIds.Where(found.ContainsKey).Select(id => found[id]).ToList();
+
+            // A first attempt that was cut off may have left rows with no job; queueing again is safe (deduped per candidate).
+            await EnqueueAsync(session, ordered.Where(c => c.Resolution == CandidateResolution.Pending), userId, "", null, cancellationToken);
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, ordered, cancellationToken));
         }
 

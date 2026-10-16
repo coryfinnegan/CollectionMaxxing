@@ -12,10 +12,27 @@ using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Application.Scanning;
 
+/// <summary>What the local catalogue has for a read, as scorer candidates, and the step that records the lookup (none when there was nothing to look up).</summary>
+public sealed record LocalPool(IReadOnlyList<(CandidateRelease Scoring, ResolutionOption Option)> Items, TraceStep? Step)
+{
+    public static LocalPool Empty { get; } = new([], null);
+}
+
+/// <summary>What the providers said about a read: the releases, the steps taken, and whether any provider failed or ran out of time.</summary>
+public sealed record ProviderAnswers(IReadOnlyList<ProviderRelease> Found, IReadOnlyList<TraceStep> Steps, bool AnyFailed)
+{
+    public static ProviderAnswers None { get; } = new([], [], false);
+}
+
 /// <summary>
 /// Looks for a release by the person's own words: the local catalogue first (trigram similarity), then the providers. A typed
 /// title is one signal, so a result is never "sure": it comes back as a list to pick from (docs/02 section 6).
 /// </summary>
+/// <remarks>
+/// The search is also available in its three steps (<see cref="FindLocalAsync"/>, <see cref="AskProvidersAsync(CatalogQuery, CancellationToken, CancellationToken)"/>,
+/// <see cref="Score"/>) so that a caller with many reads (<c>/identify</c>) can run the database step one read at a time and the
+/// provider step for all of them at once, within one time budget.
+/// </remarks>
 public sealed class TextSearchResolver(
     IAppDbContext db,
     ILocalCatalogSearch local,
@@ -31,65 +48,110 @@ public sealed class TextSearchResolver(
 
     public async Task<BarcodeResolution> SearchAsync(string text, CancellationToken cancellationToken)
     {
-        var steps = new List<TraceStep>();
         var read = new ReadItem { Title = text };
-        var pool = new List<(CandidateRelease Scoring, ResolutionOption Option)>();
+        var found = await FindLocalAsync(text, cancellationToken);
+        var answers = await AskProvidersAsync(new CatalogQuery { Title = text, Limit = Limit }, options.ResolveBudget, cancellationToken);
+        return Score(read, CatalogProjection.Profile, found, answers, pendingWhenProvidersFailed: false);
+    }
 
+    /// <summary>The releases the local catalogue has for a title (trigram search), as scorer candidates. Uses the database: one call at a time.</summary>
+    public async Task<LocalPool> FindLocalAsync(string text, CancellationToken cancellationToken)
+    {
         var normalized = TitleNormalizer.Normalize(text);
-        if (normalized.Length > 0)
+        if (normalized.Length == 0)
         {
-            var started = Stopwatch.GetTimestamp();
-            var hits = await local.FindAsync(new LocalSearch(normalized, null, null, null, LocalCap), cancellationToken);
-            steps.Add(new TraceStep("catalogue", hits.Count > 0 ? "hit" : "miss", (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds));
-            var platformIds = hits.Select(h => h.Release.PlatformId).OfType<Guid>().Distinct().ToList();
-            var platforms = platformIds.Count == 0
-                ? []
-                : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
-            foreach (var hit in hits)
-            {
-                var platform = hit.Release.PlatformId is { } id && platforms.TryGetValue(id, out var found) ? found.Name : null;
-                pool.Add((
-                    new CandidateRelease
-                    {
-                        Key = hit.Release.Id.ToString(),
-                        Title = hit.Work.Title,
-                        Kind = hit.Work.Kind,
-                        Format = hit.Release.Format,
-                        Platform = platform,
-                        Year = hit.Release.ReleaseDate?.Year ?? hit.Work.OriginalYear,
-                        Creators = ItemProjection.Creators(hit.Work.CreatorsJson),
-                        Edition = hit.Release.Edition,
-                    },
-                    new ResolutionOption(hit.Release.Id, null, 0)));
-            }
+            return LocalPool.Empty;
         }
 
+        var started = Stopwatch.GetTimestamp();
+        var hits = await local.FindAsync(new LocalSearch(normalized, null, null, null, LocalCap), cancellationToken);
+        var step = new TraceStep("catalogue", hits.Count > 0 ? "hit" : "miss", (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        var platformIds = hits.Select(h => h.Release.PlatformId).OfType<Guid>().Distinct().ToList();
+        var platforms = platformIds.Count == 0
+            ? []
+            : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
+        var pool = new List<(CandidateRelease Scoring, ResolutionOption Option)>();
+        foreach (var hit in hits)
+        {
+            var platform = hit.Release.PlatformId is { } id && platforms.TryGetValue(id, out var found) ? found.Name : null;
+            pool.Add((
+                new CandidateRelease
+                {
+                    Key = hit.Release.Id.ToString(),
+                    Title = hit.Work.Title,
+                    Kind = hit.Work.Kind,
+                    Format = hit.Release.Format,
+                    Platform = platform,
+                    Year = hit.Release.ReleaseDate?.Year ?? hit.Work.OriginalYear,
+                    Creators = ItemProjection.Creators(hit.Work.CreatorsJson),
+                    Edition = hit.Release.Edition,
+                },
+                new ResolutionOption(hit.Release.Id, null, 0)));
+        }
+
+        return new LocalPool(pool, step);
+    }
+
+    /// <summary>Asks the providers that know the query's kind (all of them when it has none), within <paramref name="budget"/>.</summary>
+    public async Task<ProviderAnswers> AskProvidersAsync(CatalogQuery query, TimeSpan budget, CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(options.ResolveBudget);
-        var asked = _providers.Where(p => Enum.GetValues<WorkKind>().Any(p.Supports)).ToList();
-        var query = new CatalogQuery { Title = text, Limit = Limit };
-        var answers = await Task.WhenAll(asked.Select(p => AskAsync(p, query, steps, cancellationToken, timeout.Token)));
+        timeout.CancelAfter(budget);
+        return await AskProvidersAsync(query, cancellationToken, timeout.Token);
+    }
 
-        var known = pool.Select(o => CatalogProjection.DuplicateKey(o.Scoring.Title, o.Scoring.Year, o.Scoring.Platform)).ToHashSet(StringComparer.Ordinal);
-        foreach (var found in answers.SelectMany(a => a))
+    /// <summary>
+    /// Asks the providers that know the query's kind, until <paramref name="budgetToken"/> is cancelled. A provider that fails or
+    /// runs out of time is recorded, not thrown; only <paramref name="callerToken"/> cancelling escapes. Touches no database,
+    /// so reads can be asked in parallel.
+    /// </summary>
+    public async Task<ProviderAnswers> AskProvidersAsync(CatalogQuery query, CancellationToken callerToken, CancellationToken budgetToken)
+    {
+        var steps = new List<TraceStep>();
+        var asked = _providers.Where(p => query.Kind is { } kind ? p.Supports(kind) : Enum.GetValues<WorkKind>().Any(p.Supports)).ToList();
+        var answers = await Task.WhenAll(asked.Select(p => AskAsync(p, query, steps, callerToken, budgetToken)));
+        return new ProviderAnswers(answers.SelectMany(a => a.Found).ToList(), steps, answers.Any(a => a.Failed));
+    }
+
+    /// <summary>
+    /// Scores everything found against the read and decides. Pure. With <paramref name="pendingWhenProvidersFailed"/>, a read
+    /// that found nothing good while a provider was down or slow is Pending (worth asking again) instead of NotFound.
+    /// </summary>
+    public static BarcodeResolution Score(
+        ReadItem read, ScoringProfile profile, LocalPool found, ProviderAnswers answers, bool pendingWhenProvidersFailed)
+    {
+        var steps = new List<TraceStep>();
+        if (found.Step is { } localStep)
         {
-            if (known.Add(CatalogProjection.DuplicateKey(found.Title, found.Year, found.Platform)))
+            steps.Add(localStep);
+        }
+
+        steps.AddRange(answers.Steps);
+
+        var pool = found.Items.ToList();
+        var known = pool.Select(o => CatalogProjection.DuplicateKey(o.Scoring.Title, o.Scoring.Year, o.Scoring.Platform)).ToHashSet(StringComparer.Ordinal);
+        foreach (var release in answers.Found)
+        {
+            if (known.Add(CatalogProjection.DuplicateKey(release.Title, release.Year, release.Platform)))
             {
-                pool.Add((found.ToCandidate(), new ResolutionOption(null, found, 0)));
+                pool.Add((release.ToCandidate(), new ResolutionOption(null, release, 0)));
             }
         }
 
+        var nothing = pendingWhenProvidersFailed && answers.AnyFailed
+            ? BarcodeResolution.Pending(steps)
+            : new BarcodeResolution(ResolutionVerdict.NotFound, [], null, steps);
         if (pool.Count == 0)
         {
-            return new BarcodeResolution(ResolutionVerdict.NotFound, [], null, steps);
+            return nothing;
         }
 
-        var result = MatchScorer.Evaluate(read, pool.Select(o => o.Scoring).ToList(), CatalogProjection.Profile);
+        var result = MatchScorer.Evaluate(read, pool.Select(o => o.Scoring).ToList(), profile);
         var byKey = pool.ToDictionary(o => o.Scoring.Key, o => o.Option, StringComparer.Ordinal);
         steps.Add(new TraceStep("scorer", result.Outcome.ToString().ToLowerInvariant(), 0, (result.Ranked.Count > 0 ? result.Ranked[0].Score : (double?)null)));
         if (result.Outcome == MatchOutcome.NotFound)
         {
-            return new BarcodeResolution(ResolutionVerdict.NotFound, [], null, steps);
+            return nothing;
         }
 
         var ranked = result.Ranked.Take(Alternatives).Select(r => byKey[r.Release.Key] with { Score = r.Score }).ToList();
@@ -97,11 +159,14 @@ public sealed class TextSearchResolver(
             result.Outcome == MatchOutcome.Matched ? ResolutionVerdict.Matched : ResolutionVerdict.Ambiguous, ranked, null, steps);
     }
 
-    private async Task<IReadOnlyList<ProviderRelease>> AskAsync(
+    private sealed record Attempt(IReadOnlyList<ProviderRelease> Found, bool Failed);
+
+    private async Task<Attempt> AskAsync(
         ICatalogProvider provider, CatalogQuery query, List<TraceStep> steps, CancellationToken callerToken, CancellationToken budget)
     {
         var started = Stopwatch.GetTimestamp();
         var outcome = "miss";
+        var failed = false;
         IReadOnlyList<ProviderRelease> found = [];
         try
         {
@@ -118,6 +183,7 @@ public sealed class TextSearchResolver(
         {
             logger.LogWarning("Provider {Provider} failed ({Failure}) during a search.", provider.Name, exception.GetType().Name);
             outcome = "failed";
+            failed = true;
         }
 
         lock (steps)
@@ -125,7 +191,7 @@ public sealed class TextSearchResolver(
             steps.Add(new TraceStep(provider.Name, outcome, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds));
         }
 
-        return found;
+        return new Attempt(found, failed);
     }
 }
 

@@ -49,11 +49,17 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireScanSessionRole(LibraryRole.Viewer);
 
-        sessions.MapPost("/{id:guid}/identify", (Guid id, IdentifyRequest body) => StubEndpoints.NotImplemented())
+        // What the phone read from one picture (text only, never an image). The body is read inside the handler, after the
+        // session filters, and bounded; see IdentifyEndpoint.
+        sessions.MapPost("/{id:guid}/identify", Identify.IdentifyEndpoint.HandleAsync)
             .WithName("IdentifyItems").WithTags("Scanning")
+            .Accepts<IdentifyRequest>("application/json")
             .Produces<CandidatesDto>()
             .ProducesValidationProblem()
-            .RequireScanSessionRole(LibraryRole.Viewer).IsStub();
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .RequireScanSessionRole(LibraryRole.Viewer);
 
         sessions.MapPost("/{id:guid}/candidates/{cid:guid}:art", (Guid id, Guid cid, ArtDistancesRequest body) => StubEndpoints.NotImplemented())
             .WithName("ScoreCandidateArtwork").WithTags("Scanning")
