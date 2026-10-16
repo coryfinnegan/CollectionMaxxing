@@ -18,7 +18,11 @@ public class ArtworkCapTests
     {
         var read = new ReadItem
         {
-            Title = "Wave Race 64", Kind = WorkKind.Game, Format = ReleaseFormat.GameCartridge, Platform = "N64", Year = 1999,
+            Title = "Wave Race 64",
+            Kind = WorkKind.Game,
+            Format = ReleaseFormat.GameCartridge,
+            Platform = "N64",
+            Year = 1999,
             ArtDistances = new Dictionary<string, double> { ["wrong"] = 0.0, ["other"] = 1.4 },
         };
 
@@ -35,7 +39,9 @@ public class ArtworkCapTests
     {
         var read = new ReadItem
         {
-            Title = "Madden NFL 2005", Kind = WorkKind.Game, Format = ReleaseFormat.GameCartridge,
+            Title = "Madden NFL 2005",
+            Kind = WorkKind.Game,
+            Format = ReleaseFormat.GameCartridge,
             ArtDistances = new Dictionary<string, double> { ["old"] = 0.0, ["older"] = 1.4 },
         };
 
@@ -51,7 +57,8 @@ public class ArtworkCapTests
     {
         var withStranger = new ReadItem
         {
-            Title = "Wave Race 64", Kind = WorkKind.Game,
+            Title = "Wave Race 64",
+            Kind = WorkKind.Game,
             ArtDistances = new Dictionary<string, double> { ["stranger"] = 0.0 },
         };
         var without = new ReadItem { Title = "Wave Race 64", Kind = WorkKind.Game };
