@@ -60,7 +60,7 @@ test.describe('library', () => {
     await page.getByRole('button', { name: 'Save changes' }).click();
 
     await expect(page).toHaveURL(new RegExp(`/item/${matrix}$`));
-    // The detail page keeps showing the old values until its cache expires (reported in the PR), so check the saved result in the table.
+    await expect(page.getByText('Red pill edition').locator('visible=true').first()).toBeVisible();
     await page.goBack();
     await expect(page.getByRole('button', { name: 'Change status of The Matrix, now Wishlist' })).toBeVisible();
   });
@@ -81,7 +81,6 @@ test.describe('library', () => {
   });
 
   test('deleting shows Undo, and Undo restores the item', async ({ page, open }) => {
-    // Grid view: the table view has no Undo snackbar yet (see Notes for the lead in the PR).
     await open('/library');
     await page.getByRole('button', { name: 'Grid view' }).click();
     await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
@@ -93,5 +92,17 @@ test.describe('library', () => {
 
     await page.getByRole('button', { name: 'Undo' }).click();
     await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
+  });
+
+  test('deleting from the table view also shows Undo, and Undo restores the item', async ({ page, open }) => {
+    await open('/library');
+    await page.getByRole('link', { name: 'Open The Matrix' }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+
+    await expect(page.getByText('Deleted The Matrix')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open The Matrix' })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(page.getByRole('link', { name: 'Open The Matrix' })).toBeVisible();
   });
 });

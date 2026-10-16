@@ -22,7 +22,10 @@ export function useInvalidateLibrary() {
   return (libraryId: string) =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ['library-items', libraryId] }),
-      queryClient.invalidateQueries({ queryKey: [`/api/v1/libraries/${libraryId}/items`] }),
+      // Item detail keys are one string per item (".../items/<id>"), so match by prefix, not by array element.
+      queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => typeof queryKey[0] === 'string' && queryKey[0].startsWith(`/api/v1/libraries/${libraryId}/items`),
+      }),
       queryClient.invalidateQueries({ queryKey: [`/api/v1/libraries/${libraryId}/stats`] }),
     ]);
 }
