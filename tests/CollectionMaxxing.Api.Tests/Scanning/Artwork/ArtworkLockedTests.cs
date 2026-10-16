@@ -209,7 +209,13 @@ public class ArtworkLockedTests(ApiFixture api) : ArtworkTest(api)
     {
         var scan = await ScanOriginalAndPlayersChoiceAsync();
         var ids = AlternativeIds(scan.Candidate);
-        (await CommitAsync(scan.Client, scan.SessionId)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // A commit that adds nothing leaves the session open, so give it one known item to add.
+        var code = ScanData.Upc(5601);
+        await CatalogAsync("Star Fox 64", code);
+        (await ScanAsync(scan.Client, scan.SessionId, code))[0].GetProperty("decision").GetString().ShouldBe("accepted");
+        var commit = await CommitAsync(scan.Client, scan.SessionId);
+        (await ReadOkAsync(commit)).GetProperty("created").GetInt32().ShouldBe(1);
         var before = await CandidateTextNowAsync(scan.Client, scan.SessionId, scan.CandidateId);
 
         var response = await PostArtAsync(scan.Client, scan, Distance(ids[0], 0.05), Distance(ids[1], 1.3));

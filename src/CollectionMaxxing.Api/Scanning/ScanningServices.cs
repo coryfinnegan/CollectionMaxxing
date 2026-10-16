@@ -1,5 +1,6 @@
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Problems;
+using CollectionMaxxing.Api.Scanning.Artwork;
 using CollectionMaxxing.Api.Scanning.Events;
 using CollectionMaxxing.Api.Scanning.Identify;
 using CollectionMaxxing.Application.Common;
@@ -39,6 +40,7 @@ public static class ScanningServices
         services.AddJobHandler<SubmitBarcodes.ResolveJob, ResolvePendingCandidate>(SubmitBarcodes.ResolveJobType);
         services.AddScanFollowUps();
         services.AddIdentify();
+        services.AddArtwork();
         return services;
     }
 }

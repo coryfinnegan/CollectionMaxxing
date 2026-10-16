@@ -61,6 +61,11 @@ public static class RecognitionConfigRules
             problems.Add(e.Message);
         }
 
+        var art = options.Art;
+        CheckRange("scoring.art.closeCallMargin", art.CloseCallMargin, 0, 1, problems);
+        CheckRange("scoring.art.distanceScale", art.DistanceScale, 0.001, 1000, problems);
+        CheckRange("scoring.art.maxDistance", art.MaxDistance, 0.001, 100000, problems);
+
         foreach (var (name, weights) in Profiles(options))
         {
             var terms = new (string Term, double Value)[]

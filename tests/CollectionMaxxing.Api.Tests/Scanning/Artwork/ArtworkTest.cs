@@ -27,7 +27,13 @@ public abstract class ArtworkTest(ApiFixture api) : IdentifyTest(api)
 {
     protected const string N64 = "Nintendo 64";
 
-    protected Task<Guid> PlatformAsync(string name = N64, string shortName = "N64") => CatalogSeed.AddPlatformAsync(Db, name, shortName);
+    /// <summary>The platform with this name; made the first time it is asked for in a test.</summary>
+    protected async Task<Guid> PlatformAsync(string name = N64, string shortName = "N64")
+    {
+        await using var context = Db.CreateContext();
+        var existing = await context.Platforms.Where(p => p.Name == name).Select(p => (Guid?)p.Id).FirstOrDefaultAsync();
+        return existing ?? await CatalogSeed.AddPlatformAsync(Db, name, shortName);
+    }
 
     /// <summary>A global release with a cover asset (or a private one when <paramref name="ownerLibraryId"/> is set).</summary>
     protected async Task<SeededRelease> ReleaseAsync(

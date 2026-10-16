@@ -10,7 +10,11 @@ namespace CollectionMaxxing.Application.Scanning;
 /// <summary>Where an item sits in the photo, each value 0–1.</summary>
 public sealed record BoxDto(double X, double Y, double W, double H);
 
-/// <summary>One thing the scanner saw, what we think it is, and what the user decided.</summary>
+/// <summary>
+/// One thing the scanner saw, what we think it is, and what the user decided. <c>NeedsArt</c> says the top releases are a close
+/// call: the phone should compare the alternatives' <c>artworkUrl</c>s with the item and post the distances to
+/// <c>POST …/candidates/{id}:art</c>.
+/// </summary>
 public sealed record CandidateDto(
     Guid Id,
     int Seq,
@@ -24,6 +28,7 @@ public sealed record CandidateDto(
     CandidateResolution Resolution,
     double? Score,
     double? ArtDistance,
+    bool NeedsArt,
     ReleaseDto? Release,
     JsonElement? Inferred,
     JsonElement? Alternatives,

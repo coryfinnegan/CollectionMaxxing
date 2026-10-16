@@ -61,11 +61,18 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
             .RequireScanSessionRole(LibraryRole.Viewer);
 
-        sessions.MapPost("/{id:guid}/candidates/{cid:guid}:art", (Guid id, Guid cid, ArtDistancesRequest body) => StubEndpoints.NotImplemented())
+        // The feature-print distances the phone measured for a close call; the server re-scores. The body is read inside the
+        // handler, after the session filters, and bounded; see ArtworkEndpoint.
+        sessions.MapPost("/{id:guid}/candidates/{cid:guid}:art", Artwork.ArtworkEndpoint.HandleAsync)
             .WithName("ScoreCandidateArtwork").WithTags("Scanning")
+            .Accepts<ArtDistancesRequest>("application/json")
             .Produces<CandidateDto>()
             .ProducesValidationProblem()
-            .RequireScanSessionRole(LibraryRole.Viewer).IsStub();
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireScanSessionRole(LibraryRole.Viewer);
 
         // Multipart crop, used as the item's cover ("Use my photo"). Not bound here, so the stub needs no antiforgery.
         sessions.MapPost("/{id:guid}/candidates/{cid:guid}/photo", (Guid id, Guid cid) => StubEndpoints.NotImplemented())

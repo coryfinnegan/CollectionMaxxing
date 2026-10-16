@@ -233,13 +233,13 @@ public static class AuthorizationMatrix
         InLibrary("GET", $"{Libraries}/ownership/snapshot", LibraryRole.Viewer, allowed: Ok),
 
         // ---- Scanning (SCAN-1a): a viewer may scan, an editor commits. Addressed by session id; a session is its starter's own. ----
-        // :art and photo are still stubs (Wave 3). identify is built (SCAN-2a): {} has no snapId, so the handler is reached and says 400.
+        // photo is still a stub (Wave 3). identify (SCAN-2a) and :art (SCAN-2b) are built: {} carries no snapId / distances, so the handler is reached and says 400.
         InLibrary("POST", $"{Libraries}/scan-sessions", LibraryRole.Viewer, Json, allowed: Created),
         InLibrary("GET", Sessions, LibraryRole.Viewer, allowed: Ok),
         InLibrary("GET", $"{Sessions}/events", LibraryRole.Viewer, allowed: Ok), // SSE: the matrix reads only the headers
         InLibrary("POST", $"{Sessions}/barcodes", LibraryRole.Viewer, "{\"codes\":[{\"value\":\"not-a-code\"}]}", allowed: Ok, headers: Idempotent),
         InLibrary("POST", $"{Sessions}/identify", LibraryRole.Viewer, Json, allowed: BadRequest),
-        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:art", LibraryRole.Viewer, Json),
+        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:art", LibraryRole.Viewer, Json, allowed: BadRequest),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/photo", LibraryRole.Editor),
         InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, "{\"copies\":2}", allowed: Ok),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no text: the handler is reached
