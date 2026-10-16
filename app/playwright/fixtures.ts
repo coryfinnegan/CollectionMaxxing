@@ -6,22 +6,8 @@ import { join } from 'node:path';
 // Every test gets a fresh browser context and a fresh page load, so MSW's in-memory mock state starts from the seed.
 // Specs therefore move around by clicking (a full page load would reset the mock data) unless they want a reset.
 
-/**
- * Real findings from the first axe scan, reported to the lead in the APP-5 PR ("Notes for the lead"); feature code is out of scope here.
- * Remove an entry when its fix lands: every other serious or critical finding fails the scan.
- *  - document-title: the exported pages have no <title>.
- *  - aria-required-attr: the table's role="checkbox" cells have no aria-checked.
- *  - aria-required-children: the table's role="row" elements lack children axe accepts.
- *  - color-contrast on the grid's cover placeholder text.
- *  - aria-prohibited-attr: the invite QR code (div[aria-label="QR code"]) has a label but no role.
- */
-const knownIssues: { id: string; target?: RegExp }[] = [
-  { id: 'document-title' },
-  { id: 'aria-required-attr' },
-  { id: 'aria-required-children' },
-  { id: 'color-contrast', target: /\.r-8akbws\.r-krxsd3/ },
-  { id: 'aria-prohibited-attr', target: /QR code/ },
-];
+/** Serious or critical axe findings that are accepted for now. Empty: every finding fails the scan. */
+const knownIssues: { id: string; target?: RegExp }[] = [];
 
 type Fixtures = {
   /** Console errors and uncaught page errors seen so far. */
