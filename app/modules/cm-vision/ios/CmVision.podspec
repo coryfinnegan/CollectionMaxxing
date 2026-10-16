@@ -6,6 +6,9 @@ Pod::Spec.new do |s|
   s.author         = ''
   s.homepage       = 'https://github.com/coryfinnegan/CollectionMaxxing'
   s.platforms      = { :ios => '16.0' }
+  s.swift_version  = '5.9'
+  # Foundation Models (iOS 27) is loaded only when present; every use is behind #available.
+  s.weak_frameworks = 'FoundationModels'
   s.source         = { git: '' }
   s.static_framework = true
 
