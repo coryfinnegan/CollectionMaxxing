@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Evals;
-using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Scanning;
 
