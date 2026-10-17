@@ -33,7 +33,8 @@ foreach ($name in 'shelf', 'single') {
   $path = Join-Path $root $name
   if (-not (Test-Path -LiteralPath $path -PathType Container)) { continue }
   # A set folder that is a link (junction or symbolic link) could lead outside the golden folder: never follow it.
-  if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+  $item = Get-Item -LiteralPath $path -Force
+  if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $item.LinkTarget) {
     Write-Warning "Skipping $path : it is a link, not a plain folder."
     continue
   }
