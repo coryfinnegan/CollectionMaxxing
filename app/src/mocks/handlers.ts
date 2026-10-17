@@ -6,6 +6,7 @@ import { handlers as authHandlers } from './auth';
 import { handlers as bulkHandlers } from './bulk';
 import { handlers as catalogHandlers } from './catalog';
 import { MOCK_LIBRARY_ID, mockData, mockMe, newMockId } from './data';
+import { handlers as evalsHandlers } from './evals';
 import { handlers as itemsHandlers } from './items';
 import { handlers as librariesHandlers } from './libraries';
 import { handlers as meHandlers } from './me';
@@ -24,7 +25,7 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
 const base = '*/api/v1/libraries/:libraryId/locations';
 
 export const handlers = [
-  ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...scanHandlers,
+  ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...scanHandlers, ...evalsHandlers,
   http.get('*/api/v1/me', () => HttpResponse.json(mockMe())),
 
   http.get(base, () => HttpResponse.json({ items: mockData.locations, nextCursor: null })),
