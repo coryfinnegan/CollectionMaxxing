@@ -52,7 +52,14 @@ export async function loadSession(sessionId: string, since?: number): Promise<Ca
   return response.data.candidates;
 }
 
-const toMessage = (c: CandidateDto): SseMessage => ({ event: 'candidate.updated', id: String(c.seq), data: JSON.stringify(c) });
+// The event cursor is the candidate's changeSeq (it goes up on every insert and update), not seq (the creation order).
+const toMessage = (c: CandidateDto): SseMessage => ({ event: 'candidate.updated', id: String(c.changeSeq), data: JSON.stringify(c) });
+
+/** Where to carry on from for a session that already has candidates: the newest change seen, or none for an empty one. */
+export const resumeCursor = (candidates: CandidateDto[]): string | undefined => {
+  const last = candidates.reduce((max, c) => Math.max(max, c.changeSeq), 0);
+  return last > 0 ? String(last) : undefined;
+};
 
 /** Follows the session's events; falls back to polling `?since=` when the stream keeps failing. */
 export function followSession(sessionId: string, lastEventId: string | undefined, tuning: { retryMs?: number; pollMs?: number } = {}) {
