@@ -1212,6 +1212,11 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("box_y");
 
+                    b.Property<int>("ChangeSeq")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("integer")
+                        .HasColumnName("change_seq");
+
                     b.Property<int>("Copies")
                         .HasColumnType("integer")
                         .HasColumnName("copies");
@@ -1229,6 +1234,21 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
                         .HasColumnName("decision");
+
+                    b.Property<string>("EditedEdition")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("edited_edition");
+
+                    b.Property<string>("EditedFormat")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("edited_format");
+
+                    b.Property<string>("EditedPlatform")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("edited_platform");
 
                     b.Property<string>("IdempotencyKey")
                         .HasMaxLength(200)
@@ -1294,6 +1314,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("trace");
 
+                    b.Property<bool>("UserEdited")
+                        .HasColumnType("boolean")
+                        .HasColumnName("user_edited");
+
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -1320,6 +1344,9 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.HasIndex("LibraryId", "SessionId")
                         .HasDatabaseName("ix_scan_candidates_library_id_session_id");
 
+                    b.HasIndex("SessionId", "ChangeSeq")
+                        .HasDatabaseName("ix_scan_candidates_session_id_change_seq");
+
                     b.HasIndex("SessionId", "IdempotencyKey")
                         .IsUnique()
                         .HasDatabaseName("ux_scan_candidates_idempotency")
@@ -1345,6 +1372,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_scan_candidates_copies", "copies >= 1");
 
                             t.HasCheckConstraint("ck_scan_candidates_decision", "\"decision\" in ('undecided', 'accepted', 'rejected')");
+
+                            t.HasCheckConstraint("ck_scan_candidates_edited_format", "\"edited_format\" in ('hardcover', 'paperback', 'mass_market', 'vhs', 'betamax', 'laserdisc', 'dvd', 'bluray', 'uhd_bluray', 'game_cartridge', 'game_disc', 'game_card', 'other')");
 
                             t.HasCheckConstraint("ck_scan_candidates_resolution", "\"resolution\" in ('pending', 'matched', 'ambiguous', 'not_found', 'error')");
 

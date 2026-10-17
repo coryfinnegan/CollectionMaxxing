@@ -53,8 +53,8 @@ public static class CreateScanSession
 }
 
 /// <summary>
-/// Use case: the session and its candidates, in scan order. With <c>since</c>, only those after that sequence number: the
-/// polling fallback for the event stream.
+/// Use case: the session and its candidates, in scan order. With <c>since</c>, only those added or changed after that change
+/// counter (a candidate's <c>changeSeq</c>, also the id of its events): the polling fallback for the event stream.
 /// </summary>
 public static class GetScanSession
 {
@@ -66,7 +66,7 @@ public static class GetScanSession
         {
             if (query.Since is < 0)
             {
-                return ScanningErrors.Invalid("scan.since_invalid", "since is a sequence number, 0 or more.", "since");
+                return ScanningErrors.Invalid("scan.since_invalid", "since is a change counter, 0 or more.", "since");
             }
 
             if (await ScanSessions.FindMineAsync(db, currentUser, query.SessionId, cancellationToken) is not { } session)
@@ -76,7 +76,7 @@ public static class GetScanSession
 
             var since = query.Since ?? 0;
             var candidates = await db.ScanCandidates.AsNoTracking()
-                .Where(c => c.SessionId == session.Id && c.Seq > since)
+                .Where(c => c.SessionId == session.Id && c.ChangeSeq > since)
                 .OrderBy(c => c.Seq)
                 .ToListAsync(cancellationToken);
 

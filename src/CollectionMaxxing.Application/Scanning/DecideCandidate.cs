@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Scanning.Learning;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -13,20 +14,42 @@ namespace CollectionMaxxing.Application.Scanning;
 /// </summary>
 public static class DecideCandidate
 {
-    public sealed record Command(Guid SessionId, Guid CandidateId, CandidateDecision? Decision, Guid? ReleaseId, int? Copies);
+    /// <summary>The longest platform or edition a person can type over what was matched.</summary>
+    public const int MaxEditLength = 100;
+
+    public sealed record Command(
+        Guid SessionId,
+        Guid CandidateId,
+        CandidateDecision? Decision,
+        Guid? ReleaseId,
+        int? Copies,
+        ReleaseFormat? Format = null,
+        string? Platform = null,
+        string? Edition = null);
 
     public sealed class Handler(IAppDbContext db, ICurrentUser currentUser, CandidateResolver resolver, MatchFeedbackRecorder feedback)
     {
         public async Task<Result<CandidateDto>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
-            if (command is { Decision: null, ReleaseId: null, Copies: null })
+            if (command is { Decision: null, ReleaseId: null, Copies: null, Format: null, Platform: null, Edition: null })
             {
-                return ScanningErrors.Invalid("scan.nothing_to_change", "Say what to change: decision, releaseId or copies.", "decision");
+                return ScanningErrors.Invalid(
+                    "scan.nothing_to_change", "Say what to change: decision, releaseId, copies, format, platform or edition.", "decision");
             }
 
             if (command.Copies is { } copies && (copies < 1 || copies > ScanningOptions.MaxCopies))
             {
                 return ScanningErrors.Invalid("scan.copies_invalid", $"Copies must be from 1 to {ScanningOptions.MaxCopies}.", "copies");
+            }
+
+            if (command.Platform?.Trim().Length > MaxEditLength)
+            {
+                return ScanningErrors.Invalid("scan.platform_too_long", $"A platform can be at most {MaxEditLength} characters.", "platform");
+            }
+
+            if (command.Edition?.Trim().Length > MaxEditLength)
+            {
+                return ScanningErrors.Invalid("scan.edition_too_long", $"An edition can be at most {MaxEditLength} characters.", "edition");
             }
 
             if (await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken) is not { } session)
@@ -76,6 +99,26 @@ public static class DecideCandidate
             if (command.Copies is { } newCopies)
             {
                 candidate.Copies = newCopies;
+            }
+
+            // The person's corrections stay on the candidate (a blank text clears one); commit adds the release that has them, and a
+            // search again scores with them. A match the person corrected is no longer just the scanner's guess.
+            if (command.Format is { } format)
+            {
+                candidate.EditedFormat = format;
+                candidate.UserEdited = true;
+            }
+
+            if (command.Platform is { } platform)
+            {
+                candidate.EditedPlatform = string.IsNullOrWhiteSpace(platform) ? null : platform.Trim();
+                candidate.UserEdited = true;
+            }
+
+            if (command.Edition is { } edition)
+            {
+                candidate.EditedEdition = string.IsNullOrWhiteSpace(edition) ? null : edition.Trim();
+                candidate.UserEdited = true;
             }
 
             await db.SaveChangesAsync(cancellationToken);

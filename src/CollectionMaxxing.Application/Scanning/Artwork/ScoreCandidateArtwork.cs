@@ -139,10 +139,8 @@ public static class ScoreCandidateArtwork
                 await resolver.ApplyAsync(session.LibraryId, candidate, resolution, cancellationToken);
                 candidate.ArtDistance = reported.TryGetValue(Guid.Parse(ranked[0].Release.Key), out var leader) ? leader : null;
 
-                // A new sequence number makes the change reach a client that missed the event: ?since= and a reconnect both see it.
-                var highest = await db.ScanCandidates.Where(c => c.SessionId == session.Id).MaxAsync(c => (int?)c.Seq, cancellationToken) ?? 0;
-                db.ScanCandidates.Attach(candidate).Property(c => c.Seq).CurrentValue = highest + 1;
-
+                // The update moves the candidate's change counter (a database trigger), so ?since= and a reconnect both see it.
+                // Its seq stays the creation order: that is how a reconnecting client is told "updated" from "added".
                 await db.SaveChangesAsync(cancellationToken);
                 return (await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken))[0];
             }

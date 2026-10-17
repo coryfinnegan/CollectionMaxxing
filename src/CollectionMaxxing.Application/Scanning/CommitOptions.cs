@@ -1,0 +1,130 @@
+using System.Security.Cryptography;
+using System.Text;
+using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Items;
+using CollectionMaxxing.Domain.Scanning;
+using Microsoft.EntityFrameworkCore;
+
+namespace CollectionMaxxing.Application.Scanning;
+
+/// <summary>What Review changes for one scanned item at commit. A null field means "use the default".</summary>
+public sealed record CommitOverride(Guid? CandidateId, Guid? LocationId, ItemStatus? Status, ItemCondition? Condition, int? Copies);
+
+/// <summary>
+/// The person's choices at commit (SCAN-1d): "Add to" a location, a status and a condition for everything, and overrides for
+/// single items. All optional; no options at all commits exactly as it always did.
+/// </summary>
+public sealed record CommitOptions(
+    Guid? AddTo, ItemStatus? Status, ItemCondition? Condition, IReadOnlyList<CommitOverride>? Overrides)
+{
+    public bool IsEmpty => AddTo is null && Status is null && Condition is null && Overrides is not { Count: > 0 };
+
+    /// <summary>
+    /// What an <c>Idempotency-Key</c> is tied to: the session alone when there are no options (as before this existed), else the
+    /// session and the options, so one key can't be reused for a different commit.
+    /// </summary>
+    public static string Hash(Guid sessionId, CommitOptions? options)
+    {
+        if (options is null || options.IsEmpty)
+        {
+            return sessionId.ToString();
+        }
+
+        var overrides = (options.Overrides ?? [])
+            .OrderBy(o => o.CandidateId)
+            .Select(o => $"{o.CandidateId}:{o.LocationId}:{o.Status}:{o.Condition}:{o.Copies}");
+        var text = $"{sessionId}|{options.AddTo}|{options.Status}|{options.Condition}|{string.Join(';', overrides)}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+    }
+}
+
+/// <summary>
+/// Picks the release each accepted candidate is added as. Usually the one it matched. A candidate the person edited (format,
+/// platform or edition) is added as the release of the same work that has those: one the catalogue already holds (or the
+/// library's own), else a new release the library keeps for itself. Saves nothing; the commit saves everything at once.
+/// </summary>
+internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
+{
+    public async Task<Dictionary<Guid, Guid>> ResolveAsync(
+        Guid libraryId, IReadOnlyList<ScanCandidate> accepted, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var result = accepted.ToDictionary(c => c.Id, c => c.MatchedReleaseId!.Value);
+        var edited = accepted.Where(c => c.EditedFormat is not null || c.EditedPlatform is not null || c.EditedEdition is not null).ToList();
+        if (edited.Count == 0)
+        {
+            return result;
+        }
+
+        var baseIds = edited.Select(c => c.MatchedReleaseId!.Value).Distinct().ToList();
+        var bases = await db.Releases.AsNoTracking().Where(r => baseIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
+        var platforms = await db.Platforms.AsNoTracking().ToListAsync(cancellationToken);
+        var added = new Dictionary<(Guid Work, ReleaseFormat Format, Guid? Platform, string Edition), Guid>();
+
+        foreach (var candidate in edited)
+        {
+            var origin = bases[candidate.MatchedReleaseId!.Value];
+            var format = candidate.EditedFormat ?? origin.Format;
+            var platformId = PlatformOf(platforms, candidate.EditedPlatform) ?? origin.PlatformId;
+            var edition = candidate.EditedEdition ?? origin.Edition;
+            if (format == origin.Format && platformId == origin.PlatformId && SameEdition(edition, origin.Edition))
+            {
+                continue;
+            }
+
+            var key = (origin.WorkId, format, platformId, NormalEdition(edition));
+            if (!added.TryGetValue(key, out var releaseId))
+            {
+                releaseId = await FindOrAddAsync(libraryId, origin, format, platformId, edition, now, cancellationToken);
+                added[key] = releaseId;
+            }
+
+            result[candidate.Id] = releaseId;
+        }
+
+        return result;
+    }
+
+    private async Task<Guid> FindOrAddAsync(
+        Guid libraryId, Release origin, ReleaseFormat format, Guid? platformId, string? edition, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        // The query filter already hides other libraries' private releases; global ones come first.
+        var siblings = await db.Releases.AsNoTracking()
+            .Where(r => r.WorkId == origin.WorkId && r.Format == format && r.PlatformId == platformId)
+            .OrderBy(r => r.OwnerLibraryId != null).ThenBy(r => r.CreatedAt).ThenBy(r => r.Id)
+            .ToListAsync(cancellationToken);
+        if (siblings.FirstOrDefault(r => SameEdition(r.Edition, edition)) is { } found)
+        {
+            return found.Id;
+        }
+
+        var release = new Release
+        {
+            Id = ids.NewId(),
+            WorkId = origin.WorkId,
+            Format = format,
+            PlatformId = platformId,
+            Edition = string.IsNullOrWhiteSpace(edition) ? null : edition.Trim(),
+            Source = ReleaseSource.User,
+            OwnerLibraryId = libraryId,
+            CreatedAt = now,
+        };
+        db.Releases.Add(release);
+        return release.Id;
+    }
+
+    /// <summary>The platform row a typed platform name means, or null when none does (the release's own platform then stays).</summary>
+    private static Guid? PlatformOf(List<Platform> platforms, string? name)
+    {
+        var canonical = PlatformNames.Canonicalize(name);
+        return canonical is null
+            ? null
+            : platforms.FirstOrDefault(p => PlatformNames.Canonicalize(p.Name) == canonical || PlatformNames.Canonicalize(p.ShortName) == canonical)?.Id;
+    }
+
+    private static string NormalEdition(string? edition) => (edition ?? string.Empty).Trim().ToUpperInvariant();
+
+    private static bool SameEdition(string? a, string? b) => NormalEdition(a) == NormalEdition(b);
+}

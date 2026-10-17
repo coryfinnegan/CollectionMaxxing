@@ -7,6 +7,7 @@ public static class AuditActions
     public const string ItemRestored = "item.restored";
     public const string ItemPurged = "item.purged";
     public const string ItemsBulkDeleted = "items.bulk_deleted";
+    public const string ItemsBulkRestored = "items.bulk_restored";
 }
 
 /// <summary>

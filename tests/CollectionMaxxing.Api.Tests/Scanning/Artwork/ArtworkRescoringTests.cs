@@ -100,22 +100,23 @@ public class ArtworkRescoringTests(ApiFixture api) : ArtworkTest(api)
         var again = await ReadOkAsync(await PostArtAsync(scan.Client, scan, Distance(ids[0], 1.3), Distance(ids[1], 0.1)));
         again.GetProperty("score").GetDouble().ShouldBe(second.GetProperty("score").GetDouble());
         again.GetProperty("release").GetProperty("id").GetGuid().ShouldBe(ids[1]);
-        again.GetProperty("seq").GetInt32().ShouldBeGreaterThan(second.GetProperty("seq").GetInt32());
+        again.GetProperty("changeSeq").GetInt32().ShouldBeGreaterThan(second.GetProperty("changeSeq").GetInt32());
     }
 
     [Fact]
-    public async Task The_updated_candidate_gets_a_higher_seq_and_the_since_fallback_returns_it()
+    public async Task The_updated_candidate_gets_a_higher_change_seq_and_the_since_fallback_returns_it()
     {
         var scan = await ScanOriginalAndPlayersChoiceAsync();
         var ids = AlternativeIds(scan.Candidate);
-        var seqBefore = scan.Candidate.GetProperty("seq").GetInt32();
+        var changeSeqBefore = scan.Candidate.GetProperty("changeSeq").GetInt32();
         var other = (await IdentifyOkAsync(scan.Client, scan.SessionId, Read(title: "Zorblax Quest IV", kind: "game")))[0];
-        var polledUpTo = other.GetProperty("seq").GetInt32();
-        polledUpTo.ShouldBeGreaterThan(seqBefore);
+        var polledUpTo = other.GetProperty("changeSeq").GetInt32();
+        polledUpTo.ShouldBeGreaterThan(changeSeqBefore);
 
         var updated = await ReadOkAsync(await PostArtAsync(scan.Client, scan, Distance(ids[0], 0.1), Distance(ids[1], 1.3)));
 
-        updated.GetProperty("seq").GetInt32().ShouldBeGreaterThan(polledUpTo);
+        updated.GetProperty("changeSeq").GetInt32().ShouldBeGreaterThan(polledUpTo);
+        updated.GetProperty("seq").GetInt32().ShouldBe(scan.Candidate.GetProperty("seq").GetInt32()); // seq is creation order and stays put
         var since = (await GetSessionAsync(scan.Client, scan.SessionId, since: polledUpTo)).GetProperty("candidates").EnumerateArray().ToList();
         since.Count.ShouldBe(1);
         Id(since[0]).ShouldBe(scan.CandidateId);

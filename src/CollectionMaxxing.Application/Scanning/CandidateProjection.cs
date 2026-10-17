@@ -3,6 +3,7 @@ using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning.Artwork;
+using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -11,11 +12,16 @@ namespace CollectionMaxxing.Application.Scanning;
 
 /// <summary>
 /// What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or
-/// a key. <paramref name="NeedsArt"/> is the close-call flag (SCAN-2b) and <paramref name="AutoDecision"/> the decision the
-/// server made by itself, so that a person's own decision can be told from it.
+/// a key. <paramref name="NeedsArt"/> is the close-call flag (SCAN-2b), <paramref name="AutoDecision"/> the decision the
+/// server made by itself (so that a person's own decision can be told from it), and <paramref name="RetryAfter"/> when a code
+/// that found the UPC allowance spent will next be tried.
 /// </summary>
 internal sealed record StoredTrace(
-    IReadOnlyList<TraceStep> Steps, IReadOnlyList<string> OwnedAt, bool NeedsArt = false, CandidateDecision? AutoDecision = null);
+    IReadOnlyList<TraceStep> Steps,
+    IReadOnlyList<string> OwnedAt,
+    bool NeedsArt = false,
+    CandidateDecision? AutoDecision = null,
+    DateTimeOffset? RetryAfter = null);
 
 /// <summary>One entry of a candidate's <c>alternatives</c>: a release the person can pick, with its own ownership.</summary>
 public sealed record StoredAlternative(
@@ -105,7 +111,12 @@ internal static class CandidateProjection
     {
         var trace = CandidateJson.ReadTrace(c.TraceJson);
         var needsArt = ArtworkLinks.AsksForArt(c, trace);
-        return ToDto(c, release, trace, needsArt, needsArt && artwork is not null ? WithArtworkUrls(c.AlternativesJson, artwork) : CandidateJson.ReadElement(c.AlternativesJson));
+        var waitingForQuota = c.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(trace.Steps);
+        var edits = c.EditedFormat is null && c.EditedPlatform is null && c.EditedEdition is null
+            ? null
+            : new CandidateEditsDto(c.EditedFormat, c.EditedPlatform, c.EditedEdition);
+        var alternatives = needsArt && artwork is not null ? WithArtworkUrls(c.AlternativesJson, artwork) : CandidateJson.ReadElement(c.AlternativesJson);
+        return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives);
     }
 
     private static JsonElement? WithArtworkUrls(string? alternativesJson, IReadOnlyDictionary<Guid, string> artwork)
@@ -117,7 +128,8 @@ internal static class CandidateProjection
                 alternatives.Select(a => a with { ArtworkUrl = artwork.GetValueOrDefault(a.ReleaseId) }).ToList()));
     }
 
-    private static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, JsonElement? alternatives) => new(
+    private static CandidateDto ToDto(
+        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, JsonElement? alternatives) => new(
         c.Id,
         c.Seq,
         c.Source,
@@ -138,7 +150,12 @@ internal static class CandidateProjection
         c.Copies,
         c.AlreadyOwnedCount,
         trace.OwnedAt,
-        c.CreatedItemId);
+        c.CreatedItemId,
+        c.ChangeSeq,
+        edits,
+        c.UserEdited,
+        c.Resolution == CandidateResolution.Pending ? (waitingForQuota ? PendingReason.Quota : PendingReason.Lookup) : null,
+        waitingForQuota ? trace.RetryAfter : null);
 
     /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>
     public static async Task<Dictionary<Guid, ReleaseDto>> LoadReleasesAsync(

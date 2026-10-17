@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Scanning;
 
@@ -36,7 +37,22 @@ public sealed record CandidateDto(
     int Copies,
     int AlreadyOwnedCount,
     IReadOnlyList<string> OwnedAt,
-    Guid? CreatedItemId);
+    Guid? CreatedItemId,
+    int ChangeSeq,
+    CandidateEditsDto? Edits,
+    bool UserEdited,
+    PendingReason? PendingReason,
+    DateTimeOffset? RetryAfter);
+
+/// <summary>Why a candidate is still Pending: <c>Quota</c> (today's UPC allowance is spent, so it waits for the nightly drain) or <c>Lookup</c> (a provider was slow or down, so it is tried again shortly).</summary>
+public enum PendingReason
+{
+    Quota,
+    Lookup,
+}
+
+/// <summary>What the person corrected on a candidate; a field is null when they left it alone.</summary>
+public sealed record CandidateEditsDto(ReleaseFormat? Format, string? Platform, string? Edition);
 
 /// <summary>A scan session with all its candidates (or those after <c>?since=seq</c>).</summary>
 public sealed record ScanSessionDto(

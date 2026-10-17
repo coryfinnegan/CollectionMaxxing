@@ -17,14 +17,22 @@ namespace CollectionMaxxing.Application.Scanning;
 /// (as many as its copies), with the session's default location and status. Anything undecided or rejected is left out.
 /// All or nothing: if any accepted item can't be added, none is, and the session stays open. Committing twice never adds
 /// anything: the same <c>Idempotency-Key</c> gets the first answer back, and any other request is a conflict.
+/// <para>
+/// Review may send options (SCAN-1d): where to put the items, their status and condition, and per-candidate overrides (location,
+/// status, condition, copies). They are checked before anything changes and applied in the same transaction as the items: an
+/// override beats the "Add to" choice, which beats the session's defaults. A candidate the person edited (format, platform,
+/// edition) is added as the release of the same work that has those, which the commit creates for the library when none does.
+/// </para>
+/// <para>
 /// A photo the person chose to use ("Use my photo") becomes the cover of the items its candidate creates; the photos of candidates that
 /// weren't accepted are deleted, files included, so nothing is left behind.
+/// </para>
 /// </summary>
 public static class CommitScanSession
 {
     private static readonly TimeSpan KeyLifetime = TimeSpan.FromHours(24);
 
-    public sealed record Command(Guid SessionId, string? IdempotencyKey);
+    public sealed record Command(Guid SessionId, string? IdempotencyKey, CommitOptions? Options = null);
 
     public sealed class Handler(
         IAppDbContext db,
@@ -53,9 +61,15 @@ public static class CommitScanSession
 
             var now = clock.GetUtcNow();
             var storedKey = ScanSessions.IdempotencyKeyFor("commit", session.Id, key);
+            var hash = CommitOptions.Hash(session.Id, command.Options);
             var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
             if (previous is not null && previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
             {
+                if (previous.RequestHash != hash)
+                {
+                    return ItemErrors.KeyReused; // the same key, a different request
+                }
+
                 return JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options) is { } again ? again : ScanningErrors.AlreadyCommitted;
             }
 
@@ -94,21 +108,36 @@ public static class CommitScanSession
                 return ScanningErrors.ReleaseUnavailable;
             }
 
+            // The person's options, all checked before anything is added: a bad one leaves no item and no changed candidate.
+            var options = command.Options;
+            var invalid = await ValidateAsync(options, session, candidates, cancellationToken);
+            if (invalid is not null)
+            {
+                return invalid;
+            }
+
+            var overrides = (options?.Overrides ?? []).ToDictionary(o => o.CandidateId!.Value);
+            var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session.LibraryId, accepted, now, cancellationToken);
+
             var photos = await CandidatePhotos.AssetIdsAsync(db, accepted, cancellationToken);
             var created = new List<Guid>();
             foreach (var candidate in accepted)
             {
+                overrides.TryGetValue(candidate.Id, out var over);
                 Guid? photoId = photos.TryGetValue(candidate.Id, out var photo) ? photo : null;
-                for (var copy = 0; copy < candidate.Copies; copy++)
+                var copies = over?.Copies ?? candidate.Copies;
+                candidate.Copies = copies;
+                for (var copy = 0; copy < copies; copy++)
                 {
                     var item = new Item
                     {
                         Id = ids.NewId(),
                         LibraryId = session.LibraryId,
-                        ReleaseId = candidate.MatchedReleaseId!.Value,
-                        Status = session.DefaultStatus ?? ItemStatus.Owned,
+                        ReleaseId = releaseFor[candidate.Id],
+                        Status = over?.Status ?? options?.Status ?? session.DefaultStatus ?? ItemStatus.Owned,
+                        Condition = over?.Condition ?? options?.Condition,
                         Completeness = CompletenessOf(candidate),
-                        LocationId = session.DefaultLocationId,
+                        LocationId = over?.LocationId ?? options?.AddTo ?? session.DefaultLocationId,
                         CoverChoice = photoId is null ? CoverChoice.Release : CoverChoice.MyPhoto,
                         CustomCoverAssetId = photoId,
                         AddedVia = candidate.Source switch
@@ -149,7 +178,7 @@ public static class CommitScanSession
             {
                 UserId = userId,
                 Key = storedKey,
-                RequestHash = session.Id.ToString(),
+                RequestHash = hash,
                 ResponseStatus = 200,
                 ResponseBodyJson = JsonSerializer.Serialize(result, CandidateJson.Options),
                 CreatedAt = now,
@@ -160,6 +189,50 @@ public static class CommitScanSession
             await db.SaveChangesAsync(cancellationToken);
             await CandidatePhotos.DeleteFilesAsync(photoStore, logger, unusedPhotos, cancellationToken);
             return result;
+        }
+
+        /// <summary>Checks the options against the library and the session. Null when they are fine.</summary>
+        private async Task<DomainError?> ValidateAsync(
+            CommitOptions? options, ScanSession session, List<ScanCandidate> candidates, CancellationToken cancellationToken)
+        {
+            if (options is null)
+            {
+                return null;
+            }
+
+            var overrides = options.Overrides ?? [];
+            if (overrides.Any(o => o.CandidateId is null))
+            {
+                return ScanningErrors.Invalid("scan.override_candidate_required", "Say which scanned item each override is for.", "overrides");
+            }
+
+            if (overrides.Select(o => o.CandidateId).Distinct().Count() != overrides.Count)
+            {
+                return ScanningErrors.Invalid("scan.override_duplicate", "Each scanned item can have one override.", "overrides");
+            }
+
+            if (overrides.Any(o => o.Copies is { } copies && (copies < 1 || copies > ScanningOptions.MaxCopies)))
+            {
+                return ScanningErrors.Invalid("scan.copies_invalid", $"Copies must be from 1 to {ScanningOptions.MaxCopies}.", "overrides");
+            }
+
+            if (overrides.Any(o => candidates.All(c => c.Id != o.CandidateId)))
+            {
+                return ScanningErrors.CandidateNotFound;
+            }
+
+            var locationIds = overrides.Select(o => o.LocationId).Append(options.AddTo).OfType<Guid>().Distinct().ToList();
+            if (locationIds.Count > 0)
+            {
+                var found = await db.Locations.AsNoTracking()
+                    .CountAsync(l => l.LibraryId == session.LibraryId && locationIds.Contains(l.Id), cancellationToken);
+                if (found != locationIds.Count)
+                {
+                    return ItemErrors.LocationNotFound; // another library's location looks like no location at all
+                }
+            }
+
+            return null;
         }
 
         /// <summary>The completeness the phone read from a picture (loose cartridge, disc only...), if it said.</summary>

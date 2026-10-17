@@ -2,6 +2,7 @@ using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Ownership;
 using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Scanning;
@@ -15,7 +16,8 @@ namespace CollectionMaxxing.Application.Scanning;
 /// candidate (the matched release, the top three, who already owns it, and what to do by default). Not thread-safe: use it
 /// from one request at a time, and run the providers (<see cref="BarcodeResolver"/>) beside it.
 /// </summary>
-public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, OwnershipQuery ownership, IOptionsMonitor<ScoringOptions> scoring)
+public sealed class CandidateResolver(
+    IAppDbContext db, ReleaseStore releases, OwnershipQuery ownership, TimeProvider clock, IOptionsMonitor<ScoringOptions> scoring)
 {
     private const int MaxAlternatives = 3;
 
@@ -113,7 +115,10 @@ public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, O
             SetVisibleText(candidate, productTitle);
         }
 
-        candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(resolution.Steps, ownedAt, NeedsArt(candidate, resolution), autoDecision));
+        // A code that found the UPC allowance spent waits for the nightly drain: say when it will next be tried.
+        DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
+        candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
+            resolution.Steps, ownedAt, NeedsArt(candidate, resolution), autoDecision, retryAfter));
     }
 
     /// <summary>
