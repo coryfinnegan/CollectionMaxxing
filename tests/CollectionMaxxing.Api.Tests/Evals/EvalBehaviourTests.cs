@@ -106,6 +106,44 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         single.GetProperty("top1Pct").GetDouble().ShouldBe(0);
     }
 
+    // ---- path traversal (more spellings than the locked theory) ------------------------------------------------------------
+
+    [Theory]
+    [InlineData("..%5C..%5Csecret")] // ..\..\secret: from single/ that is <golden root>/secret.jpg
+    [InlineData("..%5c..%5csecret")] // the same with lower-case escapes
+    [InlineData("..%2f..%2fsecret")]
+    [InlineData("%2e%2e%5c%2e%2e%5csecret")]
+    public async Task A_backslash_traversal_id_never_reaches_a_file_outside_the_golden_folder(string id)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        await File.WriteAllBytesAsync(Path.Combine(Golden.Root, "secret.jpg"), Encoding.ASCII.GetBytes("OUTSIDE-CANARY"));
+        using var admin = AdminClient();
+
+        using var response = await admin.GetAsync($"{Base}/golden/{id}/image");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await response.Content.ReadAsStringAsync()).ShouldNotContain("OUTSIDE-CANARY");
+    }
+
+    [Theory]
+    [InlineData("7")]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("\"7\"")]
+    [InlineData("\"AppleModel\"")]
+    public async Task An_engine_that_is_not_a_known_engine_name_is_refused_and_nothing_is_written(string engineJson)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        var body = $$"""{"device":{"model":"m","osVersion":"1","appVersion":"1"},"configVersion":"c","results":[{"photoId":"c1","engine":{{engineJson}},"outcome":"ok","items":[],"latencyMs":1,"thermalState":"nominal"}]}""";
+        using var admin = AdminClient();
+
+        using var response = await admin.PostAsync($"{Base}/runs", new StringContent(body, Encoding.UTF8, "application/json"));
+
+        ((int)response.StatusCode).ShouldBe(400, await response.Content.ReadAsStringAsync());
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
+
     // ---- truth, drafts and what is skipped -----------------------------------------------------------------------------------
 
     [Fact]

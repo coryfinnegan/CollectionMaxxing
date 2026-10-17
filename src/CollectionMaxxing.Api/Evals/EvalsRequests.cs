@@ -1,4 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Evals;
+using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Scanning;
@@ -25,10 +28,37 @@ public sealed record EvalReadItem(
     string? Platform = null,
     ResolvedStep? ResolvedBy = null);
 
+/// <summary>
+/// An engine as its API name only (<c>apple_model</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number
+/// (7 would become an engine nobody has) or a C# member name; a result file's engine key must be one of the two real engines.
+/// </summary>
+public sealed class StrictScanEngineConverter : JsonConverter<ScanEngine>
+{
+    public override ScanEngine Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var text = reader.GetString();
+            foreach (var engine in Enum.GetValues<ScanEngine>())
+            {
+                if (string.Equals(EnumText.ToText(engine), text, StringComparison.Ordinal))
+                {
+                    return engine;
+                }
+            }
+        }
+
+        throw new JsonException("The engine must be apple_model or vision_pipeline.");
+    }
+
+    public override void Write(Utf8JsonWriter writer, ScanEngine value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(EnumText.ToText(value));
+}
+
 /// <summary>One golden photo run through one engine on the phone.</summary>
 public sealed record EvalPhotoResult(
     string? PhotoId = null,
-    ScanEngine? Engine = null,
+    [property: JsonConverter(typeof(StrictScanEngineConverter))] ScanEngine? Engine = null,
     EvalOutcome? Outcome = null,
     FallbackReason? FellBackFrom = null,
     IReadOnlyList<EvalReadItem>? Items = null,
