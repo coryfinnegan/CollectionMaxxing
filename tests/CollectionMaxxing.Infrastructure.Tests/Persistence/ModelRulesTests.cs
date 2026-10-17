@@ -17,6 +17,7 @@ public class ModelRulesTests(PostgresFixture db) : DatabaseTest(db)
     private static readonly Type[] ImmutableLibraryScoped =
     [
         typeof(CollectionMaxxing.Domain.Items.ItemTag),
+        typeof(CollectionMaxxing.Domain.Items.ItemTombstone),
         typeof(CollectionMaxxing.Domain.Scanning.ScanSnap),
         typeof(CollectionMaxxing.Domain.Operations.MatchFeedback),
     ];
