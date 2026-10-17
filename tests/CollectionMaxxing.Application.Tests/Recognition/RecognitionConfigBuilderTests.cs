@@ -67,6 +67,33 @@ public class RecognitionConfigBuilderTests
     }
 
     [Fact]
+    public void The_fingerprint_match_distance_defaults_to_0_35_and_an_override_changes_it_and_the_version()
+    {
+        var baseline = Build().Config!;
+        baseline.Fingerprints.MaxDistance.ShouldBe(0.35);
+
+        var changed = Build(Json("""
+            "fingerprints": { "maxDistance": 0.25 }
+            """)).Config!;
+
+        changed.Fingerprints.MaxDistance.ShouldBe(0.25);
+        changed.Version.ShouldNotBe(baseline.Version);
+    }
+
+    [Fact]
+    public void A_fingerprint_distance_of_the_wrong_type_is_refused_whole_and_named()
+    {
+        var build = Build(Json("""
+            "fingerprints": { "maxDistance": "wide" },
+            "autoSnap": { "steadyMs": 900 }
+            """));
+
+        build.IsValid.ShouldBeFalse();
+        build.Config.ShouldBeNull();
+        build.Problems.ShouldContain(p => p.Contains("fingerprints.maxDistance", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_scoring_only_override_changes_scoring_and_leaves_what_the_phone_gets_alone()
     {
         var baseline = Build().Config!;
@@ -226,6 +253,9 @@ public class RecognitionConfigBuilderTests
     [InlineData("splitting", "halvesWhenItemsOver", "0")]
     [InlineData("splitting", "minSpineColumnWidth", "0")]
     [InlineData("splitting", "minSpineColumnWidth", "0.9")]
+    [InlineData("fingerprints", "maxDistance", "0")]
+    [InlineData("fingerprints", "maxDistance", "-0.1")]
+    [InlineData("fingerprints", "maxDistance", "5")]
     public void A_number_out_of_its_documented_range_is_refused(string section, string key, string value)
     {
         var build = Build(Json($$"""

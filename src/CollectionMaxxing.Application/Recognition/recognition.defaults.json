@@ -18,5 +18,8 @@
   "splitting": {
     "halvesWhenItemsOver": 14,
     "minSpineColumnWidth": 0.02
+  },
+  "fingerprints": {
+    "maxDistance": 0.35
   }
 }
