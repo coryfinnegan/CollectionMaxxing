@@ -1,6 +1,6 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore, announcementFor } from './cardsStore';
-import { describeCandidate, NOT_FOUND_COPY, slideDuration, summaryLine } from './copy';
+import { describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, slideDuration, summaryLine } from './copy';
 
 const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   ({
@@ -32,6 +32,14 @@ describe('card copy', () => {
 
   it('describes a pending lookup', () => {
     expect(describeCandidate(candidate({ resolution: 'pending', release: null })).status).toBe('Looking up…');
+  });
+
+  it('says a code waiting for the daily allowance will be looked up tomorrow, without times or jargon', () => {
+    const copy = describeCandidate(candidate({ resolution: 'pending', release: null, pendingReason: 'quota', retryAfter: '2026-10-17T00:00:00Z' }));
+    expect(copy.status).toBe("We'll look this up tomorrow. Hold up the front cover to identify it now.");
+    expect(copy.status).toBe(QUOTA_COPY);
+    expect(copy.status).not.toMatch(/quota|UTC|\d{2}:\d{2}|[!]/i);
+    expect(describeCandidate(candidate({ resolution: 'pending', release: null, pendingReason: 'lookup' })).status).toBe('Looking up…');
   });
 
   it('reads the summary line', () => {

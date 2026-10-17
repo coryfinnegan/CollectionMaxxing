@@ -1,6 +1,5 @@
 // What the owner has chosen on Review, and what that means for the commit. All pure.
-// The commit endpoint takes no body, so location and status are applied to the new items afterwards with one
-// bulk call per distinct choice (the contract has no per-candidate location or status).
+// Add to, Status, condition and per-line overrides ride along in the single commit request.
 import type { CandidateDto, ItemCondition, ItemStatus } from '@/api/generated/models';
 import { canCommit, defaultChecked, groupOf } from './grouping';
 
@@ -43,31 +42,30 @@ export function effective(draft: Draft, id: string): { locationId: string | null
   };
 }
 
-export type BulkStep = { ids: string[]; patch: { locationId?: string | null; status?: ReviewStatus } };
+export type CommitBody = {
+  addTo?: string;
+  status?: ReviewStatus;
+  overrides?: { candidateId: string; locationId?: string; status?: ReviewStatus; condition?: ItemCondition }[];
+};
 
 /**
- * The bulk calls that turn new items (created with no location and the Owned status) into what the owner chose.
- * First Add to / Status for every new item, then a call per distinct override for the lines that differ.
+ * The one commit request body. Add to and Status are for every item; a line only appears in `overrides` when it
+ * differs. (The contract cannot say "Not placed" for a single line, so a null location override is left out.)
  */
-export function bulkSteps(draft: Draft, itemIds: readonly string[], createdByCandidate: Record<string, string | null | undefined>): BulkStep[] {
-  const steps: BulkStep[] = [];
-  const base: BulkStep['patch'] = {};
-  if (draft.addTo) base.locationId = draft.addTo;
-  if (draft.status !== 'owned') base.status = draft.status;
-  if (itemIds.length > 0 && Object.keys(base).length > 0) steps.push({ ids: [...itemIds], patch: base });
-
-  const groups = new Map<string, BulkStep>();
-  for (const [candidateId, itemId] of Object.entries(createdByCandidate)) {
-    const o = draft.overrides[candidateId];
-    if (!itemId || !o) continue;
-    const patch: BulkStep['patch'] = {};
-    if (o.locationId !== undefined && o.locationId !== draft.addTo) patch.locationId = o.locationId;
-    if (o.status !== undefined && o.status !== draft.status) patch.status = o.status;
-    if (Object.keys(patch).length === 0) continue;
-    const key = JSON.stringify(patch);
-    const step = groups.get(key) ?? { ids: [], patch };
-    step.ids.push(itemId);
-    groups.set(key, step);
+export function commitBody(draft: Draft, candidateIds: readonly string[]): CommitBody {
+  const body: CommitBody = {};
+  if (draft.addTo) body.addTo = draft.addTo;
+  if (draft.status !== 'owned') body.status = draft.status;
+  const overrides: NonNullable<CommitBody['overrides']> = [];
+  for (const id of candidateIds) {
+    const o = draft.overrides[id];
+    if (!o) continue;
+    const line: NonNullable<CommitBody['overrides']>[number] = { candidateId: id };
+    if (o.locationId && o.locationId !== draft.addTo) line.locationId = o.locationId;
+    if (o.status !== undefined && o.status !== draft.status) line.status = o.status;
+    if (o.condition) line.condition = o.condition;
+    if (Object.keys(line).length > 1) overrides.push(line);
   }
-  return [...steps, ...groups.values()];
+  if (overrides.length > 0) body.overrides = overrides;
+  return body;
 }

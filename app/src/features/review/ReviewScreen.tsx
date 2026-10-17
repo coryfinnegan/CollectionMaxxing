@@ -1,12 +1,14 @@
 // Review (docs/06 M5): everything scanned in one place, grouped by how much attention it needs, added in one tap.
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import type { CandidateDto, LocationDto } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
-import { conditionLabels, conditions, formatLabels } from '@/features/library/labels';
+import { listPlatforms } from '@/api/generated/catalog/catalog';
+import { conditionLabels, conditions, formatLabels, formats } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useLocationsList } from '@/features/locations/useLocations';
-import { NOT_FOUND_COPY } from '@/features/scan/cards/copy';
+import { NOT_FOUND_COPY, QUOTA_COPY } from '@/features/scan/cards/copy';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, ListRow, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
 import { alternativesOf, isCollapsed, type ReviewGroup } from './grouping';
@@ -116,10 +118,7 @@ export function ReviewScreen({ libraryId, sessionId, onBack, undoMs }: { library
         <Button label={addLabel(review.count)} busy={review.committing} disabled={review.count === 0} onPress={() => void review.commit()} />
       ) : null}
       {review.toast ? (
-        <>
-          <Snackbar message={review.toast.message} actionLabel={review.toast.canUndo ? 'Undo' : undefined} onAction={() => void review.undo()} />
-          {review.toast.warning ? <Text tone="muted">{review.toast.warning}</Text> : null}
-        </>
+        <Snackbar message={review.toast.message} actionLabel={review.toast.canUndo ? 'Undo' : undefined} onAction={() => void review.undo()} />
       ) : null}
     </Screen>
   );
@@ -216,6 +215,8 @@ function Row({ c, group, review, isOpen, onOpen, locations, pickingFor, setPicki
         </>
       ) : null}
 
+      {group === 'pending' && c.pendingReason === 'quota' ? <Text tone="muted">{QUOTA_COPY}</Text> : null}
+
       {group === 'owned' && review.canAdd ? (
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <Button label={`Skip ${title}`} variant="secondary" disabled={busy} onPress={() => void review.skip(c)} />
@@ -245,6 +246,7 @@ function CandidateSheet({ c, review, onClose, locations, pickingFor, setPickingF
       <Text tone="muted">{subtitleOf(c) || 'No match yet'}</Text>
       {review.canAdd ? (
         <>
+          {c.release ? <EditionFields c={c} title={title} review={review} /> : null}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
             <Text variant="label">Copies</Text>
             <Button label="Fewer copies" variant="secondary" disabled={c.copies <= 1} onPress={() => void review.setCopies(c, c.copies - 1)} />
@@ -280,5 +282,48 @@ function CandidateSheet({ c, review, onClose, locations, pickingFor, setPickingF
         <Text tone="muted">{c.alreadyOwnedCount > 0 ? `You own ${c.alreadyOwnedCount}.` : 'You do not own this yet.'}</Text>
       )}
     </Sheet>
+  );
+}
+
+/** Format, platform and edition of this scanned item, changed before it is added (a game on the wrong platform, a special edition). */
+function EditionFields({ c, title, review }: { c: CandidateDto; title: string; review: Review }) {
+  const platforms = useQuery({
+    queryKey: ['catalog-platforms'],
+    queryFn: async () => {
+      const response = await listPlatforms();
+      return response.status === 200 ? response.data.items : [];
+    },
+  });
+  const currentFormat = c.edits?.format ?? c.release?.format;
+  const currentPlatform = c.edits?.platform ?? c.release?.platform?.name ?? null;
+  const [edition, setEdition] = useState(c.edits?.edition ?? c.release?.edition ?? '');
+  const saved = c.edits?.edition ?? c.release?.edition ?? '';
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Text variant="label">Format</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        {formats.map((f) => (
+          <Chip key={f} label={formatLabels[f]} accessibilityLabel={`Format for ${title}: ${formatLabels[f]}`} selected={currentFormat === f} onPress={() => void review.edit(c, { format: f })} />
+        ))}
+      </View>
+      {(platforms.data ?? []).length > 0 ? (
+        <>
+          <Text variant="label">Platform</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+            {(platforms.data ?? []).map((p) => (
+              <Chip key={p.id} label={p.name} accessibilityLabel={`Platform for ${title}: ${p.name}`} selected={currentPlatform === p.name} onPress={() => void review.edit(c, { platform: p.name })} />
+            ))}
+          </View>
+        </>
+      ) : null}
+      <TextField label="Edition" value={edition} onChangeText={setEdition} placeholder="Collector's edition" />
+      <Button
+        label="Save edition"
+        accessibilityLabel={`Save edition for ${title}`}
+        variant="secondary"
+        disabled={edition.trim() === saved}
+        onPress={() => void review.edit(c, { edition: edition.trim() })}
+      />
+    </View>
   );
 }

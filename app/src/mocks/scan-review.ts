@@ -3,11 +3,17 @@
 // Like the real API: the commit is one transaction (a failure creates nothing), takes an Idempotency-Key and
 // replays the same answer for it, and a viewer cannot change anything (403).
 import { HttpResponse, http } from 'msw';
-import type { CandidateDto, CommitResultDto, ItemDto, ReleaseDto } from '@/api/generated/models';
+import type { CandidateDto, CommitResultDto, ItemDto, PlatformDto, ReleaseDto } from '@/api/generated/models';
 import { alternativesOf } from '@/features/review/grouping';
+import type { CommitBody } from '@/features/review/plan';
 import { newMockId } from './data';
 import { itemsState, type MockItem } from './items';
 import { scanMock } from './scan';
+
+export const mockPlatforms: PlatformDto[] = [
+  { id: 'e0000000-0000-4000-8000-000000000001', name: 'Nintendo 64', shortName: 'N64', manufacturer: 'Nintendo' },
+  { id: 'e0000000-0000-4000-8000-000000000002', name: 'PlayStation 2', shortName: 'PS2', manufacturer: 'Sony' },
+];
 
 const problem = (status: number, title: string) =>
   HttpResponse.json({ title, status }, { status, headers: { 'Content-Type': 'application/problem+json' } });
@@ -16,11 +22,17 @@ export const reviewMock = {
   /** Set to make the next commit fail as a whole (nothing is created), like a database rollback. */
   failNextCommit: false,
   /** Every commit request the server received. */
-  commits: [] as { sessionId: string; key: string | null }[],
+  commits: [] as { sessionId: string; key: string | null; body: CommitBody | null }[],
+  /** Every batch-restore request the server received. */
+  restores: [] as string[][],
+  /** Set to make the next batch restore fail. */
+  failNextRestore: false,
   replays: new Map<string, CommitResultDto>(),
   reset() {
     this.failNextCommit = false;
     this.commits = [];
+    this.restores = [];
+    this.failNextRestore = false;
     this.replays = new Map();
   },
 };
@@ -70,7 +82,7 @@ export const handlers = [
     const session = scanMock.sessions.get(String(params.id));
     const candidate = session?.candidates.find((c) => c.id === params.cid);
     if (!session || !candidate) return problem(404, 'Not found');
-    const body = (await request.json()) as { decision?: CandidateDto['decision'] | null; releaseId?: string | null; copies?: number | null };
+    const body = (await request.json()) as { decision?: CandidateDto['decision'] | null; releaseId?: string | null; copies?: number | null; format?: ReleaseDto['format'] | null; platform?: string | null; edition?: string | null };
     if (body.releaseId) {
       const chosen = alternativesOf(candidate).find((r) => r.id === body.releaseId);
       if (!chosen) return problem(404, 'That is not one of the alternatives.');
@@ -79,7 +91,23 @@ export const handlers = [
     }
     if (body.decision) candidate.decision = body.decision;
     if (body.copies) candidate.copies = body.copies;
+    if (session.status !== 'open') return problem(409, 'This scan was already finished.');
+    if (body.format !== undefined || body.platform !== undefined || body.edition !== undefined) {
+      const before = candidate.edits;
+      const edits = {
+        format: body.format !== undefined ? body.format : (before?.format ?? null),
+        platform: body.platform !== undefined ? body.platform : (before?.platform ?? null),
+        edition: body.edition !== undefined ? body.edition : (before?.edition ?? null),
+      };
+      candidate.edits = edits;
+      candidate.userEdited = true;
+      if (candidate.release) {
+        const platform = edits.platform ? (mockPlatforms.find((x) => x.name === edits.platform) ?? null) : candidate.release.platform;
+        candidate.release = { ...candidate.release, format: edits.format ?? candidate.release.format, platform, edition: edits.edition ?? candidate.release.edition };
+      }
+    }
     candidate.seq = ++session.seq;
+    candidate.changeSeq = candidate.seq;
     return HttpResponse.json(candidate);
   }),
 
@@ -100,12 +128,14 @@ export const handlers = [
     return HttpResponse.json(candidate);
   }),
 
-  http.post('*/api/v1/scan-sessions/:id/commit', ({ params, request }) => {
+  http.post('*/api/v1/scan-sessions/:id/commit', async ({ params, request }) => {
     if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
     const session = scanMock.sessions.get(String(params.id));
     if (!session) return problem(404, 'Not found');
     const key = request.headers.get('Idempotency-Key');
-    reviewMock.commits.push({ sessionId: session.id, key });
+    const text = await request.text();
+    const body = text ? (JSON.parse(text) as CommitBody) : null;
+    reviewMock.commits.push({ sessionId: session.id, key, body });
     if (!key) return problem(400, 'An Idempotency-Key header is required.');
     const replay = reviewMock.replays.get(`${session.id}:${key}`);
     if (replay) return HttpResponse.json(replay);
@@ -126,6 +156,10 @@ export const handlers = [
       }
       for (let copy = 0; copy < Math.max(1, c.copies); copy += 1) {
         const entry = makeItem(c.release);
+        const over = body?.overrides?.find((o) => o.candidateId === c.id);
+        entry.item.locationId = over?.locationId ?? body?.addTo ?? null;
+        entry.item.status = over?.status ?? body?.status ?? 'owned';
+        entry.item.condition = over?.condition ?? null;
         itemsState.entries.push(entry);
         itemIds.push(entry.item.id);
         c.createdItemId ??= entry.item.id;
@@ -137,6 +171,24 @@ export const handlers = [
     reviewMock.replays.set(`${session.id}:${key}`, result);
     return HttpResponse.json(result);
   }),
+
+  // Batch restore: like the real API, it is all or nothing and leaves live items alone.
+  http.post(/\/api\/v1\/libraries\/[^/]+\/items:restore$/, async ({ request }) => {
+    const ids = ((await request.json()) as { ids?: string[] | null }).ids ?? [];
+    reviewMock.restores.push(ids);
+    if (reviewMock.failNextRestore) {
+      reviewMock.failNextRestore = false;
+      return problem(500, 'Something went wrong.');
+    }
+    const entries = itemsState.entries.filter((e) => ids.includes(e.item.id) && e.item.deletedAt);
+    for (const e of entries) {
+      e.item.deletedAt = null;
+      e.version += 1;
+    }
+    return HttpResponse.json({ affected: entries.length });
+  }),
+
+  http.get('*/api/v1/catalog/platforms', () => HttpResponse.json({ items: mockPlatforms, nextCursor: null })),
 
   http.delete('*/api/v1/scan-sessions/:id', ({ params }) => {
     const session = scanMock.sessions.get(String(params.id));
