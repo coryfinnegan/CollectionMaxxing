@@ -13,6 +13,7 @@ import { handlers as ownershipHandlers } from './ownership';
 import { handlers as membersHandlers } from './members';
 import { handlers as scanHandlers } from './identify'; // the barcode handlers plus the picture ones
 import { handlers as scanReviewHandlers } from './scan-review';
+import { handlers as scanPhotoHandlers } from './scan-photo';
 
 const problem = (status: number, title: string, errors?: Record<string, string[]>) =>
   HttpResponse.json(
@@ -23,7 +24,7 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
 const base = '*/api/v1/libraries/:libraryId/locations';
 
 export const handlers = [
-  ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanHandlers,
+  ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...scanHandlers,
   http.get('*/api/v1/me', () => HttpResponse.json(mockMe())),
 
   http.get(base, () => HttpResponse.json({ items: mockData.locations, nextCursor: null })),
