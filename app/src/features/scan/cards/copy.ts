@@ -14,6 +14,8 @@ export type CardCopy = {
   kind: 'pending' | 'owned' | 'new' | 'not_found' | 'error';
 };
 
+/** A code waiting for the daily lookup allowance: no times, no jargon (docs/06). */
+export const QUOTA_COPY = "We'll look this up tomorrow. Hold up the front cover to identify it now.";
 export const NOT_FOUND_COPY = 'Not in the catalogue. Try the front cover.';
 const UNREADABLE_COPY = "Couldn't read that barcode. Scan it again.";
 
@@ -26,7 +28,7 @@ export function describeCandidate(c: CandidateDto): CardCopy {
   const code = c.rawCode ? `Code ${c.rawCode}` : 'Unknown item';
   switch (c.resolution) {
     case 'pending':
-      return { title: code, subtitle: '', status: 'Looking up…', kind: 'pending' };
+      return { title: code, subtitle: '', status: c.pendingReason === 'quota' ? QUOTA_COPY : 'Looking up…', kind: 'pending' };
     case 'error':
       return { title: code, subtitle: '', status: unreadableCopy(), kind: 'error' };
     case 'not_found':
