@@ -55,7 +55,7 @@ public sealed record GateTable(string Engine, string Verdict, IReadOnlyList<Gate
 
 public sealed record RegressionItem(string Metric, double Baseline, double Actual, double Points);
 
-/// <summary>The regression check against <c>evals/baseline.json</c>: <c>ok</c>, <c>regressed</c> (a metric moved the wrong way by more than 2 points) or <c>no_baseline</c>.</summary>
+/// <summary>The regression check against <c>evals/baseline.json</c>: <c>ok</c>, <c>regressed</c> (a metric moved the wrong way by more than 2 points) <c>no_baseline</c>, or <c>no_overlap</c> (the baseline shares no metric with the run, so nothing was compared).</summary>
 public sealed record RegressionCheck(string Status, int Compared, IReadOnlyList<RegressionItem> Regressions);
 
 /// <summary>The summary of one run. This is what the result file and <c>GET /api/admin/evals/runs/latest</c> hold.</summary>

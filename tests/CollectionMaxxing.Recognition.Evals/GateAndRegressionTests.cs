@@ -86,6 +86,7 @@ public sealed class GateAndRegressionTests : IDisposable
         names.ShouldBe(
         [
             "top1.book_spine", "top1.game_box", "top1.disc_cover", "top1.vhs_sleeve", "top1.loose_cartridge", "top1.bare_label",
+            "top3.book_spine", "top3.game_box", "top3.disc_cover", "top3.vhs_sleeve", "top3.loose_cartridge", "top3.bare_label",
             "top1.beats_vision_text", "speed.single_p50", "speed.shelf_first_item_p50", "speed.shelf_total_p50",
             "invented_titles", "guardrail_refusals", "thermals",
         ]);
@@ -98,6 +99,54 @@ public sealed class GateAndRegressionTests : IDisposable
 
         StatusOf(run, "top1.loose_cartridge").ShouldBe("fail");
         run.Summary.Gate.Verdict.ShouldBe("fail");
+    }
+
+    [Fact]
+    public void Meeting_every_top_1_target_but_missing_a_top_3_target_fails_the_gate_and_names_the_measure()
+    {
+        // 8 of 10 loose cartridges are right: 80% top-1 meets the 75% bar, 80% top-3 misses the 90% bar.
+        var passing = Evaluate(MeetingEveryBar()).Summary.Engines;
+        var single = passing[M3Gate.Engine].Single!;
+        var byKind = single.ByKind.ToDictionary(k => k.Key, k => k.Value);
+        byKind[EvalKinds.LooseCartridge] = new KindMetrics(10, 8, 8, 80, 80);
+        var engines = passing.ToDictionary(e => e.Key, e => e.Value);
+        engines[M3Gate.Engine] = engines[M3Gate.Engine] with { Single = single with { ByKind = byKind } };
+
+        var gate = M3Gate.Evaluate(engines);
+
+        gate.Measures.Single(m => m.Name == "top1.loose_cartridge").Status.ShouldBe("pass");
+        gate.Measures.Where(m => m.Status == "fail").Select(m => m.Name).ShouldBe(["top3.loose_cartridge"]);
+        gate.Verdict.ShouldBe("fail");
+    }
+
+    private GateTable GateWith(Func<SliceMetrics, SliceMetrics> changeSingle)
+    {
+        var engines = Evaluate(MeetingEveryBar()).Summary.Engines.ToDictionary(e => e.Key, e => e.Value);
+        engines[M3Gate.Engine] = engines[M3Gate.Engine] with { Shelf = null, Single = changeSingle(engines[M3Gate.Engine].Single!) };
+        return M3Gate.Evaluate(engines);
+    }
+
+    [Theory]
+    [InlineData(200, 1, "pass")] // 0.5% of items
+    [InlineData(101, 1, "pass")] // 0.99%
+    [InlineData(100, 1, "fail")] // exactly 1%: the bar is "under 1%"
+    [InlineData(99, 1, "fail")] // one over
+    public void Invented_titles_must_be_strictly_under_1_percent_of_items(int predicted, int invented, string expected)
+    {
+        var gate = GateWith(s => s with { PredictedItems = predicted, InventedTitles = invented });
+
+        gate.Measures.Single(m => m.Name == "invented_titles").Status.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(101, 2, "pass")] // 1.98%
+    [InlineData(50, 1, "fail")] // exactly 2%: the bar is "under 2%"
+    [InlineData(49, 1, "fail")] // one over
+    public void Guardrail_refusals_must_be_strictly_under_2_percent_of_photos(int photos, int refusals, string expected)
+    {
+        var gate = GateWith(s => s with { Photos = photos, Refusals = refusals });
+
+        gate.Measures.Single(m => m.Name == "guardrail_refusals").Status.ShouldBe(expected);
     }
 
     [Fact]
@@ -202,9 +251,19 @@ public sealed class GateAndRegressionTests : IDisposable
     [Fact]
     public void A_metric_the_baseline_does_not_know_is_new_not_a_regression_and_no_baseline_says_so()
     {
-        EvalRegression.Check(new Dictionary<string, double> { ["old.top1"] = 90 }, new Dictionary<string, double> { ["new.top1"] = 10 }).Status.ShouldBe("ok");
+        EvalRegression.Check(new Dictionary<string, double> { ["old.top1"] = 90, ["a.top1"] = 90 }, new Dictionary<string, double> { ["new.top1"] = 10, ["a.top1"] = 90 }).Status.ShouldBe("ok");
         EvalRegression.Check(null, new Dictionary<string, double> { ["x"] = 1 }).Status.ShouldBe("no_baseline");
         EvalRegression.Check(new Dictionary<string, double>(), new Dictionary<string, double> { ["x"] = 1 }).Status.ShouldBe("no_baseline");
+    }
+
+    [Fact]
+    public void A_baseline_that_shares_no_metric_with_the_run_is_no_overlap_not_a_pass()
+    {
+        var check = EvalRegression.Check(new Dictionary<string, double> { ["old.top1"] = 90 }, new Dictionary<string, double> { ["new.top1"] = 10 });
+
+        check.Status.ShouldBe("no_overlap");
+        check.Compared.ShouldBe(0);
+        check.Regressions.ShouldBeEmpty();
     }
 
     [Fact]

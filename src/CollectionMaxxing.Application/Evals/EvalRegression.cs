@@ -10,6 +10,9 @@ public static class EvalRegression
     public const string Regressed = "regressed";
     public const string NoBaseline = "no_baseline";
 
+    /// <summary>The baseline has numbers but the run shares none of them, so nothing was compared. That is not a pass.</summary>
+    public const string NoOverlap = "no_overlap";
+
     /// <summary>A metric may move this many points the wrong way; more than this is flagged.</summary>
     public const double AllowedPoints = 2.0;
 
@@ -85,6 +88,7 @@ public static class EvalRegression
             }
         }
 
-        return new RegressionCheck(regressions.Count == 0 ? Ok : Regressed, compared, regressions);
+        var status = regressions.Count > 0 ? Regressed : compared == 0 ? NoOverlap : Ok;
+        return new RegressionCheck(status, compared, regressions);
     }
 }

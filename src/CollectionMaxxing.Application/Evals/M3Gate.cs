@@ -40,9 +40,16 @@ public static class M3Gate
 
         foreach (var (kind, target) in EvalKinds.Targets)
         {
-            var (items, hits) = KindTop1(apple, kind);
+            var (items, hits, _) = KindTops(apple, kind);
             var actual = EvalScorer.Pct(hits, items);
             measures.Add(Measure($"top1.{kind}", $">= {target.Top1:0.#}%", actual is null ? null : $"{actual:0.##}%", actual is { } a ? a >= target.Top1 : null));
+        }
+
+        foreach (var (kind, target) in EvalKinds.Targets)
+        {
+            var (items, _, hits) = KindTops(apple, kind);
+            var actual = EvalScorer.Pct(hits, items);
+            measures.Add(Measure($"top3.{kind}", $">= {target.Top3:0.#}%", actual is null ? null : $"{actual:0.##}%", actual is { } a ? a >= target.Top3 : null));
         }
 
         var appleTop1 = OverallTop1(apple);
@@ -105,16 +112,18 @@ public static class M3Gate
         return Measure("thermals", bar, actual, cool && lateOk);
     }
 
-    private static (int Items, int Hits) KindTop1(EngineSummary? engine, string kind)
+    private static (int Items, int Top1Hits, int Top3Hits) KindTops(EngineSummary? engine, string kind)
     {
         var items = 0;
         var hits = 0;
+        var top3 = 0;
         void Add(SliceMetrics? slice, string key)
         {
             if (slice?.ByKind.TryGetValue(key, out var k) == true)
             {
                 items += k.Items;
                 hits += k.Top1Hits;
+                top3 += k.Top3Hits;
             }
         }
 
@@ -124,7 +133,7 @@ public static class M3Gate
             Add(engine?.Shelf, "book"); // books on a shelf are spines
         }
 
-        return (items, hits);
+        return (items, hits, top3);
     }
 
     /// <summary>Top-1 over every golden item of the engine, shelf and single together.</summary>
