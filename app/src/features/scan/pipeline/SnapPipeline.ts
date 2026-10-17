@@ -8,7 +8,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto } from '@/api/generated/models';
 import type { Rect } from '@/native/cm-vision';
 import { ApiError } from '@/lib/http';
-import { useCardsStore } from '../cards/cardsStore';
+import { LOCAL_PREFIX, useCardsStore } from '../cards/cardsStore';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { discardPicture, discardPicturesOf, trackPicture } from '../pictureFiles';
 import { announce, flushDeps, rejectCandidate } from '../session/sessionApi';
@@ -169,6 +169,7 @@ export class SnapPipeline {
   /** A snap that will not be used: off the receipt, out of the snap store, and none of its picture files left. */
   private async drop(snapId: string) {
     this.deps.store.getState().removeSnap(snapId);
+    useCardsStore.getState().dropLocal(snapId);
     await Promise.all([this.deps.snaps.forget(snapId), discardPicturesOf(snapId)]);
   }
 
@@ -297,8 +298,8 @@ export class SnapPipeline {
   }
 
   /**
-   * CAM-3e's hook: an item the person has confirmed before is sent with its release. Nothing is wired today (`localMatch.ts`
-   * returns nothing), so sending never waits for a crop; once it is wired, it waits only as long as the crops take.
+   * CAM-3e's hook: an item the person has confirmed before is sent with its release, and drawn as a local card at once. Sending
+   * waits only as long as the crops take.
    */
   private async findLocalMatches(snap: PicSnap) {
     const match = this.deps.localMatch;
@@ -308,8 +309,48 @@ export class SnapPipeline {
       const uri = await this.crops.get(boxKey(snap.snapId, item.localId))?.task;
       if (!uri) continue;
       const releaseId = await match({ uri }).catch(() => undefined);
-      if (releaseId) this.deps.store.getState().setPayload(snap.snapId, item.localId, { ...item.payload, localMatchReleaseId: releaseId });
+      if (!releaseId) continue;
+      this.deps.store.getState().setPayload(snap.snapId, item.localId, { ...item.payload, localMatchReleaseId: releaseId });
+      this.showLocalCard(snap, item, releaseId);
     }
+  }
+
+  /**
+   * A repeat of something the person confirmed before gets its card at once, from the match on the phone, offline too. It is a
+   * display-only card until the server answers; the server's word replaces it (and verifies the release it was sent with).
+   */
+  private showLocalCard(snap: PicSnap, item: PicItem, releaseId: string) {
+    const cards = useCardsStore.getState();
+    const id = `${LOCAL_PREFIX}${snap.snapId}:${item.localId}`;
+    if (cards.local[id] || Object.values(cards.byId).some((c) => c.localId === item.localId)) return;
+    cards.showLocal({
+      id,
+      seq: 0,
+      source: 'picture_apple_model',
+      rawCode: null,
+      symbology: null,
+      visibleText: item.title || item.text,
+      localId: item.localId,
+      box: null,
+      boxSource: null,
+      resolution: 'matched',
+      score: 1,
+      artDistance: null,
+      needsArt: false,
+      release: { id: releaseId, title: item.title || item.text },
+      inferred: null,
+      alternatives: null,
+      decision: 'undecided',
+      copies: 1,
+      alreadyOwnedCount: 0,
+      ownedAt: null,
+      createdItemId: null,
+      changeSeq: 0,
+      edits: null,
+      userEdited: false,
+      pendingReason: null,
+      retryAfter: null,
+    } as unknown as CandidateDto);
   }
 
   /** The scan this snap was sent to is over: its lines leave the receipt. */
@@ -318,7 +359,11 @@ export class SnapPipeline {
     const before = store.getState().snaps.map((s) => s.snapId);
     store.getState().sweep(tray.getState().sessionId);
     const after = new Set(store.getState().snaps.map((s) => s.snapId));
-    for (const snapId of before) if (!after.has(snapId)) void discardPicturesOf(snapId); // the snap store keeps its own copies for its retention
+    for (const snapId of before) {
+      if (after.has(snapId)) continue;
+      useCardsStore.getState().dropLocal(snapId);
+      void discardPicturesOf(snapId);
+    } // the snap store keeps its own copies for its retention
   }
 
   /** Swipe to remove a picture item: gone from the receipt and the cards, and rejected on the server so Review will not add it. */
@@ -326,6 +371,7 @@ export class SnapPipeline {
     const { store, tray } = this.deps;
     const item = store.getState().snaps.find((s) => s.snapId === snapId)?.items.find((i) => i.localId === localId);
     store.getState().removeItem(snapId, localId);
+    useCardsStore.getState().dropLocal(snapId, localId);
     const card = item && this.cardOf(item);
     if (card) {
       useCardsStore.getState().remove(card.id);

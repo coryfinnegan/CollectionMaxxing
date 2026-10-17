@@ -6,7 +6,8 @@ import type { CandidateDto } from '@/api/generated/models';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Cover, Text } from '@/ui';
 import { useOwnedLookup } from '@/features/offline/hooks';
-import { describeCandidate, isPictureCandidate, ownedCopy, slideDuration } from './copy';
+import { isLocalCard } from './cardsStore';
+import { describeCandidate,isPictureCandidate, ownedCopy, slideDuration } from './copy';
 
 export function useReduceMotion(): boolean {
   const [reduce, setReduce] = useState(false);
@@ -95,6 +96,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Open ${label}`}
+          disabled={isLocalCard(candidate)} // the phone's own card has no detail until the server answers
           onPress={() => actions.onOpen(candidate)}
           style={{ flexDirection: 'row', gap: spacing.sm }}
         >

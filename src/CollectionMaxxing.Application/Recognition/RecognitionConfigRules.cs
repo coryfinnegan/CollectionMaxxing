@@ -31,6 +31,7 @@ public static class RecognitionConfigRules
         CheckAutoSnap(config.AutoSnap, problems);
         CheckEngine(config.Engine, problems);
         CheckSplitting(config.Splitting, problems);
+        CheckRange("fingerprints.maxDistance", config.Fingerprints.MaxDistance, 0.01, 2, problems);
         return problems;
     }
 

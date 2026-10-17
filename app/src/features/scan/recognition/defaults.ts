@@ -15,6 +15,8 @@ export interface RecognitionConfig {
   };
   engine: { modelTimeoutMs: number; maxItemsPerSnap: number };
   splitting: { halvesWhenItemsOver: number; minSpineColumnWidth: number };
+  /** The distance at or under which two feature prints are the same picture (CAM-3e). */
+  fingerprints: { maxDistance: number };
 }
 
 /** Values the server does not own (yet): matching and splitting details. */
@@ -65,6 +67,7 @@ export const DEFAULT_RECOGNITION_CONFIG: RecognitionConfig = {
   },
   engine: { modelTimeoutMs: 8000, maxItemsPerSnap: 40 },
   splitting: { halvesWhenItemsOver: 14, minSpineColumnWidth: 0.02 },
+  fingerprints: { maxDistance: 0.35 },
 };
 
 export const DEFAULT_LOCAL_TUNING: LocalTuning = {

@@ -1,6 +1,7 @@
 // What the receipt shows for pictures, as plain data: one line per item being read or identified, and the counts the status
 // bar uses. IDENTIFYING until the server has named it; QUEUED while the phone cannot reach the server.
 import type { CandidateDto } from '@/api/generated/models';
+import { isLocalCard } from '../cards/cardsStore';
 import type { PicItem, PicSnap } from './pipelineStore';
 
 export type PictureStatus = 'identifying' | 'queued' | 'done';
@@ -22,7 +23,8 @@ export function cardFor(item: PicItem, cards: CandidateDto[]): CandidateDto | un
 }
 
 export function statusOf(snap: PicSnap, card: CandidateDto | undefined, online: boolean): PictureStatus {
-  if (card) return card.resolution === 'pending' ? 'identifying' : 'done';
+  // The phone's own card is a guess from a local match: the lookup still waits (Queued offline) until the server answers.
+  if (card && !isLocalCard(card)) return card.resolution === 'pending' ? 'identifying' : 'done';
   if (snap.phase === 'reading' || snap.sent) return 'identifying';
   return online ? 'identifying' : 'queued';
 }
