@@ -148,6 +148,29 @@ public class ArtworkRescoringTests(ApiFixture api) : ArtworkTest(api)
     }
 
     [Fact]
+    public async Task A_person_who_accepts_the_servers_own_pick_makes_it_their_decision_and_art_no_longer_changes_it()
+    {
+        // The server auto-accepts the top pick of a close call (the first test keeps the flip), then the person accepts that same pick.
+        var scan = await ScanCloseMatchAsync();
+        Decision(scan.Candidate).ShouldBe("accepted");
+        var ids = AlternativeIds(scan.Candidate);
+        (await DecideAsync(scan.Client, scan.SessionId, scan.CandidateId, new { decision = "accepted" })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var before = await CandidateTextNowAsync(scan.Client, scan.SessionId, scan.CandidateId);
+
+        var response = await PostArtAsync(scan.Client, scan, Distance(ids[0], 1.3), Distance(ids[1], 0.9));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync());
+        (await CandidateTextNowAsync(scan.Client, scan.SessionId, scan.CandidateId)).ShouldBe(before);
+        Decision(await CandidateNowAsync(scan.Client, scan.SessionId, scan.CandidateId)).ShouldBe("accepted");
+    }
+
+    private Task<CloseCall> ScanCloseMatchAsync() => ScanCloseCallAsync(
+        "Pokemon Stadium",
+        async platformId =>
+            [await ReleaseAsync("Pokemon Stadium", platformId, edition: "Player's Choice"), await ReleaseAsync("Pokemon Stadium", platformId, edition: "Greatest Hits")],
+        edition: "Player's Choice");
+
+    [Fact]
     public async Task A_matched_item_with_a_clear_lead_is_not_a_close_call_and_has_nothing_to_compare()
     {
         var scan = await ScanCloseCallAsync(
