@@ -23,6 +23,8 @@ export interface EvalState {
   current: number;
   step: EvalStep | null;
   startedAt: number | null;
+  /** When the last photo was read (or the run was cancelled). */
+  endedAt: number | null;
   thermal: ThermalState | undefined;
   /** True once the phone reached serious heat; the run carries on and records it. */
   keepCool: boolean;
@@ -60,6 +62,7 @@ const initial = (): EvalState => ({
   current: 0,
   step: null,
   startedAt: null,
+  endedAt: null,
   thermal: undefined,
   keepCool: false,
   partial: false,
@@ -187,7 +190,7 @@ export class EvalRunner {
       }
       this.set({ total: this.photos.length });
     }
-    this.set({ phase: 'running', partial: false });
+    this.set({ phase: 'running', partial: false, endedAt: null });
     await this.deps.keepAwake.on().catch(() => undefined);
     try {
       while (this.next < this.photos.length) {
@@ -198,7 +201,7 @@ export class EvalRunner {
       await this.deps.keepAwake.off().catch(() => undefined);
     }
     const cancelled = this.cancelRequested;
-    this.set({ partial: cancelled && this.next < this.photos.length, step: null });
+    this.set({ partial: cancelled && this.next < this.photos.length, step: null, endedAt: this.now() });
     if (this.results.length === 0) {
       this.set({ phase: 'done', message: cancelled ? 'Cancelled before anything was read.' : 'There were no photos to read.' });
       return;
