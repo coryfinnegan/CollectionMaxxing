@@ -140,4 +140,35 @@ public class ScanCandidateEditTests(ApiFixture api) : ScanTest(api)
         best.ShouldBe(onN64, "the corrected platform ranks its release first");
         best.ShouldNotBe(onWii);
     }
+
+    [Fact]
+    public async Task Editing_format_platform_and_edition_is_refused_once_the_session_is_abandoned()
+    {
+        var (_, editor, sessionId, candidate, _) = await ScannedAsync(7561);
+        await ItemSeed.AddPlatformAsync(Db, "Nintendo 64", "N64");
+        (await editor.DeleteAsync(SessionUrl(sessionId))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        var patched = await DecideAsync(editor, sessionId, Id(candidate), new { platform = "n64", edition = "Player's Choice", format = "game_cartridge" });
+
+        patched.StatusCode.ShouldBe(HttpStatusCode.Conflict, await patched.Content.ReadAsStringAsync());
+        var after = (await GetSessionAsync(editor, sessionId)).GetProperty("candidates")[0];
+        after.GetProperty("userEdited").GetBoolean().ShouldBeFalse();
+        after.GetProperty("edits").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Editing_format_platform_and_edition_is_refused_once_the_session_is_committed()
+    {
+        var (library, editor, sessionId, candidate, original) = await ScannedAsync(7571);
+        await ItemSeed.AddPlatformAsync(Db, "Nintendo 64", "N64");
+        (await CommitAsync(editor, sessionId)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var patched = await DecideAsync(editor, sessionId, Id(candidate), new { platform = "n64", edition = "Player's Choice", format = "game_cartridge" });
+
+        patched.StatusCode.ShouldBe(HttpStatusCode.Conflict, await patched.Content.ReadAsStringAsync());
+        var after = (await GetSessionAsync(editor, sessionId)).GetProperty("candidates")[0];
+        after.GetProperty("userEdited").GetBoolean().ShouldBeFalse();
+        after.GetProperty("edits").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Null);
+        (await ScanReaders.ItemsAsync(Db, library.Id)).Single().ReleaseId.ShouldBe(original, "the item keeps the release it was added with");
+    }
 }

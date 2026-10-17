@@ -10,13 +10,19 @@ public static class ScanEventNames
     public const string CandidateAdded = "candidate.added";
     public const string CandidateUpdated = "candidate.updated";
 
-    /// <summary>Defined for the picture path; nothing emits it before Wave 3.</summary>
+    /// <summary>A candidate's uploaded photo ("Use my photo") is stored and ready.</summary>
     public const string PhotoStatus = "photo.status";
     public const string SessionStatus = "session.status";
 }
 
 /// <summary>The session's state, as sent with <c>session.status</c>.</summary>
 public sealed record SessionStatusDto(Guid Id, ScanSessionStatus Status);
+
+/// <summary>What <c>photo.status</c> says: the photo uploaded for <see cref="CandidateId"/> is <c>ready</c> (stored; it becomes the item's cover on commit).</summary>
+public sealed record PhotoStatusDto(Guid CandidateId, string Status)
+{
+    public const string Ready = "ready";
+}
 
 /// <summary>
 /// One event for the wire. <see cref="Id"/> is the highest candidate <c>changeSeq</c> the stream has shown so far (0 when
@@ -44,6 +50,7 @@ public sealed class ScanEventCursor
     private readonly Guid _sessionId;
     private readonly int _after;
     private readonly HashSet<Guid> _known = [];
+    private readonly Dictionary<Guid, Guid> _photosShown = [];
     private bool _first = true;
     private int _highWater;
     private ScanSessionStatus? _statusShown;
@@ -91,6 +98,24 @@ public sealed class ScanEventCursor
                 _highWater = Math.Max(_highWater, candidate.ChangeSeq);
                 var name = _known.Add(candidate.Id) ? ScanEventNames.CandidateAdded : ScanEventNames.CandidateUpdated;
                 events.Add(new ScanEvent(name, candidate.ChangeSeq, dtos[candidate.Id]));
+            }
+        }
+
+        // A photo is ready when the candidate's snap holds an asset. This is state, not a candidate change: it does not move
+        // the changeSeq cursor, so it is not replayed from Last-Event-ID. A (re)connecting client hears it once per connection
+        // (the same event carries the current changeSeq as its id), which is harmless.
+        var photoAssets = await _db.ScanSnaps.AsNoTracking()
+            .Where(s => s.SessionId == _sessionId && s.AssetId != null)
+            .Select(s => new { s.Id, AssetId = s.AssetId!.Value })
+            .ToDictionaryAsync(s => s.Id, s => s.AssetId, cancellationToken);
+        foreach (var candidate in candidates)
+        {
+            if (candidate.SnapId is { } snapId
+                && photoAssets.TryGetValue(snapId, out var assetId)
+                && (!_photosShown.TryGetValue(candidate.Id, out var shownAsset) || shownAsset != assetId))
+            {
+                _photosShown[candidate.Id] = assetId;
+                events.Add(new ScanEvent(ScanEventNames.PhotoStatus, _highWater, new PhotoStatusDto(candidate.Id, PhotoStatusDto.Ready)));
             }
         }
 

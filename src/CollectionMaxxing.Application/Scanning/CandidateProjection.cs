@@ -2,6 +2,7 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
@@ -9,8 +10,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Scanning;
 
-/// <summary>What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or a key.</summary>
-internal sealed record StoredTrace(IReadOnlyList<TraceStep> Steps, IReadOnlyList<string> OwnedAt, DateTimeOffset? RetryAfter = null);
+/// <summary>
+/// What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or
+/// a key. <paramref name="NeedsArt"/> is the close-call flag (SCAN-2b), <paramref name="AutoDecision"/> the decision the
+/// server made by itself (so that a person's own decision can be told from it), and <paramref name="RetryAfter"/> when a code
+/// that found the UPC allowance spent will next be tried.
+/// </summary>
+internal sealed record StoredTrace(
+    IReadOnlyList<TraceStep> Steps,
+    IReadOnlyList<string> OwnedAt,
+    bool NeedsArt = false,
+    CandidateDecision? AutoDecision = null,
+    DateTimeOffset? RetryAfter = null);
 
 /// <summary>One entry of a candidate's <c>alternatives</c>: a release the person can pick, with its own ownership.</summary>
 public sealed record StoredAlternative(
@@ -22,7 +33,8 @@ public sealed record StoredAlternative(
     double Score,
     IReadOnlyList<string> Creators,
     string? CoverUrl,
-    int AlreadyOwnedCount);
+    int AlreadyOwnedCount,
+    string? ArtworkUrl = null);
 
 internal static class CandidateJson
 {
@@ -91,20 +103,33 @@ internal static class CandidateProjection
     {
         var releaseIds = candidates.Select(c => c.MatchedReleaseId).OfType<Guid>().Distinct().ToList();
         var releases = await LoadReleasesAsync(db, releaseIds, cancellationToken);
-        return candidates.Select(c => ToDto(c, c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null)).ToList();
+        var art = await ArtworkLinks.ForCloseCallsAsync(db, candidates, cancellationToken);
+        return candidates.Select(c => ToDto(c, c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null, art)).ToList();
     }
 
-    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release)
+    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, IReadOnlyDictionary<Guid, string>? artwork = null)
     {
         var trace = CandidateJson.ReadTrace(c.TraceJson);
+        var needsArt = ArtworkLinks.AsksForArt(c, trace);
         var waitingForQuota = c.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(trace.Steps);
         var edits = c.EditedFormat is null && c.EditedPlatform is null && c.EditedEdition is null
             ? null
             : new CandidateEditsDto(c.EditedFormat, c.EditedPlatform, c.EditedEdition);
-        return ToDto(c, release, trace, waitingForQuota, edits);
+        var alternatives = needsArt && artwork is not null ? WithArtworkUrls(c.AlternativesJson, artwork) : CandidateJson.ReadElement(c.AlternativesJson);
+        return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives);
     }
 
-    private static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool waitingForQuota, CandidateEditsDto? edits) => new(
+    private static JsonElement? WithArtworkUrls(string? alternativesJson, IReadOnlyDictionary<Guid, string> artwork)
+    {
+        var alternatives = CandidateJson.ReadAlternatives(alternativesJson);
+        return alternatives.Count == 0
+            ? CandidateJson.ReadElement(alternativesJson)
+            : CandidateJson.ReadElement(CandidateJson.Serialize(
+                alternatives.Select(a => a with { ArtworkUrl = artwork.GetValueOrDefault(a.ReleaseId) }).ToList()));
+    }
+
+    private static CandidateDto ToDto(
+        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, JsonElement? alternatives) => new(
         c.Id,
         c.Seq,
         c.Source,
@@ -117,9 +142,10 @@ internal static class CandidateProjection
         c.Resolution,
         c.Score,
         c.ArtDistance,
+        needsArt,
         release,
         CandidateJson.ReadElement(c.InferredJson),
-        CandidateJson.ReadElement(c.AlternativesJson),
+        alternatives,
         c.Decision,
         c.Copies,
         c.AlreadyOwnedCount,

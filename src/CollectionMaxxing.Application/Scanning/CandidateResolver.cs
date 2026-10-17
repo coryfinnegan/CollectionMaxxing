@@ -1,9 +1,13 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Ownership;
+using CollectionMaxxing.Application.Scanning.Artwork;
+using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Application.Scanning.Quota;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Application.Scanning;
 
@@ -12,7 +16,8 @@ namespace CollectionMaxxing.Application.Scanning;
 /// candidate (the matched release, the top three, who already owns it, and what to do by default). Not thread-safe: use it
 /// from one request at a time, and run the providers (<see cref="BarcodeResolver"/>) beside it.
 /// </summary>
-public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, OwnershipQuery ownership, TimeProvider clock)
+public sealed class CandidateResolver(
+    IAppDbContext db, ReleaseStore releases, OwnershipQuery ownership, TimeProvider clock, IOptionsMonitor<ScoringOptions> scoring)
 {
     private const int MaxAlternatives = 3;
 
@@ -54,11 +59,13 @@ public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, O
             _ => CandidateResolution.Pending,
         };
         candidate.MatchedReleaseId = null;
+        candidate.ArtDistance = null; // an answer is about the releases it names; the artwork handler sets this after it
         candidate.Score = null;
         candidate.AlternativesJson = null;
         candidate.AlreadyOwnedCount = 0;
         var undecided = candidate.Decision == CandidateDecision.Undecided; // a decision the person already made is theirs; the job never overwrites it
         var ownedAt = new List<string>();
+        CandidateDecision? autoDecision = null;
 
         if (resolution.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
         {
@@ -87,7 +94,8 @@ public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, O
                     // An exactly owned release is skipped unless the user adds another copy; anything else is added.
                     if (undecided)
                     {
-                        candidate.Decision = owned.Count > 0 ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                        autoDecision = owned.Count > 0 ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                        candidate.Decision = autoDecision.Value;
                     }
                 }
 
@@ -109,7 +117,29 @@ public sealed class CandidateResolver(IAppDbContext db, ReleaseStore releases, O
 
         // A code that found the UPC allowance spent waits for the nightly drain: say when it will next be tried.
         DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
-        candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(resolution.Steps, ownedAt, retryAfter));
+        candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
+            resolution.Steps, ownedAt, NeedsArt(candidate, resolution), autoDecision, retryAfter));
+    }
+
+    /// <summary>
+    /// Whether the answer is a close call the phone should settle with artwork (<see cref="CloseCall"/>). A barcode never is:
+    /// an exact code is not settled by a picture. Judged with the profile the item was scored with and the live options.
+    /// </summary>
+    private bool NeedsArt(ScanCandidate candidate, BarcodeResolution resolution)
+    {
+        if (candidate.Source == CandidateSource.Barcode)
+        {
+            return false;
+        }
+
+        var options = scoring.CurrentValue;
+        var profile = StoredRead.From(candidate).Profile;
+        return CloseCall.NeedsArt(
+            resolution.Verdict,
+            resolution.Options.Take(MaxAlternatives).Select(o => o.Score).ToList(),
+            CloseCall.ArtWeight(options, profile),
+            options.Art.CloseCallMargin,
+            alreadyCompared: resolution.Steps.Any(step => step.Provider == ScoreCandidateArtwork.StepName));
     }
 
     /// <summary>Where the library already has the release (exactly), for a release it may or may not have.</summary>

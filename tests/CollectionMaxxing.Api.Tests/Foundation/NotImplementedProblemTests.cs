@@ -20,7 +20,7 @@ public class NotImplementedProblemTests(ApiFixture api) : ApiTest(api)
     {
         var library = await CreateLibraryAsync();
 
-        using var response = await ClientFor(library, LibraryRole.Viewer).GetAsync($"/api/v1/libraries/{library.Id}/feature-prints");
+        using var response = await ClientFor(library, LibraryRole.Viewer).PatchAsync("/api/v1/me", new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotImplemented);
         response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
