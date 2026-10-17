@@ -24,6 +24,7 @@ internal sealed class ScanSessionConfiguration : IEntityTypeConfiguration<ScanSe
         builder.HasAlternateKey(s => new { s.LibraryId, s.Id }).HasName("ak_scan_sessions_library_id_id");
         builder.Property(s => s.Status).HasSnakeCaseEnum();
         builder.Property(s => s.DefaultStatus).HasSnakeCaseEnum();
+        builder.Property(s => s.CommittedItemIds).HasColumnType("uuid[]");
 
         builder.HasOne<Library>().WithMany().HasForeignKey(s => s.LibraryId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<AppUser>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Restrict);

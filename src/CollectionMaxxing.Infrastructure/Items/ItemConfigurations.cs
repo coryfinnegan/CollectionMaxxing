@@ -96,6 +96,21 @@ internal sealed class ItemTagConfiguration : IEntityTypeConfiguration<ItemTag>
     }
 }
 
+internal sealed class ItemTombstoneConfiguration : IEntityTypeConfiguration<ItemTombstone>
+{
+    public void Configure(EntityTypeBuilder<ItemTombstone> builder)
+    {
+        builder.ToTable("item_tombstones");
+        builder.HasKey(t => t.ItemId);
+        builder.Property(t => t.ItemId).ValueGeneratedNever();
+
+        builder.HasOne<Library>().WithMany().HasForeignKey(t => t.LibraryId).OnDelete(DeleteBehavior.Cascade);
+
+        // What the ownership snapshot reads by (the same "time, then id" order as items), and what the daily clean-up trims.
+        builder.HasIndex(t => new { t.LibraryId, t.DeletedAt, t.ItemId });
+    }
+}
+
 internal sealed class ItemFeaturePrintConfiguration : IEntityTypeConfiguration<ItemFeaturePrint>
 {
     public void Configure(EntityTypeBuilder<ItemFeaturePrint> builder)

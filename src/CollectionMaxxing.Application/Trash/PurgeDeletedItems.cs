@@ -35,6 +35,8 @@ public static class PurgeDeletedItems
                     .ToListAsync(cancellationToken);
                 if (batch.Count == 0)
                 {
+                    // The same 30 days for the records of items removed for good: a phone offline longer than that does a full sync anyway.
+                    await db.ItemTombstones.IgnoreQueryFilters().Where(t => t.DeletedAt < cutoff).ExecuteDeleteAsync(cancellationToken);
                     return;
                 }
 

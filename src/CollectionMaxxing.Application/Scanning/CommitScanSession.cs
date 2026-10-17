@@ -133,7 +133,7 @@ public static class CommitScanSession
             }
 
             var overrides = (options?.Overrides ?? []).ToDictionary(o => o.CandidateId!.Value);
-            var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session.LibraryId, accepted, now, cancellationToken);
+            var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session, accepted, now, cancellationToken);
 
             var photos = await CandidatePhotos.AssetIdsAsync(db, accepted, cancellationToken);
             var created = new List<Guid>();
@@ -175,7 +175,7 @@ public static class CommitScanSession
                 }
             }
 
-            await learner.LearnAsync(accepted, cancellationToken); // the next scan of these barcodes is a local hit
+            await learner.LearnAsync(session.Id, accepted, cancellationToken); // the next scan of these barcodes is a local hit
 
             // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
             var unusedPhotos = new List<PhotoFile>();
@@ -183,6 +183,7 @@ public static class CommitScanSession
             {
                 session.Status = ScanSessionStatus.Committed;
                 session.CommittedAt = now;
+                session.CommittedItemIds = [.. created]; // what Undo removes: these, by id
 
                 // Photos of what was rejected or left undecided have no item to be a cover for.
                 var unused = candidates.Where(c => c.CreatedItemId is null && !accepted.Contains(c)).ToList();

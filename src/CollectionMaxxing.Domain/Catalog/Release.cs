@@ -65,6 +65,9 @@ public sealed class Release
     /// <summary>Null means global.</summary>
     public Guid? OwnerLibraryId { get; init; }
 
+    /// <summary>The scan session whose commit made this private release (an edited format, platform or edition), so undoing that commit can remove it.</summary>
+    public Guid? CreatedBySessionId { get; init; }
+
     /// <summary>What the providers said, kept so a match can be explained or refreshed.</summary>
     public string? ProviderPayloadsJson { get; set; }
 

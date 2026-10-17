@@ -46,6 +46,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ICurren
 
     public DbSet<ItemFeaturePrint> ItemFeaturePrints => Set<ItemFeaturePrint>();
 
+    public DbSet<ItemTombstone> ItemTombstones => Set<ItemTombstone>();
+
     public DbSet<Work> Works => Set<Work>();
 
     public DbSet<Release> Releases => Set<Release>();

@@ -2,7 +2,9 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Audit;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Operations;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +19,12 @@ public sealed record UndoResultDto(int Removed);
 /// with the rows that hang from them), the candidates forget them, and the session is open again, so Review has its results back with
 /// every decision, edit and copy count as they were, ready to fix and add again. One transaction: all of it or none of it.
 /// <para>
+/// Undo also takes back what the commit taught the catalogue, so a wrong match can be fixed and added again: the barcode links it
+/// learned (<see cref="ReleaseIdentifier.LearnedBySessionId"/>) and the private release it made, if nothing else uses that release. Links
+/// from providers or from earlier commits are never touched. Each removed item leaves an <see cref="ItemTombstone"/>, so a phone that
+/// already synced the commit is told by its next ownership sync that the items are gone.
+/// </para>
+/// <para>
 /// Refused with a 409, and nothing changes, when the session isn't committed, when the commit is older than
 /// <see cref="ScanningOptions.UndoWindow"/>, or when any item it created has been touched since (edited, moved, tagged, deleted, given
 /// another cover): permanent deletion must never lose the person's own work. A photo that became a cover at commit stays on its snap (commit
@@ -24,9 +32,10 @@ public sealed record UndoResultDto(int Removed);
 /// which only takes photos nothing uses, leaves it alone.
 /// </para>
 /// <para>
-/// The items are found by the commit itself: every one was created at the session's <c>committed_at</c>, in its library, by its starter,
-/// and the number must equal the copies the candidates say they made. Any difference means something else is going on, so nothing is deleted.
-/// Undoing twice with the same <c>Idempotency-Key</c> replays the first answer; a new key on a session that is no longer committed is a 409.
+/// The items are the ids the commit recorded on the session (<see cref="ScanSession.CommittedItemIds"/>), never found by when or by whom they
+/// were made, so a lookalike item can't be deleted by mistake. Every one of those ids must still be there and untouched; if any is not,
+/// something else is going on and nothing is deleted. Undoing twice with the same <c>Idempotency-Key</c> replays the first answer, even after
+/// the person added again (the key undid one commit and never undoes another); a new key on a session that is not committed is a 409.
 /// </para>
 /// </summary>
 public static class UndoScanCommit
@@ -62,14 +71,14 @@ public static class UndoScanCommit
             var previous = await db.IdempotencyKeys.AsNoTracking().FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
             if (previous is not null)
             {
-                if (previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored && session.Status == ScanSessionStatus.Open)
+                if (previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
                 {
                     return previous.RequestHash != hash
                         ? ItemErrors.KeyReused
                         : JsonSerializer.Deserialize<UndoResultDto>(stored, CandidateJson.Options) is { } again ? again : ScanningErrors.NotCommitted;
                 }
 
-                // An answer that no longer fits (the key expired, or the session was added again since): forget it and look at the request afresh.
+                // The key expired: forget it and look at the request afresh.
                 await db.IdempotencyKeys.Where(k => k.UserId == userId && k.Key == storedKey).ExecuteDeleteAsync(cancellationToken);
             }
 
@@ -86,13 +95,19 @@ public static class UndoScanCommit
             var candidates = await db.ScanCandidates.Where(c => c.SessionId == session.Id).ToListAsync(cancellationToken);
             var made = candidates.Where(c => c.CreatedItemId is not null).ToList();
 
-            // Everything this commit created, and only that: the session's library, its starter, the moment of the commit.
+            // Everything this commit created, and only that: the ids it recorded. All of them must be here, in this library, untouched.
+            var expected = session.CommittedItemIds;
+            if (expected is not { Length: > 0 })
+            {
+                return ScanningErrors.UndoItemsChanged; // nothing recorded what this commit made, so nothing can be told apart from the person's own
+            }
+
+            var wanted = expected.ToHashSet();
             var items = await db.Items.IgnoreQueryFilters()
-                .Where(i => i.LibraryId == session.LibraryId && i.CreatedBy == userId && i.CreatedAt == committedAt)
+                .Where(i => i.LibraryId == session.LibraryId && wanted.Contains(i.Id))
                 .ToListAsync(cancellationToken);
-            var ids = items.Select(i => i.Id).ToHashSet();
             var untouched = items.All(i => i.DeletedAt == null && i.UpdatedAt == i.CreatedAt);
-            if (!untouched || items.Count != made.Sum(c => c.Copies) || made.Any(c => !ids.Contains(c.CreatedItemId!.Value)))
+            if (!untouched || items.Count != wanted.Count || made.Any(c => !wanted.Contains(c.CreatedItemId!.Value)))
             {
                 return ScanningErrors.UndoItemsChanged;
             }
@@ -103,8 +118,11 @@ public static class UndoScanCommit
             }
 
             db.Items.RemoveRange(items); // the DELETE checks each row's version: an edit that lands after the check above wins and nothing is deleted
+            db.ItemTombstones.AddRange(items.Select(i => new ItemTombstone { ItemId = i.Id, LibraryId = i.LibraryId, DeletedAt = now }));
+            await TakeBackWhatTheCommitTaughtAsync(session.Id, wanted, cancellationToken);
             session.Status = ScanSessionStatus.Open;
             session.CommittedAt = null;
+            session.CommittedItemIds = null;
             audit.Record(AuditAction, "scan_session", session.Id, session.LibraryId, new Dictionary<string, object> { ["items"] = items.Count });
 
             var result = new UndoResultDto(items.Count);
@@ -123,12 +141,35 @@ public static class UndoScanCommit
             {
                 await db.SaveChangesAsync(cancellationToken); // one transaction
             }
-            catch (DbUpdateConcurrencyException)
+            catch (DbUpdateException)
             {
-                return ScanningErrors.UndoItemsChanged; // an item (or the session) changed while this ran: nothing was deleted
+                // An item (or the session) changed while this ran, or something started using the release being removed: nothing was deleted.
+                return ScanningErrors.UndoItemsChanged;
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Removes the barcode links this session's commit learned, and the private releases it made that nothing else uses (no other item,
+        /// feature print or scanned candidate). Marks the rows; the caller saves everything in one transaction.
+        /// </summary>
+        private async Task TakeBackWhatTheCommitTaughtAsync(Guid sessionId, HashSet<Guid> removedItemIds, CancellationToken cancellationToken)
+        {
+            db.ReleaseIdentifiers.RemoveRange(await db.ReleaseIdentifiers.Where(i => i.LearnedBySessionId == sessionId).ToListAsync(cancellationToken));
+
+            var made = await db.Releases.IgnoreQueryFilters().Where(r => r.CreatedBySessionId == sessionId).ToListAsync(cancellationToken);
+            foreach (var release in made)
+            {
+                var id = release.Id;
+                var inUse = await db.Items.IgnoreQueryFilters().AnyAsync(i => i.ReleaseId == id && !removedItemIds.Contains(i.Id), cancellationToken)
+                    || await db.ItemFeaturePrints.IgnoreQueryFilters().AnyAsync(p => p.ReleaseId == id && !removedItemIds.Contains(p.ItemId), cancellationToken)
+                    || await db.ScanCandidates.IgnoreQueryFilters().AnyAsync(c => c.MatchedReleaseId == id, cancellationToken);
+                if (!inUse)
+                {
+                    db.Releases.Remove(release);
+                }
+            }
         }
     }
 }
