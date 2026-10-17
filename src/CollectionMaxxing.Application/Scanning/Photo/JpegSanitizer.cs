@@ -54,6 +54,8 @@ public static class JpegSanitizer
         var width = 0;
         var height = 0;
         var sawFrame = false;
+        var keptJfif = false;
+        var keptAdobe = false;
         var sawScan = false;
 
         while (true)
@@ -134,7 +136,7 @@ public static class JpegSanitizer
                 return Damaged;
             }
 
-            if (Keep(marker, payload, length))
+            if (Keep(marker, payload, ref keptJfif, ref keptAdobe))
             {
                 output[written++] = Prefix;
                 output[written++] = marker;
@@ -188,12 +190,36 @@ public static class JpegSanitizer
     /// <summary>The frame headers (SOF0 to SOF15 except the table markers DHT, JPG and DAC).</summary>
     private static bool IsFrameHeader(byte marker) => marker is >= 0xC0 and <= 0xCF && marker is not (0xC4 or 0xC8 or 0xCC);
 
-    /// <summary>Whether the segment is one a decoder needs, or one of the two harmless APP segments.</summary>
-    private static bool Keep(byte marker, ReadOnlySpan<byte> payload, int length) => marker switch
+    /// <summary>
+    /// Whether the segment is one a decoder needs, or one of the two harmless APP segments. At most one of each of those is kept, and only
+    /// when its fields are what the format allows, so nothing the uploader chose rides along.
+    /// </summary>
+    private static bool Keep(byte marker, ReadOnlySpan<byte> payload, ref bool keptJfif, ref bool keptAdobe)
     {
-        0xDB or 0xC4 or 0xCC or 0xDD or 0xDC or StartOfScan => true, // DQT, DHT, DAC, DRI, DNL, SOS
-        0xE0 => length == 16 && payload.StartsWith("JFIF\0"u8), // JFIF without a thumbnail
-        0xEE => length == 14 && payload.StartsWith("Adobe"u8), // the colour-transform flag some CMYK/RGB files need
-        _ => IsFrameHeader(marker),
-    };
+        switch (marker)
+        {
+            case 0xE0:
+                // JFIF without a thumbnail: "JFIF\0", version 1.x, density unit 0 to 2, any density, thumbnail width and height 0.
+                if (keptJfif || payload.Length != 14 || !payload.StartsWith("JFIF\0"u8) || payload[5] != 1 || payload[7] > 2 || payload[12] != 0 || payload[13] != 0)
+                {
+                    return false;
+                }
+
+                keptJfif = true;
+                return true;
+            case 0xEE:
+                // The colour-transform flag some CMYK/RGB files need: "Adobe", version, two flag words, transform 0 to 2.
+                if (keptAdobe || payload.Length != 12 || !payload.StartsWith("Adobe"u8) || payload[11] > 2)
+                {
+                    return false;
+                }
+
+                keptAdobe = true;
+                return true;
+            case 0xDB or 0xC4 or 0xCC or 0xDD or 0xDC or StartOfScan: // DQT, DHT, DAC, DRI, DNL, SOS
+                return true;
+            default:
+                return IsFrameHeader(marker);
+        }
+    }
 }

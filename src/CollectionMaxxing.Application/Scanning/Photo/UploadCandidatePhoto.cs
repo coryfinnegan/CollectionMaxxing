@@ -57,14 +57,13 @@ public static class UploadCandidatePhoto
             var previous = candidate.SnapId is { } previousId
                 ? await db.ScanSnaps.FirstOrDefaultAsync(s => s.Id == previousId, cancellationToken)
                 : null;
-            string? replacedPath = null;
+            PhotoFile? replacedPhoto = null;
             if (previous?.AssetId is { } replacedId)
             {
                 var replaced = await db.Assets.FirstOrDefaultAsync(a => a.Id == replacedId, cancellationToken);
                 if (replaced is not null)
                 {
-                    replacedPath = replaced.BlobPath;
-                    db.Assets.Remove(replaced);
+                    replacedPhoto = new PhotoFile(replaced.Id, replaced.BlobPath); // its row stays until the file is gone
                 }
 
                 db.ScanSnaps.Remove(previous);
@@ -110,9 +109,9 @@ public static class UploadCandidatePhoto
                 throw;
             }
 
-            if (replacedPath is not null)
+            if (replacedPhoto is { } old)
             {
-                await CandidatePhotos.DeleteFilesAsync(store, logger, [replacedPath], cancellationToken);
+                await CandidatePhotos.DeleteFilesAsync(db, store, logger, [old], cancellationToken);
             }
 
             return (await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken))[0];
