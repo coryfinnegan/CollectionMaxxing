@@ -13,6 +13,7 @@
     <Project Path="tests/CollectionMaxxing.Architecture.Tests/CollectionMaxxing.Architecture.Tests.csproj" />
     <Project Path="tests/CollectionMaxxing.Domain.Tests/CollectionMaxxing.Domain.Tests.csproj" />
     <Project Path="tests/CollectionMaxxing.Infrastructure.Tests/CollectionMaxxing.Infrastructure.Tests.csproj" />
+    <Project Path="tests/CollectionMaxxing.Recognition.Evals/CollectionMaxxing.Recognition.Evals.csproj" />
     <Project Path="tests/CollectionMaxxing.TestSupport/CollectionMaxxing.TestSupport.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,268 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using CollectionMaxxing.Api.Tests.Scanning;
+using CollectionMaxxing.Api.Tests.Scanning.Identify;
+using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Domain.Libraries;
+using CollectionMaxxing.TestSupport.Evals;
+using Microsoft.EntityFrameworkCore;
+
+namespace CollectionMaxxing.Api.Tests.Evals;
+
+/// <summary>What the eval server does with a run: the dry-run grounding, the files it writes, and when it is off.</summary>
+public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
+{
+    private static readonly SyntheticGolden.SingleItem StarFoxTruth =
+        new("Star Fox 64", "game_cartridge", "cart_only", "loose_cartridge", "Nintendo 64");
+
+    private static object StarFoxRead(string? resolvedBy = null) =>
+        ReadItem("Star Fox 64", "game", "game_cartridge", "Nintendo 64", "cart_only", resolvedBy: resolvedBy);
+
+    private async Task<int> CountAsync(string table)
+    {
+        await using var context = Db.CreateContext();
+#pragma warning disable EF1002 // The table names are the constants of this file's own tests.
+        return await context.Database.SqlQueryRaw<int>($"""select count(*)::int as "Value" from {table}""").SingleAsync();
+#pragma warning restore EF1002
+    }
+
+    private async Task<JsonElement> LatestRunFileAsync()
+    {
+        var text = await File.ReadAllTextAsync(Path.Combine(Golden.Results, "latest-run.json"));
+        return JsonDocument.Parse(text).RootElement.Clone();
+    }
+
+    // ---- dry-run grounding -----------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Dry_run_grounding_persists_nothing_and_gives_the_same_candidates_as_identify_for_the_same_read()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        Games.Results.Add(ScanData.Game("Star Fox 64 Bonus Edition", "Nintendo 64", 1997, "g2"));
+        var library = await CreateLibraryAsync();
+        using var admin = AdminClient();
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [StarFoxRead()])));
+
+        (await CountAsync("scan_sessions")).ShouldBe(0);
+        (await CountAsync("scan_snaps")).ShouldBe(0);
+        (await CountAsync("scan_candidates")).ShouldBe(0);
+        (await CountAsync("releases")).ShouldBe(0); // a provider's answer is not added to the catalogue by an eval
+        (await CountAsync("works")).ShouldBe(0);
+        (await CountAsync("jobs")).ShouldBe(0); // no safety-net or artwork job either
+
+        var grounded = (await LatestRunFileAsync()).GetProperty("photos")[0].GetProperty("items")[0];
+        var dryRun = grounded.GetProperty("candidates").EnumerateArray().Select(c => c.GetProperty("title").GetString()!).ToList();
+        using var viewer = As(library, LibraryRole.Viewer);
+        var sessionId = await StartSessionAsync(viewer, library.Id);
+        var identified = await IdentifyOkAsync(
+            viewer, sessionId, Read(title: "Star Fox 64", kind: "game", format: "game_cartridge", platform: "Nintendo 64", completeness: "cart_only"));
+
+        dryRun.ShouldNotBeEmpty();
+        grounded.GetProperty("verdict").GetString().ShouldBe(Resolution(identified[0]));
+        dryRun.ShouldBe(AlternativeTitles(identified[0]));
+    }
+
+    [Fact]
+    public async Task A_run_scores_the_grounded_reading_against_the_truth_and_reports_the_gate_and_the_regression_check()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        var response = await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [StarFoxRead("model")], latencyMs: 1800)));
+
+        var summary = response.GetProperty("summary");
+        response.GetProperty("runId").GetString().ShouldBe(summary.GetProperty("runId").GetString());
+        summary.GetProperty("scoredPhotos").GetInt32().ShouldBe(1);
+        var single = summary.GetProperty("engines").GetProperty("apple_model").GetProperty("single");
+        single.GetProperty("top1Pct").GetDouble().ShouldBe(100);
+        single.GetProperty("precisionPct").GetDouble().ShouldBe(100);
+        single.GetProperty("inventedTitles").GetInt32().ShouldBe(0);
+        single.GetProperty("latencyP50Ms").GetInt64().ShouldBe(1800);
+        single.GetProperty("completenessAccuracyPct").GetDouble().ShouldBe(100);
+        single.GetProperty("resolvedBy").GetProperty("model").GetInt32().ShouldBe(1);
+        summary.GetProperty("gate").GetProperty("verdict").GetString().ShouldBe("incomplete"); // one photo cannot cover every measure
+        summary.GetProperty("gate").GetProperty("measures").GetArrayLength().ShouldBeGreaterThan(5);
+        summary.GetProperty("regression").GetProperty("status").GetString().ShouldBe("no_baseline");
+        ResultFiles().Count.ShouldBe(1);
+        File.Exists(Path.Combine(Golden.Results, "report.md")).ShouldBeTrue();
+        (await File.ReadAllTextAsync(Path.Combine(Golden.Results, "report.md"))).ShouldContain("M3 gate");
+    }
+
+    [Fact]
+    public async Task An_invented_title_that_survives_grounding_is_counted()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Zorblax Quest 64", "Nintendo 64", 1997, "g9"));
+        using var admin = AdminClient();
+
+        var response = await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [ReadItem("Zorblax Quest 64", "game", "game_cartridge", "Nintendo 64")])));
+
+        var single = response.GetProperty("summary").GetProperty("engines").GetProperty("apple_model").GetProperty("single");
+        single.GetProperty("inventedTitles").GetInt32().ShouldBe(1);
+        single.GetProperty("top1Pct").GetDouble().ShouldBe(0);
+    }
+
+    // ---- truth, drafts and what is skipped -----------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_photo_without_truth_is_skipped_and_listed_and_gets_a_draft_that_is_never_scored()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Golden.AddSingle("c2", null);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        var response = await PostRunOkAsync(admin, RunBody(
+            PhotoResult("c1", "apple_model", [StarFoxRead()]),
+            PhotoResult("c2", "apple_model", [StarFoxRead()]),
+            PhotoResult("ghost", "apple_model", [StarFoxRead()])));
+
+        var summary = response.GetProperty("summary");
+        summary.GetProperty("scoredPhotos").GetInt32().ShouldBe(1);
+        summary.GetProperty("skipped").EnumerateArray().Select(s => $"{s.GetProperty("photoId").GetString()}:{s.GetProperty("reason").GetString()}")
+            .Order().ShouldBe(["c2:no_truth", "ghost:unknown_photo"]);
+        var draft = Path.Combine(Golden.Golden, "single", "c2.truth.draft.json");
+        File.Exists(draft).ShouldBeTrue();
+        var draftJson = JsonDocument.Parse(await File.ReadAllTextAsync(draft)).RootElement;
+        draftJson.GetProperty("draft").GetBoolean().ShouldBeTrue();
+        draftJson.GetProperty("title").GetString().ShouldBe("Star Fox 64");
+        File.Exists(Path.Combine(Golden.Golden, "single", "c2.truth.json")).ShouldBeFalse();
+
+        var list = JsonDocument.Parse(await admin.GetStringAsync($"{Base}/golden")).RootElement.EnumerateArray().ToList();
+        list.Single(p => p.GetProperty("id").GetString() == "c2").GetProperty("hasTruth").GetBoolean().ShouldBeFalse();
+        list.Single(p => p.GetProperty("id").GetString() == "c1").GetProperty("hasTruth").GetBoolean().ShouldBeTrue();
+        list.Single(p => p.GetProperty("id").GetString() == "c1").GetProperty("set").GetString().ShouldBe("single");
+        list.Single(p => p.GetProperty("id").GetString() == "c1").GetProperty("bytes").GetInt64().ShouldBe(SyntheticGolden.PictureBytes.Length);
+    }
+
+    [Fact]
+    public async Task A_draft_the_owner_has_edited_is_not_overwritten_by_the_next_run()
+    {
+        Golden.AddSingle("c2", null);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c2", "apple_model", [StarFoxRead()])));
+        var draft = Path.Combine(Golden.Golden, "single", "c2.truth.draft.json");
+        await File.WriteAllTextAsync(draft, "{ \"title\": \"MY CORRECTION\" }");
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c2", "apple_model", [StarFoxRead()])));
+
+        (await File.ReadAllTextAsync(draft)).ShouldContain("MY CORRECTION");
+    }
+
+    [Fact]
+    public async Task When_a_draft_cannot_be_written_beside_the_picture_it_is_kept_in_the_results_folder_instead()
+    {
+        Golden.AddSingle("c2", null);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        // A folder by the draft's name cannot be replaced by a file: it stands in for a golden folder mounted read-only.
+        Directory.CreateDirectory(Path.Combine(Golden.Golden, "single", "c2.truth.draft.json"));
+        using var admin = AdminClient();
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c2", "apple_model", [StarFoxRead()])));
+
+        File.Exists(Path.Combine(Golden.Results, "drafts", "c2.truth.draft.json")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_truth_file_that_is_not_valid_truth_skips_the_photo_instead_of_scoring_half_of_it()
+    {
+        Golden.AddSingle("c1", null);
+        Golden.AddFile("single", "c1.truth.json", "{ \"title\": ");
+        using var admin = AdminClient();
+
+        var response = await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [StarFoxRead()])));
+
+        var summary = response.GetProperty("summary");
+        summary.GetProperty("scoredPhotos").GetInt32().ShouldBe(0);
+        summary.GetProperty("skipped")[0].GetProperty("reason").GetString().ShouldBe("invalid_truth");
+    }
+
+    [Fact]
+    public async Task Sending_the_same_photo_twice_for_one_engine_is_refused()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        using var admin = AdminClient();
+
+        var response = await PostRunAsync(admin, RunBody(PhotoResult("c1", "apple_model", []), PhotoResult("c1", "apple_model", [])));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
+
+    // ---- latest run and the baseline ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_latest_run_is_not_found_until_one_is_uploaded_and_then_returns_its_summary()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        (await admin.GetAsync($"{Base}/runs/latest")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var posted = await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [StarFoxRead()])));
+        var latest = await ReadJsonAsync(await admin.GetAsync($"{Base}/runs/latest"));
+
+        latest.GetProperty("runId").GetString().ShouldBe(posted.GetProperty("runId").GetString());
+        latest.GetProperty("gate").GetProperty("engine").GetString().ShouldBe("apple_model");
+    }
+
+    [Fact]
+    public async Task A_run_more_than_2_points_worse_than_the_baseline_file_is_flagged()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        var baseline = Path.Combine(Golden.Root, "baseline.json");
+        await File.WriteAllTextAsync(baseline, """{ "metrics": { "apple_model.single.top1": 100, "apple_model.single.precision": 100 } }""");
+        Settings["Evals:BaselinePath"] = baseline;
+        using var admin = AdminClient();
+
+        var response = await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [ReadItem("Nothing Like It")])));
+
+        var regression = response.GetProperty("summary").GetProperty("regression");
+        regression.GetProperty("status").GetString().ShouldBe("regressed");
+        regression.GetProperty("regressions").EnumerateArray().Select(r => r.GetProperty("metric").GetString()).ShouldContain("apple_model.single.top1");
+    }
+
+    // ---- when it is off --------------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("false", "golden")]
+    [InlineData("true", "missing-folder")]
+    [InlineData("true", "")]
+    public async Task When_the_evals_are_off_or_there_is_no_golden_folder_every_route_is_not_found(string enabled, string golden)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Settings["Evals:Enabled"] = enabled;
+        Settings["Evals:GoldenPath"] = golden switch
+        {
+            "golden" => Golden.Golden,
+            "missing-folder" => Path.Combine(Golden.Root, "no-such-folder"),
+            _ => string.Empty,
+        };
+        using var admin = AdminClient();
+
+        (await admin.GetAsync($"{Base}/golden")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await admin.GetAsync($"{Base}/golden/c1/image")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await admin.GetAsync($"{Base}/runs/latest")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await PostRunAsync(admin, RunBody(PhotoResult("c1", "apple_model", [StarFoxRead()])))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await admin.PostAsync($"{Base}/runs", new StringContent("not json", Encoding.UTF8, "application/json"))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Without_a_results_folder_a_run_is_refused_with_a_problem_and_nothing_is_scored()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Settings["Evals:ResultsPath"] = string.Empty;
+        using var admin = AdminClient();
+
+        var response = await PostRunAsync(admin, RunBody(PhotoResult("c1", "apple_model", [StarFoxRead()])));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
+    }
+}

@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text.Json;
-using CollectionMaxxing.Api.Tests.Scanning;
+using CollectionMaxxing.Api.Tests.Scanning.Identify;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.TestSupport.Evals;
 
@@ -10,7 +10,7 @@ namespace CollectionMaxxing.Api.Tests.Evals;
 /// Base of the eval-server tests: the real app with the evals switched on and pointed at a generated golden folder and a results
 /// folder in the temp directory (never at the owner's photos), with the same fake providers the scanning tests use.
 /// </summary>
-public abstract class EvalTest : ScanTest
+public abstract class EvalTest : IdentifyTest
 {
     protected const string Base = "/api/admin/evals";
 
