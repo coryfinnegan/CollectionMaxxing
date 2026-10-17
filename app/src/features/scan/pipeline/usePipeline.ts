@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
-import { useCardsStore } from '../cards/cardsStore';
+import { useCardsStore, withLocalCards } from '../cards/cardsStore';
 import type { ScannerSource } from '../scanner/ScannerSource';
 import { getPipelineStore } from './pipelineStore';
 import { getTrayStore } from '../tray/storage';
@@ -68,7 +68,8 @@ export function usePipeline({
   const unreadableCount = useStore(store, (s) => s.unreadableCount);
   const online = useStore(tray, (s) => s.online);
   const byId = useCardsStore((s) => s.byId);
-  const cards = useMemo(() => Object.values(byId), [byId]);
+  const local = useCardsStore((s) => s.local);
+  const cards = useMemo(() => withLocalCards({ byId, local }), [byId, local]);
   const lines = useMemo(() => pictureLines(snaps, cards, online), [snaps, cards, online]);
   const counts = useMemo(() => pictureCounts(lines), [lines]);
 
