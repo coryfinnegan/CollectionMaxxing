@@ -1,5 +1,7 @@
 // A snap's picture: the camera's full-resolution still, scaled to a long edge of at most 2576 px and saved as a JPEG
 // on the phone. It is read on the phone; nothing here uploads it (docs/02 "Privacy").
+import { discardPicture, trackPicture } from '../pictureFiles';
+
 export const MAX_LONG_EDGE = 2576;
 export const JPEG_QUALITY = 0.85;
 
@@ -43,5 +45,18 @@ export const manipulatorResizer: Resizer = async (photo, target) => {
   return { uri: saved.uri, width: saved.width, height: saved.height };
 };
 
-export const prepareSnapPhoto = (photo: CapturedPhoto, resize: Resizer = manipulatorResizer): Promise<SnapPhoto> =>
-  resize(photo, fitLongEdge(photo.width, photo.height));
+/**
+ * Scales the camera's capture. The capture is deleted as soon as the scaled picture exists (or the scaling failed): only the
+ * scaled snap goes on, and it is registered so a clear can find it (pictureFiles.ts).
+ */
+export async function prepareSnapPhoto(photo: CapturedPhoto, resize: Resizer = manipulatorResizer): Promise<SnapPhoto> {
+  trackPicture(photo.uri);
+  let scaled: SnapPhoto | undefined;
+  try {
+    scaled = await resize(photo, fitLongEdge(photo.width, photo.height));
+    if (scaled.uri !== photo.uri) trackPicture(scaled.uri);
+    return scaled;
+  } finally {
+    if (scaled?.uri !== photo.uri) await discardPicture(photo.uri);
+  }
+}

@@ -5,6 +5,7 @@ import { StyleSheet, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { useBarcodeFrameProcessor } from '@/native/cm-vision';
 import { spacing } from '@/theme/tokens';
+import { trackPicture } from '../pictureFiles';
 import { Button, Text } from '@/ui';
 import type { VisionCameraSource } from './ScannerSource';
 import { createSilentSnapshot } from './silentSnapshot';
@@ -51,7 +52,8 @@ export default function CameraPreview({ source }: { source: VisionCameraSource }
         try {
           const file = await photoOutput.capturePhotoToFile({ flashMode: 'off' }, {});
           // Width and height are read when the picture is scaled (snapPhoto); the camera's EXIF orientation is applied there.
-          return { uri: toFileUri(file.filePath), width: 0, height: 0, orientation: 1 };
+          // Registered at once, so a clear finds the capture even before it has been scaled (snapPhoto deletes it after).
+          return { uri: trackPicture(toFileUri(file.filePath)), width: 0, height: 0, orientation: 1 };
         } finally {
           capturing.current -= 1;
         }

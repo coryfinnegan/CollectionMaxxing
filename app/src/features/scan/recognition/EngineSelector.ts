@@ -1,6 +1,7 @@
 // Picks the engine for each snap. The Apple model when it can see pictures; Vision text for that one snap when the
 // model declines, runs out of time or room, or is not there. The next snap tries the model again.
-import type { ModelCapabilities, ModelUnavailableReason, VisionEngine } from '@/native/cm-vision';
+import type { ModelCapabilities, ModelUnavailableReason, Rect, VisionEngine } from '@/native/cm-vision';
+import { discardPicture, trackPicture } from '../pictureFiles';
 import { AppleModelEngine } from './AppleModelEngine';
 import { VisionPipelineEngine, type EngineDeps } from './VisionPipelineEngine';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
@@ -74,12 +75,18 @@ export class EngineSelector {
     const settings = this.deps.settings();
     const { cropper } = this.deps;
     if (!cropper || whole.items.length <= settings.splitting.halvesWhenItemsOver) return whole;
+    const halves: string[] = []; // the two cut pictures are only read, then deleted
+    const cut = async (region: Rect): Promise<Still> => {
+      const half = await cropper.crop(still, region);
+      halves.push(trackPicture(half.uri));
+      return half;
+    };
     try {
       const lines = await readLines(this.vision, still.uri, settings.local);
       const [leftRegion, rightRegion] = halfRegions(chooseCut(lines, settings.local), settings.local);
       const noop = () => {};
-      const left = await this.apple.read(await cropper.crop(still, leftRegion), noop);
-      const right = await this.apple.read(await cropper.crop(still, rightRegion), noop);
+      const left = await this.apple.read(await cut(leftRegion), noop);
+      const right = await this.apple.read(await cut(rightRegion), noop);
       const items = mergeHalves(
         { items: left.items, region: leftRegion },
         { items: right.items, region: rightRegion },
@@ -98,6 +105,8 @@ export class EngineSelector {
       };
     } catch {
       return whole; // the whole-shot reading is still a reading
+    } finally {
+      await Promise.all(halves.map((uri) => discardPicture(uri)));
     }
   }
 }

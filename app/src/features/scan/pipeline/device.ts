@@ -1,6 +1,7 @@
 // The real pipeline pieces on the phone: the recognition engines (NAT-2c), the snap store, crops by expo-image-manipulator,
 // artwork downloads by expo-file-system and feature prints by cm-vision. Tests build their own pieces; nothing here runs on
 // the web build.
+import { discardPicture, trackPicture } from '../pictureFiles';
 import { getRecognition } from '../recognition/device';
 import { getTrayStore } from '../tray/storage';
 import type { ArtDeps } from './artStep';
@@ -44,12 +45,9 @@ function deviceArt(): ArtDeps {
     vision: visionEngine,
     async download({ url, headers }) {
       const file = await fs.File.downloadFileAsync(url, folder(), { headers, idempotent: true });
-      return file.uri;
+      return trackPicture(file.uri); // deleted once compared; a clear finds it if the app stops in between
     },
-    async discard(uri) {
-      const file = new fs.File(uri);
-      if (file.exists) file.delete();
-    },
+    discard: (uri) => discardPicture(uri),
   };
 }
 

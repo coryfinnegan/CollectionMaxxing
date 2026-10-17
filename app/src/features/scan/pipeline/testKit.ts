@@ -3,6 +3,10 @@
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { server } from '@/mocks/server';
 import type { FeaturePrint, Rect } from '@/native/cm-vision';
+import type { Resizer } from '../autosnap/snapPhoto';
+import { prepareSnapPhoto } from '../autosnap/snapPhoto';
+import type { SnapEvent } from '../autosnap/useAutoSnap';
+import { setPictureFiles } from '../pictureFiles';
 import { setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
 import type { ReadItem, SnapReading, Still } from '../recognition/types';
@@ -84,11 +88,59 @@ export class FakeArt {
   };
 }
 
+/** A phone's file system, as far as pictures go: it remembers every file that was ever made, in any folder, and which are still there. */
+export class FakeFileSystem {
+  /** Every file ever made, in order, deleted or not. */
+  readonly created: string[] = [];
+  private readonly present = new Set<string>();
+
+  create(uri: string): string {
+    this.created.push(uri);
+    this.present.add(uri);
+    return uri;
+  }
+  async remove(uri: string) {
+    this.present.delete(uri);
+  }
+  /** The files that are still there. */
+  live(): string[] {
+    return [...this.present];
+  }
+  /** The files still there that are not in the snap store: the ones nothing is meant to keep. */
+  strays(): string[] {
+    return this.live().filter((uri) => !uri.startsWith(STORE_FOLDER));
+  }
+}
+
+const STORE_FOLDER = 'file:///snaps/';
+
+/** The snap store's files, also made on the fake file system, so a test sees them next to the temp and cache files. */
+export class FsSnapFiles extends MemorySnapFiles {
+  constructor(private readonly fs: FakeFileSystem) {
+    super();
+  }
+  override async put(name: string, fromUri: string) {
+    const uri = await super.put(name, fromUri);
+    this.fs.create(uri);
+    return uri;
+  }
+  override async remove(names: string[]) {
+    await super.remove(names);
+    for (const name of names) await this.fs.remove(`${STORE_FOLDER}${name}`);
+  }
+  override async removeAll() {
+    for (const name of this.files.keys()) await this.fs.remove(`${STORE_FOLDER}${name}`);
+    await super.removeAll();
+  }
+}
+
 export class FakeCrops implements CropMaker {
   readonly made: Rect[] = [];
+  constructor(private readonly fs?: FakeFileSystem) {}
   async thumb(still: Still, box: Rect) {
     this.made.push(box);
-    return `file:///cache/ImageManipulator/crop-${this.made.length}-of-${still.uri.split('/').pop()}`;
+    const uri = `file:///cache/ImageManipulator/crop-${this.made.length}-of-${still.uri.split('/').pop()}`;
+    return this.fs ? this.fs.create(uri) : uri;
   }
 }
 
@@ -100,12 +152,14 @@ export function makeKit(overrides: Partial<PipelineDeps> = {}) {
   setTrayStore(tray);
   const store = createPipelineStore({ storage: new MemoryKeyValueStore() });
   setPipelineStore(store);
-  const files = new MemorySnapFiles();
+  const fs = new FakeFileSystem();
+  setPictureFiles({ storage: new MemoryKeyValueStore(), remove: (uri) => fs.remove(uri) });
+  const files = new FsSnapFiles(fs);
   const snaps = new SnapStore({ files, storage: new MemoryKeyValueStore() });
   setSnapStore(snaps);
   const reader = new FakeReader();
   const art = new FakeArt();
-  const crops = new FakeCrops();
+  const crops = new FakeCrops(fs);
   const deps: PipelineDeps = {
     libraryId: MOCK_LIBRARY_ID,
     tray,
@@ -118,13 +172,25 @@ export function makeKit(overrides: Partial<PipelineDeps> = {}) {
     newId: nextSnapId,
     ...overrides,
   };
-  return { deps, tray, store, files, snaps, reader, art, crops };
+  /** What the shutter hands over: the camera's capture, scaled into a new file the way expo-image-manipulator does. */
+  let shots = 0;
+  const resize: Resizer = async (photo, target) => ({
+    uri: fs.create(`file:///cache/ImageManipulator/snap-${++shots}.jpg`),
+    width: target?.width ?? photo.width,
+    height: target?.height ?? photo.height,
+  });
+  const snapEvent = async (trigger: SnapEvent['trigger'] = 'shutter'): Promise<SnapEvent> => {
+    const raw = fs.create(`file:///tmp/Camera/capture-${shots + 1}.jpg`);
+    return { photo: await prepareSnapPhoto({ uri: raw, width: PHOTO.width, height: PHOTO.height, orientation: 1 }, resize), trigger };
+  };
+  return { deps, tray, store, files, fs, snaps, reader, art, crops, snapEvent };
 }
 
 export function resetKit() {
   setTrayStore(undefined);
   setPipelineStore(undefined);
   setSnapStore(undefined);
+  setPictureFiles();
 }
 
 export interface SeenRequest {

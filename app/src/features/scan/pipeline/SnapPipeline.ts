@@ -9,6 +9,7 @@ import type { CandidateDto } from '@/api/generated/models';
 import type { Rect } from '@/native/cm-vision';
 import { useCardsStore } from '../cards/cardsStore';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
+import { discardPicture, discardPicturesOf, trackPicture } from '../pictureFiles';
 import { announce, flushDeps, rejectCandidate } from '../session/sessionApi';
 import type { TrayStore } from '../tray/trayStore';
 import type { ReadItem, SnapReading, Still } from '../recognition/types';
@@ -94,6 +95,7 @@ export class SnapPipeline {
     if (this.barcodeInView()) return; // a barcode in view wins: the barcode path reads it, no picture is sent
     const { store, snaps } = this.deps;
     const snapId = (this.deps.newId ?? randomId)();
+    const photoUri = trackPicture(event.photo.uri, snapId); // the scaled snap: deleted once the store has its own copy
     store.getState().addSnap({
       snapId,
       trigger: event.trigger,
@@ -106,6 +108,11 @@ export class SnapPipeline {
     });
     reading.add(snapId);
     const stored = await snaps.saveStill(snapId, event.photo);
+    if (stored) {
+      store.getState().setSnapThumb(snapId, stored.stillUri); // the receipt line shows the store's copy, not the file about to go
+      await discardPicture(photoUri);
+      if (!store.getState().snaps.some((s) => s.snapId === snapId)) void this.drop(snapId); // cleared while it was being kept
+    }
     const still: Still = stored
       ? { uri: stored.stillUri, width: stored.width, height: stored.height }
       : { uri: event.photo.uri, width: event.photo.width, height: event.photo.height };
@@ -131,18 +138,23 @@ export class SnapPipeline {
       for (const item of result.items) this.makeCrop(snapId, still, item);
       if (items.length === 0) {
         // Nothing found: the line fades out. It costs nothing.
-        store.getState().removeSnap(snapId);
-        void this.deps.snaps.forget(snapId);
+        void this.drop(snapId);
         this.onOutcome(false);
       } else {
         this.onOutcome(true);
       }
     } catch {
-      store.getState().removeSnap(snapId); // a picture that cannot be read is dropped, never a crash
+      void this.drop(snapId); // a picture that cannot be read is dropped, never a crash
       this.onOutcome(false);
     } finally {
       reading.delete(snapId);
     }
+  }
+
+  /** A snap that will not be used: off the receipt, out of the snap store, and none of its picture files left. */
+  private async drop(snapId: string) {
+    this.deps.store.getState().removeSnap(snapId);
+    await Promise.all([this.deps.snaps.forget(snapId), discardPicturesOf(snapId)]);
   }
 
   /** The crop of one item, kept on the phone. The read does not wait for it. */
@@ -150,9 +162,13 @@ export class SnapPipeline {
     const key = boxKey(snapId, item.localId);
     if (this.crops.get(key) && sameBox(this.crops.get(key)?.box, item.box)) return;
     const task = (async () => {
-      const cropUri = item.box ? await this.deps.crops.thumb(still, item.box).catch(() => undefined) : undefined;
+      const made = item.box ? await this.deps.crops.thumb(still, item.box).catch(() => undefined) : undefined;
+      const cropUri = made ? trackPicture(made, snapId) : undefined;
       const saved = await this.deps.snaps.saveItem(snapId, { localId: item.localId, text: item.text, box: item.box }, cropUri);
-      const uri = saved?.cropUri ?? cropUri;
+      // The store keeps its own copy of the crop, so the one that was made is deleted; with no copy it is the only one and stays
+      // for the receipt, unless the snap is gone already.
+      if (cropUri && (saved?.cropUri || !this.deps.snaps.get(snapId))) await discardPicture(cropUri);
+      const uri = saved?.cropUri ?? (cropUri && !this.deps.snaps.get(snapId) ? undefined : cropUri);
       if (uri) this.deps.store.getState().setThumb(snapId, item.localId, uri);
       return uri;
     })().catch(() => undefined);
@@ -238,7 +254,11 @@ export class SnapPipeline {
 
   /** The scan this snap was sent to is over: its lines leave the receipt. */
   sweep() {
-    this.deps.store.getState().sweep(this.deps.tray.getState().sessionId);
+    const { store, tray } = this.deps;
+    const before = store.getState().snaps.map((s) => s.snapId);
+    store.getState().sweep(tray.getState().sessionId);
+    const after = new Set(store.getState().snaps.map((s) => s.snapId));
+    for (const snapId of before) if (!after.has(snapId)) void discardPicturesOf(snapId); // the snap store keeps its own copies for its retention
   }
 
   /** Swipe to remove a picture item: gone from the receipt and the cards, and rejected on the server so Review will not add it. */

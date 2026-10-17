@@ -50,6 +50,8 @@ export type PipelineStore = PipelineState & {
   addSnap(snap: PicSnap): void;
   upsertItem(snapId: string, item: PicItem): void;
   finishRead(snapId: string, update: { items: PicItem[]; unreadableCount: number; engine: EngineName; fellBackFrom?: FellBackFrom }): void;
+  /** The picture shown on the snap's own line, until its items have crops of their own. */
+  setSnapThumb(snapId: string, thumbUri: string): void;
   setThumb(snapId: string, localId: string, thumbUri: string): void;
   setPayload(snapId: string, localId: string, payload: IdentifyItem): void;
   markSent(snapId: string, sessionId: string, candidateIds: Record<string, string>): void;
@@ -101,6 +103,7 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
         }));
         set({ unreadableCount });
       },
+      setSnapThumb: (snapId, thumbUri) => edit(snapId, (s) => ({ ...s, thumbUri })),
       setThumb: (snapId, localId, thumbUri) =>
         edit(snapId, (s) => ({ ...s, items: s.items.map((i) => (i.localId === localId ? { ...i, thumbUri } : i)) })),
       setPayload: (snapId, localId, payload) =>
