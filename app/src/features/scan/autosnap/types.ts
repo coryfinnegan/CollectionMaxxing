@@ -15,7 +15,7 @@ export interface FrameSignals {
   barcodesInView: number;
 }
 
-export type SnapTrigger = 'auto' | 'shutter';
+export type SnapTrigger = 'auto' | 'shutter' | 'import';
 
 /** The thresholds. One object, injected; CAM-3b swaps in the server's `autoSnap` values. */
 export interface AutoSnapConfig {
