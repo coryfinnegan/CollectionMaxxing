@@ -1,7 +1,7 @@
-// Result detail (docs/06 M4, basic version): the card's facts, where owned copies live, and the add buttons.
-// The photo with the item boxed on it is CAM-3.
-import { useEffect } from 'react';
-import { View } from 'react-native';
+// Result detail (docs/06 M4): your own photo with the item boxed on it, the card's facts, where owned copies live, the add buttons,
+// Wrong item? Fix it, and Use my photo (the one place a picture is sent, and only the crop of this item, only when an editor taps).
+import { useEffect, useState } from 'react';
+import { Image, View } from 'react-native';
 import { useStore } from 'zustand';
 import { formatLabels } from '@/features/library/labels';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
@@ -11,12 +11,23 @@ import { useCardActions } from '../session/useCardActions';
 import { loadSession } from '../session/sessionApi';
 import { useLibraryRole } from '../session/useScanSession';
 import { getTrayStore } from '../tray/storage';
+import { uploadCover, useCoverStore } from '../detail/coverPhoto';
+import { FixItPanel } from '../detail/FixItPanel';
+import { PhotoViewer } from '../detail/PhotoViewer';
+import { useSnapContext } from '../detail/snapContext';
 import { describeCandidate } from './copy';
 import { useCardsStore } from './cardsStore';
 
 export function ResultDetail({ id }: { id: string }) {
   const { libraryId } = useActiveLibraryId();
-  const candidate = useCardsStore((s) => s.byId[id]);
+  // The pager moves between the items of one picture without leaving this screen.
+  const [currentId, setCurrentId] = useState(id);
+  const candidate = useCardsStore((s) => s.byId[currentId]);
+  const context = useSnapContext(currentId);
+  const sentCrop = useCoverStore((s) => s.sent[currentId]);
+  const [fixing, setFixing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
   const sessionId = useStore(getTrayStore(), (s) => s.sessionId);
   const { canAdd } = useLibraryRole(libraryId);
   const actions = useCardActions({ libraryId: libraryId ?? '', sessionId, canAdd });
@@ -45,12 +56,34 @@ export function ResultDetail({ id }: { id: string }) {
   const error = actions.errors?.[candidate.id];
   const accepted = candidate.decision === 'accepted';
   const wishlisted = !!actions.wishlisted?.[candidate.id];
+  const cropUri = context?.peers.find((p) => p.card.id === candidate.id)?.stored?.cropUri;
+  const canCover = canAdd && !!context && !!cropUri;
+  const loose = release?.format === 'game_cartridge';
+
+  async function sendMyPhoto() {
+    setSending(true);
+    setCoverError(null);
+    const result = await uploadCover({ canEdit: canAdd, sessionId, candidateId: candidate!.id, cropUri });
+    if (!result.ok && result.reason === 'failed') setCoverError(result.message ?? null);
+    setSending(false);
+  }
 
   return (
     <Screen title="Result">
+      {context ? (
+        <PhotoViewer
+          context={context}
+          currentId={candidate.id}
+          onSelect={(next) => {
+            setCurrentId(next);
+            setFixing(false);
+            setCoverError(null);
+          }}
+        />
+      ) : null}
       <Card>
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <Cover title={copy.title} uri={release?.coverUrl} width={96} />
+          <Cover title={copy.title} uri={sentCrop ?? release?.coverUrl} width={96} />
           <View style={{ flex: 1, gap: spacing.xs }}>
             <Text variant="heading" accessibilityRole="header">
               {copy.title}
@@ -65,12 +98,18 @@ export function ResultDetail({ id }: { id: string }) {
       <Card>
         {owned ? (
           <>
-            <Text variant="heading">{candidate.alreadyOwnedCount === 1 ? 'You own this' : `You own ${candidate.alreadyOwnedCount} copies`}</Text>
-            {candidate.ownedAt.map((place, index) => (
-              <Text key={`${place}-${index}`} tone="muted">
-                {place}
-              </Text>
-            ))}
+            <Text variant="heading">
+              {candidate.alreadyOwnedCount === 1
+                ? `You own this${candidate.ownedAt[0] ? `: ${candidate.ownedAt[0]}` : ''}`
+                : `You own ${candidate.alreadyOwnedCount} copies`}
+            </Text>
+            {candidate.alreadyOwnedCount === 1
+              ? null
+              : candidate.ownedAt.map((place, index) => (
+                  <Text key={`${place}-${index}`} tone="muted">
+                    {place}
+                  </Text>
+                ))}
           </>
         ) : copy.kind === 'new' ? (
           <Text variant="heading">Not in your library</Text>
@@ -86,6 +125,29 @@ export function ResultDetail({ id }: { id: string }) {
         {addable && (accepted || wishlisted) ? <Text tone="scan">{wishlisted ? 'On your wishlist' : 'Added to this scan'}</Text> : null}
         {error ? <Text tone="danger">{error}</Text> : null}
       </Card>
+
+      {canAdd && context ? (
+        <Card>
+          {sentCrop ? (
+            <View testID="cover-choice" style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Image source={{ uri: sentCrop }} accessibilityLabel="Your photo as the cover" accessibilityIgnoresInvertColors style={{ width: 64, height: 64, borderRadius: 6 }} />
+              <Text variant="label">Your photo is the cover</Text>
+            </View>
+          ) : canCover ? (
+            <>
+              {loose ? <Text tone="muted">A loose cartridge looks best as your own photo.</Text> : null}
+              <Button label="Use my photo" variant={loose ? 'primary' : 'secondary'} busy={sending} onPress={() => void sendMyPhoto()} />
+              {coverError ? (
+                <Text tone="danger" accessibilityRole="alert">
+                  {coverError}
+                </Text>
+              ) : null}
+            </>
+          ) : null}
+          <Button label="Wrong item? Fix it" variant="secondary" onPress={() => setFixing(true)} />
+        </Card>
+      ) : null}
+      {fixing ? <FixItPanel candidate={candidate} sessionId={sessionId} onClose={() => setFixing(false)} /> : null}
     </Screen>
   );
 }

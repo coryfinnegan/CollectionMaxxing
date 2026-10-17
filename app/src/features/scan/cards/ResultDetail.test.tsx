@@ -40,8 +40,7 @@ describe('result detail', () => {
     await renderWithProviders(<ResultDetail id={candidate.id} />);
 
     expect(await screen.findByText('Dune')).toBeTruthy();
-    expect(screen.getByText('You own this')).toBeTruthy();
-    expect(screen.getByText('Living room › Shelf 2')).toBeTruthy();
+    expect(screen.getByText('You own this: Living room › Shelf 2')).toBeTruthy();
     expect(screen.queryByLabelText('Add to library')).toBeNull();
   });
 
@@ -68,7 +67,7 @@ describe('result detail', () => {
   it('finds the card from the session when the app restarted since the scan', async () => {
     const candidate = await seedSession(DEV_CODES.duneOwned);
     await renderWithProviders(<ResultDetail id={candidate.id} />);
-    expect(await screen.findByText('You own this')).toBeTruthy();
+    expect(await screen.findByText('You own this: Living room › Shelf 2')).toBeTruthy();
   });
 
   it('says so when the result is gone', async () => {
