@@ -3,6 +3,7 @@ import { Platform, View, useWindowDimensions } from 'react-native';
 import { Sidebar } from '@/components/Sidebar';
 import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
 import { AppLockGate } from '@/features/me/appLock';
+import { SnapStoreBridge } from '@/features/scan/pipeline/SnapStoreBridge';
 import { WIDE_BREAKPOINT, useColors } from '@/theme/tokens';
 
 // Pages that only appear in the web sidebar, never in the phone tab bar.
@@ -16,6 +17,7 @@ export default function TabsLayout() {
   return (
     <AppLockGate>
     <OwnedDataBridge />
+    <SnapStoreBridge />
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
       {wide ? <Sidebar /> : null}
       <View style={{ flex: 1 }}>

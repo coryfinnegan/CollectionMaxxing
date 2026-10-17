@@ -6,7 +6,7 @@ import type { CandidateDto } from '@/api/generated/models';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Cover, Text } from '@/ui';
 import { useOwnedLookup } from '@/features/offline/hooks';
-import { describeCandidate, ownedCopy, slideDuration } from './copy';
+import { describeCandidate, isPictureCandidate, ownedCopy, slideDuration } from './copy';
 
 export function useReduceMotion(): boolean {
   const [reduce, setReduce] = useState(false);
@@ -54,6 +54,8 @@ export type CardActions = {
   onOpen(candidate: CandidateDto): void;
   onAdd(candidate: CandidateDto): void;
   onWishlist(candidate: CandidateDto): void;
+  /** Fix it on a picture's item the catalogue could not find: opens a search that starts from what was read. */
+  onFixIt?(candidate: CandidateDto): void;
   /** Friendly message per candidate id when its last action failed. */
   errors?: Record<string, string>;
   busy?: Record<string, boolean>;
@@ -77,6 +79,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
   const label = [copy.title, copy.subtitle, copy.status].filter(Boolean).join(', ');
   const error = actions.errors?.[candidate.id];
   const busy = !!actions.busy?.[candidate.id];
+  const canFix = actions.canAdd && !!actions.onFixIt && isPictureCandidate(candidate) && (copy.kind === 'not_found' || copy.kind === 'error');
 
   return (
     <Animated.View
@@ -112,7 +115,10 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
             {copy.status}
           </Text>
         ) : null}
-        {copy.kind === 'pending' || copy.kind === 'error' ? <OwnedAnswerLine code={candidate.rawCode} /> : null}
+        {(copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode ? <OwnedAnswerLine code={candidate.rawCode} /> : null}
+        {canFix ? (
+          <Button label="Fix it" variant="secondary" accessibilityLabel={`Fix it: ${copy.title}`} onPress={() => actions.onFixIt?.(candidate)} />
+        ) : null}
         {addable && (accepted || wishlisted) ? (
           <Text variant="label" tone="scan">
             {wishlisted ? 'On your wishlist' : 'Added to this scan'}

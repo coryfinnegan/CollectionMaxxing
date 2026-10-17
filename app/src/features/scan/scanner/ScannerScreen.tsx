@@ -1,14 +1,18 @@
 // The scanner (docs/06 M3): camera behind everything, "Nice scan!" flash, result cards, the receipt bar.
 // It is given its sources, so tests and the dev menu drive it with a FakeScannerSource and no camera.
 import { useRouter } from 'expo-router';
-import { useContext, useEffect, useMemo, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { NiceScanFlash } from '../autosnap/NiceScanFlash';
 import { DEFAULT_AUTO_SNAP_CONFIG } from '../autosnap/defaults';
 import { createCountingSnapHandler, useAutoSnap, type AutoSnapTuning, type SnapEvent } from '../autosnap/useAutoSnap';
 import type { AutoSnapConfig } from '../autosnap/types';
-import { ResultCards, useReduceMotion } from '../cards/ResultCards';
+import type { CandidateDto } from '@/api/generated/models';
+import { ResultCards, useReduceMotion, type CardActions } from '../cards/ResultCards';
+import { FixItSheet } from '../pipeline/FixItSheet';
+import type { PipelineDeps } from '../pipeline/SnapPipeline';
+import { usePipeline } from '../pipeline/usePipeline';
 import { useCardActions } from '../session/useCardActions';
 import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
 import { ReceiptBar } from '../tray/ReceiptBar';
@@ -27,9 +31,11 @@ type Props = {
   tuning?: SessionTuning;
   /** What Close does; defaults to going back. The route passes the close-scanner sheet here. */
   onClose?: () => void;
-  /** Each picture, from the shutter or auto-snap. The default only counts them; the pipeline is CAM-3b. */
+  /** Each picture, from the shutter or auto-snap. Without this and without a `pipeline`, pictures are only counted. */
   onSnap?: (event: SnapEvent) => void;
-  /** The auto-snap thresholds. CAM-3b passes the server's values. */
+  /** The picture pipeline: read on the phone, identified from text, close calls compared by artwork. The route builds it. */
+  pipeline?: PipelineDeps;
+  /** The auto-snap thresholds. The route passes the server's values (cached on the phone). */
   autoSnapConfig?: AutoSnapConfig;
   autoSnapTuning?: AutoSnapTuning;
   /** Filled with a function that tells auto-snap whether the last picture found anything (misfires raise the thresholds). */
@@ -44,6 +50,7 @@ export function ScannerScreen({
   tuning,
   onClose,
   onSnap,
+  pipeline,
   autoSnapConfig = DEFAULT_AUTO_SNAP_CONFIG,
   autoSnapTuning,
   outcomeRef,
@@ -54,16 +61,23 @@ export function ScannerScreen({
   const sources = useMemo(() => (devSource ? [source, devSource] : [source]), [source, devSource]);
   const session = useScanSession({ libraryId, sources, tuning });
   const { canAdd } = useLibraryRole(libraryId);
-  const actions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
+  const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
+  const [fixing, setFixing] = useState<CandidateDto | null>(null);
+  const actions: CardActions = useMemo(() => ({ ...cardActions, onFixIt: setFixing }), [cardActions]);
   const [torch, setTorch] = useState(false);
   const reduceMotion = useReduceMotion();
   const [counter] = useState(() => createCountingSnapHandler());
+  const reportOutcome = useRef<(found: boolean) => void>(() => undefined);
+  const pictures = usePipeline({ deps: pipeline, source, resendMs: tuning?.resendMs, onOutcome: (found) => reportOutcome.current(found) });
   const autoSnap = useAutoSnap({
     source,
-    onSnap: onSnap ?? counter,
+    onSnap: onSnap ?? (pictures.enabled ? pictures.onSnap : counter),
     config: autoSnapConfig,
     tuning: { flashMs: tuning?.flashMs, ...autoSnapTuning },
   });
+  useEffect(() => {
+    reportOutcome.current = autoSnap.reportOutcome;
+  }, [autoSnap.reportOutcome]);
   useEffect(() => {
     if (!outcomeRef) return;
     outcomeRef.current = autoSnap.reportOutcome;
@@ -101,17 +115,23 @@ export function ScannerScreen({
         </View>
 
         {devSource ? (
-          <View style={{ alignItems: 'center', paddingBottom: spacing.sm }}>
+          <View style={{ alignItems: 'center', gap: spacing.sm, paddingBottom: spacing.sm }}>
             <Button
               label="Scan these 6 codes"
               variant="secondary"
               onPress={() => devSource.inject(DEV_SIX_CODES)}
               style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
             />
+            {pictures.enabled ? (
+              <Button label="Snap a fixture shelf" variant="secondary" onPress={pictures.replayFixture} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
+            ) : null}
           </View>
         ) : null}
 
         <View pointerEvents="box-none" style={{ alignItems: 'center', gap: spacing.md, paddingBottom: spacing.md }}>
+          {pictures.enabled && pictures.unreadableCount > 0 ? (
+            <Chip label={`Get closer for these ${pictures.unreadableCount}`} onPress={pictures.dismissUnreadable} />
+          ) : null}
           {autoSnap.hint ? (
             <Chip
               label="Try the torch or move closer"
@@ -130,14 +150,21 @@ export function ScannerScreen({
           </Pressable>
         </View>
 
+        {fixing ? (
+          <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+            <FixItSheet candidate={fixing} sessionId={session.sessionId} onClose={() => setFixing(null)} />
+          </View>
+        ) : null}
         <ResultCards cards={session.cards} actions={actions} />
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
             lines={session.lines}
+            pictureLines={pictures.lines}
+            onRemovePicture={pictures.removeLine}
             cards={session.cards}
             online={session.online}
-            items={session.items}
-            processing={session.processing}
+            items={session.items + pictures.items}
+            processing={session.processing + pictures.processing}
             problem={session.problem}
             notice={session.notice}
             onPlusOne={session.plusOne}
