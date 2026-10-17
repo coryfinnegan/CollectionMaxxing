@@ -1562,7 +1562,7 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_scan_snaps_engine", "\"engine\" in ('apple_model', 'vision_pipeline')");
 
-                            t.HasCheckConstraint("ck_scan_snaps_fallback_reason", "\"fallback_reason\" in ('unavailable', 'declined', 'context')");
+                            t.HasCheckConstraint("ck_scan_snaps_fallback_reason", "\"fallback_reason\" in ('unavailable', 'declined', 'context', 'timeout')");
 
                             t.HasCheckConstraint("ck_scan_snaps_fell_back_has_reason", "fell_back = (fallback_reason is not null)");
 

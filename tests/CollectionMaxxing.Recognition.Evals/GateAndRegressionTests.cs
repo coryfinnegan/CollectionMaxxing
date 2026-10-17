@@ -88,7 +88,7 @@ public sealed class GateAndRegressionTests : IDisposable
             "top1.book_spine", "top1.game_box", "top1.disc_cover", "top1.vhs_sleeve", "top1.loose_cartridge", "top1.bare_label",
             "top3.book_spine", "top3.game_box", "top3.disc_cover", "top3.vhs_sleeve", "top3.loose_cartridge", "top3.bare_label",
             "top1.beats_vision_text", "speed.single_p50", "speed.shelf_first_item_p50", "speed.shelf_total_p50",
-            "invented_titles", "guardrail_refusals", "thermals",
+            "invented_titles", "guardrail_refusals", "model_timeouts", "thermals",
         ]);
     }
 

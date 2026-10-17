@@ -6293,6 +6293,7 @@
           "ok",
           "refused",
           "error",
+          "timeout",
           null
         ]
       },
@@ -6600,6 +6601,7 @@
           "unavailable",
           "declined",
           "context",
+          "timeout",
           null
         ]
       },
@@ -8806,6 +8808,8 @@
           "refusals",
           "refusalPct",
           "failures",
+          "timeouts",
+          "timeoutPct",
           "fallbacks",
           "latencyP50Ms",
           "latencyP95Ms",
@@ -8921,6 +8925,17 @@
           "failures": {
             "type": "integer",
             "format": "int32"
+          },
+          "timeouts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "timeoutPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
           },
           "fallbacks": {
             "type": "integer",

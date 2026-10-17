@@ -24,6 +24,13 @@ public static class EvalScorer
     private const string Ok = "ok";
     private const string Refused = "refused";
     private const string Error = "error";
+    private const string Timeout = "timeout";
+
+    /// <summary>
+    /// The model's time budget in milliseconds (the default of <c>engine.modelTimeoutMs</c>). A timed-out photo counts in the latency
+    /// percentiles at its measured time, or at this budget if that is larger: the phone gave up at the budget, so it waited at least that long.
+    /// </summary>
+    public const long ModelTimeoutBudgetMs = 8000;
 
     private sealed record TruthItem(string Title, string? Platform, string? MediaType, string? Format, string Kind);
 
@@ -44,6 +51,7 @@ public static class EvalScorer
         public int Invented;
         public int Refusals;
         public int Failures;
+        public int Timeouts;
         public int Fallbacks;
         public List<long> Latency { get; } = [];
         public List<long> FirstItem { get; } = [];
@@ -135,6 +143,8 @@ public static class EvalScorer
             tally.Refusals,
             RefusalPct: Pct(tally.Refusals, tally.Photos),
             tally.Failures,
+            tally.Timeouts,
+            TimeoutPct: Pct(tally.Timeouts, tally.Photos),
             tally.Fallbacks,
             Percentile(tally.Latency, 50),
             Percentile(tally.Latency, 95),
@@ -158,6 +168,13 @@ public static class EvalScorer
         tally.Refusals += photo.Outcome == Refused ? 1 : 0;
         tally.Failures += photo.Outcome == Error ? 1 : 0;
         tally.Fallbacks += photo.FellBackFrom is null ? 0 : 1;
+        tally.Timeouts += photo.Outcome == Timeout ? 1 : 0;
+        if (photo.Outcome == Timeout)
+        {
+            // The slowest reads must not vanish from p50/p95: a timeout counts at its measured time, or at the budget if larger.
+            tally.Latency.Add(Math.Max(photo.LatencyMs, ModelTimeoutBudgetMs));
+        }
+
         if (photo.Outcome == Ok)
         {
             tally.Latency.Add(photo.LatencyMs);

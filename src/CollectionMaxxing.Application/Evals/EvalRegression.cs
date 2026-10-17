@@ -16,7 +16,7 @@ public static class EvalRegression
     /// <summary>A metric may move this many points the wrong way; more than this is flagged.</summary>
     public const double AllowedPoints = 2.0;
 
-    private static readonly string[] LowerIsBetter = ["invented_pct", "refusal_pct"];
+    private static readonly string[] LowerIsBetter = ["invented_pct", "refusal_pct", "timeout_pct"];
 
     /// <summary>Every percentage in the engines' numbers, by a stable name such as <c>apple_model.single.top1</c>.</summary>
     public static IReadOnlyDictionary<string, double> Flatten(IReadOnlyDictionary<string, EngineSummary> engines)
@@ -56,6 +56,7 @@ public static class EvalRegression
         Add("completeness_accuracy", slice.CompletenessAccuracyPct);
         Add("invented_pct", slice.InventedPct);
         Add("refusal_pct", slice.RefusalPct);
+        Add("timeout_pct", slice.TimeoutPct);
         foreach (var (kind, numbers) in slice.ByKind)
         {
             Add($"kind.{kind}.top1", numbers.Top1Pct);

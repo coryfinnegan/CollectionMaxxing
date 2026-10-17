@@ -14,6 +14,9 @@ public enum EvalOutcome
 
     /// <summary>The engine failed or was unavailable.</summary>
     Error,
+
+    /// <summary>The model did not answer within its time budget. It counts in the latency percentiles (the slowest reads) and has its own rate.</summary>
+    Timeout,
 }
 
 /// <summary>The phone's thermal state at the end of the photo (iOS <c>ProcessInfo.ThermalState</c>).</summary>

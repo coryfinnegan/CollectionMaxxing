@@ -72,6 +72,11 @@ public static class M3Gate
         var refusalPct = EvalScorer.Pct(refusals, photos);
         measures.Add(Measure("guardrail_refusals", $"< {MaxRefusalPct:0.#}% of photos", refusalPct is null ? null : $"{refusalPct:0.##}%", refusalPct is { } rp ? rp < MaxRefusalPct : null));
 
+        // Timeouts already count in the speed measures above; the rate is shown so a slow engine is not hidden behind its p50.
+        var timeouts = (apple?.Shelf?.Timeouts ?? 0) + (apple?.Single?.Timeouts ?? 0);
+        var timeoutPct = EvalScorer.Pct(timeouts, photos);
+        measures.Add(Measure("model_timeouts", "reported; counted in the speed measures", timeoutPct is null ? null : $"{timeoutPct:0.##}%", timeoutPct is null ? null : true));
+
         measures.Add(Thermals(apple));
 
         var verdict = measures.Any(m => m.Status == Fail) ? Fail : measures.Any(m => m.Status == NoData) ? Incomplete : Pass;

@@ -4,9 +4,9 @@ import { toIdentifyItem } from '../recognition/mapping';
 import type { FellBackFrom, ReadItem } from '../recognition/types';
 import type { PicItem, PicSnap } from './pipelineStore';
 
-/** The server knows three reasons; a timeout is a read that produced nothing usable, so it counts as unavailable. */
+/** The server knows four reasons; a timeout is its own, so stats can tell a slow model from an outage. */
 export function toFallbackReason(from: FellBackFrom): FallbackReason {
-  return from === 'contextExceeded' ? 'context' : from === 'timeout' ? 'unavailable' : from;
+  return from === 'contextExceeded' ? 'context' : from;
 }
 
 /** `IdentifyItem` plus the format the engines read (a VHS tape is a film in the VHS format). */

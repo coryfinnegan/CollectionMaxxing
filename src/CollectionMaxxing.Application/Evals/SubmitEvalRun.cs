@@ -244,7 +244,7 @@ public static class SubmitEvalRun
 
             if (photo.Outcome is null)
             {
-                return EvalErrors.Invalid("evals.outcome_required", "Send the outcome: ok, refused or error.", $"{at}.outcome");
+                return EvalErrors.Invalid("evals.outcome_required", "Send the outcome: ok, refused, timeout or error.", $"{at}.outcome");
             }
 
             if (photo.Thermal is null)
