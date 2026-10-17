@@ -7373,7 +7373,8 @@
           "prompt",
           "autoSnap",
           "engine",
-          "splitting"
+          "splitting",
+          "fingerprints"
         ],
         "type": "object",
         "properties": {
@@ -7391,6 +7392,9 @@
           },
           "splitting": {
             "$ref": "#/components/schemas/RecognitionSplitting"
+          },
+          "fingerprints": {
+            "$ref": "#/components/schemas/RecognitionFingerprints"
           }
         }
       },
@@ -7408,6 +7412,18 @@
           "maxItemsPerSnap": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "RecognitionFingerprints": {
+        "required": [
+          "maxDistance"
+        ],
+        "type": "object",
+        "properties": {
+          "maxDistance": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
