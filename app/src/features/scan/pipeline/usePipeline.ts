@@ -11,7 +11,7 @@ import { getTrayStore } from '../tray/storage';
 import type { TrayStore } from '../tray/trayStore';
 import { devFixtureReader, DEV_FIXTURE_PHOTO } from './devFixtures';
 import { pictureCounts, pictureLines } from './lines';
-import { SnapPipeline, type PipelineDeps } from './SnapPipeline';
+import { SnapPipeline, type PipelineDeps, type Reader } from './SnapPipeline';
 
 /** A barcode seen this recently still counts as in view (the same memory auto-snap uses). */
 const BARCODE_MEMORY_MS = 600;
@@ -73,6 +73,11 @@ export function usePipeline({
   const counts = useMemo(() => pictureCounts(lines), [lines]);
 
   const onSnap = useCallback((event: SnapEvent) => void pipeline?.onSnap(event), [pipeline]);
+  /** One picture with a reader of the caller's choosing (Import from Photos watches what the read gave). */
+  const snapWith = useCallback(
+    (event: SnapEvent, options: { recognition: Reader }) => pipeline?.onSnap(event, options) ?? Promise.resolve(),
+    [pipeline],
+  );
   const replayFixture = useCallback(
     () => void pipeline?.onSnap({ photo: DEV_FIXTURE_PHOTO, trigger: 'shutter' }, { recognition: devFixtureReader() }),
     [pipeline],
@@ -81,6 +86,8 @@ export function usePipeline({
   return {
     enabled: !!pipeline,
     onSnap,
+    snapWith,
+    recognition: deps?.recognition,
     replayFixture,
     lines,
     items: counts.items,

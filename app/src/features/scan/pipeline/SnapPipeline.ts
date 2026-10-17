@@ -106,7 +106,8 @@ export class SnapPipeline {
 
   /** One picture from the shutter or auto-snap. Resolves once it is read and sent (or queued). */
   async onSnap(event: SnapEvent, options: { recognition?: Reader } = {}): Promise<void> {
-    if (this.barcodeInView()) return; // a barcode in view wins: the barcode path reads it, no picture is sent
+    // A barcode in view wins: the barcode path reads it, no picture is sent. An imported picture is not what the camera sees.
+    if (event.trigger !== 'import' && this.barcodeInView()) return;
     const { store, snaps } = this.deps;
     const snapId = (this.deps.newId ?? randomId)();
     const photoUri = trackPicture(event.photo.uri, snapId); // the scaled snap: deleted once the store has its own copy
