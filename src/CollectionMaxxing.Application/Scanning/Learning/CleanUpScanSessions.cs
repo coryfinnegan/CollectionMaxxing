@@ -35,6 +35,7 @@ public sealed class CleanUpScanSessions(IAppDbContext db, TimeProvider clock, IP
             .ToListAsync(cancellationToken);
         if (expired.Count == 0)
         {
+            await CandidatePhotos.SweepOrphansAsync(db, photoStore, logger, cancellationToken);
             return;
         }
 
@@ -71,5 +72,7 @@ public sealed class CleanUpScanSessions(IAppDbContext db, TimeProvider clock, IP
         await db.ScanSnaps.IgnoreQueryFilters().Where(s => removable.Contains(s.SessionId)).ExecuteDeleteAsync(cancellationToken);
         await db.ScanSessions.IgnoreQueryFilters().Where(s => removable.Contains(s.Id)).ExecuteDeleteAsync(cancellationToken);
         await db.Assets.IgnoreQueryFilters().Where(a => removableAssets.Contains(a.Id)).ExecuteDeleteAsync(cancellationToken);
+
+        await CandidatePhotos.SweepOrphansAsync(db, photoStore, logger, cancellationToken);
     }
 }
