@@ -365,7 +365,13 @@ public class ScanUndoCommitTests : PhotoTest
             // A feature print the phone backed up for a new item: derived data, so it goes with the item. (A tag would be a change: see above.)
             context.ItemFeaturePrints.Add(new ItemFeaturePrint
             {
-                Id = Guid.CreateVersion7(), LibraryId = library.Id, ItemId = itemIds[0], ReleaseId = releaseId, Data = [1, 2, 3], Revision = 1, CreatedAt = DateTimeOffset.UtcNow,
+                Id = Guid.CreateVersion7(),
+                LibraryId = library.Id,
+                ItemId = itemIds[0],
+                ReleaseId = releaseId,
+                Data = [1, 2, 3],
+                Revision = 1,
+                CreatedAt = DateTimeOffset.UtcNow,
             });
             await context.SaveChangesAsync();
         }
