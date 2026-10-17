@@ -81,24 +81,30 @@ public abstract class DeletionTest(ApiFixture api) : InviteTest(api)
 
     // ---- the purge -----------------------------------------------------------------------------------------------------
 
-    /// <summary>Lets the background worker catch up with a clock that just jumped: runs due jobs until none is left, then waits for any the worker has running.</summary>
+    /// <summary>
+    /// Lets the app's own background worker catch up with a clock that just jumped: runs due jobs until none is left, then waits until no job is
+    /// running and none is due. "Nothing is running" alone is not settled: the worker may have claimed the sweep, and between the sweep finishing
+    /// and the worker claiming the purge it queued, the purge is due but not running. So look again, and run what is due, until the table is quiet.
+    /// </summary>
     protected async Task RunDueJobsAsync()
     {
         var runner = App.Services.GetRequiredService<JobRunner>();
-        while (await runner.RunNextAsync("test-" + Guid.NewGuid().ToString("N"), CancellationToken.None))
-        {
-        }
-
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (DateTime.UtcNow < deadline)
+        while (true)
         {
+            while (await runner.RunNextAsync("test-" + Guid.NewGuid().ToString("N"), CancellationToken.None))
+            {
+            }
+
+            var now = App.Time.GetUtcNow();
             await using var context = Db.CreateContext();
-            if (!await context.Jobs.AnyAsync(j => j.Status == JobStatus.Running))
+            var busy = await context.Jobs.AnyAsync(j => j.Status == JobStatus.Running || (j.Status == JobStatus.Pending && j.RunAfter <= now));
+            if (!busy || DateTime.UtcNow >= deadline)
             {
                 return;
             }
 
-            await Task.Delay(100);
+            await Task.Delay(50);
         }
     }
 
