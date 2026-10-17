@@ -62,15 +62,31 @@ public static class CommitScanSession
             var now = clock.GetUtcNow();
             var storedKey = ScanSessions.IdempotencyKeyFor("commit", session.Id, key);
             var hash = CommitOptions.Hash(session.Id, command.Options);
-            var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
-            if (previous is not null && previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
+            var previous = await db.IdempotencyKeys.AsNoTracking().FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
+            if (previous is not null)
             {
-                if (previous.RequestHash != hash)
+                if (previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
                 {
-                    return ItemErrors.KeyReused; // the same key, a different request
+                    if (previous.RequestHash != hash)
+                    {
+                        return ItemErrors.KeyReused; // the same key, a different request
+                    }
+
+                    var again = JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options);
+                    if (again is null)
+                    {
+                        return ScanningErrors.AlreadyCommitted;
+                    }
+
+                    // A commit that made items and left the session open was undone (SCAN-1e): its items are gone, so its answer is no answer.
+                    if (again.Created == 0 || session.Status != ScanSessionStatus.Open)
+                    {
+                        return again;
+                    }
                 }
 
-                return JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options) is { } again ? again : ScanningErrors.AlreadyCommitted;
+                // An answer that no longer fits (the key expired, or that commit was undone): forget it and commit afresh under the same key.
+                await db.IdempotencyKeys.Where(k => k.UserId == userId && k.Key == storedKey).ExecuteDeleteAsync(cancellationToken);
             }
 
             if (session.Status == ScanSessionStatus.Committed)

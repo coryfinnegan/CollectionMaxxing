@@ -110,6 +110,15 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireScanSessionRole(LibraryRole.Editor);
 
+        // Takes back a commit made moments ago: the new items are removed for good and Review gets its results back (SCAN-1e).
+        sessions.MapPost("/{id:guid}/commit:undo", UndoCommit)
+            .WithName("UndoScanCommit").WithTags("Scanning")
+            .Produces<UndoResultDto>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireScanSessionRole(LibraryRole.Editor);
+
         // Abandon.
         sessions.MapDelete("/{id:guid}", Abandon)
             .WithName("AbandonScanSession").WithTags("Scanning")
@@ -175,6 +184,16 @@ public static class ScanningEndpoints
                 body.AddTo, body.Status, body.Condition,
                 body.Overrides?.Select(o => new CommitOverride(o?.CandidateId, o?.LocationId, o?.Status, o?.Condition, o?.Copies)).ToList());
         var result = await handler.HandleAsync(new CommitScanSession.Command(id, idempotencyKey, options), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
+    }
+
+    private static async Task<IResult> UndoCommit(
+        Guid id,
+        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        UndoScanCommit.Handler handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new UndoScanCommit.Command(id, idempotencyKey), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
     }
 

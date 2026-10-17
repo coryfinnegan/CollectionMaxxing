@@ -164,12 +164,12 @@ public class ScanUndoCommitTests : PhotoTest
         var (library, editor, sessionId, _) = await ScannedAsync(29130);
         var itemIds = await CommitOkAsync(editor, sessionId);
         var itemUrl = $"/api/v1/libraries/{library.Id}/items/{itemIds[1]}";
+        _clock.Advance(TimeSpan.FromSeconds(5)); // the frozen test clock would stamp the edit with the very moment of the commit
         var read = await editor.GetAsync(itemUrl);
         read.StatusCode.ShouldBe(HttpStatusCode.OK);
         using var patch = new HttpRequestMessage(HttpMethod.Patch, itemUrl) { Content = new StringContent("""{"notes":"Mine now"}""", Encoding.UTF8, "application/json") };
         patch.Headers.TryAddWithoutValidation("If-Match", read.Headers.ETag!.Tag);
         (await editor.SendAsync(patch)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        _clock.Advance(TimeSpan.FromSeconds(5));
 
         var response = await UndoAsync(editor, sessionId);
 
@@ -188,10 +188,18 @@ public class ScanUndoCommitTests : PhotoTest
         {
             var (library, editor, sessionId, _) = await ScannedAsync(29140 + (Array.IndexOf(new[] { "deleted", "moved", "tagged" }, change) * 10));
             var itemIds = await CommitOkAsync(editor, sessionId);
+            _clock.Advance(TimeSpan.FromSeconds(1)); // the frozen test clock would stamp the change with the very moment of the commit
             switch (change)
             {
                 case "deleted":
-                    (await editor.DeleteAsync($"/api/v1/libraries/{library.Id}/items/{itemIds[0]}")).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+                    var itemUrl = $"/api/v1/libraries/{library.Id}/items/{itemIds[0]}";
+                    var read = await editor.GetAsync(itemUrl);
+                    using (var delete = new HttpRequestMessage(HttpMethod.Delete, itemUrl))
+                    {
+                        delete.Headers.TryAddWithoutValidation("If-Match", read.Headers.ETag!.Tag);
+                        (await editor.SendAsync(delete)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+                    }
+
                     break;
                 case "moved":
                     var shelf = await TestData.CreateLocationAsync(Db, library.Id, "Shelf");
@@ -205,7 +213,6 @@ public class ScanUndoCommitTests : PhotoTest
                     break;
             }
 
-            _clock.Advance(TimeSpan.FromSeconds(1));
             var response = await UndoAsync(editor, sessionId);
 
             response.StatusCode.ShouldBe(HttpStatusCode.Conflict, change);
