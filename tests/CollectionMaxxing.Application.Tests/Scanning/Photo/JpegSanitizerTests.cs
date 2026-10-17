@@ -75,6 +75,65 @@ public class JpegSanitizerTests
         clean.AsSpan(2, adobe.Length).ToArray().ShouldBe(adobe);
     }
 
+    private static byte[] Jfif(byte major = 1, byte units = 1, byte thumbWidth = 0, byte fill = 0) =>
+        [0xFF, 0xE0, 0x00, 0x10, (byte)'J', (byte)'F', (byte)'I', (byte)'F', 0, major, 1, units, fill, fill, fill, fill, thumbWidth, 0];
+
+    private static byte[] AdobeSegment(byte transform = 1, byte fill = 0) =>
+        [0xFF, 0xEE, 0x00, 0x0E, (byte)'A', (byte)'d', (byte)'o', (byte)'b', (byte)'e', 0, 100, fill, fill, fill, fill, transform];
+
+    /// <summary>The plain picture with <paramref name="extra"/> segments placed straight after its own JFIF header.</summary>
+    private static byte[] PlainWith(params byte[][] extra)
+    {
+        var plain = JpegFixtures.Plain();
+        var input = new List<byte>(plain.AsSpan(0, 2 + 18).ToArray());
+        foreach (var segment in extra)
+        {
+            input.AddRange(segment);
+        }
+
+        input.AddRange(plain.AsSpan(2 + 18));
+        return [.. input];
+    }
+
+    [Fact]
+    public void Stacked_jfif_and_adobe_segments_are_cut_down_to_one_of_each_so_nothing_big_rides_along()
+    {
+        var many = Enumerable.Repeat(Jfif(fill: 0x41), 500).Concat(Enumerable.Repeat(AdobeSegment(fill: 0x42), 500)).ToArray();
+        var dirty = PlainWith(many);
+
+        var clean = Clean(dirty);
+
+        clean.Length.ShouldBe(JpegFixtures.Plain().Length + AdobeSegment().Length); // the plain file's own JFIF, plus the first Adobe only
+        clean.Length.ShouldBeLessThan(JpegFixtures.Plain().Length + 100);
+    }
+
+    [Fact]
+    public void A_second_jfif_header_is_removed_even_when_it_looks_fine()
+    {
+        Clean(PlainWith(Jfif())).ShouldBe(JpegFixtures.Plain());
+    }
+
+    [Theory]
+    [InlineData(2, 1, 0)] // version 2
+    [InlineData(1, 3, 0)] // density unit 3
+    [InlineData(1, 1, 5)] // a thumbnail width
+    public void A_jfif_header_with_fields_the_format_does_not_allow_is_removed(byte major, byte units, byte thumbWidth)
+    {
+        var plain = JpegFixtures.Plain();
+        var input = new List<byte>(plain.AsSpan(0, 2).ToArray());
+        input.AddRange(Jfif(major, units, thumbWidth));
+        input.AddRange(plain.AsSpan(2 + 18));
+
+        JpegFixtures.Contains(Clean([.. input]), "JFIF").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void An_adobe_segment_with_a_transform_the_format_does_not_define_is_removed()
+    {
+        JpegFixtures.Contains(Clean(PlainWith(AdobeSegment(transform: 9))), "Adobe").ShouldBeFalse();
+        JpegFixtures.Contains(Clean(PlainWith(AdobeSegment(transform: 2))), "Adobe").ShouldBeTrue();
+    }
+
     [Fact]
     public void Scan_data_with_stuffed_bytes_restart_markers_and_fill_is_copied_exactly()
     {
