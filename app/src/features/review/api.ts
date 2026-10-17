@@ -1,13 +1,12 @@
 // Review's calls to the API, as plain functions over the generated client. Candidate answers are merged into the
 // shared cards store, so the scanner and Review always show the same candidate.
-import { bulkItems, getItem, updateItem } from '@/api/generated/items/items';
+import { bulkItems } from '@/api/generated/items/items';
 import type { CandidateDto, CommitResultDto, DecideCandidateRequest } from '@/api/generated/models';
 import { commitScanSession, decideCandidate, searchForCandidate } from '@/api/generated/scanning/scanning';
-import { ifMatchHeader } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { loadSession } from '@/features/scan/session/sessionApi';
 import { ApiError } from '@/lib/http';
-import { bulkSteps, committable, effective, type Draft } from './plan';
+import { commitBody, committable, type Draft } from './plan';
 
 const keep = (candidate: CandidateDto) => useCardsStore.getState().merge([candidate], { announce: false });
 
@@ -38,16 +37,15 @@ export async function loadIntoCards(sessionId: string): Promise<void> {
 
 /**
  * Adds what is checked. The server only adds *accepted* candidates, so the decisions are made to match the
- * checkboxes first; then one commit (one transaction, one Idempotency-Key per attempt); then Add to, Status and
- * condition are applied to the new items. Throws if the commit itself failed: nothing was added then.
+ * checkboxes first; then one commit (one transaction, one Idempotency-Key per attempt) that carries Add to, Status,
+ * condition and the per-line overrides. Throws if the commit failed: nothing was added then.
  */
 export async function commitDraft(
   sessionId: string,
-  libraryId: string,
   list: readonly CandidateDto[],
   draft: Draft,
   key: string,
-): Promise<{ result: CommitResultDto; warning: string | null }> {
+): Promise<CommitResultDto> {
   const chosen = committable(list, draft);
   const chosenIds = new Set(chosen.map((c) => c.id));
   for (const c of chosen) {
@@ -58,33 +56,17 @@ export async function commitDraft(
     if (!chosenIds.has(c.id) && c.decision === 'accepted') await patchCandidate(sessionId, c.id, { decision: 'undecided' });
   }
 
-  const response = await commitScanSession(sessionId, undefined, { headers: { 'Idempotency-Key': key } });
+  const response = await commitScanSession(sessionId, commitBody(draft, [...chosenIds]), { headers: { 'Idempotency-Key': key } });
   if (response.status !== 200) throw new ApiError(response.status, {});
-  const result = response.data;
-
-  try {
-    const after = await loadSession(sessionId);
-    const created: Record<string, string | null> = {};
-    for (const c of after) if (chosenIds.has(c.id)) created[c.id] = c.createdItemId;
-    for (const step of bulkSteps(draft, result.itemIds, created)) {
-      await bulkItems(libraryId, { ids: step.ids, action: 'patch', patch: step.patch });
-    }
-    for (const [candidateId, itemId] of Object.entries(created)) {
-      const condition = effective(draft, candidateId).condition;
-      if (!itemId || !condition) continue;
-      const item = await getItem(libraryId, itemId);
-      const etag = item.status === 200 ? item.headers.get('etag') : null;
-      if (etag) await updateItem(libraryId, itemId, { condition }, { headers: ifMatchHeader(etag) });
-    }
-    return { result, warning: null };
-  } catch {
-    return { result, warning: "Couldn't set the location, status or condition on every item. Change them from each item." };
-  }
+  return response.data;
 }
 
-/** Undo: the new items go to Recently deleted in one call (the contract has no batch undo, so this is the bulk soft delete). */
+/**
+ * Undo after "Added N items": the new items go to Recently deleted in one call (one transaction, all or nothing).
+ * NOTE: the brief asked for the batch restore here, but a restore only brings back *deleted* items, and the items
+ * just added are live. See the PR notes.
+ */
 export async function undoCommit(libraryId: string, itemIds: readonly string[]): Promise<void> {
   const response = await bulkItems(libraryId, { ids: [...itemIds], action: 'delete' });
   if (response.status !== 200) throw new ApiError(response.status, {});
 }
-

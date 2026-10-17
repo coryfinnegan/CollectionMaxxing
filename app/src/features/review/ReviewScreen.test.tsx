@@ -4,6 +4,7 @@ import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
+import { QUOTA_COPY } from '@/features/scan/cards/copy';
 import { itemsState, resetItems } from '@/mocks/items';
 import { scanMock } from '@/mocks/scan';
 import { reviewMock } from '@/mocks/scan-review';
@@ -31,6 +32,14 @@ const asViewer = () => {
 
 const open = async (undoMs?: number) => {
   await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} undoMs={undoMs} />);
+};
+
+/** One tap, flushed before the next (state updates inside a sheet need their own act). */
+const press = async (label: string) => {
+  const target = await screen.findByLabelText(label);
+  await act(async () => {
+    fireEvent.press(target);
+  });
 };
 
 beforeEach(() => {
@@ -124,5 +133,87 @@ describe('Review screen', () => {
     await waitFor(() => expect(screen.getByText(/You can look but not add/)).toBeTruthy());
     expect(screen.queryByLabelText(/^Add \d+ items?$/)).toBeNull();
     expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull();
+  });
+
+  describe('Undo', () => {
+    it('removes exactly the items that were added, in one call, and never restores', async () => {
+      seed([mario(), candidate({ release: release(3, 'Zelda', { format: 'game_cartridge' }) })]);
+      await open();
+      fireEvent.press(await screen.findByLabelText('Add 2 items'));
+      await screen.findByText('Added 2 items');
+      const ids = reviewMock.commits.length === 1 ? itemsState.entries.map((e) => e.item.id).slice(-2) : [];
+      fireEvent.press(screen.getByLabelText('Undo'));
+      await screen.findByText(/Undone/);
+      expect(reviewMock.restores).toHaveLength(0);
+      expect(itemsState.entries.filter((e) => ids.includes(e.item.id)).every((e) => e.item.deletedAt)).toBe(true);
+    });
+
+    it('shows friendly copy and keeps the Undo when it fails', async () => {
+      seed([mario()]);
+      await open();
+      fireEvent.press(await screen.findByLabelText('Add 1 item'));
+      await screen.findByText('Added 1 item');
+      server.use(http.post(/\/items:bulk$/, () => HttpResponse.json({ title: 'Something went wrong.', status: 500 }, { status: 500, headers: { 'Content-Type': 'application/problem+json' } })));
+      fireEvent.press(screen.getByLabelText('Undo'));
+      await waitFor(() => expect(screen.queryByText('Added 1 item')).toBeNull());
+      expect(screen.getByLabelText('Undo')).toBeTruthy();
+      expect(screen.queryByText(/Undone/)).toBeNull();
+    });
+  });
+
+  it('sends Add to, status, condition and per-line overrides in the one commit', async () => {
+    seed([mario(), candidate({ release: release(3, 'Zelda', { format: 'game_cartridge' }) })]);
+    await open();
+    await press('Status Wishlist');
+    await press('Details for Zelda');
+    await press('Condition Good');
+    await press('Status for Zelda: Owned');
+    const button = screen.getByLabelText('Add 2 items');
+    await act(async () => {
+      fireEvent.press(button);
+      fireEvent.press(button);
+    });
+    await screen.findByText('Added 2 items');
+    expect(reviewMock.commits).toHaveLength(1);
+    const body = reviewMock.commits[0]!.body!;
+    expect(body.status).toBe('wishlist');
+    expect(body.overrides).toEqual([{ candidateId: scanMock.sessions.get(SESSION)!.candidates[1]!.id, status: 'owned', condition: 'good' }]);
+    const items = itemsState.entries.slice(-2).map((e) => [e.item.status, e.item.condition]);
+    expect(items).toEqual([['wishlist', null], ['owned', 'good']]);
+  });
+
+  describe('candidate sheet', () => {
+    it('sends the edited platform and edition, and the row shows them', async () => {
+      seed([candidate({ release: release(4, 'Super Mario 64', { format: 'game_cartridge' }) })]);
+      await open();
+      await press('Details for Super Mario 64');
+      await press('Platform for Super Mario 64: Nintendo 64');
+      await waitFor(() => expect(scanMock.sessions.get(SESSION)!.candidates[0]!.edits?.platform).toBe('Nintendo 64'));
+      await act(async () => {
+        fireEvent.changeText(screen.getByLabelText('Edition'), 'Player’s Choice');
+      });
+      await press('Save edition for Super Mario 64');
+      await waitFor(() => expect(scanMock.sessions.get(SESSION)!.candidates[0]!.edits?.edition).toBe('Player’s Choice'));
+      expect(scanMock.sessions.get(SESSION)!.candidates[0]!.userEdited).toBe(true);
+      expect((await screen.findAllByText(/Nintendo 64 · 1990/)).length).toBeGreaterThan(0);
+    });
+
+    it('sends the edited format', async () => {
+      seed([mario()]);
+      await open();
+      await press('Details for Super Mario 64');
+      await press('Format for Super Mario 64: Game disc');
+      await waitFor(() => expect(scanMock.sessions.get(SESSION)!.candidates[0]!.edits?.format).toBe('game_disc'));
+    });
+  });
+
+  it('says a quota wait will be looked up tomorrow, and a plain wait does not', async () => {
+    seed([
+      candidate({ resolution: 'pending', release: null, rawCode: '111', pendingReason: 'quota', retryAfter: '2026-10-17T00:00:00Z' }),
+      candidate({ resolution: 'pending', release: null, rawCode: '222', pendingReason: 'lookup' }),
+    ]);
+    await open();
+    await screen.findByText('Still looking up · 2');
+    expect(screen.getAllByText(QUOTA_COPY)).toHaveLength(1);
   });
 });

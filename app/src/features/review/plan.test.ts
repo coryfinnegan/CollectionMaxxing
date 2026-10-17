@@ -1,4 +1,4 @@
-import { addCount, addLabel, bulkSteps, committable, effective, emptyDraft, type Draft } from './plan';
+import { addCount, addLabel, commitBody, committable, effective, emptyDraft, type Draft } from './plan';
 import { candidate, release } from './testData';
 
 const ready = (id: string, n: number) => candidate({ id, release: release(n, `Title ${n}`) });
@@ -38,20 +38,29 @@ describe('review plan', () => {
     expect(effective({ ...draft, overrides: { c: { locationId: null } } }, 'c').locationId).toBeNull();
   });
 
-  it('turns the choices into one bulk call for everyone and one per distinct override', () => {
+  it('turns the choices into the one commit body: Add to, Status, and only the lines that differ', () => {
     const draft: Draft = {
       ...emptyDraft(),
       addTo: 'shelf',
-      overrides: { b: { locationId: 'box' }, c: { locationId: 'box' }, d: { locationId: 'shelf' } },
+      status: 'wishlist',
+      overrides: { b: { locationId: 'box', condition: 'good' }, c: { status: 'owned' }, d: { locationId: 'shelf', status: 'wishlist' } },
     };
-    const steps = bulkSteps(draft, ['ia', 'ib', 'ic', 'id'], { a: 'ia', b: 'ib', c: 'ic', d: 'id' });
-    expect(steps).toEqual([
-      { ids: ['ia', 'ib', 'ic', 'id'], patch: { locationId: 'shelf' } },
-      { ids: ['ib', 'ic'], patch: { locationId: 'box' } },
-    ]);
+    expect(commitBody(draft, ['a', 'b', 'c', 'd'])).toEqual({
+      addTo: 'shelf',
+      status: 'wishlist',
+      overrides: [
+        { candidateId: 'b', locationId: 'box', condition: 'good' },
+        { candidateId: 'c', status: 'owned' },
+      ],
+    });
   });
 
-  it('makes no bulk call when nothing differs from the new-item defaults', () => {
-    expect(bulkSteps(emptyDraft(), ['ia'], { a: 'ia' })).toEqual([]);
+  it('leaves out overrides for rows that are not being added', () => {
+    const draft: Draft = { ...emptyDraft(), overrides: { x: { condition: 'good' } } };
+    expect(commitBody(draft, ['a']).overrides).toBeUndefined();
+  });
+
+  it('sends no Add to or Status when nothing differs from the defaults', () => {
+    expect(commitBody(emptyDraft(), ['a'])).toEqual({});
   });
 });
