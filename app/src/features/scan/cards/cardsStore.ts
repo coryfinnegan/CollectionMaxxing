@@ -12,6 +12,9 @@ export function announcementFor(c: Pick<CandidateDto, 'resolution' | 'alreadyOwn
   return undefined;
 }
 
+/** Where a copy of a candidate sits in the order of its changes. `seq` stays put when a candidate is updated, so `changeSeq` leads. */
+const changeOrder = (c: Partial<Pick<CandidateDto, 'seq' | 'changeSeq'>>): number | undefined => c.changeSeq ?? c.seq;
+
 type CardsState = {
   byId: Record<string, CandidateDto>;
   /** When each card first appeared (1, 2, 3...), so an update never moves a card to the front. */
@@ -34,12 +37,13 @@ export const useCardsStore = create<CardsState>((set, get) => ({
     const order = { ...get().order };
     const announced = { ...get().announced };
     const fresh: { id: string; event: CardEvent }[] = [];
-    const ascending = [...incoming].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+    const ascending = [...incoming].sort((a, b) => (changeOrder(a) ?? 0) - (changeOrder(b) ?? 0));
     for (const part of ascending) {
       if (!part.id) continue;
       const current = byId[part.id];
       // An older copy of a candidate (a replayed event) never overwrites a newer one.
-      if (current && part.seq !== undefined && part.seq < current.seq) continue;
+      const incomingOrder = changeOrder(part);
+      if (current && incomingOrder !== undefined && incomingOrder < (changeOrder(current) ?? 0)) continue;
       const merged = { ...current, ...part } as CandidateDto;
       byId[part.id] = merged;
       order[part.id] ??= Object.keys(order).length + 1;

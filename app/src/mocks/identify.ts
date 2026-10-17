@@ -84,7 +84,7 @@ export const identifyMock: Mock = {
       for (const c of session.candidates.filter((x) => x.resolution === 'pending' && x.source !== 'barcode')) {
         const entry = lookup(c.visibleText ?? '');
         if (entry && 'release' in entry) {
-          Object.assign(c, resolved(entry), { seq: ++session.seq });
+          Object.assign(c, resolved(entry), { changeSeq: ++session.seq });
           emit(session.id, c);
         }
       }
@@ -110,7 +110,7 @@ const resolved = (entry: NonNullable<ReturnType<typeof lookup>>): Partial<Candid
 });
 
 function emit(sessionId: string, candidate: CandidateDto) {
-  const text = `event: candidate.updated\nid: ${candidate.seq}\ndata: ${JSON.stringify(candidate)}\n\n`;
+  const text = `event: candidate.updated\nid: ${candidate.changeSeq}\ndata: ${JSON.stringify(candidate)}\n\n`;
   for (const stream of scanMock.streams) {
     if (stream.sessionId !== sessionId) continue;
     try {
@@ -138,6 +138,7 @@ function candidateFor(seq: number, item: IdentifyItem): CandidateDto {
   const base: CandidateDto = {
     id: newMockId(),
     seq,
+    changeSeq: seq,
     source: 'picture_apple_model',
     rawCode: null,
     symbology: null,
@@ -157,6 +158,10 @@ function candidateFor(seq: number, item: IdentifyItem): CandidateDto {
     alreadyOwnedCount: 0,
     ownedAt: [],
     createdItemId: null,
+    edits: null,
+    userEdited: false,
+    pendingReason: null,
+    retryAfter: null,
   };
   const title = item.title ?? item.text ?? '';
   if (key(title) === key(CLOSE_CALL.title)) {
@@ -215,7 +220,7 @@ export const handlers = [
     candidate.needsArt = false;
     candidate.artDistance = best?.distance ?? null;
     if (pick && best && best.distance < 0.4) Object.assign(candidate, { resolution: 'matched', score: 0.95, release: pick, alternatives: null });
-    candidate.seq = ++session.seq;
+    candidate.changeSeq = ++session.seq;
     emit(session.id, candidate);
     return HttpResponse.json(candidate);
   }),
