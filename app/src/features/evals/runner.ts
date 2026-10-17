@@ -72,7 +72,7 @@ const initial = (): EvalState => ({
 
 const byOrder = (a: GoldenPhotoDto, b: GoldenPhotoDto) => (a.set === b.set ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.set < b.set ? -1 : 1);
 
-const FELL_BACK = { unavailable: 'unavailable', declined: 'declined', timeout: 'unavailable', contextExceeded: 'context' } as const;
+const FELL_BACK = { unavailable: 'unavailable', declined: 'declined', timeout: 'timeout', contextExceeded: 'context' } as const;
 
 const toItem = (item: ReadItem, engine: 'apple_model' | 'vision_pipeline'): EvalReadItem => ({
   localId: item.localId,
@@ -266,7 +266,7 @@ export class EvalRunner {
         ? {
             photoId,
             engine,
-            outcome: reason === 'declined' ? 'refused' : 'error',
+            outcome: reason === 'declined' ? 'refused' : reason === 'timeout' ? 'timeout' : 'error',
             fellBackFrom: FELL_BACK[reason ?? 'unavailable'],
             items: [], // what the fallback read is the Vision row's to report
             unreadableCount: 0,

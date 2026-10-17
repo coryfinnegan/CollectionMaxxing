@@ -69,6 +69,15 @@ describe('the eval runner', () => {
     expect(runs()[0].results[1]).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
   });
 
+  it('sends a model timeout as outcome timeout with fellBackFrom timeout, not as an error or an outage', async () => {
+    const kit = makeKit({ photos: 1, scenes: { 'photo-001': { read: failedRead('timeout') } } });
+    await kit.runner.start();
+    const [model, vision] = runs()[0].results;
+    expect(model).toMatchObject({ engine: 'apple_model', outcome: 'timeout', fellBackFrom: 'timeout', items: [] });
+    expect(model.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(vision).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
+  });
+
   it('keeps the screen awake for the run and lets go at the end', async () => {
     const kit = makeKit({ photos: 2 });
     await kit.runner.start();

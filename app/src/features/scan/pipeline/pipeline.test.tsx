@@ -282,7 +282,7 @@ describe('a snap the model declined', () => {
     ['declined', 'declined'],
     ['unavailable', 'unavailable'],
     ['contextExceeded', 'context'],
-    ['timeout', 'unavailable'],
+    ['timeout', 'timeout'],
   ] as const)('sends engine vision_pipeline and fellBackFrom %s as %s', async (from, sent) => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune], { engine: 'vision_pipeline', fellBackFrom: from }));
