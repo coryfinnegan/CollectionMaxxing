@@ -61,6 +61,14 @@ Prompt skeleton:
 - **Logs of a CI attempt that was re-run:** `gh run view --log` shows nothing for the failed attempt. Use `gh api repos/<repo>/actions/runs/<id>/attempts/1/jobs`, then `gh api repos/<repo>/actions/jobs/<job>/logs`.
 - **A worktree that won't delete** is usually held by a leftover process from its agent (for example `node playwright/serve.mjs`). Stop only the processes whose command line points into that worktree, then remove it.
 - **Tests that start a real `JobWorker`** race other test hosts in the shared database. Remove the hosted worker in the test host and run jobs explicitly through `JobRunner` (SCAN-1a's `TestApiFactory` does this).
+- **Windows Firewall prompts** come from any test server that listens beyond loopback. Each worktree builds its own `*.Tests.exe`, so the owner gets one prompt per worktree. Main is loopback-only (`LoopbackWireMock`, guarded by `TestServerBindingTests`), but an older branch isn't: merge `origin/main` into a branch before any agent runs tests on it. `Get-NetFirewallApplicationFilter` (no admin needed) shows which worktree exes prompted.
+- **Local-only flakes under load:** with 3–4 agents testing at once, a few timing-bound backend tests (`UpcQuotaTests`, `ScanLearningTests`) can fail once and pass on re-run (#136). Tell builders up front, so they don't chase them.
+
+## When the session limit hits
+
+- In-process agents stop with their work saved. In the **same** lead session, resume each with `SendMessage` ("the limit has reset; continue from …") rather than starting a new agent.
+- A **new** lead session can't reach the old agents. Save each one's uncommitted work as a patch (`git -C <worktree> diff HEAD`, plus `git diff --no-index /dev/null <file>` for new files), commit it to a `wip/<task>` branch from the lead's own worktree, push it, and start a fresh agent from that branch. Remove the old worktree first: a branch checked out there can't be checked out again.
+- Agents that wait on CI can re-send their report every time a wait ends. Tell them once to stop polling.
 
 ## End of a wave
 
