@@ -135,5 +135,8 @@ public sealed record BulkItemsPatch(
     IReadOnlyList<Guid>? AddTagIds = null,
     IReadOnlyList<Guid>? RemoveTagIds = null);
 
+/// <summary>Body of <c>POST …/items:restore</c>: undo the delete of up to 500 items at once.</summary>
+public sealed record RestoreItemsRequest(IReadOnlyList<Guid>? Ids = null);
+
 /// <summary>Body of <c>POST …/items:bulk</c>: patch or delete up to 500 items at once.</summary>
 public sealed record BulkItemsRequest(IReadOnlyList<Guid>? Ids = null, BulkAction? Action = null, BulkItemsPatch? Patch = null);

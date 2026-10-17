@@ -58,7 +58,7 @@ export async function commitDraft(
     if (!chosenIds.has(c.id) && c.decision === 'accepted') await patchCandidate(sessionId, c.id, { decision: 'undecided' });
   }
 
-  const response = await commitScanSession(sessionId, { headers: { 'Idempotency-Key': key } });
+  const response = await commitScanSession(sessionId, undefined, { headers: { 'Idempotency-Key': key } });
   if (response.status !== 200) throw new ApiError(response.status, {});
   const result = response.data;
 

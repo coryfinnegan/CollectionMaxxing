@@ -79,6 +79,7 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
             t.HasCheckConstraint("ck_scan_candidates_box_source", EnumColumns.CheckIn<BoxSource>("box_source"));
             t.HasCheckConstraint("ck_scan_candidates_resolution", EnumColumns.CheckIn<CandidateResolution>("resolution"));
             t.HasCheckConstraint("ck_scan_candidates_decision", EnumColumns.CheckIn<CandidateDecision>("decision"));
+            t.HasCheckConstraint("ck_scan_candidates_edited_format", EnumColumns.CheckIn<ReleaseFormat>("edited_format"));
             t.HasCheckConstraint("ck_scan_candidates_copies", "copies >= 1");
             t.HasCheckConstraint("ck_scan_candidates_already_owned_count", "already_owned_count >= 0");
             t.HasCheckConstraint("ck_scan_candidates_score", "score between 0 and 1");
@@ -98,6 +99,13 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
         builder.Property(c => c.BoxSource).HasSnakeCaseEnum();
         builder.Property(c => c.Resolution).HasSnakeCaseEnum();
         builder.Property(c => c.Decision).HasSnakeCaseEnum();
+        builder.Property(c => c.EditedFormat).HasSnakeCaseEnum();
+        builder.Property(c => c.EditedPlatform).HasMaxLength(100);
+        builder.Property(c => c.EditedEdition).HasMaxLength(100);
+
+        // Set by the database (the trigger in the SCAN-1d migration), never by the app: see ScanCandidate.ChangeSeq.
+        builder.Property(c => c.ChangeSeq).ValueGeneratedOnAddOrUpdate();
+        builder.HasIndex(c => new { c.SessionId, c.ChangeSeq });
         builder.Property(c => c.RawCode).HasMaxLength(64);
         builder.Property(c => c.Symbology).HasMaxLength(32);
         builder.Property(c => c.VisibleText).HasMaxLength(2000);

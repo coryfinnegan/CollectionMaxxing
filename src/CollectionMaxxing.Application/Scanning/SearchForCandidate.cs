@@ -46,11 +46,20 @@ public sealed class TextSearchResolver(
 
     private readonly IReadOnlyList<ICatalogProvider> _providers = providers.ToList();
 
-    public async Task<BarcodeResolution> SearchAsync(string text, CancellationToken cancellationToken)
+    public Task<BarcodeResolution> SearchAsync(string text, CancellationToken cancellationToken) =>
+        SearchAsync(text, null, null, null, cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="SearchAsync(string, CancellationToken)"/>, with what the person corrected on the candidate: a format, a
+    /// platform or an edition is one more signal for the scorer (and the providers), never a filter.
+    /// </summary>
+    public async Task<BarcodeResolution> SearchAsync(
+        string text, ReleaseFormat? format, string? platform, string? edition, CancellationToken cancellationToken)
     {
-        var read = new ReadItem { Title = text };
+        var read = new ReadItem { Title = text, Format = format, Platform = platform, Edition = edition };
         var found = await FindLocalAsync(text, cancellationToken);
-        var answers = await AskProvidersAsync(new CatalogQuery { Title = text, Limit = Limit }, options.ResolveBudget, cancellationToken);
+        var query = new CatalogQuery { Title = text, Format = format, Platform = platform, Limit = Limit };
+        var answers = await AskProvidersAsync(query, options.ResolveBudget, cancellationToken);
         return Score(read, CatalogProjection.Profile, found, answers, pendingWhenProvidersFailed: false);
     }
 
@@ -237,7 +246,8 @@ public static class SearchForCandidate
                 return ScanningErrors.SessionClosed;
             }
 
-            var found = await search.SearchAsync(text, cancellationToken);
+            var found = await search.SearchAsync(
+                text, candidate.EditedFormat, candidate.EditedPlatform, candidate.EditedEdition, cancellationToken);
             await resolver.ApplyAsync(session.LibraryId, candidate, found, cancellationToken);
             resolver.SetVisibleText(candidate, text);
             await db.SaveChangesAsync(cancellationToken);

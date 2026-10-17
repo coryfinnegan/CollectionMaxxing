@@ -95,7 +95,7 @@ export const scanMock = {
       for (const c of session.candidates.filter((x) => x.resolution === 'pending')) {
         const entry = this.catalogue[c.rawCode ?? ''];
         if (!entry) continue;
-        Object.assign(c, resolved(entry), { seq: ++session.seq });
+        Object.assign(c, resolved(entry), { changeSeq: ++session.seq });
         emit(session, 'candidate.updated', c);
       }
     }
@@ -123,7 +123,7 @@ const resolved = (entry: Known): Partial<CandidateDto> => ({
 });
 
 function emit(session: MockSession, event: string, candidate: CandidateDto) {
-  const text = `event: ${event}\nid: ${candidate.seq}\ndata: ${JSON.stringify(candidate)}\n\n`;
+  const text = `event: ${event}\nid: ${candidate.changeSeq}\ndata: ${JSON.stringify(candidate)}\n\n`;
   for (const stream of scanMock.streams) {
     if (stream.sessionId !== session.id) continue;
     try {
@@ -158,6 +158,11 @@ const newCandidate = (session: MockSession, code: string, symbology: string | nu
     alreadyOwnedCount: 0,
     ownedAt: [],
     createdItemId: null,
+    changeSeq: session.seq,
+    edits: null,
+    userEdited: false,
+    pendingReason: null,
+    retryAfter: null,
   };
   if (code === DEV_CODES.unreadable) return { ...base, resolution: 'error' };
   if (!entry) return base;
@@ -206,7 +211,7 @@ export const handlers = [
       defaultStatus: null,
       createdAt: '2026-10-01T12:00:00Z',
       committedAt: null,
-      candidates: session.candidates.filter((c) => c.seq > since),
+      candidates: session.candidates.filter((c) => c.changeSeq > since),
     });
   }),
 
@@ -226,8 +231,8 @@ export const handlers = [
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         // Replay what the client missed, then stay open for new events.
-        for (const c of session.candidates.filter((x) => x.seq > last)) {
-          controller.enqueue(encoder.encode(`event: candidate.added\nid: ${c.seq}\ndata: ${JSON.stringify(c)}\n\n`));
+        for (const c of session.candidates.filter((x) => x.changeSeq > last)) {
+          controller.enqueue(encoder.encode(`event: candidate.added\nid: ${c.changeSeq}\ndata: ${JSON.stringify(c)}\n\n`));
         }
         stream = { sessionId: session.id, controller };
         scanMock.streams.add(stream);
@@ -258,7 +263,7 @@ export const handlers = [
       const existing = session.candidates.find((c) => c.rawCode === value);
       if (existing) {
         existing.copies += copies;
-        existing.seq = ++session.seq;
+        existing.changeSeq = ++session.seq;
         emit(session, 'candidate.updated', existing);
         answer.push(existing);
         continue;
@@ -280,7 +285,7 @@ export const handlers = [
     const body = (await request.json()) as { decision?: CandidateDto['decision'] | null; copies?: number | null };
     if (body.decision) candidate.decision = body.decision;
     if (body.copies) candidate.copies = body.copies;
-    candidate.seq = ++session.seq;
+    candidate.changeSeq = ++session.seq;
     emit(session, 'candidate.updated', candidate);
     return HttpResponse.json(candidate);
   }),

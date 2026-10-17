@@ -222,6 +222,7 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Libraries}/items/{{id:guid}}:rematch", LibraryRole.Editor, Json, BadRequest),
         InLibrary("GET", $"{Libraries}/items:deleted", LibraryRole.Editor, allowed: Ok),
         InLibrary("POST", $"{Libraries}/items:bulk", LibraryRole.Editor, Json, BadRequest),
+        InLibrary("POST", $"{Libraries}/items:restore", LibraryRole.Editor, Json, BadRequest), // SCAN-1d: {} has no ids, so the handler is reached
         InLibrary("GET", $"{Libraries}/stats", LibraryRole.Viewer, allowed: Ok),
 
         // ---- Tags (LIB): built ----------------------------------------------------------------------------

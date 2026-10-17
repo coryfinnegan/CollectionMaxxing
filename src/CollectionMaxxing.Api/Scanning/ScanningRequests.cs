@@ -50,8 +50,29 @@ public sealed record ReleaseDistance(Guid? ReleaseId = null, double? Distance = 
 /// <summary>Body of <c>POST …/candidates/{cid}:art</c>: the server re-scores the candidate with these distances.</summary>
 public sealed record ArtDistancesRequest(IReadOnlyList<ReleaseDistance>? Distances = null);
 
-/// <summary>Body of <c>PATCH …/candidates/{cid}</c>: accept, reject, or choose an alternative release.</summary>
-public sealed record DecideCandidateRequest(CandidateDecision? Decision = null, Guid? ReleaseId = null, int? Copies = null);
+/// <summary>
+/// Body of <c>PATCH …/candidates/{cid}</c>: accept, reject, or choose an alternative release; change how many copies; or
+/// correct the format, platform or edition (SCAN-1d). A blank <c>Edition</c> clears the correction.
+/// </summary>
+public sealed record DecideCandidateRequest(
+    CandidateDecision? Decision = null,
+    Guid? ReleaseId = null,
+    int? Copies = null,
+    CollectionMaxxing.Domain.Catalog.ReleaseFormat? Format = null,
+    string? Platform = null,
+    string? Edition = null);
+
+/// <summary>What Review changes for one scanned item at commit; a field left out means "use the default".</summary>
+public sealed record CommitOverrideRequest(
+    Guid? CandidateId = null, Guid? LocationId = null, ItemStatus? Status = null, ItemCondition? Condition = null, int? Copies = null);
+
+/// <summary>
+/// Optional body of <c>POST …/commit</c> (SCAN-1d): <c>AddTo</c> is the location for every item, <c>Status</c> and
+/// <c>Condition</c> apply to every item, and <c>Overrides</c> change single scanned items. Applied in the commit's own
+/// transaction; with no body the commit is exactly what it was before.
+/// </summary>
+public sealed record CommitScanRequest(
+    Guid? AddTo = null, ItemStatus? Status = null, ItemCondition? Condition = null, IReadOnlyList<CommitOverrideRequest>? Overrides = null);
 
 /// <summary>Body of <c>POST …/candidates/{cid}:search</c>: re-search with the user's own words.</summary>
 public sealed record SearchCandidateRequest(string? Text = null);
