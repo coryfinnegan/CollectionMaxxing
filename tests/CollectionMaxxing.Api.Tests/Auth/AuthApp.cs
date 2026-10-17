@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Domain.Accounts;
+using CollectionMaxxing.Infrastructure.Jobs;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -55,6 +56,13 @@ public sealed class AuthApp : IAsyncDisposable
             {
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(time);
+
+                // No background worker: jobs run only when a test runs them with JobRunner, so no test depends on worker timing.
+                foreach (var worker in services.Where(d => d.ImplementationType == typeof(JobWorker)).ToList())
+                {
+                    services.Remove(worker);
+                }
+
                 configure?.Invoke(services);
             });
         });
