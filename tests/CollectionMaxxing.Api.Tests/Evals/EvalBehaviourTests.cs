@@ -93,6 +93,28 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
     }
 
     [Fact]
+    public async Task A_timeout_is_accepted_counts_in_the_latency_percentiles_and_shows_as_its_own_rate_in_the_gate_table()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Golden.AddSingle("c2", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        var response = await PostRunOkAsync(admin, RunBody(
+            PhotoResult("c1", "apple_model", [StarFoxRead("model")], latencyMs: 1000),
+            PhotoResult("c2", "apple_model", [], outcome: "timeout", latencyMs: 8200, firstItemMs: null, fellBackFrom: "timeout")));
+
+        var summary = response.GetProperty("summary");
+        var single = summary.GetProperty("engines").GetProperty("apple_model").GetProperty("single");
+        single.GetProperty("timeouts").GetInt32().ShouldBe(1);
+        single.GetProperty("timeoutPct").GetDouble().ShouldBe(50);
+        single.GetProperty("latencyP95Ms").GetInt64().ShouldBe(8200);
+        single.GetProperty("failures").GetInt32().ShouldBe(0);
+        var gate = summary.GetProperty("gate").GetProperty("measures").EnumerateArray().Single(m => m.GetProperty("name").GetString() == "model_timeouts");
+        gate.GetProperty("actual").GetString().ShouldBe("50%");
+    }
+
+    [Fact]
     public async Task An_invented_title_that_survives_grounding_is_counted()
     {
         Golden.AddSingle("c1", StarFoxTruth);

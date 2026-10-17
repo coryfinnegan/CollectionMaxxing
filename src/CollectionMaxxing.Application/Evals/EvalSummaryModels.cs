@@ -28,6 +28,8 @@ public sealed record SliceMetrics(
     int Refusals,
     double? RefusalPct,
     int Failures,
+    int Timeouts,
+    double? TimeoutPct,
     int Fallbacks,
     long? LatencyP50Ms,
     long? LatencyP95Ms,

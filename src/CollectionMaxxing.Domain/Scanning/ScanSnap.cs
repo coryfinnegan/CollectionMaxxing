@@ -20,6 +20,9 @@ public enum FallbackReason
     Unavailable,
     Declined,
     Context,
+
+    /// <summary>The model did not answer within its time budget (a slow read, not an outage).</summary>
+    Timeout,
 }
 
 /// <summary>Metadata about one photo the phone analysed. The photo itself stays on the phone.</summary>

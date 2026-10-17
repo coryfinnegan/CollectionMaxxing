@@ -215,6 +215,28 @@ public class IdentifyBehaviourTests(ApiFixture api) : IdentifyTest(api)
 
     // ---- the snap and the candidates it makes ----------------------------------------------------------------------
 
+    [Theory]
+    [InlineData("timeout", FallbackReason.Timeout)]
+    [InlineData("unavailable", FallbackReason.Unavailable)]
+    public async Task A_model_timeout_is_stored_apart_from_an_outage_so_stats_can_tell_them_apart(string sent, FallbackReason stored)
+    {
+        var library = await CreateLibraryAsync();
+        using var viewer = As(library, LibraryRole.Viewer);
+        var sessionId = await StartSessionAsync(viewer, library.Id);
+        var snapId = Guid.NewGuid();
+        var body = Body(snapId, [Read(title: "One", kind: "game")]);
+        body["engine"] = "vision_pipeline";
+        body["fellBackFrom"] = sent;
+
+        var response = await viewer.PostAsync(IdentifyUrl(sessionId), Json(body));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        await using var context = Db.CreateContext();
+        var snap = await context.ScanSnaps.IgnoreQueryFilters().SingleAsync(s => s.Id == snapId);
+        snap.FellBack.ShouldBeTrue();
+        snap.FallbackReason.ShouldBe(stored);
+    }
+
     [Fact]
     public async Task A_snap_is_stored_as_metadata_only_with_its_trigger_engine_item_count_and_fallback_reason()
     {

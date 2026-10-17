@@ -89,6 +89,7 @@ public static class EvalReport
     {
         "invented" => 0,
         "refused" => 1,
+        "timeout" => 2,
         "error" => 2,
         _ => 3,
     };
@@ -105,7 +106,7 @@ public static class EvalReport
         text.Append("- ").Append(name).Append(": ").Append(slice.Photos).Append(" photos, recall ").Append(Percent(slice.RecallPct))
             .Append(", precision ").Append(Percent(slice.PrecisionPct)).Append(", top-1 ").Append(Percent(slice.Top1Pct))
             .Append(", top-3 ").Append(Percent(slice.Top3Pct)).Append(", invented ").Append(slice.InventedTitles)
-            .Append(", refusals ").Append(slice.Refusals).Append(", p50 ").Append(slice.LatencyP50Ms?.ToString(CultureInfo.InvariantCulture) ?? "n/a")
+            .Append(", refusals ").Append(slice.Refusals).Append(", timeouts ").Append(slice.Timeouts).Append(" (").Append(Percent(slice.TimeoutPct)).Append("), p50 ").Append(slice.LatencyP50Ms?.ToString(CultureInfo.InvariantCulture) ?? "n/a")
             .Append(" ms, p95 ").Append(slice.LatencyP95Ms?.ToString(CultureInfo.InvariantCulture) ?? "n/a").AppendLine(" ms");
     }
 
