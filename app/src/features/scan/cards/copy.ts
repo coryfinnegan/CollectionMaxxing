@@ -3,6 +3,7 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { formatLabels } from '@/features/library/labels';
 import { ApiError } from '@/lib/http';
+import { isLocalCard } from './cardsStore';
 import { friendlyError } from '@/lib/problem';
 
 export type CardCopy = {
@@ -31,8 +32,13 @@ export const ownedCopy = (count: number) => `You own ${count}`;
 /** A candidate from a picture, not a barcode: it has no code, only what the phone read. */
 export const isPictureCandidate = (c: Pick<CandidateDto, 'source'>) => c.source === 'picture_apple_model' || c.source === 'picture_text';
 
+/** A repeat the phone recognised on its own; the lookup is still waiting. */
+export const LOCAL_MATCH_COPY = "Seen before. We'll check it when you're online.";
+
 function describePicture(c: CandidateDto): CardCopy {
   const read = c.visibleText?.trim() || 'Unknown item';
+  // No Add and no detail until the server answers: `pick` is the kind that has neither.
+  if (isLocalCard(c)) return { title: c.release?.title ?? read, subtitle: '', status: LOCAL_MATCH_COPY, kind: 'pick' };
   switch (c.resolution) {
     case 'pending':
       return { title: read, subtitle: '', status: 'Identifying…', kind: 'pending' };

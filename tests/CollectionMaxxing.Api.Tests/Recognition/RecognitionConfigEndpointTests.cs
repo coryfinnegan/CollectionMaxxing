@@ -84,12 +84,12 @@ public sealed class RecognitionConfigEndpointTests(ApiFixture api) : IDisposable
 
         // And everything but the version is exactly what recognition.defaults.json says.
         var defaults = Read("src", "CollectionMaxxing.Application", "Recognition", "recognition.defaults.json");
-        foreach (var key in new[] { "prompt", "autoSnap", "engine", "splitting" })
+        foreach (var key in new[] { "prompt", "autoSnap", "engine", "splitting", "fingerprints" })
         {
             JsonNode.DeepEquals(body[key], defaults[key]).ShouldBeTrue(key);
         }
 
-        body.AsObject().Select(p => p.Key).ShouldBe(["version", "prompt", "autoSnap", "engine", "splitting"], ignoreOrder: true);
+        body.AsObject().Select(p => p.Key).ShouldBe(["version", "prompt", "autoSnap", "engine", "splitting", "fingerprints"], ignoreOrder: true);
     }
 
     [Fact]

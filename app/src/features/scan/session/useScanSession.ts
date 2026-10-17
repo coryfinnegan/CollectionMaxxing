@@ -5,7 +5,7 @@ import { useStore } from 'zustand';
 import { useGetMe } from '@/api/generated/account/account';
 import type { LibraryRole } from '@/api/generated/models';
 import { haptics } from '@/lib/haptics';
-import { sortedCards, useCardsStore } from '../cards/cardsStore';
+import { shownCards, sortedCards, useCardsStore } from '../cards/cardsStore';
 import type { ScannerSource } from '../scanner/ScannerSource';
 import { createStabilityFilter } from '../tray/stability';
 import { getTrayStore } from '../tray/storage';
@@ -50,7 +50,8 @@ export function useScanSession({
   const sessionId = useStore(store, (s) => s.sessionId);
   const byId = useCardsStore((s) => s.byId);
   const order = useCardsStore((s) => s.order);
-  const cards = useMemo(() => sortedCards(byId, order), [byId, order]);
+  const local = useCardsStore((s) => s.local);
+  const cards = useMemo(() => sortedCards(shownCards({ byId, local }), order), [byId, local, order]);
 
   // Camera -> tray. The "Nice scan!" tick happens here, before any network call.
   useEffect(() => {

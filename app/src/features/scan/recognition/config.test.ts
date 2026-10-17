@@ -2,6 +2,7 @@ import { DEFAULT_RECOGNITION_CONFIG as D, DEFAULT_RECOGNITION_SETTINGS, type Rec
 import { type ConfigFetchResult, RecognitionConfigStore } from './config';
 import { EngineSelector } from './EngineSelector';
 import { line, modelItem, okRead, RecordingVision, STILL, testIds } from './fakes';
+import { maxDistanceOf } from '../fingerprints/matcher';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 
 const v2: RecognitionConfig = {
@@ -26,6 +27,23 @@ function setup(responses: (ConfigFetchResult | Error)[], storage = new MemoryKey
 }
 
 describe('RecognitionConfigStore', () => {
+  it('takes the fingerprint match distance from the server, and keeps the built-in one when an older server sends none', async () => {
+    const tuned = setup([{ status: 'ok', body: { ...v2, fingerprints: { maxDistance: 0.2 } } }]);
+    await tuned.store.refresh();
+    expect(maxDistanceOf(tuned.store.current())).toBe(0.2);
+
+    const { fingerprints: _none, ...older } = v2;
+    const old = setup([{ status: 'ok', body: older }]);
+    expect(await old.store.refresh()).toBe('updated');
+    expect(maxDistanceOf(old.store.current())).toBe(0.35);
+  });
+
+  it('refuses a config with a fingerprint distance that is not a positive number', async () => {
+    const bad = setup([{ status: 'ok', body: { ...v2, fingerprints: { maxDistance: 'wide' } } }]);
+    expect(await bad.store.refresh()).toBe('kept');
+    expect(maxDistanceOf(bad.store.current())).toBe(0.35);
+  });
+
   it('starts on the built-in defaults, so the app never waits on the network', () => {
     expect(setup([]).store.current()).toEqual(DEFAULT_RECOGNITION_SETTINGS);
   });

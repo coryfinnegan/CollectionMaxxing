@@ -14,7 +14,8 @@ public sealed record RecognitionConfig(
     RecognitionPrompt Prompt,
     RecognitionAutoSnap AutoSnap,
     RecognitionEngine Engine,
-    RecognitionSplitting Splitting);
+    RecognitionSplitting Splitting,
+    RecognitionFingerprints Fingerprints);
 
 /// <summary>
 /// The text the phone gives the model: <see cref="Template"/>, then <see cref="OutputRules"/> after a blank line. Each is at
@@ -50,6 +51,10 @@ public sealed record RecognitionEngine(int ModelTimeoutMs, int MaxItemsPerSnap);
 /// <param name="HalvesWhenItemsOver">A shot whose text columns number more than this is split into halves for the model's context budget. 2 to 200.</param>
 /// <param name="MinSpineColumnWidth">The narrowest a spine column may be to count as an item, as a fraction of the picture's width. 0.005 to 0.25.</param>
 public sealed record RecognitionSplitting(int HalvesWhenItemsOver, double MinSpineColumnWidth);
+
+/// <summary>How the phone's stored feature prints match a repeat snap (docs/02 "Offline" and "Learning loop").</summary>
+/// <param name="MaxDistance">The distance at or under which two prints count as the same picture. 0.01 to 2.</param>
+public sealed record RecognitionFingerprints(double MaxDistance);
 
 /// <summary>
 /// The live recognition settings on the server: what the phone is served and the scoring options the identify endpoints read.
