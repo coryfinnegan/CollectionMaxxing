@@ -68,6 +68,14 @@ services:
       # recognition/recognition.json beside this file; the API re-reads it on change, and a bad file is ignored (the last
       # good config keeps serving). The folder is mounted, not the file, so an editor's save-by-replace is seen.
       Recognition__ConfigPath: /config/recognition.json
+      # Recognition evals (EVAL-1a), owner only: the golden photos and truth files are read from evals/golden and the run
+      # results land in evals/results, both under CM_EVALS_DIR (default C:\CollectionMaxxing\evals, beside the repo clone,
+      # never inside it: the photos are private). report.md and drafts there hold real titles; only the dated aggregate
+      # files may be copied into the repo's evals/results/. The routes answer 404 while the golden folder is empty.
+      Evals__Enabled: ${CM_EVALS_ENABLED:-true}
+      Evals__GoldenPath: /evals/golden
+      Evals__ResultsPath: /evals/results
+      Evals__BaselinePath: /evals/baseline.json
       # Only believe X-Forwarded-For from Tailscale Serve, which reaches the container through the Docker bridge
       # gateway (the API port is published on 127.0.0.1 only, so nothing else can be this peer). Without it every
       # caller shares one rate-limit bucket and a stranger's bad pairing codes could lock the owner out.
@@ -77,6 +85,9 @@ services:
       - files:/data/files
       - ${CM_SECRETS_DIR:?set in .env}:/secrets
       - ${CM_RECOGNITION_DIR:-./recognition}:/config:ro
+      - ${CM_EVALS_DIR:-../../evals}/golden:/evals/golden:ro
+      - ${CM_EVALS_DIR:-../../evals}/results:/evals/results
+      - ../evals/baseline.json:/evals/baseline.json:ro
     depends_on:
       postgres:
         condition: service_healthy
