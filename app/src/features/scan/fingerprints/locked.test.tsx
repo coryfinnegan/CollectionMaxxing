@@ -7,7 +7,7 @@ import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
 import { useCardsStore } from '../cards/cardsStore';
 import { SnapPipeline } from '../pipeline/SnapPipeline';
-import { makeKit, PHOTO, readItem, readingOf, recordRequests, resetKit } from '../pipeline/testKit';
+import { makeKit, readItem, readingOf, recordRequests, resetKit } from '../pipeline/testKit';
 import { backupPrints, restBackup } from './backup';
 import { FakePrintsServer } from './fakeServer';
 import { createLocalMatch } from './matcher';

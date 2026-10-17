@@ -1,9 +1,7 @@
 // Test doubles for the feature-print store: a vision module whose prints are numbers a test chooses, and stores on memory.
-import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import type { FeaturePrint } from '@/native/cm-vision';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
-import { server } from '@/mocks/server';
 import { MemoryPrintStorage, setFingerprintStorage, getFingerprintStore, type StoredPrint } from './store';
 import type { PrintVision } from './matcher';
 

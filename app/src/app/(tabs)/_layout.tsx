@@ -3,6 +3,7 @@ import { Platform, View, useWindowDimensions } from 'react-native';
 import { Sidebar } from '@/components/Sidebar';
 import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
 import { AppLockGate } from '@/features/me/appLock';
+import { FingerprintBridge } from '@/features/scan/fingerprints/FingerprintBridge';
 import { SnapStoreBridge } from '@/features/scan/pipeline/SnapStoreBridge';
 import { WIDE_BREAKPOINT, useColors } from '@/theme/tokens';
 
@@ -18,6 +19,7 @@ export default function TabsLayout() {
     <AppLockGate>
     <OwnedDataBridge />
     <SnapStoreBridge />
+    <FingerprintBridge />
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
       {wide ? <Sidebar /> : null}
       <View style={{ flex: 1 }}>

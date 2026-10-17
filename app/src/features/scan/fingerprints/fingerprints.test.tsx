@@ -33,6 +33,9 @@ afterEach(() => {
   useLibraryStore.setState({ activeLibraryId: null });
 });
 
+const noVision = new FakeVision();
+const noCover = async () => undefined; // no cover can be fetched in these tests
+
 describe('what is saved, and when', () => {
   const SESSION = 'session-1';
 
@@ -313,7 +316,7 @@ describe('restore', () => {
     expect(store.size).toBe(3);
   });
 
-  it('a failed page changes nothing and the next restore starts again', async () => {
+  it('a failed page leaves the restore point where it was, and the next restore starts again', async () => {
     const pcs = new FakePrintsServer().use();
     pcs.pageSize = 1;
     pcs.rows = [wire(1), wire(2)];
@@ -402,7 +405,7 @@ describe('sign-out and unpair', () => {
     new FakePrintsServer().use();
     const view = await render(
       <QueryClientProvider client={client}>
-        <FingerprintBridge />
+        <FingerprintBridge vision={noVision} cover={noCover} />
       </QueryClientProvider>,
     );
 
@@ -426,7 +429,7 @@ describe('the bridge', () => {
     store.put(printRow(6));
     const view = await render(
       <QueryClientProvider client={makeQueryClient()}>
-        <FingerprintBridge />
+        <FingerprintBridge vision={noVision} cover={noCover} />
       </QueryClientProvider>,
     );
 
@@ -446,7 +449,7 @@ describe('the bridge', () => {
     store.put(printRow(6));
     const view = await render(
       <QueryClientProvider client={makeQueryClient()}>
-        <FingerprintBridge />
+        <FingerprintBridge vision={noVision} cover={noCover} />
       </QueryClientProvider>,
     );
 

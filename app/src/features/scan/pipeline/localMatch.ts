@@ -1,6 +1,8 @@
-// The hook for "items you have confirmed before match instantly, offline" (CAM-3e). It returns nothing for now, so every
-// item goes to the server. CAM-3e replaces the body: compare the crop's feature print with the user's own store and answer
-// with the release id of a close match (sent as `localMatchReleaseId`).
-export async function localMatch(_crop: { uri: string }): Promise<string | undefined> {
-  return undefined;
+// The hook for "items you have confirmed before match instantly, offline" (CAM-3e). It compares the crop's feature print with the
+// prints of items this person has confirmed, on the phone, and answers with the release id of a close match (sent as
+// `localMatchReleaseId`; the server verifies it). A hit is a hint only. The work is in `../fingerprints`.
+import { activeLocalMatch } from '../fingerprints/active';
+
+export async function localMatch(crop: { uri: string }): Promise<string | undefined> {
+  return activeLocalMatch(crop);
 }
