@@ -9,6 +9,11 @@ public sealed class ScanningOptions
     /// <summary>The most copies one line may stand for.</summary>
     public const int MaxCopies = 99;
 
+    /// <summary>
+    /// How long after a commit the person may still undo it (SCAN-1e). Comfortably longer than the app's 10-second "Added N items" toast.
+    /// </summary>
+    public TimeSpan UndoWindow { get; set; } = TimeSpan.FromMinutes(2);
+
     /// <summary>How long a request waits for codes to resolve before it answers with the rest still Pending (docs/04: 2 s).</summary>
     public TimeSpan ResolveBudget { get; set; } = TimeSpan.FromSeconds(2);
 
