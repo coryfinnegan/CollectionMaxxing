@@ -30,6 +30,21 @@ public static class ScanningErrors
         "scan.release_unavailable",
         "One of the accepted items can't be added any more, so nothing was added. Review the session and try again.");
 
+    public static readonly DomainError NotCommitted = new(
+        ErrorKind.Conflict,
+        "scan.not_committed",
+        "This scan session hasn't been added to the library, so there is nothing to undo.");
+
+    public static readonly DomainError UndoWindowPassed = new(
+        ErrorKind.Conflict,
+        "scan.undo_window_passed",
+        "It's too late to undo this. The items stay in your library; you can remove them from there.");
+
+    public static readonly DomainError UndoItemsChanged = new(
+        ErrorKind.Conflict,
+        "scan.undo_items_changed",
+        "Some of the new items have changed since they were added, so they were left as they are.");
+
     public static DomainError Invalid(string code, string message, string field) => new(ErrorKind.Validation, code, message, field);
 }
 

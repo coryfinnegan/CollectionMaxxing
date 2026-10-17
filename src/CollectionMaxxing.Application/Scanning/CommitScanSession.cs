@@ -62,15 +62,31 @@ public static class CommitScanSession
             var now = clock.GetUtcNow();
             var storedKey = ScanSessions.IdempotencyKeyFor("commit", session.Id, key);
             var hash = CommitOptions.Hash(session.Id, command.Options);
-            var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
-            if (previous is not null && previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
+            var previous = await db.IdempotencyKeys.AsNoTracking().FirstOrDefaultAsync(k => k.UserId == userId && k.Key == storedKey, cancellationToken);
+            if (previous is not null)
             {
-                if (previous.RequestHash != hash)
+                if (previous.ExpiresAt > now && previous.ResponseBodyJson is { } stored)
                 {
-                    return ItemErrors.KeyReused; // the same key, a different request
+                    if (previous.RequestHash != hash)
+                    {
+                        return ItemErrors.KeyReused; // the same key, a different request
+                    }
+
+                    var again = JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options);
+                    if (again is null)
+                    {
+                        return ScanningErrors.AlreadyCommitted;
+                    }
+
+                    // A commit that made items and left the session open was undone (SCAN-1e): its items are gone, so its answer is no answer.
+                    if (again.Created == 0 || session.Status != ScanSessionStatus.Open)
+                    {
+                        return again;
+                    }
                 }
 
-                return JsonSerializer.Deserialize<CommitResultDto>(stored, CandidateJson.Options) is { } again ? again : ScanningErrors.AlreadyCommitted;
+                // An answer that no longer fits (the key expired, or that commit was undone): forget it and commit afresh under the same key.
+                await db.IdempotencyKeys.Where(k => k.UserId == userId && k.Key == storedKey).ExecuteDeleteAsync(cancellationToken);
             }
 
             if (session.Status == ScanSessionStatus.Committed)
@@ -117,7 +133,7 @@ public static class CommitScanSession
             }
 
             var overrides = (options?.Overrides ?? []).ToDictionary(o => o.CandidateId!.Value);
-            var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session.LibraryId, accepted, now, cancellationToken);
+            var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session, accepted, now, cancellationToken);
 
             var photos = await CandidatePhotos.AssetIdsAsync(db, accepted, cancellationToken);
             var created = new List<Guid>();
@@ -159,7 +175,7 @@ public static class CommitScanSession
                 }
             }
 
-            await learner.LearnAsync(accepted, cancellationToken); // the next scan of these barcodes is a local hit
+            await learner.LearnAsync(session.Id, accepted, cancellationToken); // the next scan of these barcodes is a local hit
 
             // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
             var unusedPhotos = new List<PhotoFile>();
@@ -167,6 +183,7 @@ public static class CommitScanSession
             {
                 session.Status = ScanSessionStatus.Committed;
                 session.CommittedAt = now;
+                session.CommittedItemIds = [.. created]; // what Undo removes: these, by id
 
                 // Photos of what was rejected or left undecided have no item to be a cover for.
                 var unused = candidates.Where(c => c.CreatedItemId is null && !accepted.Contains(c)).ToList();

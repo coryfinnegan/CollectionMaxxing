@@ -1,5 +1,6 @@
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Libraries;
+using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -58,6 +59,10 @@ internal sealed class ReleaseConfiguration : IEntityTypeConfiguration<Release>
         // A library's own releases go with the library.
         builder.HasOne<Library>().WithMany().HasForeignKey(r => r.OwnerLibraryId).OnDelete(DeleteBehavior.Cascade);
 
+        // The commit that made a private release; the session going away just makes it an ordinary private release.
+        builder.HasOne<ScanSession>().WithMany().HasForeignKey(r => r.CreatedBySessionId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasIndex(r => r.CreatedBySessionId).HasFilter("created_by_session_id is not null");
+
         builder.HasIndex(r => r.WorkId);
         builder.HasIndex(r => r.PlatformId);
         builder.HasIndex(r => r.OwnerLibraryId).HasFilter("owner_library_id is not null");
@@ -77,6 +82,10 @@ internal sealed class ReleaseIdentifierConfiguration : IEntityTypeConfiguration<
         builder.Property(i => i.Value).HasMaxLength(64).IsRequired();
 
         builder.HasOne<Release>().WithMany().HasForeignKey(i => i.ReleaseId).OnDelete(DeleteBehavior.Cascade);
+
+        // The commit that taught a link; the session going away just makes it an ordinary link.
+        builder.HasOne<ScanSession>().WithMany().HasForeignKey(i => i.LearnedBySessionId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasIndex(i => i.LearnedBySessionId).HasFilter("learned_by_session_id is not null");
 
         // The barcode lookup.
         builder.HasIndex(i => new { i.Type, i.Value });

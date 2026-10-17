@@ -49,7 +49,7 @@ public sealed record CommitOptions(
 internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
 {
     public async Task<Dictionary<Guid, Guid>> ResolveAsync(
-        Guid libraryId, IReadOnlyList<ScanCandidate> accepted, DateTimeOffset now, CancellationToken cancellationToken)
+        ScanSession session, IReadOnlyList<ScanCandidate> accepted, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var result = accepted.ToDictionary(c => c.Id, c => c.MatchedReleaseId!.Value);
         var edited = accepted.Where(c => c.EditedFormat is not null || c.EditedPlatform is not null || c.EditedEdition is not null).ToList();
@@ -77,7 +77,7 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
             var key = (origin.WorkId, format, platformId, NormalEdition(edition));
             if (!added.TryGetValue(key, out var releaseId))
             {
-                releaseId = await FindOrAddAsync(libraryId, origin, format, platformId, edition, now, cancellationToken);
+                releaseId = await FindOrAddAsync(session, origin, format, platformId, edition, now, cancellationToken);
                 added[key] = releaseId;
             }
 
@@ -88,7 +88,7 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
     }
 
     private async Task<Guid> FindOrAddAsync(
-        Guid libraryId, Release origin, ReleaseFormat format, Guid? platformId, string? edition, DateTimeOffset now, CancellationToken cancellationToken)
+        ScanSession session, Release origin, ReleaseFormat format, Guid? platformId, string? edition, DateTimeOffset now, CancellationToken cancellationToken)
     {
         // The query filter already hides other libraries' private releases; global ones come first.
         var siblings = await db.Releases.AsNoTracking()
@@ -108,7 +108,8 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
             PlatformId = platformId,
             Edition = string.IsNullOrWhiteSpace(edition) ? null : edition.Trim(),
             Source = ReleaseSource.User,
-            OwnerLibraryId = libraryId,
+            OwnerLibraryId = session.LibraryId,
+            CreatedBySessionId = session.Id, // so undoing this commit can remove it again
             CreatedAt = now,
         };
         db.Releases.Add(release);

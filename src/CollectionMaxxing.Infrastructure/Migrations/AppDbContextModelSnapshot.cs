@@ -314,6 +314,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<Guid?>("CreatedBySessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_session_id");
+
                     b.Property<string>("Edition")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -379,6 +383,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.HasIndex("CoverAssetId")
                         .HasDatabaseName("ix_releases_cover_asset_id");
 
+                    b.HasIndex("CreatedBySessionId")
+                        .HasDatabaseName("ix_releases_created_by_session_id")
+                        .HasFilter("created_by_session_id is not null");
+
                     b.HasIndex("OwnerLibraryId")
                         .HasDatabaseName("ix_releases_owner_library_id")
                         .HasFilter("owner_library_id is not null");
@@ -415,8 +423,16 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("release_id");
 
+                    b.Property<Guid?>("LearnedBySessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("learned_by_session_id");
+
                     b.HasKey("Type", "Value", "ReleaseId")
                         .HasName("pk_release_identifiers");
+
+                    b.HasIndex("LearnedBySessionId")
+                        .HasDatabaseName("ix_release_identifiers_learned_by_session_id")
+                        .HasFilter("learned_by_session_id is not null");
 
                     b.HasIndex("ReleaseId")
                         .HasDatabaseName("ix_release_identifiers_release_id");
@@ -735,6 +751,29 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasDatabaseName("ix_item_tags_library_id_tag_id");
 
                     b.ToTable("item_tags", (string)null);
+                });
+
+            modelBuilder.Entity("CollectionMaxxing.Domain.Items.ItemTombstone", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<DateTimeOffset>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid>("LibraryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("library_id");
+
+                    b.HasKey("ItemId")
+                        .HasName("pk_item_tombstones");
+
+                    b.HasIndex("LibraryId", "DeletedAt", "ItemId")
+                        .HasDatabaseName("ix_item_tombstones_library_id_deleted_at_item_id");
+
+                    b.ToTable("item_tombstones", (string)null);
                 });
 
             modelBuilder.Entity("CollectionMaxxing.Domain.Items.Tag", b =>
@@ -1392,6 +1431,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("CommittedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("committed_at");
+
+                    b.PrimitiveCollection<Guid[]>("CommittedItemIds")
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("committed_item_ids");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2103,6 +2146,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_releases_assets_cover_asset_id");
 
+                    b.HasOne("CollectionMaxxing.Domain.Scanning.ScanSession", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBySessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_releases_scan_sessions_created_by_session_id");
+
                     b.HasOne("CollectionMaxxing.Domain.Libraries.Library", null)
                         .WithMany()
                         .HasForeignKey("OwnerLibraryId")
@@ -2125,6 +2174,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
             modelBuilder.Entity("CollectionMaxxing.Domain.Catalog.ReleaseIdentifier", b =>
                 {
+                    b.HasOne("CollectionMaxxing.Domain.Scanning.ScanSession", null)
+                        .WithMany()
+                        .HasForeignKey("LearnedBySessionId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_release_identifiers_scan_sessions_learned_by_session_id");
+
                     b.HasOne("CollectionMaxxing.Domain.Catalog.Release", null)
                         .WithMany()
                         .HasForeignKey("ReleaseId")
@@ -2228,6 +2283,16 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_item_tags_tags_library_id_tag_id");
+                });
+
+            modelBuilder.Entity("CollectionMaxxing.Domain.Items.ItemTombstone", b =>
+                {
+                    b.HasOne("CollectionMaxxing.Domain.Libraries.Library", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_item_tombstones_libraries_library_id");
                 });
 
             modelBuilder.Entity("CollectionMaxxing.Domain.Items.Tag", b =>

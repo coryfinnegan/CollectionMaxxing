@@ -29,5 +29,11 @@ public sealed class ScanSession : ILibraryScoped, IConcurrencyVersioned
 
     public DateTimeOffset? CommittedAt { get; set; }
 
+    /// <summary>
+    /// The ids of the items the commit created, set when the session is committed and cleared when the commit is undone (SCAN-1e). Undo removes
+    /// exactly these, never items found by when or by whom they were made. Null before the first commit, and for a commit made before this was kept.
+    /// </summary>
+    public Guid[]? CommittedItemIds { get; set; }
+
     public uint Version { get; private set; }
 }

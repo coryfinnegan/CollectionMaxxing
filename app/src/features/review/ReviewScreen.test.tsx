@@ -72,9 +72,11 @@ describe('Review screen', () => {
     const added = scanMock.sessions.get(SESSION)!.candidates.filter((c) => c.createdItemId);
     expect(added).toHaveLength(1);
 
+    const addedId = added[0]!.createdItemId;
     fireEvent.press(screen.getByLabelText('Undo'));
     await screen.findByText(/Undone/);
-    expect(itemsState.entries.find((e) => e.item.id === added[0]!.createdItemId)?.item.deletedAt).toBeTruthy();
+    expect(itemsState.entries.find((e) => e.item.id === addedId)).toBeUndefined(); // gone for good, not in Recently deleted
+    await screen.findByLabelText('Add 1 item'); // the results are back in Review, ready to fix and add again
   });
 
   it('takes the Undo away once its time is up', async () => {
@@ -136,28 +138,61 @@ describe('Review screen', () => {
   });
 
   describe('Undo', () => {
-    it('removes exactly the items that were added, in one call, and never restores', async () => {
-      seed([mario(), candidate({ release: release(3, 'Zelda', { format: 'game_cartridge' }) })]);
+    it('removes the items for good in one call, never restores, and puts the results back in Review', async () => {
+      seed([mario(), candidate({ release: release(3, 'Zelda', { format: 'game_cartridge', year: 1998 }) })]);
       await open();
       fireEvent.press(await screen.findByLabelText('Add 2 items'));
       await screen.findByText('Added 2 items');
-      const ids = reviewMock.commits.length === 1 ? itemsState.entries.map((e) => e.item.id).slice(-2) : [];
+      const ids = itemsState.entries.map((e) => e.item.id).slice(-2);
+      expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull(); // added, so no longer waiting in Review
       fireEvent.press(screen.getByLabelText('Undo'));
       await screen.findByText(/Undone/);
+      expect(reviewMock.undos).toHaveLength(1);
+      expect(reviewMock.undos[0]!.key).toBeTruthy();
       expect(reviewMock.restores).toHaveLength(0);
-      expect(itemsState.entries.filter((e) => ids.includes(e.item.id)).every((e) => e.item.deletedAt)).toBe(true);
+      expect(itemsState.entries.filter((e) => ids.includes(e.item.id))).toHaveLength(0);
+      expect(scanMock.sessions.get(SESSION)!.status).toBe('open');
+      await screen.findByLabelText('Add Super Mario 64');
+      expect(screen.getByLabelText('Add Zelda').props.accessibilityState.checked).toBe(true);
+      expect(screen.getByLabelText('Add 2 items')).toBeTruthy();
     });
 
-    it('shows friendly copy and keeps the Undo when it fails', async () => {
+    it('can add again after an Undo, with a new commit', async () => {
       seed([mario()]);
       await open();
       fireEvent.press(await screen.findByLabelText('Add 1 item'));
       await screen.findByText('Added 1 item');
-      server.use(http.post(/\/items:bulk$/, () => HttpResponse.json({ title: 'Something went wrong.', status: 500 }, { status: 500, headers: { 'Content-Type': 'application/problem+json' } })));
       fireEvent.press(screen.getByLabelText('Undo'));
-      await waitFor(() => expect(screen.queryByText('Added 1 item')).toBeNull());
+      fireEvent.press(await screen.findByLabelText('Add 1 item'));
+      await screen.findByText('Added 1 item');
+      expect(reviewMock.commits).toHaveLength(2);
+      expect(reviewMock.commits[1]!.key).not.toBe(reviewMock.commits[0]!.key);
+    });
+
+    it('shows friendly copy and keeps the Undo when it fails for a reason that may pass', async () => {
+      seed([mario()]);
+      await open();
+      fireEvent.press(await screen.findByLabelText('Add 1 item'));
+      await screen.findByText('Added 1 item');
+      reviewMock.failNextUndo = 500;
+      fireEvent.press(screen.getByLabelText('Undo'));
+      await screen.findByText(/still in your library/);
       expect(screen.getByLabelText('Undo')).toBeTruthy();
       expect(screen.queryByText(/Undone/)).toBeNull();
+      expect(itemsState.entries.some((e) => e.item.id === scanMock.sessions.get(SESSION)!.candidates[0]!.createdItemId)).toBe(true);
+    });
+
+    it('says why and leaves the items alone when the server refuses (too late, or an item changed)', async () => {
+      seed([mario()]);
+      await open();
+      fireEvent.press(await screen.findByLabelText('Add 1 item'));
+      await screen.findByText('Added 1 item');
+      reviewMock.failNextUndo = 409;
+      fireEvent.press(screen.getByLabelText('Undo'));
+      await screen.findByText(/Couldn't undo/);
+      expect(screen.queryByLabelText('Undo')).toBeNull(); // it will not work later either
+      expect(scanMock.sessions.get(SESSION)!.status).toBe('committed');
+      expect(itemsState.entries.some((e) => e.item.id === scanMock.sessions.get(SESSION)!.candidates[0]!.createdItemId)).toBe(true);
     });
   });
 

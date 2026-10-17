@@ -2,6 +2,7 @@ using System.Globalization;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Ownership;
@@ -10,7 +11,8 @@ namespace CollectionMaxxing.Application.Ownership;
 /// Use case: a delta of owned items for the phone's offline cache. Changes are ordered by "updated at, then id", and the
 /// cursor is the last position handed out, so a write that lands while the phone is paging gets a later position and is
 /// picked up by the next call rather than skipped or repeated. With no cursor the answer is everything owned now;
-/// with one, every item changed since, including tombstones for items deleted or no longer owned (kept 30 days).
+/// with one, every item changed since, including tombstones for items deleted or no longer owned (kept 30 days). An item removed for
+/// good (an undone scan commit) has no row left, so its <see cref="ItemTombstone"/> stands in: same order, same cursor.
 /// </summary>
 public static class GetOwnershipSnapshot
 {
@@ -54,6 +56,19 @@ public static class GetOwnershipSnapshot
                 .Take(limit + 1)
                 .Select(i => new Row(i.Id, i.ReleaseId, i.Status, i.DeletedAt, i.LocationId, i.UpdatedAt))
                 .ToListAsync(cancellationToken);
+
+            if (sinceTicks is { } since)
+            {
+                var at = new DateTimeOffset(since, TimeSpan.Zero);
+                var id = sinceId;
+                var removed = await db.ItemTombstones.AsNoTracking()
+                    .Where(t => t.LibraryId == query.LibraryId && (t.DeletedAt > at || (t.DeletedAt == at && t.ItemId.CompareTo(id) > 0)))
+                    .OrderBy(t => t.DeletedAt).ThenBy(t => t.ItemId)
+                    .Take(limit + 1)
+                    .Select(t => new Row(t.ItemId, Guid.Empty, Domain.Items.ItemStatus.Owned, t.DeletedAt, null, t.DeletedAt))
+                    .ToListAsync(cancellationToken);
+                rows = rows.Concat(removed).OrderBy(r => r.UpdatedAt).ThenBy(r => r.Id).Take(limit + 1).ToList();
+            }
 
             var hasMore = rows.Count > limit;
             if (hasMore)

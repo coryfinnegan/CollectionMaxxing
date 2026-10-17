@@ -114,6 +114,7 @@ public static class AuthorizationMatrix
     private const int NotFound = 404;
     private const int Stub = 501;
     private const int BadRequest = 400;
+    private const int Conflict = 409;
     private const int PreconditionFailed = 412;
     private const int UnsupportedMediaType = 415;
 
@@ -246,6 +247,7 @@ public static class AuthorizationMatrix
         InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, "{\"copies\":2}", allowed: Ok),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no text: the handler is reached
         InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, allowed: Ok, headers: Idempotent),
+        InLibrary("POST", $"{Sessions}/commit:undo", LibraryRole.Editor, allowed: Conflict, headers: Idempotent), // SCAN-1e: the seeded session was never committed, so the handler is reached and says 409
         InLibrary("DELETE", Sessions, LibraryRole.Editor, allowed: NoContent),
 
         // ---- Recognition config (SCAN-2d): the phone fetches its prompt and thresholds; any signed-in member, not library-scoped ----

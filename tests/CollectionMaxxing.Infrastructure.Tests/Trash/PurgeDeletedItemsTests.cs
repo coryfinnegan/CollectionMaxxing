@@ -38,6 +38,25 @@ public class PurgeDeletedItemsTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task The_record_of_an_item_removed_for_good_is_kept_30_days_and_then_trimmed()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var (old, recent) = (Guid.CreateVersion7(), Guid.CreateVersion7());
+        await using (var context = Db.CreateContext())
+        {
+            context.ItemTombstones.AddRange(
+                new ItemTombstone { ItemId = old, LibraryId = library.Id, DeletedAt = DeletedAt },
+                new ItemTombstone { ItemId = recent, LibraryId = library.Id, DeletedAt = DeletedAt.AddDays(2) });
+            await context.SaveChangesAsync();
+        }
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(30).AddSeconds(1)));
+
+        await using var check = Db.CreateContext();
+        (await check.ItemTombstones.IgnoreQueryFilters().Select(t => t.ItemId).ToListAsync()).ShouldBe([recent]);
+    }
+
+    [Fact]
     public async Task An_item_deleted_30_days_minus_one_second_ago_is_kept()
     {
         var (_, itemId) = await DeletedItemAsync();

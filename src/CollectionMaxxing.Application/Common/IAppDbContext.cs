@@ -39,6 +39,8 @@ public interface IAppDbContext
 
     DbSet<ItemFeaturePrint> ItemFeaturePrints { get; }
 
+    DbSet<ItemTombstone> ItemTombstones { get; }
+
     // Catalogue (shared)
     DbSet<Work> Works { get; }
 
