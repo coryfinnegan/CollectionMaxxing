@@ -2,14 +2,20 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Scanning;
 
-/// <summary>What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or a key.</summary>
-internal sealed record StoredTrace(IReadOnlyList<TraceStep> Steps, IReadOnlyList<string> OwnedAt);
+/// <summary>
+/// What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or
+/// a key. <paramref name="NeedsArt"/> is the close-call flag (SCAN-2b) and <paramref name="AutoDecision"/> the decision the
+/// server made by itself, so that a person's own decision can be told from it.
+/// </summary>
+internal sealed record StoredTrace(
+    IReadOnlyList<TraceStep> Steps, IReadOnlyList<string> OwnedAt, bool NeedsArt = false, CandidateDecision? AutoDecision = null);
 
 /// <summary>One entry of a candidate's <c>alternatives</c>: a release the person can pick, with its own ownership.</summary>
 public sealed record StoredAlternative(
@@ -21,7 +27,8 @@ public sealed record StoredAlternative(
     double Score,
     IReadOnlyList<string> Creators,
     string? CoverUrl,
-    int AlreadyOwnedCount);
+    int AlreadyOwnedCount,
+    string? ArtworkUrl = null);
 
 internal static class CandidateJson
 {
@@ -90,10 +97,27 @@ internal static class CandidateProjection
     {
         var releaseIds = candidates.Select(c => c.MatchedReleaseId).OfType<Guid>().Distinct().ToList();
         var releases = await LoadReleasesAsync(db, releaseIds, cancellationToken);
-        return candidates.Select(c => ToDto(c, c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null)).ToList();
+        var art = await ArtworkLinks.ForCloseCallsAsync(db, candidates, cancellationToken);
+        return candidates.Select(c => ToDto(c, c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null, art)).ToList();
     }
 
-    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release) => new(
+    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, IReadOnlyDictionary<Guid, string>? artwork = null)
+    {
+        var trace = CandidateJson.ReadTrace(c.TraceJson);
+        var needsArt = ArtworkLinks.AsksForArt(c, trace);
+        return ToDto(c, release, trace, needsArt, needsArt && artwork is not null ? WithArtworkUrls(c.AlternativesJson, artwork) : CandidateJson.ReadElement(c.AlternativesJson));
+    }
+
+    private static JsonElement? WithArtworkUrls(string? alternativesJson, IReadOnlyDictionary<Guid, string> artwork)
+    {
+        var alternatives = CandidateJson.ReadAlternatives(alternativesJson);
+        return alternatives.Count == 0
+            ? CandidateJson.ReadElement(alternativesJson)
+            : CandidateJson.ReadElement(CandidateJson.Serialize(
+                alternatives.Select(a => a with { ArtworkUrl = artwork.GetValueOrDefault(a.ReleaseId) }).ToList()));
+    }
+
+    private static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, JsonElement? alternatives) => new(
         c.Id,
         c.Seq,
         c.Source,
@@ -106,13 +130,14 @@ internal static class CandidateProjection
         c.Resolution,
         c.Score,
         c.ArtDistance,
+        needsArt,
         release,
         CandidateJson.ReadElement(c.InferredJson),
-        CandidateJson.ReadElement(c.AlternativesJson),
+        alternatives,
         c.Decision,
         c.Copies,
         c.AlreadyOwnedCount,
-        CandidateJson.ReadTrace(c.TraceJson).OwnedAt,
+        trace.OwnedAt,
         c.CreatedItemId);
 
     /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>

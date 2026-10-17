@@ -67,6 +67,32 @@ public sealed record ScoringThresholds
     }
 }
 
+/// <summary>
+/// How the artwork term is fed and when a scan asks for it (docs/02, "Artwork comparison with Apple feature prints"). The
+/// scorer turns a distance <c>d</c> into a similarity of <c>1 - d^2 / 2</c> (the cosine of two unit vectors), clamped to 0..1.
+/// </summary>
+public sealed record ArtScoringOptions
+{
+    /// <summary>
+    /// In score units (0 to 1, the same scale as <see cref="ScoringThresholds.MatchedLead"/>). A Matched candidate whose lead
+    /// over the runner-up is below this is a close call: the phone is asked to compare artwork. An Ambiguous one always is.
+    /// </summary>
+    public double CloseCallMargin { get; init; } = 0.15;
+
+    /// <summary>
+    /// Unitless factor applied to every distance the phone reports, before the cosine mapping above. 1 treats the reported
+    /// numbers as Euclidean distances between unit-length vectors. Calibrated at the M3 gate, when the real range of Apple's
+    /// feature-print distances is measured on the device.
+    /// </summary>
+    public double DistanceScale { get; init; } = 1.0;
+
+    /// <summary>
+    /// The largest distance the server accepts, in the phone's own units (before <see cref="DistanceScale"/>). A bigger
+    /// number is nonsense, and the request is refused rather than clamped.
+    /// </summary>
+    public double MaxDistance { get; init; } = 100.0;
+}
+
 /// <summary>A named set of weights and the thresholds to apply, for one way of reading an item.</summary>
 public sealed record ScoringProfile(string Name, ScoringWeights Weights, ScoringThresholds Thresholds);
 
@@ -95,6 +121,8 @@ public enum ScoringProfileKind
 public sealed record ScoringOptions
 {
     public ScoringThresholds Thresholds { get; init; } = new();
+
+    public ArtScoringOptions Art { get; init; } = new();
 
     public ScoringWeights BarcodeProduct { get; init; } = new(0.55, 0.15, 0.15, 0.10, 0.05, 0, 0);
 

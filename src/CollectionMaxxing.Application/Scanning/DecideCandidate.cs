@@ -63,6 +63,14 @@ public static class DecideCandidate
                 }
 
                 candidate.Decision = decision;
+
+                // An explicit decision is the person's even when the value is the one the server chose by itself: forget the
+                // server's own pick, so artwork (SCAN-2b) no longer treats the item as one it may correct.
+                var trace = CandidateJson.ReadTrace(candidate.TraceJson);
+                if (trace.AutoDecision is not null)
+                {
+                    candidate.TraceJson = CandidateJson.Serialize(trace with { AutoDecision = null });
+                }
             }
 
             if (command.Copies is { } newCopies)
