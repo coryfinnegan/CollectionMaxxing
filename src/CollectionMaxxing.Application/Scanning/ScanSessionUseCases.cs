@@ -1,9 +1,11 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Photo;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Application.Scanning;
 
@@ -91,12 +93,15 @@ public static class GetScanSession
     }
 }
 
-/// <summary>Use case: give up on a session. Nothing is added; an abandoned session can't be scanned into or committed.</summary>
+/// <summary>
+/// Use case: give up on a session. Nothing is added; an abandoned session can't be scanned into or committed. Photos uploaded for its
+/// candidates ("Use my photo") are deleted with it: there is no item to be their cover.
+/// </summary>
 public static class AbandonScanSession
 {
     public sealed record Command(Guid SessionId);
 
-    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser)
+    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser, IPhotoStore photoStore, ILogger<Handler> logger)
     {
         public async Task<Result> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -113,7 +118,10 @@ public static class AbandonScanSession
             if (session.Status == ScanSessionStatus.Open)
             {
                 session.Status = ScanSessionStatus.Abandoned;
+                var candidates = await db.ScanCandidates.Where(c => c.SessionId == session.Id && c.SnapId != null).ToListAsync(cancellationToken);
+                var photos = await CandidatePhotos.DiscardAsync(db, candidates, cancellationToken);
                 await db.SaveChangesAsync(cancellationToken);
+                await CandidatePhotos.DeleteFilesAsync(photoStore, logger, photos, cancellationToken);
             }
 
             return Result.Success(); // abandoning twice is fine

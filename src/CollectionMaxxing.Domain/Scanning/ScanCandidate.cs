@@ -53,7 +53,8 @@ public sealed class ScanCandidate : ILibraryScoped, IConcurrencyVersioned
     /// <summary>What the phone read from the item.</summary>
     public string? VisibleText { get; init; }
 
-    public Guid? SnapId { get; init; }
+    /// <summary>The snap the candidate cites. "Use my photo" points it at a snap of its own that holds the uploaded crop.</summary>
+    public Guid? SnapId { get; set; }
 
     /// <summary>The phone's own id for the item, so it can draw the box.</summary>
     public string? LocalId { get; init; }

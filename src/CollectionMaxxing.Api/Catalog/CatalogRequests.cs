@@ -14,8 +14,14 @@ public sealed record CatalogSearchQuery(
 /// <summary>Query of <c>GET /api/v1/catalog/lookup</c>: a single barcode or catalogue number.</summary>
 public sealed record CatalogLookupQuery([FromQuery(Name = "code")] string Code);
 
-/// <summary>Query of <c>GET …/feature-prints</c>: only prints created after <c>since</c>, to sync a phone.</summary>
-public sealed record FeaturePrintsQuery([FromQuery(Name = "since")] DateTimeOffset? Since = null);
+/// <summary>
+/// Query of <c>GET …/feature-prints</c>: only prints written after <c>since</c>, to sync a phone. Pages of up to <c>limit</c> (200 at most);
+/// pass the <c>nextCursor</c> of a page as <c>cursor</c> to get the next one.
+/// </summary>
+public sealed record FeaturePrintsQuery(
+    [FromQuery(Name = "since")] DateTimeOffset? Since = null,
+    [FromQuery(Name = "limit")] int? Limit = null,
+    [FromQuery(Name = "cursor")] string? Cursor = null);
 
 /// <summary>Body of <c>PUT …/feature-prints</c>: the phone's prints to back up.</summary>
 public sealed record PutFeaturePrintsRequest(IReadOnlyList<FeaturePrintDto>? Prints = null);
