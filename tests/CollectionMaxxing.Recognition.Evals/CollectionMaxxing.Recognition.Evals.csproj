@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- EVAL-1a. The scoring maths, the M3 gate rules and the regression rule run in the normal gate on a golden set generated in the test.
+       The tests tagged Category=Eval read the owner's real golden folder and latest uploaded run from the PC, so they run only
+       with RUN_EVALS=1 (dotnet test on this project with a Category=Eval filter). Without that variable the filter below leaves them
+       out of the run by category: they are not marked Skip, and the gate sees no skipped test. -->
+  <PropertyGroup Condition="'$(RUN_EVALS)' != '1'">
+    <VSTestTestCaseFilter>Category!=Eval</VSTestTestCaseFilter>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Application\CollectionMaxxing.Application.csproj" />
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Infrastructure\CollectionMaxxing.Infrastructure.csproj" />
+    <ProjectReference Include="..\CollectionMaxxing.TestSupport\CollectionMaxxing.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>
