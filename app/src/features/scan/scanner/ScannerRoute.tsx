@@ -4,6 +4,8 @@ import { useMemo } from 'react';
 import { Platform } from 'react-native';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { EmptyState, Screen, Text } from '@/ui';
+import { createDevicePipelineDeps } from '../pipeline/device';
+import { useAutoSnapConfig } from '../pipeline/useAutoSnapConfig';
 import { LazyCameraPreview } from './LazyCameraPreview';
 import { ScannerScreen } from './ScannerScreen';
 import { FakeScannerSource, VisionCameraSource } from './ScannerSource';
@@ -23,6 +25,8 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
   const { libraryId, isLoading } = useActiveLibraryId();
   const camera = useMemo(() => new VisionCameraSource(), []);
   const devSource = useMemo(() => (__DEV__ ? new FakeScannerSource() : undefined), []);
+  const pipeline = useMemo(() => (libraryId ? createDevicePipelineDeps(libraryId) : undefined), [libraryId]);
+  const autoSnapConfig = useAutoSnapConfig();
   if (!libraryId) {
     return (
       <Screen title="Scanner">
@@ -30,5 +34,15 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
       </Screen>
     );
   }
-  return <ScannerScreen libraryId={libraryId} source={camera} preview={<LazyCameraPreview source={camera} />} devSource={devSource} onClose={onClose} />;
+  return (
+    <ScannerScreen
+      libraryId={libraryId}
+      source={camera}
+      preview={<LazyCameraPreview source={camera} />}
+      devSource={devSource}
+      onClose={onClose}
+      pipeline={pipeline}
+      autoSnapConfig={autoSnapConfig}
+    />
+  );
 }

@@ -5,14 +5,20 @@ import { abandonScanSession } from '@/api/generated/scanning/scanning';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { useCardsStore } from '../cards/cardsStore';
+import { clearPipelineData } from '../pipeline/clearPipelineData';
+import { getPipelineStore } from '../pipeline/pipelineStore';
 import { getTrayStore } from '../tray/storage';
 import type { TrayStore } from '../tray/trayStore';
 import { closeStep, initialClose, type CloseEffect, type CloseEvent, type CloseState } from './closeMachine';
 
 type Deps = { store?: StoreApi<TrayStore>; onLeave(): void; onReview(): void };
 
-/** How many scanned items have not been added yet (copies count). */
-export const unreviewedCount = (store: StoreApi<TrayStore>) => store.getState().lines.reduce((sum, l) => sum + l.copies, 0);
+/** How many scanned items have not been added yet: barcode copies, and the items read from pictures. */
+export const unreviewedCount = (store: StoreApi<TrayStore>) =>
+  store.getState().lines.reduce((sum, l) => sum + l.copies, 0) +
+  getPipelineStore()
+    .getState()
+    .snaps.reduce((sum, s) => sum + s.items.length, 0);
 
 export function useCloseScanner({ store = getTrayStore(), onLeave, onReview }: Deps) {
   const [state, setState] = useState<CloseState>(initialClose);
@@ -45,6 +51,7 @@ export function useCloseScanner({ store = getTrayStore(), onLeave, onReview }: D
     }
     store.getState().clear();
     useCardsStore.getState().reset();
+    await clearPipelineData().catch(() => undefined); // no still, crop or box outlives a discarded scan
     dispatch({ type: 'discarded' });
   }
 

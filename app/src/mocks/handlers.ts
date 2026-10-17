@@ -11,7 +11,7 @@ import { handlers as librariesHandlers } from './libraries';
 import { handlers as meHandlers } from './me';
 import { handlers as ownershipHandlers } from './ownership';
 import { handlers as membersHandlers } from './members';
-import { handlers as scanHandlers } from './scan';
+import { handlers as scanHandlers } from './identify'; // the barcode handlers plus the picture ones
 import { handlers as scanReviewHandlers } from './scan-review';
 
 const problem = (status: number, title: string, errors?: Record<string, string[]>) =>
