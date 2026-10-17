@@ -4926,6 +4926,262 @@
           }
         }
       }
+    },
+    "/api/admin/evals/golden": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "ListGoldenPhotos",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GoldenPhotoDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/evals/golden/{id}/image": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "GetGoldenPhotoImage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/admin/evals/runs": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "SubmitEvalRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvalRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalRunResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/evals/runs/latest": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "GetLatestEvalRun",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalSummary"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5946,6 +6202,376 @@
           }
         }
       },
+      "EngineSummary": {
+        "required": [
+          "shelf",
+          "single",
+          "thermalAtEnd",
+          "lateSingleLatencyP50Ms"
+        ],
+        "type": "object",
+        "properties": {
+          "shelf": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SliceMetrics"
+              }
+            ]
+          },
+          "single": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SliceMetrics"
+              }
+            ]
+          },
+          "thermalAtEnd": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lateSingleLatencyP50Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "EvalDevice": {
+        "required": [
+          "model",
+          "osVersion",
+          "appVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "osVersion": {
+            "type": "string"
+          },
+          "appVersion": {
+            "type": "string"
+          }
+        }
+      },
+      "EvalDeviceRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "osVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "appVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "EvalOutcome": {
+        "enum": [
+          "ok",
+          "refused",
+          "error",
+          null
+        ]
+      },
+      "EvalPhotoResult": {
+        "type": "object",
+        "properties": {
+          "photoId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "engine": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanEngine"
+              }
+            ]
+          },
+          "outcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalOutcome"
+              }
+            ]
+          },
+          "fellBackFrom": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FallbackReason"
+              }
+            ]
+          },
+          "items": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EvalReadItem"
+            }
+          },
+          "unreadableCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "latencyMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "firstItemMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "thermalState": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ThermalState"
+              }
+            ]
+          }
+        }
+      },
+      "EvalReadItem": {
+        "type": "object",
+        "properties": {
+          "localId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "creator": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "edition": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "completeness": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemCompleteness"
+              }
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkKind"
+              }
+            ]
+          },
+          "format": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseFormat"
+              }
+            ]
+          },
+          "year": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResolvedStep"
+              }
+            ]
+          }
+        }
+      },
+      "EvalRunRequest": {
+        "type": "object",
+        "properties": {
+          "device": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalDeviceRequest"
+              }
+            ]
+          },
+          "configVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "results": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EvalPhotoResult"
+            }
+          }
+        }
+      },
+      "EvalRunResult": {
+        "required": [
+          "runId",
+          "summary"
+        ],
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EvalSummary"
+          }
+        }
+      },
+      "EvalSummary": {
+        "required": [
+          "runId",
+          "date",
+          "buildSha",
+          "configVersion",
+          "device",
+          "scoredPhotos",
+          "skipped",
+          "engines",
+          "gate",
+          "regression",
+          "metrics"
+        ],
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "buildSha": {
+            "type": "string"
+          },
+          "configVersion": {
+            "type": "string"
+          },
+          "device": {
+            "$ref": "#/components/schemas/EvalDevice"
+          },
+          "scoredPhotos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkippedPhoto"
+            }
+          },
+          "engines": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EngineSummary"
+            }
+          },
+          "gate": {
+            "$ref": "#/components/schemas/GateTable"
+          },
+          "regression": {
+            "$ref": "#/components/schemas/RegressionCheck"
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        }
+      },
       "ExportDto": {
         "required": [
           "jobId",
@@ -6005,6 +6631,82 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "GateMeasure": {
+        "required": [
+          "name",
+          "bar",
+          "actual",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "bar": {
+            "type": "string"
+          },
+          "actual": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "GateTable": {
+        "required": [
+          "engine",
+          "verdict",
+          "measures",
+          "comparison"
+        ],
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "measures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GateMeasure"
+            }
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/VisionComparison"
+          }
+        }
+      },
+      "GoldenPhotoDto": {
+        "required": [
+          "id",
+          "set",
+          "hasTruth",
+          "bytes"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "set": {
+            "type": "string"
+          },
+          "hasTruth": {
+            "type": "boolean"
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -6573,6 +7275,44 @@
         ]
       },
       "JsonElement": { },
+      "KindMetrics": {
+        "required": [
+          "items",
+          "top1Hits",
+          "top3Hits",
+          "top1Pct",
+          "top3Pct"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "top1Hits": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "top3Hits": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "top1Pct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "top3Pct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "LibraryDto": {
         "required": [
           "id",
@@ -7569,6 +8309,55 @@
           }
         }
       },
+      "RegressionCheck": {
+        "required": [
+          "status",
+          "compared",
+          "regressions"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "compared": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "regressions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegressionItem"
+            }
+          }
+        }
+      },
+      "RegressionItem": {
+        "required": [
+          "metric",
+          "baseline",
+          "actual",
+          "points"
+        ],
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "baseline": {
+            "type": "number",
+            "format": "double"
+          },
+          "actual": {
+            "type": "number",
+            "format": "double"
+          },
+          "points": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "ReleaseDistance": {
         "type": "object",
         "properties": {
@@ -7765,6 +8554,15 @@
             "format": "uuid"
           }
         }
+      },
+      "ResolvedStep": {
+        "enum": [
+          "model",
+          "vision_text",
+          "artwork",
+          "fix_it",
+          null
+        ]
       },
       "RestoreItemsRequest": {
         "type": "object",
@@ -7972,6 +8770,205 @@
           }
         }
       },
+      "SkippedPhoto": {
+        "required": [
+          "photoId",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "photoId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "SliceMetrics": {
+        "required": [
+          "photos",
+          "truthItems",
+          "predictedItems",
+          "correctItems",
+          "top1Hits",
+          "top3Hits",
+          "recallPct",
+          "precisionPct",
+          "top1Pct",
+          "top3Pct",
+          "titleAccuracyPct",
+          "platformAccuracyPct",
+          "typeAccuracyPct",
+          "completenessAccuracyPct",
+          "inventedTitles",
+          "inventedPct",
+          "refusals",
+          "refusalPct",
+          "failures",
+          "fallbacks",
+          "latencyP50Ms",
+          "latencyP95Ms",
+          "firstItemP50Ms",
+          "firstItemP95Ms",
+          "byKind",
+          "resolvedBy"
+        ],
+        "type": "object",
+        "properties": {
+          "photos": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "truthItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "predictedItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "correctItems": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "top1Hits": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "top3Hits": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "recallPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "precisionPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "top1Pct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "top3Pct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "titleAccuracyPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "platformAccuracyPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "typeAccuracyPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "completenessAccuracyPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "inventedTitles": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "inventedPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "refusals": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "refusalPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "failures": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fallbacks": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "latencyP50Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "latencyP95Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "firstItemP50Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "firstItemP95Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "byKind": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/KindMetrics"
+            }
+          },
+          "resolvedBy": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        }
+      },
       "SnapTrigger": {
         "enum": [
           "auto",
@@ -8044,6 +9041,15 @@
             "format": "int32"
           }
         }
+      },
+      "ThermalState": {
+        "enum": [
+          "nominal",
+          "fair",
+          "serious",
+          "critical",
+          null
+        ]
       },
       "UndoResultDto": {
         "required": [
@@ -8211,6 +9217,60 @@
                 "$ref": "#/components/schemas/LibraryRole"
               }
             ]
+          }
+        }
+      },
+      "VisionComparison": {
+        "required": [
+          "appleTop1Pct",
+          "visionTop1Pct",
+          "deltaPoints",
+          "appleBeatsVision",
+          "appleSingleP50Ms",
+          "visionSingleP50Ms"
+        ],
+        "type": "object",
+        "properties": {
+          "appleTop1Pct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "visionTop1Pct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "deltaPoints": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "appleBeatsVision": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "appleSingleP50Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "visionSingleP50Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
           }
         }
       },

@@ -43,3 +43,7 @@ Thumbs.db
 
 # Server secrets (setup code, signing keys): never commit
 secrets/
+
+# Eval results: only the dated aggregate files (no titles) may be committed; the report, latest run and drafts hold the owner's titles
+evals/results/*
+!evals/results/????-??-??-*.json

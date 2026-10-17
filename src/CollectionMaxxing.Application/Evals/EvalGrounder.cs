@@ -1,0 +1,103 @@
+using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Scanning;
+using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Scanning;
+using Microsoft.EntityFrameworkCore;
+
+namespace CollectionMaxxing.Application.Evals;
+
+/// <summary>
+/// Grounds what the phone read in a golden photo with the very code <c>/identify</c> uses (<see cref="IdentifyGrounding"/> and the
+/// same cleaning and profile choice), but as a dry run: there is no scan session, and no snap, candidate or release row is
+/// written, no artwork re-score is asked for and no background job is queued. The providers are asked through their normal cached
+/// path, so a repeat costs nothing. It reads the catalogue as the caller can: a signed-in administrator sees the global releases.
+/// </summary>
+public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, ScanningOptions options)
+{
+    /// <summary>The top releases kept per item (the same three <c>/identify</c> offers).</summary>
+    public const int Alternatives = 3;
+
+    public async Task<IReadOnlyList<GroundedItem>> GroundAsync(
+        ScanEngine engine, IReadOnlyList<EvalReadItemInput> items, CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+        {
+            return [];
+        }
+
+        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)]);
+        var answers = new List<BarcodeResolution>(items.Count);
+        foreach (var item in cleaned)
+        {
+            // No one is waiting on an eval, so each read gets the patient budget the background job gets, not the live request's.
+            answers.Add(await grounding.GroundAsync(item.Facts, item.Profile, options.JobResolveBudget, cancellationToken));
+        }
+
+        var local = await LoadLocalAsync(answers, cancellationToken);
+        var grounded = new List<GroundedItem>(items.Count);
+        for (var i = 0; i < items.Count; i++)
+        {
+            var answer = answers[i];
+            var candidates = answer.Options
+                .Take(Alternatives)
+                .Select(o => Candidate(o, local))
+                .OfType<GroundedCandidate>()
+                .ToList();
+            grounded.Add(new GroundedItem(
+                cleaned[i].Facts.SearchText,
+                items[i].Read.Completeness is { } completeness ? EnumText.ToText(completeness) : null,
+                ResolvedByText.For(engine, items[i].ResolvedBy),
+                EnumText.ToText(answer.Verdict),
+                candidates));
+        }
+
+        return grounded;
+    }
+
+    private static GroundedCandidate? Candidate(ResolutionOption option, Dictionary<Guid, GroundedCandidate> local)
+    {
+        if (option.LocalReleaseId is { } id)
+        {
+            return local.TryGetValue(id, out var found) ? found with { Score = option.Score } : null;
+        }
+
+        var provider = option.Provider;
+        return provider is null
+            ? null
+            : new GroundedCandidate(
+                provider.Title,
+                EnumText.ToText(provider.Kind),
+                provider.Format is { } format ? EnumText.ToText(format) : null,
+                provider.Platform,
+                provider.Year,
+                option.Score);
+    }
+
+    private async Task<Dictionary<Guid, GroundedCandidate>> LoadLocalAsync(List<BarcodeResolution> answers, CancellationToken cancellationToken)
+    {
+        var ids = answers.SelectMany(a => a.Options).Select(o => o.LocalReleaseId).OfType<Guid>().Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var releases = await db.Releases.AsNoTracking().Where(r => ids.Contains(r.Id)).ToListAsync(cancellationToken);
+        var workIds = releases.Select(r => r.WorkId).Distinct().ToList();
+        var works = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, cancellationToken);
+        var platformIds = releases.Select(r => r.PlatformId).OfType<Guid>().Distinct().ToList();
+        var platforms = platformIds.Count == 0
+            ? []
+            : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
+
+        return releases.ToDictionary(
+            r => r.Id,
+            r => new GroundedCandidate(
+                works[r.WorkId].Title,
+                EnumText.ToText(works[r.WorkId].Kind),
+                EnumText.ToText(r.Format),
+                r.PlatformId is { } platformId && platforms.TryGetValue(platformId, out var platform) ? platform.Name : null,
+                r.ReleaseDate?.Year ?? works[r.WorkId].OriginalYear,
+                0));
+    }
+}

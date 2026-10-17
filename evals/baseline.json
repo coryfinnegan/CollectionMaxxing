@@ -1,0 +1,4 @@
+{
+  "note": "Aggregate numbers only, copied from the metrics of a result file (evals/results/<date>-<sha>.json). No titles, no photo names. A run must not be more than 2 points worse than these.",
+  "metrics": {}
+}
