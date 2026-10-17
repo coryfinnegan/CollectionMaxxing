@@ -235,6 +235,45 @@ public class FeaturePrintTests(ApiFixture api) : PhotoTest(api)
     }
 
     [Fact]
+    public async Task A_member_of_two_libraries_cannot_file_a_print_under_one_for_an_item_of_the_other()
+    {
+        var libraryA = await CreateLibraryAsync();
+        var libraryB = await CreateLibraryAsync();
+        await using (var context = Db.CreateContext())
+        {
+            context.LibraryMembers.Add(new LibraryMember(libraryB.Id, libraryA.EditorId, LibraryRole.Editor, DateTimeOffset.UtcNow));
+            await context.SaveChangesAsync();
+        }
+
+        var releaseId = await TestData.CreateReleaseAsync(Db);
+        var itemOfB = await TestData.CreateItemAsync(Db, libraryB);
+        using var editor = As(libraryA, LibraryRole.Editor);
+
+        (await PutAsync(editor, libraryA.Id, new Print(itemOfB, releaseId, 1, [1]))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        await using var check = Db.CreateContext();
+        (await check.ItemFeaturePrints.IgnoreQueryFilters().CountAsync(p => p.ItemId == itemOfB)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_member_of_two_libraries_cannot_use_the_private_release_of_the_other()
+    {
+        var libraryA = await CreateLibraryAsync();
+        var libraryB = await CreateLibraryAsync();
+        await using (var context = Db.CreateContext())
+        {
+            context.LibraryMembers.Add(new LibraryMember(libraryB.Id, libraryA.EditorId, LibraryRole.Editor, DateTimeOffset.UtcNow));
+            await context.SaveChangesAsync();
+        }
+
+        var releaseOfB = await TestData.CreateReleaseAsync(Db, libraryB.Id);
+        var itemOfA = await TestData.CreateItemAsync(Db, libraryA);
+        using var editor = As(libraryA, LibraryRole.Editor);
+
+        (await PutAsync(editor, libraryA.Id, new Print(itemOfA, releaseOfB, 1, [1]))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task A_print_goes_when_its_item_is_deleted_for_good()
     {
         var library = await CreateLibraryAsync();

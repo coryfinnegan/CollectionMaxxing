@@ -162,7 +162,7 @@ public static class CommitScanSession
             await learner.LearnAsync(accepted, cancellationToken); // the next scan of these barcodes is a local hit
 
             // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
-            var unusedPhotos = new List<string>();
+            var unusedPhotos = new List<PhotoFile>();
             if (created.Count > 0)
             {
                 session.Status = ScanSessionStatus.Committed;
@@ -187,7 +187,7 @@ public static class CommitScanSession
 
             // One SaveChanges is one transaction. A second commit racing this one loses on the session's row version.
             await db.SaveChangesAsync(cancellationToken);
-            await CandidatePhotos.DeleteFilesAsync(photoStore, logger, unusedPhotos, cancellationToken);
+            await CandidatePhotos.DeleteFilesAsync(db, photoStore, logger, unusedPhotos, cancellationToken);
             return result;
         }
 

@@ -121,7 +121,7 @@ public static class AbandonScanSession
                 var candidates = await db.ScanCandidates.Where(c => c.SessionId == session.Id && c.SnapId != null).ToListAsync(cancellationToken);
                 var photos = await CandidatePhotos.DiscardAsync(db, candidates, cancellationToken);
                 await db.SaveChangesAsync(cancellationToken);
-                await CandidatePhotos.DeleteFilesAsync(photoStore, logger, photos, cancellationToken);
+                await CandidatePhotos.DeleteFilesAsync(db, photoStore, logger, photos, cancellationToken);
             }
 
             return Result.Success(); // abandoning twice is fine
