@@ -22,7 +22,7 @@ export function picItemOf(item: ReadItem): PicItem {
 
 export function identifyRequestOf(snap: PicSnap): IdentifyRequest {
   return {
-    snapId: snap.snapId,
+    snapId: snap.sendId ?? snap.snapId,
     trigger: snap.trigger,
     engine: snap.engine ?? 'vision_pipeline',
     ...(snap.fellBackFrom ? { fellBackFrom: toFallbackReason(snap.fellBackFrom) } : {}),

@@ -7,6 +7,7 @@
 import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto } from '@/api/generated/models';
 import type { Rect } from '@/native/cm-vision';
+import { ApiError } from '@/lib/http';
 import { useCardsStore } from '../cards/cardsStore';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { discardPicture, discardPicturesOf, trackPicture } from '../pictureFiles';
@@ -52,6 +53,17 @@ const randomId = () =>
 /** Snaps being read right now, across screens, so a screen that opens again does not read the same snap twice. */
 const reading = new Set<string>();
 
+/** How long to wait after a 429 when the server did not say, and the limits on what it says. */
+const DEFAULT_WAIT_MS = 5_000;
+const MIN_WAIT_MS = 1_000;
+const MAX_WAIT_MS = 2 * 60_000;
+
+const SLOW_DOWN = 'The server asked us to slow down. Your pictures are saved and will finish in a moment.';
+const TOO_BIG = 'A picture had too many items to look up at once. Take it again from a bit closer.';
+const CANNOT_SEND = "Couldn't look up a picture, so nothing was added from it. Take it again.";
+
+const isSnapInUse = (error: ApiError) => error.problem.code === 'scan.snap_in_use' || (error.problem.type?.endsWith('scan.snap_in_use') ?? false);
+
 const boxKey = (snapId: string, localId: string) => `${snapId}:${localId}`;
 const sameBox = (a: Rect | undefined, b: Rect | undefined) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -63,6 +75,8 @@ export class SnapPipeline {
   private readonly artTried = new Set<string>();
   private artChain: Promise<void> = Promise.resolve();
   private unsubscribe: (() => void) | undefined;
+  /** After a 429: nothing is sent before this time (ms since the epoch). */
+  private holdUntil = 0;
 
   constructor(private readonly deps: PipelineDeps) {}
 
@@ -99,7 +113,7 @@ export class SnapPipeline {
     store.getState().addSnap({
       snapId,
       trigger: event.trigger,
-      createdAt: (this.deps.now ?? Date.now)(),
+      createdAt: this.now(),
       thumbUri: event.photo.uri,
       phase: 'reading',
       sent: false,
@@ -181,7 +195,7 @@ export class SnapPipeline {
       if (snap.phase !== 'reading' || reading.has(snap.snapId)) continue;
       const stored = this.deps.snaps.get(snap.snapId);
       if (!stored) {
-        this.deps.store.getState().removeSnap(snap.snapId);
+        void this.drop(snap.snapId);
         continue;
       }
       const still: Still = { uri: stored.stillUri, width: stored.width, height: stored.height };
@@ -192,15 +206,34 @@ export class SnapPipeline {
 
   /** Sends every read snap that has not been sent, one `identify` per snap, oldest first. */
   flush(): Promise<void> {
+    if (this.now() < this.holdUntil) return Promise.resolve(); // the server asked us to slow down (429)
     this.flushing ??= this.sendWaiting().finally(() => {
       this.flushing = undefined;
     });
     return this.flushing;
   }
 
+  private now() {
+    return (this.deps.now ?? Date.now)();
+  }
+
   private async sendWaiting() {
+    const { tray } = this.deps;
+    const refused: string[] = [];
+    try {
+      await this.sendEach(refused);
+    } finally {
+      // Said once the send is over, so a snap that did go through after it cannot wipe what the person needs to know.
+      const message = refused.at(-1);
+      if (message) tray.getState().setOnline(tray.getState().online, message);
+    }
+  }
+
+  private async sendEach(refused: string[]) {
     const { store, tray, api } = this.deps;
     const classify = flushDeps(this.deps.libraryId).classify;
+    let resets = 0;
+    const renamed = new Set<string>();
     for (;;) {
       const next = store.getState().snaps.find((s) => s.phase === 'read' && !s.sent);
       if (!next) return;
@@ -221,17 +254,43 @@ export class SnapPipeline {
         announce(useCardsStore.getState().merge(candidates));
         tray.getState().setOnline(true);
       } catch (error) {
+        const status = error instanceof ApiError ? error.status : undefined;
+        if (error instanceof ApiError && status === 429) {
+          // Too many requests (docs/04): keep the snap, wait as long as the server said, then send it again unchanged.
+          const wait = Math.min(MAX_WAIT_MS, Math.max(MIN_WAIT_MS, error.retryAfterMs ?? DEFAULT_WAIT_MS));
+          this.holdUntil = this.now() + wait;
+          tray.getState().setOnline(true, SLOW_DOWN);
+          return;
+        }
+        if (error instanceof ApiError && status === 409 && isSnapInUse(error) && !renamed.has(next.snapId)) {
+          // That id is held by another session. This picture has not been sent to this one, so it goes under a new id.
+          renamed.add(next.snapId);
+          store.getState().setSendId(next.snapId, (this.deps.newId ?? randomId)());
+          continue;
+        }
         const outcome = classify(error);
         if (outcome.offline) {
           tray.getState().setOnline(false); // the lines show QUEUED and the next flush tries again with the same snapId
           return;
         }
-        tray.getState().setOnline(true, outcome.message);
         if (outcome.resetSession) {
+          // The scan session is gone. Its rows still hold the snapIds of what was sent to it, so every snap still waiting is
+          // sent to the new session under a new id.
           tray.getState().setSessionId(null);
+          tray.getState().setOnline(true);
+          for (const waiting of store.getState().snaps) {
+            if (waiting.phase === 'read' && !waiting.sent) store.getState().setSendId(waiting.snapId, (this.deps.newId ?? randomId)());
+          }
+          if (resets++ > 0) return; // twice in one send: the next flush tries again
+          continue;
+        }
+        if (status === 401) {
+          tray.getState().setOnline(true, outcome.message); // signed out: the read waits; signing in again sends it
           return;
         }
-        store.getState().removeSnap(next.snapId); // the server refused this one; trying again would only refuse again
+        // The server refused this one for good (400, 413 and the like); trying again would only refuse again. The person is told.
+        refused.push(status === 413 ? TOO_BIG : CANNOT_SEND);
+        await this.drop(next.snapId);
       }
     }
   }

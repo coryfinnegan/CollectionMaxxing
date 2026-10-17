@@ -8,8 +8,8 @@ import type { CandidateDto, IdentifyItem, IdentifyRequest, ReleaseDto } from '@/
 import { newMockId } from './data';
 import { handlers as barcodeHandlers, scanMock } from './scan';
 
-const problem = (status: number, title: string) =>
-  HttpResponse.json({ title, status }, { status, headers: { 'Content-Type': 'application/problem+json' } });
+const problem = (status: number, title: string, code?: string) =>
+  HttpResponse.json({ title, status, ...(code ? { code } : {}) }, { status, headers: { 'Content-Type': 'application/problem+json' } });
 
 const encoder = new TextEncoder();
 
@@ -55,6 +55,8 @@ type Mock = {
   /** Makes the artwork route answer 404. */
   coversMissing: boolean;
   answers: Map<string, CandidateDto[]>;
+  /** The session each snapId was first sent to: like the real API, another session cannot use it (409 `scan.snap_in_use`). */
+  answerSessions: Map<string, string>;
   reset(): void;
   /** Resolves every pending picture candidate (the slow lookup finished) and streams the update. */
   resolvePending(): void;
@@ -69,6 +71,7 @@ export const identifyMock: Mock = {
   dropResponses: 0,
   coversMissing: false,
   answers: new Map(),
+  answerSessions: new Map(),
   reset() {
     this.requests = [];
     this.artRequests = [];
@@ -78,6 +81,7 @@ export const identifyMock: Mock = {
     this.dropResponses = 0;
     this.coversMissing = false;
     this.answers = new Map();
+    this.answerSessions = new Map();
   },
   resolvePending() {
     for (const session of scanMock.sessions.values()) {
@@ -192,12 +196,15 @@ export const handlers = [
     if (identifyMock.failWith) return problem(identifyMock.failWith, 'Server problem');
     if (!body.snapId || !body.trigger || !body.engine) return problem(400, 'Send a snapId, a trigger and an engine.');
     if (!body.items || body.items.length === 0) return problem(400, 'Send at least one item.');
+    const firstSession = identifyMock.answerSessions.get(body.snapId);
+    if (firstSession && firstSession !== session.id) return problem(409, 'That snapId was already used. Send a new snapId for a new picture.', 'scan.snap_in_use');
     const replay = identifyMock.answers.get(body.snapId);
     let candidates = replay;
     if (!candidates) {
       candidates = body.items.map((item) => candidateFor(++session.seq, item));
       session.candidates.push(...candidates);
       identifyMock.answers.set(body.snapId, candidates);
+      identifyMock.answerSessions.set(body.snapId, session.id);
     }
     if (identifyMock.dropResponses > 0) {
       identifyMock.dropResponses -= 1;

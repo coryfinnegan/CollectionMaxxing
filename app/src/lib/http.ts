@@ -22,12 +22,15 @@ export type ProblemDetails = {
 export class ApiError extends Error {
   readonly status: number;
   readonly problem: ProblemDetails;
+  /** How long a 429 (or 503) asked the caller to wait, from `Retry-After`. Absent when the server did not say. */
+  readonly retryAfterMs?: number;
 
-  constructor(status: number, problem: ProblemDetails) {
+  constructor(status: number, problem: ProblemDetails, retryAfterMs?: number) {
     super(problem.title ?? `Request failed (${status})`);
     this.name = 'ApiError';
     this.status = status;
     this.problem = problem;
+    if (retryAfterMs !== undefined) this.retryAfterMs = retryAfterMs;
   }
 
   /** A 401 that asks for a fresh passkey rather than a new session. */
@@ -50,6 +53,15 @@ const parseBody = (text: string): unknown => {
   }
 };
 
+/** `Retry-After` is a number of seconds or a date. */
+function retryAfterMs(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(header);
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
+}
+
 type Attempts = { refreshed: boolean; reauthed: boolean };
 
 async function send<T>(url: string, options: RequestInit, attempts: Attempts): Promise<T> {
@@ -70,7 +82,7 @@ async function send<T>(url: string, options: RequestInit, attempts: Attempts): P
     return { data: body, status: response.status, headers: response.headers } as T;
   }
 
-  const error = new ApiError(response.status, (body ?? {}) as ProblemDetails);
+  const error = new ApiError(response.status, (body ?? {}) as ProblemDetails, retryAfterMs(response.headers.get('Retry-After')));
   if (response.status !== 401) throw error;
 
   // A recent-passkey check failed: ask for one passkey prompt, then retry once. Cancelling surfaces the prompt's error.

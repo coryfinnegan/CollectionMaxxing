@@ -30,6 +30,11 @@ export interface PicSnap {
   thumbUri: string;
   /** `reading` while the phone reads it; `read` once the items are final. */
   phase: 'reading' | 'read';
+  /**
+   * The snapId the server knows this picture by, when it is not `snapId`: a new scan session cannot use the id the old one
+   * holds, so a snap waiting to be sent gets a new one then. The phone's own key (the snap store, the receipt) stays `snapId`.
+   */
+  sendId?: string;
   /** False until `identify` has answered for this snap. */
   sent: boolean;
   /** The scan session it was sent to; once that session is over (committed, discarded) the snap leaves the receipt. */
@@ -54,6 +59,7 @@ export type PipelineStore = PipelineState & {
   setSnapThumb(snapId: string, thumbUri: string): void;
   setThumb(snapId: string, localId: string, thumbUri: string): void;
   setPayload(snapId: string, localId: string, payload: IdentifyItem): void;
+  setSendId(snapId: string, sendId: string): void;
   markSent(snapId: string, sessionId: string, candidateIds: Record<string, string>): void;
   removeSnap(snapId: string): void;
   removeItem(snapId: string, localId: string): void;
@@ -108,6 +114,7 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
         edit(snapId, (s) => ({ ...s, items: s.items.map((i) => (i.localId === localId ? { ...i, thumbUri } : i)) })),
       setPayload: (snapId, localId, payload) =>
         edit(snapId, (s) => ({ ...s, items: s.items.map((i) => (i.localId === localId ? { ...i, payload } : i)) })),
+      setSendId: (snapId, sendId) => edit(snapId, (s) => ({ ...s, sendId })),
       markSent: (snapId, sessionId, candidateIds) =>
         edit(snapId, (s) => ({
           ...s,

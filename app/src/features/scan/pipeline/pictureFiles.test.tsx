@@ -63,7 +63,9 @@ function wideShelf(kit: ReturnType<typeof makeKit>) {
 /** A snap of a wide shelf: shutter capture, scaled, read in halves, crops made and stored. */
 async function snapAShelf(kit: ReturnType<typeof makeKit>) {
   const shelf = wideShelf(kit);
-  const pipeline = new SnapPipeline({ ...kit.deps, recognition: shelf.recognition, newId: () => SNAP });
+  let ids = 0;
+  const newId = () => (ids++ === 0 ? SNAP : `${SNAP}-again-${ids}`); // the snap's own id first; a later one is a new id for the server
+  const pipeline = new SnapPipeline({ ...kit.deps, recognition: shelf.recognition, newId });
   await pipeline.onSnap(await kit.snapEvent());
   await waitFor(() => expect(kit.snaps.list()[0]?.items.length).toBeGreaterThanOrEqual(6)); // the streamed items, then the merged six
   await waitFor(() => expect(kit.snaps.list()[0]?.items.every((i) => i.cropUri)).toBe(true));
