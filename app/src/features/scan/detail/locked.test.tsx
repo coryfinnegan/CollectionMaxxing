@@ -12,18 +12,17 @@ import { CROP_BYTES, resetDetail, seedSnap, TWO } from './testKit';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
 
-afterEach(() => resetDetail());
 beforeEach(() => resetDetail());
 
 const photoRequests: string[] = [];
-const watch = (request: Request) => {
+const watch = ({ request }: { request: Request }) => {
   if (request.method !== 'GET' && /\/photo$/.test(new URL(request.url).pathname)) photoRequests.push(request.url);
 };
 beforeEach(() => {
   photoRequests.length = 0;
-  server.events.on('request:start', ({ request }) => watch(request));
+  server.events.on('request:start', watch);
 });
-afterEach(() => server.events.removeAllListeners());
+afterEach(() => server.events.removeListener('request:start', watch));
 
 describe('Photos stay on the phone unless the owner taps "Use my photo"', () => {
   it('opening, swiping, highlighting and Fix it make no upload; the only upload is the cover action, for one crop', async () => {
@@ -31,21 +30,22 @@ describe('Photos stay on the phone unless the owner taps "Use my photo"', () => 
     await renderWithProviders(<ResultDetail id={cards[0]!.id} />);
 
     expect(await screen.findByLabelText('Item 1 of 2 highlighted')).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Next item'));
+    await fireEvent.press(screen.getByLabelText('Next item'));
     expect(await screen.findByLabelText('Item 2 of 2 highlighted')).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Previous item'));
+    await fireEvent.press(screen.getByLabelText('Previous item'));
     expect(await screen.findByLabelText('Item 1 of 2 highlighted')).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Wrong item? Fix it'));
+    await fireEvent.press(screen.getByLabelText('Wrong item? Fix it'));
     expect(await screen.findByText('Fix it')).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Close Fix it'));
+    await fireEvent.press(screen.getByLabelText('Close Fix it'));
 
     expect(photoRequests).toEqual([]);
     expect(photoMock.uploads).toEqual([]);
 
-    fireEvent.press(screen.getByLabelText('Use my photo'));
+    await fireEvent.press(screen.getByLabelText('Use my photo'));
     await waitFor(() => expect(photoMock.uploads).toHaveLength(1));
     expect(photoRequests).toHaveLength(1);
     expect(photoMock.uploads[0]).toMatchObject({ candidateId: cards[0]!.id, size: CROP_BYTES, parts: 1 });
+    expect(await screen.findByText('Your photo is the cover')).toBeTruthy();
   });
 });
 

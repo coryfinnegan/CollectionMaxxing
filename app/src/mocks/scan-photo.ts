@@ -8,6 +8,9 @@ const MAX_BYTES = 4 * 1024 * 1024;
 const problem = (status: number, title: string) =>
   HttpResponse.json({ title, status }, { status, headers: { 'Content-Type': 'application/problem+json' } });
 
+/** The file part as the server sees it (a web File; the React Native types do not describe it). */
+type UploadedFile = { type: string; size: number; name: string };
+
 export interface PhotoUpload {
   sessionId: string;
   candidateId: string;
@@ -33,7 +36,7 @@ export const photoMock = {
 export const handlers = [
   http.post('*/api/v1/scan-sessions/:id/candidates/:cid/photo', async ({ params, request }) => {
     const form = await request.formData();
-    const files = [...form.values()].filter((v): v is File => typeof v !== 'string');
+    const files = (form.getAll('file') as unknown[]).filter((v): v is UploadedFile => typeof v !== 'string');
     const file = files[0];
     photoMock.uploads.push({
       sessionId: String(params.id),
