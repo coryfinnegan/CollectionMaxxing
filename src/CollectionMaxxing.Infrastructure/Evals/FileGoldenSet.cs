@@ -137,7 +137,7 @@ public sealed class FileGoldenSet(IOptions<EvalsOptions> options) : IGoldenSet
         foreach (var set in GoldenSets.All)
         {
             var folder = Path.Combine(root, set);
-            if (!Directory.Exists(folder))
+            if (!IsPlainFolderInside(root, folder))
             {
                 continue;
             }
@@ -163,6 +163,31 @@ public sealed class FileGoldenSet(IOptions<EvalsOptions> options) : IGoldenSet
         }
 
         return [.. found.GroupBy(e => e.Id, StringComparer.Ordinal).Where(g => g.Count() == 1).Select(g => g.Single())];
+    }
+
+    /// <summary>A set folder counts only when it exists, is not a link (a junction or symbolic link) and sits inside the golden root.</summary>
+    private static bool IsPlainFolderInside(string root, string folder)
+    {
+        try
+        {
+            var info = new DirectoryInfo(folder);
+            if (!info.Exists || info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.LinkTarget is not null)
+            {
+                return false;
+            }
+
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
+            return Path.GetFullPath(folder).StartsWith(rootWithSeparator, comparison);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static Entry? AsEntry(string root, string set, string folder, string path)

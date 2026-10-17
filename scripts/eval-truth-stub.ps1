@@ -8,7 +8,7 @@
   fields to fill in. A draft is never used in scoring: fill it in, remove the "draft" line and the "note" line, and rename it
   to <id>.truth.json.
 
-  It only creates files in the folder you pass, never overwrites or deletes anything, and skips links and any file whose name
+  It only creates files in the folder you pass, never overwrites or deletes anything, and skips links (a file or a shelf/single folder that is a link) and any file whose name
   is not a valid id (letters, digits, _ and -, at most 64 characters).
 
   Needs PowerShell 7.   Usage:  pwsh scripts/eval-truth-stub.ps1 D:\golden
@@ -31,7 +31,13 @@ $root = (Resolve-Path -LiteralPath $Folder).ProviderPath
 $sets = @()
 foreach ($name in 'shelf', 'single') {
   $path = Join-Path $root $name
-  if (Test-Path -LiteralPath $path -PathType Container) { $sets += [pscustomobject]@{ Name = $name; Path = $path } }
+  if (-not (Test-Path -LiteralPath $path -PathType Container)) { continue }
+  # A set folder that is a link (junction or symbolic link) could lead outside the golden folder: never follow it.
+  if ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    Write-Warning "Skipping $path : it is a link, not a plain folder."
+    continue
+  }
+  $sets += [pscustomobject]@{ Name = $name; Path = $path }
 }
 if ($sets.Count -eq 0) {
   $leaf = Split-Path -Leaf $root

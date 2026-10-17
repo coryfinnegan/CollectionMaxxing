@@ -124,6 +124,41 @@ public sealed class DraftTruthTests : IDisposable
         SyntheticGolden.Files(stranger).ShouldBe(["x.jpg"]);
     }
 
+    [Fact]
+    public async Task The_skeleton_script_does_not_follow_a_set_folder_that_is_a_junction_to_outside()
+    {
+        Xunit.Assert.SkipUnless(OperatingSystem.IsWindows(), "Needs a Windows junction.");
+        _golden.AddShelf("s1", null);
+        var outside = Path.Combine(_golden.Root, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "o1.jpg"), "x");
+        var single = Path.Combine(_golden.Golden, "single");
+        Directory.Delete(single, true);
+        var made = await RunPowerShellAsync($"New-Item -ItemType Junction -Path '{single}' -Target '{outside}' | Out-Null");
+        made.ExitCode.ShouldBe(0, made.Output);
+
+        var (exitCode, output) = await RunScriptAsync(_golden.Golden);
+
+        exitCode.ShouldBe(0, output);
+        SyntheticGolden.Files(outside).ShouldBe(["o1.jpg"]);
+        File.Exists(Path.Combine(_golden.Golden, "shelf", "s1.truth.draft.json")).ShouldBeTrue();
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunPowerShellAsync(string command)
+    {
+        var start = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Command", command })
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start pwsh (PowerShell 7).");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return (process.ExitCode, await output + await error);
+    }
+
     private static async Task<(int ExitCode, string Output)> RunScriptAsync(string folder)
     {
         var script = Path.Combine(RepoRoot(), "scripts", "eval-truth-stub.ps1");
