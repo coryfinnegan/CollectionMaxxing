@@ -269,6 +269,13 @@ public static class AuthorizationMatrix
         // ---- Admin: the platform admin role, not a library role ----------------------------------------------
         AdminOnly("POST", "/api/admin/catalog/releases/{id:guid}:verify"),
         AdminOnly("GET", "/api/admin/jobs", Ok),
+
+        // EVAL-1a: the eval server. The matrix app has the evals switched off, so even the admin gets the same 404 a stranger would
+        // (who may reach each route with the evals on is tested in Evals/EvalsLockedTests).
+        AdminOnly("GET", "/api/admin/evals/golden", NotFound),
+        AdminOnly("GET", "/api/admin/evals/golden/{id}/image", NotFound),
+        AdminOnly("POST", "/api/admin/evals/runs", NotFound),
+        AdminOnly("GET", "/api/admin/evals/runs/latest", NotFound),
     ];
 
     /// <summary>One theory row per endpoint and caller, so a failure names both.</summary>
