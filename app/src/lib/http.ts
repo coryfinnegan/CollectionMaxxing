@@ -71,7 +71,8 @@ async function send<T>(url: string, options: RequestInit, attempts: Attempts): P
     ...(isWeb() ? { credentials: 'include' as const } : {}),
     headers: {
       Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      // A form (a photo upload) gets its Content-Type, with the boundary, from fetch itself.
+      ...(options.body && !(typeof FormData !== 'undefined' && options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
       ...(await authHeaders(method)),
       ...options.headers,
     },

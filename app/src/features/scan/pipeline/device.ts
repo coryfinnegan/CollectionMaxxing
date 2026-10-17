@@ -7,6 +7,7 @@ import { getTrayStore } from '../tray/storage';
 import type { ArtDeps } from './artStep';
 import { restPipelineApi } from './pipelineApi';
 import { getPipelineStore } from './pipelineStore';
+import { localMatch } from './localMatch';
 import { getSnapStore } from './snapStore';
 import type { CropMaker, PipelineDeps } from './SnapPipeline';
 
@@ -62,6 +63,7 @@ export function createDevicePipelineDeps(libraryId: string): PipelineDeps {
     recognition: { read: (still, onItem) => getRecognition().selector.read(still, onItem) },
     api: restPipelineApi,
     crops: deviceCrops,
+    localMatch, // CAM-3e: items confirmed before are sent with their release
     art: {
       get vision() {
         return (art ??= deviceArt()).vision;

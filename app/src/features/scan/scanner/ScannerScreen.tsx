@@ -2,7 +2,7 @@
 // It is given its sources, so tests and the dev menu drive it with a FakeScannerSource and no camera.
 import { useRouter } from 'expo-router';
 import { useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { NiceScanFlash } from '../autosnap/NiceScanFlash';
 import { DEFAULT_AUTO_SNAP_CONFIG } from '../autosnap/defaults';
@@ -10,6 +10,10 @@ import { createCountingSnapHandler, useAutoSnap, type AutoSnapTuning, type SnapE
 import type { AutoSnapConfig } from '../autosnap/types';
 import type { CandidateDto } from '@/api/generated/models';
 import { ResultCards, useReduceMotion, type CardActions } from '../cards/ResultCards';
+import { deviceBarcodes, devicePicker } from '../import/devicePicker';
+import type { BarcodeDetector, ImportDeps, PhotoPicker } from '../import/photoImport';
+import { usePhotoImport } from '../import/usePhotoImport';
+import type { Resizer } from '../autosnap/snapPhoto';
 import { FixItSheet } from '../pipeline/FixItSheet';
 import type { PipelineDeps } from '../pipeline/SnapPipeline';
 import { usePipeline } from '../pipeline/usePipeline';
@@ -19,7 +23,7 @@ import { ReceiptBar } from '../tray/ReceiptBar';
 import { spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
-import type { FakeScannerSource, ScannerSource } from './ScannerSource';
+import { FakeScannerSource, type ScannerSource } from './ScannerSource';
 
 type Props = {
   libraryId: string;
@@ -40,6 +44,8 @@ type Props = {
   autoSnapTuning?: AutoSnapTuning;
   /** Filled with a function that tells auto-snap whether the last picture found anything (misfires raise the thresholds). */
   outcomeRef?: MutableRefObject<((found: boolean) => void) | null>;
+  /** Import from Photos. Tests pass a scripted picker; the phone uses the system one. */
+  photoImport?: { picker?: PhotoPicker; vision?: () => BarcodeDetector | Promise<BarcodeDetector>; resize?: Resizer };
 };
 
 export function ScannerScreen({
@@ -54,11 +60,14 @@ export function ScannerScreen({
   autoSnapConfig = DEFAULT_AUTO_SNAP_CONFIG,
   autoSnapTuning,
   outcomeRef,
+  photoImport,
 }: Props) {
   const router = useRouter();
   const colors = useColors();
   const insets = useContext(SafeAreaInsetsContext) ?? { top: 0, bottom: 0, left: 0, right: 0 };
-  const sources = useMemo(() => (devSource ? [source, devSource] : [source]), [source, devSource]);
+  // Barcodes found in imported pictures arrive here and take the same path as the camera's.
+  const importCodes = useMemo(() => new FakeScannerSource(), []);
+  const sources = useMemo(() => (devSource ? [source, devSource, importCodes] : [source, importCodes]), [source, devSource, importCodes]);
   const session = useScanSession({ libraryId, sources, tuning });
   const { canAdd } = useLibraryRole(libraryId);
   const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
@@ -69,6 +78,21 @@ export function ScannerScreen({
   const [counter] = useState(() => createCountingSnapHandler());
   const reportOutcome = useRef<(found: boolean) => void>(() => undefined);
   const pictures = usePipeline({ deps: pipeline, source, resendMs: tuning?.resendMs, onOutcome: (found) => reportOutcome.current(found) });
+  const importDeps = useMemo<ImportDeps | undefined>(
+    () =>
+      pictures.enabled && Platform.OS !== 'web' && pictures.recognition
+        ? {
+            picker: photoImport?.picker ?? devicePicker,
+            vision: photoImport?.vision ?? deviceBarcodes,
+            snap: pictures.snapWith,
+            recognition: pictures.recognition,
+            resize: photoImport?.resize,
+            onCodes: (codes) => importCodes.inject(codes),
+          }
+        : undefined,
+    [pictures.enabled, pictures.snapWith, pictures.recognition, photoImport, importCodes],
+  );
+  const photos = usePhotoImport(importDeps);
   const autoSnap = useAutoSnap({
     source,
     onSnap: onSnap ?? (pictures.enabled ? pictures.onSnap : counter),
@@ -132,6 +156,13 @@ export function ScannerScreen({
           {pictures.enabled && pictures.unreadableCount > 0 ? (
             <Chip label={`Get closer for these ${pictures.unreadableCount}`} onPress={pictures.dismissUnreadable} />
           ) : null}
+          {photos.running && photos.progress ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ color: '#FFFFFF' }}>{photos.progress}</Text>
+              <Chip label="Cancel the rest" onPress={photos.cancel} />
+            </View>
+          ) : null}
+          {!photos.running && photos.message ? <Text style={{ color: '#FFFFFF' }}>{photos.message}</Text> : null}
           {autoSnap.hint ? (
             <Chip
               label="Try the torch or move closer"
@@ -139,6 +170,9 @@ export function ScannerScreen({
                 if (!torch) toggleTorch();
               }}
             />
+          ) : null}
+          {photos.enabled ? (
+            <Button label="Photos" variant="secondary" disabled={photos.running} onPress={photos.start} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
           ) : null}
           <Pressable
             accessibilityRole="button"
