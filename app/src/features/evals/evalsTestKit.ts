@@ -28,6 +28,8 @@ export interface KitOptions {
   versions?: string[];
   /** Makes the download of this photo fail. */
   failDownload?: string[];
+  /** Makes the selector (the Apple model side) throw instead of reading. */
+  selectorThrows?: boolean;
   /** Called each time the fake vision engine is asked to read, to pause or cancel in the middle of a run. */
   onRead?: (uri: string) => void | Promise<void>;
 }
@@ -35,7 +37,8 @@ export interface KitOptions {
 export function makeKit(options: KitOptions = {}) {
   evalsMock.access = 'enabled';
   evalsMock.photos = goldenPhotos(options.photos ?? 4);
-  const ids = evalsMock.photos.map((p) => p.id);
+  // the runner reads shelf photos before single ones, each set in id order
+  const ids = [...evalsMock.photos].sort((a, b) => (a.set === b.set ? a.id.localeCompare(b.id) : a.set.localeCompare(b.set))).map((p) => p.id);
 
   const scenes = Object.fromEntries(ids.map((id) => [uriOf(id), sceneFor(id, options.scenes?.[id])]));
   class Vision extends RecordingVision {
@@ -87,7 +90,13 @@ export function makeKit(options: KitOptions = {}) {
   const runner: EvalRunner = createEvalRunner({
     api: evalApi,
     files,
-    selector: new EngineSelector({ vision, settings, newId: testIds }),
+    selector: options.selectorThrows
+      ? {
+          read: async () => {
+            throw new Error('the reader broke');
+          },
+        }
+      : new EngineSelector({ vision, settings, newId: testIds }),
     pipeline: new VisionPipelineEngine({ vision, settings, newId: testIds }),
     config: store,
     vision,

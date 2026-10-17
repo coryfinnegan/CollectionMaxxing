@@ -1,6 +1,6 @@
 import { HttpResponse, http } from 'msw';
 import { promptOf } from '@/features/scan/recognition/defaults';
-import { configureAuth, resetAuth } from '@/lib/auth/session';
+import { authHeaders, configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryTokenStore } from '@/lib/auth/tokenStore';
 import { evalsMock } from '@/mocks/evals';
 import { server } from '@/mocks/server';
@@ -183,13 +183,12 @@ describe('the eval runner', () => {
   });
 
   it('deletes the photo even when reading it throws, and carries on with the next one', async () => {
-    const kit = makeKit({ photos: 2 });
-    jest.spyOn(kit.vision, 'recognizeText').mockRejectedValue(new Error('boom'));
+    const kit = makeKit({ photos: 2, selectorThrows: true });
     await kit.runner.start();
     expect(kit.deleted).toEqual(kit.ids.map(uriOf));
     expect(trackedPictures()).toEqual([]);
     expect(kit.runner.getState().phase).toBe('done');
-    expect(runs()[0].results.some((r) => r.outcome === 'error')).toBe(true);
+    expect(runs()[0].results.filter((r) => r.engine === 'apple_model').every((r) => r.outcome === 'error')).toBe(true);
   });
 
   it('skips a photo it cannot download, says so, and sends the rest', async () => {
@@ -216,6 +215,7 @@ describe('the eval runner', () => {
     it('creates no scan session, item or candidate and sends no request other than the eval routes and the config fetch', async () => {
       const kit = makeKit({ photos: 3 });
       server.use(http.get('*/api/v1/recognition/config', () => HttpResponse.json(kit.configFor('v1'))));
+      await authHeaders('GET'); // the sign-in refresh is the auth layer's, not the runner's: do it before listening
       const requests: string[] = [];
       const listener = ({ request }: { request: Request }) => requests.push(`${request.method} ${new URL(request.url).pathname}`);
       server.events.on('request:start', listener);

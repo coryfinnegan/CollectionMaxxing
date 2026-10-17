@@ -31,7 +31,7 @@ export const evalsMock = {
 export const goldenPhotos = (count: number): MockGoldenPhoto[] =>
   Array.from({ length: count }, (_, i) => ({
     id: `photo-${String(i + 1).padStart(3, '0')}`,
-    set: i % 2 ? 'shelf' : 'single',
+    set: i < count / 2 ? 'shelf' : 'single',
     hasTruth: true,
     bytes: 100_000 + i,
   }));
