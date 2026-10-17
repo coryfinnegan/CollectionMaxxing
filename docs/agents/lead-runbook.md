@@ -55,6 +55,7 @@ Prompt skeleton:
 - **Docker Desktop is 24.0.7 (API 1.43).** `PostgresFixture` pins the client to the daemon's own version. Don't hard-code it.
 - **Aspire AppHost** opts out of NuGet lock files, because its packages are OS-specific.
 - **`dotnet format`** occasionally crashes (Roslyn AccessViolation). Re-run it.
+- **Regenerating the contract on this PC:** use the update command the contract test prints. If a build is needed, `dotnet build -p:UpdateContract=true` must run with `ASPNETCORE_ENVIRONMENT=Development`, or it fails on the key-ring check.
 - **The contract snapshot's operation order** can change when endpoints move between route groups. Diff it semantically before worrying.
 - **Stryker.NET can't run xUnit v3 yet.** Verifiers mutate by hand.
 - **Docker Desktop may be off** after a reboot. Testcontainers then fails with "Failed to connect to Docker endpoint". Check `docker version` before launching builders, and start Docker Desktop if needed (no admin).
