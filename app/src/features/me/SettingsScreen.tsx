@@ -7,6 +7,7 @@ import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
 import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
+import { EvalsRow } from '@/features/evals/EvalsRow';
 import { useLockSetting } from './appLock';
 import { clearLocalData } from './localData';
 import { getBiometrics, getVision } from './services';
@@ -51,6 +52,7 @@ export function RecognitionSection() {
           <Text tone="muted">Apple Intelligence isn&apos;t available, so scans read the text on the cover instead. Turn it on in iOS Settings for better matches.</Text>
         </>
       )}
+      <EvalsRow />
     </Card>
   );
 }
