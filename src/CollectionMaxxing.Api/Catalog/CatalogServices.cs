@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Catalog.FeaturePrints;
 using CollectionMaxxing.Infrastructure.Catalog;
 
 namespace CollectionMaxxing.Api.Catalog;
@@ -18,6 +19,8 @@ public static class CatalogServices
         services.AddScoped<ListReleaseArtwork.Handler>();
         services.AddScoped<ListPlatforms.Handler>();
         services.AddScoped<GetCover.Handler>();
+        services.AddScoped<ListFeaturePrints.Handler>(); // SCAN-2c
+        services.AddScoped<PutFeaturePrints.Handler>();
         return services;
     }
 }

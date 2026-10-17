@@ -2,11 +2,13 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning.Learning;
+using CollectionMaxxing.Application.Scanning.Photo;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Operations;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Application.Scanning;
 
@@ -15,6 +17,8 @@ namespace CollectionMaxxing.Application.Scanning;
 /// (as many as its copies), with the session's default location and status. Anything undecided or rejected is left out.
 /// All or nothing: if any accepted item can't be added, none is, and the session stays open. Committing twice never adds
 /// anything: the same <c>Idempotency-Key</c> gets the first answer back, and any other request is a conflict.
+/// A photo the person chose to use ("Use my photo") becomes the cover of the items its candidate creates; the photos of candidates that
+/// weren't accepted are deleted, files included, so nothing is left behind.
 /// </summary>
 public static class CommitScanSession
 {
@@ -22,7 +26,14 @@ public static class CommitScanSession
 
     public sealed record Command(Guid SessionId, string? IdempotencyKey);
 
-    public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock, BarcodeLearner learner)
+    public sealed class Handler(
+        IAppDbContext db,
+        IIdGenerator ids,
+        ICurrentUser currentUser,
+        TimeProvider clock,
+        BarcodeLearner learner,
+        IPhotoStore photoStore,
+        ILogger<Handler> logger)
     {
         public async Task<Result<CommitResultDto>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -83,9 +94,11 @@ public static class CommitScanSession
                 return ScanningErrors.ReleaseUnavailable;
             }
 
+            var photos = await CandidatePhotos.AssetIdsAsync(db, accepted, cancellationToken);
             var created = new List<Guid>();
             foreach (var candidate in accepted)
             {
+                Guid? photoId = photos.TryGetValue(candidate.Id, out var photo) ? photo : null;
                 for (var copy = 0; copy < candidate.Copies; copy++)
                 {
                     var item = new Item
@@ -96,7 +109,8 @@ public static class CommitScanSession
                         Status = session.DefaultStatus ?? ItemStatus.Owned,
                         Completeness = CompletenessOf(candidate),
                         LocationId = session.DefaultLocationId,
-                        CoverChoice = CoverChoice.Release,
+                        CoverChoice = photoId is null ? CoverChoice.Release : CoverChoice.MyPhoto,
+                        CustomCoverAssetId = photoId,
                         AddedVia = candidate.Source switch
                         {
                             CandidateSource.Barcode => AddedVia.Barcode,
@@ -119,10 +133,15 @@ public static class CommitScanSession
             await learner.LearnAsync(accepted, cancellationToken); // the next scan of these barcodes is a local hit
 
             // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
+            var unusedPhotos = new List<string>();
             if (created.Count > 0)
             {
                 session.Status = ScanSessionStatus.Committed;
                 session.CommittedAt = now;
+
+                // Photos of what was rejected or left undecided have no item to be a cover for.
+                var unused = candidates.Where(c => c.CreatedItemId is null && !accepted.Contains(c)).ToList();
+                unusedPhotos = await CandidatePhotos.DiscardAsync(db, unused, cancellationToken);
             }
 
             var result = new CommitResultDto(created.Count, candidates.Count - accepted.Count, created);
@@ -139,6 +158,7 @@ public static class CommitScanSession
 
             // One SaveChanges is one transaction. A second commit racing this one loses on the session's row version.
             await db.SaveChangesAsync(cancellationToken);
+            await CandidatePhotos.DeleteFilesAsync(photoStore, logger, unusedPhotos, cancellationToken);
             return result;
         }
 

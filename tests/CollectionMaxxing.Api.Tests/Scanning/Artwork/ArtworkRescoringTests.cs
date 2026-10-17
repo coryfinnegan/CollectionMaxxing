@@ -197,6 +197,32 @@ public class ArtworkRescoringTests(ApiFixture api) : ArtworkTest(api)
     }
 
     [Fact]
+    public async Task A_barcode_candidate_is_refused_by_art_itself_even_if_its_stored_trace_claims_a_close_call()
+    {
+        var library = await CreateLibraryAsync();
+        var code = ScanData.Upc(5702);
+        await CatalogAsync("Star Fox 64", code);
+        await CatalogAsync("Star Fox 64 Rumble Pak Edition", code);
+        using var client = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(client, library.Id);
+        var candidate = (await ScanAsync(client, sessionId, code))[0];
+        var ids = AlternativeIds(candidate);
+
+        // Only the handler's own barcode check can stop this one: the stored flag says the pictures are wanted.
+        await using (var context = Db.CreateContext())
+        {
+            var stored = await context.ScanCandidates.IgnoreQueryFilters().Where(c => c.Id == Id(candidate)).Select(c => c.TraceJson).SingleAsync() ?? string.Empty;
+            stored.ShouldMatch("\"needsArt\": ?false");
+            await context.ScanCandidates.IgnoreQueryFilters().Where(c => c.Id == Id(candidate))
+                .ExecuteUpdateAsync(set => set.SetProperty(c => c.TraceJson, System.Text.RegularExpressions.Regex.Replace(stored, "\"needsArt\": ?false", "\"needsArt\": true")));
+        }
+
+        var response = await client.PostAsync(ArtUrl(sessionId, Id(candidate)), Json(new { distances = new[] { Distance(ids[0], 0.1) } }));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task A_close_calls_alternatives_carry_the_authorized_artwork_url_of_each_release_and_none_the_requester_cannot_see()
     {
         var other = await CreateLibraryAsync();

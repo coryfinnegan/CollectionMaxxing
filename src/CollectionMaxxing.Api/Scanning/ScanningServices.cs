@@ -6,6 +6,7 @@ using CollectionMaxxing.Api.Scanning.Identify;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Ownership;
 using CollectionMaxxing.Application.Scanning;
+using CollectionMaxxing.Application.Scanning.Photo;
 using CollectionMaxxing.Infrastructure.Jobs;
 using CollectionMaxxing.Infrastructure.Scanning;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -37,6 +38,7 @@ public static class ScanningServices
         services.AddScoped<SearchForCandidate.Handler>();
         services.AddScoped<CommitScanSession.Handler>();
         services.AddScoped<AbandonScanSession.Handler>();
+        services.AddScoped<UploadCandidatePhoto.Handler>(); // SCAN-2c
         services.AddJobHandler<SubmitBarcodes.ResolveJob, ResolvePendingCandidate>(SubmitBarcodes.ResolveJobType);
         services.AddScanFollowUps();
         services.AddIdentify();

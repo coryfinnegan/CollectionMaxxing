@@ -1,9 +1,14 @@
 using System.Buffers.Binary;
+using CollectionMaxxing.Application.Accounts.Deletion;
 using CollectionMaxxing.Application.Scanning;
+using CollectionMaxxing.Application.Scanning.Photo;
+using CollectionMaxxing.Infrastructure.Catalog;
 using CollectionMaxxing.Infrastructure.Persistence;
 using CollectionMaxxing.Infrastructure.Providers.UpcItemDb;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 
 namespace CollectionMaxxing.Infrastructure.Scanning;
@@ -15,6 +20,11 @@ public static class ScanningStorage
     {
         services.AddScoped<ISessionLock, PostgresSessionLock>();
         services.AddScoped<IProductLookup, UpcProductLookup>();
+
+        // Uploaded photos live in the cover folder. Deleting uses IAccountFiles (registered by AddAccountPurge, over the same folder).
+        services.TryAddSingleton<IPhotoStore>(provider => new FilePhotoStore(
+            provider.GetRequiredService<IConfiguration>()[CatalogInfrastructure.CoversRootKey] ?? Path.Combine("data", "covers"),
+            provider.GetRequiredService<IAccountFiles>()));
         return services;
     }
 }

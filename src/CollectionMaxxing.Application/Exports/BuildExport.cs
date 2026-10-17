@@ -17,7 +17,8 @@ namespace CollectionMaxxing.Application.Exports;
 /// <summary>
 /// The background job that writes one person's export zip: <c>items.csv</c>, <c>items.json</c>, <c>locations.json</c> and <c>tags.json</c>
 /// for every library they belong to right now. Items are read in batches (never the whole library at once). Soft-deleted items are left out.
-/// The zip holds only the library's own data and display names: no emails, tokens, hashes or audit rows.
+/// <c>photos.json</c> and <c>feature-prints.json</c> list the photos and feature-print backups those libraries keep (manifest only: ids,
+/// sizes and dates, never the bytes). The zip holds only the library's own data and display names: no emails, tokens, hashes or audit rows.
 /// </summary>
 public static class BuildExport
 {
@@ -119,6 +120,13 @@ public static class BuildExport
 
     private sealed record ExportTag(Guid Id, Guid LibraryId, string Name);
 
+    /// <summary>A photo the library keeps ("Use my photo" covers). The manifest lists it; the picture itself stays on the PC.</summary>
+    private sealed record ExportPhoto(
+        Guid AssetId, Guid LibraryId, string ContentType, int? Width, int? Height, DateTimeOffset CreatedAt, IReadOnlyList<Guid> ItemIds);
+
+    /// <summary>A backed-up feature print: which item and release it is for and how big it is. The bytes are the phone's and mean nothing elsewhere.</summary>
+    private sealed record ExportFeaturePrint(Guid ItemId, Guid LibraryId, Guid ReleaseId, int Revision, int Bytes, DateTimeOffset CreatedAt);
+
     private sealed record LibraryData(
         Guid Id, string Name, IReadOnlyDictionary<Guid, string> LocationPaths, IReadOnlyDictionary<Guid, string> TagNames);
 
@@ -144,6 +152,8 @@ public static class BuildExport
                 await WriteItemsJsonAsync(zip, libraries, token);
                 await WriteJsonArrayAsync(zip, "locations.json", await LocationsAsync(libraries, token), token);
                 await WriteJsonArrayAsync(zip, "tags.json", Tags(libraries), token);
+                await WriteJsonArrayAsync(zip, "photos.json", await PhotosAsync(libraries, token), token);
+                await WriteJsonStreamAsync(zip, "feature-prints.json", FeaturePrintsAsync(libraries, token), token);
             }, cancellationToken);
         }
 
@@ -197,6 +207,70 @@ public static class BuildExport
             }
 
             return result;
+        }
+
+        private async Task<List<ExportPhoto>> PhotosAsync(List<LibraryData> libraries, CancellationToken cancellationToken)
+        {
+            var result = new List<ExportPhoto>();
+            foreach (var library in libraries)
+            {
+                var photos = await db.Assets.AsNoTracking()
+                    .Where(a => a.OwnerLibraryId == library.Id && a.Kind == AssetKind.UserPhoto)
+                    .OrderBy(a => a.CreatedAt).ThenBy(a => a.Id)
+                    .Select(a => new { a.Id, a.ContentType, a.Width, a.Height, a.CreatedAt })
+                    .ToListAsync(cancellationToken);
+                var assetIds = photos.Select(p => p.Id).ToList();
+                var uses = (await db.Items.AsNoTracking()
+                        .Where(i => i.LibraryId == library.Id && i.CustomCoverAssetId != null && assetIds.Contains(i.CustomCoverAssetId.Value))
+                        .Select(i => new { AssetId = i.CustomCoverAssetId!.Value, ItemId = i.Id })
+                        .ToListAsync(cancellationToken))
+                    .ToLookup(u => u.AssetId, u => u.ItemId);
+                result.AddRange(photos.Select(p => new ExportPhoto(
+                    p.Id, library.Id, p.ContentType, p.Width, p.Height, p.CreatedAt, uses[p.Id].Order().ToList())));
+            }
+
+            return result;
+        }
+
+        private async IAsyncEnumerable<ExportFeaturePrint> FeaturePrintsAsync(
+            List<LibraryData> libraries, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var library in libraries)
+            {
+                var prints = db.ItemFeaturePrints.AsNoTracking()
+                    .Where(p => p.LibraryId == library.Id)
+                    .OrderBy(p => p.CreatedAt).ThenBy(p => p.Id)
+                    .Select(p => new ExportFeaturePrint(p.ItemId, p.LibraryId, p.ReleaseId, p.Revision, p.Data.Length, p.CreatedAt))
+                    .AsAsyncEnumerable();
+                await foreach (var print in prints.WithCancellation(cancellationToken))
+                {
+                    yield return print;
+                }
+            }
+        }
+
+        private static async Task WriteJsonStreamAsync<T>(ZipArchive zip, string name, IAsyncEnumerable<T> values, CancellationToken cancellationToken)
+        {
+            var entry = zip.CreateEntry(name, CompressionLevel.Optimal);
+            var stream = entry.Open();
+            await using (stream.ConfigureAwait(false))
+            {
+                var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+                await using (writer.ConfigureAwait(false))
+                {
+                    writer.WriteStartArray();
+                    await foreach (var value in values.WithCancellation(cancellationToken))
+                    {
+                        JsonSerializer.Serialize(writer, value, Json);
+                        if (writer.BytesPending > 64 * 1024)
+                        {
+                            await writer.FlushAsync(cancellationToken);
+                        }
+                    }
+
+                    writer.WriteEndArray();
+                }
+            }
         }
 
         private static List<ExportTag> Tags(List<LibraryData> libraries) =>
