@@ -7,6 +7,7 @@ import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { useLibraryRole } from '@/features/scan/session/useScanSession';
 import { getTrayStore } from '@/features/scan/tray/storage';
 import type { TrayStore } from '@/features/scan/tray/trayStore';
+import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { commitDraft, loadIntoCards, patchCandidate, searchCandidate, skipCandidate, undoCommit } from './api';
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
@@ -15,7 +16,11 @@ import { addCount, commitBody, committable, emptyDraft, isChecked, type Draft, t
 /** How long the "Added 11 items" toast offers Undo (docs/06 M5). */
 export const UNDO_MS = 10_000;
 
-export type Toast = { message: string; itemIds: string[]; canUndo: boolean; warning?: string | null };
+/** `sessionId` and `undoKey` are what Undo needs: the session the commit closed, and the key that makes a retried Undo the same request. */
+export type Toast = { message: string; sessionId: string; undoKey: string; canUndo: boolean; warning?: string | null };
+
+/** Undo was refused: it is too late (the commit is a couple of minutes old) or an item was changed since. The items stay as they are. */
+const UNDO_REFUSED = "Couldn't undo. These items were added a while ago or have changed since, so they stay in your library.";
 
 export function useReview({
   libraryId,
@@ -39,6 +44,7 @@ export function useReview({
   const [commitError, setCommitError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const inFlight = useRef(false);
+  const undoing = useRef(false);
   const attempt = useRef<{ signature: string; key: string } | null>(null);
 
   const list = useMemo(() => reviewable(Object.values(byId)), [byId]);
@@ -106,7 +112,12 @@ export function useReview({
       for (const c of chosen) useCardsStore.getState().remove(c.id);
       store.getState().clear();
       setDraft(emptyDraft());
-      setToast({ message: `Added ${result.created} ${result.created === 1 ? 'item' : 'items'}`, itemIds: result.itemIds, canUndo: true });
+      setToast({
+        message: `Added ${result.created} ${result.created === 1 ? 'item' : 'items'}`,
+        sessionId,
+        undoKey: newIdempotencyKey(),
+        canUndo: true,
+      });
     } catch (error) {
       setCommitError(`${friendlyError(error)} Nothing was added, and your picks are still checked.`);
     } finally {
@@ -116,12 +127,22 @@ export function useReview({
   };
 
   const undo = async () => {
-    if (!toast?.canUndo) return;
+    if (!toast?.canUndo || undoing.current) return;
+    undoing.current = true;
     try {
-      await undoCommit(libraryId, toast.itemIds);
-      setToast({ message: 'Undone. Those items are in Recently deleted.', itemIds: [], canUndo: false });
+      await undoCommit(toast.sessionId, toast.undoKey);
+      // The commit cleared the tray (and with it the session): Review has the session and its results back now.
+      store.getState().setSessionId(toast.sessionId);
+      setDraft(emptyDraft());
+      setToast({ ...toast, message: 'Undone. What you scanned is back in Review.', canUndo: false });
     } catch (error) {
-      setToast({ ...toast, message: friendlyError(error), canUndo: true });
+      if (error instanceof ApiError && error.status === 409) {
+        setToast({ ...toast, message: UNDO_REFUSED, canUndo: false });
+      } else {
+        setToast({ ...toast, message: `${friendlyError(error)} The items are still in your library.`, canUndo: true });
+      }
+    } finally {
+      undoing.current = false;
     }
   };
 

@@ -1,9 +1,10 @@
-// Mock Review endpoints (docs/04): choose an alternative or change copies, re-search a not-found, commit, abandon.
+// Mock Review endpoints (docs/04): choose an alternative or change copies, re-search a not-found, commit, undo a commit, abandon.
 // Registered before the scan handlers, so these answer PATCH and DELETE on a candidate or session first.
 // Like the real API: the commit is one transaction (a failure creates nothing), takes an Idempotency-Key and
-// replays the same answer for it, and a viewer cannot change anything (403).
+// replays the same answer for it, and a viewer cannot change anything (403). Undo removes the items the commit made for good
+// (not into Recently deleted) and reopens the session with its candidates, like the real API (SCAN-1e).
 import { HttpResponse, http } from 'msw';
-import type { CandidateDto, CommitResultDto, ItemDto, PlatformDto, ReleaseDto } from '@/api/generated/models';
+import type { CandidateDto, CommitResultDto, ItemDto, PlatformDto, ReleaseDto, UndoResultDto } from '@/api/generated/models';
 import { alternativesOf } from '@/features/review/grouping';
 import type { CommitBody } from '@/features/review/plan';
 import { newMockId } from './data';
@@ -28,12 +29,23 @@ export const reviewMock = {
   /** Set to make the next batch restore fail. */
   failNextRestore: false,
   replays: new Map<string, CommitResultDto>(),
+  /** Every undo request the server received. */
+  undos: [] as { sessionId: string; key: string | null }[],
+  /** Set to make the next undo answer with this status (409: too late, or an item changed since). */
+  failNextUndo: null as number | null,
+  /** The items each session's commit made, so an undo can remove all of them (a candidate remembers only its first copy). */
+  made: new Map<string, string[]>(),
+  undoReplays: new Map<string, UndoResultDto>(),
   reset() {
     this.failNextCommit = false;
     this.commits = [];
     this.restores = [];
     this.failNextRestore = false;
     this.replays = new Map();
+    this.undos = [];
+    this.failNextUndo = null;
+    this.made = new Map();
+    this.undoReplays = new Map();
   },
 };
 
@@ -167,8 +179,46 @@ export const handlers = [
       c.seq = ++session.seq;
     }
     session.status = 'committed';
+    reviewMock.made.set(session.id, itemIds);
     const result: CommitResultDto = { created: itemIds.length, skipped, itemIds };
     reviewMock.replays.set(`${session.id}:${key}`, result);
+    return HttpResponse.json(result);
+  }),
+
+  // MSW can't match the ":undo" suffix as a literal path segment either.
+  http.post(/\/api\/v1\/scan-sessions\/([^/]+)\/commit:undo$/, ({ request }) => {
+    if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
+    const parts = new URL(request.url).pathname.split('/');
+    const session = scanMock.sessions.get(String(parts[parts.indexOf('scan-sessions') + 1]));
+    if (!session) return problem(404, 'Not found');
+    const key = request.headers.get('Idempotency-Key');
+    reviewMock.undos.push({ sessionId: session.id, key });
+    if (!key) return problem(400, 'An Idempotency-Key header is required.');
+    const replay = reviewMock.undoReplays.get(`${session.id}:${key}`);
+    if (replay && session.status === 'open') return HttpResponse.json(replay);
+    if (reviewMock.failNextUndo) {
+      const status = reviewMock.failNextUndo;
+      reviewMock.failNextUndo = null;
+      return problem(status, status === 409 ? 'It is too late to undo this.' : 'Something went wrong.');
+    }
+    if (session.status !== 'committed') return problem(409, 'This scan was not added to the library.');
+
+    // Gone for good: no deletedAt, no Recently deleted. The candidates forget the items and are sent again.
+    const made = reviewMock.made.get(session.id) ?? [];
+    for (const id of made) {
+      const at = itemsState.entries.findIndex((e) => e.item.id === id);
+      if (at >= 0) itemsState.entries.splice(at, 1);
+    }
+    reviewMock.made.delete(session.id);
+    for (const c of session.candidates.filter((x) => x.createdItemId)) {
+      c.createdItemId = null;
+      c.seq = ++session.seq;
+      c.changeSeq = c.seq;
+    }
+    for (const stale of [...reviewMock.replays.keys()].filter((k) => k.startsWith(`${session.id}:`))) reviewMock.replays.delete(stale);
+    session.status = 'open';
+    const result: UndoResultDto = { removed: made.length };
+    reviewMock.undoReplays.set(`${session.id}:${key}`, result);
     return HttpResponse.json(result);
   }),
 

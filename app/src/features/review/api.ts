@@ -1,8 +1,7 @@
 // Review's calls to the API, as plain functions over the generated client. Candidate answers are merged into the
 // shared cards store, so the scanner and Review always show the same candidate.
-import { bulkItems } from '@/api/generated/items/items';
-import type { CandidateDto, CommitResultDto, DecideCandidateRequest } from '@/api/generated/models';
-import { commitScanSession, decideCandidate, searchForCandidate } from '@/api/generated/scanning/scanning';
+import type { CandidateDto, CommitResultDto, DecideCandidateRequest, UndoResultDto } from '@/api/generated/models';
+import { commitScanSession, decideCandidate, searchForCandidate, undoScanCommit } from '@/api/generated/scanning/scanning';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { loadSession } from '@/features/scan/session/sessionApi';
 import { ApiError } from '@/lib/http';
@@ -62,11 +61,14 @@ export async function commitDraft(
 }
 
 /**
- * Undo after "Added N items": the new items go to Recently deleted in one call (one transaction, all or nothing).
- * NOTE: the brief asked for the batch restore here, but a restore only brings back *deleted* items, and the items
- * just added are live. See the PR notes.
+ * Undo after "Added N items": the server removes the items that commit made for good (not into Recently deleted), reopens the
+ * session and sends its results back with every decision, edit and copy count as they were. Then they are loaded into the cards
+ * store, so Review shows them again. One Idempotency-Key per toast: a retry after a lost answer gets the first answer back.
+ * Throws if it failed (a 409 means it is too late, or an item changed since): the items are left as they are then.
  */
-export async function undoCommit(libraryId: string, itemIds: readonly string[]): Promise<void> {
-  const response = await bulkItems(libraryId, { ids: [...itemIds], action: 'delete' });
+export async function undoCommit(sessionId: string, key: string): Promise<UndoResultDto> {
+  const response = await undoScanCommit(sessionId, { headers: { 'Idempotency-Key': key } });
   if (response.status !== 200) throw new ApiError(response.status, {});
+  await loadIntoCards(sessionId);
+  return response.data;
 }
