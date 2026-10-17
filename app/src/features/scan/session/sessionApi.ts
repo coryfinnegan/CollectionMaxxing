@@ -21,13 +21,23 @@ export function announce(events: { event: CardEvent }[]) {
   }
 }
 
+let creating: Promise<string> | undefined;
+
+/** Makes the library's scan session. Barcodes and pictures can both ask at once; they share one request, so there is one session. */
+export function createSessionOnce(libraryId: string): Promise<string> {
+  creating ??= (async () => {
+    const response = await createScanSession(libraryId, {});
+    if (response.status !== 201) throw new ApiError(response.status, {});
+    return response.data.id;
+  })().finally(() => {
+    creating = undefined;
+  });
+  return creating;
+}
+
 export function flushDeps(libraryId: string): FlushDeps {
   return {
-    async createSession() {
-      const response = await createScanSession(libraryId, {});
-      if (response.status !== 201) throw new ApiError(response.status, {});
-      return response.data.id;
-    },
+    createSession: () => createSessionOnce(libraryId),
     async sendBatch(sessionId, batch) {
       const response = await scanBarcodes(
         sessionId,
