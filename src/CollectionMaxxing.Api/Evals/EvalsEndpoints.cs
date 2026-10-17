@@ -70,6 +70,14 @@ public static class EvalsEndpoints
         return TypedResults.Stream(result.Value.Content, result.Value.ContentType);
     }
 
+    /// <summary>The app's JSON options, except that an engine is read only by its API name (no numbers, no C# member names).</summary>
+    private static JsonSerializerOptions StrictOptions(JsonSerializerOptions app)
+    {
+        var strict = new JsonSerializerOptions(app);
+        strict.Converters.Insert(0, new StrictScanEngineConverter());
+        return strict;
+    }
+
     private static async Task<IResult> SubmitRunAsync(
         HttpContext http,
         IGoldenSet golden,
@@ -119,7 +127,7 @@ public static class EvalsEndpoints
         EvalRunRequest? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<EvalRunRequest>(body, json.Value.SerializerOptions);
+            parsed = JsonSerializer.Deserialize<EvalRunRequest>(body, StrictOptions(json.Value.SerializerOptions));
         }
         catch (JsonException)
         {

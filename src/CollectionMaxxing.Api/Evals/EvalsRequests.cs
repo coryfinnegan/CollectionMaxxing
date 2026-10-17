@@ -29,8 +29,8 @@ public sealed record EvalReadItem(
     ResolvedStep? ResolvedBy = null);
 
 /// <summary>
-/// An engine as its API name only (<c>apple_model</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number
-/// (7 would become an engine nobody has) or a C# member name; a result file's engine key must be one of the two real engines.
+/// Reads an engine as its API name only (<c>apple_model</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number
+/// (7 would become an engine nobody has) or a C# member name; a result file's engine key must be one of the two real engines. The run endpoint puts it first in its reader's converters.
 /// </summary>
 public sealed class StrictScanEngineConverter : JsonConverter<ScanEngine>
 {
@@ -58,7 +58,7 @@ public sealed class StrictScanEngineConverter : JsonConverter<ScanEngine>
 /// <summary>One golden photo run through one engine on the phone.</summary>
 public sealed record EvalPhotoResult(
     string? PhotoId = null,
-    [property: JsonConverter(typeof(StrictScanEngineConverter))] ScanEngine? Engine = null,
+    ScanEngine? Engine = null,
     EvalOutcome? Outcome = null,
     FallbackReason? FellBackFrom = null,
     IReadOnlyList<EvalReadItem>? Items = null,
