@@ -62,9 +62,11 @@ http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 429));
 const CALLS = ['session_open', 'barcodes', 'identify', 'poll', 'accept', 'sync', 'commit', 'browse', 'search', 'token_refresh'];
 const trends = {};
 const limited = {};
+const counts = {};
 for (const name of CALLS) {
   trends[name] = new Trend(`call_${name}`, true);
   limited[name] = new Counter(`limited_${name}`);
+  counts[name] = new Counter(`count_${name}`);
 }
 const rateLimited = new Counter('rate_limited');
 const candidatesSeen = new Counter('candidates_seen');
@@ -204,6 +206,7 @@ function call(st, name, method, path, body, extra) {
     limited[name].add(1);
   } else {
     trends[name].add(res.timings.duration);
+    counts[name].add(1);
   }
   return res;
 }
@@ -217,6 +220,7 @@ function refreshToken(st) {
     st.refresh = body.refresh_token;
     st.expiresAt = Date.now() + body.expires_in * 1000;
     trends.token_refresh.add(res.timings.duration);
+    counts.token_refresh.add(1);
   } else if (res.status === 429) {
     rateLimited.add(1);
     limited.token_refresh.add(1);
@@ -320,9 +324,10 @@ export default function (data) {
 // ---- the summary: a short text for the console and the numbers as JSON for the runner ------------------------------------
 function trend(data, name) {
   const m = data.metrics[`call_${name}`];
-  if (!m || !m.values.count) return null;
+  const n = data.metrics[`count_${name}`];
+  if (!m || !n || !n.values.count) return null;
   const v = m.values;
-  return { count: v.count, p50: round(v.med), p95: round(v['p(95)']), p99: round(v['p(99)']), max: round(v.max) };
+  return { count: n.values.count, p50: round(v.med), p95: round(v['p(95)']), p99: round(v['p(99)']), max: round(v.max) };
 }
 
 const round = (n) => Math.round(n * 10) / 10;

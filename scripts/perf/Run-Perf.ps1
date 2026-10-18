@@ -139,7 +139,9 @@ try {
     $summary | Add-Member -NotePropertyName capped -NotePropertyValue $capped -Force
     $summary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $out 'summary.json')
     Write-Host ''
-    Write-Host "result:   $(if ($summary.aborted) { 'ABORTED by an abort rule' } elseif ($summary.thresholdsPassed) { 'thresholds passed' } else { 'thresholds FAILED' })"
+    $k6Failed = (-not $capped) -and ($process.ExitCode -ne 0) -and ($process.ExitCode -ne 99)
+    if ($k6Failed -or $summary.requests -eq 0) { $summary | Add-Member -NotePropertyName thresholdsPassed -NotePropertyValue $false -Force; $exit = 4 }
+    Write-Host "result:   $(if ($k6Failed -or $summary.requests -eq 0) { "FAILED: k6 exit code $($process.ExitCode), $($summary.requests) requests" } elseif ($summary.aborted) { 'ABORTED by an abort rule' } elseif ($summary.thresholdsPassed) { 'thresholds passed' } else { 'thresholds FAILED' })"
     Write-Host "requests: $($summary.requests)   p50 $($summary.p50) ms   p95 $($summary.p95) ms   p99 $($summary.p99) ms   errors $([math]::Round($summary.errorRate * 100, 2))%   429s $($summary.rateLimited)"
     foreach ($n in $summary.calls.PSObject.Properties.Name) {
       $c = $summary.calls.$n
@@ -163,6 +165,8 @@ catch {
 }
 finally {
   if ($process -and -not $process.HasExited) { try { $process.Kill() } catch { } }
+  # Keep the API's log (temp folder only) so a slow or failed run can be explained after the containers are gone.
+  try { (Invoke-PerfDocker -DockerArgs @('logs', '--tail', '300', $plan.Containers[1])).Output | Set-Content -LiteralPath (Join-Path $out 'api.log') } catch { }
   [void](Stop-PerfResources -RunId $runId)
   try { Remove-Item -LiteralPath $secrets -Recurse -Force -ErrorAction SilentlyContinue } catch { }
   Write-Host 'stopped'

@@ -140,11 +140,23 @@ function Get-PerfPlan {
     Files__Root = '/data/files'
     Exports__Path = '/data/files/exports'
     Evals__Enabled = 'false'
+    # Providers are refused at once (see $providerHosts); with the default 3 retries and 1 s delay a barcode would wait out its 2 s window and a search 5 s,
+    # which measures the retry policy of a down provider, not the API. One quick retry keeps the numbers about our code.
+    Providers__Resilience__MaxRetryAttempts = '1'
+    Providers__Resilience__RetryDelay = '00:00:00.050'
+    # The providers' own client-side rate limits (UPCitemdb: one call per 10 s) are for the real services; against refused calls they only
+    # make requests queue until the 2 s resolve window ends, so they are lifted here.
+    Providers__UpcItemDb__RequestsPerSecond = '1000'
+    Providers__UpcItemDb__DailyLimit = '1000000'
+    Providers__OpenLibrary__RequestsPerSecond = '1000'
     # The seed signs everyone up from one address, which the sign-in limits (10 a minute, 30 an hour per address) would refuse.
     # Only these two are widened; the limits the scanners live under (default, search, barcodes, identify) are the shipped ones.
     Auth__RateLimit__PermitLimit = '10000'
     Security__Limits__AuthHourly__Permits = '100000'
   }
+  # The providers' host names point at the container itself: a lookup is refused at once instead of timing out for 5 s per attempt, so no
+  # request ever leaves the machine and the numbers measure our API and database, not a provider's latency.
+  $providerHosts = @('api.igdb.com', 'api.themoviedb.org', 'api.upcitemdb.com', 'covers.openlibrary.org', 'id.twitch.tv', 'image.tmdb.org', 'images.igdb.com', 'openlibrary.org', 'www.googleapis.com') | ForEach-Object { '--add-host'; "$_`:127.0.0.1" }
   $apiEnvArgs = $apiEnv.GetEnumerator() | Sort-Object Name | ForEach-Object { '-e'; "$($_.Name)=$($_.Value)" }
 
   $commands = @(
@@ -164,7 +176,7 @@ function Get-PerfPlan {
       Step = 'api'
       Args = @('run', '-d', '--name', $api, '--network', $net) + $labels + $hardening + @(
         '--cap-drop', 'ALL', '--cpus', $stack.apiCpus, '--memory', $stack.apiMemory,
-        '--tmpfs', '/data/files:rw,size=128m,uid=1654,gid=1654,mode=0755',
+        '--tmpfs', '/data/files:rw,size=128m,uid=1654,gid=1654,mode=0755') + $providerHosts + @(
         '--mount', "type=bind,source=$SecretsDir,target=/secrets") + $apiEnvArgs + @((Get-PerfImageName 'api' $Tag))
     }
     [pscustomobject]@{
@@ -174,7 +186,7 @@ function Get-PerfPlan {
         '--mount', "type=bind,source=$(Get-PerfRoot),target=/scripts,readonly",
         '--mount', "type=bind,source=$OutDir,target=/out",
         '-e', "PROFILE=$($Profile.Name)", '-e', "BASE_URL=$apiUrl", '-e', 'SETUP_CODE={{SETUP_CODE}}',
-        '-e', "RP_ID=$api", '-e', "ORIGIN=$apiUrl",
+        '-e', "RP_ID=$api", '-e', "ORIGIN=https://$api",
         'grafana/k6:1.0.0', 'run', '/scripts/k6/scanners.js')
     }
   )
@@ -291,7 +303,7 @@ function Get-PerfStatsSummary {
       memMaxMiB = [math]::Round(($rows | Measure-Object Mb -Maximum).Maximum, 0)
     }
   }
-  $out
+  [pscustomobject]$out
 }
 
 Export-ModuleMember -Function Get-PerfConfig, Set-PerfDockerRunner, Invoke-PerfDocker, Assert-PerfDocker, Resolve-PerfProfile, Assert-PerfStartAllowed,
