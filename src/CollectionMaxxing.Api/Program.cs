@@ -11,6 +11,7 @@ using CollectionMaxxing.Api.Locations;
 using CollectionMaxxing.Api.Ownership;
 using CollectionMaxxing.Api.Recognition;
 using CollectionMaxxing.Api.Scanning;
+using CollectionMaxxing.Api.Security;
 using CollectionMaxxing.Api.Tags;
 using CollectionMaxxing.Api.Trash;
 using CollectionMaxxing.Infrastructure;
@@ -23,6 +24,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Shared plumbing, then one AddX() per feature.
 builder.AddServiceDefaults();
 builder.Services.AddApiFoundation();
+builder.Services.AddSecurityHeaders();
 builder.Services.AddInfrastructure();
 builder.Services.AddJobs();
 builder.Services.AddAccounts();
@@ -44,6 +46,8 @@ builder.Services.AddEvals();
 
 var app = builder.Build();
 
+app.UseSecurityHeaders();
+app.UseApiLimits();
 app.UseApiFoundation();
 
 // Then one MapX() per feature.
