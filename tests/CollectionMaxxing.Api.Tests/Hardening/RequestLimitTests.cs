@@ -1,8 +1,8 @@
 using System.Net;
 using CollectionMaxxing.Api.Tests.Scanning;
 using CollectionMaxxing.Api.Tests.Scanning.Events;
-using CollectionMaxxing.Application.Scanning.Events;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Application.Scanning.Events;
 using CollectionMaxxing.Domain.Libraries;
 using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.Extensions.DependencyInjection;
