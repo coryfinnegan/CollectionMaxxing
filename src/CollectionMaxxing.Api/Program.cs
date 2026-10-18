@@ -14,6 +14,7 @@ using CollectionMaxxing.Api.Scanning;
 using CollectionMaxxing.Api.Security;
 using CollectionMaxxing.Api.Tags;
 using CollectionMaxxing.Api.Trash;
+using CollectionMaxxing.Api.Web;
 using CollectionMaxxing.Infrastructure;
 using CollectionMaxxing.Infrastructure.Audit;
 using CollectionMaxxing.Infrastructure.Jobs;
@@ -25,6 +26,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddApiFoundation();
 builder.Services.AddSecurityHeaders();
+builder.Services.AddWebApp();
 builder.Services.AddInfrastructure();
 builder.Services.AddJobs();
 builder.Services.AddAccounts();
@@ -47,6 +49,8 @@ builder.Services.AddEvals();
 var app = builder.Build();
 
 app.UseSecurityHeaders();
+// The web app answers before sign-in is checked: its files are public, and a request an endpoint matches is left alone.
+app.UseWebApp();
 app.UseApiFoundation();
 app.UseApiLimits();
 
