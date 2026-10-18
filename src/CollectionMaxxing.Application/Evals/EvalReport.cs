@@ -17,7 +17,8 @@ public static class EvalReport
         IReadOnlyDictionary<string, TruthEntry> truths,
         IReadOnlyDictionary<string, double>? baseline,
         string buildSha,
-        IReadOnlyList<SkippedPhoto> skipped)
+        IReadOnlyList<SkippedPhoto> skipped,
+        int photosInSet = 0)
     {
         var scored = EvalScorer.Score(run.Photos, truths);
         var metrics = EvalRegression.Flatten(scored.Engines);
@@ -30,9 +31,12 @@ public static class EvalReport
             run.Photos.Count(p => truths.ContainsKey(p.PhotoId)),
             skipped,
             scored.Engines,
-            M3Gate.Evaluate(scored.Engines),
-            EvalRegression.Check(baseline, metrics),
-            metrics);
+            M3Gate.Evaluate(scored.Engines, run.Partial),
+            EvalRegression.Check(run.Partial ? null : baseline, metrics, run.Partial),
+            metrics,
+            run.Partial,
+            run.Photos.Where(p => truths.ContainsKey(p.PhotoId)).Select(p => p.PhotoId).Distinct(StringComparer.Ordinal).Count(),
+            photosInSet);
         return new EvaluatedRun(summary, scored.Misses, Markdown(summary, scored.Misses));
     }
 
@@ -45,6 +49,12 @@ public static class EvalReport
             .Append(summary.Device.Model).Append(" / ").Append(summary.Device.OsVersion).Append(" / app ").Append(summary.Device.AppVersion)
             .AppendLine().AppendLine();
         text.Append("Scored ").Append(summary.ScoredPhotos).Append(" photos; skipped ").Append(summary.Skipped.Count).AppendLine(".").AppendLine();
+        if (summary.Partial)
+        {
+            text.Append("**Partial run: ").Append(summary.PhotosRun).Append(summary.PhotosInSet > 0 ? " of " + summary.PhotosInSet : string.Empty)
+                .AppendLine(" photos.** The phone cancelled it, so the gate says incomplete and it is not compared with the baseline or used as one.").AppendLine();
+        }
+
 
         text.Append("## M3 gate: ").AppendLine(summary.Gate.Verdict.ToUpperInvariant()).AppendLine();
         text.AppendLine("| Measure | Bar | Measured | Result |").AppendLine("|---|---|---|---|");

@@ -2,13 +2,11 @@
 import { listGoldenPhotos, submitEvalRun } from '@/api/generated/admin/admin';
 import type { EvalRunRequest, EvalRunResult, GoldenPhotoDto } from '@/api/generated/models';
 
-/** What the phone sends: text, fields, timings and ids. `partial` marks a cancelled run. */
-export type EvalRunBody = EvalRunRequest & { partial?: boolean };
-
 export interface EvalApi {
   /** Rejects with the server's error (404 evals off, 403 not the owner). */
   list(): Promise<GoldenPhotoDto[]>;
-  submit(body: EvalRunBody): Promise<EvalRunResult>;
+  /** `partial: true` marks a cancelled run; the server shows it as "N of M photos" and never counts it as a pass or a baseline. */
+  submit(body: EvalRunRequest): Promise<EvalRunResult>;
 }
 
 export const evalApi: EvalApi = {

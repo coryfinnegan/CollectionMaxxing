@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Accounts;
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Libraries.Members;
@@ -17,8 +18,8 @@ namespace CollectionMaxxing.Application.Exports;
 /// <summary>
 /// The background job that writes one person's export zip: <c>items.csv</c>, <c>items.json</c>, <c>locations.json</c> and <c>tags.json</c>
 /// for every library they belong to right now. Items are read in batches (never the whole library at once). Soft-deleted items are left out.
-/// <c>photos.json</c> and <c>feature-prints.json</c> list the photos and feature-print backups those libraries keep (manifest only: ids,
-/// sizes and dates, never the bytes). The zip holds only the library's own data and display names: no emails, tokens, hashes or audit rows.
+/// <c>photos.json</c> lists the photos those libraries keep and the zip holds the files as <c>photos/&lt;assetId&gt;.jpg</c>;
+/// <c>feature-prints.json</c> lists the feature-print backups (manifest only: ids, sizes and dates, never the bytes). The zip holds only the library's own data and display names: no emails, tokens, hashes or audit rows.
 /// </summary>
 public static class BuildExport
 {
@@ -120,9 +121,14 @@ public static class BuildExport
 
     private sealed record ExportTag(Guid Id, Guid LibraryId, string Name);
 
-    /// <summary>A photo the library keeps ("Use my photo" covers). The manifest lists it; the picture itself stays on the PC.</summary>
+    /// <summary>
+    /// A photo the library keeps ("Use my photo" covers). The manifest lists it and <c>File</c> names its entry in the zip
+    /// (<c>photos/&lt;assetId&gt;.jpg</c>); it is null when the file is no longer on the PC.
+    /// </summary>
     private sealed record ExportPhoto(
-        Guid AssetId, Guid LibraryId, string ContentType, int? Width, int? Height, DateTimeOffset CreatedAt, IReadOnlyList<Guid> ItemIds);
+        Guid AssetId, Guid LibraryId, string ContentType, int? Width, int? Height, DateTimeOffset CreatedAt, IReadOnlyList<Guid> ItemIds, string? File = null);
+
+    private sealed record PhotoToExport(ExportPhoto Photo, string BlobPath);
 
     /// <summary>A backed-up feature print: which item and release it is for and how big it is. The bytes are the phone's and mean nothing elsewhere.</summary>
     private sealed record ExportFeaturePrint(Guid ItemId, Guid LibraryId, Guid ReleaseId, int Revision, int Bytes, DateTimeOffset CreatedAt);
@@ -136,6 +142,7 @@ public static class BuildExport
         IAppDbContext db,
         IUserDirectory users,
         IExportStore store,
+        ICoverStore covers,
         ExportSettings settings,
         TimeProvider time) : IJobHandler<Payload>
     {
@@ -152,7 +159,7 @@ public static class BuildExport
                 await WriteItemsJsonAsync(zip, libraries, token);
                 await WriteJsonArrayAsync(zip, "locations.json", await LocationsAsync(libraries, token), token);
                 await WriteJsonArrayAsync(zip, "tags.json", Tags(libraries), token);
-                await WriteJsonArrayAsync(zip, "photos.json", await PhotosAsync(libraries, token), token);
+                await WritePhotosAsync(zip, await PhotosAsync(libraries, token), token);
                 await WriteJsonStreamAsync(zip, "feature-prints.json", FeaturePrintsAsync(libraries, token), token);
             }, cancellationToken);
         }
@@ -209,15 +216,50 @@ public static class BuildExport
             return result;
         }
 
-        private async Task<List<ExportPhoto>> PhotosAsync(List<LibraryData> libraries, CancellationToken cancellationToken)
+        /// <summary>
+        /// Copies each photo file into <c>photos/&lt;assetId&gt;.jpg</c>, one at a time and straight from disk to the zip (never held in memory),
+        /// then writes the manifest. JPEGs are stored as they are, not compressed again. There is no size cap: a big photo set makes a big zip
+        /// (about 0.5 MB a photo) and takes longer, but it stays a single streamed file that the 24-hour clean-up removes like any other.
+        /// A photo whose file is missing is listed with <c>file: null</c> and the export still finishes.
+        /// </summary>
+        private async Task WritePhotosAsync(ZipArchive zip, List<PhotoToExport> photos, CancellationToken cancellationToken)
         {
-            var result = new List<ExportPhoto>();
+            var manifest = new List<ExportPhoto>();
+            foreach (var (photo, blobPath) in photos.Select(p => (p.Photo, p.BlobPath)))
+            {
+                var source = await covers.OpenReadAsync(blobPath, cancellationToken);
+                if (source is null)
+                {
+                    manifest.Add(photo);
+                    continue;
+                }
+
+                await using (source.ConfigureAwait(false))
+                {
+                    var name = $"photos/{photo.AssetId}.jpg";
+                    var entry = zip.CreateEntry(name, CompressionLevel.NoCompression);
+                    var target = entry.Open();
+                    await using (target.ConfigureAwait(false))
+                    {
+                        await source.CopyToAsync(target, cancellationToken);
+                    }
+
+                    manifest.Add(photo with { File = name });
+                }
+            }
+
+            await WriteJsonArrayAsync(zip, "photos.json", manifest, cancellationToken);
+        }
+
+        private async Task<List<PhotoToExport>> PhotosAsync(List<LibraryData> libraries, CancellationToken cancellationToken)
+        {
+            var result = new List<PhotoToExport>();
             foreach (var library in libraries)
             {
                 var photos = await db.Assets.AsNoTracking()
                     .Where(a => a.OwnerLibraryId == library.Id && a.Kind == AssetKind.UserPhoto)
                     .OrderBy(a => a.CreatedAt).ThenBy(a => a.Id)
-                    .Select(a => new { a.Id, a.ContentType, a.Width, a.Height, a.CreatedAt })
+                    .Select(a => new { a.Id, a.ContentType, a.Width, a.Height, a.CreatedAt, a.BlobPath })
                     .ToListAsync(cancellationToken);
                 var assetIds = photos.Select(p => p.Id).ToList();
                 var uses = (await db.Items.AsNoTracking()
@@ -225,8 +267,8 @@ public static class BuildExport
                         .Select(i => new { AssetId = i.CustomCoverAssetId!.Value, ItemId = i.Id })
                         .ToListAsync(cancellationToken))
                     .ToLookup(u => u.AssetId, u => u.ItemId);
-                result.AddRange(photos.Select(p => new ExportPhoto(
-                    p.Id, library.Id, p.ContentType, p.Width, p.Height, p.CreatedAt, uses[p.Id].Order().ToList())));
+                result.AddRange(photos.Select(p => new PhotoToExport(
+                    new ExportPhoto(p.Id, library.Id, p.ContentType, p.Width, p.Height, p.CreatedAt, uses[p.Id].Order().ToList()), p.BlobPath)));
             }
 
             return result;

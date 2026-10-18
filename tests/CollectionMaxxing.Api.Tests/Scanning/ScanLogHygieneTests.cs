@@ -20,7 +20,7 @@ public class ScanLogHygieneTests(ApiFixture api) : ScanTest(api)
         // The app's real provider adapters, configured with keys, and pointed at a local port nothing listens on: every
         // call fails the way a provider outage does, which is when the code and the key are most likely to be logged.
         UseRealProviders = true;
-        Options.ResolveBudget = TimeSpan.FromSeconds(4);
+        Options.ResolveBudget = TimeSpan.FromMinutes(2); // not about speed: a budget that can't expire under load
         foreach (var provider in new[] { "OpenLibrary", "GoogleBooks", "UpcItemDb", "Tmdb", "Igdb" })
         {
             Settings[$"Providers:{provider}:BaseUrl"] = "http://127.0.0.1:9/";

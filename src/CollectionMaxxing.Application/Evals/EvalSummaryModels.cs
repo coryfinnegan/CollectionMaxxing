@@ -57,10 +57,13 @@ public sealed record GateTable(string Engine, string Verdict, IReadOnlyList<Gate
 
 public sealed record RegressionItem(string Metric, double Baseline, double Actual, double Points);
 
-/// <summary>The regression check against <c>evals/baseline.json</c>: <c>ok</c>, <c>regressed</c> (a metric moved the wrong way by more than 2 points) <c>no_baseline</c>, or <c>no_overlap</c> (the baseline shares no metric with the run, so nothing was compared).</summary>
+/// <summary>The regression check against <c>evals/baseline.json</c>: <c>ok</c>, <c>regressed</c> (a metric moved the wrong way by more than 2 points) <c>no_baseline</c>, <c>no_overlap</c> (the baseline shares no metric with the run, so nothing was compared) or <c>partial_run</c> (the run was cancelled part way, so it is not compared).</summary>
 public sealed record RegressionCheck(string Status, int Compared, IReadOnlyList<RegressionItem> Regressions);
 
-/// <summary>The summary of one run. This is what the result file and <c>GET /api/admin/evals/runs/latest</c> hold.</summary>
+/// <summary>
+/// The summary of one run. This is what the result file and <c>GET /api/admin/evals/runs/latest</c> hold. <c>Partial</c> marks a run the phone
+/// cancelled: <c>PhotosRun</c> of <c>PhotosInSet</c> golden photos (0 when not known) were run, the gate says incomplete and the regression check is skipped.
+/// </summary>
 public sealed record EvalSummary(
     string RunId,
     string Date,
@@ -72,7 +75,10 @@ public sealed record EvalSummary(
     IReadOnlyDictionary<string, EngineSummary> Engines,
     GateTable Gate,
     RegressionCheck Regression,
-    IReadOnlyDictionary<string, double> Metrics);
+    IReadOnlyDictionary<string, double> Metrics,
+    bool Partial = false,
+    int PhotosRun = 0,
+    int PhotosInSet = 0);
 
 /// <summary>The response to <c>POST /api/admin/evals/runs</c>.</summary>
 public sealed record EvalRunResult(string RunId, EvalSummary Summary);
