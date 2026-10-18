@@ -103,6 +103,28 @@ public class TokenServerSurfaceTests(ApiFixture api) : PairingTest(api)
         }
     }
 
+    [Fact]
+    public async Task The_published_signing_keys_are_public_keys_only()
+    {
+        // OpenIddict serves the discovery document and the key set from middleware, so they are not in the routing table the endpoint audit reads.
+        // They are anonymous on purpose (a client needs the public key); what must never be in them is anything private.
+        await SetUpOwnerAsync();
+
+        using var response = await Phone.GetAsync("/.well-known/jwks");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var keys = (await ReadAsync(response)).GetProperty("keys").EnumerateArray().ToList();
+        keys.ShouldNotBeEmpty();
+        foreach (var key in keys)
+        {
+            key.GetProperty("use").GetString().ShouldBe("sig", "the encryption key is private to the server and is never published");
+            foreach (var secret in new[] { "d", "p", "q", "dp", "dq", "qi", "k", "oth" })
+            {
+                key.TryGetProperty(secret, out _).ShouldBeFalse($"the key set must not carry '{secret}'");
+            }
+        }
+    }
+
     public static TheoryData<string> OtherGrants =>
     [
         "authorization_code",
