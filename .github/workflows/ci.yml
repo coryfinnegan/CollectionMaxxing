@@ -37,6 +37,10 @@ jobs:
       - name: Deploy script tests
         if: steps.detect.outputs.present == 'true'
         run: pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
+      # The mutation sampler's own tests (QA-3a): scripts/check doesn't run them, and the nightly sweep relies on them.
+      - name: Mutation tooling tests
+        if: steps.detect.outputs.present == 'true'
+        run: pwsh -NoProfile -File scripts/mutation/tests.ps1
 
   app:
     runs-on: ubuntu-latest

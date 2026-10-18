@@ -1,0 +1,24 @@
+# Nightly mutation sweep (QA-3a, #168). Stryker.NET can't run xUnit v3 yet, so scripts/mutate.ps1 samples operator swaps
+# in Domain, runs the tests against each, and reports the survivors (tests/mutation/README.md). The seed changes every run,
+# so over a few nights the whole project is covered. It reports; it doesn't fail the build on a score.
+name: mutation
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  domain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Mutation tooling tests
+        run: pwsh -NoProfile -File scripts/mutation/tests.ps1
+      - run: dotnet restore CollectionMaxxing.slnx --locked-mode
+      - name: Sample 300 Domain mutants
+        run: pwsh -NoProfile -File scripts/mutate.ps1 -Project Domain -Sample 300 -Seed ${{ github.run_number }}
