@@ -5,7 +5,7 @@
 .DESCRIPTION
   Picks line-level mutants (operator swaps) from the project's source files, applies them one at a time, runs the
   matching test projects, and reports which ones the tests did NOT catch. Domain is tested by Domain.Tests;
-  Application by Application.Tests and then Api.Tests (most use cases are only exercised through the HTTP API).
+  Application by Application.Tests, Infrastructure.Tests and Api.Tests (most use cases are only exercised through the HTTP API).
 
   Prints one line per surviving mutant (file:line, the change) and a last line:  killed / total = score.
   - Needs a clean git tree. Every touched file is restored in a finally block, also on Ctrl+C.
@@ -53,7 +53,7 @@ try { [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.
 if ($Seed -eq 0) { $Seed = Get-Random -Minimum 1 -Maximum 1000000 }
 
 $srcDir = Join-Path $root "src/CollectionMaxxing.$Project"
-$testNames = if ($Project -eq 'Application') { @('Application', 'Api') } else { @($Project) }
+$testNames = if ($Project -eq 'Application') { @('Application', 'Infrastructure', 'Api') } else { @($Project) }
 $testProjects = @($testNames | ForEach-Object { Join-Path $root "tests/CollectionMaxxing.$_.Tests/CollectionMaxxing.$_.Tests.csproj" })
 $target = $srcDir
 if ($Path) {
@@ -73,6 +73,10 @@ if (@($files).Count -eq 0) { throw "No .cs files under $target." }
 
 $equivalentsFile = Join-Path $root 'tests/mutation/equivalents.json'
 $equivalents = if (Test-Path $equivalentsFile) { @(Get-Content $equivalentsFile -Raw | ConvertFrom-Json) } else { @() }
+
+$areasFile = Join-Path $root 'tests/mutation/test-areas.json'
+$areas = @{}
+if (Test-Path $areasFile) { foreach ($prop in (Get-Content $areasFile -Raw | ConvertFrom-Json).PSObject.Properties) { $areas[$prop.Name] = @($prop.Value) } }
 
 # Runs every test project for one filter; the first failure decides (Application.Tests is cheap and goes first).
 function Invoke-TestProjects([int]$Limit, [string]$Filter) {
@@ -98,7 +102,7 @@ Write-Host "baseline green in $($baseline.Seconds)s; per-mutant limit ${TimeoutS
 
 $runner = {
   param($Mutant)
-  $filter = if ($TestFilter) { $TestFilter } elseif ($FeatureFilter) { Get-FeatureFilter $Mutant.File $Project } else { '' }
+  $filter = if ($TestFilter) { $TestFilter } elseif ($FeatureFilter) { Get-FeatureFilter $Mutant.File $Project $areas } else { '' }
   $r = Invoke-TestProjects $TimeoutSeconds $filter
   switch ($r.Status) { 'Passed' { 'Survived' } 'Failed' { 'Killed' } 'Timeout' { 'Timeout' } 'BuildError' { 'BuildError' } default { 'Error' } }
 }

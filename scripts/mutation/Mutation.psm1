@@ -311,11 +311,16 @@ function Merge-TestStatuses([string[]]$Statuses) {
   'Error'
 }
 
-# The test filter that keeps a run short for a source file: the feature folder directly under the project becomes a
-# namespace segment of its tests (CollectionMaxxing.Api.Tests.Scanning). A file outside any feature folder gets none.
-function Get-FeatureFilter([string]$File, [string]$Project) {
-  $m = [regex]::Match(($File -replace '\\', '/'), "^src/CollectionMaxxing\.$Project/([^/]+)/")
-  if ($m.Success) { "FullyQualifiedName~.$($m.Groups[1].Value)." } else { '' }
+# The test filter that keeps a run short for a source file: every folder between the project and the file becomes a
+# namespace segment of the tests that cover it (Application/Accounts/Deletion/X.cs -> .Accounts. or .Deletion.), plus the
+# aliases listed for the top folder in tests/mutation/test-areas.json (tests of a feature that live under another name,
+# e.g. Jobs -> Admin). A file outside any feature folder gets no filter (all tests run).
+function Get-FeatureFilter([string]$File, [string]$Project, $Aliases = @{}) {
+  $m = [regex]::Match(($File -replace '\\', '/'), "^src/CollectionMaxxing\.$Project/(.+)/[^/]+$")
+  if (-not $m.Success) { return '' }
+  $segments = @($m.Groups[1].Value -split '/')
+  $extra = if ($Aliases -and $Aliases.ContainsKey($segments[0])) { @($Aliases[$segments[0]]) } else { @() }
+  (@($segments + $extra | Select-Object -Unique) | ForEach-Object { "FullyQualifiedName~.$_." }) -join '|'
 }
 
 Export-ModuleMember -Function Get-CodeMask, Get-LineMutants, Select-Sample, Split-Equivalents, Format-Score,

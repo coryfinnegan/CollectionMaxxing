@@ -1,0 +1,8 @@
+{
+  "Accounts": ["Auth", "Pairing", "Security", "Authorization", "Deletion"],
+  "Admin": ["Security"],
+  "Audit": ["Security"],
+  "Invites": ["Security"],
+  "Jobs": ["Admin"],
+  "Libraries": ["Members", "Security"]
+}

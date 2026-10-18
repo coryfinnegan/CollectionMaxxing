@@ -302,9 +302,10 @@ It 'several test projects: the first failure kills; all must pass to survive; No
   Should-Be (Merge-TestStatuses @('Passed', 'Timeout')) 'Timeout'
 }
 
-It 'the per-feature filter names the top folder under the project; no folder means no filter' {
-  Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/Scanning/Matching/X.cs' 'Application') 'FullyQualifiedName~.Scanning.'
+It 'the per-feature filter names every folder between the project and the file, plus the aliases of the top folder' {
+  Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/Scanning/Matching/X.cs' 'Application') 'FullyQualifiedName~.Scanning.|FullyQualifiedName~.Matching.'
   Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/Ownership/Y.cs' 'Application') 'FullyQualifiedName~.Ownership.'
+  Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/Jobs/Y.cs' 'Application' @{ Jobs = @('Admin') }) 'FullyQualifiedName~.Jobs.|FullyQualifiedName~.Admin.'
   Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/DependencyInjection.cs' 'Application') ''
 }
 
