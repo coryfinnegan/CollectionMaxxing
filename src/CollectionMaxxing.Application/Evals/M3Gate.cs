@@ -32,7 +32,8 @@ public static class M3Gate
     /// <summary>Guardrail refusals must be under this share of golden photos (percent).</summary>
     public const double MaxRefusalPct = 2.0;
 
-    public static GateTable Evaluate(IReadOnlyDictionary<string, EngineSummary> engines)
+    /// <param name="partial">The run was cancelled part way: the verdict is <c>incomplete</c> whatever the measures say.</param>
+    public static GateTable Evaluate(IReadOnlyDictionary<string, EngineSummary> engines, bool partial = false)
     {
         engines.TryGetValue(Engine, out var apple);
         engines.TryGetValue(VisionEngine, out var vision);
@@ -79,7 +80,7 @@ public static class M3Gate
 
         measures.Add(Thermals(apple));
 
-        var verdict = measures.Any(m => m.Status == Fail) ? Fail : measures.Any(m => m.Status == NoData) ? Incomplete : Pass;
+        var verdict = partial ? Incomplete : measures.Any(m => m.Status == Fail) ? Fail : measures.Any(m => m.Status == NoData) ? Incomplete : Pass;
         return new GateTable(
             Engine,
             verdict,
