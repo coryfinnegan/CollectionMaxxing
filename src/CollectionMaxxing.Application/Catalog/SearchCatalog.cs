@@ -165,6 +165,7 @@ public static class SearchCatalog
             }
 
             var catalogQuery = new CatalogQuery { Title = title, Kind = kind, Platform = query.Platform, Year = query.Year, Limit = limit };
+            using var failFast = ProviderCalls.FailFast(); // a person is waiting
             var answers = await Task.WhenAll(asked.Select(provider => CatalogProjection.AskProviderAsync(
                 provider, token => provider.SearchAsync(catalogQuery, token), options.ProviderTimeout, logger, cancellationToken)));
 

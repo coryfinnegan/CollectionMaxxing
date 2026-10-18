@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Catalog.Providers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
@@ -36,6 +37,11 @@ internal static class ProviderResilienceExtensions
                 options.Retry.Delay = settings.RetryDelay;
                 options.Retry.UseJitter = true;
                 options.Retry.ShouldRetryAfterHeader = true;
+
+                // Someone is waiting on this answer (a scan or a search): retrying a failure means sleeping through back-off until
+                // their time budget runs out, so a failure ends the call at once. The background job keeps the retries.
+                var transient = options.Retry.ShouldHandle;
+                options.Retry.ShouldHandle = args => ProviderCalls.IsFailFast ? ValueTask.FromResult(false) : transient(args);
             });
         return builder;
     }

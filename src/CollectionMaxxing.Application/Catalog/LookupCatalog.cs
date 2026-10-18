@@ -46,6 +46,7 @@ public static class LookupCatalog
             if (releases.Count == 0)
             {
                 var asked = providers.Where(p => identifier.ProbableKind is not { } kind || p.Supports(kind)).ToList();
+                using var failFast = ProviderCalls.FailFast(); // a person is waiting
                 var answers = await Task.WhenAll(asked.Select(provider => CatalogProjection.AskProviderAsync(
                     provider, token => provider.LookupAsync(identifier, token), options.ProviderTimeout, logger, cancellationToken)));
                 if (answers.FirstOrDefault(a => a is not null) is { } found)
