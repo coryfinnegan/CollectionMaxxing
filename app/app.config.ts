@@ -1,4 +1,5 @@
 import type { ExpoConfig } from 'expo/config';
+import privacyManifest from './privacyManifest.json';
 
 const config: ExpoConfig = {
   name: 'CollectionMaxxing',
@@ -11,6 +12,8 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: 'io.github.coryfinnegan.collectionmaxxing',
     supportsTablet: false,
+    // PrivacyInfo.xcprivacy (OPS-2a, #172): no tracking, no collected data, and the required-reason APIs the libraries use.
+    privacyManifests: privacyManifest,
     infoPlist: {
       NSCameraUsageDescription: 'CollectionMaxxing uses the camera to read barcodes and recognise items. Pictures are processed on your phone.',
     },
