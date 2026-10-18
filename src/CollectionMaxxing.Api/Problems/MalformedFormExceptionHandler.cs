@@ -10,7 +10,9 @@ public sealed class MalformedFormExceptionHandler(IProblemDetailsService problem
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        if (exception is not InvalidDataException invalid || !invalid.Message.Contains("form value", StringComparison.OrdinalIgnoreCase))
+        // ASP.NET's form reader throws InvalidDataException for a bad form body; matching the type and a form content type
+        // (not the message text, which can change between releases) keeps this from swallowing an unrelated InvalidDataException.
+        if (exception is not InvalidDataException || !httpContext.Request.HasFormContentType)
         {
             return false;
         }
