@@ -1,6 +1,6 @@
-// iOS privacy manifest (PrivacyInfo.xcprivacy) as a typed object. The lead wires it into app.config.ts:
-//   ios: { ..., privacyManifests: privacyManifest }
+// iOS privacy manifest (PrivacyInfo.xcprivacy) as a typed object; app.config.ts loads the same JSON.
 // No tracking, no tracking domains, no collected data types (docs/08 "Privacy").
+import manifest from './privacyManifest.json';
 
 /** Apple's published reason codes per required-reason API category. */
 export const APPLE_REASON_CODES: Record<string, readonly string[]> = {
@@ -17,18 +17,10 @@ export type PrivacyManifest = {
   NSPrivacyAccessedAPITypes: { NSPrivacyAccessedAPIType: string; NSPrivacyAccessedAPITypeReasons: string[] }[];
 };
 
-export const privacyManifest: PrivacyManifest = {
-  NSPrivacyTracking: false,
-  NSPrivacyTrackingDomains: [],
-  NSPrivacyCollectedDataTypes: [],
-  NSPrivacyAccessedAPITypes: [
-    // react-native core and MMKV read file times; expo-file-system reads them for the app's own files.
-    { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp', NSPrivacyAccessedAPITypeReasons: ['C617.1', '0A2A.1'] },
-    // expo-file-system and MMKV check free space before writing the app's own files.
-    { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryDiskSpace', NSPrivacyAccessedAPITypeReasons: ['E174.1', '85F4.1'] },
-    // react-native core measures elapsed time with the boot clock.
-    { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] },
-    // react-native core and expo-secure-store keep the app's own settings in user defaults.
-    { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults', NSPrivacyAccessedAPITypeReasons: ['CA92.1'] },
-  ],
-};
+// The data lives in privacyManifest.json, because app.config.ts can only load JSON (Expo's config loader can't import
+// another TypeScript file). Why each category is there:
+//  - FileTimestamp: react-native core and MMKV read file times; expo-file-system reads them for the app's own files.
+//  - DiskSpace: expo-file-system and MMKV check free space before writing the app's own files.
+//  - SystemBootTime: react-native core measures elapsed time with the boot clock.
+//  - UserDefaults: react-native core and expo-secure-store keep the app's own settings in user defaults.
+export const privacyManifest: PrivacyManifest = manifest as PrivacyManifest;
