@@ -4,6 +4,7 @@ import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { installAuth } from '@/features/auth/bootstrap';
+import { installFocusRing } from '@/lib/a11y/webFocusRing';
 import { useColors } from '@/theme/tokens';
 
 const queryClient = new QueryClient({
@@ -17,6 +18,7 @@ export default function RootLayout() {
   const router = useRouter();
   // 401s send the iPhone to pairing and the browser to sign-in; reauth_required opens a passkey prompt.
   useEffect(() => installAuth(router), [router]);
+  useEffect(installFocusRing, []);
   // In mock mode, wait for MSW to start before any request goes out.
   const [ready, setReady] = useState(!mockMode);
   useEffect(() => {

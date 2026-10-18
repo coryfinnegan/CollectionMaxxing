@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
+import { useDialogBehavior } from '@/lib/a11y/useDialogBehavior';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button } from './Button';
 import { Text } from './Text';
@@ -9,8 +10,10 @@ type SheetProps = { title: string; onClose: () => void; children?: ReactNode };
 /** A panel that opens inline above the content, with a title and a Close button. */
 export function Sheet({ title, onClose, children }: SheetProps) {
   const colors = useColors();
+  const dialog = useDialogBehavior(onClose);
   return (
     <View
+      {...dialog}
       style={{
         gap: spacing.md,
         padding: spacing.lg,

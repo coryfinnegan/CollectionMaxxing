@@ -6,6 +6,7 @@ import type { CreatedInviteDto } from '@/api/generated/models';
 import { getListInvitesQueryKey, useCreateInvite } from '@/api/generated/invites/invites';
 import { getQrRenderer } from '@/features/auth/services';
 import { friendlyError } from '@/lib/problem';
+import { useDialogBehavior } from '@/lib/a11y/useDialogBehavior';
 import { spacing } from '@/theme/tokens';
 import { Button, Card, Chip, Text, TextField } from '@/ui';
 
@@ -32,6 +33,7 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
   const [created, setCreated] = useState<CreatedInviteDto | null>(null);
   const [copied, setCopied] = useState<'yes' | 'no' | null>(null);
   const create = useCreateInvite();
+  const dialog = useDialogBehavior(onClose);
 
   const submit = () => {
     if (!name.trim() || !role) {
@@ -63,6 +65,7 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
   if (created) {
     const renderQr = getQrRenderer();
     return (
+      <View {...dialog}>
       <Card>
         {header}
         <Text>{"This link works once, for 7 days. It won't be shown again, so copy it now."}</Text>
@@ -80,10 +83,12 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
           {"Add them to Tailscale first, or the link won't open for them. Then send them the link yourself."}
         </Text>
       </Card>
+      </View>
     );
   }
 
   return (
+    <View {...dialog}>
     <Card>
       {header}
       <TextField label="Name" value={name} onChangeText={setName} autoFocus autoComplete="off" onSubmitEditing={submit} />
@@ -105,5 +110,6 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
       ) : null}
       <Button label="Create invite link" busy={create.isPending} onPress={submit} />
     </Card>
+    </View>
   );
 }
