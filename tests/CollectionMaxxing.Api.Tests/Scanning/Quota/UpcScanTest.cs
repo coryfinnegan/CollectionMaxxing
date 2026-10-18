@@ -30,7 +30,9 @@ public abstract class UpcScanTest : ScanTest
     {
         Upc = LoopbackWireMock.Start();
         Clock = new FakeTimeProvider(new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero).AddDays(Random.Shared.Next(2, 360)).AddHours(10));
-        Options.ResolveBudget = TimeSpan.FromSeconds(5);
+        // These tests are about the quota, not speed: a budget that can't expire however busy the PC is (a slow first lookup would otherwise leave the code pending with no provider call).
+        Options.ResolveBudget = TimeSpan.FromMinutes(2);
+        Options.JobResolveBudget = TimeSpan.FromMinutes(2);
         Settings["Providers:UpcItemDb:BaseUrl"] = Upc.Url + "/";
         Settings["Providers:UpcItemDb:DailyLimit"] = dailyLimit.ToString(System.Globalization.CultureInfo.InvariantCulture);
         Settings["Providers:UpcItemDb:RequestsPerSecond"] = "1000000000";
