@@ -74,6 +74,10 @@ It 'return x becomes return default' {
   Should-Be ((Mutate 'return;' 'return').Count) 0
 }
 
+It 'return of a value that is already the default is not a mutant (it would be equivalent)' {
+  foreach ($v in 'false', 'null', '0', '0.0', '0m', 'default') { Should-Be ((Mutate "return $v;" 'return').Count) 0 $v }
+}
+
 It 'a guard if (...) return/throw loses its condition' {
   Should-Be ((Mutate '    if (value is null) return;' 'guard') -join '|') 'if (false) return;'
   Should-Be ((Mutate 'if (Check(a, (b + 1))) throw new ArgumentException("x");' 'guard') -join '|') 'if (false) throw new ArgumentException("x");'

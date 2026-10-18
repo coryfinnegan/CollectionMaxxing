@@ -99,7 +99,7 @@ function Get-LineSpans([string]$Mask) {
   Find-Spans $Mask '\btrue\b' { 'false' } 'bool'
   Find-Spans $Mask '\bfalse\b' { 'true' } 'bool'
   # return x -> return default
-  Find-Spans $Mask '^\s*return\s+(?!default\s*;)([^;]+);\s*$' { 'default' } 'return' 1
+  Find-Spans $Mask '^\s*return\s+(?!(?:default|false|null|0|0\.0|0[mMdDfFlLuU]|0\.0[mMdDfF])\s*;)([^;]+);\s*$' { 'default' } 'return' 1
   # LINQ
   Find-Spans $Mask '\.Any(?=\()' { '.All' } 'linq'
   Find-Spans $Mask '\.All(?=\()' { '.Any' } 'linq'
