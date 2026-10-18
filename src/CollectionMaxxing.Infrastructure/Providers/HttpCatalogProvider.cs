@@ -178,7 +178,9 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
             buffer.Write(chunk, 0, read);
         }
 
-        return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+        // A UTF-8 byte order mark is not part of the JSON text (Encoding.GetString would keep it as U+FEFF, which the parser rejects).
+        var bytes = buffer.GetBuffer().AsSpan(0, (int)buffer.Length);
+        return Encoding.UTF8.GetString(bytes.StartsWith(Encoding.UTF8.Preamble) ? bytes[Encoding.UTF8.Preamble.Length..] : bytes);
     }
 
     /// <summary>A short, fixed-length cache key for a search, so long titles never overflow the 500-character column.</summary>

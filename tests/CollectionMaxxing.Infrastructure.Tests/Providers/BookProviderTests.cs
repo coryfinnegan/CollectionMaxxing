@@ -40,6 +40,21 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task An_answer_that_starts_with_a_utf8_byte_order_mark_is_read_like_any_other()
+    {
+        using var host = ProviderHost.Create(Db);
+        var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+        host.Server.Given(Request.Create().WithPath("/api/books").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json")
+                .WithBody([.. bom, .. System.Text.Encoding.UTF8.GetBytes(ProviderHost.Fixture("openlibrary-isbn-found.json"))]));
+
+        var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
+
+        release.ShouldNotBeNull();
+        release.ExternalId.ShouldBe("OL7353617M");
+    }
+
+    [Fact]
     public async Task Asks_with_an_identifying_user_agent_that_carries_the_contact_email()
     {
         using var host = ProviderHost.Create(Db);

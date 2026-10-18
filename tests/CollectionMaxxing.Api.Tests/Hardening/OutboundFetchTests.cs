@@ -158,11 +158,49 @@ public sealed class OutboundFetchTests : IDisposable
     [InlineData("fd12:3456::1", false)]
     [InlineData("::ffff:10.0.0.1", false)]
     [InlineData("::ffff:127.0.0.1", false)]
+    [InlineData("64:ff9b::a00:1", false)] // NAT64 wrapping 10.0.0.1
+    [InlineData("64:ff9b::7f00:1", false)] // NAT64 wrapping 127.0.0.1
+    [InlineData("64:ff9b::a9fe:a9fe", false)] // NAT64 wrapping 169.254.169.254
+    [InlineData("2002:a00:1::", false)] // 6to4 wrapping 10.0.0.1
+    [InlineData("2002:c0a8:101::1", false)] // 6to4 wrapping 192.168.1.1
+    [InlineData("::a00:1", false)] // IPv4-compatible 10.0.0.1
+    [InlineData("::7f00:1", false)] // IPv4-compatible 127.0.0.1
+    [InlineData("64:ff9b::808:808", true)] // NAT64 wrapping 8.8.8.8
+    [InlineData("2002:808:808::", true)] // 6to4 wrapping 8.8.8.8
     [InlineData("8.8.8.8", true)]
     [InlineData("172.32.0.1", true)]
     [InlineData("2606:4700:4700::1111", true)]
     public void The_address_rule_accepts_only_public_addresses(string address, bool expected) =>
         FetchPolicy.IsPublic(IPAddress.Parse(address)).ShouldBe(expected);
+
+    [Fact]
+    public async Task A_body_that_stalls_after_the_headers_fails_within_the_time_limit()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var stop = new CancellationTokenSource();
+        var server = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(stop.Token);
+            var stream = client.GetStream();
+            var buffer = new byte[4096];
+            _ = await stream.ReadAsync(buffer, stop.Token);
+            await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: 100\r\n\r\nabc"u8.ToArray(), stop.Token);
+            await Task.Delay(Timeout.Infinite, stop.Token); // and then nothing more, ever
+        }, stop.Token);
+        using var test = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        test.CancelAfter(TimeSpan.FromSeconds(20));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await Fetcher(Open() with { Timeout = TimeSpan.FromSeconds(1) }).FetchAsync(new Uri($"http://127.0.0.1:{port}/slow.jpg"), test.Token);
+        watch.Stop();
+
+        result.Outcome.ShouldBe(FetchOutcome.Failed);
+        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10));
+        await stop.CancelAsync();
+        await Should.ThrowAsync<OperationCanceledException>(() => server);
+    }
 
     [Fact]
     public void The_cover_policy_lists_exactly_the_cover_hosts()

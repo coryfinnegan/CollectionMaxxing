@@ -27,13 +27,18 @@ public sealed record FetchPolicy
     /// <summary>
     /// True for an address on the public internet. Not loopback, not private (10/8, 172.16/12, 192.168/16, fc00::/7), not link-local
     /// (169.254/16, fe80::/10, which includes cloud metadata), not shared address space (100.64/10, which is Tailscale), not unspecified, multicast
-    /// or broadcast. An IPv4 address wrapped in IPv6 is judged as the IPv4 address.
+    /// or broadcast. An IPv4 address wrapped in IPv6 (mapped ::ffff:0:0/96, NAT64 64:ff9b::/96, 6to4 2002::/16, or the old IPv4-compatible ::/96)
+    /// is judged as the IPv4 address.
     /// </summary>
     public static bool IsPublic(IPAddress address)
     {
         if (address.IsIPv4MappedToIPv6)
         {
             address = address.MapToIPv4();
+        }
+        else if (EmbeddedIPv4(address) is { } embedded)
+        {
+            address = embedded;
         }
 
         if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any) || address.Equals(IPAddress.Broadcast))
@@ -58,6 +63,34 @@ public sealed record FetchPolicy
             >= 224 => false,
             _ => true,
         };
+    }
+
+    /// <summary>The IPv4 address an IPv6 address wraps (NAT64, 6to4, IPv4-compatible), or null for any other address.</summary>
+    private static IPAddress? EmbeddedIPv4(IPAddress address)
+    {
+        if (address.AddressFamily != AddressFamily.InterNetworkV6)
+        {
+            return null;
+        }
+
+        var b = address.GetAddressBytes();
+        if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B && b[4..12].All(x => x == 0))
+        {
+            return new IPAddress(b[12..16]); // 64:ff9b::/96
+        }
+
+        if (b[0] == 0x20 && b[1] == 0x02)
+        {
+            return new IPAddress(b[2..6]); // 2002::/16, the IPv4 address follows the prefix
+        }
+
+        // ::/96 except :: and ::1, which are judged as themselves (unspecified, loopback).
+        if (b[..12].All(x => x == 0) && b[12..16].Any(x => x != 0) && !(b[12] == 0 && b[13] == 0 && b[14] == 0 && b[15] == 1))
+        {
+            return new IPAddress(b[12..16]);
+        }
+
+        return null;
     }
 }
 
@@ -105,6 +138,9 @@ public sealed class GuardedFetcher : IDisposable
 
     public async Task<FetchResult> FetchAsync(Uri uri, CancellationToken cancellationToken)
     {
+        // One budget covers the connect, the headers and the whole body: a server that answers and then stops sending must not hold a request open.
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_policy.Timeout);
         var current = uri;
         for (var hop = 0; hop <= _policy.MaxRedirects; hop++)
         {
@@ -116,7 +152,7 @@ public sealed class GuardedFetcher : IDisposable
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, current);
-                using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budget.Token);
 
                 if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308)
                 {
@@ -139,13 +175,13 @@ public sealed class GuardedFetcher : IDisposable
                     return new FetchResult(FetchOutcome.TooLarge);
                 }
 
-                return await ReadCappedAsync(response, cancellationToken);
+                return await ReadCappedAsync(response, budget.Token);
             }
             catch (HttpRequestException ex) when (ex.InnerException is RefusedAddressException)
             {
                 return new FetchResult(FetchOutcome.Refused);
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
