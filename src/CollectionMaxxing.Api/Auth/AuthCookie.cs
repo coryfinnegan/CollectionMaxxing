@@ -112,10 +112,19 @@ public static class AuthCookie
         var alive = started is not null && time.GetUtcNow() - started.Value <= AbsoluteLifetime;
         if (alive)
         {
-            alive = CurrentSession.WebSessionId(context.Principal) is { } sessionId
-                && UserId(context.Principal!) is { } userId
-                && await context.HttpContext.RequestServices.GetRequiredService<IWebSessions>()
-                    .TouchAsync(sessionId, userId, context.HttpContext.RequestAborted);
+            try
+            {
+                alive = CurrentSession.WebSessionId(context.Principal) is { } sessionId
+                    && UserId(context.Principal!) is { } userId
+                    && await context.HttpContext.RequestServices.GetRequiredService<IWebSessions>()
+                        .TouchAsync(sessionId, userId, context.HttpContext.RequestAborted);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The database is down, which says nothing about this session: keep the cookie (do not reject or sign out) and
+                // fail this request closed with a 503 (see SessionStoreUnavailableExceptionHandler).
+                throw new SessionStoreUnavailableException(ex);
+            }
         }
 
         if (!alive)

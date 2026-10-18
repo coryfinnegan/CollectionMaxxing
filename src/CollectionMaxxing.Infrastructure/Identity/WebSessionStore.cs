@@ -2,11 +2,12 @@ using CollectionMaxxing.Application.Accounts.Devices;
 using CollectionMaxxing.Domain.Accounts;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Infrastructure.Identity;
 
 /// <summary>The <c>web_sessions</c> table behind <see cref="IWebSessions"/>.</summary>
-internal sealed class WebSessionStore(AppDbContext db, TimeProvider time) : IWebSessions
+internal sealed class WebSessionStore(AppDbContext db, TimeProvider time, ILogger<WebSessionStore> logger) : IWebSessions
 {
     public async Task<Guid> StartAsync(Guid userId, string label, CancellationToken cancellationToken)
     {
@@ -43,8 +44,17 @@ internal sealed class WebSessionStore(AppDbContext db, TimeProvider time) : IWeb
         var now = time.GetUtcNow();
         if (now - row.LastSeenAt >= IWebSessions.LastSeenResolution)
         {
-            await db.Set<WebSession>().Where(s => s.Id == sessionId && s.RevokedAt == null)
-                .ExecuteUpdateAsync(set => set.SetProperty(s => s.LastSeenAt, now), cancellationToken);
+            try
+            {
+                await db.Set<WebSession>().Where(s => s.Id == sessionId && s.RevokedAt == null)
+                    .ExecuteUpdateAsync(set => set.SetProperty(s => s.LastSeenAt, now), cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // "Last seen" is bookkeeping: the session is good, so a failed write must never fail the request.
+                // Only the exception type and the session's short id are logged (never the cookie or a user id).
+                logger.LogWarning("Could not record last seen for web session {SessionShortId}: {ExceptionType}", sessionId.ToString("N")[..8], ex.GetType().Name);
+            }
         }
 
         return true;
