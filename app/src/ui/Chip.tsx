@@ -26,7 +26,7 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
         paddingHorizontal: spacing.md,
         borderRadius: radius.pill,
         borderWidth: 1,
-        borderColor: selected ? colors.scan : colors.line,
+        borderColor: selected ? colors.scan : colors.control,
         backgroundColor: selected ? colors.scan : colors.surface,
       }}
     >

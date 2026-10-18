@@ -12,7 +12,7 @@ export function Button({ label, variant = 'primary', busy = false, disabled, sty
   const colors = useColors();
   const isDisabled = disabled || busy;
   const background = variant === 'primary' ? colors.scan : 'transparent';
-  const borderColor = variant === 'danger' ? colors.danger : variant === 'secondary' ? colors.line : colors.scan;
+  const borderColor = variant === 'danger' ? colors.danger : variant === 'secondary' ? colors.control : colors.scan;
   const textColor = variant === 'primary' ? colors.onScan : variant === 'danger' ? colors.danger : colors.ink;
   return (
     <Pressable
