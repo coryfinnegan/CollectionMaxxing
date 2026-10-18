@@ -1,6 +1,6 @@
+using System.Text.Json;
 using CollectionMaxxing.Infrastructure.Providers;
 using Shouldly;
-using System.Text.Json;
 using Xunit;
 
 namespace CollectionMaxxing.Infrastructure.Tests.Providers;

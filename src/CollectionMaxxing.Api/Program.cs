@@ -47,8 +47,8 @@ builder.Services.AddEvals();
 var app = builder.Build();
 
 app.UseSecurityHeaders();
-app.UseApiLimits();
 app.UseApiFoundation();
+app.UseApiLimits();
 
 // Then one MapX() per feature.
 app.MapDefaultEndpoints();

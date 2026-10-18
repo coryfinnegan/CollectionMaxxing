@@ -3,8 +3,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Domain.Libraries;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -49,7 +49,10 @@ public class LogRedactionTests(ApiFixture api) : ApiTest(api)
             (await client.GetAsync($"/api/v1/invites/{Token}?code={Code}", TestContext.Current.CancellationToken)).Dispose();
             using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
-                ["grant_type"] = "authorization_code", ["code"] = Code, ["refresh_token"] = Token, ["username"] = Email,
+                ["grant_type"] = "authorization_code",
+                ["code"] = Code,
+                ["refresh_token"] = Token,
+                ["username"] = Email,
             });
             (await client.PostAsync("/connect/token", form, TestContext.Current.CancellationToken)).Dispose();
             using var upload = new MultipartFormDataContent { { new ByteArrayContent(Encoding.ASCII.GetBytes(Photo)), "file", $"{Email}.jpg" } };

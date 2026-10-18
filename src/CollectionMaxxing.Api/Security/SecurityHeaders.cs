@@ -8,7 +8,7 @@ namespace CollectionMaxxing.Api.Security;
 /// <summary>
 /// The response headers every answer carries (docs/08, "HTTP hardening"), the settings that bound a request (size, time) and the rate
 /// limits. <see cref="AddSecurityHeaders"/> registers them; <c>app.UseSecurityHeaders()</c> goes first in the pipeline so that even an error,
-/// a 404 and a 429 have the headers, and <c>app.UseApiLimits()</c> goes right after it.
+/// a 404 and a 429 have the headers, and <c>app.UseApiLimits()</c> goes after <c>UseApiFoundation()</c> (it needs to know who is calling).
 /// </summary>
 public static class SecurityHeaders
 {
@@ -88,7 +88,7 @@ public static class SecurityHeaders
     private static bool IsApi(PathString path) =>
         path.StartsWithSegments("/api") || path.StartsWithSegments("/connect") || path.StartsWithSegments("/account");
 
-    /// <summary>The rate limits and the request timeout. Goes right after <see cref="UseSecurityHeaders"/>, before the rest of the pipeline.</summary>
+    /// <summary>The rate limits and the request timeout. Goes right after <c>UseApiFoundation()</c>: the limiter needs the signed-in user, and anonymous callers are judged by address.</summary>
     public static IApplicationBuilder UseApiLimits(this IApplicationBuilder app) =>
         app.UseMiddleware<ApiLimitsMiddleware>()
             .UseRequestTimeouts()

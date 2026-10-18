@@ -4,7 +4,6 @@ using System.Threading.RateLimiting;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Api.Security;
@@ -92,7 +91,7 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
             return;
         }
 
-        var key = await CallerKeyAsync(context);
+        var key = CallerKey(context);
         // The specific group first, so a refused call does not also use up the caller's general allowance.
         var (group, permits) = Specific(context.Request, path);
         if (group is not null)
@@ -150,24 +149,11 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
         return (null, 0);
     }
 
-    private async Task<string> CallerKeyAsync(HttpContext context)
-    {
-        try
-        {
-            // The limiter runs before the rest of the pipeline so that anonymous callers are limited too; the sign-in result is cached for the request.
-            var result = await context.AuthenticateAsync();
-            if (result.Succeeded && CurrentSession.UserId(result.Principal) is { } userId)
-            {
-                return "u:" + userId.ToString("N", CultureInfo.InvariantCulture);
-            }
-        }
-        catch (Exception)
-        {
-            // An unreadable sign-in is judged by address like no sign-in; the real pipeline answers for it.
-        }
-
-        return "ip:" + addresses.Resolve(context);
-    }
+    /// <summary>A signed-in caller is their user id; anyone else is the address they came from.</summary>
+    private string CallerKey(HttpContext context) =>
+        CurrentSession.UserId(context.User) is { } userId
+            ? "u:" + userId.ToString("N", CultureInfo.InvariantCulture)
+            : "ip:" + addresses.Resolve(context);
 
     /// <summary>How many items an identify call carries: the length of the body's <c>items</c> array, at least 1. A body we can't read costs 1; the endpoint judges it.</summary>
     private static async Task<int> CountItemsAsync(HttpRequest request)
