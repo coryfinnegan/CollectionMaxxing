@@ -19,7 +19,7 @@ public sealed class ProductionHost : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cm-hardening-" + Guid.NewGuid().ToString("N"));
     private readonly WebApplicationFactory<Program> _factory;
 
-    public ProductionHost(Dictionary<string, string?>? settings = null, string environment = "Production")
+    public ProductionHost(Dictionary<string, string?>? settings = null, string environment = "Production", string? webRoot = null)
     {
         Directory.CreateDirectory(_root);
         var signing = MakeCertificate("signing");
@@ -27,6 +27,11 @@ public sealed class ProductionHost : IDisposable
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
+            if (webRoot is not null)
+            {
+                builder.UseWebRoot(webRoot);
+            }
+
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
                 var values = new Dictionary<string, string?>
