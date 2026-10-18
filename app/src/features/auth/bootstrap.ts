@@ -14,7 +14,7 @@ const signedOutPaths = ['/setup', '/login', '/join'];
 export function installAuth(router: Navigator) {
   configureAuth({
     // The phone keeps its refresh token in the Keychain; the web app uses the session cookie and stores nothing.
-    ...(Platform.OS === 'ios' ? { tokenStore: new SecureTokenStore(SecureStore) } : {}),
+    ...(Platform.OS === 'ios' ? { tokenStore: new SecureTokenStore(SecureStore, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }) } : {}),
     onAuthLost: (destination) => {
       const path = typeof window !== 'undefined' ? (window.location?.pathname ?? '') : '';
       if (destination === 'login' && signedOutPaths.some((p) => path.startsWith(p))) return;
