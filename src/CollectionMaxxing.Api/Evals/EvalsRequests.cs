@@ -67,5 +67,6 @@ public sealed record EvalPhotoResult(
     long? FirstItemMs = null,
     ThermalState? ThermalState = null);
 
-/// <summary>Body of <c>POST /api/admin/evals/runs</c>: at most 2 MB. Nothing in it is an image.</summary>
-public sealed record EvalRunRequest(EvalDeviceRequest? Device = null, string? ConfigVersion = null, IReadOnlyList<EvalPhotoResult>? Results = null);
+/// <summary>Body of <c>POST /api/admin/evals/runs</c>: at most 2 MB. Nothing in it is an image. <c>Partial</c> is true when the phone cancelled the run part way.</summary>
+public sealed record EvalRunRequest(
+    EvalDeviceRequest? Device = null, string? ConfigVersion = null, IReadOnlyList<EvalPhotoResult>? Results = null, bool? Partial = null);

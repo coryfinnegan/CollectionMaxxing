@@ -96,8 +96,9 @@ public static class SubmitEvalRun
                 clock.GetUtcNow(),
                 new EvalDevice(input.Device!.Model!.Trim(), input.Device.OsVersion!.Trim(), input.Device.AppVersion!.Trim()),
                 input.ConfigVersion!.Trim(),
-                photos);
-            var evaluated = EvalReport.Evaluate(run, truths, results.LoadBaseline(), BuildSha.Resolve(options.Value), skipped);
+                photos,
+                input.Partial);
+            var evaluated = EvalReport.Evaluate(run, truths, results.LoadBaseline(), BuildSha.Resolve(options.Value), skipped, listing.Count);
 
             try
             {

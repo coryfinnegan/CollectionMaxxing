@@ -10,6 +10,9 @@ public static class EvalRegression
     public const string Regressed = "regressed";
     public const string NoBaseline = "no_baseline";
 
+    /// <summary>The run was cancelled part way, so it is not compared with the baseline (and is never a baseline itself).</summary>
+    public const string PartialRun = "partial_run";
+
     /// <summary>The baseline has numbers but the run shares none of them, so nothing was compared. That is not a pass.</summary>
     public const string NoOverlap = "no_overlap";
 
@@ -65,8 +68,13 @@ public static class EvalRegression
     }
 
     /// <summary>Compares <paramref name="actual"/> with <paramref name="baseline"/> (null when there is none). A metric the baseline does not have is new, not a regression.</summary>
-    public static RegressionCheck Check(IReadOnlyDictionary<string, double>? baseline, IReadOnlyDictionary<string, double> actual)
+    public static RegressionCheck Check(IReadOnlyDictionary<string, double>? baseline, IReadOnlyDictionary<string, double> actual, bool partial = false)
     {
+        if (partial)
+        {
+            return new RegressionCheck(PartialRun, 0, []);
+        }
+
         if (baseline is null || baseline.Count == 0)
         {
             return new RegressionCheck(NoBaseline, 0, []);
