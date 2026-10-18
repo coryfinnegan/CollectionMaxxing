@@ -155,6 +155,9 @@ public static class TokenEndpoint
 
     private static IResult SignIn(ClaimsPrincipal principal)
     {
+        // The access token is for this API and no other (the validation side accepts only tokens that name it).
+        principal.SetResources(OpenIddictSetup.ApiAudience);
+
         // Everything we know about the phone goes into the access token (and, as always, the refresh token carries it on).
         principal.SetDestinations(_ => [Destinations.AccessToken]);
         return Results.SignIn(principal, authenticationScheme: Scheme);
