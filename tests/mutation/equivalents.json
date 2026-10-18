@@ -1,1 +1,8 @@
-[]
+[
+  { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/PlatformNames.cs", "line": 83, "operator": "bool", "reason": "pendingSpace only adds a space when builder.Length > 0, so starting true changes nothing before the first letter" },
+  { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/TitleNormalizer.cs", "line": 118, "operator": "eq", "reason": "when both titles end in a year the years are equal (else YearsConflict returned), so stripping both never scores above the full titles" },
+  { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/TitleNormalizer.cs", "line": 118, "operator": "logic", "reason": "with a year on one side only, Core(leftNoYear, rightNoYear) repeats a comparison already made; with both it never beats the full titles" },
+  { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/TitleNormalizer.cs", "line": 156, "operator": "rel", "reason": "Normalize never yields a leading space, so the last space is never at index 0" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/BarcodeText.cs", "line": 62, "operator": "offbyone", "reason": "a 1 character text is rejected by every caller's length check anyway, so IsAllDigits(\"5\") changing is invisible" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 31, "operator": "arith", "reason": "Length + 1 - i and Length - 1 - i differ by 2, so only their parity is used and it is the same" }
+]
