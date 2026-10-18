@@ -1,5 +1,5 @@
-using Microsoft.AspNetCore.Mvc.Testing;
 using CollectionMaxxing.TestSupport;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
 namespace CollectionMaxxing.Api.Tests.Support;
