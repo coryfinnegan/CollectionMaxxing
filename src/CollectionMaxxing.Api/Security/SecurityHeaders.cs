@@ -35,6 +35,13 @@ public static class SecurityHeaders
             .Validate(options => options.MaxRequestBodyBytes >= 1024, "Security:MaxRequestBodyBytes must be at least 1024.")
             .ValidateOnStart();
 
+        // The framework logs the full address of every request (query string included) and, below Information, every matched path.
+        // Secrets travel there (signed-link tokens, invite tokens), so those lines are off; RequestLogMiddleware replaces them.
+        services.AddLogging(logging => logging
+            .AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning)
+            .AddFilter("Microsoft.AspNetCore.Routing", LogLevel.Warning)
+            .AddFilter("Microsoft.AspNetCore.Server.Kestrel", LogLevel.Warning));
+
         services.AddSingleton<ApiLimiter>();
         services.AddRequestTimeouts();
         services.AddOptions<RequestTimeoutOptions>().Configure<IOptions<SecurityOptions>>((timeouts, security) =>
@@ -49,7 +56,7 @@ public static class SecurityHeaders
 
     /// <summary>Adds the headers to every response, however it ends (success, error, 404, 429, a file).</summary>
     public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder app) =>
-        app.Use(async (context, next) =>
+        app.UseMiddleware<RequestLogMiddleware>().Use(async (context, next) =>
         {
             var hsts = context.RequestServices.GetRequiredService<IOptions<SecurityOptions>>().Value.Hsts
                 ?? !context.RequestServices.GetRequiredService<IHostEnvironment>().IsDevelopment();
