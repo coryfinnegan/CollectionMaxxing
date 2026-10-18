@@ -21,6 +21,12 @@ public static class OpenIddictSetup
 
     public const string ApiScope = "api";
 
+    /// <summary>
+    /// Who an access token is for. Tokens are issued for it and the API accepts only tokens that name it, so a token the same issuer
+    /// made for some other purpose is not a way in.
+    /// </summary>
+    public const string ApiAudience = "collectionmaxxing-api";
+
     public static IServiceCollection AddTokenServer(this IServiceCollection services)
     {
         services.AddOpenIddict()
@@ -52,6 +58,7 @@ public static class OpenIddictSetup
             {
                 validation.UseLocalServer();
                 validation.UseAspNetCore();
+                validation.AddAudiences(ApiAudience);
 
                 // Check the phone's authorization on every request, so revoking it ends its access token now, not in ten minutes.
                 validation.EnableAuthorizationEntryValidation();

@@ -24,6 +24,8 @@ public static class TokenEndpoint
         HttpContext http,
         RedeemPairing.Handler redeem,
         IDeviceAuthorizations devices,
+        IOpenIddictTokenManager tokens,
+        IOpenIddictAuthorizationManager authorizations,
         PairingAttemptLimiter limiter,
         ClientAddressResolver clients,
         CancellationToken cancellationToken)
@@ -38,7 +40,7 @@ public static class TokenEndpoint
 
         if (request.IsRefreshTokenGrantType())
         {
-            return await RefreshAsync(http, devices, cancellationToken);
+            return await RefreshAsync(http, devices, tokens, authorizations, cancellationToken);
         }
 
         return Refuse(Errors.UnsupportedGrantType, "That grant type isn't supported.");
@@ -89,7 +91,12 @@ public static class TokenEndpoint
         return SignIn(principal);
     }
 
-    private static async Task<IResult> RefreshAsync(HttpContext http, IDeviceAuthorizations devices, CancellationToken cancellationToken)
+    private static async Task<IResult> RefreshAsync(
+        HttpContext http,
+        IDeviceAuthorizations devices,
+        IOpenIddictTokenManager tokens,
+        IOpenIddictAuthorizationManager authorizations,
+        CancellationToken cancellationToken)
     {
         // The principal OpenIddict rebuilt from the refresh token it just validated.
         var principal = (await http.AuthenticateAsync(Scheme)).Principal;
@@ -104,11 +111,53 @@ public static class TokenEndpoint
             return Refuse(Errors.InvalidGrant, "The refresh token is no longer valid.");
         }
 
+        // A refresh token works once, even when two requests bring it at the same moment (see ClaimRefreshTokenAsync).
+        if (!await ClaimRefreshTokenAsync(principal, tokens, authorizations, cancellationToken))
+        {
+            return Refuse(Errors.InvalidGrant, "The refresh token is no longer valid.");
+        }
+
         return SignIn(principal);
+    }
+
+    /// <summary>
+    /// Spends the refresh token, atomically, before new tokens are issued. OpenIddict marks the token as redeemed only after the answer
+    /// is built and, for a refresh grant, deliberately ignores a failure to do so ("that may be caused by concurrent requests"). So
+    /// by itself two requests that arrive together both pass its checks and both get a new pair: a stolen token and the phone's own
+    /// copy would each hold a live chain, and no later replay of an old token would tell them apart. Redeeming it here, where a
+    /// second claim fails, means exactly one request wins; the others used a spent token, which is a replay, so the device's whole
+    /// chain is revoked (docs/07, "Refresh rotation").
+    /// </summary>
+    private static async Task<bool> ClaimRefreshTokenAsync(
+        ClaimsPrincipal principal,
+        IOpenIddictTokenManager tokens,
+        IOpenIddictAuthorizationManager authorizations,
+        CancellationToken cancellationToken)
+    {
+        var token = principal.GetTokenId() is { } tokenId ? await tokens.FindByIdAsync(tokenId, cancellationToken) : null;
+        if (token is not null && await tokens.TryRedeemAsync(token, cancellationToken))
+        {
+            return true;
+        }
+
+        if (principal.GetAuthorizationId() is { } authorizationId)
+        {
+            if (await authorizations.FindByIdAsync(authorizationId, cancellationToken) is { } authorization)
+            {
+                await authorizations.TryRevokeAsync(authorization, cancellationToken);
+            }
+
+            await tokens.RevokeByAuthorizationIdAsync(authorizationId, cancellationToken);
+        }
+
+        return false;
     }
 
     private static IResult SignIn(ClaimsPrincipal principal)
     {
+        // The access token is for this API and no other (the validation side accepts only tokens that name it).
+        principal.SetResources(OpenIddictSetup.ApiAudience);
+
         // Everything we know about the phone goes into the access token (and, as always, the refresh token carries it on).
         principal.SetDestinations(_ => [Destinations.AccessToken]);
         return Results.SignIn(principal, authenticationScheme: Scheme);

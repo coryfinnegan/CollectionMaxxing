@@ -58,7 +58,8 @@ public abstract class CatalogTest(ApiFixture api) : ApiTest(api)
             });
         });
 
-        var client = factory.CreateClient();
+        // Never follow a redirect: assertions must see the first answer (NoRedirectTests relies on it).
+        var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         if (userId is { } id)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, id.ToString());
