@@ -111,6 +111,19 @@ public sealed partial class WebAppTests : IDisposable
         (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldNotContain("shell");
     }
 
+    [Theory]
+    [InlineData("/.well-known/openid-configuration")]
+    [InlineData("/.well-known/jwks")]
+    public async Task The_openid_discovery_endpoints_are_still_openiddicts_json_with_the_web_app_installed(string path)
+    {
+        using var client = _host.Client();
+
+        var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
+        (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldNotContain("shell");
+    }
     [Fact]
     public async Task Real_endpoints_are_not_shadowed_by_the_web_app()
     {
