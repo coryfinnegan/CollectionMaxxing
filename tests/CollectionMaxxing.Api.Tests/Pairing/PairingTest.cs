@@ -105,12 +105,7 @@ public abstract class PairingTest(ApiFixture api) : AuthTest(api)
         return (phone ?? Phone).SendAsync(request);
     }
 
-    /// <summary>The paired phones in <c>GET /me/sessions</c>. The signed-in browsers share that list (kind <c>web</c>) and are left out here.</summary>
-    protected static async Task<JsonElement[]> SessionsAsync(WebClient browser) =>
-        [.. (await AllSessionsAsync(browser)).Where(s => s.GetProperty("kind").GetString() == "device")];
-
-    /// <summary>Everything in <c>GET /me/sessions</c>: paired phones and signed-in browsers.</summary>
-    protected static async Task<JsonElement[]> AllSessionsAsync(WebClient browser)
+    protected static async Task<JsonElement[]> SessionsAsync(WebClient browser)
     {
         var response = await browser.GetAsync("/api/v1/me/sessions");
         response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());

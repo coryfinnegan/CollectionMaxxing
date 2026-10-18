@@ -94,6 +94,8 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | GET | `/api/v1/me/export/{id:guid}/download` | signed in | any signed-in caller (own data only) | Y | Y | ExportDto, or the caller's own zip |
 | GET | `/api/v1/me/sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | SessionDto: name, times, status. No token or hash |
 | DELETE | `/api/v1/me/sessions/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
+| GET | `/api/v1/me/web-sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | SessionDto: label, times, status. No cookie or session secret |
+| DELETE | `/api/v1/me/web-sessions/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
 | DELETE | `/api/v1/me/web-sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
 | GET | `/api/v1/recognition/config` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | prompt and thresholds (no secrets) |
 | DELETE | `/api/v1/scan-sessions/{id:guid}` | scan-session role | editor and above (in the session's library) | Y | Y | none (204, no body) |

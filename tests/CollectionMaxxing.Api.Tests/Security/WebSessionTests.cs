@@ -33,7 +33,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var thief = App.NewBrowser();
         thief.UseSessionCookie(copy);
         await ShouldBeProblemAsync(await thief.GetAsync("/api/v1/me"), HttpStatusCode.Unauthorized);
-        (await thief.GetAsync("/api/v1/me/sessions")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await thief.GetAsync("/api/v1/me/web-sessions")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var third = await SecondBrowserOfAsync(first);
         var secondId = (await WebSessionsAsync(second)).Single(s => s.GetProperty("isCurrent").GetBoolean()).GetProperty("id").GetGuid();
 
-        var revoked = await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/sessions/{secondId}", null);
+        var revoked = await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/web-sessions/{secondId}", null);
 
         revoked.StatusCode.ShouldBe(HttpStatusCode.NoContent, await revoked.Content.ReadAsStringAsync());
         (await second.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
@@ -173,7 +173,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var (browser, _) = await SetUpOwnerAsync();
         var mine = (await WebSessionsAsync(browser)).Single().GetProperty("id").GetGuid();
 
-        (await browser.SendAsync(HttpMethod.Delete, $"/api/v1/me/sessions/{mine}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await browser.SendAsync(HttpMethod.Delete, $"/api/v1/me/web-sessions/{mine}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -185,9 +185,9 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var second = await SecondBrowserOfAsync(first);
         var secondId = (await WebSessionsAsync(second)).Single(s => s.GetProperty("isCurrent").GetBoolean()).GetProperty("id").GetGuid();
 
-        (await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/sessions/{secondId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/sessions/{secondId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/sessions/{Guid.NewGuid()}", null)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/web-sessions/{secondId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/web-sessions/{secondId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await first.SendAsync(HttpMethod.Delete, $"/api/v1/me/web-sessions/{Guid.NewGuid()}", null)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     // ---- 5. nobody else's -----------------------------------------------------------------------------------------------
@@ -200,7 +200,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var ownerSessionId = (await WebSessionsAsync(owner)).Single().GetProperty("id").GetGuid();
 
         var listed = (await WebSessionsAsync(member)).Select(s => s.GetProperty("id").GetGuid()).ToList();
-        var revoke = await member.SendAsync(HttpMethod.Delete, $"/api/v1/me/sessions/{ownerSessionId}", null);
+        var revoke = await member.SendAsync(HttpMethod.Delete, $"/api/v1/me/web-sessions/{ownerSessionId}", null);
 
         listed.ShouldNotContain(ownerSessionId);
         await ShouldBeProblemAsync(revoke, HttpStatusCode.NotFound);
@@ -311,8 +311,12 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         return await member.SendAsync(HttpMethod.Delete, "/api/v1/me", new { credential });
     }
 
-    private static async Task<List<JsonElement>> WebSessionsAsync(WebClient browser) =>
-        [.. (await AllSessionsAsync(browser)).Where(s => s.GetProperty("kind").GetString() == "web")];
+    private static async Task<List<JsonElement>> WebSessionsAsync(WebClient browser)
+    {
+        var response = await browser.GetAsync("/api/v1/me/web-sessions");
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        return [.. (await ReadAsync(response)).GetProperty("items").EnumerateArray()];
+    }
 
     private static void Replace(ClaimsIdentity identity, string type, string value)
     {

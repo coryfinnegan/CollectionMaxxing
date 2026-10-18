@@ -69,7 +69,7 @@ export function DevicesScreen() {
   const [message, setMessage] = useState<string | null>(null);
 
   const revoke = useMutation({
-    mutationFn: (session: SessionDto) => revokeSession(session.id),
+    mutationFn: (session: SessionDto) => revokeSession(session),
     onSuccess: (_data, session) => {
       setConfirming(null);
       if (session.isCurrent) router.replace('/login');

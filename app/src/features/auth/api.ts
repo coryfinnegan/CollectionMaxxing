@@ -35,10 +35,19 @@ export const requestLoginOptions = () => post<PasskeyOptions>('/account/passkey/
 export const finishLogin = (credential: PasskeyJson) => post<SignedIn>('/account/login', { credential });
 export const logout = () => customFetch('/account/logout', { method: 'POST' });
 
-export const listSessions = async (): Promise<SessionDto[]> =>
-  (await customFetch<{ data: { items: SessionDto[] } }>('/api/v1/me/sessions')).data.items;
+const listFrom = async (url: string): Promise<SessionDto[]> =>
+  (await customFetch<{ data: { items: SessionDto[] } }>(url)).data.items;
 
-export const revokeSession = (id: string) => customFetch(`/api/v1/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** Where you are signed in: paired phones (`kind: 'device'`) and browsers (`kind: 'web'`), most recently seen first. */
+export const listSessions = async (): Promise<SessionDto[]> => {
+  const [devices, browsers] = await Promise.all([listFrom('/api/v1/me/sessions'), listFrom('/api/v1/me/web-sessions')]);
+  const seen = (s: SessionDto) => new Date(s.lastSeenAt ?? s.createdAt).getTime();
+  return [...devices, ...browsers].sort((a, b) => seen(b) - seen(a));
+};
+
+/** Signs one phone or browser out. */
+export const revokeSession = ({ id, kind }: Pick<SessionDto, 'id' | 'kind'>) =>
+  customFetch(`/api/v1/me/${kind === 'web' ? 'web-sessions' : 'sessions'}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 /** Signs every browser of this person out, this one included. Paired phones keep their own sign-in. */
 export const revokeWebSessions = () => customFetch('/api/v1/me/web-sessions', { method: 'DELETE' });

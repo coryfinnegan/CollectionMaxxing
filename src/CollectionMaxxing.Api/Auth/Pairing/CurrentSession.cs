@@ -9,11 +9,11 @@ namespace CollectionMaxxing.Api.Auth.Pairing;
 public static class CurrentSession
 {
     /// <summary>
-    /// The session the request came from: the paired device (the id of the authorization its access token hangs from) or the signed-in
-    /// browser (the id of its <c>web_sessions</c> row). Null for neither.
+    /// The paired device the request came from: the id of the authorization its access token hangs from. Null for the cookie, whose
+    /// session is <see cref="WebSessionId"/>.
     /// </summary>
     public static Guid? Id(ClaimsPrincipal user) =>
-        Guid.TryParse(user.GetAuthorizationId(), CultureInfo.InvariantCulture, out var id) ? id : WebSessionId(user);
+        Guid.TryParse(user.GetAuthorizationId(), CultureInfo.InvariantCulture, out var id) ? id : null;
 
     /// <summary>The <c>web_sessions</c> row the session cookie names, or null (a bearer caller, or a cookie that names none).</summary>
     public static Guid? WebSessionId(ClaimsPrincipal? user) =>
