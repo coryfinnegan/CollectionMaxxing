@@ -39,7 +39,8 @@ public static class ScanningEndpoints
         sessions.MapGet("/{id:guid}/events", Events.ScanEventsEndpoint.StreamAsync)
             .WithName("StreamScanSessionEvents").WithTags("Scanning")
             .Produces(StatusCodes.Status200OK, contentType: "text/event-stream")
-            .RequireScanSessionRole(LibraryRole.Viewer);
+            .RequireScanSessionRole(LibraryRole.Viewer)
+            .DisableRequestTimeout(); // a live stream is meant to stay open
 
         sessions.MapPost("/{id:guid}/barcodes", SubmitBarcodes)
             .WithName("ScanBarcodes").WithTags("Scanning")
@@ -84,7 +85,8 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
-            .RequireScanSessionRole(LibraryRole.Editor);
+            .RequireScanSessionRole(LibraryRole.Editor)
+            .WithRequestTimeout(Security.SecurityHeaders.UploadTimeoutPolicy); // 4 MB on a slow link takes longer than the usual minute
 
         sessions.MapPatch("/{id:guid}/candidates/{cid:guid}", DecideCandidate)
             .WithName("DecideCandidate").WithTags("Scanning")

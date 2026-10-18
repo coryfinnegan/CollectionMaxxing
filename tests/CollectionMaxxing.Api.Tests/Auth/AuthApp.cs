@@ -39,6 +39,8 @@ public sealed class AuthApp : IAsyncDisposable
                     ["Auth:SecretsPath"] = _secretsPath,
                     ["Auth:Setup:IssueOnStartup"] = "false",
                     ["Auth:RateLimit:PermitLimit"] = "10000",
+                    ["Security:Limits:Export:Permits"] = "100000",
+                    ["Security:Limits:AuthHourly:Permits"] = "100000",
                 };
                 foreach (var (key, value) in settings ?? [])
                 {

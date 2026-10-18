@@ -5,8 +5,11 @@ using CollectionMaxxing.Domain.Identifiers;
 namespace CollectionMaxxing.Infrastructure.Providers;
 
 /// <summary>Forgiving readers for provider JSON: a missing or oddly typed field is "not there", never an exception.</summary>
-internal static partial class ProviderJson
+public static partial class ProviderJson
 {
+    /// <summary>The longest text taken from a provider field. A provider is untrusted (docs/08, API10): longer text is cut, never passed on whole.</summary>
+    public const int MaxTextLength = 2000;
+
     public static JsonElement? Prop(this JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null
             ? value
@@ -14,8 +17,10 @@ internal static partial class ProviderJson
 
     public static string? Str(this JsonElement element, string name) =>
         element.Prop(name) is { ValueKind: JsonValueKind.String } value && !string.IsNullOrWhiteSpace(value.GetString())
-            ? value.GetString()!.Trim()
+            ? Cap(value.GetString()!.Trim())
             : null;
+
+    private static string Cap(string text) => text.Length <= MaxTextLength ? text : text[..MaxTextLength];
 
     public static long? Num(this JsonElement element, string name) =>
         element.Prop(name) is { } value && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number)
@@ -26,7 +31,7 @@ internal static partial class ProviderJson
         element.Prop(name) is { ValueKind: JsonValueKind.Array } array ? array.EnumerateArray() : [];
 
     public static IEnumerable<string> Strings(this JsonElement element, string name) =>
-        element.Items(name).Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!.Trim()).Where(s => s.Length > 0);
+        element.Items(name).Where(e => e.ValueKind == JsonValueKind.String).Select(e => Cap(e.GetString()!.Trim())).Where(s => s.Length > 0);
 
     /// <summary>The first four-digit year (1500 to 2099) in text such as "Jun 1999" or "2005-05-17".</summary>
     public static int? Year(string? text)
