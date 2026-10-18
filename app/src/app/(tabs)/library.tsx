@@ -1,5 +1,7 @@
+import { useLocalSearchParams } from 'expo-router';
 import { LibraryView } from '@/features/library/LibraryView';
 
 export default function Route() {
-  return <LibraryView title="Library" />;
+  const { add } = useLocalSearchParams<{ add?: string }>();
+  return <LibraryView title="Library" openAdd={add === '1'} />;
 }

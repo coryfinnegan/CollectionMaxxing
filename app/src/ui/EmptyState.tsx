@@ -13,7 +13,7 @@ type EmptyStateProps = {
 export function EmptyState({ title, body, actionLabel, onAction }: EmptyStateProps) {
   return (
     <View style={{ alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxl }}>
-      <Text variant="heading" style={{ textAlign: 'center' }}>
+      <Text variant="heading" accessibilityRole="header" aria-level={2} style={{ textAlign: 'center' }}>
         {title}
       </Text>
       {body ? (

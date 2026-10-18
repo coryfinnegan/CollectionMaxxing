@@ -20,13 +20,14 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
       accessibilityState={{ selected }}
       onPress={onPress}
       testID={testID}
+      hitSlop={{ top: 4, bottom: 4 }} // 36 pt tall to look, 44 pt to touch
       style={{
         minHeight: 36,
         justifyContent: 'center',
         paddingHorizontal: spacing.md,
         borderRadius: radius.pill,
         borderWidth: 1,
-        borderColor: selected ? colors.scan : colors.line,
+        borderColor: selected ? colors.scan : colors.control,
         backgroundColor: selected ? colors.scan : colors.surface,
       }}
     >
