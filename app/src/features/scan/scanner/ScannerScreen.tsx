@@ -126,7 +126,7 @@ export function ScannerScreen({
             Scanner
           </Text>
           <Button
-            label="Torch"
+            label={torch ? 'Torch on' : 'Torch'}
             variant="secondary"
             accessibilityState={{ selected: torch }}
             onPress={toggleTorch}
@@ -172,7 +172,14 @@ export function ScannerScreen({
             />
           ) : null}
           {photos.enabled ? (
-            <Button label="Photos" variant="secondary" disabled={photos.running} onPress={photos.start} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
+            <Button
+              label="Photos"
+              variant="secondary"
+              accessibilityHint="Choose pictures from your library to read, with no camera needed"
+              disabled={photos.running}
+              onPress={photos.start}
+              style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+            />
           ) : null}
           <Pressable
             accessibilityRole="button"
