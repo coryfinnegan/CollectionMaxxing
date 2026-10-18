@@ -1,0 +1,30 @@
+{
+  "_comment": "Read by Run-Perf.ps1, by the k6 script (scanners.js) and by the tests. The rate limits themselves are NOT copied here: tests.ps1 reads them from src/CollectionMaxxing.Api/Security/SecurityOptions.cs and proves this model stays inside them.",
+  "profiles": {
+    "smoke": { "scanners": 2, "accounts": 2, "durationSeconds": 30, "rampSeconds": 5, "maxMinutes": 6 },
+    "gaming": { "scanners": 5, "accounts": 2, "durationSeconds": 180, "rampSeconds": 15, "maxMinutes": 10 },
+    "full": { "scanners": 20, "accounts": 5, "durationSeconds": 600, "rampSeconds": 60, "maxMinutes": 20 }
+  },
+  "thresholds": { "p95Ms": 500, "errorRate": 0.01 },
+  "abort": { "p95Ms": 2000, "forSeconds": 30, "errorRate": 0.1 },
+  "model": {
+    "scanIntervalSeconds": [2, 4],
+    "barcodeShare": 0.5,
+    "codesPerBatch": [1, 5],
+    "itemsPerIdentify": [1, 3],
+    "pollEverySeconds": 3,
+    "syncEverySeconds": 20,
+    "commitEverySeconds": 60,
+    "acceptsPerCommit": 8,
+    "browseEverySeconds": 10,
+    "searchEverySeconds": 20
+  },
+  "stack": {
+    "apiCpus": "2",
+    "apiMemory": "1g",
+    "dbCpus": "1",
+    "dbMemory": "512m",
+    "k6Cpus": "2",
+    "k6Memory": "512m"
+  }
+}
