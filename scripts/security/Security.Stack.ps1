@@ -146,8 +146,9 @@ function Read-CookieJar {
 }
 
 function Invoke-Json {
-    param([string]$Base, [string]$Method, [string]$Path, $Body, [hashtable]$Jar, [string]$Bearer)
+    param([string]$Base, [string]$Method, [string]$Path, $Body, [hashtable]$Jar, [string]$Bearer, [string]$HostHeader)
     $headers = @{ 'X-CSRF' = '1'; 'Accept' = 'application/json' }
+    if ($HostHeader) { $headers['Host'] = $HostHeader }
     if ($Jar.Count -gt 0) { $headers['Cookie'] = ($Jar.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; ' }
     if ($Bearer) { $headers['Authorization'] = "Bearer $Bearer" }
     $args = @{ Uri = "$Base$Path"; Method = $Method; Headers = $headers; SkipHttpErrorCheck = $true; TimeoutSec = 30 }
@@ -173,7 +174,7 @@ function Get-DeviceToken {
     $pair = Invoke-Json $Base POST '/api/v1/me/devices/pair' $null $Jar
     if ($pair.Status -ne 200 -and $pair.Status -ne 201) { Stop-SecFailure "Pairing a device failed (HTTP $($pair.Status))." }
     $form = "grant_type=urn%3Acm%3Adevice_pairing&pairing_token=$([uri]::EscapeDataString($pair.Json.token))&pairing_code=$([uri]::EscapeDataString($pair.Json.code))&device_name=cm-sec&scope=api"
-    $resp = Invoke-WebRequest -Uri "$Base/connect/token" -Method Post -Body $form -ContentType 'application/x-www-form-urlencoded' -SkipHttpErrorCheck -TimeoutSec 30
+    $resp = Invoke-WebRequest -Uri "$Base/connect/token" -Method Post -Body $form -ContentType 'application/x-www-form-urlencoded' -Headers @{ Host = 'api:5480' } -SkipHttpErrorCheck -TimeoutSec 30
     if ($resp.StatusCode -ne 200) { Stop-SecFailure "Trading the pairing for a token failed (HTTP $($resp.StatusCode))." }
     ($resp.Content | ConvertFrom-Json).access_token
 }
@@ -194,12 +195,16 @@ function New-ThrowawayEditorToken {
     $ownerJar = @{}; $owner = New-SoftwareAuthenticator
     $signedIn = Register-Passkey $Base $ownerJar $owner (Invoke-Json $Base POST '/setup' @{ code = $code; displayName = 'Scan owner' } $ownerJar)
 
-    $invite = Invoke-Json $Base POST "/api/v1/libraries/$($signedIn.libraryId)/invites" @{ role = 'editor' } $ownerJar
-    if ($invite.Status -notin 200, 201) { Stop-SecFailure "Creating an editor invite failed (HTTP $($invite.Status))." }
-    $inviteToken = @($invite.Json.token, $invite.Json.inviteToken, ($invite.Json.link -replace '^.*/join/', '')) | Where-Object { $_ } | Select-Object -First 1
+    $invite = Invoke-Json $Base POST "/api/v1/libraries/$($signedIn.libraryId)/invites" @{ name = 'Scan editor'; role = 'editor' } $ownerJar
+    if ($invite.Status -notin 200, 201) { Stop-SecFailure "Creating an editor invite failed (HTTP $($invite.Status): $($invite.Json.detail) $($invite.Json.errors | ConvertTo-Json -Compress -Depth 3))." }
+    $inviteToken = ($invite.Json.link -replace '^.*/join/', '')
 
     $editorJar = @{}; $editor = New-SoftwareAuthenticator
     $start = Invoke-Json $Base POST '/account/passkey/creation-options' @{ displayName = 'Scan editor'; inviteToken = $inviteToken } $editorJar
     Register-Passkey $Base $editorJar $editor $start $inviteToken | Out-Null
-    Get-DeviceToken $Base $editorJar
+    $token = Get-DeviceToken $Base $editorJar
+    # The token's issuer is the host it was asked for, and ZAP reaches the API as api:5480, so the token is asked for under that name.
+    $me = Invoke-Json $Base GET '/api/v1/me' $null @{} $token 'api:5480'
+    if ($me.Status -ne 200) { Stop-SecFailure "The editor's token was not accepted by /api/v1/me (HTTP $($me.Status))." }
+    [pscustomobject]@{ Token = $token; LibraryId = $signedIn.libraryId }
 }

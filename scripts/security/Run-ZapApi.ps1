@@ -6,7 +6,7 @@
   Same stack as Run-ZapBaseline.ps1 (isolated network, tmpfs Postgres, the API image from deploy/docker/Dockerfile.api, every
   container labelled cm.agent=qa-1c). It first signs a throwaway owner in with a software passkey, invites a second member as an
   editor, pairs that member's "phone" and keeps the bearer token in memory. ZAP gets it through the environment
-  (ZAP_AUTH_HEADER_VALUE), so it is never on a command line, in a file or in a log. The token only works on this one stack.
+  (CM_ZAP_TOKEN, read by a ZAP hook), so it is never on a command line, in a file or in a log. The token only works on this one stack.
   ZAP is capped at 2 threads per host and a wall-clock limit (default 10 minutes).
 
   -DryRun, -Port, -KeepStack, -WebDist: as in Run-ZapBaseline.ps1.

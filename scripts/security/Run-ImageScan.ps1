@@ -37,7 +37,7 @@ try {
     $runId = New-RunId
     $reports = Get-ReportDir $runId $ReportDir
     $plan = Get-SecPlan -Mode image-scan -RunId $runId -MaxMinutes $MaxMinutes -ReportDir $reports
-    if ($DryRun) { Write-SecPlan $plan; exit 0 }
+    if ($DryRun) { Write-SecPlan $plan -Dry; exit 0 }
     Assert-DockerUp
     Write-SecPlan $plan
     $work = Join-Path ([IO.Path]::GetTempPath()) "cm-sec-work-$runId"

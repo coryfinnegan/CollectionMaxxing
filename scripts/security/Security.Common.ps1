@@ -118,8 +118,8 @@ function Get-SecPlan {
 }
 
 function Write-SecPlan {
-    param($Plan)
-    Write-Sec "plan  mode        $($Plan.Mode)"
+    param($Plan, [switch]$Dry)
+    Write-Sec "plan  mode       $($Plan.Mode)"
     Write-Sec "      network     $($Plan.Network)"
     Write-Sec "      images      $($Plan.Images -join '; ')"
     Write-Sec "      containers  $($Plan.Containers -join ', ')"
@@ -128,7 +128,7 @@ function Write-SecPlan {
     Write-Sec "      thread cap  $($Plan.ThreadsPerHost) per host; wall-clock cap $($Plan.WallClockMinutes) min"
     Write-Sec "      port        $($Plan.PublishedPort) (API only; never 8080, 8409, 32400, 8096)"
     Write-Sec "      reports     $($Plan.ReportDir)"
-    Write-Sec 'dry run: nothing was started'
+    if ($Dry) { Write-Sec 'dry run: nothing was started' }
 }
 
 # ---- cleanup (used by Stop-Security.ps1 and by the scripts' own finally blocks) --------------------------------------------
@@ -186,10 +186,10 @@ function ConvertFrom-DotnetVulnerable {
     param([string[]]$Lines)
     $project = $null
     foreach ($line in $Lines) {
-        if ($line -match "^Project '([^']+)'") { $project = $Matches[1]; continue }
+        if ($line -match "^Project [`'``]([^`'``]+)[`'``]") { $project = $Matches[1]; continue }
         # Top-level rows have a "Requested" column, transitive rows do not; the severity word is what anchors the match.
         if ($line -match '^\s+>\s+(\S+)\s+(?:\S+\s+)?(\S+)\s+(Low|Moderate|High|Critical)\s+(\S+)') {
-            [pscustomobject]@{ Project = $project; Package = $Matches[1]; Resolved = $Matches[2]; Severity = $Matches[3]; Advisory = $Matches[4]; TestOnly = ($project -match '[\\/]tests[\\/]|\.Tests$|\.TestSupport$|\.Evals$') }
+            [pscustomobject]@{ Project = $project; Package = $Matches[1]; Resolved = $Matches[2]; Severity = $Matches[3]; Advisory = $Matches[4]; TestOnly = ($project -match '[\\/]tests[\\/]|\.Tests$|\.TestSupport$|\.Evals$|\.AppHost$') }
         }
     }
 }

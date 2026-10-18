@@ -1,3 +1,22 @@
 # ZAP rules for the local and nightly scans (scripts/security/Run-ZapBaseline.ps1 and Run-ZapApi.ps1).
 # Format: <alert id><TAB><IGNORE|INFO|WARN|FAIL|OUTOFSCOPE><TAB><name>
 # An ignored alert needs a "# Reason: ..." comment on the line right above it (scripts/security/Run-Tests.ps1 checks this).
+
+# Reason: the CSP deliberately allows inline styles because react-native-web writes its style rules into a <style> tag at run time (documented in SecurityHeaders.cs); script-src has no unsafe-inline and no eval, so this does not allow script injection.
+10055	IGNORE	CSP: style-src unsafe-inline
+# Reason: Cross-Origin-Embedder-Policy and Cross-Origin-Resource-Policy are Spectre isolation headers for pages that need SharedArrayBuffer; the app embeds nothing cross-origin, sends COOP same-origin and frame-ancestors 'none', and holds no resource that another origin could be tricked into loading. Low value, and COEP can break same-site image loading.
+90004	IGNORE	Cross-Origin-Embedder-Policy / Cross-Origin-Resource-Policy header missing
+# Reason: informational note that the page is a single-page app (needs the ajax spider); the API scan covers the endpoints from the OpenAPI document instead.
+10109	IGNORE	Modern Web Application
+# Reason: the API scan sends malformed input on purpose, so 4xx answers are expected (this is the scan working: the 429s are the rate limiter, the 401/403/404s the authorization layers). The only 5xx are PATCH /api/v1/me answering its documented 501 stub (problem+json, no stack trace: ProductionErrorTests).
+100000	IGNORE	A Client / Server Error response code was returned by the server
+# Reason: GET /account/login is the web app's sign-in page and is HTML by design; the OpenAPI document does not describe it.
+100001	IGNORE	Unexpected Content-Type was returned
+# Reason: the export download link carries a Data Protection token in its query (/api/v1/me/export/{id}/download?token=). It is bound to one export and one user, expires, and the caller must also be signed in; the log redaction from QA-1b keeps it out of the logs.
+10024	IGNORE	Information Disclosure - Sensitive Information in URL
+# Reason: a fixed-name cookie holds the passkey ceremony state (HttpOnly, short-lived); it is not a session identifier.
+10112	IGNORE	Session Management Response Identified
+# Reason: informational; the scan's fuzzed User-Agent changes nothing in the answers, because no behaviour depends on the User-Agent.
+10104	IGNORE	User Agent Fuzzer
+# Reason: the pages the spider reaches without signing in are 401 answers and the sign-in shell, and those are meant not to be cached (Cache-Control no-store); every signed-in answer is private by design.
+10049	IGNORE	Non-Storable Content

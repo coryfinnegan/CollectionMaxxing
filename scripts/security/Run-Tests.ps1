@@ -234,8 +234,8 @@ Test-Case 'The bearer token reaches ZAP through the environment, never a command
     finally { Remove-Item -LiteralPath $reports -Recurse -Force -ErrorAction SilentlyContinue }
     foreach ($c in $global:Calls) { Assert-True ($c.Display -notmatch 'SECRET-TOKEN-VALUE') "token on a command line: $($c.Command) $($c.Arguments[0])" }
     $create = $global:Calls | Where-Object { $_.Arguments[0] -eq 'create' } | Select-Object -First 1
-    Assert-Equal 'Bearer SECRET-TOKEN-VALUE' $create.Env['ZAP_AUTH_HEADER_VALUE']
-    Assert-True ($create.Display -match '-e ZAP_AUTH_HEADER_VALUE( |$)') 'passes the variable by name only'
+    Assert-Equal 'SECRET-TOKEN-VALUE' $create.Env['CM_ZAP_TOKEN']
+    Assert-True ($create.Display -match '-e CM_ZAP_TOKEN( |$)') 'passes the variable by name only'
     $baselineCreate = $null
     $global:Calls.Clear()
     $reports = Join-Path ([IO.Path]::GetTempPath()) "cm-sec-test-$([guid]::NewGuid().ToString('N'))"
@@ -279,7 +279,7 @@ Test-Case '.zap/rules.tsv explains every ignored alert with a reason and uses on
         Assert-True ($cols[0] -match '^\d+$') "alert id is a number: [$line]"
         Assert-True ($cols[1] -in 'IGNORE', 'INFO', 'WARN', 'FAIL', 'OUTOFSCOPE') "unknown action: [$line]"
         if ($cols[1] -in 'IGNORE', 'OUTOFSCOPE') {
-            Assert-True ($previousComment -match '^\s*#\s*Reason:\s*\S{12,}') "an ignored alert needs a '# Reason: ...' comment right above it: [$line]"
+            Assert-True ($previousComment -match '^\s*#\s*Reason:\s*\S.{30,}') "an ignored alert needs a '# Reason: ...' comment right above it: [$line]"
         }
         $rules++
         $previousComment = $null
