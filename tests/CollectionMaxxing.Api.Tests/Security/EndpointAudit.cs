@@ -47,6 +47,9 @@ public static class EndpointAudit
     public const string SessionPrefix = "/api/v1/scan-sessions/";
     public const string AdminPrefix = "/api/admin/";
 
+    /// <summary>Platform plumbing that is not part of the API contract (health checks, the OpenAPI document): anonymous and outside the matrix.</summary>
+    public static bool IsPlumbing(string route) => AuthorizationMatrix.NotInMatrix.Contains(route);
+
     public static List<string> Problems(
         IReadOnlyCollection<EndpointFacts> endpoints,
         IReadOnlyCollection<EndpointCase> rows,
