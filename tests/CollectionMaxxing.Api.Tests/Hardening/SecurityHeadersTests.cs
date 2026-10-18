@@ -35,13 +35,26 @@ public sealed class SecurityHeadersTests : IDisposable
     }
 
     [Fact]
-    public void The_policy_is_the_one_in_the_security_doc_and_allows_no_inline_script()
+    public void The_policy_is_the_one_in_the_security_doc_with_two_named_exceptions_and_no_unsafe_script()
     {
-        // docs/08 "HTTP hardening", with one deliberate addition: styles may be inline (react-native-web writes style rules at run time).
+        // docs/08 "HTTP hardening", plus: styles may be inline (react-native-web writes style rules and per-element styles at run time), and
+        // the one inline script Expo's web export puts in index.html (the router hydrate flag) is allowed by its hash, not by 'unsafe-inline'.
         SecurityHeaders.ContentSecurityPolicy.ShouldBe(
-            "default-src 'self'; img-src 'self' blob: data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-        SecurityHeaders.ContentSecurityPolicy.ShouldNotContain("script-src");
-        SecurityHeaders.ContentSecurityPolicy.ShouldNotContain("unsafe-eval");
+            "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; img-src 'self' blob: data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+        var scripts = SecurityHeaders.ContentSecurityPolicy.Split("; ").Single(d => d.StartsWith("script-src", StringComparison.Ordinal));
+        scripts.ShouldNotContain("unsafe-inline");
+        scripts.ShouldNotContain("unsafe-eval");
+        Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData("globalThis.__EXPO_ROUTER_HYDRATE__=true;"u8))
+            .ShouldBe("67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8=");
+    }
+
+    [Fact]
+    public void The_web_apps_e2e_server_sends_the_same_policy_so_the_specs_run_under_it()
+    {
+        var serve = File.ReadAllText(Support.RepositoryFiles.Find("app", "playwright", "serve.mjs"));
+
+        serve.ShouldContain("'Content-Security-Policy': \"" + SecurityHeaders.ContentSecurityPolicy + "\"");
+        serve.ShouldContain("'Permissions-Policy': '" + SecurityHeaders.PermissionsPolicy + "'");
     }
 
     [Fact]

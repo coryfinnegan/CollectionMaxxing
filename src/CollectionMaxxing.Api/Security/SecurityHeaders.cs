@@ -19,7 +19,7 @@ public static class SecurityHeaders
     /// text; a test keeps the two equal.)
     /// </summary>
     public const string ContentSecurityPolicy =
-        "default-src 'self'; img-src 'self' blob: data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+        "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; img-src 'self' blob: data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
     public const string StrictTransportSecurity = "max-age=31536000";
 
