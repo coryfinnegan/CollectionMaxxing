@@ -24,6 +24,11 @@ internal static class ProviderResilienceExtensions
     /// <summary>Adds the standard pipeline: per-attempt timeout, jittered retries honouring Retry-After, circuit breaker.</summary>
     public static IHttpClientBuilder AddProviderResilience(this IHttpClientBuilder builder)
     {
+        // The app gives every HttpClient the standard handler (ServiceDefaults); left in place it wraps this one with default, unconfigured
+        // retries (3, 2 s apart, doubling) that outlast the caller's time budget. A provider client has exactly one pipeline: ours.
+#pragma warning disable EXTEXP0001 // Experimental only in name; it is the supported way to drop the app-wide default.
+        builder.RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
         builder.AddStandardResilienceHandler();
         builder.Services.AddOptions<HttpStandardResilienceOptions>(builder.Name + "-standard")
             .Configure<IOptions<ProviderResilienceOptions>>((options, shared) =>

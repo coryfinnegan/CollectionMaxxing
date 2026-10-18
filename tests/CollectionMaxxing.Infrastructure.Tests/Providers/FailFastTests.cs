@@ -1,5 +1,7 @@
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.TestSupport;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
 using Shouldly;
 using Xunit;
 
@@ -51,6 +53,26 @@ public class FailFastTests(PostgresFixture db) : DatabaseTest(db)
 
         // Windows alone takes about 2 s per address to learn a port is closed; four tries and their back-off would be over 20 s (IGDB asks twice: a token, then the search).
         (DateTimeOffset.UtcNow - started).ShouldBeLessThan(TimeSpan.FromSeconds(12));
+    }
+
+    [Theory]
+    [MemberData(nameof(ProviderCase.Names), MemberType = typeof(ProviderCase))]
+    public async Task The_app_wide_http_defaults_do_not_add_a_second_retry_pipeline_around_the_provider_one(string name)
+    {
+        // The app (ServiceDefaults) gives every HttpClient the standard resilience handler. A provider client must keep only its own,
+        // or an unconfigured outer one retries (3 times, 2 s apart, doubling) past the caller's time budget.
+        var settings = new Dictionary<string, string?>
+        {
+            ["Providers:Resilience:MaxRetryAttempts"] = "1",
+            ["Providers:Resilience:RetryDelay"] = "00:00:00.050",
+        };
+        using var host = ProviderHost.Create(Db, settings: settings, configure: s => s.ConfigureHttpClientDefaults(http => http.AddStandardResilienceHandler()));
+        var provider = ProviderCase.Named(name);
+        provider.RespondWith(host, 500, null);
+
+        (await provider.Ask(host)).ShouldBe(0);
+
+        host.Requests(provider.Path).ShouldBe(2); // the first try and the one retry, no more
     }
 
     [Fact]
