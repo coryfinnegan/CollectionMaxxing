@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc.Testing;
 using CollectionMaxxing.TestSupport;
 using Xunit;
 
@@ -19,7 +20,8 @@ public sealed class ApiFixture : IAsyncLifetime
     /// <summary>A client that signs in as <paramref name="userId"/> (with platform <paramref name="roles"/>, e.g. admin), or stays anonymous when null.</summary>
     public HttpClient CreateClient(Guid? userId = null, string? roles = null)
     {
-        var client = Factory.CreateClient();
+        // The phone's downloader cannot refuse a redirect, so tests look at the first answer rather than the one a redirect leads to.
+        var client = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         if (userId is { } id)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, id.ToString());

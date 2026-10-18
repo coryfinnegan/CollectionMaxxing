@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Api.Tests.Security;
 
 // LOCKED acceptance tests of QA-1a (issue #166), object-level authorization (OWASP API1). Do not edit, weaken, skip or delete: add new tests instead.
-public class CrossLibraryAccessTests(ApiFixture api) : ApiTest(api)
+public class CrossLibraryAccessTests(ApiFixture api) : CatalogTest(api)
 {
     /// <summary>Library A is the victim's; the attacker is a member (every role) of library B and nothing else.</summary>
     private sealed record World(
@@ -37,6 +37,10 @@ public class CrossLibraryAccessTests(ApiFixture api) : ApiTest(api)
         var locationId = await TestData.CreateLocationAsync(Db, a.Id, "Victim shelf");
         var sessionId = await TestData.CreateScanSessionAsync(Db, a, a.EditorId);
         var attackerSessionId = await TestData.CreateScanSessionAsync(Db, b, b.EditorId);
+        // The file must exist: without it the store answers "not found" for every caller, and a missing library filter would go unnoticed.
+        var blob = Path.Combine(CoversRoot, "ab", "victim.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(blob)!);
+        await File.WriteAllBytesAsync(blob, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3]);
         var assetId = await CatalogSeed.AddAssetAsync(Db, "ab/victim.png", ownerLibraryId: a.Id);
         var inviteId = Guid.CreateVersion7();
         var candidateId = Guid.CreateVersion7();
@@ -169,7 +173,7 @@ public class CrossLibraryAccessTests(ApiFixture api) : ApiTest(api)
         ];
     }
 
-    private HttpClient Mallory(World w, LibraryRole role = LibraryRole.Owner) => Api.CreateClient(w.B.UserWithRole(role));
+    private HttpClient Mallory(World w, LibraryRole role = LibraryRole.Owner) => ClientWith(w.B.UserWithRole(role));
 
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, Attack attack)
     {
@@ -270,7 +274,7 @@ public class CrossLibraryAccessTests(ApiFixture api) : ApiTest(api)
     public async Task A_stranger_in_no_library_at_all_gets_404_for_the_same_routes()
     {
         var w = await SeedAsync();
-        using var client = Api.CreateClient(w.A.OutsiderId);
+        using var client = ClientWith(w.A.OutsiderId);
 
         (await RunAsync(client, ThroughVictimsRoute(w))).ShouldBeEmpty();
         (await RunAsync(client, ThroughOwnRouteWithVictimsIds(w).Where(a => a.Url.Contains(w.B.Id.ToString(), StringComparison.Ordinal) is false))).ShouldBeEmpty();
@@ -280,7 +284,7 @@ public class CrossLibraryAccessTests(ApiFixture api) : ApiTest(api)
     public async Task An_export_of_someone_else_is_404_to_poll_and_to_download()
     {
         var w = await SeedAsync();
-        using var victim = Api.CreateClient(w.A.OwnerId);
+        using var victim = ClientWith(w.A.OwnerId);
         var started = await victim.GetAsync("/api/v1/me/export");
         started.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         var jobId = (await ReadJsonAsync(started)).GetProperty("jobId").GetGuid();
@@ -322,7 +326,7 @@ public class CrossLibraryAccessTests(ApiFixture api) : ApiTest(api)
             new("POST", $"{a}/tags", """{ "name": "Pwned" }"""), new("DELETE", $"{a}/tags/{w.TagId}"),
             new("PUT", $"{a}/feature-prints", """{ "prints": [] }"""),
         };
-        using var viewer = Api.CreateClient(w.A.ViewerId);
+        using var viewer = ClientWith(w.A.ViewerId);
 
         foreach (var write in writes)
         {

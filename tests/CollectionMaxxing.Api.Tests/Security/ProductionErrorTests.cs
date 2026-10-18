@@ -97,7 +97,7 @@ public sealed class ProductionErrorTests(ApiFixture api) : IAsyncLifetime
 
     private HttpClient Client(Guid? user = null, bool broken = false)
     {
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         if (user is { } id)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, id.ToString());
