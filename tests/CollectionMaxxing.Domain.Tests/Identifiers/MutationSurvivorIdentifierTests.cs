@@ -1,3 +1,4 @@
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Identifiers;
 
 namespace CollectionMaxxing.Domain.Tests.Identifiers;
@@ -13,6 +14,24 @@ public class MutationSurvivorIdentifierTests
         Gtin.TryParse("97803064061571234X", out _).ShouldBeFalse();
         Gtin.TryParse("978030640615712345", out var trimmed).ShouldBeTrue();
         trimmed!.Value.ShouldBe("9780306406157");
+    }
+
+    [Fact]
+    public void A_12_digit_text_with_a_valid_check_digit_is_not_an_ISBN_13()
+    {
+        Isbn13.TryParse("978030640612", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_7_digit_text_with_a_valid_check_digit_is_not_an_EAN_8()
+    {
+        Gtin.TryParseEan8("0000000", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void An_identifier_type_that_does_not_exist_cannot_be_created()
+    {
+        Identifier.TryCreate((IdentifierType)999, "anything", out _).ShouldBeFalse();
     }
 
     [Fact]

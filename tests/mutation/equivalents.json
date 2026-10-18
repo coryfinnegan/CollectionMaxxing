@@ -1,8 +1,17 @@
 [
+  { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/MatchScorer.cs", "line": 196, "operator": "return", "reason": "MatchOutcome.Matched is the first member, so default is Matched" },
   { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/PlatformNames.cs", "line": 83, "operator": "bool", "reason": "pendingSpace only adds a space when builder.Length > 0, so starting true changes nothing before the first letter" },
+  { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/TitleNormalizer.cs", "line": 95, "operator": "logic", "reason": "Core scores 0 whenever exactly one side is empty, so letting that case fall through gives the same 0" },
   { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/TitleNormalizer.cs", "line": 118, "operator": "eq", "reason": "when both titles end in a year the years are equal (else YearsConflict returned), so stripping both never scores above the full titles" },
   { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/TitleNormalizer.cs", "line": 118, "operator": "logic", "reason": "with a year on one side only, Core(leftNoYear, rightNoYear) repeats a comparison already made; with both it never beats the full titles" },
   { "file": "src/CollectionMaxxing.Domain/Catalog/Matching/TitleNormalizer.cs", "line": 156, "operator": "rel", "reason": "Normalize never yields a leading space, so the last space is never at index 0" },
   { "file": "src/CollectionMaxxing.Domain/Identifiers/BarcodeText.cs", "line": 62, "operator": "offbyone", "reason": "a 1 character text is rejected by every caller's length check anyway, so IsAllDigits(\"5\") changing is invisible" },
-  { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 31, "operator": "arith", "reason": "Length + 1 - i and Length - 1 - i differ by 2, so only their parity is used and it is the same" }
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/BarcodeText.cs", "line": 64, "operator": "bool", "reason": "an empty text is rejected by every caller's length check anyway, so IsAllDigits(\"\") changing is invisible" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 9, "operator": "rel", "reason": "internal; every caller checks the length (8, 12, 13) first, so a 2 digit text never reaches it" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 9, "operator": "offbyone", "reason": "internal; every caller checks the length (8, 12, 13) first, so a 2 digit text never reaches it" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 11, "operator": "bool", "reason": "internal; every caller checks the length (8, 12, 13) first, so a text under 2 digits never reaches it" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 18, "operator": "arith", "reason": "Length - 1 + i and Length - 1 - i differ by 2i, so only their parity is used and it is the same" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 31, "operator": "arith", "reason": "Length + 1 - i and Length - 1 - i differ by 2, so only their parity is used and it is the same" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Isbn10.cs", "line": 37, "operator": "bool", "reason": "internal; both callers check the length is 10 before calling, so the early return is never reached" },
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Isbn13.cs", "line": 61, "operator": "offbyone", "reason": "internal; callers only pass 13 digit texts, so the length guard on a 3 or 4 digit text is never reached" }
 ]
