@@ -177,6 +177,54 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
     }
 
     [Fact]
+    public async Task Pairing_and_other_token_requests_still_use_the_hourly_auth_limit()
+    {
+        var host = Host(("AuthHourly", 2));
+        using var client = host.CreateClient();
+
+        var statuses = await SendAsync(client, 3, () => TokenRequest(("grant_type", "urn:cm:device_pairing"), ("pairing_code", "000000"), ("device_name", "x")));
+
+        statuses.Take(2).ShouldAllBe(s => s != HttpStatusCode.TooManyRequests);
+        statuses[2].ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Theory]
+    [InlineData("Items")]
+    [InlineData("ITEMS")]
+    public async Task Identify_counts_the_items_whatever_the_case_of_the_property_name(string property)
+    {
+        var host = Host(("Identify", 5));
+        using var client = await UserAsync(host);
+        var body = $$"""{"{{property}}":[{},{},{},{},{},{}]}""";
+        using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync($"/api/v1/scan-sessions/{Session}/identify", content, TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task A_busy_five_minute_shelf_pass_is_never_limited_and_a_refusal_never_asks_for_more_than_a_minute()
+    {
+        // 150 snaps of 10 items over five minutes is 300 items a minute at its busiest; the limit has to sit well above that.
+        var host = Host();
+        using var client = await UserAsync(host);
+        var limits = new CollectionMaxxing.Api.Security.SecurityOptions.LimitOptions();
+        var url = $"/api/v1/scan-sessions/{Session}/identify";
+
+        var statuses = new List<HttpStatusCode>();
+        for (var snap = 0; snap < 40; snap++) // 400 items in a burst: more than a real minute of it
+        {
+            using var response = await client.PostAsJsonAsync(url, new { items = Enumerable.Range(0, 10).Select(_ => new { }).ToArray() }, TestContext.Current.CancellationToken);
+            statuses.Add(response.StatusCode);
+        }
+
+        statuses.ShouldAllBe(s => s != HttpStatusCode.TooManyRequests);
+        limits.Identify.WindowSeconds.ShouldBeLessThanOrEqualTo(60);
+        limits.Identify.Permits.ShouldBeGreaterThanOrEqualTo(450);
+    }
+
+    [Fact]
     public async Task The_health_checks_are_never_limited()
     {
         var host = Host(("Default", 2));
@@ -195,7 +243,7 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
         defaults.Default.ShouldBe(new(600, 60));
         defaults.Search.ShouldBe(new(60, 60));
         defaults.Barcodes.ShouldBe(new(120, 60));
-        defaults.Identify.ShouldBe(new(1000, 3600));
+        defaults.Identify.ShouldBe(new(500, 60));
         defaults.Export.ShouldBe(new(1, 600));
         defaults.AuthHourly.ShouldBe(new(30, 3600));
     }
@@ -225,6 +273,9 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
         client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, userId.ToString());
         return client;
     }
+
+    private static HttpRequestMessage TokenRequest(params (string Key, string Value)[] fields) =>
+        new(HttpMethod.Post, "/connect/token") { Content = new FormUrlEncodedContent(fields.Select(f => new KeyValuePair<string, string>(f.Key, f.Value))) };
 
     private static async Task<List<HttpStatusCode>> SendAsync(HttpClient client, int count, Func<HttpRequestMessage> request)
     {

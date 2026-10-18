@@ -93,7 +93,7 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
 
         var key = CallerKey(context);
         // The specific group first, so a refused call does not also use up the caller's general allowance.
-        var (group, permits) = Specific(context.Request, path);
+        var (group, permits) = await SpecificAsync(context.Request, path);
         if (group is not null)
         {
             var wait = limiter.TryTake(group, key, permits == 0 ? await CountItemsAsync(context.Request) : permits);
@@ -114,7 +114,7 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
     }
 
     /// <summary>The group a request counts against besides "everything else", and the permits it costs (0: one per item in the body).</summary>
-    private static (string? Group, int Permits) Specific(HttpRequest request, PathString path)
+    private static async Task<(string? Group, int Permits)> SpecificAsync(HttpRequest request, PathString path)
     {
         var method = request.Method;
         var value = path.Value ?? string.Empty;
@@ -141,12 +141,39 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
             }
         }
 
-        if (HttpMethods.IsPost(method) && (path.StartsWithSegments("/account") || path.StartsWithSegments("/connect/token") || path.StartsWithSegments("/setup")))
+        if (HttpMethods.IsPost(method) && path.StartsWithSegments("/connect/token"))
+        {
+            // A paired phone refreshes about six times an hour and on every cold start. Counting that against the hourly limit would
+            // sooner or later refuse the owner's own device, and the app must never read a refusal as "un-paired". A refresh token is
+            // long and random, so it can't be guessed; the everything-else bucket still bounds how often it is tried.
+            return await IsRefreshGrantAsync(request) ? (null, 0) : (nameof(SecurityOptions.LimitOptions.AuthHourly), 1);
+        }
+
+        if (HttpMethods.IsPost(method) && (path.StartsWithSegments("/account") || path.StartsWithSegments("/setup")))
         {
             return (nameof(SecurityOptions.LimitOptions.AuthHourly), 1);
         }
 
         return (null, 0);
+    }
+
+    /// <summary>True when the token request is a form with <c>grant_type=refresh_token</c>. The form is cached on the request, so the token server reads it again for free.</summary>
+    private static async Task<bool> IsRefreshGrantAsync(HttpRequest request)
+    {
+        if (!request.HasFormContentType)
+        {
+            return false;
+        }
+
+        try
+        {
+            var form = await request.ReadFormAsync();
+            return form.TryGetValue("grant_type", out var grant) && grant.Count == 1 && grant[0] == "refresh_token";
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or InvalidOperationException or BadHttpRequestException)
+        {
+            return false; // a form we can't read is not a refresh; the token server answers it
+        }
     }
 
     /// <summary>A signed-in caller is their user id; anyone else is the address they came from.</summary>
@@ -167,11 +194,19 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
         {
             request.EnableBuffering(bufferThreshold: 64 * 1024, bufferLimit: MaxBodyToRead);
             using var document = await JsonDocument.ParseAsync(request.Body);
-            return document.RootElement.ValueKind == JsonValueKind.Object
-                && document.RootElement.TryGetProperty("items", out var items)
-                && items.ValueKind == JsonValueKind.Array
-                    ? Math.Max(1, items.GetArrayLength())
-                    : 1;
+            if (document.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                // The endpoint reads property names without regard to case, so the count must too.
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(property.Name, "items", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return property.Value.ValueKind == JsonValueKind.Array ? Math.Max(1, property.Value.GetArrayLength()) : 1;
+                    }
+                }
+            }
+
+            return 1;
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException)
         {

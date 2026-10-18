@@ -44,7 +44,8 @@ public static class EvalsEndpoints
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
-            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .WithRequestTimeout(Security.SecurityHeaders.UploadTimeoutPolicy); // a big report over a slow link
 
         evals.MapGet("/runs/latest", (GetLatestEvalRun.Handler handler) => Respond(handler.Handle()))
             .WithName("GetLatestEvalRun")

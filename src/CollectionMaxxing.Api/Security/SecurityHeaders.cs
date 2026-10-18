@@ -21,6 +21,9 @@ public static class SecurityHeaders
     public const string ContentSecurityPolicy =
         "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; img-src 'self' blob: data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
+    /// <summary>The name of the longer time limit for routes that take a picture or an eval run (<c>.WithRequestTimeout(UploadTimeoutPolicy)</c>).</summary>
+    public const string UploadTimeoutPolicy = "Upload";
+
     public const string StrictTransportSecurity = "max-age=31536000";
 
     public const string PermissionsPolicy = "camera=(self), geolocation=()";
@@ -32,6 +35,7 @@ public static class SecurityHeaders
             .Validate(options => options.Limits.All.All(l => l.Limit.Permits >= 1 && l.Limit.WindowSeconds >= 1),
                 "Security:Limits:* need Permits and WindowSeconds of at least 1.")
             .Validate(options => options.RequestTimeoutSeconds >= 1, "Security:RequestTimeoutSeconds must be at least 1.")
+            .Validate(options => options.UploadTimeoutSeconds >= options.RequestTimeoutSeconds, "Security:UploadTimeoutSeconds must be at least Security:RequestTimeoutSeconds.")
             .Validate(options => options.MaxRequestBodyBytes >= 1024, "Security:MaxRequestBodyBytes must be at least 1024.")
             .ValidateOnStart();
 
@@ -45,7 +49,10 @@ public static class SecurityHeaders
         services.AddSingleton<ApiLimiter>();
         services.AddRequestTimeouts();
         services.AddOptions<RequestTimeoutOptions>().Configure<IOptions<SecurityOptions>>((timeouts, security) =>
-            timeouts.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(security.Value.RequestTimeoutSeconds) });
+        {
+            timeouts.DefaultPolicy = new RequestTimeoutPolicy { Timeout = TimeSpan.FromSeconds(security.Value.RequestTimeoutSeconds) };
+            timeouts.AddPolicy(UploadTimeoutPolicy, TimeSpan.FromSeconds(security.Value.UploadTimeoutSeconds));
+        });
         services.AddOptions<KestrelServerOptions>().Configure<IOptions<SecurityOptions>>((kestrel, security) =>
         {
             kestrel.Limits.MaxRequestBodySize = security.Value.MaxRequestBodyBytes;
@@ -91,15 +98,5 @@ public static class SecurityHeaders
     /// <summary>The rate limits and the request timeout. Goes right after <c>UseApiFoundation()</c>: the limiter needs the signed-in user, and anonymous callers are judged by address.</summary>
     public static IApplicationBuilder UseApiLimits(this IApplicationBuilder app) =>
         app.UseMiddleware<ApiLimitsMiddleware>()
-            .UseRequestTimeouts()
-            .Use(async (context, next) =>
-            {
-                // A live event stream is meant to stay open.
-                if (context.Request.Path.Value?.EndsWith("/events", StringComparison.Ordinal) == true)
-                {
-                    context.Features.Get<IHttpRequestTimeoutFeature>()?.DisableTimeout();
-                }
-
-                await next(context);
-            });
+            .UseRequestTimeouts(); // the event stream route is exempt, and the upload routes have their own limit, by endpoint metadata
 }
