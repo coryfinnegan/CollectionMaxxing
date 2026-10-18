@@ -20,6 +20,7 @@ import { Button, Chip, Cover, EmptyState, ListRow, Sheet, Text, TextField } from
 import { capForBulk, resultMessage } from './bulk';
 import { ColumnChooser } from './ColumnChooser.web';
 import { columnDefs, type ColumnId, loadColumns, saveColumns, sortForColumn } from './columns';
+import { onGridKeyDown } from './gridKeys.web';
 import { InlineCell } from './InlineCell.web';
 import { clearSelection, clickRow, emptySelection, selectedInOrder, type Selection, togglePage } from './selection';
 import { SelectionBar } from './SelectionBar.web';
@@ -36,6 +37,9 @@ function modifiers(event: unknown) {
   const source = { ...e?.nativeEvent, ...e };
   return { shift: !!source.shiftKey, toggle: !!(source.ctrlKey || source.metaKey) };
 }
+
+/** react-native-web passes keyboard events to View; React Native's own types do not list the prop. */
+const gridKeys = { onKeyDown: onGridKeyDown } as object;
 
 export function LibraryTable({ title, fixedStatus }: LibraryTableProps) {
   const { libraryId, isLoading } = useActiveLibraryId();
@@ -286,7 +290,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         ) : null}
 
         <ScrollView horizontal testID="library-table-scroll" style={{ borderRadius: radius.md, borderWidth: 1, borderColor: colors.line }}>
-          <View role="grid" accessibilityLabel={`${title} table`} style={{ width: tableWidth, backgroundColor: colors.surface }}>
+          <View role="grid" accessibilityLabel={`${title} table`} {...gridKeys} style={{ width: tableWidth, backgroundColor: colors.surface }}>
             <View role="row" style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: colors.line }}>
               <View role="cell" style={{ width: CHECK_WIDTH, alignItems: 'center' }}>
                 <Checkbox
@@ -413,6 +417,14 @@ function Checkbox({
       accessibilityRole="checkbox"
       accessibilityLabel={label}
       aria-checked={mixed ? 'mixed' : checked}
+      // Space toggles a checkbox from the keyboard.
+      {...({
+        onKeyDown: (event: { key: string; preventDefault?: () => void }) => {
+          if (event.key !== ' ') return;
+          event.preventDefault?.();
+          onPress(event);
+        },
+      } as object)}
       onPress={(event) => {
         // Keep the click from also selecting the row underneath.
         (event as { stopPropagation?: () => void })?.stopPropagation?.();

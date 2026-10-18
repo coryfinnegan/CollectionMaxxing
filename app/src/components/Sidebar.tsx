@@ -38,6 +38,7 @@ export function Sidebar() {
           <Link key={item.label} href={item.href} asChild>
             <Pressable
               accessibilityRole="link"
+              {...(active ? { 'aria-current': 'page' as const } : {})}
               style={{
                 paddingVertical: spacing.sm,
                 paddingHorizontal: spacing.md,

@@ -40,7 +40,7 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
     </View>
   );
   return onPress ? (
-    <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} testID={testID}>
+    <Pressable accessibilityRole="button" accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title} onPress={onPress} testID={testID}>
       {body}
     </Pressable>
   ) : (

@@ -7,6 +7,8 @@ export const lightColors = {
   ink: '#1A1C22',
   muted: '#5E6472',
   line: '#DADDE3',
+  /** Edges of fields, buttons and chips: 3:1 against the page and cards (WCAG 1.4.11). `line` is for dividers only. */
+  control: '#767C8A',
   scan: '#2348D8',
   onScan: '#FFFFFF',
   sticker: '#F26B1D',
@@ -24,6 +26,7 @@ export const darkColors: Colors = {
   ink: '#F1F2F5',
   muted: '#A3A9B7',
   line: '#2E323D',
+  control: '#80879A',
   scan: '#7C97FF',
   onScan: '#0B1030',
   sticker: '#F26B1D',

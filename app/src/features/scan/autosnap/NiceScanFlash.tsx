@@ -1,6 +1,7 @@
 // The "Nice scan!" flash: a pill with a check that pops in. With Reduce Motion it just appears.
 import { useEffect, useState } from 'react';
 import { Animated, View } from 'react-native';
+import { announceForScreenReader } from '@/lib/a11y/announce';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
 
@@ -15,6 +16,11 @@ export function NiceScanFlash({ visible, reduceMotion }: { visible: boolean; red
     pop.setValue(0);
     Animated.timing(pop, { toValue: 1, duration: 120, useNativeDriver: true }).start();
   }, [visible, reduceMotion, pop]);
+
+  // VoiceOver ignores live regions, so the flash is spoken once each time it appears.
+  useEffect(() => {
+    if (visible) announceForScreenReader('Nice scan!');
+  }, [visible]);
 
   if (!visible) return null;
   return (

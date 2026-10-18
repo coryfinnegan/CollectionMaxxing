@@ -22,7 +22,7 @@ export function TextField({ label, error, style, ...rest }: TextFieldProps) {
             minHeight: 44,
             paddingHorizontal: spacing.md,
             borderWidth: 1,
-            borderColor: error ? colors.danger : colors.line,
+            borderColor: error ? colors.danger : colors.control,
             borderRadius: radius.md,
             backgroundColor: colors.surface,
             color: colors.ink,
