@@ -40,4 +40,7 @@ export const listSessions = async (): Promise<SessionDto[]> =>
 
 export const revokeSession = (id: string) => customFetch(`/api/v1/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
+/** Signs every browser of this person out, this one included. Paired phones keep their own sign-in. */
+export const revokeWebSessions = () => customFetch('/api/v1/me/web-sessions', { method: 'DELETE' });
+
 export const pairDevice = () => post<PairDeviceDto>('/api/v1/me/devices/pair');

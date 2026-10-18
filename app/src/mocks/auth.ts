@@ -96,6 +96,11 @@ export const handlers = [
 
   http.get('*/api/v1/me/sessions', () => HttpResponse.json({ items: mockAuth.sessions, nextCursor: null })),
 
+  http.delete('*/api/v1/me/web-sessions', () => {
+    mockAuth.sessions = mockAuth.sessions.filter((s) => s.kind !== 'web');
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.delete('*/api/v1/me/sessions/:id', ({ params }) => {
     const found = mockAuth.sessions.some((s) => s.id === params.id);
     if (!found) return problem(404, 'Not found');

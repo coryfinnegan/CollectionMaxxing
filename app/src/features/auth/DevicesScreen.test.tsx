@@ -63,6 +63,32 @@ describe('DevicesScreen', () => {
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
   });
 
+  it('signs out of every browser after asking, keeps the phones, and goes to the sign-in page', async () => {
+    await renderWithProviders(<DevicesScreen />);
+    await screen.findByText('Cory’s iPhone');
+
+    await fireEvent.press(screen.getByLabelText('Sign out of all browsers'));
+    expect(screen.getByText('Sign out of all browsers?')).toBeTruthy();
+    expect(mockAuth.sessions).toHaveLength(2); // nothing happens until confirmed
+
+    await fireEvent.press(screen.getByLabelText('Sign out all'));
+
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    expect(mockAuth.sessions.map((s) => s.kind)).toEqual(['device']);
+  });
+
+  it('cancelling "sign out of all browsers" changes nothing', async () => {
+    await renderWithProviders(<DevicesScreen />);
+    await screen.findByText('Cory’s iPhone');
+
+    await fireEvent.press(screen.getByLabelText('Sign out of all browsers'));
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+
+    expect(screen.queryByText('Sign out of all browsers?')).toBeNull();
+    expect(mockAuth.sessions).toHaveLength(2);
+    expect(mockRouter.replace).not.toHaveBeenCalled();
+  });
+
   it('adds a device: shows the QR, the code and a two-minute countdown', async () => {
     await renderWithProviders(<DevicesScreen />);
     await screen.findByText('Cory’s iPhone');

@@ -121,7 +121,7 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
             """);
 
         nullable.ShouldBe(["id:NO", "user_id:NO", "label:NO", "created_at:NO", "last_seen_at:NO", "revoked_at:YES"], ignoreOrder: true);
-        foreignKeys.ShouldBe(["users.id:CASCADE"]);
+        foreignKeys.ShouldBe(["users.user_id:CASCADE"]);
     }
 
     [Fact]

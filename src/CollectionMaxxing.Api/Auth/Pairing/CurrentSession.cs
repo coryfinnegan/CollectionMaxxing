@@ -9,11 +9,15 @@ namespace CollectionMaxxing.Api.Auth.Pairing;
 public static class CurrentSession
 {
     /// <summary>
-    /// The paired device the request came from: the id of the authorization its access token hangs from. Null for the cookie, which
-    /// has no server-side record of its own.
+    /// The session the request came from: the paired device (the id of the authorization its access token hangs from) or the signed-in
+    /// browser (the id of its <c>web_sessions</c> row). Null for neither.
     /// </summary>
     public static Guid? Id(ClaimsPrincipal user) =>
-        Guid.TryParse(user.GetAuthorizationId(), CultureInfo.InvariantCulture, out var id) ? id : null;
+        Guid.TryParse(user.GetAuthorizationId(), CultureInfo.InvariantCulture, out var id) ? id : WebSessionId(user);
+
+    /// <summary>The <c>web_sessions</c> row the session cookie names, or null (a bearer caller, or a cookie that names none).</summary>
+    public static Guid? WebSessionId(ClaimsPrincipal? user) =>
+        Guid.TryParse(user?.FindFirstValue(AuthCookie.SessionIdClaim), CultureInfo.InvariantCulture, out var id) ? id : null;
 
     /// <summary>
     /// The user id of a signed-in caller: the <c>NameIdentifier</c> of the cookie, or the <c>sub</c> of an access token (OpenIddict

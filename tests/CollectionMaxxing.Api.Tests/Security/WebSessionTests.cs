@@ -140,7 +140,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var (first, _) = await SetUpOwnerAsync();
         var second = await SecondBrowserOfAsync(first);
 
-        var seen = (await SessionsAsync(second)).Where(s => s.GetProperty("kind").GetString() == "web").ToList();
+        var seen = await WebSessionsAsync(second);
 
         seen.Count.ShouldBe(2);
         seen.Count(s => s.GetProperty("isCurrent").GetBoolean()).ShouldBe(1);
@@ -312,7 +312,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
     }
 
     private static async Task<List<JsonElement>> WebSessionsAsync(WebClient browser) =>
-        [.. (await SessionsAsync(browser)).Where(s => s.GetProperty("kind").GetString() == "web")];
+        [.. (await AllSessionsAsync(browser)).Where(s => s.GetProperty("kind").GetString() == "web")];
 
     private static void Replace(ClaimsIdentity identity, string type, string value)
     {

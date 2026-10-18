@@ -214,6 +214,29 @@
         }
       }
     },
+    "/api/v1/me/web-sessions": {
+      "delete": {
+        "tags": [
+          "Account"
+        ],
+        "operationId": "RevokeWebSessions",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/devices/pair": {
       "post": {
         "tags": [

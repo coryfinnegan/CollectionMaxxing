@@ -70,6 +70,7 @@ public class DeleteRetryTests(ApiFixture api) : DeletionTest(api)
             services.GetRequiredService<IAppDbContext>(),
             services.GetRequiredService<IAccountDeactivation>(),
             devices,
+            services.GetRequiredService<CollectionMaxxing.Application.Accounts.Devices.IWebSessions>(),
             services.GetRequiredService<IJobQueue>(),
             services.GetRequiredService<IAuditLog>(),
             services.GetRequiredService<TimeProvider>());
