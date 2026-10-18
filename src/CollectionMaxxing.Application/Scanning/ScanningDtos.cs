@@ -32,7 +32,7 @@ public sealed record CandidateDto(
     bool NeedsArt,
     ReleaseDto? Release,
     JsonElement? Inferred,
-    JsonElement? Alternatives,
+    IReadOnlyList<CandidateAlternativeDto>? Alternatives,
     CandidateDecision Decision,
     int Copies,
     int AlreadyOwnedCount,
@@ -53,6 +53,22 @@ public enum PendingReason
 
 /// <summary>What the person corrected on a candidate; a field is null when they left it alone.</summary>
 public sealed record CandidateEditsDto(ReleaseFormat? Format, string? Platform, string? Edition);
+
+/// <summary>
+/// One release a candidate could be instead (its <c>alternatives</c>, best first): what the person sees when picking, with their own ownership.
+/// <c>ArtworkUrl</c> is set only on a close call, for the phone's artwork comparison. The fields are exactly those that were always sent.
+/// </summary>
+public sealed record CandidateAlternativeDto(
+    Guid ReleaseId,
+    string Title,
+    string Format,
+    string? Platform,
+    int? Year,
+    double Score,
+    IReadOnlyList<string> Creators,
+    string? CoverUrl,
+    int AlreadyOwnedCount,
+    string? ArtworkUrl);
 
 /// <summary>A scan session with all its candidates (or those after <c>?since=seq</c>).</summary>
 public sealed record ScanSessionDto(

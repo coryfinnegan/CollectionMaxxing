@@ -104,7 +104,8 @@ public abstract class ScanTest(ApiFixture api) : ApiTest(api)
 
     internal FakeProvider Books { get; } = new("openlibrary");
 
-    protected ScanningOptions Options { get; } = new() { ResolveBudget = TimeSpan.FromSeconds(3) };
+    // A budget that can't expire however busy the PC is (a slow lookup would otherwise leave a code pending). Tests about the budget expiring set a short one themselves.
+    protected ScanningOptions Options { get; } = new() { ResolveBudget = TimeSpan.FromMinutes(2) };
 
     /// <summary>Extra configuration for the app; set before the first client is made.</summary>
     protected Dictionary<string, string?> Settings { get; } = [];

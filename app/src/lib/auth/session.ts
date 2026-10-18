@@ -27,6 +27,8 @@ let accessToken: string | null = null;
 let serverUrl: string | null = null;
 let refreshing: Promise<boolean> | null = null;
 let reauthing: Promise<void> | null = null;
+/** After a 429 on refresh: no new attempt before this time (ms since the epoch). Never cleared by a failure, only by waiting or a reset. */
+let refreshNotBefore = 0;
 
 export function configureAuth(partial: Partial<AuthConfig>) {
   config = { ...config, ...partial };
@@ -39,13 +41,20 @@ export function resetAuth() {
   serverUrl = null;
   refreshing = null;
   reauthing = null;
+  refreshNotBefore = 0;
 }
 
 export const isWeb = () => config.platform === 'web';
 export const getTokenStore = () => config.tokenStore;
 export const getAccessToken = () => accessToken;
 
-export const baseUrl = (): string => serverUrl ?? process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:5480';
+/** The web app is normally served by the API itself, so with no address configured it talks to the origin it came from (which `connect-src 'self'` allows). */
+const pageOrigin = (): string | undefined => {
+  const origin = isWeb() ? (globalThis as { location?: { origin?: string } }).location?.origin : undefined;
+  return origin && origin !== 'null' ? origin : undefined;
+};
+
+export const baseUrl = (): string => serverUrl ?? process.env.EXPO_PUBLIC_API_URL ?? pageOrigin() ?? 'http://localhost:5480';
 
 /** After pairing: remember the server, keep the access token in memory and the refresh token in the store. */
 export async function startSession(tokens: { accessToken: string; refreshToken: string; serverUrl: string }) {
@@ -70,6 +79,8 @@ export async function endSession() {
 
 /** Exchanges the refresh token for new tokens. Concurrent callers share one request. */
 export function refreshAccessToken(): Promise<boolean> {
+  // The server asked us to slow down: keep the credentials and try again once it said it is fine.
+  if (!refreshing && Date.now() < refreshNotBefore) return Promise.resolve(false);
   refreshing ??= doRefresh().finally(() => {
     refreshing = null;
   });
@@ -96,8 +107,13 @@ async function doRefresh(): Promise<boolean> {
       await config.tokenStore.save({ refreshToken: body.refresh_token, serverUrl: stored.serverUrl });
       return true;
     }
-    // A 5xx is the server having a bad moment, not a revoked device: keep the credentials and let the caller fail.
-    if (response.status >= 500) return false;
+    // Only a refused token means this device was revoked: 400 invalid_grant or 401. Anything else (a 5xx, a 429, another 4xx we don't
+    // know) is the server or the network having a bad moment: keep the credentials and let the caller fail; a later call tries again.
+    if (response.status === 429) {
+      refreshNotBefore = Date.now() + retryAfterMs(response.headers.get('Retry-After'));
+      return false;
+    }
+    if (!(await isRevoked(response))) return false;
   } catch {
     logger.warn('Could not reach the server to refresh the session.');
     return false;
@@ -105,6 +121,31 @@ async function doRefresh(): Promise<boolean> {
   await endSession();
   config.onAuthLost('pair');
   return false;
+}
+
+const DEFAULT_BACKOFF_MS = 60_000;
+const MAX_BACKOFF_MS = 10 * 60_000;
+
+/** `Retry-After` is a number of seconds or a date; absent or unreadable means a minute. Never longer than ten minutes. */
+function retryAfterMs(header: string | null): number {
+  let ms = DEFAULT_BACKOFF_MS;
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds)) ms = seconds * 1000;
+    else if (!Number.isNaN(Date.parse(header))) ms = Date.parse(header) - Date.now();
+  }
+  return Math.min(Math.max(ms, 1000), MAX_BACKOFF_MS);
+}
+
+/** A 401, or a 400 whose OAuth error is `invalid_grant` (the refresh token is spent, expired or revoked). */
+async function isRevoked(response: Response): Promise<boolean> {
+  if (response.status === 401) return true;
+  if (response.status !== 400) return false;
+  try {
+    return ((await response.json()) as { error?: string }).error === 'invalid_grant';
+  } catch {
+    return false;
+  }
 }
 
 /** Web: ask for a fresh passkey assertion. Concurrent callers share one prompt. */

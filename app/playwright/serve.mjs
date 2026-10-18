@@ -12,11 +12,11 @@ const port = Number(process.argv[2]);
 if (!port || [8080, 8409, 32400, 8096, 5480].includes(port)) throw new Error(`Refusing port ${port}`);
 
 if (process.env.E2E_SKIP_BUILD !== '1' || !existsSync(join(dist, 'index.html'))) {
-  const build = spawnSync('npx expo export --platform web', {
+  const build = spawnSync('npx expo export --platform web --clear', {
     cwd: root,
     shell: true,
     stdio: ['ignore', 'ignore', 'inherit'],
-    env: { ...process.env, EXPO_PUBLIC_API_MOCK: '1', EXPO_PUBLIC_E2E: '1', CI: '1' },
+    env: { ...process.env, EXPO_PUBLIC_API_URL: `http://127.0.0.1:${port}`, EXPO_PUBLIC_API_MOCK: '1', EXPO_PUBLIC_E2E: '1', CI: '1' },
   });
   if (build.status !== 0) throw new Error('expo export failed');
 }
@@ -31,6 +31,16 @@ const types = {
   '.ttf': 'font/ttf',
   '.svg': 'image/svg+xml',
   '.map': 'application/json',
+};
+
+// The headers the real server sends with the web app (src/CollectionMaxxing.Api/Security/SecurityHeaders.cs, kept equal by a test), so the specs
+// run under the enforced Content-Security-Policy: a blocked script, style, font or image fails them.
+const securityHeaders = {
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; img-src 'self' blob: data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(self), geolocation=()',
+  'Cross-Origin-Opener-Policy': 'same-origin',
 };
 
 const isFile = (p) => existsSync(p) && statSync(p).isFile();
@@ -76,6 +86,6 @@ function existsSyncDynamic(dir, last) {
 createServer((req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost');
   const file = resolveFile(pathname) ?? join(dist, '+not-found.html');
-  res.writeHead(file.endsWith('+not-found.html') ? 404 : 200, { 'Content-Type': types[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
+  res.writeHead(file.endsWith('+not-found.html') ? 404 : 200, { 'Content-Type': types[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store', ...securityHeaders });
   res.end(readFileSync(file));
 }).listen(port, '127.0.0.1');

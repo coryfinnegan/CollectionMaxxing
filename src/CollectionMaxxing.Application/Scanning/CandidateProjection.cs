@@ -115,21 +115,27 @@ internal static class CandidateProjection
         var edits = c.EditedFormat is null && c.EditedPlatform is null && c.EditedEdition is null
             ? null
             : new CandidateEditsDto(c.EditedFormat, c.EditedPlatform, c.EditedEdition);
-        var alternatives = needsArt && artwork is not null ? WithArtworkUrls(c.AlternativesJson, artwork) : CandidateJson.ReadElement(c.AlternativesJson);
+        var alternatives = AlternativesOf(c.AlternativesJson, needsArt ? artwork : null);
         return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives);
     }
 
-    private static JsonElement? WithArtworkUrls(string? alternativesJson, IReadOnlyDictionary<Guid, string> artwork)
+    /// <summary>The stored alternatives as the response lists them; null when the candidate has none stored. A close call gets the artwork link of each.</summary>
+    private static List<CandidateAlternativeDto>? AlternativesOf(string? alternativesJson, IReadOnlyDictionary<Guid, string>? artwork)
     {
-        var alternatives = CandidateJson.ReadAlternatives(alternativesJson);
-        return alternatives.Count == 0
-            ? CandidateJson.ReadElement(alternativesJson)
-            : CandidateJson.ReadElement(CandidateJson.Serialize(
-                alternatives.Select(a => a with { ArtworkUrl = artwork.GetValueOrDefault(a.ReleaseId) }).ToList()));
+        if (string.IsNullOrWhiteSpace(alternativesJson))
+        {
+            return null;
+        }
+
+        return CandidateJson.ReadAlternatives(alternativesJson)
+            .Select(a => new CandidateAlternativeDto(
+                a.ReleaseId, a.Title, a.Format, a.Platform, a.Year, a.Score, a.Creators, a.CoverUrl, a.AlreadyOwnedCount,
+                artwork is null ? a.ArtworkUrl : artwork.GetValueOrDefault(a.ReleaseId)))
+            .ToList();
     }
 
     private static CandidateDto ToDto(
-        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, JsonElement? alternatives) => new(
+        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, IReadOnlyList<CandidateAlternativeDto>? alternatives) => new(
         c.Id,
         c.Seq,
         c.Source,

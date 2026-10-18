@@ -60,6 +60,12 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
             }
 
             using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.EnumerateObject().Any(p => string.Equals(p.Name, "partial", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.True))
+            {
+                return null; // the summary of a cancelled run is not a baseline
+            }
+
             if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("metrics", out var metrics) || metrics.ValueKind != JsonValueKind.Object)
             {
                 return null;

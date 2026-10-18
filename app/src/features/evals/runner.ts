@@ -1,12 +1,12 @@
 // The on-phone eval runner (EVAL-1b). It downloads the golden photos one at a time, reads each through the Apple model (the scanner's own
 // selector) and through the Vision text engine, and uploads the readings. It does no scoring and no grounding: the PC does. It never touches
 // the library: the only requests are the eval routes and the config fetch, and a photo file is deleted the moment it has been read.
-import type { EvalPhotoResult, EvalReadItem, EvalRunResult, GoldenPhotoDto } from '@/api/generated/models';
+import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, GoldenPhotoDto } from '@/api/generated/models';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
 import type { ReadItem, RecognitionEngine, SnapReading, Still } from '@/features/scan/recognition/types';
 import type { ThermalState } from '@/native/cm-vision';
-import type { EvalApi, EvalRunBody } from './api';
+import type { EvalApi } from './api';
 
 /** A run body stays well under the server's 2 MB limit; a bigger run goes up in several. */
 export const MAX_BODY_CHARS = 1_500_000;
@@ -308,7 +308,7 @@ export class EvalRunner {
     try {
       let last: EvalRunResult | undefined;
       for (let i = this.uploadedChunks; i < chunks.length; i += 1) {
-        const body: EvalRunBody = {
+        const body: EvalRunRequest = {
           device: { model: this.deps.device.model, osVersion: this.osVersion, appVersion: this.deps.device.appVersion },
           configVersion: this.configVersion,
           results: chunks[i],

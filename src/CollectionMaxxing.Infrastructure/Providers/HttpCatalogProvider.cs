@@ -126,7 +126,20 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
                     return FetchResult.Failed;
                 }
 
-                var body = await response.Content.ReadAsStringAsync(ct);
+                // A provider is untrusted: an answer bigger than any real one is dropped, not read into memory or kept.
+                if (response.Content.Headers.ContentLength > MaxBodyBytes)
+                {
+                    _logger.LogWarning("{Provider} sent an answer over the size limit", Name);
+                    return FetchResult.Failed;
+                }
+
+                var body = await ReadCappedAsync(response.Content, ct);
+                if (body is null)
+                {
+                    _logger.LogWarning("{Provider} sent an answer over the size limit", Name);
+                    return FetchResult.Failed;
+                }
+
                 var json = JsonDocument.Parse(body); // a malformed body throws JsonException, handled below
                 await Runtime.Cache.SetAsync(Name, cacheKey, body, ct);
                 return new FetchResult(FetchStatus.Found, json);
@@ -144,6 +157,30 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
             _logger.LogWarning("{Provider} did not answer: {Reason}", Name, ex.GetType().Name);
             return FetchResult.Failed;
         }
+    }
+
+    /// <summary>The largest provider answer read (real answers are a few KB to a few hundred KB).</summary>
+    public const int MaxBodyBytes = 2 * 1024 * 1024;
+
+    private static async Task<string?> ReadCappedAsync(HttpContent content, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[16 * 1024];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > MaxBodyBytes)
+            {
+                return null;
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        // A UTF-8 byte order mark is not part of the JSON text (Encoding.GetString would keep it as U+FEFF, which the parser rejects).
+        var bytes = buffer.GetBuffer().AsSpan(0, (int)buffer.Length);
+        return Encoding.UTF8.GetString(bytes.StartsWith(Encoding.UTF8.Preamble) ? bytes[Encoding.UTF8.Preamble.Length..] : bytes);
     }
 
     /// <summary>A short, fixed-length cache key for a search, so long titles never overflow the 500-character column.</summary>
