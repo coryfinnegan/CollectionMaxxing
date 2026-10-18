@@ -1,0 +1,3 @@
+# ZAP rules for the local and nightly scans (scripts/security/Run-ZapBaseline.ps1 and Run-ZapApi.ps1).
+# Format: <alert id><TAB><IGNORE|INFO|WARN|FAIL|OUTOFSCOPE><TAB><name>
+# An ignored alert needs a "# Reason: ..." comment on the line right above it (scripts/security/Run-Tests.ps1 checks this).
