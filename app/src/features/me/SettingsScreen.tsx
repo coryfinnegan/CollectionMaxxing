@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { logout } from '@/features/auth/api';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
-import { Button, Card, Screen, Text } from '@/ui';
+import { Button, Card, ListRow, Screen, Text } from '@/ui';
 import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { EvalsRow } from '@/features/evals/EvalsRow';
 import { useLockSetting } from './appLock';
@@ -129,10 +129,12 @@ export function SecuritySection() {
 }
 
 export function SettingsScreen() {
+  const router = useRouter();
   return (
     <Screen title="Settings" subtitle={isWeb() ? 'Preferences for this browser.' : 'Recognition and security on this iPhone.'}>
       {isWeb() ? null : <RecognitionSection />}
       <SecuritySection />
+      <Card><ListRow title="About and privacy" onPress={() => router.push('/about')} trailing={<Text tone="muted">›</Text>} /></Card>
     </Screen>
   );
 }

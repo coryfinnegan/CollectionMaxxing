@@ -8,7 +8,7 @@ import { SnapStoreBridge } from '@/features/scan/pipeline/SnapStoreBridge';
 import { WIDE_BREAKPOINT, useColors } from '@/theme/tokens';
 
 // Pages that only appear in the web sidebar, never in the phone tab bar.
-const sidebarOnly = ['wishlist', 'lent-out', 'members', 'settings', 'me/locations', 'me/export', 'me/devices', 'me/deleted', 'me/delete'];
+const sidebarOnly = ['wishlist', 'lent-out', 'members', 'settings', 'about', 'me/locations', 'me/export', 'me/devices', 'me/deleted', 'me/delete'];
 
 export default function TabsLayout() {
   const colors = useColors();
@@ -59,6 +59,7 @@ function titleFor(name: string): string {
     'lent-out': 'Lent out',
     members: 'Members',
     settings: 'Settings',
+    about: 'About',
     'me/locations': 'Locations',
     'me/export': 'Import and export',
     'me/devices': 'Devices and browsers',
