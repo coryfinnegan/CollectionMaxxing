@@ -38,11 +38,25 @@ export const logout = () => customFetch('/account/logout', { method: 'POST' });
 const listFrom = async (url: string): Promise<SessionDto[]> =>
   (await customFetch<{ data: { items: SessionDto[] } }>(url)).data.items;
 
-/** Where you are signed in: paired phones (`kind: 'device'`) and browsers (`kind: 'web'`), most recently seen first. */
-export const listSessions = async (): Promise<SessionDto[]> => {
-  const [devices, browsers] = await Promise.all([listFrom('/api/v1/me/sessions'), listFrom('/api/v1/me/web-sessions')]);
+export type SessionList = {
+  sessions: SessionDto[];
+  /** Which half of the list could not be loaded, when the other half did. */
+  failed: ('phones' | 'browsers')[];
+};
+
+/**
+ * Where you are signed in: paired phones (`kind: 'device'`) and browsers (`kind: 'web'`), most recently seen first. If one of the
+ * two lists fails, the other is still returned and `failed` names the missing half; if both fail, this throws.
+ */
+export const listSessions = async (): Promise<SessionList> => {
+  const [devices, browsers] = await Promise.allSettled([listFrom('/api/v1/me/sessions'), listFrom('/api/v1/me/web-sessions')]);
+  if (devices.status === 'rejected' && browsers.status === 'rejected') throw devices.reason;
+  const failed: SessionList['failed'] = [];
+  if (devices.status === 'rejected') failed.push('phones');
+  if (browsers.status === 'rejected') failed.push('browsers');
   const seen = (s: SessionDto) => new Date(s.lastSeenAt ?? s.createdAt).getTime();
-  return [...devices, ...browsers].sort((a, b) => seen(b) - seen(a));
+  const sessions = [...(devices.status === 'fulfilled' ? devices.value : []), ...(browsers.status === 'fulfilled' ? browsers.value : [])];
+  return { sessions: sessions.sort((a, b) => seen(b) - seen(a)), failed };
 };
 
 /** Signs one phone or browser out. */

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
+import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { type PairDeviceDto, type SessionDto, listSessions, pairDevice, revokeSession, revokeWebSessions } from './api';
 import { getQrRenderer } from './services';
@@ -82,7 +83,9 @@ export function DevicesScreen() {
     mutationFn: revokeWebSessions,
     onSuccess: () => {
       setConfirmingAll(false);
-      router.replace('/login');
+      // On the web this browser's own session just ended. On the phone only browsers were signed out: stay and refresh.
+      if (isWeb()) router.replace('/login');
+      else queryClient.invalidateQueries({ queryKey: sessionsKey });
     },
     onError: (e) => setMessage(friendlyError(e)),
   });
@@ -135,7 +138,12 @@ export function DevicesScreen() {
       <Card>
         {sessions.isLoading ? <Text tone="muted">Loading...</Text> : null}
         {sessions.isError ? <Text tone="danger">{friendlyError(sessions.error)}</Text> : null}
-        {(sessions.data ?? []).map((s) => (
+        {sessions.data?.failed.map((half) => (
+          <Text key={half} tone="muted" accessibilityRole="alert">
+            {`Couldn't load your ${half}. Try again in a moment.`}
+          </Text>
+        ))}
+        {(sessions.data?.sessions ?? []).map((s) => (
           <ListRow
             key={s.id}
             title={s.isCurrent ? `${s.deviceName} (this device)` : s.deviceName}
