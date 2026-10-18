@@ -37,13 +37,14 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         public Host(ApiFixture api, Action<ExportSettings>? tune = null)
         {
             Folder = Path.Combine(Path.GetTempPath(), "cm-export-tests", Guid.NewGuid().ToString("N"));
+            PhotosFolder = Folder + "-photos";
             Time = new FakeTimeProvider(Start);
             Settings = new ExportSettings();
             tune?.Invoke(Settings);
             _factory = api.Factory.WithWebHostBuilder(builder =>
             {
                 builder.ConfigureAppConfiguration((_, configuration) =>
-                    configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Exports:Path"] = Folder }));
+                    configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Exports:Path"] = Folder, ["Catalog:CoversRoot"] = PhotosFolder }));
                 builder.ConfigureTestServices(services =>
                 {
                     services.RemoveAll<TimeProvider>();
@@ -62,6 +63,9 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         public ApiFixture Api { get; }
 
         public string Folder { get; }
+
+        /// <summary>Where the stored photo files are (the covers folder the app reads photos from).</summary>
+        public string PhotosFolder { get; }
 
         public FakeTimeProvider Time { get; }
 
@@ -94,6 +98,11 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
             if (Directory.Exists(Folder))
             {
                 Directory.Delete(Folder, recursive: true);
+            }
+
+            if (Directory.Exists(PhotosFolder))
+            {
+                Directory.Delete(PhotosFolder, recursive: true);
             }
         }
     }
@@ -134,6 +143,129 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
             using var reader = new StreamReader(e.Open(), Encoding.UTF8);
             return reader.ReadToEnd();
         });
+    }
+
+    private static Dictionary<string, byte[]> UnzipBytes(byte[] bytes)
+    {
+        using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+        return zip.Entries.ToDictionary(e => e.FullName, e =>
+        {
+            using var stream = e.Open();
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            return copy.ToArray();
+        });
+    }
+
+    private static async Task<Dictionary<string, byte[]>> ExportBytesAsync(Host host, Guid userId)
+    {
+        var client = host.ClientFor(userId);
+        var started = await StartAsync(client);
+        await host.RunJobsAsync();
+        var (_, body) = await PollAsync(client, started.GetProperty("jobId").GetGuid());
+        body.GetProperty("status").GetString().ShouldBe("ready");
+        return UnzipBytes(await (await client.GetAsync(body.GetProperty("downloadUrl").GetString())).Content.ReadAsByteArrayAsync());
+    }
+
+    /// <summary>Stores a photo file in the host's photo folder and the asset row that points at it. <paramref name="bytes"/> null leaves the file out.</summary>
+    private async Task<Guid> AddPhotoAsync(Host host, Guid libraryId, byte[]? bytes, Guid? itemId = null)
+    {
+        var id = Guid.CreateVersion7();
+        var blobPath = $"photos/{id:N}.jpg";
+        if (bytes is not null)
+        {
+            var file = Path.Combine(host.PhotosFolder, "photos", $"{id:N}.jpg");
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            await File.WriteAllBytesAsync(file, bytes);
+        }
+
+        await using var context = Db.CreateContext();
+        context.Assets.Add(new Asset
+        {
+            Id = id,
+            Kind = AssetKind.UserPhoto,
+            BlobPath = blobPath,
+            ContentType = "image/jpeg",
+            Width = 4,
+            Height = 3,
+            Sha256 = new string('a', 64),
+            OwnerLibraryId = libraryId,
+            CreatedAt = Start,
+        });
+        await context.SaveChangesAsync();
+        if (itemId is { } item)
+        {
+            await context.Items.IgnoreQueryFilters().Where(i => i.Id == item).ExecuteUpdateAsync(set => set.SetProperty(i => i.CustomCoverAssetId, id));
+        }
+
+        return id;
+    }
+
+    [Fact]
+    public async Task The_zip_holds_the_photo_files_of_my_libraries_and_the_manifest_points_at_them()
+    {
+        var seeded = await SeedAsync();
+        await using var host = new Host(Api);
+        byte[] picture = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 5, 0xFF, 0xD9];
+        var photo = await AddPhotoAsync(host, seeded.Library.Id, picture, seeded.Kept);
+
+        var files = await ExportBytesAsync(host, seeded.Library.OwnerId);
+
+        files[$"photos/{photo}.jpg"].ShouldBe(picture);
+        var manifest = JsonDocument.Parse(files["photos.json"]).RootElement.EnumerateArray().ShouldHaveSingleItem();
+        manifest.GetProperty("assetId").GetGuid().ShouldBe(photo);
+        manifest.GetProperty("file").GetString().ShouldBe($"photos/{photo}.jpg");
+        manifest.GetProperty("itemIds").EnumerateArray().Select(e => e.GetGuid()).ShouldBe([seeded.Kept]);
+    }
+
+    [Fact]
+    public async Task Another_persons_photo_files_never_reach_my_zip()
+    {
+        var mine = await SeedAsync();
+        var other = await CreateLibraryAsync();
+        await using var host = new Host(Api);
+        var mineId = await AddPhotoAsync(host, mine.Library.Id, [1, 2, 3]);
+        var theirs = await AddPhotoAsync(host, other.Id, [9, 9, 9]);
+
+        var files = await ExportBytesAsync(host, mine.Library.OwnerId);
+
+        files.Keys.Where(k => k.StartsWith("photos/", StringComparison.Ordinal)).ShouldBe([$"photos/{mineId}.jpg"]);
+        Encoding.UTF8.GetString(files["photos.json"]).ShouldNotContain(theirs.ToString());
+    }
+
+    [Fact]
+    public async Task A_photo_whose_file_is_gone_is_listed_without_a_file_and_the_export_still_finishes()
+    {
+        var seeded = await SeedAsync();
+        await using var host = new Host(Api);
+        var lost = await AddPhotoAsync(host, seeded.Library.Id, bytes: null);
+        var kept = await AddPhotoAsync(host, seeded.Library.Id, [7, 7]);
+
+        var files = await ExportBytesAsync(host, seeded.Library.OwnerId);
+
+        files.Keys.Where(k => k.StartsWith("photos/", StringComparison.Ordinal)).ShouldBe([$"photos/{kept}.jpg"]);
+        var manifest = JsonDocument.Parse(files["photos.json"]).RootElement.EnumerateArray()
+            .ToDictionary(e => e.GetProperty("assetId").GetGuid(), e => e.GetProperty("file"));
+        manifest[lost].ValueKind.ShouldBe(JsonValueKind.Null);
+        manifest[kept].GetString().ShouldBe($"photos/{kept}.jpg");
+    }
+
+    [Fact]
+    public async Task The_photo_files_leave_with_the_zip_when_the_export_expires()
+    {
+        var seeded = await SeedAsync();
+        await using var host = new Host(Api);
+        await AddPhotoAsync(host, seeded.Library.Id, [1, 2, 3]);
+        var client = host.ClientFor(seeded.Library.OwnerId);
+        var id = (await StartAsync(client)).GetProperty("jobId").GetGuid();
+        await host.RunJobsAsync();
+        Directory.GetFiles(host.Folder, "*.zip").Length.ShouldBe(1);
+
+        host.Time.Advance(host.Settings.Retention + TimeSpan.FromHours(1));
+        await host.RunCleanupAsync();
+
+        Directory.EnumerateFiles(host.Folder, "*", SearchOption.AllDirectories).ShouldBeEmpty();
+        (await PollAsync(client, id)).Status.ShouldBe(HttpStatusCode.NotFound);
     }
 
     /// <summary>A small RFC 4180 reader, so the tests check the CSV the way a spreadsheet would read it.</summary>

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Evals;
@@ -71,11 +72,12 @@ public static class EvalsEndpoints
         return TypedResults.Stream(result.Value.Content, result.Value.ContentType);
     }
 
-    /// <summary>The app's JSON options, except that an engine is read only by its API name (no numbers, no C# member names).</summary>
+    /// <summary>The app's JSON options, except that an engine is read only by its API name (no numbers, no C# member names) and an undeclared member is refused.</summary>
     private static JsonSerializerOptions StrictOptions(JsonSerializerOptions app)
     {
         var strict = new JsonSerializerOptions(app);
         strict.Converters.Insert(0, new StrictScanEngineConverter());
+        strict.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow; // a member the run does not declare is refused, not dropped
         return strict;
     }
 
@@ -158,7 +160,8 @@ public static class EvalsEndpoints
                     r.UnreadableCount,
                     r.LatencyMs,
                     r.FirstItemMs,
-                    r.ThermalState)).ToList());
+                    r.ThermalState)).ToList(),
+            parsed.Partial == true);
 
         var result = await handler.HandleAsync(input, cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();

@@ -57,7 +57,8 @@ public sealed record EvalPhotoInput(
     long? FirstItemMs,
     ThermalState? Thermal);
 
-public sealed record EvalRunInput(EvalDeviceInput? Device, string? ConfigVersion, IReadOnlyList<EvalPhotoInput>? Results);
+/// <param name="Partial">The phone cancelled the run part way. It is kept and shown, but never counts as a pass or a baseline.</param>
+public sealed record EvalRunInput(EvalDeviceInput? Device, string? ConfigVersion, IReadOnlyList<EvalPhotoInput>? Results, bool Partial = false);
 
 // ---- What the server keeps of a run, after grounding ----------------------------------------------------------------------
 
@@ -97,7 +98,8 @@ public sealed record GroundedRun(
     DateTimeOffset At,
     EvalDevice Device,
     string ConfigVersion,
-    IReadOnlyList<GroundedPhoto> Photos);
+    IReadOnlyList<GroundedPhoto> Photos,
+    bool Partial = false);
 
 public static class ResolvedByText
 {
