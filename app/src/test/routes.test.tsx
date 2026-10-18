@@ -14,6 +14,7 @@ const routes: [url: string, expected: string][] = [
   ['/lent-out', 'Lent out'],
   ['/members', 'Members'],
   ['/settings', 'Settings'],
+  ['/about', 'About'],
   ['/item/42', 'Item'],
   ['/item/42/edit', 'Edit item'],
   ['/scanner', 'Scanner'],
