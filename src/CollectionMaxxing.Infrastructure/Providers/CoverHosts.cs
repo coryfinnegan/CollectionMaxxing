@@ -15,6 +15,9 @@ public static class CoverHosts
         "images.igdb.com",
     ];
 
+    /// <summary>True when <paramref name="host"/> is one of the cover hosts.</summary>
+    public static bool IsAllowedHost(string host) => Allowed.Contains(host, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The URL as an https address on an allow-listed host, or null.</summary>
     public static string? Allow(string? url)
     {
