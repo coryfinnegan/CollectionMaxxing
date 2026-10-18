@@ -131,6 +131,22 @@ public class MutationSurvivorTests
     }
 
     [Fact]
+    public void A_release_with_no_format_is_neither_a_match_nor_a_mismatch_on_format()
+    {
+        var read = new ReadItem { Title = "Alpha", Format = ReleaseFormat.Dvd };
+
+        var result = MatchScorer.Evaluate(read, [Release("Alpha")], Cover);
+
+        result.Ranked[0].Score.ShouldBeInRange(0.88, 0.90);
+    }
+
+    [Fact]
+    public void Titles_that_differ_only_in_an_annual_year_still_score_as_similar_but_not_equal()
+    {
+        TitleNormalizer.Similarity("Madden NFL 2005", "Madden NFL 2004").ShouldBeInRange(0.5, 0.9);
+    }
+
+    [Fact]
     public void A_year_cap_of_zero_is_a_valid_threshold()
     {
         Should.NotThrow(() => new ScoringThresholds { PlatformMismatchCap = 0, TitleYearMismatchCap = 0 }.Validate());

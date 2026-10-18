@@ -14,6 +14,13 @@ public class TagNameTests
     }
 
     [Fact]
+    public void A_name_of_exactly_the_maximum_length_is_accepted_and_one_more_is_not()
+    {
+        Tag.ValidateName(new string('a', Tag.MaxNameLength)).IsSuccess.ShouldBeTrue();
+        Tag.ValidateName(new string('a', Tag.MaxNameLength + 1)).Error!.Code.ShouldBe("tag.name_too_long");
+    }
+
+    [Fact]
     public void A_plain_name_is_trimmed_and_accepted()
     {
         var result = Tag.ValidateName("  signed  ");

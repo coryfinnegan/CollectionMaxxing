@@ -16,6 +16,15 @@ public class MutationSurvivorIdentifierTests
         trimmed!.Value.ShouldBe("9780306406157");
     }
 
+    [Theory]
+    [InlineData("0123456X")]
+    [InlineData("0123456789")]
+    [InlineData("012345")]
+    public void A_text_that_is_not_8_digits_is_not_a_UPC_E(string text)
+    {
+        Gtin.TryParseUpcE(text, out _).ShouldBeFalse();
+    }
+
     [Fact]
     public void A_12_digit_text_with_a_valid_check_digit_is_not_an_ISBN_13()
     {
