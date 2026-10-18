@@ -265,7 +265,8 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
         await host.RunCleanupAsync();
 
         Directory.EnumerateFiles(host.Folder, "*", SearchOption.AllDirectories).ShouldBeEmpty();
-        (await PollAsync(client, id)).Status.ShouldBe(HttpStatusCode.NotFound);    }
+        (await PollAsync(client, id)).Status.ShouldBe(HttpStatusCode.NotFound);
+    }
 
     /// <summary>A small RFC 4180 reader, so the tests check the CSV the way a spreadsheet would read it.</summary>
     private static List<Dictionary<string, string>> ParseCsv(string text)
