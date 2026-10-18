@@ -1,8 +1,9 @@
 // The status bar ("17 items · 2 processing", Review) and the receipt behind it: one line per code, swipe to
 // remove, +1 for a second copy, QUEUED while offline. Capitals are allowed here: it is the receipt's own voice.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Image, PanResponder, Pressable, ScrollView, View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
+import { announceForScreenReader } from '@/lib/a11y/announce';
 import { summaryLine } from '../cards/copy';
 import { spacing, useColors } from '@/theme/tokens';
 import { Button, Text } from '@/ui';
@@ -181,6 +182,15 @@ export function ReceiptBar({
 }) {
   const colors = useColors();
   const [open, setOpen] = useState(false);
+  // VoiceOver ignores live regions: say "Queued" when a scan lands in the receipt with no connection to send it.
+  const queued = online
+    ? 0
+    : lines.filter((l) => lineStatus(l, false) === 'queued').length + pictureLines.filter((l) => l.status === 'queued').length;
+  const spokenQueued = useRef(0);
+  useEffect(() => {
+    if (queued > spokenQueued.current) announceForScreenReader(`Queued. ${queued} ${queued === 1 ? 'item' : 'items'} waiting for your server.`);
+    spokenQueued.current = queued;
+  }, [queued]);
   return (
     <View style={{ backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.line }}>
       {open ? (

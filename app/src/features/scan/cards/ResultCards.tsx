@@ -1,8 +1,9 @@
 // The horizontal strip of result cards, newest first. A new card slides in unless Reduce Motion is on.
 import { FlashList } from '@shopify/flash-list';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable, View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
+import { announceForScreenReader } from '@/lib/a11y/announce';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Cover, Text } from '@/ui';
 import { useOwnedLookup } from '@/features/offline/hooks';
@@ -73,6 +74,18 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
   useEffect(() => {
     Animated.timing(slide, { toValue: 1, duration: slideDuration(reduceMotion), useNativeDriver: true }).start();
   }, [slide, reduceMotion]);
+
+  // VoiceOver ignores live regions: say a card when it arrives, and say it again when its answer settles.
+  const lastSpoken = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    announceForScreenReader(`New result: ${copy.title}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per card
+  }, []);
+  useEffect(() => {
+    const now = copy.kind === 'pending' ? 'pending' : [copy.title, copy.status].filter(Boolean).join('. ');
+    if (lastSpoken.current !== undefined && lastSpoken.current !== now && now !== 'pending') announceForScreenReader(now);
+    lastSpoken.current = now;
+  }, [copy.kind, copy.title, copy.status]);
 
   const addable = actions.canAdd && copy.kind === 'new' && !!candidate.release;
   const accepted = candidate.decision === 'accepted';
