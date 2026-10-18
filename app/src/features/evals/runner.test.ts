@@ -1,4 +1,5 @@
 import { HttpResponse, http } from 'msw';
+import type { EvalRunRequest } from '@/api/generated/models';
 import { promptOf } from '@/features/scan/recognition/defaults';
 import { authHeaders, configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryTokenStore } from '@/lib/auth/tokenStore';
@@ -21,7 +22,7 @@ interface Result {
 interface Body {
   device: { model: string; osVersion: string; appVersion: string };
   configVersion: string;
-  partial?: boolean;
+  partial?: EvalRunRequest['partial'];
   results: Result[];
 }
 const runs = () => evalsMock.runs as Body[];

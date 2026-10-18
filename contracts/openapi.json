@@ -5433,6 +5433,72 @@
           }
         }
       },
+      "CandidateAlternativeDto": {
+        "required": [
+          "releaseId",
+          "title",
+          "format",
+          "platform",
+          "year",
+          "score",
+          "creators",
+          "coverUrl",
+          "alreadyOwnedCount",
+          "artworkUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "releaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "year": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "creators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "coverUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "alreadyOwnedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "artworkUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CandidateDecision": {
         "enum": [
           "undecided",
@@ -5567,14 +5633,13 @@
             ]
           },
           "alternatives": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CandidateAlternativeDto"
+            }
           },
           "decision": {
             "$ref": "#/components/schemas/CandidateDecision"
@@ -6493,6 +6558,12 @@
             "items": {
               "$ref": "#/components/schemas/EvalPhotoResult"
             }
+          },
+          "partial": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -6570,6 +6641,20 @@
               "type": "number",
               "format": "double"
             }
+          },
+          "partial": {
+            "type": "boolean",
+            "default": false
+          },
+          "photosRun": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "photosInSet": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
           }
         }
       },
