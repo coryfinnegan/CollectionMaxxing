@@ -20,6 +20,8 @@ export type LibraryGridProps = {
   title: string;
   /** Set for the Wishlist and Lent out views. */
   fixedStatus?: ItemStatus;
+  /** Opens with the Add an item panel showing (the Scan tab's "Add an item by hand"). */
+  openAdd?: boolean;
 };
 
 type Panel = 'format' | 'platform' | 'location' | 'sort' | 'add' | null;
@@ -30,7 +32,7 @@ const emptyCopy: Record<string, { title: string; body: string }> = {
   lent: { title: 'Nothing is lent out.', body: 'Lend an item from its page and it shows up here.' },
 };
 
-export function LibraryGrid({ title, fixedStatus }: LibraryGridProps) {
+export function LibraryGrid({ title, fixedStatus, openAdd }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
   if (loadingLibrary || !libraryId) {
     return (
@@ -42,10 +44,10 @@ export function LibraryGrid({ title, fixedStatus }: LibraryGridProps) {
       </View>
     );
   }
-  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} />;
+  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} />;
 }
 
-function Grid({ libraryId, title, fixedStatus }: LibraryGridProps & { libraryId: string }) {
+function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { libraryId: string }) {
   const router = useRouter();
   const colors = useColors();
   const { width } = useWindowDimensions();
@@ -54,7 +56,7 @@ function Grid({ libraryId, title, fixedStatus }: LibraryGridProps & { libraryId:
 
   const [chosen, setState] = useState<ListState>(defaultState());
   const [search, setSearch] = useState('');
-  const [panel, setPanel] = useState<Panel>(null);
+  const [panel, setPanel] = useState<Panel>(openAdd ? 'add' : null);
   const debouncedSearch = useDebounced(search);
   // The search box applies a moment after typing stops; everything else applies at once.
   const state = changeFilter(chosen, { q: debouncedSearch });

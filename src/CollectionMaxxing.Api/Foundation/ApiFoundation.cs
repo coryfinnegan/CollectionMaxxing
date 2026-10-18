@@ -26,6 +26,7 @@ public static class ApiFoundation
         services.AddExceptionHandler<UniqueViolationExceptionHandler>();
         services.AddExceptionHandler<ForeignKeyViolationExceptionHandler>();
         services.AddExceptionHandler<ConcurrentUpdateExceptionHandler>();
+        services.AddExceptionHandler<MalformedFormExceptionHandler>();
 
         services.AddApiAuth();
 

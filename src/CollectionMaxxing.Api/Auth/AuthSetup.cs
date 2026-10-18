@@ -13,6 +13,10 @@ public static class AuthSetup
     /// <summary>The scheme that picks between the two ways in: the session cookie (web) or a bearer token (iPhone).</summary>
     public const string SchemeName = "CookieOrBearer";
 
+    /// <summary>Whether the caller presented a bearer token (the iPhone) rather than leaving it to the session cookie (the web).</summary>
+    public static bool IsBearerCall(HttpRequest request) =>
+        request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+
     public static IServiceCollection AddApiAuth(this IServiceCollection services)
     {
         // Who is calling: one object per request, filled in by CurrentUserMiddleware.
@@ -24,9 +28,7 @@ public static class AuthSetup
         services.AddAuthentication(SchemeName)
             .AddPolicyScheme(SchemeName, "Session cookie or bearer token", options =>
                 options.ForwardDefaultSelector = context =>
-                    context.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                        ? OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme
-                        : AuthCookie.Scheme)
+                    IsBearerCall(context.Request) ? OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme : AuthCookie.Scheme)
             .AddCookie(AuthCookie.Scheme, AuthCookie.Configure);
         services.AddOptions<CookieAuthenticationOptions>(AuthCookie.Scheme).Configure<TimeProvider>((cookie, time) => cookie.TimeProvider = time);
 
