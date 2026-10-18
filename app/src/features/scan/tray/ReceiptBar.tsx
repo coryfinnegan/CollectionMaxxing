@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Image, PanResponder, Pressable, ScrollView, View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { announceForScreenReader } from '@/lib/a11y/announce';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { summaryLine } from '../cards/copy';
 import { spacing, useColors } from '@/theme/tokens';
 import { Button, Text } from '@/ui';
@@ -12,8 +13,15 @@ import { lineStatus, type TrayLine } from './tray';
 
 const REMOVE_DISTANCE = 80;
 
+/** Snaps a half-swiped line back; with Reduce Motion it just jumps back. */
+export function settleSwipe(x: Animated.Value, reduceMotion: boolean) {
+  if (reduceMotion) x.setValue(0);
+  else Animated.spring(x, { toValue: 0, useNativeDriver: true }).start();
+}
+
 /** Swipe left to remove, with the same distance and feel for every kind of line. */
 function useSwipeToRemove(onRemove: () => void) {
+  const reduceMotion = useReduceMotion();
   const x = useMemo(() => new Animated.Value(0), []);
   const responder = useMemo(
     () =>
@@ -22,10 +30,10 @@ function useSwipeToRemove(onRemove: () => void) {
         onPanResponderMove: (_e, g) => x.setValue(Math.min(0, g.dx)),
         onPanResponderRelease: (_e, g) => {
           if (g.dx < -REMOVE_DISTANCE) onRemove();
-          else Animated.spring(x, { toValue: 0, useNativeDriver: true }).start();
+          else settleSwipe(x, reduceMotion);
         },
       }),
-    [x, onRemove],
+    [x, onRemove, reduceMotion],
   );
   return { x, responder };
 }
@@ -61,7 +69,7 @@ function PictureRow({ line, onRemove }: { line: PictureLine; onRemove(): void })
         <View style={{ width: 36, height: 36, borderRadius: 4, backgroundColor: colors.line }} />
       )}
       <View style={{ flex: 1 }}>
-        <Text variant="label" numberOfLines={1} style={{ color: '#1A1C22' }}>
+        <Text variant="label" style={{ color: '#1A1C22' }}>
           {line.title}
         </Text>
         {label ? (
@@ -115,7 +123,7 @@ function ReceiptRow({
       }}
     >
       <View style={{ flex: 1 }}>
-        <Text variant="label" numberOfLines={1} style={{ color: '#1A1C22' }}>
+        <Text variant="label" style={{ color: '#1A1C22' }}>
           {name}
         </Text>
         {label ? (

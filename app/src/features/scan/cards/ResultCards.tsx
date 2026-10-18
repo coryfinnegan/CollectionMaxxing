@@ -1,28 +1,17 @@
 // The horizontal strip of result cards, newest first. A new card slides in unless Reduce Motion is on.
 import { FlashList } from '@shopify/flash-list';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Pressable, View } from 'react-native';
+import { Animated, Pressable, useWindowDimensions, View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { announceForScreenReader } from '@/lib/a11y/announce';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Cover, Text } from '@/ui';
 import { useOwnedLookup } from '@/features/offline/hooks';
 import { isLocalCard } from './cardsStore';
 import { describeCandidate,isPictureCandidate, ownedCopy, slideDuration } from './copy';
 
-export function useReduceMotion(): boolean {
-  const [reduce, setReduce] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((on) => alive && setReduce(on));
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduce);
-    return () => {
-      alive = false;
-      sub.remove();
-    };
-  }, []);
-  return reduce;
-}
+export { useReduceMotion };
 
 /**
  * "Do I own this?" for a card the catalogue lookup has not resolved (offline, or it failed). The server answers when it
@@ -164,9 +153,11 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
 
 export function ResultCards({ cards, actions }: { cards: CandidateDto[]; actions: CardActions }) {
   const reduceMotion = useReduceMotion();
+  // The strip is a fixed-height list, so it grows with Dynamic Type; the cards inside wrap their text.
+  const { fontScale } = useWindowDimensions();
   if (cards.length === 0) return null;
   return (
-    <View style={{ height: 190 }}>
+    <View testID="result-cards" style={{ height: Math.round(190 * Math.min(Math.max(fontScale, 1), 3)) }}>
       <FlashList
         horizontal
         data={cards}
