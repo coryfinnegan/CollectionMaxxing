@@ -67,7 +67,8 @@ export default function TabsLayout() {
           screenOptions={{
             headerStyle: { backgroundColor: colors.surface },
             headerTintColor: colors.ink,
-            headerShown: !wide,
+            // Every web page names itself in its own content, so the navigator's title bar would only repeat it.
+            headerShown: Platform.OS !== 'web' && !wide,
             tabBarActiveTintColor: colors.scan,
             tabBarInactiveTintColor: colors.muted,
             tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line },

@@ -6,16 +6,18 @@ test.use({ viewport: { width: 375, height: 812 } });
 test.describe('phone width', () => {
   test('the library grid fits and opens an item', async ({ page, open, shot }) => {
     await open('/library');
-    // The phone starts in the compact table; the page itself must not scroll sideways.
+    // With no saved choice the phone starts in the grid; the table is one tap away and the page itself must not scroll sideways.
+    await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
+    expect(await fitsWidth(page)).toBe(true);
+    await shot('phone-library');
+
+    await page.getByRole('button', { name: 'Table view' }).click();
     await expect(page.getByRole('link', { name: 'Open The Matrix' })).toBeVisible();
     expect(await fitsWidth(page)).toBe(true);
     await shot('phone-library-table');
 
     await page.getByRole('button', { name: 'Grid view' }).click();
     await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
-    expect(await fitsWidth(page)).toBe(true);
-    await shot('phone-library');
-
     await page.getByRole('button', { name: 'The Matrix, DVD' }).click();
     await expect(page.getByRole('heading', { name: 'The Matrix' })).toBeVisible();
     expect(await fitsWidth(page)).toBe(true);
@@ -24,7 +26,7 @@ test.describe('phone width', () => {
 
   test('edit, sign-in, setup and join fit', async ({ page, open }) => {
     await open('/library');
-    await page.getByRole('link', { name: 'Open The Matrix' }).click();
+    await page.getByRole('button', { name: 'The Matrix, DVD' }).click();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible();
     expect(await fitsWidth(page)).toBe(true);

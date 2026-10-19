@@ -79,7 +79,7 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
         accessibilityState={{ expanded: open, busy }}
         disabled={busy}
         onPress={toggle}
-        style={{ paddingVertical: spacing.xs }}
+        style={{ minHeight: 44, justifyContent: 'center' }}
       >
         <Text variant="body" numberOfLines={1} style={{ color: colors.ink }}>
           {current}

@@ -29,7 +29,15 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } }],
+  projects: [
+    { name: 'chromium', testIgnore: '**/mobile.spec.ts', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
+    {
+      // A phone-sized Chromium (CI installs only chromium, so no WebKit): 390x844, touch, mobile viewport handling.
+      name: 'mobile',
+      testMatch: '**/mobile.spec.ts',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
+    },
+  ],
   webServer: {
     command: `node playwright/serve.mjs ${port}`,
     url: `http://127.0.0.1:${port}/login`,

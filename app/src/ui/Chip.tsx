@@ -1,5 +1,5 @@
-import { Pressable } from 'react-native';
-import { radius, spacing, useColors } from '@/theme/tokens';
+import { Platform, Pressable, useWindowDimensions } from 'react-native';
+import { radius, spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Text } from './Text';
 
 type ChipProps = {
@@ -13,6 +13,9 @@ type ChipProps = {
 /** A pill for filters and single-choice fields. Selected is shown by fill and by the accessibility state. */
 export function Chip({ label, selected = false, onPress, accessibilityLabel, testID }: ChipProps) {
   const colors = useColors();
+  // A finger needs 44 pt: on a phone-width web screen the chip is that tall itself (react-native-web ignores hitSlop); a pointer gets the compact 36.
+  const { width } = useWindowDimensions();
+  const minHeight = Platform.OS === 'web' && width < WIDE_BREAKPOINT ? 44 : 36;
   return (
     <Pressable
       accessibilityRole="button"
@@ -20,9 +23,11 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
       accessibilityState={{ selected }}
       onPress={onPress}
       testID={testID}
-      hitSlop={{ top: 4, bottom: 4 }} // 36 pt tall to look, 44 pt to touch
+      hitSlop={{ top: 4, bottom: 4 }} // native: 36 pt to look, 44 pt to touch
       style={{
-        minHeight: 36,
+        minHeight,
+        minWidth: minHeight === 44 ? 44 : undefined,
+        alignItems: 'center',
         justifyContent: 'center',
         paddingHorizontal: spacing.md,
         borderRadius: radius.pill,

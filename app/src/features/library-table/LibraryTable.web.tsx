@@ -139,6 +139,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
             accessibilityRole="link"
             accessibilityLabel={`Open ${item.title}`}
             onPress={() => router.push(`/item/${item.id}`)}
+            style={{ minHeight: 44, justifyContent: 'center' }}
           >
             <Text variant="label" numberOfLines={2}>
               {item.title}
@@ -304,11 +305,12 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                 const sort = sortForColumn(column.id);
                 const active = sort !== undefined && sort === filters.sort;
                 return (
-                  <View key={column.id} role="columnheader" style={{ width: column.width, padding: spacing.sm }}>
+                  <View key={column.id} role="columnheader" style={{ width: column.width, paddingHorizontal: spacing.sm, justifyContent: 'center' }}>
                     {sort ? (
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={`Sort by ${column.label}`}
+                        style={{ minHeight: 44, justifyContent: 'center' }}
                         accessibilityState={{ selected: active }}
                         onPress={() => sortBy(column.id)}
                       >
@@ -361,9 +363,11 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                 </Pressable>
               );
             })}
-            {list.items.length === 0 ? <View style={{ padding: spacing.lg }}>{empty}</View> : null}
           </View>
         </ScrollView>
+
+        {/* Empty, loading and error states sit outside the horizontal scroller, so they are centred on the visible width. */}
+        {list.items.length === 0 ? <View style={{ padding: spacing.lg, alignItems: 'center' }}>{empty}</View> : null}
 
         {list.hasNextPage ? (
           <View style={{ flexDirection: 'row' }}>
@@ -430,21 +434,25 @@ function Checkbox({
         (event as { stopPropagation?: () => void })?.stopPropagation?.();
         onPress(event);
       }}
-      hitSlop={8}
-      style={{
-        width: 22,
-        height: 22,
-        borderRadius: radius.sm,
-        borderWidth: 2,
-        borderColor: checked || mixed ? colors.scan : colors.muted,
-        backgroundColor: checked || mixed ? colors.scan : 'transparent',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
+      // The pressable is the 44 px touch target; the box inside is what you see.
+      style={{ width: CHECK_WIDTH, height: CHECK_WIDTH, alignItems: 'center', justifyContent: 'center' }}
     >
-      <Text variant="caption" style={{ color: colors.onScan }}>
-        {checked ? '✓' : mixed ? '–' : ''}
-      </Text>
+      <View
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: radius.sm,
+          borderWidth: 2,
+          borderColor: checked || mixed ? colors.scan : colors.muted,
+          backgroundColor: checked || mixed ? colors.scan : 'transparent',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text variant="caption" style={{ color: colors.onScan }}>
+          {checked ? '✓' : mixed ? '–' : ''}
+        </Text>
+      </View>
     </Pressable>
   );
 }
