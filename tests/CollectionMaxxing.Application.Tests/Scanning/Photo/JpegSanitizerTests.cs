@@ -208,4 +208,13 @@ public class JpegSanitizerTests
 
         ErrorCode(onlyMarkers).ShouldBe("scan.photo_damaged");
     }
+
+    [Fact]
+    public void A_picture_that_ends_right_after_a_complete_segment_is_damaged_not_a_crash()
+    {
+        // Start of image, then a comment segment of length 2 (no text), then nothing: no frame, no end marker.
+        byte[] source = [0xFF, 0xD8, 0xFF, 0xFE, 0x00, 0x02];
+
+        ErrorCode(source).ShouldBe(JpegSanitizer.Damaged.Code);
+    }
 }

@@ -248,6 +248,67 @@ It 'a mutant that does not compile is left out of the score, and a timeout count
   } finally { Remove-Item $root -Recurse -Force }
 }
 
+It 'a run that cannot start is an error: excluded from the score, never a survivor' {
+  $root = New-Repo
+  try {
+    $result = Invoke-MutationRun -RepoRoot $root -Files @('src/A.cs') -Runner { 'Error' }
+    Should-BeTrue ($result.Errors -ge 1) 'errors counted'
+    Should-Be $result.Errors $result.Tried 'every run errored'
+    Should-Be $result.Survived 0 'survived'
+    Should-Be $result.Total 0 'total'
+    Should-Be $result.Survivors.Count 0 'survivor list'
+    Should-Be (Format-Score $result) '0 / 0 = n/a'
+  } finally { Remove-Item $root -Recurse -Force }
+}
+
+# ---- reading a `dotnet test` result ----------------------------------------------------------------------------
+$started = "Test run for C:\x\T.dll (.NETCoreApp,Version=v10.0)`nA total of 1 test files matched the specified pattern.`n"
+
+It 'a green run with tests is Passed' {
+  Should-Be (Get-TestRunStatus 0 ($started + "`nPassed!  - Failed:     0, Passed:   369, Skipped:     0, Total:   369, Duration: 340 ms - T.dll (net10.0)")) 'Passed'
+}
+
+It 'a red run is Failed' {
+  Should-Be (Get-TestRunStatus 1 ($started + "`nFailed!  - Failed:     2, Passed:   367, Skipped:     0, Total:   369, Duration: 340 ms - T.dll (net10.0)")) 'Failed'
+}
+
+It 'exit 0 with no output at all (the restore-less fresh worktree) is an Error, not Passed' {
+  Should-Be (Get-TestRunStatus 0 '') 'Error'
+  Should-Be (Get-TestRunStatus 0 "`n") 'Error'
+}
+
+It 'a filter that matches no test is NoTests, and zero total is NoTests' {
+  Should-Be (Get-TestRunStatus 0 $started) 'NoTests'
+  Should-Be (Get-TestRunStatus 0 ($started + "Passed!  - Failed:     0, Passed:     0, Skipped:     0, Total:     0, Duration: 1 ms - T.dll (net10.0)")) 'NoTests'
+}
+
+It 'a compile error in the mutant is BuildError (not a mutant); a missing restore or other failure to start is Error' {
+  Should-Be (Get-TestRunStatus 1 'C:\a\F.cs(3,9): error CS1002: ; expected [C:\a\P.csproj]') 'BuildError'
+  Should-Be (Get-TestRunStatus 1 "C:\sdk\x.targets(266,5): error NETSDK1004: Assets file 'C:\a\project.assets.json' not found. [C:\a\P.csproj]") 'Error'
+  Should-Be (Get-TestRunStatus 1 'MSBUILD : error MSB1009: Project file does not exist.') 'Error'
+  Should-Be (Get-TestRunStatus 1 'something unexpected') 'Error'
+  Should-Be (Get-TestRunStatus 1 ($started + 'The test host process crashed')) 'Error'
+}
+
+# ---- one answer from several test projects ---------------------------------------------------------------------
+It 'several test projects: the first failure kills; all must pass to survive; NoTests is skipped' {
+  Should-Be (Merge-TestStatuses @('Passed', 'Failed')) 'Failed'
+  Should-Be (Merge-TestStatuses @('Failed', 'Passed')) 'Failed'
+  Should-Be (Merge-TestStatuses @('Passed', 'Passed')) 'Passed'
+  Should-Be (Merge-TestStatuses @('NoTests', 'Passed')) 'Passed'
+  Should-Be (Merge-TestStatuses @('NoTests', 'NoTests')) 'Error'
+  Should-Be (Merge-TestStatuses @('Passed', 'Error')) 'Error'
+  Should-Be (Merge-TestStatuses @('Passed', 'BuildError')) 'BuildError'
+  Should-Be (Merge-TestStatuses @('Passed', 'Timeout')) 'Timeout'
+}
+
+It 'the per-feature filter names every folder between the project and the file, plus the aliases of the top folder' {
+  Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/Scanning/Matching/X.cs' 'Application') 'FullyQualifiedName~.Scanning.|FullyQualifiedName~.Matching.'
+  Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/Ownership/Y.cs' 'Application') 'FullyQualifiedName~.Ownership.'
+  Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/Jobs/Y.cs' 'Application' @{ Jobs = @('Admin') }) 'FullyQualifiedName~.Jobs.|FullyQualifiedName~.Admin.'
+  Should-Be (Get-FeatureFilter 'src/CollectionMaxxing.Application/DependencyInjection.cs' 'Application') ''
+}
+
 It 'an equivalent mutant is skipped by the run and reported in the count' {
   $root = New-Repo
   try {

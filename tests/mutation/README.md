@@ -16,6 +16,19 @@ pwsh scripts/mutate.ps1 -Project Application -Path src/CollectionMaxxing.Applica
 - It runs at below-normal priority, so it will not starve the PC. Each mutant is one `dotnet test` (build plus tests).
 - Domain needs no Docker. Application's tests start a throwaway Postgres in Docker, so run it one folder at a
   time with a small `-Sample`. `Application/Evals` is never mutated.
+- **Application is tested through three projects**: `Application.Tests`, `Infrastructure.Tests` and `Api.Tests` (most
+  use cases are only exercised through the HTTP API). A mutant is killed as soon as one of them fails.
+- **Use `-FeatureFilter` for Application.** It runs, per mutant, only the tests whose namespace matches a folder between
+  the project and the mutated file (`Application/Accounts/Deletion/X.cs` -> `.Accounts.` or `.Deletion.`), plus the
+  aliases in `tests/mutation/test-areas.json` (tests that live under another name, e.g. `Jobs` -> `Admin`). Add an alias
+  there when a survivor turns out to be covered by a test in another namespace.
+- **Runtime (shared CPU, 2026-10-18):** the unfiltered Application baseline is about 13 min (almost all of it `Api.Tests`).
+  With `-FeatureFilter` a mutant takes about 1.5 min, so `-Sample 60` takes 80-110 min and a full sweep of the 1,804
+  Application candidates would take roughly 45 hours: sample, do not sweep everything.
+- **First run in a fresh worktree:** run `dotnet test` once on each test project (the script uses `--no-restore`). A
+  run that cannot start is an **error**, not a survivor: it is left out of the score, listed on the summary line
+  (`N errors (not counted)`), and the script exits 1 with a warning. Before this, `dotnet test --no-restore` exited 0
+  silently and every mutant looked like a survivor.
 - `-Seed S` makes the sample repeatable: the same seed on the same code picks the same mutants. Without it a
   random seed is chosen and printed on the `baseline green` line.
 - `-TestFilter "FullyQualifiedName~Matching"` runs only part of the tests for each mutant (faster, but a survivor
@@ -23,6 +36,9 @@ pwsh scripts/mutate.ps1 -Project Application -Path src/CollectionMaxxing.Applica
 - Output: one `SURVIVED file:line [operator]  before  =>  after` line per mutant the tests did not catch, then
   `killed / total = score`. A mutant that does not compile is "not a mutant" and is left out of the score; a
   mutant that times out counts as killed (the tests noticed something).
+
+Scores to date (seed 1, sample 60): Domain 99.2%; Application 23.9% with only `Application.Tests` (PR #186), 52.3% with
+`Api.Tests` and the plain folder filter, 70.5% once the filter also knows the sub-folders and `test-areas.json`.
 
 The Domain target is a score of 80% or more (`docs/09-testing-and-tdd.md`, "Quality gates").
 

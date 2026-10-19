@@ -162,4 +162,19 @@ public class BatchRestoreTests(ApiFixture api) : ApiTest(api)
         JsonDocument.Parse(restored.DetailsJson!).RootElement.GetProperty("count").GetInt32().ShouldBe(2);
         restored.DetailsJson!.ShouldNotContain("Secret");
     }
+
+    [Fact]
+    public async Task Restoring_items_that_are_not_deleted_changes_nothing_and_leaves_no_audit_event()
+    {
+        var library = await CreateLibraryAsync();
+        var editor = ClientFor(library, LibraryRole.Editor);
+        var live = await ItemSeed.AddItemAsync(Db, library, "Still here");
+
+        var response = await editor.PostAsJsonAsync(RestoreUrl(library.Id), new { ids = new[] { live } });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await ReadJsonAsync(response)).GetProperty("affected").GetInt32().ShouldBe(1);
+        await using var context = Db.CreateContext();
+        (await context.AuditEvents.AsNoTracking().Where(e => e.Action == "items.bulk_restored").CountAsync()).ShouldBe(0);
+    }
 }
