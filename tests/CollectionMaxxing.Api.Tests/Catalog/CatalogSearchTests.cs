@@ -89,6 +89,21 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
     }
 
     [Fact]
+    public async Task Search_and_lookup_ask_the_providers_as_a_person_waiting_so_a_failure_is_not_retried()
+    {
+        var seen = new List<bool>();
+        var provider = new FakeProvider("probe") { Behaviour = _ => { seen.Add(ProviderCalls.IsFailFast); return Task.CompletedTask; } };
+        var client = ClientWith(await SomeUserAsync(), provider);
+
+        (await client.GetAsync("/api/v1/catalog/search?q=nothing-here")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await client.GetAsync("/api/v1/catalog/lookup?code=0045496870010")).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        seen.Count.ShouldBe(2);
+        seen.ShouldAllBe(fast => fast);
+        ProviderCalls.IsFailFast.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task A_provider_that_never_answers_does_not_fail_the_search()
     {
         await CatalogSeed.AddAsync(Db, "Alien");

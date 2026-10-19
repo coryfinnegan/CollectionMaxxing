@@ -59,6 +59,7 @@ public sealed class TextSearchResolver(
         var read = new ReadItem { Title = text, Format = format, Platform = platform, Edition = edition };
         var found = await FindLocalAsync(text, cancellationToken);
         var query = new CatalogQuery { Title = text, Format = format, Platform = platform, Limit = Limit };
+        using var failFast = ProviderCalls.FailFast(); // a person is waiting
         var answers = await AskProvidersAsync(query, options.ResolveBudget, cancellationToken);
         return Score(read, CatalogProjection.Profile, found, answers, pendingWhenProvidersFailed: false);
     }

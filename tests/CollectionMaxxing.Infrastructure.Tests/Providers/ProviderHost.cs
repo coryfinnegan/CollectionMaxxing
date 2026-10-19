@@ -4,6 +4,7 @@ using CollectionMaxxing.Infrastructure.Providers;
 using CollectionMaxxing.TestSupport;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.Server;
 
@@ -35,7 +36,8 @@ internal sealed class ProviderHost : IDisposable
 
     /// <param name="fakeTime">Use a fake clock (cache expiry, quota days). Retries and timeouts need the real one.</param>
     /// <param name="settings">Configuration overrides, e.g. <c>["Providers:Tmdb:ApiKey"] = null</c>.</param>
-    public static ProviderHost Create(PostgresFixture db, bool fakeTime = false, Dictionary<string, string?>? settings = null)
+    public static ProviderHost Create(PostgresFixture db, bool fakeTime = false, Dictionary<string, string?>? settings = null,
+        Action<IServiceCollection>? configure = null)
     {
         var server = LoopbackWireMock.Start();
         var baseUrl = server.Url!.TrimEnd('/') + "/";
@@ -75,6 +77,7 @@ internal sealed class ProviderHost : IDisposable
         services.AddSingleton(time);
         services.AddScoped<CurrentUser>();
         services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<CurrentUser>());
+        configure?.Invoke(services);
         services.AddInfrastructure();
         services.AddCatalogProviderAdapters();
         return new ProviderHost(server, services.BuildServiceProvider(), time);
