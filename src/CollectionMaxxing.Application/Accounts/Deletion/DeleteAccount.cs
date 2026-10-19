@@ -20,6 +20,7 @@ public static class DeleteAccount
         IAppDbContext db,
         IAccountDeactivation deactivation,
         IDeviceAuthorizations devices,
+        IWebSessions webSessions,
         IJobQueue jobs,
         IAuditLog audit,
         TimeProvider clock)
@@ -66,6 +67,7 @@ public static class DeleteAccount
                         .ExecuteDeleteAsync(token);
 
                     await devices.RevokeAllAsync(userId, token);
+                    await webSessions.RevokeAllAsync(userId, token);
                     audit.Record(AccountAuditActions.Deleted, "user", userId, null);
                     await db.SaveChangesAsync(token);
                 },

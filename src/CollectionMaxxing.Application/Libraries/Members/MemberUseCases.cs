@@ -102,7 +102,7 @@ public static class RemoveMember
 {
     public sealed record Command(Guid LibraryId, Guid UserId);
 
-    public sealed class Handler(IAppDbContext db, IMembershipReader memberships, IUserDirectory users, IDeviceAuthorizations devices)
+    public sealed class Handler(IAppDbContext db, IMembershipReader memberships, IUserDirectory users, IDeviceAuthorizations devices, IWebSessions webSessions)
     {
         public async Task<Result> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -134,6 +134,7 @@ public static class RemoveMember
             }
 
             await devices.RevokeAllAsync(command.UserId, cancellationToken);
+            await webSessions.RevokeAllAsync(command.UserId, cancellationToken);
             return Result.Success();
         }
     }

@@ -98,6 +98,7 @@ internal sealed class IdentityDeletedAccounts(
         }
 
         await db.DevicePairings.Where(p => p.UserId == userId).ExecuteDeleteAsync(cancellationToken);
+        await db.Set<CollectionMaxxing.Domain.Accounts.WebSession>().Where(s => s.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.IdempotencyKeys.Where(k => k.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.Set<IdentityUserPasskey<Guid>>().Where(p => p.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.UserRoles.Where(r => r.UserId == userId).ExecuteDeleteAsync(cancellationToken);
