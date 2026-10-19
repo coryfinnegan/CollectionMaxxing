@@ -29,6 +29,12 @@ jobs:
           npm ci
           npm run generate
           npm run build:web -- --output-dir dist
+      # The scan stack makes its migration script with dotnet-ef, which needs the local tools and one build of the solution.
+      - name: Restore tools and build once
+        run: |
+          dotnet tool restore
+          dotnet restore CollectionMaxxing.slnx --locked-mode
+          dotnet build CollectionMaxxing.slnx --no-restore
       - name: Tooling tests
         run: pwsh -NoProfile -File scripts/security/Run-Tests.ps1
       - name: ZAP baseline
