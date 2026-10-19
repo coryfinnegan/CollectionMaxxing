@@ -21,7 +21,8 @@ export function GetIphoneAppRow() {
   const [message, setMessage] = useState<string | null>(null);
   if (info.isPending) return <Text tone="muted">Checking…</Text>;
 
-  const ipa = info.data?.status === 200 ? info.data.data : null;
+  const data = info.data?.status === 200 ? info.data.data : null;
+  const ipa = data?.available && data.sizeBytes != null && data.modifiedAt ? { ...data, sizeBytes: data.sizeBytes, modifiedAt: data.modifiedAt } : null;
   const download = async () => {
     setMessage(null);
     try {

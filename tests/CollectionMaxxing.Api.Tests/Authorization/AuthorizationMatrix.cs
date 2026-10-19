@@ -270,7 +270,7 @@ public static class AuthorizationMatrix
         // OPS-4: the synced iPhone app. The matrix app has no synced file, so a signed-in caller gets the friendly 404 (the bytes are IpaDownloadTests).
         SignedIn("GET", "/api/v1/app/ipa", allowed: NotFound),
         SignedIn("HEAD", "/api/v1/app/ipa", allowed: NotFound),
-        SignedIn("GET", "/api/v1/app/ipa/info", allowed: NotFound),
+        SignedIn("GET", "/api/v1/app/ipa/info", allowed: Ok),
         InLibrary("GET", $"{Libraries}/feature-prints", LibraryRole.Viewer, allowed: Ok), // SCAN-2c: built
         InLibrary("PUT", $"{Libraries}/feature-prints", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no prints: the handler is reached
 

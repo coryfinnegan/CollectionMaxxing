@@ -67,7 +67,7 @@ const JOB_ID = 'f6666666-0000-4000-8000-000000000001';
 
 export const handlers = [
   http.get('*/api/v1/app/ipa/info', () =>
-    mockAccount.ipa ? HttpResponse.json(mockAccount.ipa) : problem(404, 'Not found', { detail: "The iPhone app isn't here yet. It appears after the next release." }),
+    HttpResponse.json(mockAccount.ipa ? { available: true, ...mockAccount.ipa } : { available: false, sizeBytes: null, modifiedAt: null, sha256: null }),
   ),
 
   http.get('*/api/v1/me/export', () => {

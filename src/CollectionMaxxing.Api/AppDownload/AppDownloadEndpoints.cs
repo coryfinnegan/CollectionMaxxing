@@ -14,12 +14,11 @@ public static class AppDownloadEndpoints
         app.MapGet("/api/v1/app/ipa/info", (HttpContext http, GetIpaInfo.Handler handler) =>
             {
                 http.Response.Headers.CacheControl = "no-store";
-                return handler.Handle() is { } info ? Results.Ok(info) : IpaErrors.NotAvailable.ToProblem();
+                return Results.Ok(handler.Handle());
             })
             .WithName("GetIpaInfo").WithTags("App")
-            .Produces<IpaInfoDto>()
+            .Produces<IpaStatusDto>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization();
 
         static IResult Download(HttpContext http, OpenIpa.Handler handler)

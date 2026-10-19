@@ -110,17 +110,18 @@ public class IpaDownloadTests(ApiFixture api) : ApiTest(api)
     }
 
     [Fact]
-    public async Task With_no_file_synced_the_download_and_the_info_are_a_friendly_404()
+    public async Task With_no_file_synced_the_download_is_a_friendly_404_and_the_info_says_not_available()
     {
         var library = await CreateLibraryAsync();
         var client = Client(library.OwnerId);
 
-        foreach (var route in new[] { Download, Info })
-        {
-            var response = await client.GetAsync(route);
-            response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
-            (await ReadJsonAsync(response)).GetProperty("detail").GetString()!.ShouldContain("after the next release");
-        }
+        var download = await client.GetAsync(Download);
+        download.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await ReadJsonAsync(download)).GetProperty("detail").GetString()!.ShouldContain("after the next release");
+
+        var info = await client.GetAsync(Info);
+        info.StatusCode.ShouldBe(HttpStatusCode.OK); // a normal answer, so the browser console stays quiet
+        (await ReadJsonAsync(info)).GetProperty("available").GetBoolean().ShouldBeFalse();
     }
 
     [Fact]
@@ -135,6 +136,7 @@ public class IpaDownloadTests(ApiFixture api) : ApiTest(api)
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await ReadJsonAsync(response);
+        body.GetProperty("available").GetBoolean().ShouldBeTrue();
         body.GetProperty("sizeBytes").GetInt64().ShouldBe(2048);
         body.GetProperty("modifiedAt").GetDateTimeOffset().ShouldBe(new DateTimeOffset(modified));
         body.GetProperty("sha256").GetString().ShouldBe(Sum);

@@ -1172,23 +1172,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/IpaInfoDto"
+                  "$ref": "#/components/schemas/IpaStatusDto"
                 }
               }
             }
           },
           "401": {
             "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -7239,20 +7229,30 @@
           }
         }
       },
-      "IpaInfoDto": {
+      "IpaStatusDto": {
         "required": [
+          "available",
           "sizeBytes",
           "modifiedAt",
           "sha256"
         ],
         "type": "object",
         "properties": {
+          "available": {
+            "type": "boolean"
+          },
           "sizeBytes": {
-            "type": "integer",
+            "type": [
+              "null",
+              "integer"
+            ],
             "format": "int64"
           },
           "modifiedAt": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "date-time"
           },
           "sha256": {
