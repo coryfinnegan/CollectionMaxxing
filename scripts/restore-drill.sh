@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # The restore drill: proves a backup restores. Read deploy/RESTORE.md first.
 #
-#   scripts/restore-drill.sh [BACKUP_FOLDER | PATH_TO_A_.dump]
+#   scripts/restore-drill.sh [--confirm-live] [BACKUP_FOLDER | PATH_TO_A_.dump]
+#
+# The live install (C:\CollectionMaxxing), the nightly backup folder and CM_BACKUP_DIR are refused (exit 3) unless
+# --confirm-live is given. The owner passes it for the real drill; anyone rehearsing uses a copy in a temp folder.
 #
 # With a folder it takes the newest collectionmaxxing-<time>.dump in <folder>/db (a folder that is itself a "db"
 # folder works too). With no argument it uses $CM_BACKUP_DIR. It then:
@@ -15,7 +18,8 @@
 # It never touches the running stack: it does not read or write the live database or its volume, and the only
 # container it ever starts, executes in or removes is the one it created.
 #
-# Exit codes: 0 every check passed, 1 at least one check failed, 2 the drill could not run (no backup, no Docker).
+# Exit codes: 0 every check passed, 1 at least one check failed, 2 the drill could not run (no backup, no Docker),
+# 3 refused: the path is live data and --confirm-live was not given.
 # Settings (environment): CM_BACKUP_DIR, CM_DRILL_IMAGE (postgres:17), CM_DRILL_PREFIX (cm-drill), CM_DRILL_DOCKER (docker).
 set -u
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' # Git for Windows: keep /tmp-style paths inside docker arguments as they are
@@ -32,9 +36,73 @@ failures=0
 pass() { say "PASS $*"; }
 fail() { say "FAIL $*"; failures=$((failures + 1)); }
 
+# ---- the live-path guard -------------------------------------------------------------------------------------------------------
+# The drill only reads the backup, but it must never be pointed at the owner's live install or nightly backup folder by
+# accident (a copy-pasted path, a default). Those need --confirm-live. Exit 3 = refused.
+confirm_live=0
+args=()
+for a in "$@"; do
+  if [[ "$a" == "--confirm-live" ]]; then confirm_live=1; else args+=("$a"); fi
+done
+set -- ${args[@]+"${args[@]}"}
+
+# Lower-case, forward slashes, /c/x and /mnt/c/x as c:/x, "." and ".." collapsed, no trailing slash.
+cm_norm() {
+  local p="${1//\\//}"
+  p="${p,,}"
+  if [[ "$p" =~ ^/mnt/([a-z])(/.*)?$ ]]; then p="${BASH_REMATCH[1]}:${BASH_REMATCH[2]:-/}"
+  elif [[ "$p" =~ ^/([a-z])(/.*)?$ ]]; then p="${BASH_REMATCH[1]}:${BASH_REMATCH[2]:-/}"; fi
+  local prefix="" part
+  local -a out=()
+  [[ "$p" == /* ]] && prefix="/"
+  [[ "$p" =~ ^[a-z]:/ ]] && { prefix="${p:0:3}"; p="${p:3}"; }
+  local IFS=/
+  for part in $p; do
+    case "$part" in
+      "" | .) ;;
+      ..) ((${#out[@]} > 0)) && unset 'out[${#out[@]}-1]' ;;
+      *) out+=("$part") ;;
+    esac
+  done
+  local joined="${out[*]:-}"
+  echo "${prefix%/}${prefix:+/}${joined}" | sed 's|/$||'
+}
+
+# Places that are the owner's live data: the install folder, the usual nightly backup folder, CM_BACKUP_DIR, and anything
+# in CM_LIVE_PATHS (";"-separated; restore-drill.ps1 adds the CM_BACKUP_DIR it read from .env).
+cm_live_roots() {
+  local r
+  echo "c:/collectionmaxxing"
+  echo "f:/backups/collectionmaxxing"
+  [[ -n "${CM_BACKUP_DIR:-}" ]] && cm_norm "$CM_BACKUP_DIR"
+  if [[ -n "${CM_LIVE_PATHS:-}" ]]; then
+    local IFS=';'
+    for r in $CM_LIVE_PATHS; do [[ -n "$r" ]] && cm_norm "$r"; done
+  fi
+  return 0
+}
+cm_is_live() {
+  local p root
+  p="$(cm_norm "$1")"
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    [[ "$p" == "$root" || "$p" == "$root"/* ]] && return 0
+  done < <(cm_live_roots)
+  return 1
+}
+
 # ---- find the backup -----------------------------------------------------------------------------------------------------
 target="${1:-${CM_BACKUP_DIR:-}}"
 [[ -n "$target" ]] || die "give a backup folder or a .dump file, or set CM_BACKUP_DIR"
+if cm_is_live "$target"; then
+  if ((confirm_live == 0)); then
+    echo "restore drill: REFUSED. '$target' is your live install or nightly backup folder." >&2
+    echo "  The drill only reads it, but it will not touch live data unless you say so: add --confirm-live" >&2
+    echo "  (restore-drill.ps1: -ConfirmLive). To rehearse safely, copy a dump and its manifest to a temp folder first." >&2
+    exit 3
+  fi
+  say "restore drill: live path confirmed with --confirm-live (read-only; the drill runs in its own throwaway container)"
+fi
 if [[ -f "$target" ]]; then
   dump="$target"
 else
@@ -84,7 +152,8 @@ name="$PREFIX-$(date +%s)-$RANDOM"
 created=0
 cleanup() {
   # Only the one container this run created.
-  if ((created == 1)); then "$DOCKER" rm -f "$name" >/dev/null 2>&1; fi
+  # -v also removes the anonymous data volume the postgres image creates for this container, so nothing is left behind.
+  if ((created == 1)); then "$DOCKER" rm -fv "$name" >/dev/null 2>&1; fi
 }
 trap cleanup EXIT
 
