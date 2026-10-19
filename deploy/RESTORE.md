@@ -8,11 +8,15 @@ Needs Docker Desktop running and Git for Windows (for bash). From a PowerShell w
 
 ```powershell
 cd C:\CollectionMaxxing\repo
-pwsh -NoProfile -File scripts\restore-drill.ps1                      # newest backup in CM_BACKUP_DIR (from C:\CollectionMaxxing\.env)
-pwsh -NoProfile -File scripts\restore-drill.ps1 -Path F:\Backups\CollectionMaxxing
-pwsh -NoProfile -File scripts\restore-drill.ps1 -Path F:\Backups\CollectionMaxxing\db\collectionmaxxing-<time>.dump   # a specific dump
+pwsh -NoProfile -File scripts\restore-drill.ps1 -ConfirmLive                      # newest backup in CM_BACKUP_DIR (from C:\CollectionMaxxing\.env)
+pwsh -NoProfile -File scripts\restore-drill.ps1 -ConfirmLive -Path F:\Backups\CollectionMaxxing
+pwsh -NoProfile -File scripts\restore-drill.ps1 -ConfirmLive -Path F:\Backups\CollectionMaxxing\db\collectionmaxxing-<time>.dump   # a specific dump
 ```
-(On Linux or in Git Bash: `scripts/restore-drill.sh [folder-or-dump]`.)
+(On Linux or in Git Bash: `scripts/restore-drill.sh [--confirm-live] [folder-or-dump]`.)
+
+**`-ConfirmLive`** is your "yes, I mean the real thing". The drill only reads the backup, but it refuses (exit 3) to look at `C:\CollectionMaxxing`, the nightly backup folder or the `CM_BACKUP_DIR` from `.env` without it, so a pasted path or a default can never point it at live data by accident. To rehearse without that flag, copy one dump, its `.manifest.json` and the matching `files-<time>.tar.gz` into a temp folder (keeping the `db\` and `files\` sub-folders) and give that folder as `-Path`.
+
+Record every drill in [drills/README.md](drills/README.md). The local nightly backup on F: is what the drill covers; the off-site copy is optional and not set up (README step 11).
 
 What it does, in order:
 
@@ -35,9 +39,9 @@ PASS table items: restored 412, expected 412
 PASS files: 398 restored, 398 expected, every hash matches
 RESULT: PASS
 ```
-Exit codes: 0 PASS, 1 FAIL, 2 the drill could not run (no backup found, Docker not running).
+Exit codes: 0 PASS, 1 FAIL, 2 the drill could not run (no backup found, Docker not running), 3 refused (the path is live data and you did not pass `-ConfirmLive`).
 
-It never reads or writes the live database or its volume and never uses a port. If you stop it half way, remove any leftover with `docker rm -f <name>` (look for names starting `cm-drill-`; touch nothing else).
+It never reads or writes the live database or its volume and never uses a port. If you stop it half way, find any leftover with `docker ps -a --filter "label=cm-drill=1"` and delete just those `cm-drill-...` containers in Docker Desktop (touch nothing else). A normal finish, FAIL included, removes the container and its temporary data volume by itself.
 
 ### If it says FAIL
 
@@ -64,4 +68,4 @@ Only if the live database is gone or corrupt. Slow down; nothing here is urgent 
 4. Restore the covers from `files\files-<time>.tar.gz` of the same night into the `files` volume (`covers/` and `home/`; `home/` holds the sign-in key ring, so everyone stays signed in).
 5. Start the stack, open the app, and spot-check a few items and covers.
 
-Off-site copies (OPS-2) restore the same way once copied back next to each other as `db\` and `files\`.
+If an off-site copy is ever switched on (README step 11), copy one back next to each other as `db` and `files` in a temp folder and drill that folder the same way.

@@ -41,7 +41,7 @@ function Find-Bash {
 $bash = Find-Bash
 # backup.test.sh needs nothing but bash. restore-drill.test.sh starts real throwaway Postgres containers (named
 # cm-ops1-test-*, no network, no volumes, removed afterwards), so it needs a running Docker daemon: -SkipDocker leaves it out.
-$shellSuites = @('backup.test.sh')
+$shellSuites = @('backup.test.sh', 'restore-guard.test.sh')
 if (-not $SkipDocker) { $shellSuites += 'restore-drill.test.sh' }
 foreach ($suite in $shellSuites) {
     if (-not $bash) {
