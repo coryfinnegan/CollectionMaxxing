@@ -54,12 +54,15 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 
 | Group | Limit |
 |---|---|
-| `/account/*`, `/connect/token` | 10/min per IP, 30/hour per IP (sliding window) |
-| Picture identification (`/identify`) | 1,000 items/hour per user (text only, cheap) |
+| Code, passkey, setup and pairing endpoints (`Auth:RateLimit`) | 10/min per IP |
+| Pairing, setup and sign-in, on top of the 10/min (`AuthHourly`) | 30/hour per address, fixed window. Refresh-token grants are not counted. |
+| Picture identification (`/identify`) | 500 items/min per user (a call costs one per item; fixed window) |
 | Barcode batches | 120/min per user |
 | Catalogue search | 60/min per user |
 | Everything else | 600/min per user (token bucket) |
 | Export | 1 per 10 min per user |
+
+A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 and shows a wait message; it never un-pairs.
 
 ## Upload pipeline
 
@@ -73,7 +76,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 ## HTTP hardening
 
 - HTTPS only (Tailscale Serve with a real certificate for your `ts.net` name); HSTS (`max-age=31536000`); TLS 1.2+.
-- `Content-Security-Policy` for the web app: `default-src 'self'; img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`. Inline script is avoided; if the Expo web build needs any, nonces are used.
+- `Content-Security-Policy` for the web app, enforced: `default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8='; img-src 'self' blob: data:; connect-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`. Two exceptions: one inline-script hash for Expo, and `style-src 'unsafe-inline'` because react-native-web writes its styles at runtime. No `eval`.
 - `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(self), geolocation=()`, `Cross-Origin-Opener-Policy: same-origin`.
 - **No CORS origins allowed** (same-origin web; iOS isn't subject to CORS).
 - Cookies: `__Host-` prefix, `HttpOnly`, `Secure`, `SameSite=Strict`.
@@ -128,6 +131,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 
 - **Sideloaded build:** signed with your free Apple ID's personal certificate via AltStore, so Developer Mode is on for this iPhone. Only install builds from your own GitHub Actions artifacts.
 - **Face ID app lock** (LocalAuthentication) guards the paired session if someone picks up your unlocked phone.
+- **Known gap (QA-1c finding M3):** the Face ID app lock and the blur overlay below are planned but not built yet.
 
 - Tokens are stored in the Keychain only (`expo-secure-store`, this-device-only accessibility); nothing sensitive goes in MMKV or AsyncStorage.
 - No secrets in the bundle. All third-party calls are proxied by our API.
@@ -142,7 +146,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 | Data minimisation | No location, contacts, tracking or ads. The email is stored only if the IdP provides one. |
 | Photos | EXIF/GPS stripped; deleted after 30 days, or right after commit if you choose that |
 | Third parties | No third-party AI; metadata providers receive **only** barcodes/titles, never user identifiers |
-| Export | Full CSV + JSON export at any time |
+| Export | Full CSV + JSON zip at any time, including your own photo files (`photos/<assetId>.jpg`, listed in `photos.json`) |
 | Deletion | In-app; purge within 30 days; all devices and sessions revoked |
 | Distribution | Sideloaded with your free Apple ID (AltStore), with no App Store or TestFlight. A `PrivacyInfo.xcprivacy` manifest is still included. |
 | Attribution | TMDB and IGDB attribution on the About screen, as their terms require |
