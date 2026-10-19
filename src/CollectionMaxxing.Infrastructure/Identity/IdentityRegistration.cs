@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Accounts;
+using CollectionMaxxing.Application.Accounts.Devices;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +25,7 @@ public static class IdentityRegistration
 
         services.TryAddScoped<IAccountStore, IdentityAccountStore>();
         services.TryAddScoped<IPasskeyStore, PasskeyStore>();
+        services.TryAddScoped<IWebSessions, WebSessionStore>();
         services.TryAddSingleton<ISetupCodeAnnouncer, SetupCodeAnnouncer>();
         return services;
     }

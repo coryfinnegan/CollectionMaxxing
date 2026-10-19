@@ -94,10 +94,28 @@ export const handlers = [
     );
   }),
 
-  http.get('*/api/v1/me/sessions', () => HttpResponse.json({ items: mockAuth.sessions, nextCursor: null })),
+  http.get('*/api/v1/me/sessions', () =>
+    HttpResponse.json({ items: mockAuth.sessions.filter((s) => s.kind !== 'web'), nextCursor: null }),
+  ),
+
+  http.get('*/api/v1/me/web-sessions', () =>
+    HttpResponse.json({ items: mockAuth.sessions.filter((s) => s.kind === 'web'), nextCursor: null }),
+  ),
+
+  http.delete('*/api/v1/me/web-sessions/:id', ({ params }) => {
+    const found = mockAuth.sessions.some((s) => s.id === params.id && s.kind === 'web');
+    if (!found) return problem(404, 'Not found');
+    mockAuth.sessions = mockAuth.sessions.filter((s) => s.id !== params.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete('*/api/v1/me/web-sessions', () => {
+    mockAuth.sessions = mockAuth.sessions.filter((s) => s.kind !== 'web');
+    return new HttpResponse(null, { status: 204 });
+  }),
 
   http.delete('*/api/v1/me/sessions/:id', ({ params }) => {
-    const found = mockAuth.sessions.some((s) => s.id === params.id);
+    const found = mockAuth.sessions.some((s) => s.id === params.id && s.kind !== 'web');
     if (!found) return problem(404, 'Not found');
     mockAuth.sessions = mockAuth.sessions.filter((s) => s.id !== params.id);
     return new HttpResponse(null, { status: 204 });

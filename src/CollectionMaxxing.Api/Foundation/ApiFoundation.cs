@@ -27,6 +27,7 @@ public static class ApiFoundation
         services.AddExceptionHandler<ForeignKeyViolationExceptionHandler>();
         services.AddExceptionHandler<ConcurrentUpdateExceptionHandler>();
         services.AddExceptionHandler<MalformedFormExceptionHandler>();
+        services.AddExceptionHandler<CollectionMaxxing.Api.Auth.SessionStoreUnavailableExceptionHandler>();
 
         services.AddApiAuth();
 

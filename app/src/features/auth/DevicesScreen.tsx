@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
+import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
-import { type PairDeviceDto, type SessionDto, listSessions, pairDevice, revokeSession } from './api';
+import { type PairDeviceDto, type SessionDto, listSessions, pairDevice, revokeSession, revokeWebSessions } from './api';
 import { getQrRenderer } from './services';
 import { Button, Card, ListRow, Screen, Text } from '@/ui';
 import { spacing } from '@/theme/tokens';
@@ -64,14 +65,26 @@ export function DevicesScreen() {
   const queryClient = useQueryClient();
   const sessions = useQuery({ queryKey: sessionsKey, queryFn: listSessions });
   const [confirming, setConfirming] = useState<SessionDto | null>(null);
+  const [confirmingAll, setConfirmingAll] = useState(false);
   const [pairing, setPairing] = useState<PairDeviceDto | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const revoke = useMutation({
-    mutationFn: (session: SessionDto) => revokeSession(session.id),
+    mutationFn: (session: SessionDto) => revokeSession(session),
     onSuccess: (_data, session) => {
       setConfirming(null);
       if (session.isCurrent) router.replace('/login');
+      else queryClient.invalidateQueries({ queryKey: sessionsKey });
+    },
+    onError: (e) => setMessage(friendlyError(e)),
+  });
+
+  const revokeAll = useMutation({
+    mutationFn: revokeWebSessions,
+    onSuccess: () => {
+      setConfirmingAll(false);
+      // On the web this browser's own session just ended. On the phone only browsers were signed out: stay and refresh.
+      if (isWeb()) router.replace('/login');
       else queryClient.invalidateQueries({ queryKey: sessionsKey });
     },
     onError: (e) => setMessage(friendlyError(e)),
@@ -111,10 +124,26 @@ export function DevicesScreen() {
         </Card>
       ) : null}
 
+      {confirmingAll ? (
+        <Card>
+          <Text variant="heading">Sign out of all browsers?</Text>
+          <Text tone="muted">
+            Every browser you are signed in on, including this one, will be signed out right away. Your phones stay signed in.
+          </Text>
+          <Button label="Sign out all" variant="danger" busy={revokeAll.isPending} onPress={() => revokeAll.mutate()} />
+          <Button label="Cancel" variant="secondary" onPress={() => setConfirmingAll(false)} />
+        </Card>
+      ) : null}
+
       <Card>
         {sessions.isLoading ? <Text tone="muted">Loading...</Text> : null}
         {sessions.isError ? <Text tone="danger">{friendlyError(sessions.error)}</Text> : null}
-        {(sessions.data ?? []).map((s) => (
+        {sessions.data?.failed.map((half) => (
+          <Text key={half} tone="muted" accessibilityRole="alert">
+            {`Couldn't load your ${half}. Try again in a moment.`}
+          </Text>
+        ))}
+        {(sessions.data?.sessions ?? []).map((s) => (
           <ListRow
             key={s.id}
             title={s.isCurrent ? `${s.deviceName} (this device)` : s.deviceName}
@@ -133,6 +162,15 @@ export function DevicesScreen() {
           />
         ))}
       </Card>
+
+      <Button
+        label="Sign out of all browsers"
+        variant="secondary"
+        onPress={() => {
+          setMessage(null);
+          setConfirmingAll(true);
+        }}
+      />
 
       <Button label="Add a device" busy={add.isPending} onPress={() => {
         setMessage(null);

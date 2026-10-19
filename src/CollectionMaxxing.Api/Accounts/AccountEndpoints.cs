@@ -6,6 +6,7 @@ using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Accounts.Devices;
 using CollectionMaxxing.Application.Common;
+using Microsoft.AspNetCore.Authentication;
 
 namespace CollectionMaxxing.Api.Accounts;
 
@@ -57,6 +58,47 @@ public static class AccountEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
+
+        // Signed-in browsers (the web session cookie): listed in Settings next to the phones, and each can be signed out.
+        app.MapGet("/api/v1/me/web-sessions", async (ICurrentUser user, HttpContext http, ListWebSessions.Handler handler, CancellationToken cancellationToken) =>
+                TypedResults.Ok(await handler.HandleAsync(user.UserId!.Value, CurrentSession.WebSessionId(http.User), cancellationToken)))
+            .WithName("ListWebSessions").WithTags("Account")
+            .Produces<Page<SessionDto>>()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .RequireAuthorization();
+
+        app.MapDelete("/api/v1/me/web-sessions/{id:guid}", async (Guid id, ICurrentUser user, HttpContext http, RevokeWebSession.Handler handler, CancellationToken cancellationToken) =>
+            {
+                var result = await handler.HandleAsync(user.UserId!.Value, id, cancellationToken);
+                if (!result.IsSuccess)
+                {
+                    return result.Error!.ToProblem();
+                }
+
+                if (id == CurrentSession.WebSessionId(http.User))
+                {
+                    await http.SignOutAsync(AuthCookie.Scheme); // the browser signed itself out: tell it to forget the cookie
+                }
+
+                return Results.NoContent();
+            })
+            .WithName("RevokeWebSession").WithTags("Account")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireAuthorization();
+
+        // "Sign out everywhere" for the web: every browser of the caller, this one included. Phones are unpaired one by one, above.
+        app.MapDelete("/api/v1/me/web-sessions", async (ICurrentUser user, HttpContext http, RevokeWebSessions.Handler handler, CancellationToken cancellationToken) =>
+            {
+                await handler.HandleAsync(user.UserId!.Value, cancellationToken);
+                await http.SignOutAsync(AuthCookie.Scheme); // this browser's cookie is dead already; tell the browser to forget it
+                return Results.NoContent();
+            })
+            .WithName("RevokeWebSessions").WithTags("Account")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization();
 
         app.MapPost("/api/v1/me/devices/pair", async (ICurrentUser user, CreatePairing.Handler handler, CancellationToken cancellationToken) =>

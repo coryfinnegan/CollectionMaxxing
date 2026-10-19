@@ -276,6 +276,7 @@ public class DeletionHardeningTests(ApiFixture api) : DeletionTest(api)
             services.GetRequiredService<CollectionMaxxing.Application.Common.IAppDbContext>(),
             services.GetRequiredService<IAccountDeactivation>(),
             services.GetRequiredService<CollectionMaxxing.Application.Accounts.Devices.IDeviceAuthorizations>(),
+            services.GetRequiredService<CollectionMaxxing.Application.Accounts.Devices.IWebSessions>(),
             jobs,
             services.GetRequiredService<CollectionMaxxing.Application.Audit.IAuditLog>(),
             services.GetRequiredService<TimeProvider>());

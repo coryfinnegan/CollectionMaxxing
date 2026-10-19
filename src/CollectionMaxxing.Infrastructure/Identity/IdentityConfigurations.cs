@@ -42,6 +42,21 @@ internal sealed class DevicePairingConfiguration : IEntityTypeConfiguration<Devi
     }
 }
 
+internal sealed class WebSessionConfiguration : IEntityTypeConfiguration<WebSession>
+{
+    public void Configure(EntityTypeBuilder<WebSession> builder)
+    {
+        builder.ToTable("web_sessions");
+        builder.HasKey(s => s.Id);
+        builder.Property(s => s.Id).ValueGeneratedNever();
+        builder.Property(s => s.Label).HasMaxLength(WebSession.MaxLabelLength).IsRequired();
+
+        // A user's sessions go with the user. Lookups are by id (every cookie request) and by user (Settings, sign out everywhere).
+        builder.HasOne<AppUser>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(s => s.UserId);
+    }
+}
+
 internal sealed class SetupCodeConfiguration : IEntityTypeConfiguration<SetupCode>
 {
     public void Configure(EntityTypeBuilder<SetupCode> builder)
