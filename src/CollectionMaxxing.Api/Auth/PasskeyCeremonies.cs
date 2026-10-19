@@ -229,7 +229,7 @@ public sealed class PasskeyCeremonies(
     /// <summary><c>POST /account/logout</c>.</summary>
     public static async Task<IResult> LogoutAsync(HttpContext http)
     {
-        await http.SignOutAsync(AuthCookie.Scheme);
+        await AuthCookie.SignOutAsync(http); // revokes the session too, so a copy of the cookie is dead
         return TypedResults.NoContent();
     }
 

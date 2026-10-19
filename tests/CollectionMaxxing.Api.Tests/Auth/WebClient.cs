@@ -27,6 +27,12 @@ public sealed class WebClient(HttpClient http) : IDisposable
 
     public bool HasSessionCookie => _cookies.ContainsKey(SessionCookie);
 
+    /// <summary>The value of the session cookie the browser holds right now, as a thief who copied it would have it.</summary>
+    public string? SessionCookieValue => _cookies.GetValueOrDefault(SessionCookie);
+
+    /// <summary>Puts a session cookie in the jar, as if copied from another browser.</summary>
+    public void UseSessionCookie(string value) => _cookies[SessionCookie] = value;
+
     public Task<HttpResponseMessage> GetAsync(string url) => SendAsync(HttpMethod.Get, url, null);
 
     public Task<HttpResponseMessage> PostAsync(string url, object? body = null, bool csrf = true) => SendAsync(HttpMethod.Post, url, body, csrf);

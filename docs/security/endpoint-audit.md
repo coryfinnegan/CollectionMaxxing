@@ -2,7 +2,7 @@
 
 Made by QA-1a (issue #166), October 2026. It answers one question for every endpoint of the API: who may call it, what happens to everyone else, and is that proven by a test that runs on every pull request.
 
-**Result.** Every endpoint is deny-by-default. Every one declares how it is protected, has a row in the authorization matrix, and is checked against what the matrix expects of each kind of caller. No endpoint was found that answered a caller it should have refused. The audit did find four weaknesses in the token and sign-in code (all fixed, with tests) and one in the web session (filed). See [Findings](#findings).
+**Result.** Every endpoint is deny-by-default. Every one declares how it is protected, has a row in the authorization matrix, and is checked against what the matrix expects of each kind of caller. No endpoint was found that answered a caller it should have refused. The audit did find four weaknesses in the token and sign-in code (all fixed, with tests) and one in the web session (fixed in #177). See [Findings](#findings).
 
 ## How this stays true
 
@@ -94,6 +94,9 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | GET | `/api/v1/me/export/{id:guid}/download` | signed in | any signed-in caller (own data only) | Y | Y | ExportDto, or the caller's own zip |
 | GET | `/api/v1/me/sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | SessionDto: name, times, status. No token or hash |
 | DELETE | `/api/v1/me/sessions/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
+| GET | `/api/v1/me/web-sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | SessionDto: label, times, status. No cookie or session secret |
+| DELETE | `/api/v1/me/web-sessions/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
+| DELETE | `/api/v1/me/web-sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
 | GET | `/api/v1/recognition/config` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | prompt and thresholds (no secrets) |
 | DELETE | `/api/v1/scan-sessions/{id:guid}` | scan-session role | editor and above (in the session's library) | Y | Y | none (204, no body) |
 | GET | `/api/v1/scan-sessions/{id:guid}` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
@@ -153,7 +156,7 @@ The OpenAPI document (`/openapi/{documentName}.json`) is anonymous and exists on
 | F2 | Low | **The token audience was not checked.** A token signed by the server but made for another audience was accepted. | Fixed. Tokens are issued for `collectionmaxxing-api` and validation requires it. `OpenIddictSetup.cs`, `TokenEndpoint.cs` |
 | F3 | Low | **The `api` scope was not enforced** although docs/07 layer 3 says it is. | Fixed. A bearer call without the scope is 401. `CurrentUserMiddleware.cs`, `AuthSetup.IsBearerCall` |
 | F4 | Low | **A form with a NUL character (`%00`) in it made `/connect/token` and `/connect/revoke` answer 500** (an unhandled exception from ASP.NET's form reader) and log a stack trace. | Fixed. 400 problem document. `Problems/MalformedFormExceptionHandler.cs` |
-| F5 | Low to medium | **A copied web session cookie keeps working after sign-out** until the 8-hour idle or 30-day absolute limit. The cookie is a sealed ticket with nothing on the server to revoke. Phones are not affected. | Filed: [#177](https://github.com/coryfinnegan/CollectionMaxxing/issues/177). Needs a `web_sessions` table, so a migration (lead) |
+| F5 | Low to medium | **A copied web session cookie keeps working after sign-out** until the 8-hour idle or 30-day absolute limit. The cookie is a sealed ticket with nothing on the server to revoke. Phones are not affected. | Fixed: [#177](https://github.com/coryfinnegan/CollectionMaxxing/issues/177). The cookie names a `web_sessions` row, checked on every request; sign-out, "sign out everywhere", removing a member and deleting an account revoke it (`Security/WebSessionTests`) |
 | F6 | Info | The audit's routing-table read cannot see the two OpenIddict discovery endpoints. | Documented above and pinned by tests |
 
 ## Accepted risks
