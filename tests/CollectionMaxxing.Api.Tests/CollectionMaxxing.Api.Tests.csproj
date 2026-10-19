@@ -12,4 +12,10 @@
     <PackageReference Include="WireMock.Net" />
   </ItemGroup>
 
+  <ItemGroup Label="Security pins">
+    <!-- Direct references so the patched versions win over the 10.0.11 that test packages pull in (QA-1c, #193). -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+    <PackageReference Include="System.Security.Cryptography.Xml" />
+  </ItemGroup>
+
 </Project>

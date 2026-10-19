@@ -41,6 +41,13 @@ jobs:
       - name: Mutation tooling tests
         if: steps.detect.outputs.present == 'true'
         run: pwsh -NoProfile -File scripts/mutation/tests.ps1
+      # The k6 tooling (QA-2a) and security scan scripts (QA-1c) test themselves with fakes; no load or scan runs here.
+      - name: Perf tooling tests
+        if: steps.detect.outputs.present == 'true'
+        run: pwsh -NoProfile -File scripts/perf/tests.ps1 -SkipDocker
+      - name: Security scan tooling tests
+        if: steps.detect.outputs.present == 'true'
+        run: pwsh -NoProfile -File scripts/security/Run-Tests.ps1
 
   app:
     runs-on: ubuntu-latest

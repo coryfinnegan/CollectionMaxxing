@@ -14,7 +14,7 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
         // Identity and tenancy
         "users", "roles", "user_roles", "user_claims", "role_claims", "user_logins", "user_tokens", "user_passkeys",
         "openiddict_applications", "openiddict_authorizations", "openiddict_scopes", "openiddict_tokens",
-        "device_pairings", "setup_codes", "libraries", "library_members", "library_invites",
+        "device_pairings", "web_sessions", "setup_codes", "libraries", "library_members", "library_invites",
 
         // Catalogue
         "works", "releases", "release_identifiers", "assets", "platforms", "provider_cache", "provider_quota",
@@ -104,6 +104,24 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
 
         columns.ShouldContain("credential_id");
         columns.ShouldContain("user_id");
+    }
+
+    [Fact]
+    public async Task Web_sessions_are_kept_per_user_with_when_they_started_were_last_seen_and_were_revoked()
+    {
+        var nullable = await QueryStringsAsync(
+            "select column_name || ':' || is_nullable from information_schema.columns where table_name = 'web_sessions'");
+        var foreignKeys = await QueryStringsAsync(
+            """
+            select ccu.table_name || '.' || kcu.column_name || ':' || rc.delete_rule
+            from information_schema.referential_constraints rc
+            join information_schema.key_column_usage kcu on kcu.constraint_name = rc.constraint_name
+            join information_schema.constraint_column_usage ccu on ccu.constraint_name = rc.unique_constraint_name
+            where kcu.table_name = 'web_sessions'
+            """);
+
+        nullable.ShouldBe(["id:NO", "user_id:NO", "label:NO", "created_at:NO", "last_seen_at:NO", "revoked_at:YES"], ignoreOrder: true);
+        foreignKeys.ShouldBe(["users.user_id:CASCADE"]);
     }
 
     [Fact]

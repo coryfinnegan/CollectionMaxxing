@@ -26,4 +26,18 @@ describe('token stores', () => {
     await store.clear();
     expect(data.size).toBe(0);
   });
+
+  it('secure store asks the keychain for this-device-only access, so the token never leaves the phone in a backup', async () => {
+    const seen: unknown[] = [];
+    const store = new SecureTokenStore(
+      {
+        getItemAsync: async () => null,
+        setItemAsync: async (_k, _v, options) => void seen.push(options),
+        deleteItemAsync: async () => undefined,
+      },
+      { keychainAccessible: 42 },
+    );
+    await store.save(creds);
+    expect(seen).toEqual([{ keychainAccessible: 42 }]);
+  });
 });

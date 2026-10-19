@@ -205,6 +205,7 @@ public static class IdentifyItems
                 return [];
             }
 
+            using var failFast = CollectionMaxxing.Application.Catalog.Providers.ProviderCalls.FailFast(); // a person is waiting
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(options.ResolveBudget);
             using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));

@@ -13,6 +13,9 @@ public static class PairingServices
         services.AddScoped<RedeemPairing.Handler>();
         services.AddScoped<ListSessions.Handler>();
         services.AddScoped<RevokeSession.Handler>();
+        services.AddScoped<ListWebSessions.Handler>();
+        services.AddScoped<RevokeWebSession.Handler>();
+        services.AddScoped<RevokeWebSessions.Handler>();
         services.AddSingleton<PairingAttemptLimiter>();
         return services;
     }

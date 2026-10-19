@@ -132,6 +132,43 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CollectionMaxxing.Domain.Accounts.WebSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("label");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_web_sessions");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_web_sessions_user_id");
+
+                    b.ToTable("web_sessions", (string)null);
+                });
+
             modelBuilder.Entity("CollectionMaxxing.Domain.Catalog.Asset", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2127,6 +2164,16 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_device_pairings_users_user_id");
+                });
+
+            modelBuilder.Entity("CollectionMaxxing.Domain.Accounts.WebSession", b =>
+                {
+                    b.HasOne("CollectionMaxxing.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_web_sessions_users_user_id");
                 });
 
             modelBuilder.Entity("CollectionMaxxing.Domain.Catalog.Asset", b =>

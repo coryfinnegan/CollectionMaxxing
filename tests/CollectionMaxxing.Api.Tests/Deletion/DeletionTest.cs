@@ -295,6 +295,7 @@ public abstract class DeletionTest(ApiFixture api) : InviteTest(api)
         {
             ["user_passkeys"] = "select count(*) from user_passkeys where user_id = @id",
             ["device_pairings"] = "select count(*) from device_pairings where user_id = @id",
+            ["web_sessions"] = "select count(*) from web_sessions where user_id = @id",
             ["idempotency_keys"] = "select count(*) from idempotency_keys where user_id = @id",
             ["library_members"] = "select count(*) from library_members where user_id = @id",
             ["user_roles"] = "select count(*) from user_roles where user_id = @id",

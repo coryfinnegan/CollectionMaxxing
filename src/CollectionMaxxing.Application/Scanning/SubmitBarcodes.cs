@@ -216,6 +216,7 @@ public static class SubmitBarcodes
                 return results;
             }
 
+            using var failFast = CollectionMaxxing.Application.Catalog.Providers.ProviderCalls.FailFast(); // a person is waiting
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(budget);
             using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));

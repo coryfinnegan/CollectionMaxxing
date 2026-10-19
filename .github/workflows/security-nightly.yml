@@ -1,0 +1,50 @@
+# Nightly security scans (QA-1c, #193): ZAP baseline and authenticated API scan against a throwaway stack built from this
+# commit, a Trivy scan of the API image, and the NuGet/npm dependency audit. The scripts clean up only what they start
+# (Stop-Security.ps1 runs even after a failure). Raw reports stay on the runner: they are not uploaded, because artifacts on a
+# public repo are downloadable by anyone. Accepted findings live in .zap/rules.tsv and scripts/security/accepted-advisories.txt.
+name: security-nightly
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build the web app the scans serve
+        working-directory: app
+        run: |
+          npm ci
+          npm run generate
+          npm run build:web -- --output-dir dist
+      # The scan stack makes its migration script with dotnet-ef, which needs the local tools and one build of the solution.
+      - name: Restore tools and build once
+        run: |
+          dotnet tool restore
+          dotnet restore CollectionMaxxing.slnx --locked-mode
+          dotnet build CollectionMaxxing.slnx --no-restore
+      - name: Tooling tests
+        run: pwsh -NoProfile -File scripts/security/Run-Tests.ps1
+      - name: ZAP baseline
+        run: pwsh -NoProfile -File scripts/security/Run-ZapBaseline.ps1 -WebDist app/dist
+      - name: ZAP API scan
+        run: pwsh -NoProfile -File scripts/security/Run-ZapApi.ps1 -WebDist app/dist
+      - name: Image scan
+        run: pwsh -NoProfile -File scripts/security/Run-ImageScan.ps1
+      - name: Dependency audit
+        run: pwsh -NoProfile -File scripts/security/Run-DependencyAudit.ps1
+      - name: Clean up
+        if: always()
+        run: pwsh -NoProfile -File scripts/security/Stop-Security.ps1

@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Catalog.Providers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
@@ -23,6 +24,11 @@ internal static class ProviderResilienceExtensions
     /// <summary>Adds the standard pipeline: per-attempt timeout, jittered retries honouring Retry-After, circuit breaker.</summary>
     public static IHttpClientBuilder AddProviderResilience(this IHttpClientBuilder builder)
     {
+        // The app gives every HttpClient the standard handler (ServiceDefaults); left in place it wraps this one with default, unconfigured
+        // retries (3, 2 s apart, doubling) that outlast the caller's time budget. A provider client has exactly one pipeline: ours.
+#pragma warning disable EXTEXP0001 // Experimental only in name; it is the supported way to drop the app-wide default.
+        builder.RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
         builder.AddStandardResilienceHandler();
         builder.Services.AddOptions<HttpStandardResilienceOptions>(builder.Name + "-standard")
             .Configure<IOptions<ProviderResilienceOptions>>((options, shared) =>
@@ -36,6 +42,11 @@ internal static class ProviderResilienceExtensions
                 options.Retry.Delay = settings.RetryDelay;
                 options.Retry.UseJitter = true;
                 options.Retry.ShouldRetryAfterHeader = true;
+
+                // Someone is waiting on this answer (a scan or a search): retrying a failure means sleeping through back-off until
+                // their time budget runs out, so a failure ends the call at once. The background job keeps the retries.
+                var transient = options.Retry.ShouldHandle;
+                options.Retry.ShouldHandle = args => ProviderCalls.IsFailFast ? ValueTask.FromResult(false) : transient(args);
             });
         return builder;
     }
