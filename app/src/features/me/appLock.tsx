@@ -4,7 +4,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, type AppStateStatus, View } from 'react-native';
 import { create } from 'zustand';
 import { isWeb } from '@/lib/auth/session';
-import { spacing } from '@/theme/tokens';
+import { spacing, useColors } from '@/theme/tokens';
 import { Button, Text } from '@/ui';
 import { getBiometrics, getSettingsStorage } from './services';
 
@@ -41,6 +41,8 @@ export function AppLockGate({
   const reload = useLockSetting((s) => s.reload);
   const [locked, setLocked] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [covered, setCovered] = useState(false);
+  const colors = useColors();
   const leftAt = useRef<number | null>(null);
 
   const unlock = useCallback(async () => {
@@ -65,6 +67,8 @@ export function AppLockGate({
   useEffect(() => {
     if (!native) return;
     const sub = appState.addEventListener('change', (state) => {
+      // The app switcher snapshots the screen as the app goes inactive: cover it first (works with the lock off too).
+      setCovered(state !== 'active');
       if (state === 'background') leftAt.current = now();
       if (state === 'active' && leftAt.current !== null) {
         const away = now() - leftAt.current;
@@ -75,21 +79,44 @@ export function AppLockGate({
     return () => sub.remove();
   }, [native, enabled, appState, now, lock]);
 
-  if (!native || !locked) return <>{children}</>;
+  if (!native) return <>{children}</>;
+  // One stable tree, so covering and locking never remount the content.
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ display: 'none' }} pointerEvents="none">
+      <View style={locked || covered ? { display: 'none' } : { flex: 1 }} pointerEvents={locked || covered ? 'none' : 'auto'}>
         {children}
       </View>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl }}>
-        <Text variant="heading">CollectionMaxxing is locked</Text>
-        {failed ? (
-          <Text tone="danger" accessibilityRole="alert">
-            Couldn&apos;t unlock. Try Face ID or your passcode again.
-          </Text>
-        ) : null}
-        <Button label="Unlock" onPress={() => void unlock()} />
-      </View>
+      {locked ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl }}>
+          <Text variant="heading">CollectionMaxxing is locked</Text>
+          {failed ? (
+            <Text tone="danger" accessibilityRole="alert">
+              Couldn&apos;t unlock. Try Face ID or your passcode again.
+            </Text>
+          ) : null}
+          <Button label="Unlock" onPress={() => void unlock()} />
+        </View>
+      ) : null}
+      {covered ? (
+        <View
+          testID="snapshot-cover"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.ground,
+          }}
+        >
+          <Text variant="heading">CollectionMaxxing</Text>
+        </View>
+      ) : null}
     </View>
   );
 }

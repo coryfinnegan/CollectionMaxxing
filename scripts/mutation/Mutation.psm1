@@ -194,7 +194,9 @@ function Assert-CleanTree([string]$RepoRoot) {
 }
 
 # Runs the sample. -Runner is called with a mutant (its file already mutated on disk) and returns one of
-# Killed | Survived | Timeout | BuildError. Every touched file is restored in finally, even on Ctrl+C.
+# Killed | Survived | Timeout | BuildError | Error.
+# BuildError: the mutant does not compile (not a mutant). Error: the test run could not start (no restore, no tests ran);
+# it says nothing about the tests, so it is left out of the score and the caller must not trust the sweep. Every touched file is restored in finally, even on Ctrl+C.
 function Invoke-MutationRun {
   [CmdletBinding()]
   param(
@@ -221,7 +223,7 @@ function Invoke-MutationRun {
 
   $originals = @{}   # path -> original bytes of every file we touch
   $result = [pscustomobject]@{
-    Candidates = $pool.Count; Tried = 0; Killed = 0; Survived = 0; Timeout = 0; BuildErrors = 0
+    Candidates = $pool.Count; Tried = 0; Killed = 0; Survived = 0; Timeout = 0; BuildErrors = 0; Errors = 0
     Total = 0; Equivalent = $split.Skipped.Count; Survivors = [System.Collections.Generic.List[object]]::new()
   }
 
@@ -245,10 +247,11 @@ function Invoke-MutationRun {
       $result.Tried++
       switch ([string]$status) {
         'BuildError' { $result.BuildErrors++ }
+        'Error' { $result.Errors++ }
         'Survived' { $result.Survived++; $result.Total++; $result.Survivors.Add($m) }
         'Timeout' { $result.Timeout++; $result.Killed++; $result.Total++ }
         'Killed' { $result.Killed++; $result.Total++ }
-        default { throw "The runner returned '$status' for $($m.File):$($m.Line); expected Killed, Survived, Timeout or BuildError." }
+        default { throw "The runner returned '$status' for $($m.File):$($m.Line); expected Killed, Survived, Timeout, BuildError or Error." }
       }
       if ($OnProgress) { & $OnProgress $result $m $status }
     }
@@ -282,11 +285,43 @@ function Invoke-DotnetTest([string]$TestProject, [int]$TimeoutSeconds, [string]$
   }
   $p.WaitForExit()
   $text = $out.Result + "`n" + $err.Result
-  $status = if ($p.ExitCode -eq 0) { 'Passed' }
-  elseif ($text -match '(?m): error (CS|MSB|NETSDK|NU)\d+') { 'BuildError' }
-  else { 'Failed' }
-  [pscustomobject]@{ Status = $status; Seconds = [int][math]::Ceiling($timer.Elapsed.TotalSeconds); Output = $text }
+  [pscustomobject]@{ Status = (Get-TestRunStatus $p.ExitCode $text); Seconds = [int][math]::Ceiling($timer.Elapsed.TotalSeconds); Output = $text }
+}
+
+# Reads a finished `dotnet test` run: Passed | Failed | NoTests | BuildError | Error.
+#  Passed     exit 0 and a "Passed!" summary with at least one test.
+#  Failed     the summary says "Failed!", or the run reports failing tests.
+#  NoTests    the test host ran but the filter matched nothing.
+#  BuildError a C# compile error: the mutant is not valid code, so it is not a mutant.
+#  Error      anything else that stopped the tests from running (no restore, MSBuild/SDK/NuGet error, a crash, or no
+#             output at all: a fresh worktree makes `dotnet test --no-restore` exit 0 silently). Never "survived".
+function Get-TestRunStatus([int]$ExitCode, [string]$Text) {
+  if ($Text -match '(?m)^\s*Failed!\s') { return 'Failed' }
+  $m = [regex]::Match($Text, '(?m)^\s*Passed!\s.*?Total:\s*(\d+)')
+  if ($ExitCode -eq 0 -and $m.Success) { if ([int]$m.Groups[1].Value -gt 0) { return 'Passed' } else { return 'NoTests' } }
+  if ($Text -match '(?m): error CS\d+') { return 'BuildError' }
+  if ($ExitCode -eq 0 -and $Text -match '(?m)^Test run for ') { return 'NoTests' }
+  'Error'
+}
+
+# One answer from several test projects run for the same mutant.
+function Merge-TestStatuses([string[]]$Statuses) {
+  foreach ($wanted in 'Failed', 'Error', 'BuildError', 'Timeout') { if ($Statuses -contains $wanted) { return $wanted } }
+  if ($Statuses -contains 'Passed') { return 'Passed' }
+  'Error'
+}
+
+# The test filter that keeps a run short for a source file: every folder between the project and the file becomes a
+# namespace segment of the tests that cover it (Application/Accounts/Deletion/X.cs -> .Accounts. or .Deletion.), plus the
+# aliases listed for the top folder in tests/mutation/test-areas.json (tests of a feature that live under another name,
+# e.g. Jobs -> Admin). A file outside any feature folder gets no filter (all tests run).
+function Get-FeatureFilter([string]$File, [string]$Project, $Aliases = @{}) {
+  $m = [regex]::Match(($File -replace '\\', '/'), "^src/CollectionMaxxing\.$Project/(.+)/[^/]+$")
+  if (-not $m.Success) { return '' }
+  $segments = @($m.Groups[1].Value -split '/')
+  $extra = if ($Aliases -and $Aliases.ContainsKey($segments[0])) { @($Aliases[$segments[0]]) } else { @() }
+  (@($segments + $extra | Select-Object -Unique) | ForEach-Object { "FullyQualifiedName~.$_." }) -join '|'
 }
 
 Export-ModuleMember -Function Get-CodeMask, Get-LineMutants, Select-Sample, Split-Equivalents, Format-Score,
-  Assert-CleanTree, Invoke-MutationRun, Invoke-DotnetTest
+  Assert-CleanTree, Invoke-MutationRun, Invoke-DotnetTest, Get-TestRunStatus, Merge-TestStatuses, Get-FeatureFilter

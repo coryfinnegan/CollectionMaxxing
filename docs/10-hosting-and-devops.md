@@ -55,7 +55,7 @@ flowchart TB
 
 | Service | Image / tool | Notes |
 |---|---|---|
-| `api` | our .NET 10 image (chiseled, non-root), published to GitHub Container Registry (public, with build attestations) | Listens on `127.0.0.1:5480` only (SABnzbd already holds 8080; the port is set in `.env`); Tailscale Serve is the only way in. Serves the web app from `wwwroot`. Background jobs (UPC pending queue, exports) run in-process. |
+| `api` | our .NET 10 image (chiseled, non-root), published to GitHub Container Registry (public, with build attestations) | Listens on `127.0.0.1:5480` only (SABnzbd already holds 8080; the port is set in `.env`); Tailscale Serve is the only way in. Serves the web app from `wwwroot` at the site root (`/`), so the tailnet URL opens the library. Background jobs (UPC pending queue, exports) run in-process. |
 | `migrate` | EF Core migration bundle | A one-shot container; `api` starts only after it succeeds |
 | `postgres` | `postgres:17` | Not published to the host at all; only `api`, `migrate` and `backup` can reach it on the compose network. `pg_trgm` is enabled by a migration. |
 | `files` | Docker volume | Replaces cloud blob storage (`IBlobStore` → file-system implementation) |

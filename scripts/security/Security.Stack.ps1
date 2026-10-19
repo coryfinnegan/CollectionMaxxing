@@ -88,6 +88,7 @@ function Start-SecStack {
     Assert-OutsideRepo $secrets
     New-SelfSignedPfx (Join-Path $secrets 'openiddict-signing.pfx') 'cm-sec signing'
     New-SelfSignedPfx (Join-Path $secrets 'openiddict-encryption.pfx') 'cm-sec encryption'
+    Open-SecFolderForContainer $secrets 'the API'   # the API writes setup-code.txt here
 
     $r = Invoke-Sec docker (@('network', 'create') + (Get-LabelArgs) + @($net))
     if ($r.ExitCode -ne 0) { Stop-SecFailure "Could not create the network: $($r.Output -join ' ')" }
