@@ -32,7 +32,8 @@ $ErrorActionPreference = 'Stop'
 
 # The live places the drill refuses unless -ConfirmLive is given: the install folder and the backup folder in .env.
 $liveBackupDir = ''
-$envFile = Join-Path $Root '.env'
+# Plain concatenation: Join-Path throws on Linux for the Windows-style default root (there is no drive 'C').
+$envFile = $Root.TrimEnd('\', '/') + '/.env'
 if (Test-Path -LiteralPath $envFile) {
     $line = Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^\s*CM_BACKUP_DIR\s*=' } | Select-Object -Last 1
     if ($line) { $liveBackupDir = ($line -replace '^\s*CM_BACKUP_DIR\s*=\s*', '').Trim().Trim('"').Trim("'") }
