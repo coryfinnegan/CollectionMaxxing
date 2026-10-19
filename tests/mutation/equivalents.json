@@ -14,5 +14,6 @@
   { "file": "src/CollectionMaxxing.Domain/Identifiers/Gs1CheckDigit.cs", "line": 31, "operator": "arith", "reason": "Length + 1 - i and Length - 1 - i differ by 2, so only their parity is used and it is the same" },
   { "file": "src/CollectionMaxxing.Domain/Identifiers/Isbn10.cs", "line": 37, "operator": "bool", "reason": "internal; both callers check the length is 10 before calling, so the early return is never reached" },
   { "file": "src/CollectionMaxxing.Domain/Identifiers/Isbn13.cs", "line": 61, "operator": "rel",  "reason": "internal; callers only pass 13 digit texts, so the length guard on a 3 digit text is never reached" },
-  { "file": "src/CollectionMaxxing.Domain/Identifiers/Isbn13.cs", "line": 61, "operator": "offbyone", "reason": "internal; callers only pass 13 digit texts, so the length guard on a 3 or 4 digit text is never reached" }
+  { "file": "src/CollectionMaxxing.Domain/Identifiers/Isbn13.cs", "line": 61, "operator": "offbyone", "reason": "internal; callers only pass 13 digit texts, so the length guard on a 3 or 4 digit text is never reached" },
+  { "file": "src/CollectionMaxxing.Application/Jobs/JobRetryPolicy.cs", "line": 29, "operator": "rel", "reason": "when delay equals MaxDelay both forms return MaxDelay, so > and >= give the same value for every input" }
 ]
