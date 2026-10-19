@@ -245,6 +245,38 @@ Test-Case 'The bearer token reaches ZAP through the environment, never a command
     Assert-True ($baselineCreate.Env.Count -eq 0) 'the baseline scan carries no token'
 }
 
+Test-Case 'On Linux the report folder is opened for the ZAP user before the container is created; on Windows nothing is changed' {
+    foreach ($unix in $true, $false) {
+        $global:Calls.Clear()
+        $global:SecIsUnix = $unix
+        Use-Recorder { param($c, $a) if ($a[0] -eq 'inspect') { [pscustomobject]@{ ExitCode = 0; Output = @('false 0') } } else { [pscustomobject]@{ ExitCode = 0; Output = @() } } }
+        $reports = Join-Path ([IO.Path]::GetTempPath()) "cm-sec-test-$([guid]::NewGuid().ToString('N'))"
+        try { Invoke-ZapScan -Kind baseline -RunId 'r6' -Network 'n' -Target 'http://api:5480' -Threads 2 -MaxMinutes 10 -ReportDir $reports | Out-Null }
+        finally { $global:SecIsUnix = $null; Remove-Item -LiteralPath $reports -Recurse -Force -ErrorAction SilentlyContinue }
+        $order = @($global:Calls | ForEach-Object { $_.Command + ' ' + $_.Arguments[0] })
+        $chmod = @($global:Calls | Where-Object { $_.Command -eq 'chmod' })
+        if ($unix) {
+            Assert-Equal 1 $chmod.Count 'chmod calls on unix'
+            Assert-Equal '0777' $chmod[0].Arguments[0]
+            Assert-Equal $reports $chmod[0].Arguments[1]
+            Assert-True ($order.IndexOf('chmod 0777') -lt $order.IndexOf('docker create')) 'chmod must come before docker create'
+        }
+        else { Assert-Equal 0 $chmod.Count 'no chmod on Windows' }
+    }
+}
+
+Test-Case 'ZAP exit 2 (warnings) with a report fails the run; exit 0 passes; exit 2 without a report points at the folder permissions' {
+    $counts = [ordered]@{ High = 0; Medium = 0; Low = 1; Informational = 0 }
+    $warn = [pscustomobject]@{ ExitCode = 2; TimedOut = $false; Counts = $counts; Names = @('10096 Timestamp Disclosure - Unix [Low]'); ReportFound = $true; Summary = @() }
+    $pass = [pscustomobject]@{ ExitCode = 0; TimedOut = $false; Counts = $counts; Names = @(); ReportFound = $true; Summary = @() }
+    $none = [pscustomobject]@{ ExitCode = 2; TimedOut = $false; Counts = $counts; Names = @(); ReportFound = $false; Summary = @() }
+    Assert-True (-not (Write-ZapResult baseline $warn 'x' 6>$null)) 'exit 2 with unexplained warnings fails'
+    Assert-True (Write-ZapResult baseline $pass 'x' 6>$null) 'exit 0 passes'
+    Assert-True (-not (Write-ZapResult baseline $none 'x' 6>$null)) 'no report fails'
+    $text = (Write-ZapResult baseline $none 'x' 6>&1 | Out-String)
+    Assert-True ($text -match 'not writable') 'the message points at the folder permissions'
+}
+
 Test-Case 'A scan that runs past the cap is stopped and reported as partial' {
     Use-Recorder { param($c, $a) if ($a[0] -eq 'inspect') { [pscustomobject]@{ ExitCode = 0; Output = @('true 0') } } else { [pscustomobject]@{ ExitCode = 0; Output = @() } } }
     $global:SecSleep = { param($s) Start-Sleep -Milliseconds 400 }

@@ -24,6 +24,11 @@ function Get-ZapCounts {
             switch ([int]$a.riskcode) { 3 { $counts.High++ } 2 { $counts.Medium++ } 1 { $counts.Low++ } default { $counts.Informational++ } }
             $level = ($a.riskdesc -replace ' \(.*', '')
             $names.Add("$($a.pluginid) $($a.name) [$level]")
+            # Where it was found (first three; evidence cut short) so a new alert can be triaged from the log alone.
+            foreach ($i in @($a.instances | Select-Object -First 3)) {
+                $evidence = "$($i.evidence)"; if ($evidence.Length -gt 60) { $evidence = $evidence.Substring(0, 60) }
+                $names.Add("  at $($i.uri) $evidence")
+            }
         }
     }
     [pscustomobject]@{ Counts = $counts; Names = @($names | Select-Object -Unique); Found = $true }
@@ -51,6 +56,12 @@ function New-ScanSpec {
     $spec | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $Destination
 }
 
+function Test-SecUnixHost {
+    <# True on Linux and macOS (tests set $global:SecIsUnix to choose). #>
+    if ($null -ne $global:SecIsUnix) { return [bool]$global:SecIsUnix }
+    -not $IsWindows
+}
+
 function Invoke-ZapScan {
     param(
         [ValidateSet('baseline', 'api')][string]$Kind, [string]$RunId, [string]$Network, [string]$Target,
@@ -59,6 +70,14 @@ function Invoke-ZapScan {
     $name = "$($script:NamePrefix)-zap-$Kind-$RunId"
     $rules = Join-Path $script:RepoRoot '.zap/rules.tsv'
     New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
+    # On Linux the container's user (zap, uid 1000) is not the user who made this folder (the runner, another uid), and a bind
+    # mount keeps the host's owner and mode, so ZAP could not write report.json. Docker Desktop on Windows/macOS hides this.
+    # Opening the mode of this per-run temp folder (nothing secret in it; the token goes by environment) fixes it without --user,
+    # which would leave ZAP with no writable home. Not done on Windows, where chmod does not exist and is not needed.
+    if (Test-SecUnixHost) {
+        $r = Invoke-Sec chmod @('0777', $ReportDir)
+        if ($r.ExitCode -ne 0) { Stop-SecFailure "Could not make the report folder writable for ZAP: $($r.Output -join ' ')" }
+    }
     $createEnv = @{}
     $envArgs = @()
     if ($Token) { $createEnv['CM_ZAP_TOKEN'] = $Token; $envArgs = @('-e', 'CM_ZAP_TOKEN') }
@@ -124,7 +143,7 @@ function Invoke-ZapRun {
 function Write-ZapResult {
     param([string]$Kind, $Result, [string]$ReportDir)
     foreach ($line in $Result.Summary) { Write-Sec "      zap: $line" }
-    if (-not $Result.ReportFound) { Write-Sec "FAIL zap $Kind produced no report (exit $($Result.ExitCode)); see $ReportDir"; return $false }
+    if (-not $Result.ReportFound) { Write-Sec "FAIL zap $Kind produced no report (exit $($Result.ExitCode)); see $ReportDir. Exit 2 only means warnings, so the report folder was probably not writable for ZAP."; return $false }
     Write-Tally "zap $Kind alerts by level" @{ High = $Result.Counts.High; Medium = $Result.Counts.Medium; Low = $Result.Counts.Low; Informational = $Result.Counts.Informational }
     foreach ($n in $Result.Names) { Write-Sec "      alert $n" }
     if ($Result.TimedOut) { Write-Sec "      the wall-clock cap stopped the scan early; the report is partial" }
