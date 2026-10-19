@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Linking } from 'react-native';
 import { AboutScreen } from './AboutScreen';
 import { ATTRIBUTIONS } from './attributions';
+import * as buildInfo from './buildInfo';
 import { PRIVACY_NOTE } from './privacyNote';
 
 jest.mock('expo-constants', () => ({
@@ -13,6 +14,12 @@ describe('About', () => {
   it('shows the app version and build', async () => {
     await render(<AboutScreen />);
     expect(screen.getByText('Version 1.2.3 (build 45)')).toBeTruthy();
+  });
+
+  it('shows which build is running, so a deploy can be confirmed from the phone', async () => {
+    jest.spyOn(buildInfo, 'buildLine').mockReturnValue('Build 559f42c from Oct 19, 2026');
+    await render(<AboutScreen />);
+    expect(screen.getByText('Build 559f42c from Oct 19, 2026')).toBeTruthy();
   });
 
   it('shows the privacy note', async () => {

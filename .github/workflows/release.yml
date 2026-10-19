@@ -63,6 +63,9 @@ jobs:
         run: |
           npm ci
           npm run generate # the API client is gitignored
+          # About shows "Build <sha> from <date>", so the owner can see a deploy landed (Expo inlines EXPO_PUBLIC_*).
+          export EXPO_PUBLIC_BUILD_SHA="$GITHUB_SHA"
+          export EXPO_PUBLIC_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           npx expo export --platform web --output-dir dist
           echo "dist=app/dist" >> "$GITHUB_OUTPUT"
 
