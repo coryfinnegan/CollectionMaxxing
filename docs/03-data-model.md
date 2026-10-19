@@ -50,6 +50,7 @@ erDiagram
 | `libraries` | `id`, `name`, `created_at` | Created for the owner at setup. Invited family members join it instead of getting an empty one of their own. |
 | `library_members` | `library_id`, `user_id`, `role` (`owner`/`editor`/`viewer`), `joined_at` | PK (`library_id`, `user_id`). Exactly one owner per library. |
 | `library_invites` | `id`, `library_id`, `role` (`editor`/`viewer`), `name` (who it's for), `token_hash`, `created_by`, `expires_at` (7 days), `accepted_by`, `accepted_at`, `revoked_at` | Single use, revocable; only the hash of the token is stored |
+| `web_sessions` | `id`, `user_id`, `label`, `created_at`, `last_seen_at`, `revoked_at` | One row per signed-in browser. The session cookie names its row; a revoked row stops the cookie working. `label` comes from a fixed list (for example "Edge on Windows"), never the raw User-Agent |
 
 ### Catalogue (shared)
 

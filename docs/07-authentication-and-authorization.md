@@ -104,6 +104,7 @@ sequenceDiagram
 
 - **Unpair (iPhone):** revoke the refresh token (`/connect/revoke`), clear the Keychain, and return to the pairing screen.
 - **Signed-in devices and browsers:** listed in Settings, and each can be revoked.
+- **Web sessions:** sign-out, "sign out everywhere", member removal and account deletion revoke the server-side `web_sessions` rows, so a copied cookie stops working.
 - **Delete account:** needs a fresh passkey assertion. It revokes all devices and sessions. The user is soft-deleted immediately (can't sign in) and their data is purged within 30 days. Audit entries are anonymised.
 
 ## Authorization model
