@@ -114,6 +114,19 @@ function Invoke-Cm {
     Invoke-CmReal -Command $Command -Arguments $Arguments -Env $Env
 }
 
+function Use-CmPortableTools {
+    <#
+      Puts a portable gh in <Root>\tools\gh\bin first on this process's PATH, if it is there. `gh attestation` needs gh
+      2.49+, and a machine-wide gh can only be upgraded with admin rights. The machine and user PATH are not touched.
+    #>
+    param([Parameter(Mandatory)][string]$Root)
+    $bin = [IO.Path]::Combine($Root, 'tools', 'gh', 'bin')   # not Join-Path: a C:\ root throws on Linux
+    if (-not (Test-Path -LiteralPath $bin -PathType Container)) { return }
+    $sep = [IO.Path]::PathSeparator
+    $rest = @($env:PATH -split [regex]::Escape($sep) | Where-Object { $_ -and $_ -ne $bin })
+    $env:PATH = (@($bin) + $rest) -join $sep
+}
+
 function Start-CmSleep {
     param([int]$Seconds)
     if ($global:CmSleep) { & $global:CmSleep $Seconds } else { Start-Sleep -Seconds $Seconds }

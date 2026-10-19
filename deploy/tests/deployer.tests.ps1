@@ -309,3 +309,28 @@ Test-Case 'config guard: the deployer refuses a bad config before pulling or cha
     Assert-Equal 0 (Get-Calls 'docker' '*pull*').Count
     Assert-Equal 0 (Get-MutatingCalls).Count
 }
+
+Test-Case 'deployer: a portable gh under <Root>/tools/gh/bin goes first on this process PATH, once' {
+    $root = New-TestRoot
+    $saved = $env:PATH
+    try {
+        $bin = [IO.Path]::Combine($root, 'tools', 'gh', 'bin')
+        New-Item -ItemType Directory -Force -Path $bin | Out-Null
+        Use-CmPortableTools -Root $root
+        Use-CmPortableTools -Root $root
+        $parts = @($env:PATH -split [regex]::Escape([IO.Path]::PathSeparator))
+        Assert-Equal $bin $parts[0] 'the portable gh wins over a machine-wide one'
+        Assert-Equal 1 @($parts | Where-Object { $_ -eq $bin }).Count 'added only once'
+    }
+    finally { $env:PATH = $saved; Remove-TestRoot $root }
+}
+
+Test-Case 'deployer: without a portable gh the PATH is left alone' {
+    $root = New-TestRoot
+    $saved = $env:PATH
+    try {
+        Use-CmPortableTools -Root $root
+        Assert-Equal $saved $env:PATH
+    }
+    finally { $env:PATH = $saved; Remove-TestRoot $root }
+}
