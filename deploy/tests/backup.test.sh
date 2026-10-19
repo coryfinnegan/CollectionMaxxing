@@ -35,7 +35,7 @@ psql() {
   [[ "$FAKE_PSQL_FAIL" == 1 ]] && return 2
   local sql="$*"
   if [[ "$sql" == *information_schema* ]]; then printf '%s\n' "$FAKE_COUNTS"
-  elif [[ "$sql" == *MigrationId* ]]; then echo "20261013153821_InitialCreate"
+  elif [[ "$sql" == *migration_id* ]]; then echo "20261013153821_InitialCreate"
   else echo "unexpected psql call: $sql" >&2; return 3
   fi
 }

@@ -54,7 +54,8 @@ done
 dsql >/dev/null <<'SQL'
 create table items (id int primary key, title text not null);
 create table users (id int primary key, name text not null);
-create table "__EFMigrationsHistory" ("MigrationId" varchar(150) primary key, "ProductVersion" varchar(32) not null);
+-- Same shape as production: EFCore.NamingConventions snake_cases the history columns too.
+create table "__EFMigrationsHistory" (migration_id varchar(150) primary key, product_version varchar(32) not null);
 insert into items values (1, 'first'), (2, 'second'), (3, 'third');
 insert into users values (1, 'owner');
 insert into "__EFMigrationsHistory" values ('20261013153821_InitialCreate', '10.0.0'), ('20261014090000_AddThings', '10.0.0');
