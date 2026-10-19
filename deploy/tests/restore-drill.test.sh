@@ -31,9 +31,9 @@ tmp="$(mktemp -d)"
 src="cm-ops1-test-src-$$-$RANDOM"
 cleanup() {
   # Only containers this script created, by exact name or by our own test prefix.
-  docker rm -f "$src" >/dev/null 2>&1
+  docker rm -fv "$src" >/dev/null 2>&1
   for c in $(docker ps -a --filter "name=cm-ops1-test-drill-$$" --format '{{.Names}}' 2>/dev/null); do
-    case "$c" in cm-ops1-test-drill-"$$"-*) docker rm -f "$c" >/dev/null 2>&1 ;; esac
+    case "$c" in cm-ops1-test-drill-"$$"-*) docker rm -fv "$c" >/dev/null 2>&1 ;; esac
   done
   rm -rf "$tmp"
 }

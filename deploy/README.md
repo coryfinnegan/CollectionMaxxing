@@ -10,6 +10,7 @@ Everything here was written and tested **without touching the real machine**. Ev
 | `deployer/` | `Deploy-CollectionMaxxing.ps1` (the deployer), `Install-Deployer.ps1` / `Uninstall-Deployer.ps1` (the scheduled task), `Sync-Ipa.ps1`, `New-Secrets.ps1`, shared `Cm.*.ps1` |
 | `tailscale/` | `Set-TailscaleServe.ps1` |
 | `backup/` | The backup image: `Dockerfile.backup`, `backup.sh`, `backup-lib.sh` (dump, files archive, manifest, retention, heartbeat) |
+| `runbooks/`, `drills/` | Short "what do I do when..." runbooks (start at `runbooks/README.md`) and the restore drill log template |
 | `RESTORE.md` | The runbook for the restore drill (twice a year) and for a real restore. The drill itself is `scripts/restore-drill.ps1` / `scripts/restore-drill.sh` |
 | `docker/` | `Dockerfile.api`, `Dockerfile.migrate` |
 | `proposed/release.yml` | The CI workflow that builds and signs the images (the lead copies it to `.github/workflows/`) |
