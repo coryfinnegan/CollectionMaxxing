@@ -1,5 +1,6 @@
 using CollectionMaxxing.Api.Accounts;
 using CollectionMaxxing.Api.Admin;
+using CollectionMaxxing.Api.AppDownload;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Catalog;
 using CollectionMaxxing.Api.Evals;
@@ -45,6 +46,7 @@ builder.Services.AddRecognition();
 builder.Services.AddCatalog();
 builder.Services.AddAdmin();
 builder.Services.AddEvals();
+builder.Services.AddAppDownload();
 
 var app = builder.Build();
 
@@ -70,6 +72,7 @@ app.MapRecognition();
 app.MapCatalogEndpoints();
 app.MapAdminEndpoints();
 app.MapEvals();
+app.MapAppDownloadEndpoints();
 
 // `dotnet run --project src/CollectionMaxxing.Api -- --recovery-code` prints a one-time recovery code and exits instead of serving.
 if (await app.TryRunAdminCommandAsync(args))

@@ -8,6 +8,7 @@ import { friendlyError } from '@/lib/problem';
 import { Button, Card, ListRow, Screen, Text } from '@/ui';
 import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { EvalsRow } from '@/features/evals/EvalsRow';
+import { GetIphoneAppRow } from './GetIphoneAppRow';
 import { useLockSetting } from './appLock';
 import { clearLocalData } from './localData';
 import { getBiometrics, getVision } from './services';
@@ -133,6 +134,7 @@ export function SettingsScreen() {
   return (
     <Screen title="Settings" subtitle={isWeb() ? 'Preferences for this browser.' : 'Recognition and security on this iPhone.'}>
       {isWeb() ? null : <RecognitionSection />}
+      {isWeb() ? <Card><GetIphoneAppRow /></Card> : null}
       <SecuritySection />
       <Card><ListRow title="About and privacy" onPress={() => router.push('/about')} trailing={<Text tone="muted">›</Text>} /></Card>
     </Screen>
