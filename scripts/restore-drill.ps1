@@ -7,7 +7,12 @@
   This is a thin wrapper: the logic lives in restore-drill.sh (so it is one thing to test), which needs bash (Git for
   Windows has it) and a running Docker. The drill starts one container with no network, no ports and no volumes,
   named cm-drill-*, and removes it afterwards. It never reads or writes the live database or its volume.
-  Exit codes: 0 PASS, 1 FAIL, 2 the drill could not run.
+  Exit codes: 0 PASS, 1 FAIL, 2 the drill could not run, 3 refused: the path is the live install or the nightly backup
+  folder and -ConfirmLive was not given.
+
+.PARAMETER ConfirmLive
+  The owner's confirmation that the path is the real thing (C:\CollectionMaxxing or the CM_BACKUP_DIR from .env). Without
+  it the drill refuses such a path (exit 3). It is still read-only. Rehearse on a copy in a temp folder instead.
 
 .PARAMETER Path
   A backup folder (the one that holds db\ and files\), or one .dump file. Default: CM_BACKUP_DIR from <Root>\.env,
@@ -20,17 +25,21 @@
 [CmdletBinding()]
 param(
     [string]$Path = '',
-    [string]$Root = 'C:\CollectionMaxxing'
+    [string]$Root = 'C:\CollectionMaxxing',
+    [switch]$ConfirmLive
 )
 $ErrorActionPreference = 'Stop'
 
-if (-not $Path) {
-    $envFile = Join-Path $Root '.env'
-    if (Test-Path -LiteralPath $envFile) {
-        $line = Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^\s*CM_BACKUP_DIR\s*=' } | Select-Object -Last 1
-        if ($line) { $Path = ($line -replace '^\s*CM_BACKUP_DIR\s*=\s*', '').Trim().Trim('"').Trim("'") }
-    }
+# The live places the drill refuses unless -ConfirmLive is given: the install folder and the backup folder in .env.
+$liveBackupDir = ''
+# Plain concatenation: Join-Path throws on Linux for the Windows-style default root (there is no drive 'C').
+$envFile = $Root.TrimEnd('\', '/') + '/.env'
+if (Test-Path -LiteralPath $envFile) {
+    $line = Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^\s*CM_BACKUP_DIR\s*=' } | Select-Object -Last 1
+    if ($line) { $liveBackupDir = ($line -replace '^\s*CM_BACKUP_DIR\s*=\s*', '').Trim().Trim('"').Trim("'") }
 }
+$env:CM_LIVE_PATHS = (@($Root, $liveBackupDir) | Where-Object { $_ }) -join ';'
+if (-not $Path) { $Path = $liveBackupDir }
 if (-not $Path) {
     Write-Host "restore drill: give -Path <backup folder or .dump>, or set CM_BACKUP_DIR in $Root\.env"
     exit 2
@@ -54,5 +63,7 @@ if (-not $bash) {
     exit 2
 }
 $script = (Join-Path $PSScriptRoot 'restore-drill.sh') -replace '\\', '/'
-& $bash $script ($Path -replace '\\', '/')
+$drillArgs = @($Path -replace '\\', '/')
+if ($ConfirmLive) { $drillArgs = @('--confirm-live') + $drillArgs }
+& $bash $script @drillArgs
 exit $LASTEXITCODE
