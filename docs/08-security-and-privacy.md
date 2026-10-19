@@ -131,7 +131,7 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
 
 - **Sideloaded build:** signed with your free Apple ID's personal certificate via AltStore, so Developer Mode is on for this iPhone. Only install builds from your own GitHub Actions artifacts.
 - **Face ID app lock** (LocalAuthentication) guards the paired session if someone picks up your unlocked phone.
-- **Known gap (QA-1c finding M3):** the Face ID app lock and the blur overlay below are planned but not built yet.
+- **Known gap (QA-1c finding M3):** the app-switcher cover is not built yet, so iOS's snapshot of the app can show the library. The Face ID app lock itself is built and on by default (Face ID at launch and after 5 minutes in the background; content hidden while locked).
 
 - Tokens are stored in the Keychain only (`expo-secure-store`, this-device-only accessibility); nothing sensitive goes in MMKV or AsyncStorage.
 - No secrets in the bundle. All third-party calls are proxied by our API.
