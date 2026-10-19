@@ -21,7 +21,9 @@ $doApply = $Apply.IsPresent -and -not $WhatIfPreference
 Initialize-Cm -Apply $doApply
 $deployScript = Join-Path $PSScriptRoot 'Deploy-CollectionMaxxing.ps1'
 $pwsh = Join-Path $PSHOME 'pwsh.exe'
-$action = "`"$pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$deployScript`" -Root `"$Root`" -Apply"
+# conhost --headless: the task runs in the signed-in session (gh keeps its token in that user's keyring), and without
+# it a console window would flash on screen every 2 minutes.
+$action = "conhost.exe --headless `"$pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$deployScript`" -Root `"$Root`" -Apply"
 $create = @('/Create', '/TN', $TaskName, '/SC', 'MINUTE', '/MO', '2', '/TR', $action, '/RL', 'LIMITED')
 
 $exists = Invoke-Cm -Command 'schtasks' -Arguments @('/Query', '/TN', $TaskName)

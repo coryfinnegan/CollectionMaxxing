@@ -103,7 +103,7 @@ pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Install-Deployer
 pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Install-Deployer.ps1 -Apply
 schtasks /Query /TN CollectionMaxxingDeployer
 ```
-The only thing it registers is `schtasks /Create /TN CollectionMaxxingDeployer /SC MINUTE /MO 2 /TR "pwsh ... Deploy-CollectionMaxxing.ps1 -Root C:\CollectionMaxxing -Apply" /RL LIMITED`: a user-level task, no admin, no SYSTEM account. It runs while you are signed in, like Docker Desktop. Runs never overlap (a second one exits at once). It refuses to replace an existing task of that name.
+The only thing it registers is `schtasks /Create /TN CollectionMaxxingDeployer /SC MINUTE /MO 2 /TR "conhost.exe --headless pwsh ... Deploy-CollectionMaxxing.ps1 -Root C:\CollectionMaxxing -Apply" /RL LIMITED`: a user-level task, no admin, no SYSTEM account. It runs while you are signed in, like Docker Desktop. `conhost --headless` keeps a console window from flashing up every 2 minutes. Runs never overlap (a second one exits at once). It refuses to replace an existing task of that name.
 **Undo:** `pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Uninstall-Deployer.ps1 -Apply` (or `schtasks /Delete /TN CollectionMaxxingDeployer /F`).
 
 ### 8. Check the first backup

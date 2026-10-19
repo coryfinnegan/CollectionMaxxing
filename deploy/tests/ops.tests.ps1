@@ -139,6 +139,19 @@ Test-Case 'install: without -Apply it prints the exact schtasks command and regi
     finally { Remove-TestRoot $root }
 }
 
+Test-Case 'install: the task starts pwsh through conhost --headless, so no console window flashes every 2 minutes' {
+    Set-FakeSchtasks
+    $root = New-TestRoot
+    try {
+        & $script:InstallScript -Root $root -Apply 6>$null
+        $args_ = @((Get-MutatingCalls)[0].Arguments)
+        $tr = $args_[[array]::IndexOf($args_, '/TR') + 1]
+        Assert-Match $tr '^conhost\.exe --headless "[^"]*pwsh(\.exe)?" -NoProfile '
+        Assert-Match $tr 'Deploy-CollectionMaxxing\.ps1" -Root "[^"]+" -Apply$'
+    }
+    finally { Remove-TestRoot $root }
+}
+
 Test-Case 'install: -WhatIf is a dry run even with -Apply' {
     Set-FakeSchtasks
     $root = New-TestRoot
