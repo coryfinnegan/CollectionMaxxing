@@ -48,7 +48,9 @@ export const mockAccount: {
   libraryHasMembers: boolean;
   deleted: boolean;
   revoked: string[];
-} = { bin: seedBin(), exportOutcome: 'ready', exportPolls: 0, exportStarts: 0, libraryHasMembers: false, deleted: false, revoked: [] };
+  /** The synced iPhone app (OPS-4); null until the deployer has synced one. */
+  ipa: { sizeBytes: number; modifiedAt: string; sha256: string | null } | null;
+} = { bin: seedBin(), exportOutcome: 'ready', exportPolls: 0, exportStarts: 0, libraryHasMembers: false, deleted: false, revoked: [], ipa: null };
 
 export function resetMockAccount() {
   mockAccount.bin = seedBin();
@@ -58,11 +60,16 @@ export function resetMockAccount() {
   mockAccount.libraryHasMembers = false;
   mockAccount.deleted = false;
   mockAccount.revoked = [];
+  mockAccount.ipa = null;
 }
 
 const JOB_ID = 'f6666666-0000-4000-8000-000000000001';
 
 export const handlers = [
+  http.get('*/api/v1/app/ipa/info', () =>
+    mockAccount.ipa ? HttpResponse.json(mockAccount.ipa) : problem(404, 'Not found', { detail: "The iPhone app isn't here yet. It appears after the next release." }),
+  ),
+
   http.get('*/api/v1/me/export', () => {
     mockAccount.exportStarts++;
     mockAccount.exportPolls = 0;
