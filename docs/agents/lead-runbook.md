@@ -65,6 +65,17 @@ Prompt skeleton:
 - **Windows Firewall prompts** come from any test server that listens beyond loopback. Each worktree builds its own `*.Tests.exe`, so the owner gets one prompt per worktree. Main is loopback-only (`LoopbackWireMock`, guarded by `TestServerBindingTests`), but an older branch isn't: merge `origin/main` into a branch before any agent runs tests on it. `Get-NetFirewallApplicationFilter` (no admin needed) shows which worktree exes prompted.
 - **Local-only flakes under load:** with 3–4 agents testing at once, a few timing-bound backend tests (`UpcQuotaTests`, `ScanLearningTests`) can fail once and pass on re-run (#136). Tell builders up front, so they don't chase them.
 
+## Lessons from Wave 4
+
+- **Do lead PRs in a scratch worktree** (`git worktree add -B lead/<slug> .claude/worktrees/lead-scratch origin/main`), never by switching the lead session's own branch. An agent can end up working in the lead's worktree; a branch switch there broke its run and caused a git index-lock error.
+- **Check what CI can't see before merging:**
+  - `npx expo config --type introspect` after any `app.config.ts` change. Expo's config loader can't import another `.ts` file from `app.config.ts`, and `npm run check` doesn't load the config.
+  - The real web export against the enforced CSP: the inline-script hash test.
+  - Fallback routes vs middleware-served paths: `/.well-known` for OpenIddict.
+- **Scripts run on Linux CI too:** `Join-Path` with a `C:\` root throws "Cannot find drive" on Linux, and containers running as another uid can't write runner-created bind mounts (`chmod a+rwX` the per-run folders).
+- **Verifiers earn their keep on lockout paths:** rate limits that counted token refreshes, and a client that treated a 429 as "revoked", would have un-paired the owner's phone. Brief verifiers to try to lock the owner out.
+- **Builders under load:** tell every builder which local-only flakes to ignore, and give tests a real-time budget that can't expire under multi-agent load (`ResolveBudget` 2 minutes in test hosts; no hosted `JobWorker` in test apps).
+
 ## When the session limit hits
 
 - In-process agents stop with their work saved. In the **same** lead session, resume each with `SendMessage` ("the limit has reset; continue from …") rather than starting a new agent.
