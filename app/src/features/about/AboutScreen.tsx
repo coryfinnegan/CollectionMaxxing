@@ -32,6 +32,7 @@ export function AboutScreen() {
             accessibilityRole="link"
             accessibilityLabel={`${a.name}: ${a.url}`}
             onPress={() => void Linking.openURL(a.url)}
+            style={{ minHeight: 44, justifyContent: 'center' }}
           >
             <Text>{a.notice}</Text>
             <Text variant="caption" tone="muted">{a.url}</Text>

@@ -20,7 +20,10 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.md,
+        // Crowded trailing controls drop under the text instead of squeezing it into a sliver.
+        flexWrap: 'wrap',
+        columnGap: spacing.md,
+        rowGap: spacing.sm,
         minHeight: 48,
         paddingVertical: spacing.sm,
         paddingLeft: depth * spacing.xl,
@@ -28,7 +31,7 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
         borderBottomColor: colors.line,
       }}
     >
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 160 }}>
         <Text>{title}</Text>
         {subtitle ? (
           <Text variant="caption" tone="muted">
