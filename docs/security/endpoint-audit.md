@@ -112,6 +112,9 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | GET | `/health/ready` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
 | GET | `/join/{token}` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
 | GET | `/media/covers/{assetId:guid}` | signed in | any signed-in caller (own data only) | Y | Y | image bytes, nosniff, private caching for library covers |
+| GET | `/api/v1/app/ipa` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; the path is fixed, never from the request) | the .ipa bytes, attachment, no-store |
+| HEAD | `/api/v1/app/ipa` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; the path is fixed, never from the request) | size and date headers only, no body |
+| GET | `/api/v1/app/ipa/info` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; the path is fixed, never from the request) | IpaInfoDto (size, date, SHA-256), no-store |
 | GET | `/openapi/{documentName}.json` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
 | GET | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
 | POST | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
