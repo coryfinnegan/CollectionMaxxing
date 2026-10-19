@@ -34,6 +34,26 @@ function Invoke-Sec {
     finally { foreach ($key in $Env.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key]) } }
 }
 
+function Test-SecUnixHost {
+    <# True on Linux and macOS (tests set $global:SecIsUnix to choose). #>
+    if ($null -ne $global:SecIsUnix) { return [bool]$global:SecIsUnix }
+    -not $IsWindows
+}
+
+function Open-SecFolderForContainer {
+    <#
+      A folder bind-mounted into a container keeps the host's owner and mode. On Linux the container's user (ZAP's zap, uid 1000;
+      the API's app user) is not the user who made the folder (the runner, another uid), so it could not write into it: no
+      report.json, no setup-code.txt. Docker Desktop on Windows/macOS hides this. These are per-run temp folders holding only
+      throwaway material, so opening the mode (not --user, which would leave ZAP without a writable home) is enough.
+      Not done on Windows, where chmod does not exist and is not needed.
+    #>
+    param([string]$Path, [string]$For)
+    if (-not (Test-SecUnixHost)) { return }
+    $r = Invoke-Sec chmod @('-R', 'a+rwX', $Path)
+    if ($r.ExitCode -ne 0) { Stop-SecFailure "Could not make the folder writable for $For ($Path): $($r.Output -join ' ')" }
+}
+
 function Write-Sec { param([string]$Message) Write-Host $Message }
 
 function Stop-SecFailure {
