@@ -257,9 +257,33 @@ Test-Case 'On Linux the report folder is opened for the ZAP user before the cont
         $chmod = @($global:Calls | Where-Object { $_.Command -eq 'chmod' })
         if ($unix) {
             Assert-Equal 1 $chmod.Count 'chmod calls on unix'
-            Assert-Equal '0777' $chmod[0].Arguments[0]
-            Assert-Equal $reports $chmod[0].Arguments[1]
-            Assert-True ($order.IndexOf('chmod 0777') -lt $order.IndexOf('docker create')) 'chmod must come before docker create'
+            Assert-Equal 'a+rwX' $chmod[0].Arguments[1]
+            Assert-Equal $reports $chmod[0].Arguments[2]
+            Assert-True ($order.IndexOf('chmod -R') -lt $order.IndexOf('docker create')) 'chmod must come before docker create'
+        }
+        else { Assert-Equal 0 $chmod.Count 'no chmod on Windows' }
+    }
+}
+
+Test-Case 'On Linux the API secrets folder is opened for the API user (it writes the setup code there); on Windows nothing is changed' {
+    foreach ($unix in $true, $false) {
+        $global:Calls.Clear()
+        $global:SecIsUnix = $unix
+        $dir = Join-Path ([IO.Path]::GetTempPath()) "cm-sec-test-$([guid]::NewGuid().ToString('N'))"
+        Use-Recorder {
+            param($c, $a)
+            if ($c -eq 'dotnet') { Set-Content -LiteralPath $a[$a.IndexOf('--output') + 1] -Value 'select 1;' }
+            if ($a[0] -eq 'port') { return [pscustomobject]@{ ExitCode = 0; Output = @('127.0.0.1:49321') } }
+            [pscustomobject]@{ ExitCode = 0; Output = @() }
+        }
+        try { try { Start-SecStack -RunId 'r4' -Port 0 -ApiImage 'cm-sec-api:r4' -WorkDir $dir -ReadyAttempts 1 | Out-Null } catch { if ($_.Exception.Message -notmatch 'did not become ready') { throw } } }
+        finally { $global:SecIsUnix = $null; Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+        $order = @($global:Calls | ForEach-Object { $_.Command + ' ' + $_.Arguments[0] })
+        $chmod = @($global:Calls | Where-Object { $_.Command -eq 'chmod' })
+        if ($unix) {
+            Assert-Equal 1 $chmod.Count 'chmod calls on unix'
+            Assert-True ($chmod[0].Arguments[2] -like '*secrets') 'the secrets folder'
+            Assert-True ($order.IndexOf('chmod -R') -lt $order.IndexOf('docker run')) 'chmod must come before the API starts'
         }
         else { Assert-Equal 0 $chmod.Count 'no chmod on Windows' }
     }
