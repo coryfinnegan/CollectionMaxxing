@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Linking, Pressable } from 'react-native';
 import { Card, Screen, Text } from '@/ui';
 import { ATTRIBUTIONS } from './attributions';
+import { buildLine } from './buildInfo';
 import { PRIVACY_NOTE } from './privacyNote';
 
 function versionLine(): string {
@@ -12,11 +13,13 @@ function versionLine(): string {
 }
 
 export function AboutScreen() {
+  const build = buildLine();
   return (
     <Screen title="About" subtitle="Version, privacy and credits.">
       <Card>
         <Text variant="heading">CollectionMaxxing</Text>
         <Text>{versionLine()}</Text>
+        {build ? <Text tone="muted">{build}</Text> : null}
       </Card>
       <Card>
         <Text variant="heading">Privacy</Text>
