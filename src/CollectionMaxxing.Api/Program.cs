@@ -1,6 +1,6 @@
 using CollectionMaxxing.Api.Accounts;
-using CollectionMaxxing.Api.AppDownload;
 using CollectionMaxxing.Api.Admin;
+using CollectionMaxxing.Api.AppDownload;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Catalog;
 using CollectionMaxxing.Api.Evals;

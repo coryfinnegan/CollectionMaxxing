@@ -1,6 +1,5 @@
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.AppDownload;
-using CollectionMaxxing.Infrastructure.AppDownload;
 
 namespace CollectionMaxxing.Api.AppDownload;
 
@@ -10,14 +9,6 @@ namespace CollectionMaxxing.Api.AppDownload;
 /// </summary>
 public static class AppDownloadEndpoints
 {
-    public static IServiceCollection AddAppDownload(this IServiceCollection services)
-    {
-        services.AddIpaStorage();
-        services.AddScoped<GetIpaInfo.Handler>();
-        services.AddScoped<OpenIpa.Handler>();
-        return services;
-    }
-
     public static IEndpointRouteBuilder MapAppDownloadEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/v1/app/ipa/info", (HttpContext http, GetIpaInfo.Handler handler) =>
