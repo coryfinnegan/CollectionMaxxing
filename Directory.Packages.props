@@ -3,6 +3,13 @@
   <!-- Central Package Management: every package version lives here, nowhere else.
        Microsoft.AspNetCore.* / EF Core stay on 10.0.11 to match the installed .NET 10 runtime. -->
 
+  <!-- Security pins (QA-1c, #193): Api.Tests and Architecture.Tests pulled 10.0.11 of these transitively (NU1902/NU1903).
+       They reference them directly instead of turning on transitive pinning, which would also move shipping projects' versions. -->
+  <ItemGroup Label="Security pins">
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.13" />
+  </ItemGroup>
+
   <ItemGroup Label="Data">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />

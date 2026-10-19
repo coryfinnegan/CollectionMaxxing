@@ -149,6 +149,8 @@ function Get-PerfPlan {
     Providers__UpcItemDb__RequestsPerSecond = '1000'
     Providers__UpcItemDb__DailyLimit = '1000000'
     Providers__OpenLibrary__RequestsPerSecond = '1000'
+    # Without a contact address Open Library is held to one call a second whatever its rate says; with the fake address the lifted rate applies.
+    Providers__OpenLibrary__ContactEmail = 'perf@example.test'
     # The seed signs everyone up from one address, which the sign-in limits (10 a minute, 30 an hour per address) would refuse.
     # Only these two are widened; the limits the scanners live under (default, search, barcodes, identify) are the shipped ones.
     Auth__RateLimit__PermitLimit = '10000'
