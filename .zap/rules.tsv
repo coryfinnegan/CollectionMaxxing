@@ -20,3 +20,7 @@
 10104	IGNORE	User Agent Fuzzer
 # Reason: the pages the spider reaches without signing in are 401 answers and the sign-in shell, and those are meant not to be cached (Cache-Control no-store); every signed-in answer is private by design.
 10049	IGNORE	Non-Storable Content
+# Reason: the three numbers ZAP flags in the web bundle (1518500249, 1604231423, 1687547391) are constants inside third-party code, not times (1518500249 is the SHA-1 round constant); no server data carries a timestamp here.
+10096	IGNORE	Timestamp Disclosure - Unix
+# Reason: the single eval( is in a third-party dependency of the Expo web bundle (the app's own source has none); the CSP has no unsafe-eval, so the browser blocks it if it ever ran, and nothing user-controlled reaches it.
+10110	IGNORE	Dangerous JS Functions
