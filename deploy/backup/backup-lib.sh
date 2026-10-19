@@ -90,7 +90,7 @@ cm_table_counts() {
 # cm_schema_version: prints the newest EF Core migration id applied to the database.
 cm_schema_version() {
   local v
-  v="$(psql -X -A -t -v ON_ERROR_STOP=1 -c 'select "MigrationId" from "__EFMigrationsHistory" order by "MigrationId" desc limit 1')" || return 1
+  v="$(psql -X -A -t -v ON_ERROR_STOP=1 -c 'select migration_id from "__EFMigrationsHistory" order by migration_id desc limit 1')" || return 1
   [[ "$v" =~ ^[A-Za-z0-9_]+$ ]] || return 1
   printf '%s\n' "$v"
 }

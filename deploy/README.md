@@ -21,7 +21,7 @@ Ports: the API is `127.0.0.1:5480` and the Aspire dashboard `127.0.0.1:18888`. P
 ## Before you start (nothing here changes anything)
 
 - [ ] **Docker Desktop** is updated (24.0.7 is from 2023) and set to start when you sign in. Windows: Settings > Accounts > Sign-in options > "Use my sign-in info to automatically finish setting up after an update".
-- [ ] **GitHub CLI** is version 2.49 or newer (the first with `gh attestation verify`). Check with `gh --version`; update with `winget upgrade GitHub.cli`.
+- [ ] **GitHub CLI** is version 2.49 or newer (the first with `gh attestation verify`). Check with `gh --version`; update with `winget upgrade GitHub.cli` (needs admin), or, without admin, unzip the official `gh_<version>_windows_amd64.zip` from [cli/cli releases](https://github.com/cli/cli/releases) to `C:\CollectionMaxxing\tools\gh`. The deployer puts `tools\gh\bin` first on its own PATH when it is there.
 - [ ] **`gh auth status`** says you are logged in (the attestation check needs a token; read-only is enough). If not, run `gh auth login` yourself.
 - [ ] **PowerShell 7**: `pwsh --version` prints 7.x.
 - [ ] **Tailscale** is signed in: `tailscale status`.

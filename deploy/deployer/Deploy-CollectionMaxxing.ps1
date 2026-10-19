@@ -48,6 +48,7 @@ $ErrorActionPreference = 'Stop'
 
 $doApply = $Apply.IsPresent -and -not $WhatIfPreference
 Initialize-Cm -Apply $doApply
+Use-CmPortableTools -Root $Root
 $ctx = New-CmContext -Root $Root -ComposeFile $ComposeFile -EnvFile $EnvFile -Repo $Repo -SmokeRetries $SmokeRetries -SmokeDelaySeconds $SmokeDelaySeconds
 $result = Invoke-CmDeploy -Ctx $ctx -RollbackTo $RollbackTo
 exit $result.ExitCode

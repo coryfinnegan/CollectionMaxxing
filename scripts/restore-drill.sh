@@ -182,7 +182,7 @@ fi
 rm -f "${TMPDIR:-/tmp}/cm-drill-restore.$$.err"
 
 # ---- step 3: migrations check -----------------------------------------------------------------------------------------------
-got_schema="$(dsql -c 'select "MigrationId" from "__EFMigrationsHistory" order by "MigrationId" desc limit 1' 2>/dev/null | head -n 1 | tr -d '\r')"
+got_schema="$(dsql -c 'select migration_id from "__EFMigrationsHistory" order by migration_id desc limit 1' 2>/dev/null | head -n 1 | tr -d '\r')"
 if [[ -z "$got_schema" ]]; then
   fail "migrations: the restored database has no migration history"
 elif [[ "$got_schema" == "$want_schema" ]]; then
