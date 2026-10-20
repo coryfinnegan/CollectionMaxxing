@@ -24,14 +24,26 @@ function Get-CmIpaCopyScript {
     $parts -join '; '
 }
 
+function Get-CmLatestReleaseTag {
+    <# One read-only `gh release view`: the tag of the latest release, or $null when it cannot be read or is not a safe argument for `gh`. #>
+    param($Ctx)
+    $r = Invoke-Cm -Command 'gh' -Arguments @('release', 'view', '--repo', $Ctx.Repo, '--json', 'tagName', '--jq', '.tagName')
+    $tag = if ($r.ExitCode -eq 0) { @($r.Output | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) | Select-Object -First 1 } else { $null }
+    if ($tag -and $tag -match $script:CmReleaseTagPattern) { $tag } else { $null }
+}
+
 function Invoke-CmIpaSync {
     <#
       Returns @{ Outcome; ExitCode }. Outcomes: dry-run, no-release, no-checksum, checksum-mismatch, up-to-date, synced, copy-failed.
       A checksum problem leaves the file that is already served exactly as it was.
       The release tag becomes ipa/version.json ({"version":"1.0.2","sha256":"..."}): the iPhone app compares it with its own version.
+      The deployer state remembers the release it last synced (ipa.tag) and, after a sync that did not work, the attempt
+      (ipaAttempt: tag, outcome, time) so a quiet run can tell a new problem from one it has already reported.
+      -Release names a tag the caller has already read (no second `gh release view`); -Quiet logs nothing for a failure (a silent retry).
     #>
-    param($Ctx, [string]$Tag = '')
+    param($Ctx, [string]$Tag = '', [string]$Release = '', [switch]$Quiet)
     function Result($outcome, $code) { [pscustomobject]@{ Outcome = $outcome; ExitCode = $code } }
+    $log = { param($message, $level = 'INFO') if (-not $Quiet) { Write-CmLog $message $level } }
 
     $state = Read-CmState -Path $Ctx.StateFile
     if (-not $Tag -and $state['current']) { $Tag = $state['current']['sha'] }
@@ -58,13 +70,19 @@ function Invoke-CmIpaSync {
     }
 
     # Name the release once, then download exactly that one, so a release made in between cannot give us a version and an .ipa from two different ones.
-    $viewed = Invoke-Cm -Command 'gh' -Arguments $view
-    $release = if ($viewed.ExitCode -eq 0) { @($viewed.Output | ForEach-Object { "$_".Trim() } | Where-Object { $_ }) | Select-Object -First 1 } else { $null }
+    $release = if ($Release) { $Release } else { Get-CmLatestReleaseTag -Ctx $Ctx }
     if (-not $release -or $release -notmatch $script:CmReleaseTagPattern) {
-        Write-CmLog 'could not read a usable tag from the latest release; nothing copied' 'INFO'
+        & $log 'could not read a usable tag from the latest release; nothing copied'
         return Result 'no-release' 0
     }
     $version = if ($release -match $script:CmVersionPattern) { $Matches[1] } else { $null }
+    # A sync that did not work is remembered per tag; a good one forgets it.
+    $failed = {
+        param($outcome, $code)
+        $state['ipaAttempt'] = @{ tag = $release; outcome = $outcome; at = [DateTime]::UtcNow.ToString('o') }
+        Write-CmState -Path $Ctx.StateFile -State $state
+        Result $outcome $code
+    }
 
     # Only ever clean the staging folder inside our own root.
     $rootFull = [IO.Path]::GetFullPath($Ctx.Root)
@@ -76,22 +94,30 @@ function Invoke-CmIpaSync {
     $dl = Invoke-Cm -Mutating -Command 'gh' -Arguments (& $downloadArgs $release)
     $ipa = @(Get-ChildItem -LiteralPath $stageFull -Filter '*.ipa' -File -ErrorAction SilentlyContinue | Sort-Object Name) | Select-Object -Last 1
     if ($dl.ExitCode -ne 0 -or -not $ipa) {
-        Write-CmLog 'no .ipa found on the latest release; nothing copied' 'INFO'
-        return Result 'no-release' 0
+        & $log "no .ipa found on release $release yet; nothing copied, will look again"
+        return (& $failed 'no-release' 0)
     }
     $sumFile = @(Get-ChildItem -LiteralPath $stageFull -Filter '*.sha256' -File -ErrorAction SilentlyContinue) | Select-Object -First 1
     $expected = if ($sumFile) { ([regex]::Match((Get-Content -LiteralPath $sumFile.FullName -Raw), '(?i)\b[0-9a-f]{64}\b')).Value.ToLowerInvariant() } else { '' }
     if (-not $expected) {
-        Write-CmLog "release has no usable SHA-256 file for $($ipa.Name); keeping the current .ipa" 'ERROR'
-        return Result 'no-checksum' 1
+        & $log "release $release has no usable SHA-256 file for $($ipa.Name); keeping the current .ipa" 'ERROR'
+        return (& $failed 'no-checksum' 1)
     }
     $actual = (Get-FileHash -LiteralPath $ipa.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $expected) {
-        Write-CmLog "checksum mismatch for $($ipa.Name); keeping the current .ipa" 'ERROR'
-        return Result 'checksum-mismatch' 1
+        & $log "checksum mismatch for $($ipa.Name) from release $release; keeping the current .ipa" 'ERROR'
+        return (& $failed 'checksum-mismatch' 1)
     }
     # Up to date only when the same file is already there under the same version; the first sync after this feature shipped has no version yet.
-    if ($state['ipa'] -and $state['ipa']['sha256'] -eq $actual -and $state['ipa']['version'] -eq $version) { return Result 'up-to-date' 0 }
+    if ($state['ipa'] -and $state['ipa']['sha256'] -eq $actual -and $state['ipa']['version'] -eq $version) {
+        # Nothing to copy, but remember this release so a quiet run does not download it again.
+        if ("$($state['ipa']['tag'])" -ne $release -or $state.ContainsKey('ipaAttempt')) {
+            $state['ipa']['tag'] = $release
+            $state.Remove('ipaAttempt')
+            Write-CmState -Path $Ctx.StateFile -State $state
+        }
+        return Result 'up-to-date' 0
+    }
 
     # The helper reads fixed names, so nothing from the release asset name reaches a shell.
     Copy-Item -LiteralPath $ipa.FullName -Destination (Join-Path $stageFull 'app.ipa') -Force
@@ -103,13 +129,48 @@ function Invoke-CmIpaSync {
     }
     $r = Invoke-Cm -Mutating -Command 'docker' -Arguments (& $copyArgs ([bool]$version))
     if ($r.ExitCode -ne 0) {
-        Write-CmLog 'copying the .ipa into the files volume failed; the previous one is unchanged' 'ERROR'
-        return Result 'copy-failed' 1
+        & $log 'copying the .ipa into the files volume failed; the previous one is unchanged' 'ERROR'
+        return (& $failed 'copy-failed' 1)
     }
-    $recorded = @{ sha256 = $actual; file = $ipa.Name; syncedAt = [DateTime]::UtcNow.ToString('o') }
+    $recorded = @{ sha256 = $actual; file = $ipa.Name; syncedAt = [DateTime]::UtcNow.ToString('o'); tag = $release }
     if ($version) { $recorded['version'] = $version }
     $state['ipa'] = $recorded
+    $state.Remove('ipaAttempt')
     Write-CmState -Path $Ctx.StateFile -State $state
     Write-CmLog "synced $($ipa.Name)$(if ($version) { " (version $version)" }) into the files volume under ipa/"
     Result 'synced' 0
+}
+
+function Invoke-CmIpaCatchUp {
+    <#
+      For a run with nothing to deploy: sync the .ipa when the latest release is one this server has not synced yet. A
+      release is published by the iOS build some time after the commit's images were deployed, so waiting for the next
+      deploy would leave the previous .ipa (and version) served for days. Costs one `gh release view` per run.
+      Returns @{ Outcome; ExitCode; Detail } with Outcome none (nothing to do, or nothing to report), ipa-synced, or
+      ipa-failed (exit 5). A failed attempt is reported once per release tag: the same tag is looked at again after
+      IpaRetryMinutes, silently, so a transient problem heals itself without a new alert every two minutes. A release
+      that has no .ipa yet is not a failure (it is logged once and looked at again later).
+    #>
+    param($Ctx)
+    function Answer($outcome, $code, $detail = '') { [pscustomobject]@{ Outcome = $outcome; ExitCode = $code; Detail = $detail } }
+
+    $release = Get-CmLatestReleaseTag -Ctx $Ctx
+    if (-not $release) { return Answer 'none' 0 }   # GitHub unreachable or nothing published: say nothing, ask again next run
+    $state = Read-CmState -Path $Ctx.StateFile
+    if ($state['ipa'] -and "$($state['ipa']['tag'])" -eq $release) { return Answer 'none' 0 }
+
+    $prior = $state['ipaAttempt']
+    $retry = [bool]($prior -and "$($prior['tag'])" -eq $release)
+    if ($retry) {
+        $at = try { ConvertTo-CmUtc $prior['at'] } catch { $null }
+        if ($at -and ([DateTime]::UtcNow - $at).TotalMinutes -lt $Ctx.IpaRetryMinutes) { return Answer 'none' 0 }
+    }
+
+    $sync = Invoke-CmIpaSync -Ctx $Ctx -Release $release -Quiet:$retry
+    if ($sync.ExitCode -ne 0) {
+        if ($retry) { return Answer 'none' 0 }   # already reported for this tag
+        return Answer 'ipa-failed' 5 "release ${release}: $($sync.Outcome)"
+    }
+    if ($sync.Outcome -eq 'synced') { return Answer 'ipa-synced' 0 }
+    Answer 'none' 0
 }

@@ -91,6 +91,11 @@ function New-FakeMachine {
         FetchFails              make `git fetch` fail
         AlertFails              make the failure-alert ping fail
         RunningServices         container ids that `compose ps -q --status running` lists (default: none)
+        CopyFails               make the .ipa copy into the files volume (`docker run --rm`) fail
+        NoIpaAsset              the latest release has no .ipa yet: `gh release download` finds nothing and exits 1
+        RepoDirty               the deployer's clone has uncommitted changes to tracked files (`git status` lists one)
+        RepoBranch              the branch the clone is on (default main; $null = a detached HEAD)
+        MergeFails              make `git merge --ff-only` fail (the clone has diverged)
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -100,6 +105,7 @@ function New-FakeMachine {
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
     $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
+    $m.CopyFails = $false; $m.NoIpaAsset = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     $global:CmMachine = $m
     $global:CmRunner = {
@@ -130,6 +136,7 @@ function New-FakeMachine {
                 if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
                 if ($line -match '^run --rm') {
                     # The .ipa copy: remember what the deployer staged for the helper container (it is deleted with the test root).
+                    if ($m.CopyFails) { return & $fail }
                     $mount = @($Arguments | Where-Object { "$_" -like '*:/in:ro' }) | Select-Object -First 1
                     if ($mount) {
                         $versionFile = Join-Path $mount.Substring(0, $mount.Length - ':/in:ro'.Length) 'app.version.json'
@@ -153,6 +160,7 @@ function New-FakeMachine {
                 if ($line -match '^release download') {
                     $dir = $Arguments[[array]::IndexOf($Arguments, '--dir') + 1]
                     New-Item -ItemType Directory -Force -Path $dir | Out-Null
+                    if ($m.NoIpaAsset) { return & $fail }
                     [IO.File]::WriteAllBytes((Join-Path $dir 'CollectionMaxxing-unsigned.ipa'), $m.IpaBytes)
                     if ($null -ne $m.IpaSha256) {
                         $hash = if ($m.IpaSha256 -eq 'auto') { (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dir 'CollectionMaxxing-unsigned.ipa')).Hash.ToLower() } else { $m.IpaSha256 }
@@ -176,6 +184,9 @@ function New-FakeMachine {
                         $x = $a[2]; $y = $a[3]
                         if ($x -eq $y -or @($m.Graph[$y]) -contains $x) { return & $ok } else { return & $fail 1 }
                     }
+                    'status' { if ($m.RepoDirty) { return & $ok @(' M deploy/deployer/Cm.Ipa.ps1') } return & $ok }
+                    'symbolic-ref' { if ($null -eq $m.RepoBranch) { return & $fail 1 } return & $ok @($m.RepoBranch) }
+                    'merge' { if ($m.MergeFails) { return & $fail 128 } return & $ok }
                     default { return & $ok }
                 }
             }

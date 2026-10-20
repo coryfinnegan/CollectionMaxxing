@@ -25,6 +25,7 @@ function New-CmContext {
         LockFile          = Join-Path $Root 'state/deployer.lock'
         LogFile           = Join-Path $Root 'logs/deployer.log'
         StageDir          = Join-Path $Root 'state/ipa-stage'
+        IpaRetryMinutes   = 15   # how long a release whose .ipa sync did not work waits before the next silent try
         SmokeRetries      = $SmokeRetries
         SmokeDelaySeconds = $SmokeDelaySeconds
         SmokeUrl          = 'http://127.0.0.1:5480/health/ready'
@@ -117,7 +118,11 @@ function Get-CmPlan {
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services)) @{ CM_TAG = $tag }
     $plan += Format-CmCommand 'curl' @('-s', '-m', '5', '-w', '%{http_code}', $Ctx.SmokeUrl)
     $plan += '(if the smoke test fails: the same up -d with CM_TAG=<previous good sha>)'
+    $plan += '(then, if the clone is clean and on main, it is fast-forwarded to the deployed commit so the deployer scripts on disk match the running build)'
+    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'merge', '--ff-only', $tag)
     $plan += '(then: Sync-Ipa.ps1 copies the newest .ipa from the latest GitHub release into the files volume)'
+    $plan += '(a run with nothing to deploy still reads the latest release tag, and runs that same sync when the tag is new)'
+    $plan += Format-CmCommand 'gh' @('release', 'view', '--repo', $Ctx.Repo, '--json', 'tagName', '--jq', '.tagName')
     $plan += '(any refusal, failure or rollback exits non-zero, writes an ALERT line to the log and pings <CM_HEARTBEAT_URL>/fail)'
     $plan
 }
@@ -160,6 +165,55 @@ function Update-CmRepo {
     param($Ctx)
     $r = Invoke-Cm -Mutating -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'fetch', '--quiet', 'origin', 'main')
     $r.ExitCode -eq 0
+}
+
+function Update-CmRepoToDeployed {
+    <#
+      After a good deploy of Sha: fast-forward the deployer's clone to it, so the scripts the next run loads (and the
+      compose file) are the ones from the build that is now running. The images were just attested as built from this
+      commit on main, and the clone only ever moves along main. It never resets, checks out, cleans or forces: a clone with
+      local changes, off main, or that cannot fast-forward is left exactly as it is, with a WARN (not an alert).
+      Returns $true when the clone is at Sha afterwards.
+    #>
+    param($Ctx, [string]$Sha)
+    $repo = $Ctx.RepoDir
+    $short = if ($Sha.Length -ge 12) { $Sha.Substring(0, 12) } else { $Sha }
+    if ($Sha -cnotmatch '^[0-9a-f]{40}$') { Write-CmLog "not moving the clone at ${repo}: '$Sha' is not a full commit hash" 'WARN'; return $false }
+    $status = Invoke-Cm -Command 'git' -Arguments @('-C', $repo, 'status', '--porcelain', '--untracked-files=no')
+    if ($status.ExitCode -ne 0) { Write-CmLog "could not read the state of the clone at $repo, so it was not moved to $short" 'WARN'; return $false }
+    if (@($status.Output | Where-Object { "$_".Trim() }).Count -gt 0) {
+        Write-CmLog "the clone at $repo has local changes, so it was not moved to $short; the deployer scripts there may be older than the running build" 'WARN'
+        return $false
+    }
+    $branch = Invoke-Cm -Command 'git' -Arguments @('-C', $repo, 'symbolic-ref', '--quiet', '--short', 'HEAD')
+    if ($branch.ExitCode -ne 0 -or (@($branch.Output) -join '').Trim() -ne 'main') {
+        Write-CmLog "the clone at $repo is not on main, so it was not moved to $short" 'WARN'
+        return $false
+    }
+    $merge = Invoke-Cm -Mutating -Command 'git' -Arguments @('-C', $repo, 'merge', '--ff-only', $Sha)
+    if ($merge.ExitCode -ne 0) {
+        Write-CmLog "the clone at $repo could not be fast-forwarded to $short (it has diverged, or the commit was not fetched); left as it is" 'WARN'
+        return $false
+    }
+    Write-CmLog "moved the clone at $repo to $short, so the deployer scripts match the running build"
+    $true
+}
+
+function Complete-CmQuietRun {
+    <# A run with nothing to deploy: still sync the .ipa when the latest release is new. Never turns a quiet run into a crash or an alert storm. #>
+    param($Ctx, [string]$Outcome)
+    try { $ipa = Invoke-CmIpaCatchUp -Ctx $Ctx }
+    catch {
+        Write-CmLog "could not check the latest release for a new .ipa: $($_.Exception.Message)" 'WARN'
+        return New-CmResult $Outcome 0
+    }
+    if ($ipa.Outcome -eq 'ipa-failed') {
+        $message = ".ipa sync failed on a run with nothing to deploy ($($ipa.Detail)); the previous .ipa is still served. This is reported once per release; it is tried again quietly"
+        Write-CmLog $message 'ERROR'
+        return New-CmResult 'ipa-failed' 5 $message
+    }
+    if ($ipa.Outcome -eq 'ipa-synced') { return New-CmResult 'ipa-synced' 0 }
+    New-CmResult $Outcome 0
 }
 
 function Test-CmAncestry {
@@ -291,12 +345,12 @@ function Invoke-CmDeploy {
       One deployer run. Returns @{ Outcome; ExitCode; Reason }. Without -RollbackTo it is the normal poll; with it, the
       explicit rollback path (the only way to go back to an older commit).
       Outcomes and exit codes:
-        0  dry-run, busy, up-to-date, known-bad, deployed, manual-rollback
+        0  dry-run, busy, up-to-date, known-bad, deployed, manual-rollback, ipa-synced (nothing to deploy, but a new release's .ipa was synced)
         1  migrate-failed, rolled-back, failed, rollback-failed, crashed
         2  config-error
         3  no-docker
         4  refused, downgrade-refused, rollback-refused
-        5  ipa-failed
+        5  ipa-failed (after a good deploy, or the first failed sync of a new release on a run with nothing to deploy)
       Every non-zero outcome of a real (-Apply) run is logged as ALERT and pinged to <CM_HEARTBEAT_URL>/fail.
     #>
     param($Ctx, [string]$RollbackTo = '')
@@ -368,10 +422,10 @@ function Invoke-CmDeployCore {
         }
         $sha = $api.Revision
 
-        if ($current -and $current['sha'] -eq $sha) { return New-CmResult 'up-to-date' 0 }
+        if ($current -and $current['sha'] -eq $sha) { return Complete-CmQuietRun -Ctx $Ctx -Outcome 'up-to-date' }
         if ($state['failedSha'] -eq $sha) {
             Write-CmLog "image $($sha.Substring(0, 12)) already failed here; waiting for a newer one" 'INFO'
-            return New-CmResult 'known-bad' 0
+            return Complete-CmQuietRun -Ctx $Ctx -Outcome 'known-bad'
         }
 
         # 2. Never go backwards: the new commit must descend from the deployed one (git, not clocks). The first ever
@@ -426,6 +480,8 @@ function Invoke-CmDeployCore {
             $state.Remove('failedSha')
             Write-CmState -Path $Ctx.StateFile -State $state
             Write-CmLog "deployed $($sha.Substring(0, 12)); smoke test passed"
+            try { Update-CmRepoToDeployed -Ctx $Ctx -Sha $sha | Out-Null }
+            catch { Write-CmLog "could not move the clone at $($Ctx.RepoDir) to $($sha.Substring(0, 12)): $($_.Exception.Message)" 'WARN' }
             try { $ipa = Invoke-CmIpaSync -Ctx $Ctx -Tag $sha }
             catch { $ipa = [pscustomobject]@{ Outcome = 'error'; ExitCode = 1; Detail = $_.Exception.Message } }
             if ($ipa.ExitCode -ne 0) {
