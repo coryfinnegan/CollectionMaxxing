@@ -8,6 +8,7 @@ import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { flattenTree } from '@/features/locations/tree';
+import { UpdateBanner } from '@/features/update/UpdateBanner';
 import { friendlyError } from '@/lib/problem';
 import { spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, Sheet, Text, TextField } from '@/ui';
@@ -77,6 +78,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
 
   const header = (
     <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
+      {view === 'library' ? <UpdateBanner /> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
         <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
           {title}

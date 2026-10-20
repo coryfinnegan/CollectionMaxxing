@@ -262,18 +262,101 @@ Test-Case 'ipa sync: a verified .ipa is copied into the files volume under ipa/ 
     Assert-True ($r.State.ipa.sha256 -ne ('0' * 64)) 'state records the new checksum'
 }
 
-Test-Case 'ipa sync: the same .ipa again is not copied twice' {
+Test-Case 'ipa sync: the same .ipa and version again is not copied twice' {
     $first = Invoke-TestIpaSync -State (& $script:IpaState)
     $global:CmCalls.Clear()
-    $second = Invoke-TestIpaSync -State @{ current = @{ sha = $script:Sha1 }; ipa = @{ sha256 = $first.State.ipa.sha256 } }
+    $second = Invoke-TestIpaSync -State @{ current = @{ sha = $script:Sha1 }; ipa = $first.State.ipa }
     Assert-Equal 'up-to-date' $second.Result.Outcome
     Assert-Equal 0 (Get-Calls 'docker' '*run --rm*').Count
+}
+
+# The iPhone app compares its own version with the one the server is serving (APP-UPD), so the sync records the release's version.
+
+Test-Case 'ipa sync: the release tag is written beside the .ipa as version.json with the checksum of that file' {
+    $r = Invoke-TestIpaSync -Machine @{ Tag = 'v1.0.2' } -State (& $script:IpaState)
+    Assert-Equal 'synced' $r.Result.Outcome
+    $staged = $global:CmMachine.StagedVersionJson | ConvertFrom-Json
+    Assert-Equal '1.0.2' $staged.version 'the leading v is dropped'
+    Assert-Equal $r.State.ipa.sha256 $staged.sha256 'the version is bound to the .ipa it was released with'
+    Assert-Match (Get-Calls 'docker' '*run --rm*')[0].Display '/data/files/ipa/version\.json'
+    Assert-Equal '1.0.2' $r.State.ipa.version
+}
+
+Test-Case 'ipa sync: the version file is moved into place after the .ipa, so a half-finished copy never announces a version' {
+    $r = Invoke-TestIpaSync -State (& $script:IpaState)
+    $script = (Get-Calls 'docker' '*run --rm*')[0].Display
+    $ipaMove = $script.IndexOf('CollectionMaxxing.ipa;')
+    $versionMove = $script.IndexOf('/data/files/ipa/version.json')
+    Assert-True ($ipaMove -ge 0 -and $versionMove -gt $ipaMove) 'version.json is the last file moved'
+}
+
+Test-Case 'ipa sync: a pre-release version is kept as it is' {
+    $r = Invoke-TestIpaSync -Machine @{ Tag = 'v1.1.0-rc.1' } -State (& $script:IpaState)
+    Assert-Equal '1.1.0-rc.1' (($global:CmMachine.StagedVersionJson | ConvertFrom-Json).version)
+}
+
+Test-Case 'ipa sync: it reads the latest release tag first and downloads exactly that release' {
+    $r = Invoke-TestIpaSync -Machine @{ Tag = 'v1.0.2' } -State (& $script:IpaState)
+    $view = Get-CallIndex 'gh release view*'
+    $download = Get-CallIndex 'gh release download v1.0.2 *'
+    Assert-True ($view -ge 0 -and $download -gt $view) 'view, then download by tag, so a release made in between cannot mix two versions'
+}
+
+Test-Case 'ipa sync: a tag that is not a version still syncs the .ipa but records no version and clears the old one' {
+    $r = Invoke-TestIpaSync -Machine @{ Tag = 'nightly' } -State (& $script:IpaState)
+    Assert-Equal 'synced' $r.Result.Outcome
+    Assert-True ($null -eq $global:CmMachine.StagedVersionJson) 'no version file is staged'
+    Assert-Match (Get-Calls 'docker' '*run --rm*')[0].Display 'rm -f /data/files/ipa/version\.json'
+    Assert-True (-not $r.State.ipa.ContainsKey('version')) 'state has no version'
+}
+
+Test-Case 'ipa sync: a release tag that could be read as an option is never passed to gh' {
+    $r = Invoke-TestIpaSync -Machine @{ Tag = '--repo=evil/repo' } -State (& $script:IpaState)
+    Assert-Equal 'no-release' $r.Result.Outcome
+    Assert-Equal 0 (Get-Calls 'gh' '*release download*').Count
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm*').Count
+}
+
+Test-Case 'ipa sync: when the latest release cannot be read nothing is copied and the previous .ipa stays' {
+    $r = Invoke-TestIpaSync -Machine @{ Tag = $null } -State (& $script:IpaState)
+    Assert-Equal 'no-release' $r.Result.Outcome
+    Assert-Equal 0 $r.Result.ExitCode
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm*').Count
+    Assert-Equal ('0' * 64) $r.State.ipa.sha256
+}
+
+Test-Case 'ipa sync: the same .ipa with no version recorded yet is copied again so the version file appears' {
+    $first = Invoke-TestIpaSync -State (& $script:IpaState)
+    $global:CmCalls.Clear()
+    $second = Invoke-TestIpaSync -State @{ current = @{ sha = $script:Sha1 }; ipa = @{ sha256 = $first.State.ipa.sha256; file = 'CollectionMaxxing-unsigned.ipa' } }
+    Assert-Equal 'synced' $second.Result.Outcome
+    Assert-Equal '1.0.2' (($global:CmMachine.StagedVersionJson | ConvertFrom-Json).version)
+}
+
+Test-Case 'ipa sync: the same .ipa re-released under a new tag records the new version' {
+    $first = Invoke-TestIpaSync -Machine @{ Tag = 'v1.0.2' } -State (& $script:IpaState)
+    $global:CmCalls.Clear()
+    $second = Invoke-TestIpaSync -Machine @{ Tag = 'v1.0.3' } -State @{ current = @{ sha = $script:Sha1 }; ipa = $first.State.ipa }
+    Assert-Equal 'synced' $second.Result.Outcome
+    Assert-Equal '1.0.3' $second.State.ipa.version
 }
 
 Test-Case 'ipa sync: a dry run downloads and copies nothing' {
     $r = Invoke-TestIpaSync -DryRun -State (& $script:IpaState)
     Assert-Equal 'dry-run' $r.Result.Outcome
     Assert-Equal 0 $global:CmCalls.Count
+}
+
+Test-Case 'ipa sync: a dry run still says it would record the version' {
+    $root = New-TestRoot
+    try {
+        New-FakeMachine @{} | Out-Null
+        Initialize-Cm -Apply $false
+        $printed = (Invoke-CmIpaSync -Ctx (New-TestContext -Root $root) 6>&1 | ForEach-Object { "$_" }) -join "`n"
+        Assert-Match $printed 'version\.json'
+        Assert-Equal 0 $global:CmCalls.Count 'a dry run reads nothing from GitHub either'
+    }
+    finally { Remove-TestRoot $root }
 }
 
 Test-Case 'ipa sync script: no -Apply means no calls' {

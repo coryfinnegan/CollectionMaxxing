@@ -123,7 +123,7 @@ Create a free check at healthchecks.io with a 1-day period and a grace of a few 
 
 ### 10. The iPhone `.ipa`
 
-The deployer ends every successful deploy with `Sync-Ipa.ps1`: it downloads the `.ipa` and its `.sha256` from the **latest GitHub release**, checks the checksum, and copies it into the files volume as `ipa/CollectionMaxxing.ipa`. A bad checksum, or a release with no checksum file, leaves the previous file alone. By hand: `Sync-Ipa.ps1` (dry run) or `Sync-Ipa.ps1 -Apply`.
+The deployer ends every successful deploy with `Sync-Ipa.ps1`: it downloads the `.ipa` and its `.sha256` from the **latest GitHub release**, checks the checksum, and copies it into the files volume as `ipa/CollectionMaxxing.ipa`. A bad checksum, or a release with no checksum file, leaves the previous file alone. It also writes the release tag beside the `.ipa` as `ipa/version.json` (`{"version":"1.0.2","sha256":"..."}`, the checksum tying the version to that exact file): the installed iPhone app reads it through the API and shows an "update ready" notice when it is newer. The app's own version comes from `version` in `app/app.config.ts`, so bump it to match the tag before you tag a release. By hand: `Sync-Ipa.ps1` (dry run) or `Sync-Ipa.ps1 -Apply`.
 **Undo:** nothing to undo: it is a downloadable copy under `ipa/` in the files volume, and the next sync replaces it. (The release workflow must upload a `.sha256` file next to the `.ipa`; see the PR notes.)
 
 ### 11. Optional: off-site copy (off by default)

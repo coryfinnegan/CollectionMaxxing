@@ -85,7 +85,9 @@ function New-FakeMachine {
         ComposeConfig           object returned by `docker compose config`
         PullFails               make `docker pull` fail (Docker not running)
         IpaBytes, IpaSha256     what `gh release download` puts in the stage folder ($null IpaSha256 = no checksum file)
-        Graph                   commit graph: sha -> array of all its ancestors (default: Sha2 descends from Sha1)
+        Tag                     the latest release's tag, as `gh release view --json tagName` prints it (default v1.0.2); $null = no readable tag
+        StagedVersionJson       (output) the text of app.version.json in the stage folder when the .ipa copy ran, else $null
+        Graph                  commit graph: sha -> array of all its ancestors (default: Sha2 descends from Sha1)
         FetchFails              make `git fetch` fail
         AlertFails              make the failure-alert ping fail
         RunningServices         container ids that `compose ps -q --status running` lists (default: none)
@@ -94,7 +96,7 @@ function New-FakeMachine {
     $m = @{
         Sha = $script:Sha2; Created = '2026-10-13T12:00:00.123456789Z'; Up = $script:Sha1; BadAttest = @(); AttestRef = 'refs/heads/main'
         MigrateExit = 0; UnhealthyTags = @(); ComposeConfig = (New-GoodComposeConfig); PullFails = $false
-        IpaBytes = [byte[]](1, 2, 3, 4); IpaSha256 = 'auto'; Digest = $script:Digest
+        IpaBytes = [byte[]](1, 2, 3, 4); IpaSha256 = 'auto'; Digest = $script:Digest; Tag = 'v1.0.2'; StagedVersionJson = $null
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
     $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
@@ -126,7 +128,15 @@ function New-FakeMachine {
                 if ($line -match '^compose .* config --format json') { return & $ok @(($m.ComposeConfig | ConvertTo-Json -Depth 8 -Compress)) }
                 if ($line -match '^compose .* run --rm migrate') { return [pscustomobject]@{ ExitCode = $m.MigrateExit; Output = @() } }
                 if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
-                if ($line -match '^run --rm') { return & $ok }
+                if ($line -match '^run --rm') {
+                    # The .ipa copy: remember what the deployer staged for the helper container (it is deleted with the test root).
+                    $mount = @($Arguments | Where-Object { "$_" -like '*:/in:ro' }) | Select-Object -First 1
+                    if ($mount) {
+                        $versionFile = Join-Path $mount.Substring(0, $mount.Length - ':/in:ro'.Length) 'app.version.json'
+                        $m.StagedVersionJson = if (Test-Path -LiteralPath $versionFile) { Get-Content -LiteralPath $versionFile -Raw } else { $null }
+                    }
+                    return & $ok
+                }
                 return & $ok
             }
             'gh' {
@@ -135,6 +145,10 @@ function New-FakeMachine {
                     $cert = @{ sourceRepositoryRef = $m.AttestRef; sourceRepositoryDigest = $m.Sha; sourceRepositoryURI = 'https://github.com/coryfinnegan/CollectionMaxxing' }
                     if ($m.OmitCertDigest) { $cert.Remove('sourceRepositoryDigest') }
                     return & $ok @((@(@{ verificationResult = @{ signature = @{ certificate = $cert } } }) | ConvertTo-Json -Depth 8 -Compress))
+                }
+                if ($line -match '^release view') {
+                    if ($null -eq $m.Tag) { return & $fail }
+                    return & $ok @($m.Tag)
                 }
                 if ($line -match '^release download') {
                     $dir = $Arguments[[array]::IndexOf($Arguments, '--dir') + 1]

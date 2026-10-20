@@ -2,11 +2,14 @@ using CollectionMaxxing.Domain.Common;
 
 namespace CollectionMaxxing.Application.AppDownload;
 
-/// <summary>What the web app shows about the synced iPhone app: its size, when it was synced and, if the release had one, its SHA-256.</summary>
-public sealed record IpaInfoDto(long SizeBytes, DateTimeOffset ModifiedAt, string? Sha256);
+/// <summary>
+/// What the web app shows about the synced iPhone app: its size, when it was synced and, if the release had one, its SHA-256.
+/// <c>Version</c> is the release it came from (for example "1.0.2"); the installed iPhone app compares it with its own. Null when unknown.
+/// </summary>
+public sealed record IpaInfoDto(long SizeBytes, DateTimeOffset ModifiedAt, string? Sha256, string? Version);
 
 /// <summary>The info route's answer. "Not there yet" is a normal answer (<c>Available</c> false), not an error, so the web app's console stays quiet.</summary>
-public sealed record IpaStatusDto(bool Available, long? SizeBytes, DateTimeOffset? ModifiedAt, string? Sha256);
+public sealed record IpaStatusDto(bool Available, long? SizeBytes, DateTimeOffset? ModifiedAt, string? Sha256, string? Version);
 
 /// <summary>The one iPhone app file the deployer syncs into the files volume. There is no way to ask for any other file.</summary>
 public interface IIpaStore
@@ -29,7 +32,7 @@ public static class GetIpaInfo
     public sealed class Handler(IIpaStore store)
     {
         public IpaStatusDto Handle() =>
-            store.Describe() is { } info ? new IpaStatusDto(true, info.SizeBytes, info.ModifiedAt, info.Sha256) : new IpaStatusDto(false, null, null, null);
+            store.Describe() is { } info ? new IpaStatusDto(true, info.SizeBytes, info.ModifiedAt, info.Sha256, info.Version) : new IpaStatusDto(false, null, null, null, null);
     }
 }
 

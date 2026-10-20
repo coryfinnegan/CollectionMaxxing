@@ -156,6 +156,95 @@ public class IpaDownloadTests(ApiFixture api) : ApiTest(api)
         body.GetProperty("sha256").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
+    // ---- the version the server is serving (APP-UPD): the installed iPhone app compares it with its own. ----
+
+    private void PutVersion(string json) => File.WriteAllText(Path.Combine(IpaFolder, "version.json"), json);
+
+    private async Task<JsonElement> InfoAsync()
+    {
+        var library = await CreateLibraryAsync();
+        return await ReadJsonAsync(await Client(library.UserWithRole(LibraryRole.Viewer)).GetAsync(Info));
+    }
+
+    [Theory]
+    [InlineData("1.0.2")]
+    [InlineData("1.1.0-rc.1")]
+    public async Task Info_says_which_app_version_it_is_serving(string version)
+    {
+        PutIpa([1], $"{Sum}  CollectionMaxxing.ipa\n");
+        PutVersion($$"""{"version":"{{version}}","sha256":"{{Sum}}"}""");
+
+        var body = await InfoAsync();
+
+        body.GetProperty("version").GetString().ShouldBe(version);
+    }
+
+    [Fact]
+    public async Task The_version_still_matches_when_the_two_checksums_differ_only_in_case()
+    {
+        PutIpa([1], $"{Sum.ToUpperInvariant()}  CollectionMaxxing.ipa\n");
+        PutVersion($$"""{"version":"1.0.2","sha256":"{{Sum}}"}""");
+
+        (await InfoAsync()).GetProperty("version").GetString().ShouldBe("1.0.2");
+    }
+
+    [Fact]
+    public async Task A_version_file_for_a_different_ipa_is_ignored()
+    {
+        PutIpa([1], $"{Sum}  CollectionMaxxing.ipa\n");
+        PutVersion($$"""{"version":"9.9.9","sha256":"{{new string('f', 64)}}"}""");
+
+        var body = await InfoAsync();
+
+        body.GetProperty("available").GetBoolean().ShouldBeTrue();
+        body.GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_version_cannot_be_trusted_without_the_ipa_checksum_to_bind_it_to()
+    {
+        PutIpa([1]);
+        PutVersion($$"""{"version":"1.0.2","sha256":"{{Sum}}"}""");
+
+        (await InfoAsync()).GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task With_no_version_file_the_version_is_null_and_the_rest_of_the_info_still_works()
+    {
+        PutIpa(new byte[10], $"{Sum}  CollectionMaxxing.ipa\n");
+
+        var body = await InfoAsync();
+
+        body.GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+        body.GetProperty("sizeBytes").GetInt64().ShouldBe(10);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[]")]
+    [InlineData("""{"version":"1.0.2"}""")]
+    [InlineData("""{"version":"latest","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}""")]
+    [InlineData("""{"version":"1.0","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}""")]
+    [InlineData("""{"version":"1.0.2\n<script>","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}""")]
+    [InlineData("""{"version":42,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}""")]
+    public async Task An_unreadable_or_odd_version_file_gives_no_version_and_never_an_error(string json)
+    {
+        PutIpa([1], $"{Sum}  CollectionMaxxing.ipa\n");
+        PutVersion(json);
+
+        var body = await InfoAsync();
+
+        body.GetProperty("available").GetBoolean().ShouldBeTrue();
+        body.GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task With_nothing_synced_the_info_has_no_version()
+    {
+        (await InfoAsync()).GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
     [Theory]
     [InlineData("/api/v1/app/ipa/..%2f..%2fsecret.txt")]
     [InlineData("/api/v1/app/ipa/other.ipa")]
