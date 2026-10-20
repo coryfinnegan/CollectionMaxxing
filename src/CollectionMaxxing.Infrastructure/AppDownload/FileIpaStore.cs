@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using CollectionMaxxing.Application.AppDownload;
 using Microsoft.Extensions.Configuration;
@@ -7,12 +8,13 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace CollectionMaxxing.Infrastructure.AppDownload;
 
 /// <summary>
-/// Reads <c>ipa/CollectionMaxxing.ipa</c> (and its <c>.sha256</c>) from the files volume. Both names are fixed here: no request value ever reaches a path.
+/// Reads <c>ipa/CollectionMaxxing.ipa</c> (and its <c>.sha256</c> and <c>version.json</c>) from the files volume. The names are fixed here: no request value ever reaches a path.
 /// </summary>
 public sealed partial class FileIpaStore(string filesRoot) : IIpaStore
 {
     public const string FilesRootKey = "Files:Root";
     private const string FileName = "CollectionMaxxing.ipa";
+    private const string VersionFileName = "version.json";
 
     private readonly string _path = Path.Combine(Path.GetFullPath(filesRoot), "ipa", FileName);
 
@@ -21,7 +23,13 @@ public sealed partial class FileIpaStore(string filesRoot) : IIpaStore
         try
         {
             var file = new FileInfo(_path);
-            return file.Exists ? new IpaInfoDto(file.Length, new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero), ReadChecksum()) : null;
+            if (!file.Exists)
+            {
+                return null;
+            }
+
+            var checksum = ReadChecksum();
+            return new IpaInfoDto(file.Length, new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero), checksum, ReadVersion(checksum));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -55,8 +63,42 @@ public sealed partial class FileIpaStore(string filesRoot) : IIpaStore
         }
     }
 
+    /// <summary>
+    /// The deployer writes <c>{"version":"1.0.2","sha256":"&lt;hash&gt;"}</c> next to the file. The version only counts when its checksum is the one
+    /// of the file being served, so a version file left over from an earlier sync is never reported. Anything odd gives null, never an error.
+    /// </summary>
+    private string? ReadVersion(string? ipaChecksum)
+    {
+        if (ipaChecksum is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(_path)!, VersionFileName)));
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.String
+                || !document.RootElement.TryGetProperty("sha256", out var sha256) || sha256.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            var text = version.GetString()!;
+            return string.Equals(sha256.GetString(), ipaChecksum, StringComparison.OrdinalIgnoreCase) && Semver().IsMatch(text) ? text : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
     [GeneratedRegex(@"\A\s*([0-9a-fA-F]{64})(?![0-9a-fA-F])")]
     private static partial Regex Hash();
+
+    /// <summary>1.2.3 or 1.2.3-rc.1: the only shape the app compares.</summary>
+    [GeneratedRegex(@"\A\d{1,9}\.\d{1,9}\.\d{1,9}(-[0-9A-Za-z][0-9A-Za-z.-]{0,31})?\z")]
+    private static partial Regex Semver();
 }
 
 public static class IpaInfrastructure
