@@ -128,6 +128,7 @@ Test-Case 'deployer: a failed smoke test pins the previous good tag and restarts
 
 Test-Case 'deployer: a known-bad image is not retried every two minutes' {
     $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2
+    $state['ipa'] = @{ tag = 'v1.0.2' }   # the latest release is already synced, so this run has nothing at all to do
     $r = Invoke-TestDeploy -State $state
     Assert-Equal 'known-bad' $r.Result.Outcome
     Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
@@ -143,9 +144,10 @@ Test-Case 'deployer: a downgrade is refused (judged by commit ancestry; see ops1
 }
 
 Test-Case 'deployer: the same image that is already running changes nothing' {
-    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' } }
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' }; ipa = @{ tag = 'v1.0.2' } }
     Assert-Equal 'up-to-date' $r.Result.Outcome
     Assert-Equal 0 (Get-MutatingCalls | Where-Object { $_.Display -match 'compose' }).Count
+    Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notmatch '^docker pull' }).Count 'no download, no copy, no merge'
 }
 
 Test-Case 'deployer: a failed migration leaves the running api alone and is remembered' {

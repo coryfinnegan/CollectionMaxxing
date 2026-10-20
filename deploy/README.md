@@ -43,7 +43,7 @@ New-Item -ItemType Directory C:\CollectionMaxxing
 git clone https://github.com/coryfinnegan/CollectionMaxxing C:\CollectionMaxxing\repo
 ```
 Expect: `Cloning into ...` and no errors. **Undo:** delete `C:\CollectionMaxxing`.
-When the deploy scripts themselves change, update them with `git -C C:\CollectionMaxxing\repo pull --ff-only`. The *app* updates through images and needs no pull.
+The deploy scripts follow the app by themselves: after every good deploy of commit X the deployer runs `git -C C:\CollectionMaxxing\repo merge --ff-only X` (after the fetch it already does), so the next run loads the scripts and compose file of the build that is now running. It never resets, checks out or forces anything: if the clone has uncommitted changes to tracked files, is not on `main`, or cannot fast-forward, it leaves it alone and logs a `WARN` line (no alert); fix the clone and the next good deploy catches up. When you first install a version of the deployer that has this, or after such a `WARN`, move the clone by hand once: `git -C C:\CollectionMaxxing\repo pull --ff-only`. The *app* updates through images and needs no pull.
 
 ### 2. Create `.env`
 
@@ -123,7 +123,7 @@ Create a free check at healthchecks.io with a 1-day period and a grace of a few 
 
 ### 10. The iPhone `.ipa`
 
-The deployer ends every successful deploy with `Sync-Ipa.ps1`: it downloads the `.ipa` and its `.sha256` from the **latest GitHub release**, checks the checksum, and copies it into the files volume as `ipa/CollectionMaxxing.ipa`. A bad checksum, or a release with no checksum file, leaves the previous file alone. It also writes the release tag beside the `.ipa` as `ipa/version.json` (`{"version":"1.0.2","sha256":"..."}`, the checksum tying the version to that exact file): the installed iPhone app reads it through the API and shows an "update ready" notice when it is newer. The app's own version comes from `version` in `app/app.config.ts`, so bump it to match the tag before you tag a release. By hand: `Sync-Ipa.ps1` (dry run) or `Sync-Ipa.ps1 -Apply`.
+The deployer ends every successful deploy with `Sync-Ipa.ps1`, and a run with nothing to deploy does the same whenever the **latest release tag is one it has not synced yet** (a release is published by the iOS build some time after its commit's images were deployed). That costs one `gh release view --json tagName` per run; the synced tag is remembered in `state\deployer-state.json` as `ipa.tag`. A sync that fails on a quiet run is reported once per release tag (an `ERROR` line, an `ALERT`, exit 5); the same tag is then tried again quietly every 15 minutes (`ipaAttempt` in the state file) until it works or a newer release replaces it. A release that has no `.ipa` yet is not an alert: it is logged once and looked at again later. The sync downloads the `.ipa` and its `.sha256` from the **latest GitHub release**, checks the checksum, and copies it into the files volume as `ipa/CollectionMaxxing.ipa`. A bad checksum, or a release with no checksum file, leaves the previous file alone. It also writes the release tag beside the `.ipa` as `ipa/version.json` (`{"version":"1.0.2","sha256":"..."}`, the checksum tying the version to that exact file): the installed iPhone app reads it through the API and shows an "update ready" notice when it is newer. The app's own version comes from `version` in `app/app.config.ts`, so bump it to match the tag before you tag a release. By hand: `Sync-Ipa.ps1` (dry run) or `Sync-Ipa.ps1 -Apply`.
 **Undo:** nothing to undo: it is a downloadable copy under `ipa/` in the files volume, and the next sync replaces it. (The release workflow must upload a `.sha256` file next to the `.ipa`; see the PR notes.)
 
 ### 11. Optional: off-site copy (off by default)
@@ -137,7 +137,7 @@ Nothing here is set up. When you want it (docs/10): create a free Backblaze B2 b
 | 1 | `git clone` into `C:\CollectionMaxxing\repo` |
 | 2 | Copies `.env.example` to `.env` (you edit it) |
 | 3 | `New-Secrets.ps1 -Apply`: writes two `.pfx` files |
-| 5, and every 2 minutes after | `git -C ...\repo fetch origin main` (only when a new image appeared) and read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify`; `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; writes `state\deployer-state.json` and `logs\deployer.log*`; `docker run --rm ... sh -c "cp ..."` (the `.ipa` copy) and `gh release download` |
+| 5, and every 2 minutes after | `git -C ...\repo fetch origin main` (only when a new image appeared) and read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify`; `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; after a good deploy, read-only `git status` / `git symbolic-ref` on the clone and `git merge --ff-only <deployed sha>`; writes `state\deployer-state.json` and `logs\deployer.log*`; `gh release view --json tagName` on every run, and when the tag is new `docker run --rm ... sh -c "cp ..."` (the `.ipa` copy) and `gh release download` |
 | 6 | `tailscale serve --bg --https=443 http://127.0.0.1:5480` |
 | 7 | `schtasks /Create ...` (one task) |
 | 8 | `backup.sh once` inside the backup container |
@@ -151,7 +151,7 @@ It never runs `docker system prune`, `docker volume prune`, `docker rm` on anyth
 3. Pull `api`, `migrate` and `backup` at that SHA. For each, `gh attestation verify oci://...@sha256:<digest> --repo coryfinnegan/CollectionMaxxing --signer-workflow coryfinnegan/CollectionMaxxing/.github/workflows/release.yml`, **and** the certificate must say `refs/heads/main` (and the same commit). Any failure: log it, do nothing.
 4. `docker compose run --rm migrate` (expand-only migrations, so the running api stays compatible). Failure: the api is not touched.
 5. `docker compose up -d api backup aspire-dashboard` with `CM_TAG=<sha>`, then up to 12 smoke tests of `http://127.0.0.1:5480/health/ready` 5 seconds apart.
-6. Success: record the SHA as last good, then sync the `.ipa`. Failure: remember the SHA as bad, `up -d` with the previous good tag, and smoke test again.
+6. Success: record the SHA as last good, fast-forward the deployer's clone to it, then sync the `.ipa`. Failure: remember the SHA as bad, `up -d` with the previous good tag, and smoke test again.
 
 State lives in `C:\CollectionMaxxing\state`, logs in `C:\CollectionMaxxing\logs` (1 MB each, 5 kept). The log never contains the database password or the heartbeat URL.
 
@@ -165,7 +165,7 @@ New-Item -ItemType Directory -Force C:\CollectionMaxxing\state | Out-Null
 ```
 The sha must be 40 lowercase hex characters. A true first deploy (no state, nothing running, no pinned tag) is unaffected.
 
-**Exit codes:** 0 fine or nothing to do (also "already up to date", "known bad, waiting for a newer one", a dry run), 1 deploy failed or rolled back (migration failed, smoke test failed, crashed), 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state), 5 the `.ipa` sync failed its checksum after a good deploy.
+**Exit codes:** 0 fine or nothing to do (also "already up to date", "known bad, waiting for a newer one", a dry run, and a quiet run that synced a new release's `.ipa`), 1 deploy failed or rolled back (migration failed, smoke test failed, crashed), 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state), 5 the `.ipa` sync failed (checksum, no checksum file or a failed copy) after a good deploy, or the first failure for a new release on a run with nothing to deploy.
 
 **Refusals are loud.** Every non-zero result of a real (`-Apply`) run writes a line starting `ALERT deploy <outcome>` to `deployer.log` and pings `<CM_HEARTBEAT_URL>/fail` with the reason as the body: the same free healthchecks.io check the nightly backup uses, so you get the same email. (A deploy alert also marks that check "down" until the next good backup ping; that is the price of using one channel.) With no heartbeat URL the log line is the only alert. A failed ping never changes the exit code. The poller repeats the ping every 2 minutes while the cause persists; healthchecks only emails on the change.
 

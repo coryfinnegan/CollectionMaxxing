@@ -193,9 +193,9 @@ Test-Case 'loud: a clean deploy exits 0 and sends nothing to the failure URL' {
 }
 
 Test-Case 'loud: nothing-to-do outcomes (up to date, known bad, busy) stay quiet and exit 0' {
-    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' } }
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' }; ipa = @{ tag = 'v1.0.2' } }
     Assert-Equal 0 $r.Result.ExitCode; Assert-Equal 0 (Get-AlertCalls).Count
-    $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2
+    $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2; $state['ipa'] = @{ tag = 'v1.0.2' }
     $r = Invoke-TestDeploy -State $state
     Assert-Equal 'known-bad' $r.Result.Outcome; Assert-Equal 0 $r.Result.ExitCode; Assert-Equal 0 (Get-AlertCalls).Count
 }
@@ -279,7 +279,7 @@ Test-Case 'rollback: -RollbackTo an older commit deploys its attested images wit
 }
 
 Test-Case 'rollback: after a rollback the poller skips the commit it rolled back from' {
-    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha1 }; failedSha = $script:Sha2 }
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha1 }; failedSha = $script:Sha2; ipa = @{ tag = 'v1.0.2' } }
     Assert-Equal 'known-bad' $r.Result.Outcome
 }
 
