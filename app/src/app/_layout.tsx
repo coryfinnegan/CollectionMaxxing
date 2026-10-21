@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, ThemeProvider, useRouter } from 'expo-router';
-import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 import { useEffect, useState } from 'react';
@@ -36,12 +35,14 @@ export default function RootLayout() {
     import('@/mocks/start').then(({ startMocking }) => startMocking()).then(() => setReady(true));
   }, []);
 
+  // The page title, set directly: expo-router's <Head> nags for a handoff origin that this self-hosted app has no use for.
+  useEffect(() => {
+    if (Platform.OS === 'web') document.title = 'CollectionMaxxing';
+  }, []);
+
   if (!ready) return null;
   return (
     <QueryClientProvider client={queryClient}>
-      <Head>
-        <title>CollectionMaxxing</title>
-      </Head>
       <StatusBar style="auto" />
       <ThemeProvider value={navigationTheme}>
       <Stack
