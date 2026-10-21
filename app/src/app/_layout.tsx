@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, ThemeProvider, useRouter } from 'expo-router';
-import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 import { useEffect, useState } from 'react';
@@ -39,9 +38,6 @@ export default function RootLayout() {
   if (!ready) return null;
   return (
     <QueryClientProvider client={queryClient}>
-      <Head>
-        <title>CollectionMaxxing</title>
-      </Head>
       <StatusBar style="auto" />
       <ThemeProvider value={navigationTheme}>
       <Stack
