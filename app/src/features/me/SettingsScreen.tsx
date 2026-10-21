@@ -135,6 +135,7 @@ export function SettingsScreen() {
     <Screen title="Settings" subtitle={isWeb() ? 'Preferences for this browser.' : 'Recognition and security on this iPhone.'}>
       {isWeb() ? null : <RecognitionSection />}
       {isWeb() ? <Card><GetIphoneAppRow /></Card> : null}
+      <Card><ListRow title="Devices and browsers" subtitle="Add an iPhone with a QR code" onPress={() => router.push('/me/devices')} trailing={<Text tone="muted">›</Text>} /></Card>
       <SecuritySection />
       <Card><ListRow title="About and privacy" onPress={() => router.push('/about')} trailing={<Text tone="muted">›</Text>} /></Card>
     </Screen>
