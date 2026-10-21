@@ -58,7 +58,7 @@ export function PairScreen() {
     <Screen title="Pair with your server" subtitle="Pair this iPhone with your library.">
       <Card>
         <Text>1. On your computer, open your server address.</Text>
-        <Text>2. Go to Settings, then Devices, then Add a device.</Text>
+        <Text>2. Go to Settings, then Devices and browsers, then Add a device.</Text>
         <Text>3. Scan the QR code shown there.</Text>
       </Card>
       {error ? (

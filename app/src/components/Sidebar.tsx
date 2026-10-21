@@ -11,6 +11,7 @@ export const sidebarItems: { label: string; href: Href }[] = [
   { label: 'Locations', href: '/me/locations' },
   { label: 'Members', href: '/members' },
   { label: 'Import and export', href: '/me/export' },
+  { label: 'Devices', href: '/me/devices' },
   { label: 'Settings', href: '/settings' },
 ];
 
