@@ -5,7 +5,7 @@ const config: ExpoConfig = {
   name: 'CollectionMaxxing',
   slug: 'collectionmaxxing',
   scheme: 'collectionmaxxing',
-  version: '1.0.2',
+  version: '1.0.3',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   userInterfaceStyle: 'automatic',
@@ -24,6 +24,9 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    // iOS 27 kills an app that doesn't use the UIScene lifecycle at launch (UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption).
+    // SDK 57 still generates the old AppDelegate-only template, so opt in; this is a no-op from SDK 58 on.
+    ['expo-build-properties', { ios: { enableSceneSupport: true } }],
     ['expo-system-ui', {}],
     'expo-secure-store',
     ['expo-local-authentication', { faceIDPermission: 'CollectionMaxxing uses Face ID to lock the app when you leave it.' }],
