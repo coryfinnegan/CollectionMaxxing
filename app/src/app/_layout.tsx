@@ -35,6 +35,11 @@ export default function RootLayout() {
     import('@/mocks/start').then(({ startMocking }) => startMocking()).then(() => setReady(true));
   }, []);
 
+  // The page title, set directly: expo-router's <Head> nags for a handoff origin that this self-hosted app has no use for.
+  useEffect(() => {
+    if (Platform.OS === 'web') document.title = 'CollectionMaxxing';
+  }, []);
+
   if (!ready) return null;
   return (
     <QueryClientProvider client={queryClient}>
