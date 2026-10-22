@@ -24,6 +24,7 @@ $deploy = Split-Path -Parent $PSScriptRoot
 . (Join-Path $deploy 'deployer/Cm.Common.ps1')
 . (Join-Path $deploy 'deployer/Cm.Ipa.ps1')
 . (Join-Path $deploy 'deployer/Cm.Deploy.ps1')
+. (Join-Path $deploy 'apple/Cm.Apple.ps1')
 . (Join-Path $PSScriptRoot 'TestKit.ps1')
 
 Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.tests.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
