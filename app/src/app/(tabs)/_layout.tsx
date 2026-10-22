@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { useState } from 'react';
 import { Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { Sidebar } from '@/components/Sidebar';
+import { ReauthPrompt } from '@/features/auth/reauth';
 import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
 import { AppLockGate } from '@/features/me/appLock';
 import { FingerprintBridge } from '@/features/scan/fingerprints/FingerprintBridge';
@@ -10,7 +11,7 @@ import { WIDE_BREAKPOINT, radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
 
 // Pages that only appear in the web sidebar, never in the phone tab bar.
-const sidebarOnly = ['wishlist', 'lent-out', 'members', 'settings', 'about', 'me/locations', 'me/export', 'me/devices', 'me/deleted', 'me/delete'];
+const sidebarOnly = ['wishlist', 'lent-out', 'members', 'settings', 'about', 'me/locations', 'me/export', 'me/devices', 'me/sign-in-methods', 'me/deleted', 'me/delete'];
 
 const MAIN_ID = 'main-content';
 const jumpToMain = () => document.getElementById(MAIN_ID)?.focus();
@@ -56,6 +57,7 @@ export default function TabsLayout() {
   return (
     <AppLockGate>
     <OwnedDataBridge />
+    <ReauthPrompt />
     <SnapStoreBridge />
     <FingerprintBridge />
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
@@ -103,6 +105,7 @@ function titleFor(name: string): string {
     'me/locations': 'Locations',
     'me/export': 'Import and export',
     'me/devices': 'Devices and browsers',
+    'me/sign-in-methods': 'Sign-in methods',
     'me/deleted': 'Recently deleted',
     'me/delete': 'Delete account',
   };

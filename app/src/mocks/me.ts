@@ -1,10 +1,11 @@
 // Mock account endpoints for the Me tab (docs/04 "Account and session"). Magic state makes each outcome reachable:
 //   export   GET /me/export starts a job; each poll moves queued -> running -> ready (or failed when exportOutcome is 'failed')
-//   delete   DELETE /me answers 401 reauth_required without a passkey credential, 409 while libraryHasMembers, else 204
+//   delete   DELETE /me answers 401 reauth_required while mockAuth.requireReauth, 409 while libraryHasMembers, else 204
 //   bin      the deleted items list; restoring removes the row
 //   revoke   POST /connect/revoke (unpairing this iPhone)
 import { HttpResponse, http } from 'msw';
 import type { DeletedItemDto, ExportDto } from '@/api/generated/models';
+import { mockAuth } from './auth';
 
 const DAY = 86_400_000;
 
@@ -83,9 +84,8 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
-  http.delete('*/api/v1/me', async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as { credential?: unknown };
-    if (!body.credential) {
+  http.delete('*/api/v1/me', () => {
+    if (mockAuth.requireReauth) {
       return problem(401, "Confirm it's you", { type: 'https://collectionmaxxing.app/problems/reauth_required', code: 'reauth_required', reauth: true });
     }
     if (mockAccount.libraryHasMembers) return problem(409, 'Your library still has members.', { code: 'library_has_members' });

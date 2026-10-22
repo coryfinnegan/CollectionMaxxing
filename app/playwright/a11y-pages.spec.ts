@@ -9,6 +9,8 @@ const pages: { name: string; path: string; heading: string | RegExp | null }[] =
   { name: 'import and export', path: '/me/export', heading: 'Export my data' },
   { name: 'recently deleted (trash)', path: '/me/deleted', heading: 'Recently deleted' },
   { name: 'devices and browsers', path: '/me/devices', heading: /Devices and browsers/ },
+  { name: 'sign-in methods', path: '/me/sign-in-methods', heading: /Sign-in methods/ },
+  { name: 'not linked', path: '/account/not-linked', heading: /Not part of a library/ },
   { name: 'delete account', path: '/me/delete', heading: 'Delete account' },
   { name: 'me', path: '/me', heading: 'Me' },
   { name: 'settings', path: '/settings', heading: 'Settings' },

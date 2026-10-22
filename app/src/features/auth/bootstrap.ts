@@ -1,15 +1,14 @@
-// Connects the HTTP client's auth hooks to the router and the passkey prompt. Called once from the root layout.
+// Connects the HTTP client's auth hooks to the router and the sign-in. Called once from the root layout.
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { configureAuth } from '@/lib/auth/session';
 import { SecureTokenStore } from '@/lib/auth/tokenStore';
-import { signInWithPasskey } from './flows';
-import { getPasskeys } from './services';
+import { requestReauth } from './reauth';
 
 type Navigator = { replace: (href: '/pair' | '/login') => void };
 
 // The pages that are meant to be reached while signed out.
-const signedOutPaths = ['/setup', '/login', '/join'];
+const signedOutPaths = ['/setup', '/login', '/join', '/account/not-linked'];
 
 export function installAuth(router: Navigator) {
   configureAuth({
@@ -20,8 +19,7 @@ export function installAuth(router: Navigator) {
       if (destination === 'login' && signedOutPaths.some((p) => path.startsWith(p))) return;
       router.replace(destination === 'pair' ? '/pair' : '/login');
     },
-    reauth: async () => {
-      await signInWithPasskey(getPasskeys());
-    },
+    // Web: explain, then send the browser through a fresh sign-in and back (see ./reauth).
+    reauth: requestReauth,
   });
 }

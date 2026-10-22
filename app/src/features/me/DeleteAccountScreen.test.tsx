@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { FakePasskeyClient } from '@/features/auth/passkeys';
-import { setPasskeys } from '@/features/auth/services';
+import { ReauthCancelledError } from '@/lib/auth/errors';
+import { mockAuth, resetMockAuth } from '@/mocks/auth';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryTokenStore } from '@/lib/auth/tokenStore';
 import { mockAccount, resetMockAccount } from '@/mocks/me';
@@ -11,16 +11,13 @@ import { registerLocalDataClearer } from './localData';
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
-const CONFIRM = 'Confirm with passkey and delete account';
-const passkeys = new FakePasskeyClient();
+const CONFIRM = 'Delete my account';
 let tokenStore: MemoryTokenStore;
 
 beforeEach(() => {
   resetMockAccount();
   mockRouter.replace.mockClear();
-  passkeys.outcome = 'approve';
-  passkeys.asserted = [];
-  setPasskeys(passkeys);
+  resetMockAuth();
   tokenStore = new MemoryTokenStore({ refreshToken: 'mock-refresh', serverUrl: 'https://pc.tailnet.ts.net' });
   configureAuth({ platform: 'web', tokenStore });
 });
@@ -35,13 +32,14 @@ describe('DeleteAccountScreen', () => {
     expect(mockAccount.deleted).toBe(false);
   });
 
-  it('sends nothing when the passkey prompt is cancelled', async () => {
-    passkeys.outcome = 'cancel';
+  it('deletes nothing when the person declines the fresh sign-in', async () => {
+    mockAuth.requireReauth = true;
+    configureAuth({ platform: 'web', tokenStore, reauth: () => Promise.reject(new ReauthCancelledError()) });
     await renderWithProviders(<DeleteAccountScreen />);
 
     await fireEvent.press(screen.getByLabelText(CONFIRM));
 
-    expect(await screen.findByText("Passkey cancelled. Try again when you're ready.")).toBeTruthy();
+    expect(await screen.findByText('Okay, nothing was changed.')).toBeTruthy();
     expect(mockAccount.deleted).toBe(false);
     expect(mockRouter.replace).not.toHaveBeenCalled();
   });
@@ -62,7 +60,7 @@ describe('DeleteAccountScreen', () => {
     unregister();
   });
 
-  it('clears local data and goes to sign-in after a fresh passkey', async () => {
+  it('clears local data and goes to sign-in once the server accepts the sign-in', async () => {
     const cleared = jest.fn();
     const unregister = registerLocalDataClearer(cleared);
     await renderWithProviders(<DeleteAccountScreen />);
@@ -70,7 +68,6 @@ describe('DeleteAccountScreen', () => {
     await fireEvent.press(screen.getByLabelText(CONFIRM));
 
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
-    expect(passkeys.asserted).toHaveLength(1);
     expect(mockAccount.deleted).toBe(true);
     expect(cleared).toHaveBeenCalled();
     expect(await tokenStore.load()).toBeNull();

@@ -5,6 +5,7 @@ import { createOwnedIndex } from '@/features/offline/ownedIndex';
 import { entry } from '@/features/offline/testData';
 import { setTrayStore } from '@/features/scan/tray/storage';
 import { MemoryKeyValueStore, createTrayStore } from '@/features/scan/tray/trayStore';
+import { setNavigator } from '@/features/auth/services';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryTokenStore } from '@/lib/auth/tokenStore';
 import { mockAccount, resetMockAccount } from '@/mocks/me';
@@ -82,16 +83,24 @@ describe('Settings > Recognition', () => {
     expect(screen.getByText(label)).toBeTruthy();
   });
 
-  it('is hidden on the web, which only offers Sign out', async () => {
+  it('is hidden on the web, which offers Sign out and Sign-in methods', async () => {
     configureAuth({ platform: 'web' });
     await renderWithProviders(<SettingsScreen />);
     expect(screen.queryByText('Recognition')).toBeNull();
     expect(screen.queryByLabelText('Unpair this iPhone')).toBeNull();
     expect(screen.getByLabelText('Sign out')).toBeTruthy();
+    expect(screen.getByText('Sign-in methods')).toBeTruthy();
   });
 });
 
 describe('Settings > Sign out', () => {
+  // Sign-out navigates to the URL the server returned (Auth0's sign-out; the mock sends the browser back to /login).
+  const navigate = jest.fn();
+  beforeEach(() => {
+    navigate.mockClear();
+    setNavigator(navigate);
+  });
+
   it('runs every registered local-data clearer and empties the query cache (web)', async () => {
     const clearer = jest.fn();
     const unregister = registerLocalDataClearer(clearer);
@@ -106,7 +115,7 @@ describe('Settings > Sign out', () => {
 
     await fireEvent.press(screen.getByLabelText('Sign out'));
 
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/login'));
     expect(clearer).toHaveBeenCalledTimes(1);
     expect(queryClient.getQueryData(['anything'])).toBeUndefined();
     unregister();
@@ -122,7 +131,7 @@ describe('Settings > Sign out', () => {
 
     await fireEvent.press(screen.getByLabelText('Sign out'));
 
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/login'));
     unregister();
     expect(getOwnedCache('lib-1').state.syncedAt).toBeNull();
     expect(storage.getString('owned-index-v1:lib-1')).toBeUndefined();
