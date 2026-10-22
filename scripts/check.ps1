@@ -25,10 +25,22 @@ $logDir = Join-Path ([System.IO.Path]::GetTempPath()) 'collectionmaxxing-check'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 # Runs a command, keeps its output in a log file and returns the exit code, the duration and the lines.
+# While it runs, prints a line every 30s (when output arrives) so a long step never looks hung; the test step counts
+# finished tests in it.
 function Invoke-Step([string]$Name, [scriptblock]$Command) {
   $log = Join-Path $logDir "$Name.log"
   $timer = [System.Diagnostics.Stopwatch]::StartNew()
-  $lines = & $Command 2>&1 | ForEach-Object { "$_" }
+  $script:finished = 0; $script:lastBeat = 0
+  $lines = & $Command 2>&1 | ForEach-Object {
+    $line = "$_"
+    if ($line -match '^\s+(Passed|Failed|Skipped) ') { $script:finished++ }
+    if ($timer.Elapsed.TotalSeconds - $script:lastBeat -ge 30) {
+      $script:lastBeat = $timer.Elapsed.TotalSeconds
+      $note = if ($script:finished -gt 0) { ", $($script:finished) tests finished" } else { '' }
+      Write-Host "     ... $Name running, $([int]$timer.Elapsed.TotalSeconds)s$note"
+    }
+    $line
+  }
   $code = $LASTEXITCODE
   $timer.Stop()
   Set-Content -Path $log -Value $lines
@@ -72,12 +84,29 @@ if ($step.Code -ne 0) {
 Write-Ok "format ($($step.Seconds)s)"
 
 # ---- test -----------------------------------------------------------------------------------------------------
-$step = Invoke-Step 'test' { dotnet test $solution --no-build --logger 'console;verbosity=minimal' }
+# Normal console verbosity logs every test as it finishes (with its time); the trx files give the slowest-tests report.
+$trxDir = Join-Path $logDir 'trx'
+Remove-Item -Recurse -Force $trxDir -ErrorAction SilentlyContinue
+$step = Invoke-Step 'test' { dotnet test $solution --no-build --logger 'console;verbosity=normal' --logger 'trx;LogFilePrefix=check' --results-directory $trxDir }
 $passed = 0; $failed = 0; $skipped = 0
 foreach ($line in $step.Lines) {
   if ($line -match '^(Passed|Failed)!\s+- Failed:\s+(\d+), Passed:\s+(\d+), Skipped:\s+(\d+)') {
     $failed += [int]$Matches[2]; $passed += [int]$Matches[3]; $skipped += [int]$Matches[4]
   }
+}
+# Where the time went: one line per test project, then the slowest tests (anything over 2s, at most 15).
+foreach ($line in $step.Lines) {
+  if ($line -match '^(Passed|Failed)!.*Passed:\s+(\d+).*Duration:\s+(.*[a-z]) - ([A-Za-z.]+)\.dll') {
+    Write-Host "     $($Matches[4]): $($Matches[2]) tests, $($Matches[3])"
+  }
+}
+$slowest = Get-ChildItem $trxDir -Filter *.trx -ErrorAction SilentlyContinue | ForEach-Object {
+  ([xml](Get-Content $_.FullName -Raw)).TestRun.Results.UnitTestResult
+} | Where-Object { $_ -and [timespan]$_.duration -ge [timespan]'00:00:02' } |
+  Sort-Object { [timespan]$_.duration } -Descending | Select-Object -First 15
+if ($slowest) {
+  Write-Host '     slowest tests:'
+  $slowest | ForEach-Object { Write-Host ('       {0,7:N1}s  {1}' -f ([timespan]$_.duration).TotalSeconds, $_.testName) }
 }
 if ($step.Code -ne 0 -or $failed -gt 0) {
   $details = @()

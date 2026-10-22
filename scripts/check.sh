@@ -20,14 +20,31 @@ log_dir="${TMPDIR:-/tmp}/collectionmaxxing-check"
 mkdir -p "$log_dir"
 
 # Sets: code, seconds, log. Runs the command with its output going to the step's log file.
+# While it runs, prints a line every 30s (what is running, for how long, and the step's own progress note) so a long
+# step never looks hung. A step may define progress_note to say more; it is cleared again afterwards.
 run_step() {
   local name="$1"; shift
   log="$log_dir/$name.log"
   local start=$SECONDS
-  "$@" >"$log" 2>&1
+  "$@" >"$log" 2>&1 &
+  local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    local tick
+    for tick in $(seq 15); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 2
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "     ... $name running, $((SECONDS - start))s$(progress_note 2>/dev/null)"
+    fi
+  done
+  wait "$pid"
   code=$?
   seconds=$((SECONDS - start))
+  progress_note() { :; }
 }
+
+progress_note() { :; }
 
 ok() { echo "ok   $1"; }
 
@@ -64,11 +81,33 @@ fi
 ok "format (${seconds}s)"
 
 # ---- test ------------------------------------------------------------------------------------------------------
-run_step test dotnet test "$solution" --no-build --logger 'console;verbosity=minimal'
+# Normal console verbosity logs every test as it finishes (with its time), so the heartbeat can say how far along it is;
+# the trx files give the slowest-tests report below. Everything goes to the log file, the terminal stays quiet.
+trx_dir="$log_dir/trx"
+rm -rf "$trx_dir"
+progress_note() {
+  local done_count
+  done_count=$(grep -cE '^[[:space:]]+(Passed|Failed|Skipped) ' "$log" 2>/dev/null)
+  echo ", ${done_count:-0} tests finished, projects done: $(grep -cE '^(Passed|Failed)!' "$log" 2>/dev/null)"
+}
+run_step test dotnet test "$solution" --no-build --logger 'console;verbosity=normal' --logger 'trx;LogFilePrefix=check' --results-directory "$trx_dir"
 read -r failed passed skipped < <(
   sed -nE 's/^(Passed|Failed)![[:space:]]+- Failed:[[:space:]]+([0-9]+), Passed:[[:space:]]+([0-9]+), Skipped:[[:space:]]+([0-9]+).*/\2 \3 \4/p' "$log" |
     awk '{f+=$1; p+=$2; s+=$3} END {print f+0, p+0, s+0}'
 )
+# Where the time went: one line per test project, then the slowest tests (anything over 2s, at most 15).
+sed -nE 's/^(Passed|Failed)!.*Passed:[[:space:]]+([0-9]+).*Duration:[[:space:]]+(.*[a-z]) - ([A-Za-z.]+)\.dll.*/     \4: \2 tests, \3/p' "$log"
+slowest=$(cat "$trx_dir"/*.trx 2>/dev/null | awk '
+  match($0, /testName="[^"]*"/) { name = substr($0, RSTART + 10, RLENGTH - 11) }
+  match($0, /duration="[0-9:.]*"/) {
+    split(substr($0, RSTART + 10, RLENGTH - 11), t, ":")
+    secs = t[1] * 3600 + t[2] * 60 + t[3]
+    if (secs >= 2) printf "%8.1fs  %s\n", secs, name
+  }' | sort -rn | head -n 15)
+if [ -n "$slowest" ]; then
+  echo "     slowest tests:"
+  printf '%s\n' "$slowest" | sed 's/^/       /'
+fi
 if [ "$code" -ne 0 ] || [ "$failed" -gt 0 ]; then
   details=$(awk -v max="$max_lines" '
     /^[[:space:]]+Failed [^ ]/ { n = max; sub(/^[[:space:]]+/, ""); print; next }
