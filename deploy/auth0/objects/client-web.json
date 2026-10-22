@@ -1,0 +1,13 @@
+{
+  "name": "CollectionMaxxing Web",
+  "description": "The web app. The API runs the code flow itself and keeps its own cookie (docs/14).",
+  "app_type": "regular_web",
+  "is_first_party": true,
+  "oidc_conformant": true,
+  "cross_origin_authentication": false,
+  "grant_types": ["authorization_code"],
+  "token_endpoint_auth_method": "client_secret_post",
+  "callbacks": ["{{PUBLIC_ORIGIN}}/signin-oidc", "http://localhost:5480/signin-oidc"],
+  "allowed_logout_urls": ["{{PUBLIC_ORIGIN}}", "{{PUBLIC_ORIGIN}}/", "http://localhost:5480", "http://localhost:5480/"],
+  "jwt_configuration": { "alg": "RS256" }
+}

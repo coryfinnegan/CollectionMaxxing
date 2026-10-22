@@ -1,0 +1,10 @@
+{
+  "name": "CollectionMaxxing Server",
+  "description": "The API's own Management API client: revokes iPhone sign-ins and deletes accounts (AUTH-2). Three scopes only.",
+  "app_type": "non_interactive",
+  "is_first_party": true,
+  "oidc_conformant": true,
+  "grant_types": ["client_credentials"],
+  "token_endpoint_auth_method": "client_secret_post",
+  "jwt_configuration": { "alg": "RS256" }
+}
