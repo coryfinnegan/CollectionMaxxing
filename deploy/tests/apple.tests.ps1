@@ -155,6 +155,33 @@ Test-Case 'apple: the .p12 opens with its password and holds the key and the cer
     Assert-True $threw 'the wrong password does not open it'
 }
 
+function Get-TestBagKeyIds {
+    <# The localKeyID attribute (DER, as hex) of the key bag and the certificate bag inside a .p12. #>
+    param([byte[]]$Bytes, [string]$Password)
+    $consumed = 0
+    $info = [System.Security.Cryptography.Pkcs.Pkcs12Info]::Decode([ReadOnlyMemory[byte]]::new($Bytes), [ref]$consumed, $false)
+    $ids = @{ key = ''; cert = '' }
+    foreach ($safe in $info.AuthenticatedSafe) {
+        if ($safe.ConfidentialityMode -eq [System.Security.Cryptography.Pkcs.Pkcs12ConfidentialityMode]::Password) { $safe.Decrypt($Password) }
+        foreach ($bag in $safe.GetBags()) {
+            $kind = if ($bag -is [System.Security.Cryptography.Pkcs.Pkcs12ShroudedKeyBag]) { 'key' } elseif ($bag -is [System.Security.Cryptography.Pkcs.Pkcs12CertBag]) { 'cert' } else { continue }
+            $attr = @($bag.Attributes | Where-Object { $_.Oid.Value -eq '1.2.840.113549.1.9.21' }) | Select-Object -First 1
+            if ($attr) { $ids[$kind] = [Convert]::ToHexString($attr.Values[0].RawData) }
+        }
+    }
+    $ids
+}
+
+Test-Case 'apple: the key and the certificate in the .p12 share a localKeyID, which macOS needs to import the key with its certificate' {
+    $p = New-TestPieces
+    $bytes = New-CmSigningBundle -KeyPem $p.KeyPem -CertificateBytes $p.Cert -Password 'pw-for-test'
+    $ids = Get-TestBagKeyIds -Bytes $bytes -Password 'pw-for-test'
+    # As OpenSSL and Keychain Access write it: an OCTET STRING (04 14) holding the certificate's SHA-1 hash.
+    $want = '0414' + [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($p.Cert).Thumbprint
+    Assert-Equal $want $ids.key 'the key bag'
+    Assert-Equal $want $ids.cert 'the certificate bag'
+}
+
 Test-Case 'apple: an API key, key ID and issuer ID are checked' {
     Assert-Equal 0 (Test-CmApiKey -KeyText (New-TestApiKeyText) -KeyId 'ABCDE12345' -IssuerId '69a6de70-0000-47e3-e053-5b8c7c11a4d1').Count
     $bad = Test-CmApiKey -KeyText 'nope' -KeyId 'abc' -IssuerId 'x'

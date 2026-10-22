@@ -107,7 +107,8 @@ function Test-CmSigningPieces {
 function New-CmSigningBundle {
     <#
       The key and certificate as one password-protected .p12, the form `security import` on the Mac runner reads. It uses
-      3DES and SHA-1 inside the file because macOS's keychain import does not read every newer PKCS#12 cipher.
+      3DES and SHA-1 inside the file because macOS's keychain import does not read every newer PKCS#12 cipher, and it
+      tags both with the same localKeyID (the certificate's SHA-1, as OpenSSL does): without it macOS drops the key.
     #>
     param([Parameter(Mandatory)][string]$KeyPem, [Parameter(Mandatory)][byte[]]$CertificateBytes, [Parameter(Mandatory)][string]$Password)
     $rsa = [System.Security.Cryptography.RSA]::Create()
@@ -115,10 +116,11 @@ function New-CmSigningBundle {
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CertificateBytes)
     $pbe = [System.Security.Cryptography.PbeParameters]::new(
         [System.Security.Cryptography.PbeEncryptionAlgorithm]::TripleDes3KeyPkcs12, [System.Security.Cryptography.HashAlgorithmName]::SHA1, 2048)
+    $localKeyId = [System.Security.Cryptography.Pkcs.Pkcs9LocalKeyId]::new($cert.GetCertHash())
     $keys = [System.Security.Cryptography.Pkcs.Pkcs12SafeContents]::new()
-    $keys.AddShroudedKey($rsa, $Password, $pbe) | Out-Null
+    $keys.AddShroudedKey($rsa, $Password, $pbe).Attributes.Add($localKeyId) | Out-Null
     $certs = [System.Security.Cryptography.Pkcs.Pkcs12SafeContents]::new()
-    $certs.AddCertificate($cert) | Out-Null
+    $certs.AddCertificate($cert).Attributes.Add($localKeyId) | Out-Null
     $builder = [System.Security.Cryptography.Pkcs.Pkcs12Builder]::new()
     $builder.AddSafeContentsUnencrypted($keys)
     $builder.AddSafeContentsEncrypted($certs, $Password, $pbe)
