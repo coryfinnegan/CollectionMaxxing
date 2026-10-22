@@ -83,12 +83,22 @@ jobs:
         with:
           ref: ${{ steps.what.outputs.ref }}
 
-      - name: Select newest Xcode
+      - name: Select the newest released Xcode
+        # App Store Connect refuses uploads built with a beta Xcode (ITMS-90534), so betas are skipped; a release
+        # candidate is accepted. The app needs the iOS 27 SDK (Foundation Models), so Xcode 27 at least.
         run: |
-          newest=$(printf '%s\n' /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Installed:"; printf '  %s\n' /Applications/Xcode*.app
+          newest=$(printf '%s\n' /Applications/Xcode*.app | grep -v -i 'beta' | sort -V | tail -1)
+          if [ -z "$newest" ]; then
+            echo "::error::No released Xcode on this runner, and App Store Connect rejects builds from a beta."; exit 1
+          fi
           echo "Using $newest"
           sudo xcode-select -s "$newest/Contents/Developer"
           xcodebuild -version
+          major=$(xcodebuild -version | awk 'NR == 1 { split($2, v, "."); print v[1] }')
+          if [ "${major:-0}" -lt 27 ]; then
+            echo "::error::The newest released Xcode here is $major; the app needs Xcode 27 (iOS 27 SDK). Check the runner image."; exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
