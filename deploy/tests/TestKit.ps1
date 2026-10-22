@@ -20,6 +20,7 @@ function Test-Case {
     }
     finally {
         $global:CmRunner = $null
+        $global:CmAuth0Runner = $null
     }
 }
 
