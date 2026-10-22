@@ -82,7 +82,7 @@ sequenceDiagram
 - **No tokens in the browser:** the ID token is checked and thrown away (`SaveTokens = false`). After that, it's the same cookie, CSRF header and `web_sessions` row as today.
 - **Lifetime:** the cookie becomes **30 days sliding, 1 year at most** (D-2). Auth0's own session only matters the next time you press Sign in.
 - **Recent sign-in:** for the actions that need one today (invites, deleting an account), `RequireRecentPasskey` becomes `RequireRecentSignIn`. The app sends you through `/account/login?reauth=1`, which asks Auth0 for `max_age=0`. The API accepts the ID token's `auth_time` only if it's under 5 minutes old.
-- **Sign out:** revoke the `web_sessions` row, clear the cookie, then send the browser to Auth0's `/v2/logout`, so the next sign-in shows the account picker again. The CSP's `form-action` gets the Auth0 domain for this one redirect.
+- **Sign out:** revoke the `web_sessions` row, clear the cookie, and return Auth0's `/v2/logout` address. The app then navigates there, so the next sign-in shows the account picker again. Because it's a navigation and not a form redirect, the CSP doesn't change.
 - **Public origin:** the `redirect_uri` comes from configuration (`Auth:PublicOrigin`), not from the request's host. This closes the "issuer from the request host" gap from Wave 4.
 
 ### iPhone: Auth0's SDK and the Keychain
@@ -219,14 +219,15 @@ Nothing carries over: there are no users, libraries, items, photos, invites or d
 
 | Task | Tier | Depends on | Scope |
 |---|---|---|---|
-| **AUTH0-0** | Lead + you | — | Tenant, CLI login, `deploy/auth0/` + `Apply-Auth0.ps1`, provisioner, Google and Apple connections. Check on Free that Management API refresh-token revocation works (per token or per user). |
-| **AUTH-1** | Opus, critical, verifier | AUTH0-0 config names | API, **replace in place**: delete OpenIddict, passkeys, pairing and their tests. Add OIDC sign-in for the web (`/account/login`, `/signin-oidc`, `/account/logout`), JWT bearer as the only bearer scheme, `user_logins` with the four link paths, `RequireRecentSignIn`, the unlinked-identity problem (`account.not_linked`), and authorization-matrix rows. Tests use a **WireMock fake Auth0** (discovery, JWKS, token endpoint) and JWTs signed with a test key. |
-| **AUTH-2** | Sonnet | AUTH-1 | `IIdentityProviderAdmin` port and Auth0 adapter (revoke refresh tokens, delete user; M2M token cached), `app_sign_ins`, `tokens_not_before`, wiring into Devices, member removal and account deletion. WireMock tests. |
-| **APP-A1** | Sonnet | AUTH-1 contract | Web: delete the passkey screens. Add the Sign in page (one button), the "not part of a library" page, Settings → Sign-in methods, re-auth by redirect, and the setup and join screens adapted. Playwright against the fake Auth0. |
-| **APP-A2** | Sonnet | AUTH-1 contract, lead's package PR | iPhone: delete pairing, QR, `tokenStore` and the refresh code. Add `react-native-auth0`, the sign-in screen, the Credentials Manager in `http.ts`, sign out and app registration. At most 3 iOS builds. |
-| **Lead** | — | — | Hot files: add `Microsoft.AspNetCore.Authentication.OpenIdConnect` + `JwtBearer` (both Microsoft, 10.0.x) and remove `OpenIddict.*`; add `react-native-auth0`, the `app.config.ts` plugin, compose environment (certificates out, Auth0 in), CSP `form-action`, `testflight` secrets, the migration that drops the old auth tables, ADR-025, docs. Also **the cutover**: the wipe steps above, then merging `w6/auth0`. |
+| **AUTH0-0** (#226) | Lead + you | — | Tenant, CLI login, `deploy/auth0/` + `Apply-Auth0.ps1`, provisioner, Google and Apple connections. Check on Free that Management API refresh-token revocation works (per token or per user). |
+| **LEAD-6a** (#227) | Lead | — | Hot files: add `Microsoft.AspNetCore.Authentication.OpenIdConnect` + `JwtBearer` (both Microsoft, 10.0.x) and `react-native-auth0`, the `app.config.ts` plugin, `EXPO_PUBLIC_AUTH0_*` and the server URL from `testflight` secrets in `ios-build.yml`, a new unsigned-simulator `ios-check.yml` for branches, and the compose environment for Auth0. |
+| **AUTH-1** (#228) | Opus, critical, verifier | LEAD-6a; AUTH0-0 config names | API, **replace in place**: delete OpenIddict, passkeys, pairing and their tests. Add OIDC sign-in for the web (`/account/login`, `/signin-oidc`, `/account/logout`), JWT bearer as the only bearer scheme, `user_logins` with the four link paths, `RequireRecentSignIn`, the unlinked-identity problem (`account.not_linked`), authorization-matrix rows, and the migration that drops the old auth tables. Tests use a **WireMock fake Auth0** (discovery, JWKS, token endpoint) and JWTs signed with a test key. |
+| **AUTH-2** (#229) | Sonnet | AUTH-1 | `IIdentityProviderAdmin` port and Auth0 adapter (revoke refresh tokens, delete user; M2M token cached), `app_sign_ins`, `tokens_not_before`, wiring into Devices, member removal and account deletion. WireMock tests. |
+| **APP-A1** (#230) | Sonnet | AUTH-1 contract (in its brief) | Web: delete the passkey screens. Add the Sign in page (one button), the "not part of a library" page, Settings → Sign-in methods, re-auth by redirect, and the setup and join screens adapted. Playwright against the fake Auth0. |
+| **APP-A2** (#231) | Sonnet | LEAD-6a; AUTH-1 contract | iPhone: delete pairing, QR, `tokenStore` and the refresh code. Add `react-native-auth0`, the sign-in screen, the Credentials Manager in `http.ts`, sign out and app registration. At most 3 `ios-check` runs. |
+| **CUT-1** (#232) | Lead + you | All of the above | Certificates out of compose and `.env`, `OpenIddict.*` versions removed, docs/07 rewritten and 03, 04, 08, 10 and the runbooks updated, then **the cutover**: the wipe steps above, merging `w6/auth0`, and a TestFlight release. |
 
-AUTH-1, APP-A1 and APP-A2 run in parallel once the contract is agreed.
+AUTH-1, APP-A1 and APP-A2 run in parallel once LEAD-6a has merged. The route contract is in AUTH-1's brief.
 - Because the deployer ships every push to `main`, builders open their PRs against an integration branch, **`w6/auth0`**, not `main`.
 - The lead merges `w6/auth0` into `main` in **one PR**. That PR is the cutover deploy, and the TestFlight build comes from the same commit. That's one wave, roughly **1 day of agent time**: less than before, with no dual-stack code and no linking of old accounts.
 
