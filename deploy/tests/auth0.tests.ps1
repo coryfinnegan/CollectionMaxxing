@@ -178,7 +178,7 @@ Test-Case 'Auth0 apply builds the tenant from deploy/auth0, and a second dry run
         Assert-Equal 'rotating' $iphone['refresh_token']['rotation_type']
         $grant = @($t.Grants | Where-Object { $_['client_id'] -eq $server['client_id'] })
         Assert-Equal 1 $grant.Count
-        Assert-Equal 'delete:users read:users' ((@($grant[0]['scope']) | Sort-Object) -join ' ')
+        Assert-Equal 'delete:grants delete:users' ((@($grant[0]['scope']) | Sort-Object) -join ' ')
         Assert-Equal "https://$($script:FakeDomain)/api/v2/" $grant[0]['audience']
         Assert-Equal "$($web['client_id']) $($iphone['client_id'])" (($t.Enabled['con-google'] | Sort-Object) -join ' ') 'Google should be on for web and iPhone only'
         Assert-Equal 0 $t.Enabled['con-db'].Count 'the password database must stay off for our apps'
