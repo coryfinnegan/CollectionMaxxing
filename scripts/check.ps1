@@ -89,24 +89,36 @@ $trxDir = Join-Path $logDir 'trx'
 Remove-Item -Recurse -Force $trxDir -ErrorAction SilentlyContinue
 $step = Invoke-Step 'test' { dotnet test $solution --no-build --logger 'console;verbosity=normal' --logger 'trx;LogFilePrefix=check' --results-directory $trxDir }
 $passed = 0; $failed = 0; $skipped = 0
+# Normal verbosity prints a "Passed: N" block per project (Failed and Skipped only when non-zero); minimal prints
+# "Passed! - Failed: ..." lines. Count whichever is there.
 foreach ($line in $step.Lines) {
   if ($line -match '^(Passed|Failed)!\s+- Failed:\s+(\d+), Passed:\s+(\d+), Skipped:\s+(\d+)') {
     $failed += [int]$Matches[2]; $passed += [int]$Matches[3]; $skipped += [int]$Matches[4]
   }
+  elseif ($line -match '^\s+Passed:\s+(\d+)\s*$') { $passed += [int]$Matches[1] }
+  elseif ($line -match '^\s+Failed:\s+(\d+)\s*$') { $failed += [int]$Matches[1] }
+  elseif ($line -match '^\s+Skipped:\s+(\d+)\s*$') { $skipped += [int]$Matches[1] }
 }
-# Where the time went: one line per test project, then the slowest tests (anything over 2s, at most 15).
+# Where the time went: one line per test project, a histogram of test times, then the slowest classes and tests.
 foreach ($line in $step.Lines) {
-  if ($line -match '^(Passed|Failed)!.*Passed:\s+(\d+).*Duration:\s+(.*[a-z]) - ([A-Za-z.]+)\.dll') {
-    Write-Host "     $($Matches[4]): $($Matches[2]) tests, $($Matches[3])"
-  }
+  if ($line -match 'xUnit\.net ([0-9:.]+)\]\s+Finished:\s+([A-Za-z.]+) ') { Write-Host "     $($Matches[2]): $($Matches[1])" }
 }
-$slowest = Get-ChildItem $trxDir -Filter *.trx -ErrorAction SilentlyContinue | ForEach-Object {
+$results = @(Get-ChildItem $trxDir -Filter *.trx -ErrorAction SilentlyContinue | ForEach-Object {
   ([xml](Get-Content $_.FullName -Raw)).TestRun.Results.UnitTestResult
-} | Where-Object { $_ -and [timespan]$_.duration -ge [timespan]'00:00:02' } |
-  Sort-Object { [timespan]$_.duration } -Descending | Select-Object -First 15
-if ($slowest) {
+} | Where-Object { $_ } | ForEach-Object {
+  $name = $_.testName -replace '\(.*$', ''
+  [pscustomobject]@{ Name = $name; Class = $name -replace '\.[^.]*$', ''; Seconds = ([timespan]$_.duration).TotalSeconds }
+})
+if ($results.Count -gt 0) {
+  Write-Host ('     {0} tests, {1:N0}s of test time in total' -f $results.Count, ($results | Measure-Object Seconds -Sum).Sum)
+  $results | Group-Object { if ($_.Seconds -lt 0.1) { '1 under 0.1s' } elseif ($_.Seconds -lt 0.5) { '2 0.1-0.5s' } elseif ($_.Seconds -lt 1) { '3 0.5-1s' } elseif ($_.Seconds -lt 2) { '4 1-2s' } else { '5 2s and over' } } |
+    Sort-Object Name | ForEach-Object { Write-Host ('       {0,-14} {1,5} tests {2,7:N0}s' -f $_.Name.Substring(2), $_.Count, ($_.Group | Measure-Object Seconds -Sum).Sum) }
+  Write-Host '     slowest classes (total time):'
+  $results | Group-Object Class | ForEach-Object { [pscustomobject]@{ Class = $_.Name; Count = $_.Count; Seconds = ($_.Group | Measure-Object Seconds -Sum).Sum } } |
+    Sort-Object Seconds -Descending | Select-Object -First 12 | ForEach-Object { Write-Host ('       {0,7:N1}s {1,5} tests  {2}' -f $_.Seconds, $_.Count, $_.Class) }
   Write-Host '     slowest tests:'
-  $slowest | ForEach-Object { Write-Host ('       {0,7:N1}s  {1}' -f ([timespan]$_.duration).TotalSeconds, $_.testName) }
+  $results | Sort-Object Seconds -Descending | Select-Object -First 10 | Where-Object { $_.Seconds -ge 2 } |
+    ForEach-Object { Write-Host ('       {0,7:N1}s  {1}' -f $_.Seconds, $_.Name) }
 }
 if ($step.Code -ne 0 -or $failed -gt 0) {
   $details = @()
