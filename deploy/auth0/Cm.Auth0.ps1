@@ -19,7 +19,8 @@ $script:CmAuth0ProvisionerScopes = @(
     'read:clients', 'create:clients', 'update:clients', 'read:client_keys',
     'read:client_grants', 'create:client_grants', 'update:client_grants',
     'read:resource_servers', 'create:resource_servers', 'update:resource_servers',
-    'read:connections', 'create:connections', 'update:connections',
+    # Auth0 shows and changes a connection's options only with the *_connections_options scopes.
+    'read:connections', 'create:connections', 'update:connections', 'read:connections_options', 'update:connections_options',
     'read:tenant_settings', 'update:tenant_settings', 'read:branding', 'update:branding',
     'read:attack_protection', 'update:attack_protection')
 # Keys Auth0 accepts but never shows again; they're compared only when a read includes them.
@@ -473,7 +474,11 @@ function Invoke-CmAuth0Bootstrap {
 
     $apps = Invoke-Cm -Command $Auth0Exe -Arguments @('apps', 'list', '--number', '1000', '--json', '--no-input', '--tenant', $domain) -Env $cli
     $list = ConvertFrom-CmCliJson $apps.Output
-    if ($apps.ExitCode -ne 0 -or $null -eq $list) { Write-CmLog "auth0 apps list failed: is the CLI logged in to $domain? Run: auth0 login" 'ERROR'; return Result 1 }
+    if ($apps.ExitCode -ne 0 -or $null -eq $list) {
+        Write-CmLog "auth0 apps list failed (exit $($apps.ExitCode)): is the CLI logged in to ${domain}? Run: auth0 login" 'ERROR'
+        foreach ($line in @($apps.Output | Where-Object { "$_" -notmatch 'secret' } | Select-Object -Last 5)) { Write-CmLog "  $line" 'ERROR' }
+        return Result 1
+    }
     $found = @(@($list) | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['name'] -eq $script:CmAuth0Provisioner })
     if ($found.Count -eq 0) {
         Write-CmLog "app '$($script:CmAuth0Provisioner)': create"

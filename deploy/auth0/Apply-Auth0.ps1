@@ -17,6 +17,9 @@
     2. C:\CollectionMaxxing\tools\auth0\auth0.exe login  (the owner approves the device code in their browser)
     3. Apply-Auth0.ps1 -Bootstrap -Apply  creates the provisioner app, writes auth0\provisioner.env and logs the CLI out.
     4. Apply-Auth0.ps1, then Apply-Auth0.ps1 -Apply.
+  Run it from PowerShell, not Git Bash: under Git Bash the CLI couldn't find its login for -Bootstrap.
+  The provisioner was later granted read/update:connections_options too: Auth0 hides and locks connection options
+  without them. A new -Bootstrap grants the whole list in Cm.Auth0.ps1.
   Optional files: auth0\google.env (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET; without it Google uses Auth0's developer keys)
   and auth0\apple.env (APPLE_SERVICES_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_KEY_FILE; without it Apple stays off).
 

@@ -1,6 +1,6 @@
 {
   "name": "CollectionMaxxing Server",
-  "description": "The API's own Management API client: revokes iPhone sign-ins and deletes accounts (AUTH-2). Three scopes only.",
+  "description": "The API's own Management API client: deletes the Auth0 user when an account is deleted (AUTH-2). Two scopes only.",
   "app_type": "non_interactive",
   "is_first_party": true,
   "oidc_conformant": true,
