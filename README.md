@@ -10,7 +10,8 @@ Open the app, tap **Scan**, and point the camera at your stuff. There are no mod
 
 Results pop up as cards while you keep scanning. The server matches them against book, movie and game databases and flags anything you already own. You review the batch and tap **Add 14 items**. The same library is available on the web, where bulk editing is easier.
 
-It is **self-hosted and costs $0**: the API and database run on one Windows PC, you reach them privately over Tailscale, and the iPhone app is sideloaded with a free Apple ID.
+It is **self-hosted**: the API and database run on one Windows PC, and you reach them privately over Tailscale. The iPhone app comes through TestFlight. The only cost is the Apple Developer Program ($99/yr).
+
 
 ## What's in the repo
 
@@ -82,7 +83,7 @@ Pieces on their own:
 | Output | Built by | Trigger | Result |
 |---|---|---|---|
 | API, migrate and backup images, with the web app inside the API image | `.github/workflows/release.yml` (ubuntu) | every push to `main` | Signed, attested images on GHCR, tagged with the commit SHA |
-| Unsigned iPhone `.ipa` | `.github/workflows/ios-build.yml` (macOS runner, Xcode 27) | a `v*` tag, or run it by hand | `CollectionMaxxing-unsigned.ipa` and its `.sha256` on a GitHub release (a manual run leaves them as a workflow artifact) |
+| Signed iPhone app | `.github/workflows/ios-build.yml` (macOS runner, Xcode 27) | a `v*` tag, by hand, and the 1st of every other month | A TestFlight build for internal testers, plus a GitHub release on tags |
 | Checks | `ci.yml`, `mutation.yml`, `security-nightly.yml` | pull requests and nightly | Must be green before merging |
 
 You never build these by hand: merge to `main` and the images build themselves.
@@ -115,25 +116,26 @@ Day-to-day operations (health checks, restore, rollback, what to do when somethi
 
 ## iPhone app: build, install, update
 
-There is no paid Apple membership. The app is built unsigned on GitHub's macOS runner, then signed and installed with a free Apple ID through AltStore.
+The app is built and signed on GitHub's macOS runner and uploaded to **TestFlight**, which installs and updates it on your phones (ADR-024). There's no Mac, no AltStore and no Developer Mode.
+
+**Set up once** (about 30 minutes, then a 10-minute renewal each year): follow [deploy/runbooks/iphone-app-testflight.md](deploy/runbooks/iphone-app-testflight.md).
+
+- On the Apple side: an app ID, a distribution certificate, an App Store profile, the App Store Connect app, an upload API key, and a tester group.
+- On the PC: `deploy/apple/New-SigningRequest.ps1` and `deploy/apple/Publish-SigningSecrets.ps1` make the certificate request and store everything in a protected GitHub environment.
 
 **Release a new build**
 
 1. Bump `version` in `app/app.config.ts` and merge to `main`.
-2. Tag the merge commit with the same number: `git tag v1.0.3 && git push origin v1.0.3`. The build fails if the tag and `app.config.ts` disagree.
-3. `ios-build.yml` attaches the `.ipa` to the GitHub release.
+2. Tag the merge commit with the same number: `git tag v1.0.5 && git push origin v1.0.5`. The build fails if the tag and `app.config.ts` disagree.
+3. `ios-build.yml` signs the app, uploads it to TestFlight and creates the GitHub release. Apple processes it in up to half an hour.
 
-**Install the first time**
+**Install on an iPhone**
 
-1. On the PC, install **AltServer** (it needs Apple's iTunes and iCloud for Windows). On the iPhone, install **AltStore** with your free Apple ID.
-2. On the iPhone, on the same Wi-Fi as the PC, download the `.ipa` from the latest release (or from the web app under **Settings → Get the iPhone app**).
-3. In AltStore: **My Apps → + →** pick the file.
-4. Turn on Tailscale on the phone, open the app and pair it by scanning the QR code from the web app.
+1. Get added as a tester. The owner does this in App Store Connect, and the invite arrives by email.
+2. Install **TestFlight** from the App Store, open the invite and tap Install. Turn on **Automatic Updates** in TestFlight.
+3. Turn on Tailscale on the phone, open the app and pair it by scanning the QR code from the web app (**Settings → Devices → Add a device**).
 
-**Stay installed and up to date**
-
-- Free signatures last 7 days. AltStore re-signs automatically whenever the phone and PC are on the same Wi-Fi; your data survives.
-- The deployer copies each new release's `.ipa` onto the server, and the app shows an "update ready" notice when it is newer than the installed version. Install it through AltStore the same way.
+**Stay up to date:** TestFlight installs each new build by itself. A build lasts 90 days, and the workflow rebuilds the latest release every other month, so it never lapses.
 
 ## Docs
 

@@ -331,7 +331,7 @@ Pair with the QR code from the web app → Face ID app lock (optional) → empty
 1. In the Tailscale admin console, **Invite user**. The free plan covers up to 6 people.
 2. On the web: Settings → **Members** → **+ Invite** → "Sam", **Editor** → send Sam the link.
 3. Sam opens it and taps **Create passkey**. Sam is now in your library.
-4. To scan, Sam installs the app with AltStore (Sam's own Apple ID, through your PC's AltServer) and pairs it from Settings → Devices → **Add a device**, the same way you did.
+4. To scan, Sam installs the app from TestFlight (you add Sam as a tester in App Store Connect) and pairs it from Settings → Devices → **Add a device**, the same way you did.
 
 ### Batch a box of games
 

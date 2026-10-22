@@ -4,7 +4,7 @@
 
 **Why this beats the alternatives for this project** (the full ADR is in [12](12-decision-log.md#adr-003-expo-react-native-for-ios-and-web)):
 
-1. **You're on Windows.** Native iOS builds need Xcode on a Mac, whatever the framework. That includes .NET MAUI: its one Mac-free shortcut, Hot Restart, needs the paid membership and is gone from Visual Studio 2026. **GitHub's free macOS runners compile the iOS app in the cloud** (an unsigned build). You install it on your iPhone with your **free Apple ID** through AltStore, which runs on your PC and re-signs it every week. No Mac, and no $99 membership.
+1. **You're on Windows.** Native iOS builds need Xcode on a Mac, whatever the framework. That includes .NET MAUI: its one Mac-free shortcut, Hot Restart, needs the paid membership and is gone from Visual Studio 2026. **GitHub's free macOS runners compile and sign the iOS app in the cloud** and upload it to TestFlight, which installs and updates it on your iPhone (ADR-024; it was AltStore with a free Apple ID until the Apple Developer Program was paid for). No Mac.
 2. **Scanning quality.** `react-native-vision-camera` v5 gives full control of the iPhone camera, and a small Swift module plugs Apple's Vision and Foundation Models straight into its frames and stills.
 3. **One codebase for iOS and web.** Expo Router targets both. Platform-specific pieces (the camera, a dense web table) live in `.ios.tsx` / `.web.tsx` files.
 4. **Fast iteration without spending build minutes.** Most changes are JavaScript, which reloads live on your iPhone from the dev server on your PC (over Tailscale). The cloud Mac is needed only when native code or dependencies change. With SwiftUI, Flutter or MAUI, every change would be a ~20-minute cloud build.
@@ -139,38 +139,34 @@ The on-device recognition needs one small native module in Swift (`modules/cm-vi
 - One shared refresh promise means concurrent `401`s trigger a single refresh. If the refresh fails, the user is sent to sign-in with the tray preserved.
 - No third-party API keys are ever shipped in the app bundle. Every provider call goes through our API.
 
-## Builds and releases ($0, no Apple membership)
+## Builds and releases (TestFlight, ADR-024)
 
 | Channel | How | When |
 |---|---|---|
-| **Build** | GitHub Actions **macOS runner**: `expo prebuild` → `xcodebuild` with code signing disabled → zip into an unsigned `.ipa` → workflow artifact. ~15–25 min per build. The repo is public, so GitHub's standard macOS runners are **free with no minute limit**. | on `v*` tags, or by hand |
-| **Install** | **AltStore**: AltServer runs on your PC and signs the `.ipa` with your **free Apple ID**; the AltStore app on your iPhone installs it. *Alternative:* Sideloadly (manual, no background refresh). | after each build |
-| **Stay installed** | Free-Apple-ID signatures last **7 days**. AltStore re-signs automatically in the background whenever your iPhone and the PC are on the same Wi-Fi, so at home it's invisible. Your data survives re-signing. | weekly, automatic |
-| **Dev builds** | Same pipeline with `expo-dev-client`; then `npx expo start` on the PC, reachable from the phone over Tailscale | when native code changes |
+| **Build** | `.github/workflows/ios-build.yml` on a GitHub **macOS runner**: `expo prebuild` → `xcodebuild archive`, signed with the Apple Distribution certificate and App Store profile from the `testflight` environment → export → upload. ~25–35 min. The repo is public, so GitHub's standard macOS runners are **free with no minute limit**. | on `v*` tags, or by hand |
+| **Install and update** | **TestFlight**, internal testers only: the build reaches the Household group automatically once Apple has processed it, and TestFlight updates the app by itself. | after each build |
+| **Stay installed** | A TestFlight build lasts **90 days**. The same workflow rebuilds the latest release on the 1st of every other month, so a quiet spell never lets it lapse. | every other month, automatic |
+| **Dev builds** | Not set up. They would need `expo-dev-client`, your iPhone registered as a device, and a development profile. Until then JavaScript changes are tried on the web and then in a TestFlight build. | when native code changes |
 | **Web** | Built in CI and baked into the API image on your PC | every deploy |
 
-**One-time iPhone setup:**
+**One-time setup:**
 
-- turn on **Developer Mode** (Settings → Privacy & Security), which iOS requires for sideloaded developer-signed apps;
-- trust your Apple ID's developer certificate;
-- install Tailscale with VPN On Demand.
+- the Apple side (app ID, certificate, profile, App Store Connect app, API key) and the GitHub secrets: [iphone-app-testflight.md](../deploy/runbooks/iphone-app-testflight.md), about 30 minutes;
+- on the iPhone: install TestFlight and accept the invite, and install Tailscale with VPN On Demand.
 
-**Free-account limits to know:**
+There's no Developer Mode, no weekly re-signing and no app limit. The release signing applies only to the Release build of the app target, through a small local config plugin (`app/plugins/withReleaseSigning.js`), and only when CI passes a team and a profile. `ITSAppUsesNonExemptEncryption` is false (HTTPS only), so builds skip the export compliance question.
 
-- 3 sideloaded apps at once. That's AltStore, CollectionMaxxing, and room for a separate dev build.
-- 10 new app IDs per week.
-- Apple capabilities that need a paid team are off-limits: no push notifications, no Sign in with Apple, no associated domains, no Apple Private Cloud Compute. The plan doesn't use any of them.
-- Camera, Vision, LocalAuthentication (Face ID) and the on-device Foundation Model need no paid capability. **This is confirmed in an M0 spike before we build on it.**
+**Apple capabilities:** the membership would allow push notifications, Sign in with Apple, associated domains and Private Cloud Compute. The plan still uses none of them (ADR-024 says why). Camera, Vision, LocalAuthentication (Face ID) and the on-device Foundation Model need no capability. The M0 spike confirmed them on a free-signed build, and a TestFlight build behaves the same.
 
 **Family members' iPhones:**
 
-- The same `.ipa` works for everyone. Each person installs AltStore with **their own free Apple ID** (so the app limits are per person) through the AltServer on your PC, and their phone re-signs on your home Wi-Fi like yours.
-- The web app offers the latest build under **Settings → Get the iPhone app**.
-- Someone who doesn't live with you can use **SideStore** (free), which re-signs on the phone itself with no PC.
+- Each person is an App Store Connect user with the Marketing role, limited to this app, and a tester in the Household group. Apple allows up to 100.
+- The web app explains this under **Settings → Get the iPhone app**.
+- It works anywhere: there's nothing to refresh at home.
 - Family who only browse don't need the app: the web app works in Safari, or on Android.
 - iPhones without Apple Intelligence use the Vision text engine automatically.
 
-No App Store, no TestFlight, no EAS Build (it needs Apple credentials from a paid team for device builds). The API base URL (your PC's Tailscale HTTPS name) comes from the QR code when you pair.
+Builds are uploaded as *TestFlight internal testing only*, so they can never reach external testers or the App Store. No EAS Build. The API base URL (your PC's Tailscale HTTPS name) comes from the QR code when you pair.
 
 ## Accessibility
 

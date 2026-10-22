@@ -2,7 +2,7 @@
 
 Made by QA-1c (issue #169), October 2026, for the Expo app in `app/`. A short check, not a penetration test: each row is a MASVS-L1 area, with Pass (and the test or `file:line`), Accepted risk, or Gap. Paths are under `app/` unless noted. Paths marked "(device)" cannot be proven by a unit test and are on the owner's device checklist.
 
-The app is sideloaded with a free Apple ID (docs/08 "iOS app"), talks only to the owner's server over HTTPS on the tailnet, and does recognition on the phone. Nothing is sent to a third party.
+The app is installed through TestFlight, internal testers only (docs/08 "iOS app", ADR-024), talks only to the owner's server over HTTPS on the tailnet, and does recognition on the phone. Nothing is sent to a third party.
 
 ## Result
 

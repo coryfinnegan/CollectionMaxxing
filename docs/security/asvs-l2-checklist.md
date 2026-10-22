@@ -24,7 +24,7 @@ Gaps (all also listed under "Notes for the lead" in the PR):
 | G4 | Low | V14.4 | `Cross-Origin-Resource-Policy` and `Cross-Origin-Embedder-Policy` are not sent (ZAP 90004). Ignored with a reason in `.zap/rules.tsv`. |
 | G5 | Info | V3.2, V13.1 | The token issuer is the request host, not a fixed setting (QA-1a "Not done here"). A token minted for one host name is only valid under that name, so nothing is bypassed; setting `SetIssuer(PublicUrl)` would tidy it. |
 | G6 | Info | V7.2 | The nightly ZAP API scan is mostly answered by the rate limiter (722 of 1,277 4xx answers were 429), so its active rules see little of each endpoint. Run it with higher limits in the scan stack if deeper coverage is wanted. |
-| G7 | Info | V1.14, V10.2 | No signed build provenance is checked for the app bundle. Sideloaded from the owner's own CI artifacts (docs/08). |
+| G7 | Info | V1.14, V10.2 | The app bundle is signed in CI with the owner's Apple Distribution certificate and installed only through TestFlight, which checks Apple's signature (ADR-024, docs/08). The signing secrets are limited to `main` and `v*` tags by a GitHub environment. |
 
 ## V1 Architecture, design and threat modelling
 

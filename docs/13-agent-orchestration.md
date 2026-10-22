@@ -18,7 +18,7 @@ The earlier estimate (15 part-time weeks) assumed one person writing code with a
 Agents write code quickly. These are what set the pace:
 
 1. **Things only you can do:**
-   - **Test on your iPhone.** That covers the camera, Apple's model, Vision, Face ID and AltStore installs. There's no Mac, so agents can't run iOS code here. GitHub's Macs have the iOS Simulator, but it has no camera, and Apple's model may not run there.
+   - **Test on your iPhone.** That covers the camera, Apple's model, Vision, Face ID and TestFlight installs. There's no Mac, so agents can't run iOS code here. GitHub's Macs have the iOS Simulator, but it has no camera, and Apple's model may not run there.
    - **Judge the feel.** Does the scanner feel like the Flippr reel?
    - **Photograph your shelves** for the eval set.
 2. **Integration:** many agents editing the same files (database schema, API contract, startup wiring, app routes) means merge conflicts. Wave 0 solves this (below).
@@ -105,7 +105,7 @@ flowchart LR
 **You (~2 hours, once):**
 
 - update Docker Desktop;
-- install AltServer (plus iTunes and iCloud), and AltStore on your iPhone;
+- install AltServer (plus iTunes and iCloud), and AltStore on your iPhone (replaced by the TestFlight setup in ADR-024);
 - turn on Developer Mode;
 - turn on Tailscale VPN On Demand;
 - install and run the spike.

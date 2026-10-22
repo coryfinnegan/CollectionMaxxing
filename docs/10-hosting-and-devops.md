@@ -120,31 +120,33 @@ GitHub-hosted runners (free)                 Deployer on your PC (it pulls; noth
   - Instead, a small **deployer** script on your PC (Task Scheduler, every 2 minutes) checks GHCR for a new `main` image.
   - It deploys an image only if its build attestation proves this repo's workflow built it from `main` (`gh attestation verify`; update the gh CLI first).
   - Nothing on the internet can tell your PC to run anything.
-- **iPhone app:** see *Getting the app on your iPhone for $0* below. The deployer also copies the newest `.ipa` (from the latest GitHub release) into the `files` volume, so you and your family can get it from the web app under **Settings → Get the iPhone app**.
+- **iPhone app:** see *Getting the app on your iPhone* below. The server no longer hands out an `.ipa`. The deployer removes the copy it used to keep, once (ADR-024).
 - **CI minutes:** the repo is public, so GitHub's standard Linux and macOS runners are free with no minute limits.
 
-## Getting the app on your iPhone for $0
+## Getting the app on your iPhone
 
-No Apple Developer Program ($99/yr), no Mac, no TestFlight:
+The Apple Developer Program ($99/yr) is paid for, and the app ships through **TestFlight** (ADR-024; until 2026-10-22 it was AltStore with a free Apple ID). There's still no Mac. The one-time setup and the yearly renewal are in [iphone-app-testflight.md](../deploy/runbooks/iphone-app-testflight.md).
 
-1. **Build:** a GitHub Actions workflow on a macOS runner (it needs an image with Xcode 27, for iOS 27's Foundation Models) runs `expo prebuild` and `xcodebuild` with code signing disabled. It packages an **unsigned `.ipa`** as a workflow artifact. The repo is public, so these builds are free with no monthly limit. They're still only needed when native code or dependencies change, or for a release.
-2. **Sign + install:** **AltServer** (free) runs on this PC and signs the `.ipa` with your **free Apple ID**; the **AltStore** app on your iPhone installs it.
-3. **Keep it alive:** free signatures expire after **7 days**. AltStore re-signs in the background whenever the phone and the PC are on the same Wi-Fi, which happens every night at home. Your data survives re-signing.
-4. **One-time:** turn on Developer Mode on the iPhone and trust your developer certificate.
-
-**Limits that come with a free Apple ID:**
-
-- 3 sideloaded apps (AltStore + CollectionMaxxing + a dev build);
-- 10 app IDs a week;
-- no paid-only capabilities: no push notifications, no Sign in with Apple, no Apple Private Cloud Compute.
+1. **Build and sign:** `.github/workflows/ios-build.yml` runs on a macOS runner with Xcode 27, for iOS 27's Foundation Models.
+   - It runs `expo prebuild`, archives with the Apple Distribution certificate and App Store profile, and exports the `.ipa`.
+   - The signing secrets live in the `testflight` GitHub environment, which only `main` and `v*` tags can use.
+2. **Upload:** an App Store Connect API key with the App Manager role uploads the build as *internal testing only*.
+3. **Install and update:** the Household tester group has automatic distribution, so TestFlight installs each processed build on the phones by itself. It works over cellular and away from home.
+4. **Keep it alive:** a TestFlight build lasts 90 days, so the workflow rebuilds the latest release on the 1st of every other month. It warns 30 days before the certificate expires.
 
 **Family iPhones:**
 
-- Each person uses **their own free Apple ID** in AltStore, so these limits are per person, with the same AltServer on your PC. Their phones re-sign on your home Wi-Fi.
-- Family who don't live with you can use **SideStore** (free), which re-signs on the phone itself.
+- Each person is an App Store Connect user with the Marketing role, limited to this app, and a tester in the Household group (Apple allows up to 100 internal testers).
+- Removing someone takes two steps: the Members screen, and App Store Connect.
 - Family who only browse need no app: the web app works in Safari.
 
-The plan avoids all three paid-only capabilities. Sign-in uses passkeys and QR pairing ([07](07-authentication-and-authorization.md)); there are no push notifications (results wait in the app, and backup alerts come by email); hard cases go to Fix it. An **M0 spike** confirms that the on-device Foundation Model and Vision work in a free-signed app before we build on them.
+The membership would allow push notifications, Sign in with Apple, associated domains and Private Cloud Compute. The plan still uses none of them:
+
+- Sign-in uses passkeys and QR pairing ([07](07-authentication-and-authorization.md)).
+- There are no push notifications: results wait in the app, and backup alerts come by email.
+- Hard cases go to Fix it.
+
+The M0 spike confirmed the on-device Foundation Model and Vision in a free-signed build. A TestFlight build behaves the same.
 
 ## Backups and recovery
 
@@ -173,15 +175,15 @@ Turn on **BitLocker** on the drives that hold the Docker volumes and backups, so
 | Electricity | **$0 extra**: the PC is already on 24/7 for Plex, ErsatzTV and Jellyfin |
 | Off-site backup (Backblaze B2 free 10 GB, or free OneDrive) | **$0** |
 | Recognition (Apple frameworks on the phone) | **$0** |
-| Apple Developer Program | **$0**: not needed; free Apple ID + AltStore sideloading |
+| Apple Developer Program | **$99/yr** (about $8.25/month): TestFlight distribution (ADR-024). The only paid item |
 | GitHub (public repo: standard Actions runners and public packages are free) | **$0** |
 | Domain | not needed; Tailscale provides the HTTPS name |
 
 ## Local developer setup (Windows, this PC)
 
-1. Install the .NET 10 SDK, Node 22 LTS (or what Expo 57 recommends), an **updated Docker Desktop**, and **AltServer** (plus Apple's iTunes and iCloud for Windows, which it needs). Tailscale is already installed.
+1. Install the .NET 10 SDK, Node 22 LTS (or what Expo 57 recommends), and an **updated Docker Desktop**. Tailscale is already installed. Nothing Apple is needed on the PC: signing happens in CI.
 2. `git clone` → `dotnet user-secrets set …` for provider keys. Each is optional; fakes are used when a key is missing.
 3. `dotnet run --project src/CollectionMaxxing.AppHost`: Postgres, the API (migrations applied) and Expo web, plus the Aspire dashboard.
-4. iPhone: build the dev client with the macOS workflow, install it with AltStore, then `npx expo start` on the PC. The dev build reaches your PC over Tailscale too, so you can test away from home.
+4. iPhone: run the iOS build workflow by hand (Actions > iOS build (TestFlight) > Run workflow on `main`) and install it from TestFlight. A dev client with `npx expo start` would need your iPhone registered as a device and a development profile, which isn't set up yet.
 5. `dotnet test` runs everything except the on-phone evals. Docker must be running for Testcontainers.
 6. Production setup: `deploy/README.md` covers the compose file, `.env`, `tailscale serve`, the deployer and the backup schedule. It's about an hour, once.

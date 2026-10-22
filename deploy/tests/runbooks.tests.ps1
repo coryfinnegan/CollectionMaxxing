@@ -17,7 +17,7 @@ Test-Case 'runbooks: the folder has an index and the eight runbooks the brief na
     Assert-True (Test-Path -LiteralPath (Join-Path $script:RunbookDir 'README.md')) 'deploy/runbooks/README.md is missing'
     $names = (Get-RunbookFiles).Name
     foreach ($want in 'reboot-or-docker-off.md', 'update-and-rollback.md', 'missed-backup-or-full-disk.md', 'lost-phone-or-remove-member.md',
-        'rotate-signing-keys.md', 'tailscale-and-https.md', 'altstore-resigning.md', 'v1-release-and-week-of-use.md') {
+        'rotate-signing-keys.md', 'tailscale-and-https.md', 'iphone-app-testflight.md', 'v1-release-and-week-of-use.md') {
         Assert-True ($names -contains $want) "missing runbook $want"
     }
 }
@@ -89,7 +89,7 @@ Test-Case 'runbooks: the v1.0 checklist gathers every pending hands-on owner ste
     $text = Get-Content -LiteralPath (Join-Path $script:RunbookDir 'v1-release-and-week-of-use.md') -Raw
     foreach ($want in 'ios-build.yml', 'VPN On Demand', 'failing test', 'Run evals', 'golden', 'restore-drill.ps1', '-ConfirmLive',
         'Run-Perf.ps1', '-Profile gaming', '-Profile full', 'ios-checklist.md', 'VoiceOver', 'Large', 'Reduce Motion',
-        'https://pc.tailnet.ts.net/', 'passkey', 'TrustedProxies', 'AltStore', 'Run-ZapBaseline.ps1') {
+        'https://pc.tailnet.ts.net/', 'passkey', 'TrustedProxies', 'TestFlight', 'Run-ZapBaseline.ps1') {
         Assert-True ($text.Contains($want)) "the v1.0 checklist does not mention [$want]"
     }
     Assert-True (@([regex]::Matches($text, '(?m)^\s*- \[ \] ')).Count -ge 10) 'expected tick boxes (- [ ])'
