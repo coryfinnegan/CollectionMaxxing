@@ -1,6 +1,6 @@
 # 14 — Moving sign-in to Auth0 (plan)
 
-**Status:** Proposed, 2026-10-22. It needs your OK on the [decisions](#decisions-for-you) before any code changes. The decision record is [ADR-025](12-decision-log.md#adr-025-auth0-for-sign-in-our-api-keeps-authorization). Once this ships, [07](07-authentication-and-authorization.md) is rewritten to match and this plan is archived.
+**Status:** **Accepted**, 2026-10-22. You approved the plan: D-1 to D-6 take their defaults, and D-7 is "wipe the database and start as a fresh install". This is Wave 6. The decision record is [ADR-025](12-decision-log.md#adr-025-auth0-for-sign-in-our-api-keeps-authorization). Once this ships, [07](07-authentication-and-authorization.md) is rewritten to match and this plan is archived.
 
 ## Summary
 
@@ -14,7 +14,7 @@
 | Authorization | Deny by default, library roles, authorization matrix | **Unchanged** |
 | Token keys | Our PFX certificates, rotated yearly by hand | Auth0's keys, rotated by Auth0. Our certificates are deleted. |
 | Cost | $0 | **$0**: Auth0 Free, a Google OAuth client, and Sign in with Apple (included in the Apple membership) |
-| Old sign-ins | — | **All revoked at the cutover**, in one release with no transition period. Everyone signs in fresh ([cutover](#cutover-one-release-everything-old-revoked)). |
+| Old sign-ins and data | — | **Wiped at the cutover:** the database and the photo files are reset to a fresh install, in one release with no transition period ([cutover](#cutover-one-release-everything-old-revoked)) |
 | Your setup time | — | **About 30 minutes, once**, plus signing in once on each device ([what you do](#what-you-do)) |
 
 ## What I found
@@ -116,7 +116,7 @@ sequenceDiagram
 
 | Path | When | What happens after the Auth0 sign-in |
 |---|---|---|
-| **Setup** | No user has a linked identity yet: a fresh install, or right after the cutover | Enter the setup code. The identity becomes the owner. If an owner row already exists (yours, with your library), it's claimed; otherwise one is created. |
+| **Setup** | No owner exists: a fresh install, which includes the wiped server after the cutover | Enter the setup code. The identity becomes the owner of a new library, as today but with Auth0 instead of a passkey. |
 | **Invite** | `/join/{token}` | The invite token sits in a short-lived protected cookie during the Auth0 round trip. Then the user and membership are created, exactly as now. |
 | **Add a sign-in method** | Already signed in, with a recent sign-in | The new identity is linked to you, so one person can use both Google and Apple. |
 | **Recovery code** | You've lost access to every linked identity | `cm-admin recovery-code` on the PC, as today. The code links the new identity to the owner. |
@@ -170,7 +170,7 @@ About 30 minutes in total. Steps 3 and 4 can wait: Auth0's developer keys let us
    - Same browser offer as step 3.
 5. **After the cutover:**
    - On the web, press Sign in and choose Google or Apple.
-   - Enter the new setup code from `C:\CollectionMaxxing\secrets\setup-code.txt`. You're the owner again, with your library.
+   - Enter the new setup code from `C:\CollectionMaxxing\secrets\setup-code.txt`. You're the owner of a new, empty library.
    - That's 2 minutes.
 6. **On the phone:** install the TestFlight update and press Sign in once. 1 minute.
 
@@ -182,8 +182,8 @@ The app hasn't had real use yet, so there's no gradual move. There are no two sy
 
 ```mermaid
 flowchart LR
-  M["Wave 6 merges<br/>(old stack removed,<br/>Auth0 added)"] --> D["Deployer ships it<br/>migration revokes<br/>every old sign-in"]
-  D --> W["You: web → Sign in<br/>→ enter the setup code<br/>(you're the owner again)"]
+  M["Wave 6 merges<br/>(old stack removed,<br/>Auth0 added)"] --> D["Lead: backup, wipe<br/>database and files,<br/>deploy as a fresh install"]
+  D --> W["You: web → Sign in<br/>→ enter the setup code<br/>(owner of a new library)"]
   D --> T["TestFlight build<br/>on Auth0"]
   W --> P["You: phone → Sign in"]
   T --> P
@@ -198,12 +198,20 @@ flowchart LR
 - docs/07 is rewritten, and docs/08, 03, 04 and 10 are updated.
 - #205 closes, since its test goes away.
 
-**The migration revokes everything** in one step:
-- It drops `user_passkeys`, `device_pairings` and the OpenIddict tables (`openiddict_*`).
-- It revokes every `web_sessions` row, so every existing cookie stops working.
-- It deletes all `setup_codes` and every pending `library_invites` row.
+**A migration** drops `user_passkeys`, `device_pairings` and the OpenIddict tables (`openiddict_*`), and adds `user_logins`, `app_sign_ins` and `users.tokens_not_before`. A brand-new install and the wiped server both go through it.
 
-**Who survives:** the **owner's user row**, with your library and anything you've scanned. The first setup-code sign-in claims it (D-7). Any other account loses its membership; invite them again. If you'd rather start from an empty database too, that's a single restore-to-empty step during the cutover (D-7).
+**The wipe (D-7: fresh install).** The lead does this during the cutover, with your go-ahead from 2026-10-22, in this order:
+1. **Take a backup** with the existing backup job. It goes to `F:\Backups\CollectionMaxxing`, labelled `pre-auth0`, and is kept until you say it can go.
+2. **Stop the deployer task and the API container.**
+3. **Drop and recreate the `collectionmaxxing` database** inside the Postgres container (`DROP DATABASE … WITH (FORCE)`, then `CREATE DATABASE`).
+   - It never uses `docker compose down -v` or removes a volume (CLAUDE.md).
+4. **Empty the `files` volume:** photos, exports and the Data Protection key ring. Every old cookie becomes unreadable, too.
+5. **Delete the old PFX certificates and the old setup code** from the secrets folder.
+6. **Merge `w6/auth0` into `main`,** let the deployer ship it, and re-enable the deployer.
+   - The API starts as a fresh install: migrations build the schema, and a new setup code is written to `secrets\setup-code.txt`.
+7. **Check that it's up:** `/health/ready` is 200 and the sign-in page loads. Then hand over to you for the first sign-in.
+
+Nothing carries over: there are no users, libraries, items, photos, invites or devices. Family members are invited again once you're the owner.
 
 **Old app builds** stop working at the cutover: their refresh tokens are gone, and the pairing screen has nothing to talk to. The TestFlight build on Auth0 goes out from the same `main` commit.
 
@@ -212,11 +220,11 @@ flowchart LR
 | Task | Tier | Depends on | Scope |
 |---|---|---|---|
 | **AUTH0-0** | Lead + you | — | Tenant, CLI login, `deploy/auth0/` + `Apply-Auth0.ps1`, provisioner, Google and Apple connections. Check on Free that Management API refresh-token revocation works (per token or per user). |
-| **AUTH-1** | Opus, critical, verifier | AUTH0-0 config names | API, **replace in place**: delete OpenIddict, passkeys, pairing and their tests. Add OIDC sign-in for the web (`/account/login`, `/signin-oidc`, `/account/logout`), JWT bearer as the only bearer scheme, `user_logins` with the four link paths (setup claims the existing owner), `RequireRecentSignIn`, the unlinked-identity problem (`account.not_linked`), and authorization-matrix rows. Tests use a **WireMock fake Auth0** (discovery, JWKS, token endpoint) and JWTs signed with a test key. |
+| **AUTH-1** | Opus, critical, verifier | AUTH0-0 config names | API, **replace in place**: delete OpenIddict, passkeys, pairing and their tests. Add OIDC sign-in for the web (`/account/login`, `/signin-oidc`, `/account/logout`), JWT bearer as the only bearer scheme, `user_logins` with the four link paths, `RequireRecentSignIn`, the unlinked-identity problem (`account.not_linked`), and authorization-matrix rows. Tests use a **WireMock fake Auth0** (discovery, JWKS, token endpoint) and JWTs signed with a test key. |
 | **AUTH-2** | Sonnet | AUTH-1 | `IIdentityProviderAdmin` port and Auth0 adapter (revoke refresh tokens, delete user; M2M token cached), `app_sign_ins`, `tokens_not_before`, wiring into Devices, member removal and account deletion. WireMock tests. |
 | **APP-A1** | Sonnet | AUTH-1 contract | Web: delete the passkey screens. Add the Sign in page (one button), the "not part of a library" page, Settings → Sign-in methods, re-auth by redirect, and the setup and join screens adapted. Playwright against the fake Auth0. |
 | **APP-A2** | Sonnet | AUTH-1 contract, lead's package PR | iPhone: delete pairing, QR, `tokenStore` and the refresh code. Add `react-native-auth0`, the sign-in screen, the Credentials Manager in `http.ts`, sign out and app registration. At most 3 iOS builds. |
-| **Lead** | — | — | Hot files: add `Microsoft.AspNetCore.Authentication.OpenIdConnect` + `JwtBearer` (both Microsoft, 10.0.x) and remove `OpenIddict.*`; add `react-native-auth0`, the `app.config.ts` plugin, compose environment (certificates out, Auth0 in), CSP `form-action`, `testflight` secrets, the **cutover migration**, ADR-025, docs. |
+| **Lead** | — | — | Hot files: add `Microsoft.AspNetCore.Authentication.OpenIdConnect` + `JwtBearer` (both Microsoft, 10.0.x) and remove `OpenIddict.*`; add `react-native-auth0`, the `app.config.ts` plugin, compose environment (certificates out, Auth0 in), CSP `form-action`, `testflight` secrets, the migration that drops the old auth tables, ADR-025, docs. Also **the cutover**: the wipe steps above, then merging `w6/auth0`. |
 
 AUTH-1, APP-A1 and APP-A2 run in parallel once the contract is agreed.
 - Because the deployer ships every push to `main`, builders open their PRs against an integration branch, **`w6/auth0`**, not `main`.
@@ -230,7 +238,7 @@ AUTH-1, APP-A1 and APP-A2 run in parallel once the contract is agreed.
 - **If Auth0 changes its free plan:** the API speaks plain OIDC and JWT, so moving to another provider is configuration plus each person linking once.
 - **Anyone can open your Auth0 sign-in page and create an identity.** It gets them nothing: the API admits only linked identities, and the PC is only on your tailnet.
 - **Revoking one phone among several** may not be possible on Free (see AUTH-2). The fallback signs out all of that person's phones.
-- **Everyone is signed out at the cutover,** and old app builds stop working. That's the point: nobody has used it in earnest yet.
+- **Everything is wiped at the cutover:** sign-ins, the library and photos, and old app builds stop working. That's what you asked for, since nobody has used it in earnest yet. The `pre-auth0` backup is the only way back.
 - **One more native dependency** (`react-native-auth0`). It's Auth0's own and supports Expo 57 / React Native 0.86 development builds.
 
 ## Decisions for you
@@ -243,7 +251,7 @@ AUTH-1, APP-A1 and APP-A2 run in parallel once the contract is agreed.
 | D-4 | How does the iPhone find the server? | **It's built into the TestFlight build**, from a `testflight` environment secret. The alternative is typing the address once. |
 | D-5 | Keep provisioner credentials on the PC? | **Yes**, so agents can change Auth0 without you. The alternative is approving `auth0 login` each time. |
 | D-6 | Keep the Face ID app lock? | **Yes**, unchanged |
-| D-7 | What happens to data at the cutover? | **Keep the library.** All sign-ins are revoked, and your setup-code sign-in claims the owner account with everything you've scanned. The alternative is an empty database too: drop everything and start as a fresh install. |
+| D-7 | What happens to data at the cutover? | **Decided: wipe the database and files, and start as a fresh install** (you, 2026-10-22). A `pre-auth0` backup is kept until you say it can go. |
 
 ## Alternatives considered
 
