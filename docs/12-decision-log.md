@@ -432,3 +432,22 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - **Yearly chores:** renew the distribution certificate (about 10 minutes, `deploy/runbooks/iphone-app-testflight.md`). The API key doesn't expire.
   - **Moving over:** installing from TestFlight is a fresh install, so each phone pairs again once. Old AltStore installs keep working until their signature lapses.
   - **What Apple sees:** each build, and any crash reports or feedback a tester chooses to send. No library data leaves the PC.
+
+## ADR-025: Auth0 for sign-in; our API keeps authorization
+
+- **Status:** **Accepted** (your direction, 2026-10-22: "switch to Auth0", with Google, Apple and other linked accounts, cached logins and standard OAuth; plan approved the same day with D-7 = wipe and start fresh). The plan is [14](14-auth0-migration.md). It **amends ADR-019 and ADR-024**: pairing-based sign-in and "no third-party identity providers" end.
+- **Context:**
+  - Logins don't last. The web cookie dies after 8 idle hours, and a phone that loses its refresh token has to pair again with a QR code from the web.
+  - The phone signs in through a custom grant on our own OpenIddict server. We own its keys, their yearly rotation, refresh rotation and replay handling.
+  - There's no Google or Apple sign-in, and each new kind of client means more ceremony code of our own.
+- **Decision:**
+  - **Auth0 (Free plan) signs people in** through Universal Login with Google and Sign in with Apple. Standard Authorization Code + PKCE on the iPhone (`react-native-auth0`, with the rotating refresh token in the Keychain). On the web, the API runs the OIDC code flow itself and keeps today's `__Host-cm` cookie, so the browser never holds a token.
+  - **The API keeps authorization.** It uses Microsoft's own OpenIdConnect and JwtBearer handlers (no Auth0 SDK on the server). An Auth0 identity maps to our user through a `user_logins` link. An unlinked identity gets nothing. Linking happens only through the setup code, an invite, "Add a sign-in method" while signed in, or a recovery code. Library roles, the authorization matrix and the deactivation check don't change.
+  - **Tenant configuration is code** (`deploy/auth0/`, applied with the Auth0 CLI by `Apply-Auth0.ps1`). Secrets stay in the PC's secrets folder.
+  - **One clean cutover** (your direction, 2026-10-22: "revoke everything and start fresh", since the app hasn't had real use yet). One release removes OpenIddict, passkeys and pairing, and revokes every old sign-in, session, setup code and pending invite. The database and photo files are wiped (a `pre-auth0` backup is kept), so the server restarts as a fresh install, and the owner sets it up again with the setup code. There's no transition period and no linking of old accounts.
+- **Alternatives:** keep OpenIddict and add ASP.NET external logins; self-host Keycloak, Zitadel or Authentik; Clerk, Firebase or Supabase Auth; tokens in the browser with `auth0-react`. See [14](14-auth0-migration.md#alternatives-considered).
+- **Consequences:**
+  - Still $0: Auth0 Free, a Google OAuth client, and Sign in with Apple, included in the Apple membership.
+  - Signing in needs the internet and Auth0. A browser that's already signed in doesn't; a phone refreshes through Auth0 once an hour.
+  - Auth0 holds each person's name and email from Google or Apple. Library data never leaves the PC, and account deletion deletes the Auth0 user.
+  - About 6,000 lines of auth code, the PFX certificates and their yearly rotation go away.
