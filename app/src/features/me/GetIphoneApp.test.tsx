@@ -1,52 +1,64 @@
 import { fireEvent, screen } from '@testing-library/react-native';
+import { Linking } from 'react-native';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
-import { mockAccount, resetMockAccount } from '@/mocks/me';
+import { resetMockAccount } from '@/mocks/me';
+import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
-import { setSharer } from './services';
 import { SettingsScreen } from './SettingsScreen';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
 
-const deliver = jest.fn(async () => {});
-const SUM = 'a'.repeat(64);
+let requested: string[] = [];
 
 beforeEach(() => {
   resetMockAccount();
-  deliver.mockClear();
-  setSharer({ deliver });
+  requested = [];
+  server.events.on('request:start', ({ request }) => void requested.push(new URL(request.url).pathname));
+  jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
 });
-afterEach(() => resetAuth());
+afterEach(() => {
+  server.events.removeAllListeners();
+  jest.restoreAllMocks();
+  resetAuth();
+});
 
 describe('Settings > Get the iPhone app', () => {
-  it('shows the date, size and checksum on the web and downloads the fixed route', async () => {
+  it('explains on the web that the iPhone app comes through TestFlight, by invite', async () => {
     configureAuth({ platform: 'web' });
-    mockAccount.ipa = { sizeBytes: 5 * 1024 * 1024, modifiedAt: '2026-10-01T12:00:00Z', sha256: SUM };
 
     await renderWithProviders(<SettingsScreen />);
 
-    expect(await screen.findByText(/Latest build: Oct 1, 2026, 5.0 MB/)).toBeTruthy();
-    expect(screen.getByText(`SHA-256: ${SUM}`)).toBeTruthy();
-    expect(screen.getByText(/AltStore/)).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Download the iPhone app'));
-    expect(deliver).toHaveBeenCalledWith('/api/v1/app/ipa');
+    expect(await screen.findByText('Get the iPhone app')).toBeTruthy();
+    expect(screen.getByText(/comes through TestFlight/)).toBeTruthy();
+    expect(screen.getByText(/invite arrives by email/)).toBeTruthy();
+    expect(screen.getByText(/automatic updates/)).toBeTruthy();
   });
 
-  it('says it is not available yet when no build has been synced', async () => {
+  it('opens TestFlight on the App Store from the button', async () => {
     configureAuth({ platform: 'web' });
 
     await renderWithProviders(<SettingsScreen />);
+    await fireEvent.press(await screen.findByLabelText('Get TestFlight'));
 
-    expect(await screen.findByText('Not available yet: it appears after the next release.')).toBeTruthy();
+    expect(Linking.openURL).toHaveBeenCalledWith('https://apps.apple.com/app/testflight/id899247664');
+  });
+
+  it('no longer offers a download from the server', async () => {
+    configureAuth({ platform: 'web' });
+
+    await renderWithProviders(<SettingsScreen />);
+    await screen.findByText('Get the iPhone app');
+
     expect(screen.queryByLabelText('Download the iPhone app')).toBeNull();
+    expect(requested.filter((p) => p.startsWith('/api/v1/app/'))).toEqual([]);
   });
 
   it("isn't shown in the iPhone app", async () => {
     configureAuth({ platform: 'native' });
-    mockAccount.ipa = { sizeBytes: 1024, modifiedAt: '2026-10-01T12:00:00Z', sha256: null };
 
     await renderWithProviders(<SettingsScreen />);
 
     expect(screen.queryByText('Get the iPhone app')).toBeNull();
-    expect(screen.queryByLabelText('Download the iPhone app')).toBeNull();
+    expect(screen.queryByLabelText('Get TestFlight')).toBeNull();
   });
 });

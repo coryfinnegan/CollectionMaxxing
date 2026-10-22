@@ -1160,69 +1160,6 @@
         }
       }
     },
-    "/api/v1/app/ipa/info": {
-      "get": {
-        "tags": [
-          "App"
-        ],
-        "operationId": "GetIpaInfo",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IpaStatusDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/app/ipa": {
-      "get": {
-        "tags": [
-          "App"
-        ],
-        "operationId": "DownloadIpa",
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/libraries/{libraryId}/invites": {
       "get": {
         "tags": [
@@ -7229,47 +7166,6 @@
           }
         }
       },
-      "IpaStatusDto": {
-        "required": [
-          "available",
-          "sizeBytes",
-          "modifiedAt",
-          "sha256",
-          "version"
-        ],
-        "type": "object",
-        "properties": {
-          "available": {
-            "type": "boolean"
-          },
-          "sizeBytes": {
-            "type": [
-              "null",
-              "integer"
-            ],
-            "format": "int64"
-          },
-          "modifiedAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "sha256": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "version": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "ItemCompleteness": {
         "enum": [
           "complete",
@@ -9655,9 +9551,6 @@
     },
     {
       "name": "Catalog"
-    },
-    {
-      "name": "App"
     },
     {
       "name": "Locations"

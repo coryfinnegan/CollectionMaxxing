@@ -1,7 +1,5 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
-import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
-import { setUpdateEnvironment, resetUpdateEnvironment } from '@/features/update/services';
 import { resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -21,28 +19,13 @@ beforeEach(() => {
 });
 afterEach(() => server.events.removeAllListeners());
 
-describe('the update notice on the grid', () => {
-  beforeEach(() => {
-    setUpdateEnvironment({ store: new MemoryKeyValueStore(), appVersion: () => '1.0.1' });
-    server.use(
-      http.get('*/api/v1/app/ipa/info', () =>
-        HttpResponse.json({ available: true, sizeBytes: 5, modifiedAt: '2026-10-20T12:00:00Z', sha256: null, version: '1.0.2' }),
-      ),
-    );
-  });
-  afterEach(() => resetUpdateEnvironment());
-
-  it('shows on the Library, above the title', async () => {
+describe('the Library header', () => {
+  // ADR-024: TestFlight tells testers about new builds and installs them, so the app no longer asks the server.
+  it('does not ask the server about app updates', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
 
-    expect(await screen.findByText('Version 1.0.2 is ready. Install it at home on your Wi-Fi.')).toBeTruthy();
-  });
-
-  it('does not show on the Wishlist or Lent out views', async () => {
-    await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" />);
-    await screen.findByText('Wishlist');
-    await act(async () => {});
-
+    expect(requests.filter((u) => u.pathname.startsWith('/api/v1/app/'))).toEqual([]);
     expect(screen.queryByText(/is ready/)).toBeNull();
   });
 });
