@@ -46,7 +46,7 @@ No third-party AI, no open-source models to download, no vector database, and no
 
 | Engine | Used when | How it reads a picture |
 |---|---|---|
-| **Apple model engine** (primary) | iOS 27, Apple Intelligence on, and the on-device model reports image support. Your **iPhone 17 Pro** qualifies. **M0 check:** confirm it works in an app installed with a free Apple ID; no paid entitlement is expected for the on-device model. | One Foundation Models call per snap, streamed so cards appear one by one |
+| **Apple model engine** (primary) | iOS 27, Apple Intelligence on, and the on-device model reports image support. Your **iPhone 17 Pro** qualifies. **M0 check (passed 2026-10-14):** it works in a free-signed app, and it needs no entitlement, so the TestFlight build (ADR-024) behaves the same. | One Foundation Models call per snap, streamed so cards appear one by one |
 | **Vision text engine** (fallback) | Apple Intelligence turned off, or the model declines, times out or runs out of context on a particular snap | Vision text recognition + rectangles + simple item splitting (§1) |
 
 The phone picks one per snap and you never see it. Settings → Recognition shows which one is active.
@@ -107,7 +107,7 @@ If it misses, the Vision text engine becomes primary and the model handles only 
 | Open-source image models (SigLIP 2, CLIP) + a server vector index | Your call: Apple frameworks only, for simplicity. Feature prints on the phone cover the artwork comparisons we need. |
 | Google ML Kit (barcodes/text) | Apple Vision does both natively |
 | Claude or other cloud LLMs | Your call: no cost and no third-party AI |
-| Apple Private Cloud Compute model | Tied to App Store distribution (the Small Business Program) and a paid entitlement. Not available to a free-Apple-ID sideloaded app. |
+| Apple Private Cloud Compute model | Tied to App Store distribution and a paid entitlement. The paid membership (ADR-024) doesn't change this choice: recognition stays on the phone (ADR-017). |
 | Apple MobileCLIP | Research-only licence |
 | VisionKit Visual Look Up | Doesn't hand its results to apps |
 | Any recognition in the web app | Your call: iPhone only |

@@ -50,7 +50,6 @@ services:
       ConnectionStrings__collectionmaxxing: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       Catalog__CoversRoot: /data/files/covers
-      Files__Root: /data/files
       # Sign-in. The relying-party id is the name people browse to (your Tailscale name); it can't change later without
       # losing every passkey. The two PFX files and the one-time setup code live in the secrets folder (docs/07).
       Auth__RelyingPartyId: ${CM_RELYING_PARTY_ID:?set in .env (your Tailscale name)}

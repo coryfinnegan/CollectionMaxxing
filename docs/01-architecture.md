@@ -66,7 +66,7 @@ We deliberately avoid **MediatR and AutoMapper**. Both moved to commercial licen
 
 ### Front end (details in [05](05-frontend.md))
 
-Expo SDK 57 (React Native 0.86, React 19.2), TypeScript, Expo Router, TanStack Query, Zustand, VisionCamera v5 with a small Swift module for Apple Vision and Foundation Models (iOS only), a client generated with orval from OpenAPI. iOS builds come from GitHub's free macOS runners and are installed with AltStore (ADR-019).
+Expo SDK 57 (React Native 0.86, React 19.2), TypeScript, Expo Router, TanStack Query, Zustand, VisionCamera v5 with a small Swift module for Apple Vision and Foundation Models (iOS only), a client generated with orval from OpenAPI. iOS builds come from GitHub's free macOS runners, signed and uploaded to TestFlight (ADR-024, which replaced AltStore from ADR-019).
 
 ## Solution structure
 

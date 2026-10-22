@@ -1,4 +1,4 @@
-# The deploy flow. Dot-sourced by Deploy-CollectionMaxxing.ps1 (and by the tests). Needs Cm.Common.ps1 and Cm.Ipa.ps1.
+# The deploy flow. Dot-sourced by Deploy-CollectionMaxxing.ps1 (and by the tests). Needs Cm.Common.ps1.
 #Requires -Version 7.0
 
 function New-CmContext {
@@ -24,8 +24,7 @@ function New-CmContext {
         StateFile         = Join-Path $Root 'state/deployer-state.json'
         LockFile          = Join-Path $Root 'state/deployer.lock'
         LogFile           = Join-Path $Root 'logs/deployer.log'
-        StageDir          = Join-Path $Root 'state/ipa-stage'
-        IpaRetryMinutes   = 15   # how long a release whose .ipa sync did not work waits before the next silent try
+        StageDir          = Join-Path $Root 'state/ipa-stage'   # left by the retired .ipa sync; removed once (Remove-CmRetiredIpa)
         SmokeRetries      = $SmokeRetries
         SmokeDelaySeconds = $SmokeDelaySeconds
         SmokeUrl          = 'http://127.0.0.1:5480/health/ready'
@@ -120,9 +119,8 @@ function Get-CmPlan {
     $plan += '(if the smoke test fails: the same up -d with CM_TAG=<previous good sha>)'
     $plan += '(then, if the clone is clean and on main, it is fast-forwarded to the deployed commit so the deployer scripts on disk match the running build)'
     $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'merge', '--ff-only', $tag)
-    $plan += '(then: Sync-Ipa.ps1 copies the newest .ipa from the latest GitHub release into the files volume)'
-    $plan += '(a run with nothing to deploy still reads the latest release tag, and runs that same sync when the tag is new)'
-    $plan += Format-CmCommand 'gh' @('release', 'view', '--repo', $Ctx.Repo, '--json', 'tagName', '--jq', '.tagName')
+    $plan += '(then, once, on a server that still has the .ipa it served before the iPhone app moved to TestFlight, any run removes it)'
+    $plan += Format-CmCommand 'docker' (Get-CmRetiredIpaArgs $Ctx '<deployed sha>')
     $plan += '(any refusal, failure or rollback exits non-zero, writes an ALERT line to the log and pings <CM_HEARTBEAT_URL>/fail)'
     $plan
 }
@@ -199,20 +197,46 @@ function Update-CmRepoToDeployed {
     $true
 }
 
-function Complete-CmQuietRun {
-    <# A run with nothing to deploy: still sync the .ipa when the latest release is new. Never turns a quiet run into a crash or an alert storm. #>
-    param($Ctx, [string]$Outcome)
-    try { $ipa = Invoke-CmIpaCatchUp -Ctx $Ctx }
+function Get-CmRetiredIpaArgs {
+    <# The helper container that deletes ipa/ from the files volume. The backup image has a shell; the api image does not. #>
+    param($Ctx, [string]$Tag)
+    @('run', '--rm', '--network', 'none', '-v', 'collectionmaxxing_files:/data/files', '--entrypoint', 'sh', (Get-CmImageRef $Ctx 'backup' $Tag), '-c', 'rm -rf /data/files/ipa')
+}
+
+function Remove-CmRetiredIpa {
+    <#
+      ADR-024: the iPhone app comes from TestFlight, so the server no longer serves an .ipa. On a run whose state still
+      remembers one (ipa or ipaAttempt, from the retired sync), delete ipa/ from the files volume and the old staging
+      folder, then forget it. A failure is a WARN, never an alert, and the next run tries again. Apply mode only.
+    #>
+    param($Ctx)
+    if (-not $global:CmApply) { return }
+    $state = Read-CmState -Path $Ctx.StateFile
+    if (-not ($state.ContainsKey('ipa') -or $state.ContainsKey('ipaAttempt')) -or -not $state['current']) { return }
+    try {
+        $r = Invoke-Cm -Mutating -Command 'docker' -Arguments (Get-CmRetiredIpaArgs $Ctx "$($state['current']['sha'])")
+        if ($r.ExitCode -ne 0) { throw "docker run exited $($r.ExitCode)" }
+        # Only ever clean the staging folder inside our own root.
+        $rootFull = [IO.Path]::GetFullPath($Ctx.Root)
+        $stageFull = [IO.Path]::GetFullPath($Ctx.StageDir)
+        if ($stageFull.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $stageFull)) {
+            Remove-Item -LiteralPath $stageFull -Recurse -Force
+        }
+    }
     catch {
-        Write-CmLog "could not check the latest release for a new .ipa: $($_.Exception.Message)" 'WARN'
-        return New-CmResult $Outcome 0
+        Write-CmLog "could not remove the old .ipa from the files volume ($($_.Exception.Message)); the next run tries again" 'WARN'
+        return
     }
-    if ($ipa.Outcome -eq 'ipa-failed') {
-        $message = ".ipa sync failed on a run with nothing to deploy ($($ipa.Detail)); the previous .ipa is still served. This is reported once per release; it is tried again quietly"
-        Write-CmLog $message 'ERROR'
-        return New-CmResult 'ipa-failed' 5 $message
-    }
-    if ($ipa.Outcome -eq 'ipa-synced') { return New-CmResult 'ipa-synced' 0 }
+    $state.Remove('ipa')
+    $state.Remove('ipaAttempt')
+    Write-CmState -Path $Ctx.StateFile -State $state
+    Write-CmLog 'removed the old .ipa from the files volume: the iPhone app comes from TestFlight now (ADR-024)'
+}
+
+function Complete-CmQuietRun {
+    <# A run with nothing to deploy: the one-time clean-up of the retired .ipa, if it is still there. Never turns a quiet run into a crash or an alert. #>
+    param($Ctx, [string]$Outcome)
+    Remove-CmRetiredIpa -Ctx $Ctx
     New-CmResult $Outcome 0
 }
 
@@ -281,7 +305,7 @@ function Test-CmUnseededInstall {
 # ---- loud failures -----------------------------------------------------------------------------------------------------
 
 function New-CmResult {
-    <# Exit codes: 0 done or nothing to do, 1 failed or rolled back, 2 config refused, 3 Docker/GHCR unreachable, 4 refused, 5 .ipa sync failed. #>
+    <# Exit codes: 0 done or nothing to do, 1 failed or rolled back, 2 config refused, 3 Docker/GHCR unreachable, 4 refused. (5 was the retired .ipa sync.) #>
     param([string]$Outcome, [int]$Code, [string]$Reason = '')
     [pscustomobject]@{ Outcome = $Outcome; ExitCode = $Code; Reason = $Reason }
 }
@@ -345,12 +369,11 @@ function Invoke-CmDeploy {
       One deployer run. Returns @{ Outcome; ExitCode; Reason }. Without -RollbackTo it is the normal poll; with it, the
       explicit rollback path (the only way to go back to an older commit).
       Outcomes and exit codes:
-        0  dry-run, busy, up-to-date, known-bad, deployed, manual-rollback, ipa-synced (nothing to deploy, but a new release's .ipa was synced)
+        0  dry-run, busy, up-to-date, known-bad, deployed, manual-rollback
         1  migrate-failed, rolled-back, failed, rollback-failed, crashed
         2  config-error
         3  no-docker
         4  refused, downgrade-refused, rollback-refused
-        5  ipa-failed (after a good deploy, or the first failed sync of a new release on a run with nothing to deploy)
       Every non-zero outcome of a real (-Apply) run is logged as ALERT and pinged to <CM_HEARTBEAT_URL>/fail.
     #>
     param($Ctx, [string]$RollbackTo = '')
@@ -482,13 +505,7 @@ function Invoke-CmDeployCore {
             Write-CmLog "deployed $($sha.Substring(0, 12)); smoke test passed"
             try { Update-CmRepoToDeployed -Ctx $Ctx -Sha $sha | Out-Null }
             catch { Write-CmLog "could not move the clone at $($Ctx.RepoDir) to $($sha.Substring(0, 12)): $($_.Exception.Message)" 'WARN' }
-            try { $ipa = Invoke-CmIpaSync -Ctx $Ctx -Tag $sha }
-            catch { $ipa = [pscustomobject]@{ Outcome = 'error'; ExitCode = 1; Detail = $_.Exception.Message } }
-            if ($ipa.ExitCode -ne 0) {
-                $message = ".ipa sync failed after a good deploy of $($sha.Substring(0, 12)) ($($ipa.Outcome)); the previous .ipa is still served"
-                Write-CmLog $message 'ERROR'
-                return New-CmResult 'ipa-failed' 5 $message
-            }
+            Remove-CmRetiredIpa -Ctx $Ctx
             return New-CmResult 'deployed' 0
         }
 

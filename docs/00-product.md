@@ -43,7 +43,7 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 
 ## Scope by release
 
-### v1.0 (MVP: self-hosted, installed on your iPhone with a free Apple ID)
+### v1.0 (MVP: self-hosted, installed on your iPhone through TestFlight)
 
 - One-time owner setup with a passkey (web); iPhone paired by QR code, with an optional Face ID app lock
 - One shared library for your household: **books, VHS, DVD, Blu-ray, 4K UHD, video games** (+ "other")

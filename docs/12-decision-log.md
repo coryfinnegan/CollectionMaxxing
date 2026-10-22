@@ -27,7 +27,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-003: Expo (React Native) for iOS and web
 
-- **Status:** **Accepted** (D1, 2026-10-12: keep Expo "only if it lets me do iOS without a Mac and without paying Apple"). It does: GitHub's free macOS runners build it and AltStore installs it with a free Apple ID (ADR-019, replacing EAS). It's also the only option where everyday changes skip the cloud Mac: JavaScript reloads live from your PC, so the free macOS minutes go only to native changes. .NET MAUI's Mac-free route, Hot Restart, needs the paid membership and was removed in Visual Studio 2026. SwiftUI and Flutter need a cloud build for every change.
+- **Status:** **Accepted** (D1, 2026-10-12: keep Expo "only if it lets me do iOS without a Mac and without paying Apple"). It does: GitHub's free macOS runners build it and AltStore installs it with a free Apple ID (ADR-019, replacing EAS). Since ADR-024 the same runners sign it and upload it to TestFlight. It's also the only option where everyday changes skip the cloud Mac: JavaScript reloads live from your PC, so the free macOS minutes go only to native changes. .NET MAUI's Mac-free route, Hot Restart, needs the paid membership and was removed in Visual Studio 2026. SwiftUI and Flutter need a cloud build for every change.
 - **Context:**
   - iOS is required and web is required.
   - The best possible camera/barcode scanning matters most.
@@ -262,7 +262,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-018: Self-hosted on your gaming PC, reached through Tailscale
 
-- **Status:** Accepted; distribution and auth amended by **ADR-019** (no paid Apple membership). D13 settled: the PC stays on 24/7, as it already does for Plex, ErsatzTV and Jellyfin. Originally accepted (your direction, 2026-10-12: "This is going to be a self hosted app")
+- **Status:** Accepted; distribution and auth amended by **ADR-019** (no paid Apple membership), and distribution again by **ADR-024** (TestFlight). D13 settled: the PC stays on 24/7, as it already does for Plex, ErsatzTV and Jellyfin. Originally accepted (your direction, 2026-10-12: "This is going to be a self hosted app")
 - **Context:**
   - The app is personal and self-hosted.
   - The PC (Windows 11 Pro, i9-13900KF, 32 GB RAM, RTX 4070 Ti, plenty of disk) already runs Docker and Tailscale.
@@ -293,7 +293,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-019: $0 total: free Apple ID, sideloading, and pairing-based sign-in
 
-- **Status:** Accepted (your direction, 2026-10-12: "I'm trying to spend 0 money here")
+- **Status:** Accepted (your direction, 2026-10-12: "I'm trying to spend 0 money here"). **Distribution and cost superseded by ADR-024** (2026-10-22: the Apple Developer Program is paid for, and the app ships through TestFlight). The pairing-based sign-in below still stands.
 - **Context:** The only remaining spend was the Apple Developer Program ($99/yr), needed for EAS device builds, TestFlight, Sign in with Apple, push notifications and Apple's Private Cloud Compute model.
 - **Decision:**
   - **Build** unsigned `.ipa` files on GitHub Actions macOS runners (free; unlimited since the repo went public, ADR-022).
@@ -325,7 +325,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - Members are managed on the web (owner only). Items show who added them.
   - Removing a member revokes their devices and sessions at once.
   - Family reach the PC through Tailscale: the free plan allows 6 users, and an ACL limits them to the app's HTTPS port.
-  - Family install the app with AltStore and their own free Apple ID, or use only the web app.
+  - Family install the app from TestFlight as internal testers (ADR-024; it was AltStore with their own free Apple ID until then), or use only the web app.
   - It lands in **M4**, which grows from ~2 to ~3 weeks.
 - **Alternatives:**
   - One shared account: no attribution, and you can't revoke one person.
@@ -395,3 +395,40 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 - **Consequences:**
   - The same plan uses much less of your limits.
   - The lead owns tier choices and adjusts them after each wave, based on first-time pass rates.
+
+## ADR-024: Apple Developer Program and TestFlight instead of AltStore
+
+- **Status:** Accepted (your direction, 2026-10-22: you paid for the Apple Developer Program; "switch from AltStore to official Apple Developer account"). **Amends ADR-019:** distribution and the cost line change; pairing-based sign-in stays.
+- **Context:**
+  - AltStore worked (the spike and v1.0 ran on it), but it came with a 7-day signature that only renewed at home, Developer Mode, 3 apps per Apple ID, AltServer plus iTunes and iCloud on the PC, and a separate Apple ID setup for each family member.
+  - The paid membership was ADR-019's named fallback. Now that it is paid for, the cheapest route in time and moving parts is Apple's own beta channel.
+- **Decision:**
+  - **Distribute through TestFlight internal testing.** You and your family are testers in one internal group with automatic distribution, so new builds install and update on their own. Builds are uploaded as *internal testing only*, so they can never go to external testers or the App Store.
+  - **Sign in CI.** On each `v*` tag, `ios-build.yml` signs with an **Apple Distribution certificate** and an **App Store provisioning profile**, then uploads with an **App Store Connect API key** (App Manager role, not Admin).
+    - All three live as secrets in a GitHub **environment** (`testflight`) that only `main` and `v*` tags can use. Pull requests never see them.
+    - The certificate is made on Windows with .NET only: `deploy/apple/New-SigningRequest.ps1` writes the key and request, and `deploy/apple/Publish-SigningSecrets.ps1` checks the pieces match and stores them. The private key never leaves `C:\CollectionMaxxing\secrets\apple` except as the encrypted `.p12` secret.
+    - A local Expo config plugin switches only the Release configuration of the app target to manual signing when CI passes a team and a profile. Local and unsigned builds stay as Expo makes them.
+  - **Keep builds alive.** A TestFlight build stops opening 90 days after upload, so the same workflow rebuilds the latest release on the 1st of every other month. It also warns 30 days before the certificate expires and fails once it has.
+  - **Export compliance:** `ITSAppUsesNonExemptEncryption` is `false` (HTTPS only), so builds don't stop at the compliance question.
+  - **Retire the self-hosted `.ipa`.** A TestFlight-signed app can't be installed any other way, so these go: the deployer's `.ipa` sync, the `/api/v1/app/ipa` routes, the web download, and the iPhone "update ready" banner. TestFlight notifies and updates instead. Settings → Get the iPhone app now explains TestFlight.
+  - **Unchanged:** QR pairing and passkeys (ADR-019, [07](07-authentication-and-authorization.md)), on-device recognition only (ADR-017), the self-hosted server (ADR-018).
+  - **Still not adopted**, although the membership now allows them:
+    - Sign in with Apple: pairing already works.
+    - Push notifications: results wait in the app.
+    - Associated domains, which passkeys inside the app would need: Apple's CDN fetches the association file from the public internet, and the server is only on your tailnet.
+    - Private Cloud Compute: recognition stays on the phone.
+- **Alternatives:**
+  - **Ad Hoc builds served from the PC:** one-tap install over Tailscale, signed for a year. But every phone's UDID has to be registered and the app rebuilt when a phone is added, and updates stay manual.
+  - **Keep AltStore:** free, but it keeps every limit above, and the membership is paid for anyway.
+  - **The App Store:** review can't reach a private tailnet server, and the app isn't meant for strangers.
+  - **Xcode cloud signing with only an API key:** fewer secrets, but it needs an Admin key in CI and creates a new development certificate on every run.
+  - **fastlane match:** a second private repo and a Ruby toolchain for one certificate.
+- **Consequences:**
+  - **$99/yr**, the only paid item. Everything else stays $0.
+  - No Developer Mode, no weekly re-sign, no AltServer, iTunes or iCloud on the PC, and no app limit. Installs and updates work away from home.
+  - **Family:**
+    - Each family member is an App Store Connect user with the Marketing role, limited to this app (Apple allows up to 100 internal testers).
+    - Removing someone from the library and removing them from App Store Connect are two separate steps; the runbook lists both.
+  - **Yearly chores:** renew the distribution certificate (about 10 minutes, `deploy/runbooks/iphone-app-testflight.md`). The API key doesn't expire.
+  - **Moving over:** installing from TestFlight is a fresh install, so each phone pairs again once. Old AltStore installs keep working until their signature lapses.
+  - **What Apple sees:** each build, and any crash reports or feedback a tester chooses to send. No library data leaves the PC.

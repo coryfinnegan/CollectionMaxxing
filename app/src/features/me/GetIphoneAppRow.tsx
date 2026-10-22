@@ -1,51 +1,17 @@
-// Settings > Get the iPhone app (web only): the .ipa the server synced from the latest release, with its date, size and checksum.
-import { useState } from 'react';
-import { useGetIpaInfo } from '@/api/generated/app/app';
-import { friendlyError } from '@/lib/problem';
+// Settings > Get the iPhone app (web only). The app comes through TestFlight (ADR-024): the owner adds each person as a
+// tester in App Store Connect, the invite arrives by email, and TestFlight installs and updates the app.
+import { Linking } from 'react-native';
 import { Button, Text } from '@/ui';
-import { getSharer } from './services';
 
-const IPA_URL = '/api/v1/app/ipa';
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-}
+const TESTFLIGHT_URL = 'https://apps.apple.com/app/testflight/id899247664';
 
 export function GetIphoneAppRow() {
-  const info = useGetIpaInfo();
-  const [message, setMessage] = useState<string | null>(null);
-  if (info.isPending) return <Text tone="muted">Checking…</Text>;
-
-  const data = info.data?.status === 200 ? info.data.data : null;
-  const ipa = data?.available && data.sizeBytes != null && data.modifiedAt ? { ...data, sizeBytes: data.sizeBytes, modifiedAt: data.modifiedAt } : null;
-  const download = async () => {
-    setMessage(null);
-    try {
-      await getSharer().deliver(IPA_URL);
-    } catch (e) {
-      setMessage(friendlyError(e));
-    }
-  };
-
   return (
     <>
       <Text variant="heading">Get the iPhone app</Text>
-      {ipa ? (
-        <>
-          <Text>{`Latest build: ${formatDate(ipa.modifiedAt)}, ${formatSize(ipa.sizeBytes)}.`}</Text>
-          {ipa.sha256 ? <Text tone="muted">{`SHA-256: ${ipa.sha256}`}</Text> : null}
-          {message ? <Text tone="danger" accessibilityRole="alert">{message}</Text> : null}
-          <Button label="Download the iPhone app" onPress={() => void download()} />
-          <Text tone="muted">Install it with AltStore on your iPhone: open AltStore, then My Apps, then the plus button, and choose this file.</Text>
-        </>
-      ) : (
-        <Text tone="muted">Not available yet: it appears after the next release.</Text>
-      )}
+      <Text>The iPhone app comes through TestFlight, Apple&apos;s app for private apps. Once the owner adds you as a tester, an invite arrives by email.</Text>
+      <Text tone="muted">On your iPhone, install TestFlight, open the invite and tap Install. Turn on automatic updates in TestFlight so each new version arrives on its own.</Text>
+      <Button label="Get TestFlight" variant="secondary" onPress={() => void Linking.openURL(TESTFLIGHT_URL).catch(() => {})} />
     </>
   );
 }

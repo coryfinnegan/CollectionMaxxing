@@ -1,21 +1,32 @@
 import type { ExpoConfig } from 'expo/config';
 import privacyManifest from './privacyManifest.json';
 
+// The TestFlight build (ios-build.yml, ADR-024) passes these at prebuild. Each upload of a version needs a higher build
+// number; App Store Connect takes one to three dot-separated integers.
+const buildNumber = process.env.IOS_BUILD_NUMBER || '1';
+if (!/^\d+(\.\d+){0,2}$/.test(buildNumber)) {
+  throw new Error(`IOS_BUILD_NUMBER should be one to three dot-separated integers, got "${buildNumber}".`);
+}
+
 const config: ExpoConfig = {
   name: 'CollectionMaxxing',
   slug: 'collectionmaxxing',
   scheme: 'collectionmaxxing',
-  version: '1.0.3',
+  version: '1.0.4',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   userInterfaceStyle: 'automatic',
   ios: {
+    // Registered in the Apple Developer account; the App Store Connect app and the provisioning profile are tied to it.
     bundleIdentifier: 'io.github.coryfinnegan.collectionmaxxing',
+    buildNumber,
     supportsTablet: false,
     // PrivacyInfo.xcprivacy (OPS-2a, #172): no tracking, no collected data, and the required-reason APIs the libraries use.
     privacyManifests: privacyManifest,
     infoPlist: {
       NSCameraUsageDescription: 'CollectionMaxxing uses the camera to read barcodes and recognise items. Pictures are processed on your phone.',
+      // Only HTTPS, which is exempt: without this every TestFlight build stops at the export compliance question.
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   web: {
@@ -40,6 +51,8 @@ const config: ExpoConfig = {
         microphonePermission: false,
       },
     ],
+    // Manual signing of the Release build with the App Store profile, only when CI passes both (ADR-024).
+    ['./plugins/withReleaseSigning', { teamId: process.env.IOS_SIGNING_TEAM_ID, profile: process.env.IOS_SIGNING_PROFILE }],
   ],
   experiments: {
     typedRoutes: true,

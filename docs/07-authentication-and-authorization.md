@@ -12,7 +12,7 @@
 | API authorization | **Deny by default**; scope check + **resource-based library roles**; platform `admin` role for ops |
 | Proof | An **authorization-matrix test** runs every endpoint × every role on every PR |
 
-**Why no Sign in with Apple:** it needs the paid Apple Developer Program, and the plan is $0, with the app installed using a free Apple ID (see [10](10-hosting-and-devops.md#getting-the-app-on-your-iphone-for-0)). Pairing is also a better fit for a self-hosted app: it's how Plex-style and Immich-style home servers onboard phones. There are no third-party identity providers at all.
+**Why no Sign in with Apple:** the paid Apple Developer Program now allows it (ADR-024), but pairing already covers it. Passkeys inside the iPhone app would need associated domains, and Apple's CDN fetches the association file from the public internet, which can't reach a tailnet-only server (see [10](10-hosting-and-devops.md#getting-the-app-on-your-iphone)). Pairing is also a better fit for a self-hosted app: it's how Plex-style and Immich-style home servers onboard phones. There are no third-party identity providers at all.
 
 ## Why passwordless
 

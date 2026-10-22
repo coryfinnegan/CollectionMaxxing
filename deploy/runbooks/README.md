@@ -10,7 +10,7 @@ One screen each: numbered steps, exact commands, and how to know it worked. Writ
 | A phone is lost or stolen; someone leaves the family | [lost-phone-or-remove-member.md](lost-phone-or-remove-member.md) |
 | Yearly: replace the token signing keys | [rotate-signing-keys.md](rotate-signing-keys.md) |
 | The app is unreachable over Tailscale, or the HTTPS certificate is wrong | [tailscale-and-https.md](tailscale-and-https.md) |
-| AltStore will not re-sign; setting up a family member's iPhone | [altstore-resigning.md](altstore-resigning.md) |
+| Setting up TestFlight and moving off AltStore; a family member's iPhone; a version that didn't arrive; yearly: renew the Apple certificate | [iphone-app-testflight.md](iphone-app-testflight.md) |
 | Cutting v1.0 and the first week of real use (the owner's to-do list) | [v1-release-and-week-of-use.md](v1-release-and-week-of-use.md) |
 | The restore drill (twice a year) and a real restore | [../RESTORE.md](../RESTORE.md), log in [../drills/README.md](../drills/README.md) |
 

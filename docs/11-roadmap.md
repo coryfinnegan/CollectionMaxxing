@@ -37,7 +37,7 @@ flowchart LR
 - [ ] GitHub Actions CI on hosted runners → images to GHCR, with build attestations
 - [ ] A **pull-based deployer** on the PC: verify the attestation, pull, migrate, restart, smoke-test, roll back. There's no self-hosted runner, because the repo is public.
 - [ ] Nightly backups to F:\ + weekly encrypted off-site copy; heartbeat check
-- [ ] **$0 iPhone pipeline:** GitHub Actions macOS workflow → unsigned `.ipa`; AltServer on the PC + AltStore on the iPhone (free Apple ID, weekly auto re-sign); Developer Mode on
+- [x] **$0 iPhone pipeline:** GitHub Actions macOS workflow → unsigned `.ipa`; AltServer on the PC + AltStore on the iPhone (free Apple ID, weekly auto re-sign); Developer Mode on. *Replaced by TestFlight on 2026-10-22 (ADR-024).*
 - [x] **Day-one spike:** a throwaway app that calls the on-device Foundation Model with an image, plus Vision barcode/text, built unsigned and installed with your free Apple ID on the iPhone 17 Pro. **If the model isn't available to free-signed apps, we know before building on it**; the Vision text engine becomes primary. **Answered yes on 2026-10-14 (PR #5):** the model works with image input in a free-signed app on iOS 27.2.
 - [ ] Observability: OTel → Aspire Dashboard; rotating log files; `/health/ready` check
 
@@ -110,8 +110,8 @@ flowchart LR
   - the conflict prompt when two people edit the same item ("Sam changed this. Reload?").
 - [ ] **Family onboarding:**
   - Tailscale invite + an ACL that allows only the PC's HTTPS port;
-  - AltStore with their own Apple ID on your AltServer;
-  - **Settings → Get the iPhone app** (latest `.ipa` served by your PC);
+  - TestFlight as an internal tester (ADR-024; it was AltStore with their own Apple ID until then);
+  - **Settings → Get the iPhone app** explains how;
   - a one-page guide.
 
 - [ ] Export (CSV + JSON zip) through a background job
@@ -132,9 +132,9 @@ flowchart LR
 - [ ] Load sanity check (k6): 20 concurrent scanners for 10 minutes on the PC (while a game is running), p95 < 500 ms
 - [ ] Privacy manifest; a short privacy note in the About screen
 - [ ] Provider attribution (TMDB, IGDB) on the About screen
-- [ ] v1.0 build installed via AltStore with background re-signing confirmed over a couple of weeks; Tailscale VPN On Demand; a family member's iPhone re-signing through the same AltServer
+- [ ] v1.0 build installed from TestFlight with automatic updates confirmed over a couple of releases; Tailscale VPN On Demand; a family member's iPhone updating from TestFlight too (ADR-024)
 
-**Exit criteria:** v1.0 on your iPhone (sideloaded, auto re-signing), used for a real week of cataloguing at home and out (thrift store over cellular via Tailscale), with no data-loss scares.
+**Exit criteria:** v1.0 on your iPhone (TestFlight, updating itself), used for a real week of cataloguing at home and out (thrift store over cellular via Tailscale), with no data-loss scares.
 
 ---
 
@@ -154,7 +154,7 @@ flowchart LR
 | Worn cart labels the model can't read | Medium | Medium | Platform from the shell shape still scores; your confirmed carts match instantly next time; otherwise Fix it |
 | Apple-only means no catalogue-wide image search | Low | Low | Rarely needed when the model can read labels; Fix it with the read text pre-filled; the evals quantify it |
 | Apple model: guardrail refusals (e.g. horror VHS covers), behaviour changes across iOS releases | Medium | Medium | Lean Vision text engine as the automatic per-snap fallback; the gate is measured on your iPhone 17 Pro; evals re-run each iOS release |
-| Free Apple ID limits (7-day signatures, 3 apps, no paid capabilities) or Apple changing sideloading rules | Medium | Medium | AltStore auto re-signs nightly at home; plan avoids paid capabilities; if it ever becomes unworkable, the $99 membership (TestFlight) is a drop-in fallback with no code changes |
+| TestFlight builds lapse (90 days) or the distribution certificate expires (yearly) | Low | Medium | The iOS build rebuilds the latest release every other month and warns 30 days before the certificate expires; renewal is a 10-minute runbook (`deploy/runbooks/iphone-app-testflight.md`). Was: free Apple ID limits with AltStore, retired by ADR-024 |
 | On-device Foundation Model unavailable to free-signed apps | Low–Medium | High | Day-one spike in M0; the Vision text engine is the fallback primary |
 | Native Swift module on a Windows machine | Medium | Medium | Keep `cm-vision` thin (wrappers only, no logic) behind a TS interface with a fake; GitHub's macOS runner compiles it; fixture JSON captured from your iPhone drives the tests |
 | Provider terms change (IGDB commercial terms, TMDB) | Low (personal use) | Medium | Provider interface makes swaps local; cached data keeps working |

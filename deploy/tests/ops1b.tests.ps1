@@ -193,9 +193,9 @@ Test-Case 'loud: a clean deploy exits 0 and sends nothing to the failure URL' {
 }
 
 Test-Case 'loud: nothing-to-do outcomes (up to date, known bad, busy) stay quiet and exit 0' {
-    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' }; ipa = @{ tag = 'v1.0.2' } }
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' } }
     Assert-Equal 0 $r.Result.ExitCode; Assert-Equal 0 (Get-AlertCalls).Count
-    $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2; $state['ipa'] = @{ tag = 'v1.0.2' }
+    $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2
     $r = Invoke-TestDeploy -State $state
     Assert-Equal 'known-bad' $r.Result.Outcome; Assert-Equal 0 $r.Result.ExitCode; Assert-Equal 0 (Get-AlertCalls).Count
 }
@@ -250,20 +250,6 @@ Test-Case 'attestation: a tampered artifact exits non-zero before anything is ch
     }
 }
 
-Test-Case 'checksum: a bad .ipa checksum after a good deploy exits non-zero and alerts' {
-    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ IpaSha256 = ('f' * 64) }
-    Assert-Equal 'ipa-failed' $r.Result.Outcome
-    Assert-Equal 5 $r.Result.ExitCode
-    Assert-Equal $script:Sha2 $r.State.current.sha 'the deploy itself stands'
-    Assert-Equal 1 (Get-AlertCalls).Count
-}
-
-Test-Case 'checksum: a release with no checksum file is also loud' {
-    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ IpaSha256 = $null }
-    Assert-Equal 5 $r.Result.ExitCode
-    Assert-Equal 1 (Get-AlertCalls).Count
-}
-
 # ---- the explicit rollback path -------------------------------------------------------------------------------------------
 
 Test-Case 'rollback: -RollbackTo an older commit deploys its attested images without migrating, and holds back the bad one' {
@@ -279,7 +265,7 @@ Test-Case 'rollback: -RollbackTo an older commit deploys its attested images wit
 }
 
 Test-Case 'rollback: after a rollback the poller skips the commit it rolled back from' {
-    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha1 }; failedSha = $script:Sha2; ipa = @{ tag = 'v1.0.2' } }
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha1 }; failedSha = $script:Sha2 }
     Assert-Equal 'known-bad' $r.Result.Outcome
 }
 

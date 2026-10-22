@@ -68,7 +68,7 @@ function Format-CmCommand {
 }
 
 function Invoke-CmReal {
-    param([string]$Command, [string[]]$Arguments, [hashtable]$Env)
+    param([string]$Command, [string[]]$Arguments, [hashtable]$Env, [string]$InputText = '')
     $saved = @{}
     foreach ($key in $Env.Keys) {
         $saved[$key] = [Environment]::GetEnvironmentVariable($key)
@@ -76,7 +76,8 @@ function Invoke-CmReal {
     }
     try {
         $global:LASTEXITCODE = 0
-        $output = @(& $Command @Arguments 2>&1 | ForEach-Object { "$_" })
+        $output = if ($InputText) { @($InputText | & $Command @Arguments 2>&1 | ForEach-Object { "$_" }) }
+        else { @(& $Command @Arguments 2>&1 | ForEach-Object { "$_" }) }
         $code = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
         [pscustomobject]@{ ExitCode = $code; Output = $output }
     }
@@ -93,12 +94,14 @@ function Invoke-Cm {
       Runs one external command and returns @{ ExitCode; Output }.
       -Mutating marks a command that changes the machine. It is only run in apply mode; otherwise it is printed and a
       fake success is returned, and it never reaches the runner.
+      -InputText goes to the command's standard input, so a secret never appears on a command line or in the log.
     #>
     param(
         [Parameter(Mandatory)][string]$Command,
         [string[]]$Arguments = @(),
         [hashtable]$Env = @{},
-        [switch]$Mutating
+        [switch]$Mutating,
+        [string]$InputText = ''
     )
     $display = Format-CmCommand -Command $Command -Arguments $Arguments -Env $Env
     if ($Mutating -and -not $global:CmApply) {
@@ -106,12 +109,12 @@ function Invoke-Cm {
         return [pscustomobject]@{ ExitCode = 0; Output = @(); DryRun = $true; Display = $display }
     }
     if ($global:CmRunner) {
-        return & $global:CmRunner $Command $Arguments $Env $Mutating.IsPresent
+        return & $global:CmRunner $Command $Arguments $Env $Mutating.IsPresent $InputText
     }
     if ($env:CM_TEST -eq '1') {
         throw "CM_TEST=1 but no fake runner is installed; refusing to run '$display' for real."
     }
-    Invoke-CmReal -Command $Command -Arguments $Arguments -Env $Env
+    Invoke-CmReal -Command $Command -Arguments $Arguments -Env $Env -InputText $InputText
 }
 
 function Use-CmPortableTools {

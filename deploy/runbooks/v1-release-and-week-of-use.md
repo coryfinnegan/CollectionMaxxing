@@ -6,7 +6,7 @@ When every wave is merged and you are ready to cut v1.0, install it, and live wi
 
 ## Steps
 
-1. **Cut the release.** From a clean `main` that CI has passed, tag it. The tag starts `.github/workflows/ios-build.yml` on a macOS runner; it builds the unsigned `.ipa`, creates the GitHub release and attaches the `.ipa` and its `.sha256` file:
+1. **Cut the release.** From a clean `main` that CI has passed, tag it. Bump `version` in `app/app.config.ts` to match first. The tag starts `.github/workflows/ios-build.yml` on a macOS runner; it signs the app, uploads it to TestFlight and creates the GitHub release (one-time TestFlight setup: [iphone-app-testflight.md](iphone-app-testflight.md)):
    ```powershell
    git -C C:\CollectionMaxxing\repo fetch origin main
    git -C C:\CollectionMaxxing\repo tag v1.0.0 origin/main
@@ -14,14 +14,14 @@ When every wave is merged and you are ready to cut v1.0, install it, and live wi
    gh run list --workflow ios-build.yml --limit 3
    ```
    (Or ask the lead to tag.) The PC picks up the new server image by itself within a few minutes; if it does not, see [update-and-rollback.md](update-and-rollback.md).
-2. **Install the build.** The deployer copies the `.ipa` into the web app after the next good deploy: open **Settings > Get the iPhone app**, or download it from the release. Install it with AltStore ([altstore-resigning.md](altstore-resigning.md)), turn on Developer Mode, trust the certificate.
+2. **Install the build.** Once Apple has processed it (up to half an hour), TestFlight installs it by itself if Automatic Updates is on; otherwise open TestFlight and tap Update ([iphone-app-testflight.md](iphone-app-testflight.md)). If your phone still runs the AltStore copy, move it over with step 11 there.
 3. **Turn on VPN On Demand** in the Tailscale app so the phone connects by itself when CollectionMaxxing needs the server ([tailscale-and-https.md](tailscale-and-https.md), step 6).
 4. **Work through the checklist below** over the first days, then use the app for a real week at home and out (a thrift store over cellular).
 5. **Every bug becomes a failing test, then a fix.** When something is wrong:
    1. write down what you did, what you expected and what happened (a screenshot is fine, no photos of anyone, no secrets);
    2. open a GitHub issue with that text and the app version (Settings > About) and the time;
    3. the builder agent reproduces it as a failing test first, then makes it pass, then the fix ships as a normal release that the deployer installs;
-   4. you update the app from the web page again and check the same steps now work.
+   4. TestFlight updates the app, and you check the same steps now work.
 6. **Close out the week.** Run the restore drill once more (it is on the list), copy the last PASS lines into the drill log, and tell the lead the week is done.
 
 ## The owner's checklist
@@ -33,7 +33,7 @@ Date started: ______
 - [ ] Install the latest iOS build (above) and run each pull request's on-phone checklist. They are in the PR descriptions under "Check at the next checkpoint" (for example the pairing, scanner and review flows); list the merged ones with `gh pr list --state merged --limit 30` and tick each one off in its PR comments.
 - [ ] **Golden photos and Run evals (the M3 gate).** Take the photos: 40 to 60 shelf photos and 60 to 100 single items, into `C:\CollectionMaxxing\evals\golden\shelf` and `...\golden\single` (never inside the repo). Make the empty truth files with `pwsh -NoProfile -File C:\CollectionMaxxing\repo\scripts\eval-truth-stub.ps1 <folder>`, then fill them in. In the dev build on the phone open **Run evals** and let both engines run. The scoring and the pass criteria are in `docs/09-testing-and-tdd.md` (AI evals) and `docs/02-scanning-and-recognition.md`.
 - [ ] **VoiceOver, Larger Text and Reduce Motion pass** (about 30 minutes): follow [../../docs/accessibility/ios-checklist.md](../../docs/accessibility/ios-checklist.md) and tick it there.
-- [ ] **AltStore re-signing check.** Confirm the expiry date in AltStore > My Apps moves forward on its own over a couple of nights at home, on your phone and on a family member's ([altstore-resigning.md](altstore-resigning.md)). Note the date it first re-signed itself: ______
+- [ ] **TestFlight check (it replaced AltStore).** Tag a small release and confirm it reaches your phone and a family member's on its own, away from home Wi-Fi too, with no AltStore or Developer Mode left on either phone ([iphone-app-testflight.md](iphone-app-testflight.md)). Note the date the first update arrived by itself: ______
 
 **On the PC**
 
@@ -69,7 +69,7 @@ Date started: ______
 
 ## How to know it worked
 
-- The release exists on GitHub with the `.ipa` and its `.sha256`, the PC is running its commit (`current.sha` in `deployer-state.json`), and `https://pc.tailnet.ts.net/health/ready` answers `Healthy`.
-- The app on your phone opens and re-signs itself without you doing anything.
+- The release exists on GitHub and its build is in TestFlight, the PC is running its commit (`current.sha` in `deployer-state.json`), and `https://pc.tailnet.ts.net/health/ready` answers `Healthy`.
+- The app on your phone opens and updates itself from TestFlight without you doing anything.
 - Every box above is ticked, the drill log has a `PASS` line from this week, and the k6 and accessibility results are written down where their documents say.
 - A week of real use ended with every bug either fixed by a release or sitting in an issue with a failing test.

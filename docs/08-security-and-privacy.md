@@ -129,7 +129,7 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
 
 ## iOS app (MASVS-L1)
 
-- **Sideloaded build:** signed with your free Apple ID's personal certificate via AltStore, so Developer Mode is on for this iPhone. Only install builds from your own GitHub Actions artifacts.
+- **TestFlight build (ADR-024):** signed in CI with the Apple Distribution certificate and installed only through TestFlight, so Developer Mode stays off. The signing secrets live in a GitHub environment that only `main` and `v*` tags can use, and the upload key has the App Manager role, not Admin. Builds are internal-testing-only.
 - **Face ID app lock** (LocalAuthentication) guards the paired session if someone picks up your unlocked phone.
 - **Known gap (QA-1c finding M3):** the app-switcher cover is not built yet, so iOS's snapshot of the app can show the library. The Face ID app lock itself is built and on by default (Face ID at launch and after 5 minutes in the background; content hidden while locked).
 
@@ -148,7 +148,7 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
 | Third parties | No third-party AI; metadata providers receive **only** barcodes/titles, never user identifiers |
 | Export | Full CSV + JSON zip at any time, including your own photo files (`photos/<assetId>.jpg`, listed in `photos.json`) |
 | Deletion | In-app; purge within 30 days; all devices and sessions revoked |
-| Distribution | Sideloaded with your free Apple ID (AltStore), with no App Store or TestFlight. A `PrivacyInfo.xcprivacy` manifest is still included. |
+| Distribution | TestFlight internal testing only (ADR-024), never the App Store. A `PrivacyInfo.xcprivacy` manifest is included, and `ITSAppUsesNonExemptEncryption` is false (HTTPS only). Apple receives each build, plus any crash reports or feedback a tester chooses to send; no library data. |
 | Attribution | TMDB and IGDB attribution on the About screen, as their terms require |
 
 ## Security testing
