@@ -57,6 +57,15 @@ services:
       Auth__Keys__SigningCertificatePath: /secrets/openiddict-signing.pfx
       Auth__Keys__EncryptionCertificatePath: /secrets/openiddict-encryption.pfx
       Auth__Keys__CertificatePassword: ${CM_CERT_PASSWORD:-}
+      # Auth0 (docs/14, Wave 6). deploy/auth0/Apply-Auth0.ps1 writes these values to the secrets folder; copy them into
+      # .env. They become required (and the PFX lines above go) at the cutover, CUT-1. The API checks them at start-up.
+      Auth__PublicOrigin: ${CM_PUBLIC_ORIGIN:-}
+      Auth__Auth0__Domain: ${CM_AUTH0_DOMAIN:-}
+      Auth__Auth0__Audience: urn:collectionmaxxing:api
+      Auth__Auth0__WebClientId: ${CM_AUTH0_WEB_CLIENT_ID:-}
+      Auth__Auth0__WebClientSecret: ${CM_AUTH0_WEB_CLIENT_SECRET:-}
+      Auth__Auth0__ManagementClientId: ${CM_AUTH0_MANAGEMENT_CLIENT_ID:-}
+      Auth__Auth0__ManagementClientSecret: ${CM_AUTH0_MANAGEMENT_CLIENT_SECRET:-}
       # The Data Protection key ring lives on the files volume so sign-ins survive deploys (the volume is covered by
       # BitLocker and the nightly backup). The API refuses to start outside Development without it.
       Auth__KeyRing__Path: /data/files/keyring

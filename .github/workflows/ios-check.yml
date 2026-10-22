@@ -1,0 +1,77 @@
+# Builds the iPhone app for the simulator, unsigned, from any branch (docs/14, LEAD-6a #227). TestFlight builds
+# (ios-build.yml) run only from main and v* tags, because the signing secrets live in the testflight environment. This
+# proves a native change (a new module or config plugin) compiles and bundles before it reaches main.
+#
+#   gh workflow run ios-check.yml --ref <branch>
+#
+# No environment and no secrets: the app is built with its placeholder settings, so the result can't sign anyone in.
+name: iOS check (simulator, unsigned)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: xcode-27 # macOS 26 + Xcode 27 (iOS 27 SDK), actions/runner-images#14404
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27 or newer
+        # A simulator build doesn't go to App Store Connect, so a beta Xcode is fine when no release is installed. Each
+        # name is judged by the real folder behind it (the image links some release names to betas).
+        run: |
+          real=$(for app in /Applications/Xcode*.app; do (cd -P "$app" && pwd -P); done | sort -u)
+          newest=$(printf '%s\n' "$real" | grep -v -i -E 'beta|release_candidate' | sort -V | tail -1)
+          [ -n "$newest" ] || newest=$(printf '%s\n' "$real" | sort -V | tail -1)
+          echo "Using $newest"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          major=$(xcodebuild -version | awk 'NR == 1 { split($2, v, "."); print v[1] }')
+          if [ "${major:-0}" -lt 27 ]; then
+            echo "::error::The newest Xcode here is $major; the app needs Xcode 27 (iOS 27 SDK). Check the runner image."; exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Generate the API client from the contract
+        working-directory: app
+        run: npm run generate
+
+      - name: Prebuild the native project
+        working-directory: app
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: Install pods
+        working-directory: app/ios
+        run: pod install
+
+      - name: Build for the simulator, unsigned
+        # Release, so the JS bundle is built too (a Debug build loads it from Metro and would miss bundling errors).
+        working-directory: app/ios
+        run: |
+          workspace=$(find . -maxdepth 1 -name '*.xcworkspace' | head -1)
+          scheme=$(basename "$workspace" .xcworkspace)
+          xcodebuild -workspace "$workspace" -scheme "$scheme" \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+            build
+          {
+            echo "### iOS simulator build passed"
+            echo "Commit $(git rev-parse --short HEAD) compiles and bundles with the iOS 27 SDK. It is unsigned and can't be installed on a phone."
+          } >> "$GITHUB_STEP_SUMMARY"
