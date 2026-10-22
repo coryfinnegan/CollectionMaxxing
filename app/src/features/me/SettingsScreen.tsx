@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { logout } from '@/features/auth/api';
+import { navigateTo } from '@/features/auth/navigation';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, ListRow, Screen, Text } from '@/ui';
@@ -89,10 +90,12 @@ export function SecuritySection() {
   const signOut = useMutation({
     // Every registered clearer runs (the offline "do I own this?" copy must not outlive the sign-in), then the query cache.
     mutationFn: async () => {
-      await logout();
+      const { logoutUrl } = await logout();
       await clearLocalData(queryClient);
+      return logoutUrl;
     },
-    onSuccess: () => router.replace('/login'),
+    // Leave for Auth0's sign-out, which brings the browser back to the sign-in page.
+    onSuccess: (logoutUrl) => navigateTo(logoutUrl),
     onError: (e) => setMessage(friendlyError(e)),
   });
 
@@ -135,7 +138,8 @@ export function SettingsScreen() {
     <Screen title="Settings" subtitle={isWeb() ? 'Preferences for this browser.' : 'Recognition and security on this iPhone.'}>
       {isWeb() ? null : <RecognitionSection />}
       {isWeb() ? <Card><GetIphoneAppRow /></Card> : null}
-      <Card><ListRow title="Devices and browsers" subtitle="Add an iPhone with a QR code" onPress={() => router.push('/me/devices')} trailing={<Text tone="muted">›</Text>} /></Card>
+      <Card><ListRow title="Devices and browsers" subtitle="Your browsers and iPhones" onPress={() => router.push('/me/devices')} trailing={<Text tone="muted">›</Text>} /></Card>
+      {isWeb() ? <Card><ListRow title="Sign-in methods" subtitle="Google and Apple accounts" onPress={() => router.push('/me/sign-in-methods')} trailing={<Text tone="muted">›</Text>} /></Card> : null}
       <SecuritySection />
       <Card><ListRow title="About and privacy" onPress={() => router.push('/about')} trailing={<Text tone="muted">›</Text>} /></Card>
     </Screen>

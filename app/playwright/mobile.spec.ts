@@ -15,6 +15,7 @@ const routes: { name: string; path: string }[] = [
   { name: 'review', path: '/review' },
   { name: 'me', path: '/me' },
   { name: 'devices', path: '/me/devices' },
+  { name: 'sign-in-methods', path: '/me/sign-in-methods' },
   { name: 'locations', path: '/me/locations' },
   { name: 'export', path: '/me/export' },
   { name: 'deleted', path: '/me/deleted' },
@@ -28,6 +29,7 @@ const routes: { name: string; path: string }[] = [
   { name: 'login', path: '/login' },
   { name: 'setup', path: '/setup' },
   { name: 'pair', path: '/pair' },
+  { name: 'not-linked', path: '/account/not-linked' },
   { name: 'join', path: '/join/valid-invite' },
 ];
 

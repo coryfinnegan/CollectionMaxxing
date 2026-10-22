@@ -1,12 +1,9 @@
-// Me > Delete account: says what will happen, then needs a fresh passkey before anything is sent.
-// DELETE /me wants a passkey assertion in its body (docs/07), which only the web can produce. The phone explains where to do it.
+// Me > Delete account: says what will happen, then deletes. DELETE /me needs a recent sign-in: if it isn't recent enough the server
+// answers reauth_required and the HTTP client asks for a fresh sign-in first (web only). The phone explains where to do it.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { useDeleteMe } from '@/api/generated/account/account';
-import { requestLoginOptions } from '@/features/auth/api';
-import { getPasskeys } from '@/features/auth/services';
-import { ApiError } from '@/lib/http';
+import { ApiError, customFetch } from '@/lib/http';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
@@ -18,17 +15,10 @@ export const membersMessage =
 export function DeleteAccountScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const deleteMe = useDeleteMe();
   const [message, setMessage] = useState<string | null>(null);
 
   const confirm = useMutation({
-    mutationFn: async () => {
-      // The fresh sign-in comes first: cancelling the passkey prompt sends nothing.
-      const passkeys = getPasskeys();
-      const { options } = await requestLoginOptions();
-      const credential = await passkeys.get(options);
-      await deleteMe.mutateAsync({ data: { credential } });
-    },
+    mutationFn: () => customFetch('/api/v1/me', { method: 'DELETE' }),
     onSuccess: async () => {
       await clearLocalData(queryClient);
       router.replace('/login');
@@ -51,9 +41,9 @@ export function DeleteAccountScreen() {
       ) : null}
       {isWeb() ? (
         <>
-          <Text tone="muted">You&apos;ll confirm with your passkey before anything is deleted.</Text>
+          <Text tone="muted">You may be asked to sign in again before anything is deleted.</Text>
           <Button
-            label="Confirm with passkey and delete account"
+            label="Delete my account"
             variant="danger"
             busy={confirm.isPending}
             onPress={() => {
@@ -64,7 +54,7 @@ export function DeleteAccountScreen() {
         </>
       ) : (
         <Card>
-          <Text>To delete your account, open CollectionMaxxing in a browser on your computer and go to Me, then Delete account. It needs your passkey, which the iPhone app can&apos;t use.</Text>
+          <Text>To delete your account, open CollectionMaxxing in a browser on your computer and go to Me, then Delete account. It needs a fresh sign-in, which only the browser can do.</Text>
         </Card>
       )}
       <Button label="Keep my account" variant="secondary" onPress={() => router.back()} />
