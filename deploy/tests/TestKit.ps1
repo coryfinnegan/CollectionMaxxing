@@ -84,15 +84,11 @@ function New-FakeMachine {
         UnhealthyTags           CM_TAG values whose api answers 503
         ComposeConfig           object returned by `docker compose config`
         PullFails               make `docker pull` fail (Docker not running)
-        IpaBytes, IpaSha256     what `gh release download` puts in the stage folder ($null IpaSha256 = no checksum file)
-        Tag                     the latest release's tag, as `gh release view --json tagName` prints it (default v1.0.2); $null = no readable tag
-        StagedVersionJson       (output) the text of app.version.json in the stage folder when the .ipa copy ran, else $null
         Graph                  commit graph: sha -> array of all its ancestors (default: Sha2 descends from Sha1)
         FetchFails              make `git fetch` fail
         AlertFails              make the failure-alert ping fail
         RunningServices         container ids that `compose ps -q --status running` lists (default: none)
-        CopyFails               make the .ipa copy into the files volume (`docker run --rm`) fail
-        NoIpaAsset              the latest release has no .ipa yet: `gh release download` finds nothing and exits 1
+        HelperFails             make the deployer's helper container (`docker run --rm`, e.g. removing the old .ipa) fail
         RepoDirty               the deployer's clone has uncommitted changes to tracked files (`git status` lists one)
         RepoBranch              the branch the clone is on (default main; $null = a detached HEAD)
         MergeFails              make `git merge --ff-only` fail (the clone has diverged)
@@ -101,11 +97,11 @@ function New-FakeMachine {
     $m = @{
         Sha = $script:Sha2; Created = '2026-10-13T12:00:00.123456789Z'; Up = $script:Sha1; BadAttest = @(); AttestRef = 'refs/heads/main'
         MigrateExit = 0; UnhealthyTags = @(); ComposeConfig = (New-GoodComposeConfig); PullFails = $false
-        IpaBytes = [byte[]](1, 2, 3, 4); IpaSha256 = 'auto'; Digest = $script:Digest; Tag = 'v1.0.2'; StagedVersionJson = $null
+        Digest = $script:Digest
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
     $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
-    $m.CopyFails = $false; $m.NoIpaAsset = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false
+    $m.HelperFails = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     $global:CmMachine = $m
     $global:CmRunner = {
@@ -134,16 +130,7 @@ function New-FakeMachine {
                 if ($line -match '^compose .* config --format json') { return & $ok @(($m.ComposeConfig | ConvertTo-Json -Depth 8 -Compress)) }
                 if ($line -match '^compose .* run --rm migrate') { return [pscustomobject]@{ ExitCode = $m.MigrateExit; Output = @() } }
                 if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
-                if ($line -match '^run --rm') {
-                    # The .ipa copy: remember what the deployer staged for the helper container (it is deleted with the test root).
-                    if ($m.CopyFails) { return & $fail }
-                    $mount = @($Arguments | Where-Object { "$_" -like '*:/in:ro' }) | Select-Object -First 1
-                    if ($mount) {
-                        $versionFile = Join-Path $mount.Substring(0, $mount.Length - ':/in:ro'.Length) 'app.version.json'
-                        $m.StagedVersionJson = if (Test-Path -LiteralPath $versionFile) { Get-Content -LiteralPath $versionFile -Raw } else { $null }
-                    }
-                    return & $ok
-                }
+                if ($line -match '^run --rm') { if ($m.HelperFails) { return & $fail } return & $ok }
                 return & $ok
             }
             'gh' {
@@ -152,21 +139,6 @@ function New-FakeMachine {
                     $cert = @{ sourceRepositoryRef = $m.AttestRef; sourceRepositoryDigest = $m.Sha; sourceRepositoryURI = 'https://github.com/coryfinnegan/CollectionMaxxing' }
                     if ($m.OmitCertDigest) { $cert.Remove('sourceRepositoryDigest') }
                     return & $ok @((@(@{ verificationResult = @{ signature = @{ certificate = $cert } } }) | ConvertTo-Json -Depth 8 -Compress))
-                }
-                if ($line -match '^release view') {
-                    if ($null -eq $m.Tag) { return & $fail }
-                    return & $ok @($m.Tag)
-                }
-                if ($line -match '^release download') {
-                    $dir = $Arguments[[array]::IndexOf($Arguments, '--dir') + 1]
-                    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-                    if ($m.NoIpaAsset) { return & $fail }
-                    [IO.File]::WriteAllBytes((Join-Path $dir 'CollectionMaxxing-unsigned.ipa'), $m.IpaBytes)
-                    if ($null -ne $m.IpaSha256) {
-                        $hash = if ($m.IpaSha256 -eq 'auto') { (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dir 'CollectionMaxxing-unsigned.ipa')).Hash.ToLower() } else { $m.IpaSha256 }
-                        Set-Content -LiteralPath (Join-Path $dir 'CollectionMaxxing-unsigned.ipa.sha256') -Value "$hash  CollectionMaxxing-unsigned.ipa"
-                    }
-                    return & $ok
                 }
                 return & $ok
             }
@@ -184,7 +156,7 @@ function New-FakeMachine {
                         $x = $a[2]; $y = $a[3]
                         if ($x -eq $y -or @($m.Graph[$y]) -contains $x) { return & $ok } else { return & $fail 1 }
                     }
-                    'status' { if ($m.RepoDirty) { return & $ok @(' M deploy/deployer/Cm.Ipa.ps1') } return & $ok }
+                    'status' { if ($m.RepoDirty) { return & $ok @(' M deploy/deployer/Cm.Deploy.ps1') } return & $ok }
                     'symbolic-ref' { if ($null -eq $m.RepoBranch) { return & $fail 1 } return & $ok @($m.RepoBranch) }
                     'merge' { if ($m.MergeFails) { return & $fail 128 } return & $ok }
                     default { return & $ok }

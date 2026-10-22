@@ -1,184 +1,109 @@
-# OPS-IPA2: a run with nothing to deploy still syncs a new release's .ipa, and a good deploy keeps the deployer's own scripts current.
+# OPS-IPA2, then ADR-024: a good deploy keeps the deployer's own scripts current, and the .ipa the server used to serve
+# (before the iPhone app moved to TestFlight) is removed once from the files volume. Nothing reads GitHub releases now.
 # Dot-sourced by Run-Tests.ps1 after deployer.tests.ps1 and ops1b.tests.ps1 (it uses their helpers).
 
-# The deployed commit is already the newest main image (a quiet run). The last .ipa sync was release v1.0.1.
+# The deployed commit is already the newest main image (a quiet run).
 function Get-QuietState {
-    param([hashtable]$Extra = @{}, [string]$IpaTag = 'v1.0.1')
-    $state = @{
-        current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z'; deployedAt = '2026-10-13T12:05:00Z' }
-        ipa     = @{ sha256 = ('0' * 64); file = 'CollectionMaxxing-unsigned.ipa'; version = ($IpaTag -replace '^v'); tag = $IpaTag }
-    }
+    param([hashtable]$Extra = @{})
+    $state = @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z'; deployedAt = '2026-10-13T12:05:00Z' } }
     foreach ($k in $Extra.Keys) { $state[$k] = $Extra[$k] }
     $state
 }
 
-function Get-Downloads { @(Get-Calls 'gh' '*release download*') }
-function Get-IpaCopies { @(Get-Calls 'docker' '*run --rm --network none*') }
+# What a server that synced the .ipa before ADR-024 still remembers.
+$script:RetiredIpa = @{ ipa = @{ sha256 = ('0' * 64); file = 'CollectionMaxxing-unsigned.ipa'; version = '1.0.3'; tag = 'v1.0.3' } }
+
+function Get-IpaRemovals { @(Get-Calls 'docker' '*run --rm --network none*rm -rf /data/files/ipa*') }
 function Get-RepoMerges { @(Get-Calls 'git' '*merge --ff-only*') }
 function Get-AlertLines { param([string]$Log) @([regex]::Matches($Log, 'ALERT ')).Count }
 
-# ---- a quiet run syncs a new release ------------------------------------------------------------------------------------
+# ---- the retired .ipa ----------------------------------------------------------------------------------------------------
 
-Test-Case 'quiet run: a new release tag is synced once, even though there is nothing to deploy' {
-    $r = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'ipa-synced' $r.Result.Outcome
+Test-Case 'retired .ipa: a quiet run on a server that still has one removes ipa/ from the files volume and forgets it' {
+    $r = Invoke-TestDeploy -State (Get-QuietState $script:RetiredIpa)
+    Assert-Equal 'up-to-date' $r.Result.Outcome
     Assert-Equal 0 $r.Result.ExitCode
-    Assert-Equal 1 (Get-Downloads).Count
-    Assert-Equal 1 (Get-IpaCopies).Count
-    Assert-Equal 'v1.0.2' $r.State.ipa.tag 'the synced tag is remembered in the state file'
-    Assert-Equal '1.0.2' $r.State.ipa.version
-    Assert-Equal $script:Sha2 $r.State.current.sha 'nothing was deployed'
-    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+    $removals = Get-IpaRemovals
+    Assert-Equal 1 $removals.Count
+    Assert-Match $removals[0].Display '-v collectionmaxxing_files:/data/files'
+    Assert-Match $removals[0].Display "collectionmaxxing-backup:$($script:Sha2) -c `"rm -rf /data/files/ipa`"$"
+    Assert-True $removals[0].Mutating
+    Assert-False $r.State.ContainsKey('ipa') 'the state forgets the .ipa'
+    Assert-Equal $script:Sha2 $r.State.current.sha 'nothing else changes'
+    Assert-Match $r.Log 'TestFlight'
     Assert-Equal 0 (Get-AlertCalls).Count
 }
 
-Test-Case 'quiet run: the same release tag as last time costs one gh release view and nothing else' {
-    $r = Invoke-TestDeploy -State (Get-QuietState -IpaTag 'v1.0.2') -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'up-to-date' $r.Result.Outcome
-    Assert-Equal 0 $r.Result.ExitCode
-    Assert-Equal 1 (Get-Calls 'gh' '*release view*').Count
-    Assert-Equal 0 (Get-Downloads).Count
-    Assert-Equal 0 (Get-IpaCopies).Count
+Test-Case 'retired .ipa: a remembered failed sync attempt is forgotten as well' {
+    $r = Invoke-TestDeploy -State (Get-QuietState @{ ipaAttempt = @{ tag = 'v1.0.3'; outcome = 'no-release'; at = '2026-10-20T00:00:00Z' } })
+    Assert-Equal 1 (Get-IpaRemovals).Count
+    Assert-False $r.State.ContainsKey('ipaAttempt')
 }
 
-Test-Case 'quiet run: the next run after a sync does not download again' {
-    $first = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ Tag = 'v1.0.2' }
+Test-Case 'retired .ipa: once it is gone the next runs do nothing more' {
+    $first = Invoke-TestDeploy -State (Get-QuietState $script:RetiredIpa)
     $global:CmCalls.Clear()
-    $second = Invoke-TestDeploy -State $first.State -Machine @{ Tag = 'v1.0.2' }
+    $second = Invoke-TestDeploy -State $first.State
     Assert-Equal 'up-to-date' $second.Result.Outcome
-    Assert-Equal 0 (Get-Downloads).Count
+    Assert-Equal 0 (Get-IpaRemovals).Count
+    Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notmatch '^docker pull' }).Count 'only the pull'
 }
 
-Test-Case 'quiet run: an install that never synced an .ipa syncs the latest release' {
-    $state = Get-QuietState
-    $state.Remove('ipa')
-    $r = Invoke-TestDeploy -State $state -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'ipa-synced' $r.Result.Outcome
-    Assert-Equal 'v1.0.2' $r.State.ipa.tag
+Test-Case 'retired .ipa: a server that never had one is left alone' {
+    $r = Invoke-TestDeploy -State (Get-QuietState)
+    Assert-Equal 0 (Get-IpaRemovals).Count
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm --network none*').Count
 }
 
-Test-Case 'quiet run: a state file from before tags were remembered syncs once, then remembers the tag' {
-    $state = Get-QuietState
-    $state.ipa.Remove('tag')
-    $r = Invoke-TestDeploy -State $state -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'ipa-synced' $r.Result.Outcome
-    Assert-Equal 'v1.0.2' $r.State.ipa.tag
-}
-
-Test-Case 'quiet run: a new tag whose .ipa is byte for byte the one already served only records the tag' {
-    $sha = (Get-FileHash -InputStream ([IO.MemoryStream]::new([byte[]](1, 2, 3, 4))) -Algorithm SHA256).Hash.ToLower()
-    $state = Get-QuietState
-    $state.ipa.sha256 = $sha
-    $state.ipa.version = '1.0.2'
-    $r = Invoke-TestDeploy -State $state -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'up-to-date' $r.Result.Outcome
-    Assert-Equal 0 (Get-IpaCopies).Count 'nothing to copy'
-    Assert-Equal 'v1.0.2' $r.State.ipa.tag 'so the next run does not download it again'
-}
-
-Test-Case 'quiet run: a latest release that cannot be read is silent and changes nothing' {
-    $r = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ Tag = $null }
+Test-Case 'retired .ipa: a removal that fails is a warning, not an alert, and is tried again on the next run' {
+    $r = Invoke-TestDeploy -State (Get-QuietState $script:RetiredIpa) -Machine @{ HelperFails = $true }
     Assert-Equal 'up-to-date' $r.Result.Outcome
     Assert-Equal 0 $r.Result.ExitCode
-    Assert-Equal 0 (Get-Downloads).Count
     Assert-Equal 0 (Get-AlertCalls).Count
-    Assert-Equal 'v1.0.1' $r.State.ipa.tag
-}
-
-Test-Case 'quiet run: a commit that already failed here still gets its release synced' {
-    $state = Get-QuietState
-    $state.current.sha = $script:Sha1
-    $state.failedSha = $script:Sha2
-    $r = Invoke-TestDeploy -State $state -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'ipa-synced' $r.Result.Outcome
-    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
-}
-
-Test-Case 'quiet run: a downgrade refusal does not sync (it is a loud failure of its own)' {
-    $state = Get-QuietState
-    $r = Invoke-TestDeploy -State $state -Machine @{ Tag = 'v1.0.2'; Sha = $script:Sha1 }
-    Assert-Equal 'downgrade-refused' $r.Result.Outcome
-    Assert-Equal 0 (Get-Downloads).Count
-}
-
-# ---- failures: one alert per tag, then quiet --------------------------------------------------------------------------------
-
-Test-Case 'quiet run: a sync that fails its checksum exits 5 once, alerts once and leaves the served .ipa alone' {
-    $r = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ Tag = 'v1.0.2'; IpaSha256 = ('f' * 64) }
-    Assert-Equal 'ipa-failed' $r.Result.Outcome
-    Assert-Equal 5 $r.Result.ExitCode
-    Assert-Equal 0 (Get-IpaCopies).Count
-    Assert-Equal 1 (Get-AlertCalls).Count
-    Assert-Equal 1 (Get-AlertLines $r.Log)
-    Assert-Equal 'v1.0.1' $r.State.ipa.tag 'the served .ipa is still the old release'
-    Assert-Equal 'v1.0.2' $r.State.ipaAttempt.tag
-    Assert-Equal $script:Sha2 $r.State.current.sha 'the deploy state is untouched'
-}
-
-Test-Case 'quiet run: the same failing tag on the next runs is silent: no download, no log line, no alert, exit 0' {
-    $first = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ Tag = 'v1.0.2'; IpaSha256 = ('f' * 64) }
+    Assert-Equal 0 (Get-AlertLines $r.Log)
+    Assert-Match $r.Log 'WARN .*old \.ipa'
+    Assert-True $r.State.ContainsKey('ipa') 'still remembered, so the next run tries again'
     $global:CmCalls.Clear()
-    $second = Invoke-TestDeploy -State $first.State -Machine @{ Tag = 'v1.0.2'; IpaSha256 = ('f' * 64) }
-    Assert-Equal 0 $second.Result.ExitCode
-    Assert-Equal 0 (Get-Downloads).Count
-    Assert-Equal 0 (Get-AlertCalls).Count
-    Assert-Equal '' $second.Log.Trim() 'nothing is logged'
+    $again = Invoke-TestDeploy -State $r.State
+    Assert-Equal 1 (Get-IpaRemovals).Count
+    Assert-False $again.State.ContainsKey('ipa')
 }
 
-Test-Case 'quiet run: a failing tag is tried again after the wait, silently, and a fixed .ipa then syncs' {
-    $attempt = @{ tag = 'v1.0.2'; outcome = 'checksum-mismatch'; at = [DateTime]::UtcNow.AddMinutes(-20).ToString('o') }
-    $still = Invoke-TestDeploy -State (Get-QuietState -Extra @{ ipaAttempt = $attempt }) -Machine @{ Tag = 'v1.0.2'; IpaSha256 = ('f' * 64) }
-    Assert-Equal 1 (Get-Downloads).Count 'tried again'
-    Assert-Equal 0 $still.Result.ExitCode 'a repeat failure does not alert again'
-    Assert-Equal 0 (Get-AlertCalls).Count
-    Assert-True ((ConvertTo-CmUtc $still.State.ipaAttempt.at) -gt [DateTime]::UtcNow.AddMinutes(-1)) 'the wait starts over'
-
-    $global:CmCalls.Clear()
-    $fixed = Invoke-TestDeploy -State (Get-QuietState -Extra @{ ipaAttempt = $attempt }) -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'ipa-synced' $fixed.Result.Outcome
-    Assert-Equal 'v1.0.2' $fixed.State.ipa.tag
-    Assert-False $fixed.State.ContainsKey('ipaAttempt') 'the failure is forgotten'
+Test-Case 'retired .ipa: the old staging folder inside the root goes too' {
+    $r = Invoke-TestDeploy -State (Get-QuietState $script:RetiredIpa) -Setup {
+        param($root)
+        New-Item -ItemType Directory -Force -Path (Join-Path $root 'state/ipa-stage') | Out-Null
+        Set-Content -LiteralPath (Join-Path $root 'state/ipa-stage/app.ipa') -Value 'old'
+    } -Inspect { param($root) Test-Path -LiteralPath (Join-Path $root 'state/ipa-stage') }
+    Assert-False $r.Inspected 'state/ipa-stage was removed'
 }
 
-Test-Case 'quiet run: a failing tag within the wait is not tried again' {
-    $attempt = @{ tag = 'v1.0.2'; outcome = 'copy-failed'; at = [DateTime]::UtcNow.AddMinutes(-3).ToString('o') }
-    $r = Invoke-TestDeploy -State (Get-QuietState -Extra @{ ipaAttempt = $attempt }) -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 0 (Get-Downloads).Count
+Test-Case 'retired .ipa: a good deploy removes it too, after the smoke test and the fast-forward' {
+    $state = Get-OldGoodState
+    $state['ipa'] = $script:RetiredIpa['ipa']
+    $r = Invoke-TestDeploy -State $state
+    Assert-Equal 'deployed' $r.Result.Outcome
+    Assert-Equal 0 $r.Result.ExitCode
+    $remove = Get-CallIndex '*rm -rf /data/files/ipa*'
+    $merge = Get-CallIndex 'git * merge --ff-only*'
+    $smoke = Get-CallIndex 'curl*health/ready'
+    Assert-True ($remove -gt $merge -and $merge -gt $smoke) "smoke=$smoke merge=$merge remove=$remove"
+    Assert-Match (Get-IpaRemovals)[0].Display "collectionmaxxing-backup:$($script:Sha2) "
+    Assert-False $r.State.ContainsKey('ipa')
 }
 
-Test-Case 'quiet run: the next release after a failed one is tried at once, and alerts once if it fails too' {
-    $attempt = @{ tag = 'v1.0.2'; outcome = 'checksum-mismatch'; at = [DateTime]::UtcNow.AddMinutes(-1).ToString('o') }
-    $r = Invoke-TestDeploy -State (Get-QuietState -Extra @{ ipaAttempt = $attempt }) -Machine @{ Tag = 'v1.0.3'; IpaSha256 = ('f' * 64) }
-    Assert-Equal 'ipa-failed' $r.Result.Outcome
-    Assert-Equal 1 (Get-AlertCalls).Count
-    Assert-Equal 'v1.0.3' $r.State.ipaAttempt.tag
+Test-Case 'retired .ipa: a rolled-back deploy does not remove it (the run already alerts for the rollback)' {
+    $state = Get-OldGoodState
+    $state['ipa'] = $script:RetiredIpa['ipa']
+    $r = Invoke-TestDeploy -State $state -Machine @{ UnhealthyTags = @($script:Sha2) }
+    Assert-Equal 'rolled-back' $r.Result.Outcome
+    Assert-Equal 0 (Get-IpaRemovals).Count
 }
 
-Test-Case 'quiet run: a failed copy into the volume is the same kind of failure' {
-    $r = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ Tag = 'v1.0.2'; CopyFails = $true }
-    Assert-Equal 'ipa-failed' $r.Result.Outcome
-    Assert-Equal 5 $r.Result.ExitCode
-    Assert-Equal 'copy-failed' $r.State.ipaAttempt.outcome
-}
-
-Test-Case 'quiet run: a release that has no .ipa yet is not an alert, is logged once and is looked at again later' {
-    $first = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ Tag = 'v1.0.2'; NoIpaAsset = $true }
-    Assert-Equal 0 $first.Result.ExitCode
-    Assert-Equal 0 (Get-AlertCalls).Count
-    Assert-Equal 'no-release' $first.State.ipaAttempt.outcome
-    Assert-Equal 'v1.0.1' $first.State.ipa.tag
-    Assert-Match $first.Log 'v1\.0\.2'
-
-    $global:CmCalls.Clear()
-    $soon = Invoke-TestDeploy -State $first.State -Machine @{ Tag = 'v1.0.2'; NoIpaAsset = $true }
-    Assert-Equal 0 (Get-Downloads).Count 'not hammered while it is still missing'
-    Assert-Equal '' $soon.Log.Trim()
-
-    $global:CmCalls.Clear()
-    $state = $first.State
-    $state.ipaAttempt.at = [DateTime]::UtcNow.AddMinutes(-20).ToString('o')
-    $later = Invoke-TestDeploy -State $state -Machine @{ Tag = 'v1.0.2' }
-    Assert-Equal 'ipa-synced' $later.Result.Outcome
+Test-Case 'releases: neither a quiet run nor a deploy reads GitHub releases any more' {
+    Invoke-TestDeploy -State (Get-QuietState $script:RetiredIpa) | Out-Null
+    Invoke-TestDeploy -State (Get-OldGoodState) | Out-Null
+    Assert-Equal 0 (Get-Calls 'gh' 'gh release *').Count
 }
 
 # ---- after a good deploy the deployer's own scripts follow the deployed commit --------------------------------------------
@@ -258,7 +183,7 @@ Test-Case 'deploy: a rolled-back or failed deploy never moves the clone' {
 }
 
 Test-Case 'deploy: a quiet run and a manual rollback leave the clone alone' {
-    $r = Invoke-TestDeploy -State (Get-QuietState -IpaTag 'v1.0.2') -Machine @{ Tag = 'v1.0.2' }
+    $r = Invoke-TestDeploy -State (Get-QuietState)
     Assert-Equal 0 (Get-RepoMerges).Count
     $global:CmCalls.Clear()
     $r = Invoke-TestDeploy -RollbackTo $script:Sha1 -State (Get-StateAt $script:Sha2) -Machine @{ Sha = $script:Sha1 }
@@ -266,27 +191,15 @@ Test-Case 'deploy: a quiet run and a manual rollback leave the clone alone' {
     Assert-Equal 0 (Get-RepoMerges).Count
 }
 
-Test-Case 'deploy: a failed .ipa sync after a good deploy still exits 5 and the clone has already moved' {
-    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ IpaSha256 = ('f' * 64) }
-    Assert-Equal 'ipa-failed' $r.Result.Outcome
-    Assert-Equal 1 (Get-RepoMerges).Count
-    Assert-Equal 1 (Get-AlertCalls).Count
-    Assert-Equal 'v1.0.2' $r.State.ipaAttempt.tag 'so the quiet runs after it do not alert again'
-}
-
-Test-Case 'deploy: the post-deploy sync records the tag it synced' {
-    $r = Invoke-TestDeploy -State (Get-OldGoodState)
-    Assert-Equal 'v1.0.2' $r.State.ipa.tag
-}
-
 # ---- the dry run and the plan ------------------------------------------------------------------------------------------------
 
-Test-Case 'plan: the dry run lists the release check and the fast-forward' {
+Test-Case 'plan: the dry run lists the fast-forward and the one-time .ipa removal, and no release check' {
     $root = New-TestRoot
     try {
         $plan = (Get-CmPlan -Ctx (New-TestContext -Root $root)) -join "`n"
-        Assert-Match $plan 'release view'
         Assert-Match $plan 'merge --ff-only <sha>'
+        Assert-Match $plan 'rm -rf /data/files/ipa'
+        Assert-False ($plan -match 'release view|Sync-Ipa') 'nothing about releases'
     }
     finally { Remove-TestRoot $root }
 }

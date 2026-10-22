@@ -17,7 +17,7 @@ The deployer updates the app by itself every 2 minutes. Use this to see why it h
    pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Deploy-CollectionMaxxing.ps1 -Apply
    echo $LASTEXITCODE
    ```
-   Exit codes: 0 fine, 1 failed or rolled back, 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not newer, not attested, unreadable state), 5 the `.ipa` sync failed (reported once per release; it is tried again quietly every 15 minutes).
+   Exit codes: 0 fine, 1 failed or rolled back, 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not newer, not attested, unreadable state). (5 was the retired `.ipa` sync; the iPhone app comes from TestFlight now.)
 3. To go back on purpose, pick the older commit (40 characters) from `git -C C:\CollectionMaxxing\repo log --oneline` after `git -C C:\CollectionMaxxing\repo fetch origin main`, and run the plan first:
    ```powershell
    pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Deploy-CollectionMaxxing.ps1 -RollbackTo <40-char sha>

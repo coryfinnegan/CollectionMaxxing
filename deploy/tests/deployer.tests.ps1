@@ -1,8 +1,12 @@
 # Deployer tests. Dot-sourced by Run-Tests.ps1 after TestKit.ps1 and the deployer libraries.
 
 function Invoke-TestDeploy {
-    <# Runs one real deployer pass against a throwaway root with the fake machine installed. #>
-    param([hashtable]$Machine = @{}, [hashtable]$State = $null, [switch]$DryRun, [string]$RollbackTo = '', $StateText = $null, $EnvText = $null)
+    <#
+      Runs one real deployer pass against a throwaway root with the fake machine installed. -Setup gets the root before
+      the run; -Inspect gets it afterwards, before it is deleted, and its answer comes back as Inspected.
+    #>
+    param([hashtable]$Machine = @{}, [hashtable]$State = $null, [switch]$DryRun, [string]$RollbackTo = '', $StateText = $null, $EnvText = $null,
+        [scriptblock]$Setup = $null, [scriptblock]$Inspect = $null)
     $root = New-TestRoot
     try {
         if ($State) { Set-TestState -Root $root -State $State }
@@ -11,12 +15,14 @@ function Invoke-TestDeploy {
             Set-Content -LiteralPath (Join-Path $root 'state/deployer-state.json') -Value $StateText
         }
         if ($null -ne $EnvText) { Set-Content -LiteralPath (Join-Path $root '.env') -Value $EnvText }
+        if ($Setup) { & $Setup $root }
         New-FakeMachine $Machine | Out-Null
         Initialize-Cm -Apply (-not $DryRun)
         $ctx = New-TestContext -Root $root
         $result = Invoke-CmDeploy -Ctx $ctx -RollbackTo $RollbackTo 6>$null
         $log = if (Test-Path -LiteralPath $ctx.LogFile) { Get-Content -LiteralPath $ctx.LogFile -Raw } else { '' }
-        [pscustomobject]@{ Result = $result; State = (Get-TestState -Root $root); Log = $log; Root = $root }
+        $inspected = if ($Inspect) { & $Inspect $root } else { $null }
+        [pscustomobject]@{ Result = $result; State = (Get-TestState -Root $root); Log = $log; Root = $root; Inspected = $inspected }
     }
     finally { Remove-TestRoot $root }
 }
@@ -76,11 +82,11 @@ Test-Case 'deployer: a missing state file and nothing running or pinned is still
     Assert-Equal $script:Sha2 $r.State.current.sha
 }
 
-Test-Case 'deployer: the .ipa sync is the last step of a good deploy' {
+Test-Case 'deployer: a good deploy ends with the fast-forward of its clone and reads no GitHub release' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState)
     $lastIndex = $global:CmCalls.Count - 1
-    Assert-Match $global:CmCalls[$lastIndex].Display 'docker run --rm --network none'
-    Assert-True ((Get-CallIndex 'gh release download*') -gt (Get-CallIndex 'curl*health/ready'))
+    Assert-Match $global:CmCalls[$lastIndex].Display 'merge --ff-only'
+    Assert-Equal 0 (Get-Calls 'gh' 'gh release *').Count 'the iPhone app comes from TestFlight (ADR-024)'
 }
 
 Test-Case 'deployer: an image without a valid attestation deploys nothing' {
@@ -128,7 +134,6 @@ Test-Case 'deployer: a failed smoke test pins the previous good tag and restarts
 
 Test-Case 'deployer: a known-bad image is not retried every two minutes' {
     $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2
-    $state['ipa'] = @{ tag = 'v1.0.2' }   # the latest release is already synced, so this run has nothing at all to do
     $r = Invoke-TestDeploy -State $state
     Assert-Equal 'known-bad' $r.Result.Outcome
     Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
@@ -144,7 +149,7 @@ Test-Case 'deployer: a downgrade is refused (judged by commit ancestry; see ops1
 }
 
 Test-Case 'deployer: the same image that is already running changes nothing' {
-    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' }; ipa = @{ tag = 'v1.0.2' } }
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' } }
     Assert-Equal 'up-to-date' $r.Result.Outcome
     Assert-Equal 0 (Get-MutatingCalls | Where-Object { $_.Display -match 'compose' }).Count
     Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notmatch '^docker pull' }).Count 'no download, no copy, no merge'
