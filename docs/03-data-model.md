@@ -42,15 +42,16 @@ erDiagram
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `users` (ASP.NET Identity) | `id`, `display_name`, `email` (nullable; optional, never used to sign in), `created_at`, `deleted_at` | No password hash column is ever populated (passwordless) |
-| `user_passkeys` (Identity) | credential id + public key + name | WebAuthn credentials (no external login providers) |
-| `device_pairings` | `id`, `user_id`, `token_hash`, `code_hash` (6-digit fallback), `expires_at` (2 min), `used_at`, `attempts`, `device_name`, `authorization_id` | Single use; the plaintext token only ever appears in the QR code |
+| `users` (ASP.NET Identity) | `id`, `display_name`, `email` (nullable; display only, never used to sign in), `created_at`, `deleted_at`, `tokens_not_before` | No password hash column is ever populated (passwordless). Access tokens issued before `tokens_not_before` are refused ("Sign out all iPhones", member removal). |
+| `user_logins` | `id`, `user_id`, `provider` (`auth0`), `subject` (Auth0's `sub`), `email` (display only), `created_at` | Unique on `subject`: an identity belongs to one user at most. This is the only link from Auth0 to our users. One user can have several (Google and Apple). Removed with the user. |
+| `app_sign_ins` | `id`, `user_id`, `install_id`, `device_name`, `created_at`, `last_seen_at` | One row per iPhone install, registered after sign-in (Settings → Devices). Unique on (`user_id`, `install_id`). Revoking goes through `tokens_not_before` and Auth0 (see [07](07-authentication-and-authorization.md)). |
 | `setup_codes` | `id`, `purpose` (`setup`/`recovery`), `code_hash`, `expires_at`, `used_at` | Setup works only while there's no owner; recovery codes come from the PC CLI |
-| OpenIddict tables | applications, authorizations, scopes, tokens | Managed by OpenIddict's EF stores |
 | `libraries` | `id`, `name`, `created_at` | Created for the owner at setup. Invited family members join it instead of getting an empty one of their own. |
 | `library_members` | `library_id`, `user_id`, `role` (`owner`/`editor`/`viewer`), `joined_at` | PK (`library_id`, `user_id`). Exactly one owner per library. |
 | `library_invites` | `id`, `library_id`, `role` (`editor`/`viewer`), `name` (who it's for), `token_hash`, `created_by`, `expires_at` (7 days), `accepted_by`, `accepted_at`, `revoked_at` | Single use, revocable; only the hash of the token is stored |
 | `web_sessions` | `id`, `user_id`, `label`, `created_at`, `last_seen_at`, `revoked_at` | One row per signed-in browser. The session cookie names its row; a revoked row stops the cookie working. `label` comes from a fixed list (for example "Edge on Windows"), never the raw User-Agent |
+
+The passkey, device-pairing and OpenIddict tables (`user_passkeys`, `device_pairings`, `openiddict_*`) were dropped by the Auth0 migration ([14](14-auth0-migration.md)).
 
 ### Catalogue (shared)
 

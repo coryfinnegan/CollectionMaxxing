@@ -8,9 +8,9 @@ One screen each: numbered steps, exact commands, and how to know it worked. Writ
 | A new version is out, or the latest one is broken | [update-and-rollback.md](update-and-rollback.md) |
 | The "missed backup" email arrived, or F: is full | [missed-backup-or-full-disk.md](missed-backup-or-full-disk.md) |
 | A phone is lost or stolen; someone leaves the family | [lost-phone-or-remove-member.md](lost-phone-or-remove-member.md) |
-| Yearly: replace the token signing keys | [rotate-signing-keys.md](rotate-signing-keys.md) |
+| A sign-in secret might have leaked (Auth0 rotates its own keys) | [rotate-signing-keys.md](rotate-signing-keys.md) |
 | The app is unreachable over Tailscale, or the HTTPS certificate is wrong | [tailscale-and-https.md](tailscale-and-https.md) |
-| Setting up TestFlight and moving off AltStore; a family member's iPhone; a version that didn't arrive; yearly: renew the Apple certificate | [iphone-app-testflight.md](iphone-app-testflight.md) |
+| Setting up TestFlight; a family member's iPhone; a version that didn't arrive; yearly: renew the Apple certificate | [iphone-app-testflight.md](iphone-app-testflight.md) |
 | Cutting v1.0 and the first week of real use (the owner's to-do list) | [v1-release-and-week-of-use.md](v1-release-and-week-of-use.md) |
 | The restore drill (twice a year) and a real restore | [../RESTORE.md](../RESTORE.md), log in [../drills/README.md](../drills/README.md) |
 

@@ -7,7 +7,7 @@ Everything here was written and tested **without touching the real machine**. Ev
 | Folder | What is in it |
 |---|---|
 | `docker-compose.yml`, `.env.example` | The production stack, bound to `127.0.0.1` only |
-| `deployer/` | `Deploy-CollectionMaxxing.ps1` (the deployer), `Install-Deployer.ps1` / `Uninstall-Deployer.ps1` (the scheduled task), `New-Secrets.ps1`, shared `Cm.*.ps1` |
+| `deployer/` | `Deploy-CollectionMaxxing.ps1` (the deployer), `Install-Deployer.ps1` / `Uninstall-Deployer.ps1` (the scheduled task), shared `Cm.*.ps1` |
 | `apple/` | `New-SigningRequest.ps1` and `Publish-SigningSecrets.ps1`: the TestFlight signing setup and its yearly renewal (ADR-024, [runbooks/iphone-app-testflight.md](runbooks/iphone-app-testflight.md)) |
 | `tailscale/` | `Set-TailscaleServe.ps1` |
 | `backup/` | The backup image: `Dockerfile.backup`, `backup.sh`, `backup-lib.sh` (dump, files archive, manifest, retention, heartbeat) |
@@ -54,15 +54,11 @@ Copy-Item C:\CollectionMaxxing\repo\deploy\.env.example C:\CollectionMaxxing\.en
 [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
 notepad C:\CollectionMaxxing\.env
 ```
-Fill in `POSTGRES_PASSWORD`, `CM_RELYING_PARTY_ID` (this PC's Tailscale name, for example `pc.tailnet.ts.net`; **it cannot change later without losing every passkey**), `CM_SECRETS_DIR`, `CM_BACKUP_DIR` (a folder on **F:**, not C:), `CM_TZ` and, if you want email alerts, `CM_HEARTBEAT_URL` (step 9). Leave the ports alone. `.env` is never committed. **Undo:** delete the file.
+Fill in `POSTGRES_PASSWORD`, `CM_PUBLIC_ORIGIN` (the address people browse to, for example `https://pc.tailnet.ts.net`), `CM_SECRETS_DIR`, `CM_BACKUP_DIR` (a folder on **F:**, not C:), `CM_TZ` and, if you want email alerts, `CM_HEARTBEAT_URL` (step 9). Leave the ports alone. `.env` is never committed. **Undo:** delete the file.
 
-### 3. Create the token keys
+### 3. Set up Auth0 sign-in
 
-```powershell
-pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\New-Secrets.ps1 -Path C:\CollectionMaxxing\secrets          # dry run
-pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\New-Secrets.ps1 -Path C:\CollectionMaxxing\secrets -Apply
-```
-Expect: `dry run, would create: ...` twice, then `created: ...` twice. It never overwrites an existing key. Then make the folder readable only by your account (folder Properties > Security) and make sure BitLocker covers that drive. **Undo:** delete the two `.pfx` files (everyone is signed out; passkeys are unaffected).
+Sign-in is Auth0's (docs/07, docs/14). There are no token keys to make. Follow \"What you do\" in `docs/14-auth0-migration.md`, then run `deploy/auth0/Apply-Auth0.ps1` (a dry run first, then `-Apply`). It writes `C:\CollectionMaxxing\secrets\auth0\api.env`. Copy its `CM_AUTH0_*` lines into `.env`: all six Auth0 values are required, and the stack won't start without them. Make the secrets folder readable only by your account (folder Properties > Security) and make sure BitLocker covers that drive. **Undo:** remove the lines from `.env`.
 
 ### 4. Dry run of the deployer (read-only)
 
@@ -82,7 +78,7 @@ Expect, in `C:\CollectionMaxxing\logs\deployer.log` and on screen: `deploying <1
 Invoke-RestMethod http://127.0.0.1:5480/health/ready      # Healthy
 docker compose -p collectionmaxxing ps                     # postgres, api, aspire-dashboard, backup running; migrate exited 0
 ```
-Open `http://127.0.0.1:18888` for logs, traces and metrics. The one-time **setup code** (to create the owner passkey) is printed in `docker compose -p collectionmaxxing logs api` and written to `C:\CollectionMaxxing\secrets\setup-code.txt`.
+Open `http://127.0.0.1:18888` for logs, traces and metrics. The one-time **setup code** (to create the owner: you sign in with Google or Apple, then enter it) is printed in `docker compose -p collectionmaxxing logs api` and written to `C:\CollectionMaxxing\secrets\setup-code.txt`.
 
 If a step fails, the log says why: no `gh` login or an image that is not attested = nothing deployed; a failed migration = the old api keeps running; a failed smoke test = the previous good version is pinned and restarted.
 **Undo:** `docker compose -p collectionmaxxing -f C:\CollectionMaxxing\repo\deploy\docker-compose.yml --env-file C:\CollectionMaxxing\.env stop` (stops without deleting data; **never** use `down -v`, it deletes the database volume).
@@ -137,7 +133,7 @@ Nothing here is set up. When you want it (docs/10): create a free Backblaze B2 b
 |---|---|
 | 1 | `git clone` into `C:\CollectionMaxxing\repo` |
 | 2 | Copies `.env.example` to `.env` (you edit it) |
-| 3 | `New-Secrets.ps1 -Apply`: writes two `.pfx` files |
+| 3 | `Apply-Auth0.ps1 -Apply`: changes your Auth0 tenant, and writes the files in `secretsuth0\` |
 | 5, and every 2 minutes after | `git -C ...\repo fetch origin main` (only when a new image appeared) and read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify`; `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; after a good deploy, read-only `git status` / `git symbolic-ref` on the clone and `git merge --ff-only <deployed sha>`; writes `state\deployer-state.json` and `logs\deployer.log*`; once, on a server that still has the retired `.ipa`, `docker run --rm ... sh -c "rm -rf /data/files/ipa"` |
 | 6 | `tailscale serve --bg --https=443 http://127.0.0.1:5480` |
 | 7 | `schtasks /Create ...` (one task) |

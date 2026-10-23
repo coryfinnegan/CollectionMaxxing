@@ -7,7 +7,7 @@
 - A new version did not reach the phones, or TestFlight says the build expired.
 - The yearly certificate renewal. The iOS build warns 30 days before, and fails once it has expired.
 
-Why TestFlight, and what it replaced: ADR-024 in `docs/12-decision-log.md`. Your library data lives on the PC, so nothing here can lose it. A phone only needs pairing again.
+Why TestFlight, and what it replaced: ADR-024 in `docs/12-decision-log.md`. Your library data lives on the PC, so nothing here can lose it. A phone only needs to sign in again.
 
 ## One-time setup (about 30 minutes)
 
@@ -51,7 +51,7 @@ Do steps 1 to 9 on the PC, in a browser signed in to your Apple Developer accoun
     - In TestFlight, open CollectionMaxxing and turn on **Automatic Updates**.
 11. **Move off AltStore.** The TestFlight app is a separate install from the AltStore copy.
     - First open the AltStore copy and let its scan tray finish uploading, so nothing is waiting.
-    - Pair the new app from the web app: **Settings > Devices > Add a device**.
+    - Open the new app and press **Sign in** (Google or Apple).
     - Then delete the AltStore copy and AltStore itself from the phone, and revoke the old phone entry under **Devices**.
     - You can turn Developer Mode off (Settings > Privacy & Security). On the PC you can uninstall AltServer, and iTunes and iCloud too if nothing else needs them.
 12. **Release new versions from now on:**

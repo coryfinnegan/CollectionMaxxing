@@ -4,21 +4,33 @@
 
 | | Decision |
 |---|---|
-| Who issues tokens | **Our API**, using **OpenIddict 7** (a mature, widely used open-source OIDC server library for ASP.NET Core) on top of **ASP.NET Core Identity** |
-| First-time setup | A **one-time setup code** printed by the server on first start. You open the web app, enter it, and create the owner account with a passkey. |
-| Web | **Passkeys** (WebAuthn) on your Tailscale HTTPS name; a same-origin HttpOnly session cookie (BFF style); CSRF header on mutations |
-| iPhone app | **Paired, not signed in:** scan a QR code from the web app's *Add a device* screen. You get a device-bound, rotating refresh token in the Keychain, plus an optional **Face ID app lock**. |
+| Who signs people in | **Auth0** (Free plan), through Universal Login, with **Google** and **Sign in with Apple**. No passwords. ([ADR-025](12-decision-log.md#adr-025-auth0-for-sign-in-our-api-keeps-authorization)) |
+| Who decides what you can do | **Our API.** Auth0 proves *who* someone is. An Auth0 identity gets in only if it is linked to one of our users (`user_logins`). |
+| Web | The API runs the OIDC code flow itself (Microsoft's `AddOpenIdConnect`). The result is the same-origin `__Host-cm` cookie: **30 days idle, 1 year at most**. The browser never holds a token. |
+| iPhone app | **Authorization Code + PKCE** with `react-native-auth0`. A rotating refresh token lives in the Keychain, plus an optional **Face ID app lock**. The API checks the access token with `AddJwtBearer`. |
+| First-time setup | A **one-time setup code** printed by the server on first start. You sign in with Google or Apple, enter the code, and become the owner of a new library. |
 | Network | Reachable **only over your Tailscale network**: a second wall in front of the app's own sign-in |
-| API authorization | **Deny by default**; scope check + **resource-based library roles**; platform `admin` role for ops |
+| API authorization | **Deny by default**; **resource-based library roles**; platform `admin` role for ops |
 | Proof | An **authorization-matrix test** runs every endpoint × every role on every PR |
 
-**Why no Sign in with Apple:** the paid Apple Developer Program now allows it (ADR-024), but pairing already covers it. Passkeys inside the iPhone app would need associated domains, and Apple's CDN fetches the association file from the public internet, which can't reach a tailnet-only server (see [10](10-hosting-and-devops.md#getting-the-app-on-your-iphone)). Pairing is also a better fit for a self-hosted app: it's how Plex-style and Immich-style home servers onboard phones. There are no third-party identity providers at all.
-
-## Why passwordless
-
-Without passwords there's no credential stuffing, no reset flow to secure, no hashing to get right, and no breached-password checks. On the web you sign in with a passkey (Windows Hello on this PC, Face ID on an iPhone's Safari, or a phone). On the iPhone app you never sign in at all: the device is paired once and then trusted until you revoke it.
+The plan and the reasons are in [14](14-auth0-migration.md). This page describes how it works now.
 
 ## Flows
+
+### Linking: who gets in
+
+`user_logins` holds `user_id`, `provider` (`auth0`), `subject` (Auth0's `sub`, such as `google-oauth2|…` or `apple|…`) and `created_at`. `subject` is unique, so an identity belongs to at most one user.
+
+- The API **never matches people by email**. An address from a provider isn't proof of who someone is. Email is stored for display only.
+- An identity that isn't linked gets **403 `account.not_linked`** ("This account isn't part of a library. Ask the owner for an invite"). Nothing is created for it. The web shows a page for it (`/account/not-linked`).
+- There are four ways to link an identity, and no others:
+
+| Path | When | What happens after the Auth0 sign-in |
+|---|---|---|
+| **Setup** | No owner exists (a fresh install) | You enter the setup code. The identity becomes the owner of a new library. |
+| **Invite** | `/join/{token}` | The invite token travels in a sealed, short-lived cookie during the Auth0 round trip. Then the user and membership are created. |
+| **Add a sign-in method** | Signed in, with a recent sign-in | The new identity is linked to you, so one person can use both Google and Apple. Removing the last one is blocked (409). |
+| **Recovery** | You've lost every linked identity | `cm-admin recovery-code` on the PC prints a one-time code. You sign in with the new identity and enter the code, and it is linked to the owner. |
 
 ### First run: create the owner
 
@@ -26,97 +38,109 @@ Without passwords there's no credential stuffing, no reset flow to secure, no ha
 sequenceDiagram
   participant PC as Server (first start)
   participant B as Browser on the PC
+  participant A as Auth0
   PC->>PC: No owner yet → generate a setup code (single use, 24 h)<br/>print it in the logs + write secrets/setup-code.txt
   B->>PC: Open https://pc.tailnet.ts.net → "Set up CollectionMaxxing"
-  B->>PC: Enter the setup code + your display name
-  PC-->>B: WebAuthn registration options
-  B->>PC: Create a passkey (Windows Hello)
-  PC->>PC: Create owner + personal library; delete the setup code; setup endpoints are disabled for good
+  B->>PC: POST /setup (the setup code + your display name) → code checked first
+  B->>A: GET /account/login?intent=setup → Continue with Google / Apple
+  A-->>B: Back to /signin-oidc
+  PC->>PC: Create owner + personal library + user_logins row; delete the code
   PC-->>B: Set-Cookie __Host-cm → Library
 ```
 
 - The setup endpoints exist only while there is no owner. After that they return 404.
-- **Recovery** (lost every passkey): run `docker compose exec api cm-admin recovery-code` on the PC. That prints a one-time code that lets you register a new passkey. Physical access to your PC is the recovery factor.
+- **Recovery** (lost every linked identity): `docker compose exec api cm-admin recovery-code` on the PC. Physical access to your PC is the recovery factor.
 
-### Web: passkeys + same-origin cookie
+### Web: Auth0 signs you in, our cookie keeps you in
 
 ```mermaid
 sequenceDiagram
   participant B as Browser (SPA)
   participant API as API (same origin)
+  participant A as Auth0 Universal Login
   B->>API: GET /api/v1/me → 401
-  B->>API: /account/login → "Sign in with a passkey"
-  API-->>B: WebAuthn assertion options
-  B->>API: Passkey assertion (Windows Hello / Face ID / phone)
-  API-->>B: Set-Cookie __Host-cm (HttpOnly, Secure, SameSite=Strict, Path=/)
-  B->>API: fetch /api/v1/… with cookie + X-CSRF: 1
+  B->>API: Navigate to /account/login?returnUrl=/library
+  API-->>B: 302 to Auth0 /authorize (code + PKCE, state, nonce)
+  B->>A: Continue with Google / Apple
+  A-->>B: 302 to /signin-oidc?code=…
+  B->>API: /signin-oidc
+  API->>A: Exchange the code (client secret, server to server)
+  API->>API: Check the ID token, then find the user linked to its sub
+  API-->>B: Set-Cookie __Host-cm + new web_sessions row, then 302 to /library
 ```
 
-- Uses the **passkey support built into ASP.NET Core Identity in .NET 10**. The relying-party ID is your Tailscale HTTPS name, which is exactly what WebAuthn needs (a secure, stable hostname).
-- The cookie uses the `__Host-` prefix: it's bound to the exact host, has no `Domain` attribute, and is Secure-only.
-- **CSRF:** `SameSite=Strict`, **and** every non-GET request must carry `X-CSRF: 1`. We allow **no** CORS origins (the BFF pattern).
-- 8-hour sliding session, 30-day absolute. Re-authentication (a fresh passkey assertion) is required for adding devices, adding passkeys and deleting things in bulk.
-- Add more passkeys (another browser, a phone) from Settings while signed in. Removing the last one is blocked.
+- **No tokens in the browser:** the ID token is checked and thrown away (`SaveTokens = false`). After that it's the cookie and a `web_sessions` row, which Settings lists and can revoke.
+- **Cookie:** `__Host-` prefix (bound to the exact host, no `Domain`, Secure-only), `HttpOnly`, `SameSite=Strict`. **30 days since you last used it, 1 year at most.** A cookie whose `web_sessions` row is revoked stops working at once.
+- **CSRF:** `SameSite=Strict`, **and** every non-GET request must carry `X-CSRF: 1`. We allow **no** CORS origins.
+- **Public origin:** the `redirect_uri` and the sign-out return address come from `Auth:PublicOrigin`, never from the request's Host header.
+- **Sign out:** revokes the `web_sessions` row, clears the cookie and returns Auth0's `/v2/logout` address, which the app navigates to, so the next sign-in shows the account picker.
+- **`RequireRecentSignIn`:** actions that need a fresh sign-in (inviting, removing a sign-in method, deleting the account) pass only if the cookie's `auth_time` (from the Auth0 ID token) is under 5 minutes old. Otherwise the API answers 401 `reauth_required` with `reauth: true`, and the app sends you through `/account/login?reauth=1`, which asks Auth0 for `max_age=0`. A bearer token never counts as recent.
 
-### iPhone: pair once with a QR code
+### iPhone: Auth0's SDK and the Keychain
 
 ```mermaid
 sequenceDiagram
-  participant B as Web app (signed in, recent passkey)
+  participant App as iPhone app
+  participant A as Auth0 (in a sign-in sheet)
   participant API as API
-  participant App as iPhone app (first launch)
-  B->>API: Settings → Devices → Add a device
-  API-->>B: QR code { server URL, pairing token } + 6-digit fallback code<br/>(single use, expires in 2 minutes)
-  App->>App: "Pair with your server" → scan the QR code (Apple Vision)
-  App->>API: POST /connect/token grant_type=urn:cm:device_pairing, pairing_token, device_name
-  API->>API: Token valid, unused and unexpired? → mark it used → create a device authorization
-  API-->>App: access_token (10 min) + refresh_token (rotating, 90 days sliding)
-  App->>App: refresh_token → Keychain (this device only); access_token → memory
+  App->>A: authorize() — PKCE, audience urn:collectionmaxxing:api, scope offline_access
+  A-->>App: code → tokens (access 1 h + rotating refresh token)
+  App->>App: Credentials Manager saves them in the Keychain (this device only)
+  App->>API: Bearer access token
+  API->>API: Check issuer, audience and signature (Auth0 keys, cached) → find the user linked to sub
+  App->>A: Later: getCredentials() refreshes on its own when the token is near expiry
 ```
 
-- **Device-bound:** every phone has its own authorization, and Settings → Devices lists them by name with their last-seen time. **Revoke** kills its tokens immediately, and its access token expires within 10 minutes.
-- **Refresh rotation:** OpenIddict rotates refresh tokens. Replaying a used one **revokes that device's whole chain**, so a stolen refresh token dies the moment either copy is used.
+- **Sign-in:** one button. It opens iOS's sign-in sheet (`ASWebAuthenticationSession`), where you pick Google or Apple.
+- **JWT bearer** is the only bearer scheme. `AddJwtBearer` checks the issuer (your Auth0 tenant), the audience (`urn:collectionmaxxing:api`) and the signature. The `sub` is then looked up in `user_logins`, the same as on the web.
+- **Refresh token:** rotating, 90 days idle, 1 year at most. The Credentials Manager handles storage and refresh.
+- **Finding the server:** the address is built into the TestFlight build (a secret in the `testflight` environment).
 - **Face ID app lock** (optional, on by default): the app asks for Face ID when it opens or comes back after 5 minutes. It uses Apple's LocalAuthentication, which needs no paid capability.
 
-### Family members: invite → passkey → pair
+### Family members: invite → sign in
 
 ```mermaid
 sequenceDiagram
-  participant O as You (owner, web, recent passkey)
+  participant O as You (owner, web, recent sign-in)
   participant API as API
   participant F as Family member (their device, on your tailnet)
   O->>API: Settings → Members → Invite (name, Editor or Viewer)
   API-->>O: Link + QR code (single use, 7 days, revocable)
   O-->>F: Send the link (text, AirDrop…)
   F->>API: GET /join/{token} → "Join Cory's library as Editor"
-  F->>API: Create a passkey (Face ID / Windows Hello)
-  API->>API: Invite unused, unexpired, unrevoked? → mark accepted → create user + membership
+  F->>API: Continue with Google / Apple
+  API->>API: Invite unused, unexpired, unrevoked? → mark accepted → create user + membership + user_logins row
   API-->>F: Set-Cookie __Host-cm → your Library
-  F->>API: (to scan) Settings → Devices → Add a device → pair their iPhone with the QR code
+  F->>API: On their iPhone: install from TestFlight and press Sign in
 ```
 
 - **Nobody joins without an invite.** The link also only works from your tailnet, so the person must be added to Tailscale first. That's two independent gates.
-- Each member has **their own passkeys and their own paired devices**. Nothing is shared between accounts.
-- **Removing a member** deletes their membership and revokes all their devices and sessions immediately. Their account is deactivated, since it has no library left. The items they added stay and still show who added them.
-- **The owner can't be removed.** Transferring ownership is a separate action that needs a fresh passkey.
+- Each member has **their own sign-in methods and their own devices**. Nothing is shared between accounts.
+- **Removing a member** deletes their membership and deactivates their account. The deactivation check refuses them on their next call, whatever token they hold, and their web sessions and refresh tokens are revoked. The items they added stay and still show who added them.
+- **The owner can't be removed.**
 
-### Sign out, devices and deletion
+### App sign-ins, revocation and deletion
 
-- **Unpair (iPhone):** revoke the refresh token (`/connect/revoke`), clear the Keychain, and return to the pairing screen.
-- **Signed-in devices and browsers:** listed in Settings, and each can be revoked.
-- **Web sessions:** sign-out, "sign out everywhere", member removal and account deletion revoke the server-side `web_sessions` rows, so a copied cookie stops working.
-- **Delete account:** needs a fresh passkey assertion. It revokes all devices and sessions. The user is soft-deleted immediately (can't sign in) and their data is purged within 30 days. Audit entries are anonymised.
+- **Browsers:** Settings lists `web_sessions` (label, created, last seen). Each can be revoked, or all of them.
+- **iPhones:** after sign-in the app registers itself (`POST /api/v1/me/app-sign-ins`, with a device name and an install id), so Settings → Devices lists it with its last-seen time. Signing in again on the same install updates its row.
+- **Sign out all iPhones** (`DELETE /api/v1/me/app-sign-ins`) does two things:
+  1. sets `users.tokens_not_before = now`, so any access token issued before then is refused at once (access tokens live up to an hour);
+  2. asks Auth0 to end the person's refresh tokens, by deleting their **grants** (`DELETE /api/v2/grants?user_id=…`).
+  If Auth0 can't be reached, the cutoff already locks the phones out and a background job finishes the revoke later.
+- **Why grants:** the Free plan doesn't allow Auth0's refresh-token endpoints, so we can't revoke one phone's token. Deleting the grants signs out **all of that person's phones** together. The Management app has only the scopes `delete:grants` and `delete:users`.
+- **Delete account:** needs a recent sign-in. The user is soft-deleted at once (can't sign in), sessions are revoked, the **Auth0 user is deleted** so nothing is left there, and their data is purged within 30 days. Audit entries are anonymised.
 
-## Authorization model
+## Authorization model (unchanged)
 
 ### Layers
 
 ```
 Request (only possible from a device on your tailnet)
   │
-  ├─ 1. Authentication     cookie (web) or bearer (iPhone) → ClaimsPrincipal; otherwise 401
-  ├─ 2. Fallback policy    every endpoint requires an authenticated user unless explicitly [AllowAnonymous]
-  ├─ 3. Scope              bearer tokens must carry `api`
+  ├─ 1. Authentication     cookie (web) or JWT bearer (iPhone) → ClaimsPrincipal; otherwise 401
+  ├─ 2. Linked user        the token's sub must be in user_logins, else 403 account.not_linked;
+  │                        a deactivated user, or a token issued before tokens_not_before, is refused
+  ├─ 3. Fallback policy    every endpoint requires an authenticated user unless explicitly [AllowAnonymous]
   ├─ 4. Route-group policy /api/admin/* requires platform role `admin` (the owner)
   ├─ 5. Resource policy    library membership + minimum role for the endpoint (Viewer | Editor | Owner)
   │                         → not a member: 404 (don't reveal existence); member without the role: 403
@@ -131,9 +155,9 @@ Request (only possible from a device on your tailnet)
 | Add / edit / delete items, commit scans | | ✓ | ✓ |
 | Manage locations and tags | | ✓ | ✓ |
 | Rename library, export | | | ✓ |
-| Invite / remove members, change roles | | | ✓ |
-| Add / revoke devices for themselves | ✓ | ✓ | ✓ |
-| Transfer ownership / delete library | | | ✓ (re-auth) |
+| Invite / remove members, change roles | | | ✓ (recent sign-in to invite) |
+| See and sign out their own browsers and iPhones | ✓ | ✓ | ✓ |
+| Delete own account | ✓ | ✓ | ✓ (recent sign-in) |
 
 In v1 there's one library, yours. Family members join it by invite as Editor or Viewer. The authorization-matrix test covers every role from the very first endpoint.
 
@@ -158,31 +182,36 @@ lib.MapPost("/items", AddItem.Handle).RequireLibraryRole(LibraryRole.Editor);
 
 ### Proving it: tests
 
-1. **Every-endpoint-has-a-policy test.** It reflects over `EndpointDataSource` and fails if any endpoint lacks `RequireLibraryRole`, `RequireAuthorization` or `AllowAnonymous`. Anonymous endpoints must be on an explicit allow-list (`/health/*`, `/setup` while no owner exists, `/account/login`, `/join/{token}` with a valid invite, the token endpoint, static files).
+Tests sign in with a **fake Auth0**: WireMock serves discovery, the signing keys and the token endpoint, and the JWTs are signed with a test key. Everything else uses `TestAuthHandler` and the `X-Test-User` header.
+
+1. **Every-endpoint-has-a-policy test.** It reflects over `EndpointDataSource` and fails if any endpoint lacks `RequireLibraryRole`, `RequireAuthorization` or `AllowAnonymous`. Anonymous endpoints must be on an explicit allow-list (`/health/*`, `/setup` while no owner exists, `/account/login`, `/signin-oidc`, `/account/not-linked`, `/join/{token}`, `/api/v1/invites/{token}` with a valid invite, `/account/recover`, static files).
 2. **Authorization matrix.** One table-driven test lists every endpoint with its expected status for `anonymous`, `other-user`, `viewer`, `editor`, `owner` and `admin`. It runs against the real pipeline (WebApplicationFactory + Testcontainers Postgres) on every PR.
 3. **IDOR tests:** user B requests user A's item, session, photo, cover and export by ID, and expects 404 every time.
-4. **Setup and pairing tests:**
-   - the setup endpoints 404 once an owner exists;
-   - a setup code works once;
-   - a pairing token is single-use, expires after 2 minutes, and can only be created with a recent passkey assertion;
-   - 6-digit codes are rate-limited per client address (5 wrong guesses lock that address for a minute, not the pairing; X-Forwarded-For is believed only from configured trusted proxies);
-   - a revoked device's refresh token fails;
-   - a replayed refresh token revokes that device's chain.
-5. **Token tests:** expired, wrong-audience and missing-scope tokens are rejected.
-6. **Invite tests:**
+4. **Sign-in tests:**
+   - a valid token for an unlinked identity gets `account.not_linked` and creates nothing;
+   - the setup endpoints 404 once an owner exists, and a setup code works once;
+   - each link path works once, and a second identity can't take over a linked `subject`;
+   - `RequireRecentSignIn` refuses a cookie older than 5 minutes and any bearer token;
+   - a token issued before `tokens_not_before` is refused, and one issued after it works;
+   - expired, wrong-issuer and wrong-audience tokens are rejected;
+   - code endpoints are rate-limited per client address (X-Forwarded-For is believed only from configured trusted proxies).
+5. **Invite tests:**
    - an invite works once; expired or revoked invites fail;
    - the member gets exactly the invited role;
-   - only the owner can invite, and only with a recent passkey;
-   - removing a member makes their refresh tokens and cookie fail at once;
+   - only the owner can invite, and only with a recent sign-in;
+   - removing a member makes their cookie and tokens fail at once;
    - the owner can't be removed.
 
 ## Keys and secrets
 
 | Secret | Where | Rotation |
 |---|---|---|
-| OpenIddict **signing** and **encryption** certificates | PFX files in the PC's secrets folder (`C:\CollectionMaxxing\secrets`, readable only by your account and the container), mounted as Docker secrets | Yearly, with overlap: publish the new key, then switch to signing with it, then retire the old one |
+| Auth0 signing keys | Auth0 | Auth0 rotates them. Nothing for us to do. |
+| Web app client secret; Management (M2M) client id and secret | `.env` on the PC (values from `<secrets>\auth0\api.env`). All six `CM_AUTH0_*` and `CM_PUBLIC_ORIGIN` values are required: the stack won't start without them. | Rotate in the Auth0 dashboard, then re-run `deploy/auth0/Apply-Auth0.ps1` ([runbook](../deploy/runbooks/rotate-signing-keys.md)) |
+| Google OAuth client secret, Apple `.p8` key | In Auth0, with copies in `secrets\auth0\` so the script can rebuild the tenant | Don't expire |
+| Provisioner M2M credentials | `secrets\auth0\provisioner.env` | On compromise |
 | One-time setup / recovery codes | Generated on demand, written to the secrets folder, deleted after use or expiry | Single use |
-| ASP.NET Data Protection key ring | The `files` volume, encrypted at rest by BitLocker | Automatic, 90 days |
+| ASP.NET Data Protection key ring | The `files` volume, encrypted at rest by BitLocker. Seals the cookie, the sign-in intent cookie and the OIDC state. | Automatic, 90 days |
 | Provider API keys (Google Books, TMDB, IGDB) | `.env` in the secrets folder | Yearly or on compromise |
 
-Development uses `dotnet user-secrets` and development certificates. Nothing secret is ever committed (enforced by GitHub secret scanning + push protection).
+Development uses `dotnet user-secrets`. Nothing secret is ever committed (enforced by GitHub secret scanning + push protection).
