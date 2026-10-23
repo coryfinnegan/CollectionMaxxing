@@ -8,8 +8,11 @@ using CollectionMaxxing.Domain.Accounts;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.TestSupport;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -687,6 +690,66 @@ public class CallbackTests(ApiFixture api) : AuthTest(api)
         thief.UseSessionCookie(copied);
         (await thief.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
+}
+
+/// <summary>Outside Development the API refuses to start without its Auth0 settings, and ignores the old passkey and OpenIddict ones.</summary>
+public class Auth0SettingsTests(ApiFixture api) : ApiTest(api)
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "cm-auth0-settings-" + Guid.NewGuid().ToString("N"));
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+
+        await base.DisposeAsync();
+        GC.SuppressFinalize(this);
+    }
+
+    [Theory]
+    [InlineData("Auth:Auth0:Domain")]
+    [InlineData("Auth:Auth0:Audience")]
+    [InlineData("Auth:Auth0:WebClientId")]
+    [InlineData("Auth:Auth0:WebClientSecret")]
+    [InlineData("Auth:PublicOrigin")]
+    public void Starting_in_production_without_a_sign_in_setting_fails_loudly(string missing)
+    {
+        var settings = FakeAuth0.Settings;
+        settings[missing] = null;
+        using var factory = ProductionFactory(settings);
+
+        var failure = Should.Throw<Exception>(() => factory.CreateClient());
+
+        failure.ToString().ShouldContain(missing);
+    }
+
+    [Fact]
+    public void Starting_in_production_with_the_sign_in_settings_works_and_the_old_ones_are_ignored()
+    {
+        var settings = FakeAuth0.Settings;
+        settings["Auth:RelyingPartyId"] = "pc.tailnet.ts.net";
+        settings["Auth:Keys:SigningCertificatePath"] = "/secrets/openiddict-signing.pfx";
+        settings["Auth:Keys:EncryptionCertificatePath"] = "/secrets/openiddict-encryption.pfx";
+        using var factory = ProductionFactory(settings);
+
+        using var client = factory.CreateClient();
+    }
+
+    private WebApplicationFactory<Program> ProductionFactory(Dictionary<string, string?> settings) =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.ConfigureAppConfiguration((_, configuration) =>
+            {
+                settings["ConnectionStrings:collectionmaxxing"] = Db.ConnectionString;
+                settings["Auth:SecretsPath"] = Path.Combine(_root, "secrets");
+                settings["Auth:KeyRing:Path"] = Path.Combine(_root, "keys");
+                settings["Auth:Setup:IssueOnStartup"] = "false";
+                configuration.AddInMemoryCollection(settings);
+            });
+        });
 }
 
 /// <summary>Invite helpers for tests that aren't household tests.</summary>
