@@ -11,12 +11,12 @@ test.describe('first sign-in', () => {
 
     await expect(page).toHaveURL(/\/welcome$/);
     expect(signIn.urls).toEqual(['/account/login?returnUrl=%2Flibrary']);
-    await expect(page.getByRole('heading', { name: 'Welcome, Ana.' })).toBeVisible();
-    await expect(page.getByText("You're signed in with Google as cory@example.com.")).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Welcome, Cory.' })).toBeVisible();
+    await expect(page.getByText("You're signed in as cory@example.com.")).toBeVisible();
     await shot('welcome');
 
     await page.getByRole('button', { name: 'Create your library' }).click();
-    await expect(page.getByRole('textbox', { name: 'Library name' })).toHaveValue("Ana's library");
+    await expect(page.getByRole('textbox', { name: 'Library name' })).toHaveValue("Cory's library");
     await shot('create-library');
     await page.getByRole('textbox', { name: 'Library name' }).fill('Game room');
     await page.getByRole('button', { name: 'Create library' }).click();

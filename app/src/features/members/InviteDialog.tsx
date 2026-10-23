@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import type { CreatedInviteDto } from '@/api/generated/models';
 import { getListInvitesQueryKey, useCreateInvite } from '@/api/generated/invites/invites';
-import type { WithInviteCode } from '@/features/onboarding/api';
 import { getQrRenderer } from '@/features/auth/services';
 import { friendlyError } from '@/lib/problem';
 import { useDialogBehavior } from '@/lib/a11y/useDialogBehavior';
@@ -65,7 +64,7 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
 
   if (created) {
     const renderQr = getQrRenderer();
-    const code = (created as CreatedInviteDto & WithInviteCode).code;
+    const code = created.code;
     return (
       <View {...dialog}>
       <Card>

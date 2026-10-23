@@ -5,17 +5,17 @@ import { Button, Card, Screen, Text, TextField } from '@/ui';
 import { createLibraryError } from './copy';
 import { useCreateLibrary } from './hooks';
 import { useLibraries } from './useLibraries';
-import { useAccountName } from './WelcomeScreen';
+import { useAccount } from './WelcomeScreen';
 
 export function CreateLibraryScreen() {
   const router = useRouter();
-  const name = useAccountName();
+  const account = useAccount();
   const { libraries, loaded } = useLibraries();
   const [value, setValue] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const create = useCreateLibrary();
 
-  const text = value ?? (name ? `${name}'s library` : 'My library');
+  const text = value ?? (account ? `${account.name}'s library` : '');
   const submit = () => {
     if (!text.trim()) {
       setError('Give your library a name.');

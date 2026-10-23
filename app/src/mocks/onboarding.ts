@@ -5,8 +5,7 @@
 //   leave       the only owner of a library gets 409 library.last_owner; anyone else leaves
 //   session     mockAccount.signedIn = false makes /me and the library routes answer 401 (an invite preview still works signed out)
 import { HttpResponse, http } from 'msw';
-import type { LibraryDto, LibraryRole, LibrarySummaryDto } from '@/api/generated/models';
-import type { CreateLibraryRequest, InviteLookupRequest, InvitePreviewDto } from '@/features/onboarding/api';
+import type { CreateLibraryRequest, InviteLookupRequest, InvitePreviewDto, LibraryDto, LibraryRole, LibrarySummaryDto } from '@/api/generated/models';
 import { mockAccount } from './data';
 
 export const MOCK_CODE = 'ABCD-EFGH-JK';

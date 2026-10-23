@@ -29,5 +29,3 @@ export function leaveLibraryError(error: unknown): string {
 }
 
 export const leaveLibraryWarning = (libraryName: string) => `You'll lose access to ${libraryName}. Your account stays.`;
-
-export const providerLabel: Record<string, string> = { google: 'Google', apple: 'Apple' };

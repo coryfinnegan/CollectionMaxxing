@@ -3,7 +3,7 @@ import { HttpResponse, http } from 'msw';
 import { resetAuth } from '@/lib/auth/session';
 import { setNavigator } from '@/features/auth/services';
 import { MOCK_LOGOUT_URL } from '@/mocks/auth';
-import { MOCK_LIBRARY_ID, mockAccount } from '@/mocks/data';
+import { MOCK_LIBRARY_ID, mockAccount, mockMe } from '@/mocks/data';
 import { MOCK_CODE } from '@/mocks/onboarding';
 import { server } from '@/mocks/server';
 import { useLibraryStore } from '@/state/library';
@@ -39,8 +39,16 @@ describe('WelcomeScreen', () => {
     mockAccount.libraries = [];
     await renderWithProviders(<WelcomeScreen />);
 
-    expect(await screen.findByText('Welcome, Ana.')).toBeTruthy();
-    expect(await screen.findByText("You're signed in with Google as cory@example.com.")).toBeTruthy();
+    expect(await screen.findByText('Welcome, Cory.')).toBeTruthy();
+    expect(await screen.findByText("You're signed in as cory@example.com.")).toBeTruthy();
+  });
+
+  it('leaves out the signed-in line when the account has no email', async () => {
+    server.use(http.get('*/api/v1/me', () => HttpResponse.json({ ...mockMe(), email: null })));
+    await renderWithProviders(<WelcomeScreen />);
+
+    expect(await screen.findByText('Welcome, Cory.')).toBeTruthy();
+    expect(screen.queryByText(/signed in as/)).toBeNull();
   });
 
   it('offers create, join and another account', async () => {
@@ -73,12 +81,12 @@ describe('CreateLibraryScreen', () => {
   it("prefills the name with the person's name, creates the library and makes it the active one", async () => {
     mockAccount.libraries = [];
     await renderWithProviders(<CreateLibraryScreen />);
-    await waitFor(() => expect(screen.getByLabelText('Library name').props.value).toBe("Ana's library"));
+    await waitFor(() => expect(screen.getByLabelText('Library name').props.value).toBe("Cory's library"));
     await fireEvent.press(screen.getByLabelText('Create library'));
 
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/library'));
     expect(mockAccount.libraries).toHaveLength(1);
-    expect(mockAccount.libraries[0]).toMatchObject({ name: "Ana's library", role: 'owner' });
+    expect(mockAccount.libraries[0]).toMatchObject({ name: "Cory's library", role: 'owner' });
     expect(useLibraryStore.getState().activeLibraryId).toBe(mockAccount.libraries[0]!.id);
   });
 
@@ -111,7 +119,7 @@ describe('CreateLibraryScreen', () => {
   it('goes back to Welcome when there are no libraries', async () => {
     mockAccount.libraries = [];
     await renderWithProviders(<CreateLibraryScreen />);
-    await waitFor(() => expect(screen.getByLabelText('Library name').props.value).toBe("Ana's library"));
+    await waitFor(() => expect(screen.getByLabelText('Library name').props.value).toBe("Cory's library"));
     await fireEvent.press(screen.getByLabelText('Back'));
 
     expect(mockRouter.replace).toHaveBeenLastCalledWith('/welcome');
@@ -119,7 +127,7 @@ describe('CreateLibraryScreen', () => {
 
   it('goes back to the library when there is one', async () => {
     await renderWithProviders(<CreateLibraryScreen />);
-    await waitFor(() => expect(screen.getByLabelText('Library name').props.value).toBe("Ana's library"));
+    await waitFor(() => expect(screen.getByLabelText('Library name').props.value).toBe("Cory's library"));
     // Wait for the library list too: until it arrives, Back cannot know where to go.
     await new Promise((resolve) => setTimeout(resolve, 100));
     await fireEvent.press(screen.getByLabelText('Back'));

@@ -28,7 +28,7 @@ const base = '*/api/v1/libraries/:libraryId/locations';
 export const handlers = [
   ...onboardingHandlers, ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...scanHandlers, ...evalsHandlers,
   http.get('*/api/v1/me', () =>
-    mockAccount.signedIn ? HttpResponse.json({ ...mockMe(), displayName: 'Ana' }) : problem(401, 'Unauthorized'),
+    mockAccount.signedIn ? HttpResponse.json(mockMe()) : problem(401, 'Unauthorized'),
   ),
 
   http.get(base, () => HttpResponse.json({ items: mockData.locations, nextCursor: null })),
