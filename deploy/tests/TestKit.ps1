@@ -103,7 +103,7 @@ function New-FakeMachine {
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
     $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
-    $m.HelperFails = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false; $m.ComposeAt = @{}
+    $m.HelperFails = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false; $m.ComposeAt = @{}; $m.ComposeConfigFor = @{}
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     $global:CmMachine = $m
     $global:CmRunner = {
@@ -135,7 +135,10 @@ function New-FakeMachine {
                     return & $ok @($json)
                 }
                 if ($line -match '^compose .* ps -q') { return & $ok @($m.RunningServices) }
-                if ($line -match '^compose .* config --format json') { return & $ok @(($m.ComposeConfig | ConvertTo-Json -Depth 8 -Compress)) }
+                if ($line -match '^compose .* config --format json') {
+                    $cfg = if ($composeText -and $m.ComposeConfigFor.ContainsKey($composeText)) { $m.ComposeConfigFor[$composeText] } else { $m.ComposeConfig }
+                    return & $ok @(($cfg | ConvertTo-Json -Depth 8 -Compress))
+                }
                 if ($line -match '^compose .* run --rm migrate') { return [pscustomobject]@{ ExitCode = $m.MigrateExit; Output = @() } }
                 if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
                 if ($line -match '^run --rm') { if ($m.HelperFails) { return & $fail } return & $ok }

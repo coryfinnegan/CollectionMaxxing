@@ -359,6 +359,17 @@ Test-Case 'deployer: -RollbackTo starts the older release with its own compose f
     Assert-Equal 'old: file' $ups[0].ComposeText
 }
 
+Test-Case 'deployer: a release whose own compose file the config guard refuses migrates and starts nothing' {
+    $bad = New-GoodComposeConfig; $bad.services.api.ports[0].host_ip = '0.0.0.0'
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ ComposeAt = @{ $script:Sha2 = 'bad: file' }; ComposeConfigFor = @{ 'bad: file' = $bad } } -Inspect { param($root) @(Get-ChildItem -LiteralPath (Join-Path $root 'repo/deploy') -Force).Count }
+    Assert-Equal 'config-error' $r.Result.Outcome
+    Assert-Equal 2 $r.Result.ExitCode
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+    Assert-False $r.State.ContainsKey('failedSha') 'nothing is recorded as failed'
+    Assert-Equal 0 $r.Inspected 'the hidden copy is removed'
+}
+
 Test-Case 'deployer: a release whose compose file cannot be read at its commit deploys nothing' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ ComposeAt = @{ $script:Sha2 = '' } }
     Assert-Equal 'refused' $r.Result.Outcome

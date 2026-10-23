@@ -99,7 +99,8 @@ function New-CmCtxAtCommit {
       (new variables, volumes, services) instead of the previous release's. It is written next to the clone's compose file
       as an untracked, hidden file so the relative paths inside it (./recognition, ../evals) resolve the same, and the
       clone stays clean (the clone check ignores untracked files). Returns $null when the file cannot be read.
-      Remove-CmCtxAtCommit deletes it.
+      Remove-CmCtxAtCommit deletes it. Invoke-CmReal merges stderr into the output, so a garbled copy (a git error in
+      the text) is caught by the config guard run on it before anything migrates.
     #>
     param($Ctx, [string]$Sha)
     if ($Sha -cnotmatch '^[0-9a-f]{40}$') { return $null }
@@ -513,6 +514,13 @@ function Invoke-CmDeployCore {
             $message = "could not read deploy/docker-compose.yml at $($sha.Substring(0, 12)) from the clone at $($Ctx.RepoDir); nothing deployed"
             Write-CmLog $message 'ERROR'
             return New-CmResult 'refused' 4 $message
+        }
+        # The release's own file must pass the config guard too (a variable .env lacks, a bad port binding) BEFORE
+        # anything is migrated; otherwise the schema moves, the api fails and the rollback runs on the new schema.
+        $newProblems = @(Get-CmComposeGuard -Ctx $newCtx -EnvMap $envMap)
+        if ($newProblems.Count -gt 0) {
+            foreach ($p in $newProblems) { Write-CmLog "config refused for $($sha.Substring(0, 12)): $p" 'ERROR' }
+            return New-CmResult 'config-error' 2 ($newProblems -join '; ')
         }
         $oldCtx = if ($current) { New-CmCtxAtCommit -Ctx $Ctx -Sha "$($current['sha'])" } else { $null }
         $mig = Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $sha } -Arguments (Get-CmComposeArgs $newCtx @('run', '--rm', 'migrate'))
