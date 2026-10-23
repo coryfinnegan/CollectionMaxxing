@@ -151,6 +151,6 @@ The plan lives in [docs/](docs/). Start with these:
 8. [Hosting and DevOps](docs/10-hosting-and-devops.md)
 9. [Roadmap](docs/11-roadmap.md), [Decision log](docs/12-decision-log.md) and [Building it with parallel agents](docs/13-agent-orchestration.md)
 10. [Moving sign-in to Auth0](docs/14-auth0-migration.md) (Wave 6)
-11. [New people: create a library or join one](docs/15-onboarding.md) (Wave 7, proposed)
+11. [New people: create a library or join one](docs/15-onboarding.md) (Wave 7)
 
 Contributors and agents: read [CLAUDE.md](CLAUDE.md) first. The repo is public, so never commit secrets, photos or personal data.

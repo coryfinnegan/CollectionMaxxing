@@ -1,12 +1,14 @@
-# 15 — New people: create a library or join one (plan)
+# 15 — New people: create a library or join one
 
-**Status:** **Proposed**, 2026-10-23. It needs your answers to [D-1 to D-6](#decisions-for-you) before Wave 7 starts. The decision record is [ADR-026](12-decision-log.md#adr-026-onboarding-create-a-library-or-join-one). Builders read [07](07-authentication-and-authorization.md) for how sign-in works today.
+**Status:** **Accepted**, 2026-10-23 (your answers are under [Decisions](#decisions)). The decision records are [ADR-026](12-decision-log.md#adr-026-onboarding-every-sign-in-is-an-account-people-create-or-join-libraries) and [ADR-027](12-decision-log.md#adr-027-a-multi-user-web-app-the-pc-is-only-a-development-host). Builders read [07](07-authentication-and-authorization.md) for how sign-in works today.
 
 ## What happened
 
 At the Wave 6 cutover you pressed **Sign in**, chose Apple, and Auth0 signed you in. Then the app said "This account isn't part of a library". It was right by its own rules but wrong for you. You expected to be asked whether to **join a library or create your own**.
 
-## How it works today, and why
+Answering the first draft of this plan, you also set the direction: CollectionMaxxing is **a normal web app with users**, like any other website. It will be hosted as a product later. The PC only hosts it while we build it, because that's free. So nobody owns "the server", and there's no server admin, setup code or server settings in the app (ADR-027).
+
+## How it works today, and why it changes
 
 ```mermaid
 flowchart LR
@@ -19,156 +21,150 @@ flowchart LR
   I -- none --> DEAD["'Not part of a library'<br/>(dead end)"]
 ```
 
-- An Auth0 identity that isn't linked to one of our users gets nothing (ADR-025). Anyone can open your Auth0 sign-in page and create an identity. The tailnet is the outer wall, and linking is the inner one.
-- The only ways in are an **intent chosen before Auth0**: the setup code (only while there's no owner), an invite link, adding a method while signed in, or a recovery code.
-- So you have to know which button to press **before** you sign in. "First time here? Set up CollectionMaxxing" is a separate button under **Sign in**, and the plain button can never create anything.
-- The rest of the system assumes **one library per server** (docs/00 "one shared library for your household"):
+- Today an Auth0 identity that isn't linked to one of our users gets nothing (ADR-025). The only ways in are an **intent chosen before Auth0**: the setup code (only while there's no owner), an invite link, adding a method while signed in, or a recovery code.
+- The code assumes **one library per server**:
   - Setup creates it.
   - "The owner" means anyone with the Owner role (`IssueCode.OwnerExistsAsync`, `CompleteSignIn.FindOwnerAsync`).
   - There's no `POST /api/v1/libraries`.
-  - The app always opens your first membership (`useActiveLibraryId`), and there's no library switcher.
-- The iPhone has the same dead end: an unlinked bearer token gets 403 `account.not_linked` and the not-linked screen.
+  - The app opens your first membership (`useActiveLibraryId`), and there's no library switcher.
+  - Removing a member from the library deletes their whole account (`users.deleted_at`).
+- All of that goes. A person is an account, and an account can own and belong to several libraries.
 
-## Proposed flow
+## The new flow
 
-**Sign in first, then decide.** There's one **Sign in** button everywhere. After Auth0, a linked identity goes straight in. An identity that isn't linked lands on a **Welcome** page instead of a dead end:
+**Sign in first, then decide.** There's one **Sign in** button everywhere. Your first sign-in creates your account. If you have no libraries yet, you land on **Welcome**:
 
 ```mermaid
 flowchart TD
-  A["Auth0 sign-in"] --> L{"Linked?"}
-  L -- yes --> IN["Your library"]
-  L -- no --> W["Welcome, Ana<br/>(name from Google / Apple, editable)"]
-  W --> C["Create your library"]
-  W --> J["Join a library"]
+  A["Auth0 sign-in"] --> K{"Account for<br/>this sign-in?"}
+  K -- no --> NEWACC["Create the account<br/>(name and email from Google / Apple)"]
+  K -- yes --> LIB{"Any libraries?"}
+  NEWACC --> LIB
+  LIB -- yes --> IN["Your library<br/>(the one you used last)"]
+  LIB -- no --> W["Welcome, Ana"]
+  W --> C["Create your library<br/>→ you're its owner"]
+  W --> J["Join a library<br/>(invite link or code)<br/>→ the invited role"]
   W --> O["Use another account"]
-  C --> FIRST{"First library<br/>on this server?"}
-  FIRST -- yes --> CODE["Enter the setup code<br/>→ owner + server admin"]
-  FIRST -- no --> NEW["New library, you're its owner<br/>(if D-1 allows)"]
-  J --> INV["Paste an invite link or type an invite code<br/>→ member with the invited role"]
 ```
 
 | Choice | Who can use it | What happens |
 |---|---|---|
-| **Create your library** | First run: whoever has the setup code. Afterwards: depends on **D-1**. | A user, a library and an Owner membership are created, the identity is linked, and you're signed in. The first one on a server also makes you **server admin**. |
-| **Join a library** | Anyone with a valid invite link or code | As today's invite path: a user and a membership with exactly the invited role. The invite is spent. |
-| **Use another account** | Anyone | Signs out of Auth0 (`POST /account/logout` → `logoutUrl`) so the account picker shows again. |
+| **Create your library** | Anyone signed in, up to **3 libraries they own** | A library and an Owner membership. You land in it. |
+| **Join a library** | Anyone signed in, with a valid invite link or code | A membership with exactly the invited role (Editor or Viewer, never Owner). The invite is spent. |
+| **Use another account** | Anyone | Signs out of Auth0 (`POST /account/logout` → `logoutUrl`), so the account picker shows again. |
 
-**Invite links keep working.** `/join/{token}` still previews the invite and offers **Sign in to join**. That path skips the Welcome page.
+- **Create and join stay available after Welcome:** "New library" and "Join a library" sit next to the library switcher.
+- **Invite links keep working:** `/join/{token}` still previews the invite. Signed out, its button is **Sign in to join**, which comes back to the same page. Signed in, it's **Join**.
+- **The setup page and the setup code go away.** No `/setup`, no "First time here?" button, no `secrets\setup-code.txt`.
+- **Leaving and removing:** a member can leave a library, and an owner can remove a member. Either way only that membership ends. The account and its other libraries stay. A library's last owner can't leave it.
+- **Recovery:** `cm-admin recovery-code <email>` stays as a host-side support tool for a named account, not an app role. The new sign-in it links goes to that account only. Everyone can also add Google and Apple to their own account in Settings.
 
-**The setup page goes away.** The setup code becomes a field under "Create your library" on a fresh install. `secrets\setup-code.txt` and `cm-admin recovery-code` stay as they are.
+### How the account is created
 
-### How the Welcome page knows who you are
+- **Web:** `/signin-oidc` with an identity it doesn't know creates the account inside one transaction: a user with the name and email from the ID token, plus the `user_logins` link. Then the normal `__Host-cm` session starts.
+- **iPhone:** the first API call with a valid access token for an unknown `sub` creates the account the same way. The name and email come from Auth0's `/userinfo`, called once with that same token. They never come from the app's own word.
+- **Nothing is matched by email.** A new `sub` is a new account, even if the email matches someone else's. Linking a second sign-in method to an account stays an explicit "Add a sign-in method" while signed in.
+- Two first calls at once still create one account: the unique `user_logins (provider, sub)` index decides, and the loser reads the winner's row.
 
-**Web:**
-- `/signin-oidc` with an unlinked identity creates no user. It sets a short-lived, Data Protection–sealed **pending-identity cookie** (`__Host-cm-pending`, 15 minutes, HttpOnly) holding the verified `sub`, email, name and `auth_time`, then redirects to `/welcome`.
-- The Welcome page's create and join calls read that cookie. There's no second Auth0 round trip and no intent to choose in advance.
-- The cookie is never a session: it unlocks only the onboarding endpoints.
+### Library switcher
 
-**iPhone:**
-- The app already holds a valid Auth0 access token. A new `Unlinked` authorization policy accepts a validated bearer token whose `sub` isn't linked, but **only** on the onboarding endpoints.
-- Every other endpoint still answers 403 `account.not_linked`.
-- The native Welcome screen calls the same endpoints.
+- The web sidebar and iPhone Settings list your libraries with your role in each. The active one is remembered per device (the existing `activeLibraryId` store). With one library, the switcher doesn't show.
+- **New library** and **Join a library** sit under the list.
 
-**Endpoints:**
+### Invite codes
 
-| Route | Who | Does |
-|---|---|---|
-| `GET /api/v1/onboarding` | pending identity (cookie or bearer) | Name and email to prefill. Whether a library may be created (`setupCodeRequired`, `selfServiceAllowed`). |
-| `POST /api/v1/onboarding/library {libraryName, displayName, setupCode?}` | pending identity | Creates the user, library, Owner membership and link in one transaction. The first library also needs the setup code and makes the server admin. |
-| `POST /api/v1/onboarding/join {invite, displayName}` | pending identity | `invite` is a link token or a short code. Same rules as today's invite acceptance. |
-
-On the web the two POSTs end the pending cookie and start the normal `__Host-cm` session. On the iPhone the app simply carries on with its token.
-
-### Libraries, owners and the server admin
-
-If D-1 lets people create their own libraries, "the owner" stops meaning one person. So the plan separates two roles:
-
-- **Library owner:** as today, per library. Invites, member roles, library settings and deleting the library.
-- **Server admin:** a flag on one user (`users.is_server_admin`), set by the first library created with the setup code.
-  - The recovery code links a new identity to **the server admin**, no longer "the owner".
-  - Server settings (D-1's switch, D-3's limit) belong to the server admin.
-  - The server admin can't see inside libraries they're not a member of (**D-6**).
-- **Library switcher:** the web sidebar and iPhone Settings list your memberships. The active one is remembered per device (the existing `activeLibraryId` store). With one library nothing changes on screen.
-- **Owner-only code paths** (`OwnerExistsAsync`, `FindOwnerAsync`, setup's "only while no owner") move to "server admin exists".
-
-### Invite codes (D-4)
-
-- A link is hard to move from a text message to the iPhone app. Each invite therefore also gets a **short code**: 10 Crockford base32 characters shown as `ABCD-EFGH-JK`, about 50 bits.
+- A link is hard to move from a text message into the iPhone app. Each invite therefore also gets a **short code**: 10 Crockford base32 characters shown as `ABCD-EFGH-JK`, about 50 bits. It's shown once, when the invite is created, like the link.
 - It has the same 7-day expiry, single use and revocation as the link, and only its hash is stored.
-- Lookups are rate-limited per client like the setup code. Wrong codes are counted, and a client is never told whether a code exists but has expired.
+- Typing is forgiving: case and dashes don't matter, and `O`/`0` and `I`/`L`/`1` count as the same, as Crockford base32 allows.
+- Previews and joins by code are rate-limited per account and per client. Unknown, expired, revoked and used invites all get the same answer.
+
+## API contract (fixed here so web and iPhone can build against mocks)
+
+| Route | Who | Request | Success | Problems |
+|---|---|---|---|---|
+| `GET /api/v1/libraries` *(exists)* | signed in | — | 200 `PageOfLibrarySummaryDto`, empty for a new account | — |
+| `POST /api/v1/libraries` | signed in | `CreateLibraryRequest { name }` (1–80 chars, trimmed) | 201 `LibraryDto` with `role: Owner`, `Location: /api/v1/libraries/{id}` | 400 validation (`library.name_required`, `library.name_too_long`); 409 `library.limit_reached`; 429 |
+| `POST /api/v1/invites:preview` | signed in | `InviteLookupRequest { invite }`: a link, a link token or a code | 200 `InvitePreviewDto` *(exists)* | 404 `invite.invalid`, the same for unknown, expired, revoked and used; 429 |
+| `POST /api/v1/invites:accept` | signed in | `InviteLookupRequest { invite }` | 200 `LibrarySummaryDto` with the invited role | 404 `invite.invalid`; 409 `invite.already_member`; 429 |
+| `DELETE /api/v1/libraries/{libraryId}/membership` | any member of that library | — | 204: you left | 409 `library.last_owner` |
+| `POST /api/v1/libraries/{libraryId}/invites` *(exists)* | Owner | as today | 201 `CreatedInviteDto` gains **`code`** (`ABCD-EFGH-JK`) | as today |
+| `DELETE /api/v1/libraries/{libraryId}/members/{userId}` *(exists)* | Owner | — | 204: ends that membership only; the account stays | as today |
+| `GET /api/v1/invites/{token}` *(exists)* | anyone | — | 200 `InvitePreviewDto` | as today |
+
+**Removed:**
+- `GET /setup` and `POST /setup`, the setup-code purpose and the startup code that writes `setup-code.txt`;
+- `GET /account/not-linked`, and the bearer 403 `account.not_linked`, because the first call creates the account;
+- the `setup` and `join` intents on `/account/login`.
+
+**Kept:** `/account/login?returnUrl=…`, the `link` intent ("Add a sign-in method"), `/account/logout` and `/account/recover`.
 
 ## Security
 
-- **Who can reach the Welcome page:** only someone who reached the app (your tailnet) and completed an Auth0 sign-in. The tailnet stays the outer wall. With D-1 = "anyone", a tailnet guest who signs in can create **their own empty library**, never see yours.
-- **Nothing is matched by email:** as today. Joining needs an invite, and the first library needs the setup code.
-- **The pending cookie** is sealed, short-lived and bound to the `sub` Auth0 vouched for. It can't be replayed into a session: only the create and join calls accept it, and each one checks the identity is still unlinked inside its transaction.
-- **The `Unlinked` bearer policy** covers three routes. The authorization matrix gets an "unlinked identity" actor: 200 on the onboarding routes and 403 everywhere else.
-- **Limits:**
-  - per-client rate limits on create, join and code lookups;
-  - D-3's cap on libraries per person;
-  - library and display names validated like today's.
-- **Locked tests carry over:** the unlinked tests change from "nothing happens" to "only onboarding works". The setup code still works once, only while there's no server admin. An invite gives exactly its role, and never Owner.
+- **This is designed as a public website.** The tailnet is a development-time wall only. Every rule below has to hold with the app on the open internet (ADR-027).
+- **Accounts:** anyone who completes an Auth0 sign-in gets an account, and an account with no libraries can reach only its own `/api/v1/me…` routes, the library list, create, and invite preview and accept. Every library route is still `RequireLibraryRole`.
+- **Libraries are private to their members.** IDs from other libraries answer 404, as today.
+- **Joining needs an invite.** Codes are about 50 bits, rate-limited and single use. An invite never grants Owner.
+- **Limits:** 3 owned libraries per account (config `Libraries:MaxOwnedPerUser`, default 3). Per-account and per-client rate limits on create, preview and accept. Account creation is limited per client too.
+- **Removal is immediate:** memberships are read on every request, so a removed member loses that library on their very next call.
+- **Deleting an account** works as today: refused while a library they own has other members; otherwise their libraries go with them.
 
 ## Data model
 
 | Change | Notes |
 |---|---|
-| `users.is_server_admin` (bool, at most one true: a partial unique index) | Set by the first library's creation. Existing installs set it on the current owner in the migration. |
-| `library_invites.code_hash` (nullable, unique) | For D-4. Old invites keep working by link only. |
-| `server_settings` (single row: `self_service_libraries`, `max_libraries_per_user`) | For D-1 and D-3. Edited by the server admin in Settings. |
+| `library_invites.code_hash` (nullable, unique) | For invite codes. Older invites keep working by link only. |
+| Drop the setup-code purpose | The recovery-code purpose stays. |
 
-No data moves: the server was wiped at the Wave 6 cutover, and its only user is about to be the owner.
+There's no server admin flag and no server settings table. No data moves: the PC was wiped at the Wave 6 cutover, and its only account keeps its library if it already made one.
 
 ## What you see (copy follows [06](06-ux-and-wireframes.md#copy-rules))
 
 - **Welcome, {name}.** "You're signed in with {Google/Apple} as {email}." **Create your library** · **Join a library** · **Use another account**
-- **Create your library:** "Library name", prefilled "{name}'s library". On a fresh install it also asks for the "Setup code", with the hint "It's in `secrets\setup-code.txt` on the PC". Button: **Create library**.
-- **Join a library:** "Paste the invite link or type the code you were sent." The preview, as today ("Join Cory's library as Editor"). Button: **Join**.
-- **When D-1 doesn't allow creating:** the create card says "Ask {server admin} for an invite. Only they can add libraries here."
+- **Create your library:** "Library name", prefilled "{name}'s library". Button: **Create library**. At the limit: "You already own 3 libraries, which is the most you can have."
+- **Join a library:** "Paste the invite link or type the code you were sent." The preview, as today ("Join Cory's library as Editor"). Button: **Join**. Bad code: "That invite doesn't work. Ask for a new one."
+- **Library switcher:** the library name with your role under it; **New library** and **Join a library** under the list.
+- **Leave library** (Settings → Library, for non-owners): "You'll lose access to {library}. Your account stays."
+- **Invite created:** the link, the QR code and "Or tell them this code: ABCD-EFGH-JK".
 
 ## Work breakdown (Wave 7)
 
 | Task | Tier | Depends on | Scope |
 |---|---|---|---|
-| **ONB-0** | Lead + you | — | Your answers to D-1 to D-6. ADR-026 accepted. Briefs updated. |
-| **ONB-1** | Critical, verifier | ONB-0 | API: the pending-identity cookie, the `Unlinked` bearer policy, the three onboarding routes, server admin, invite codes, `server_settings`, one migration, matrix rows, and locked tests (below). The `/setup` routes go away. |
-| **ONB-2** | Standard | ONB-1 contract | Web: `/welcome` with create and join, invite code entry, the library switcher, server settings for the admin. Remove `/setup` and the "First time here?" button. Playwright journeys. |
-| **ONB-3** | Standard | ONB-1 contract | iPhone: the native Welcome screen in place of the not-linked screen, create and join, the library switcher in Settings. Jest; at most 3 `ios-check` runs. |
-| **ONB-4** | Lead | All | Docs 00, 03, 04, 06, 07; release; your checkpoint. |
+| **ONB-0** | Lead + you | — | Your decisions; ADR-026 and ADR-027 accepted; briefs updated. |
+| **ONB-1** | Critical, verifier | ONB-0 | API: accounts on first sign-in (web and bearer), `POST /libraries` with the limit, invite codes, preview and accept by link or code, leave, member removal that ends only the membership, the setup path removed, recovery by account, one migration, contract, matrix rows, and the locked tests below. Also the security and perf harness seeds (they used `/setup`). |
+| **ONB-2** | Standard | the contract above | Web: `/welcome`; create and join; the library switcher with New and Join; leave; the invite code shown on create; `/join/{token}` signed in and out. Remove `/setup`, the "First time here?" button and the not-linked page. Jest + Playwright. |
+| **ONB-3** | Standard | the contract above | iPhone: the native Welcome screen in place of the not-linked screen; create and join (with a code or a pasted link); the library switcher in Settings; leave. Jest; at most 3 `ios-check` runs. |
+| **ONB-4** | Lead | All | Docs 00, 03, 04, 06, 07 and 10; release; your checkpoint. |
 
-The routes are fixed in ONB-1's brief, so ONB-2 and ONB-3 can start against MSW mocks at the same time. Two Wave 6 follow-ups are worth doing first:
-- **#246:** the deployer starts a release with the previous release's compose file. This plan changes nothing there, but the next compose change would trip it again.
-- **#242:** the security and perf harnesses sign in through a fake Auth0. They can't test onboarding without it.
+ONB-2 and ONB-3 start at the same time as ONB-1, against the contract above with MSW mocks.
 
 **Locked acceptance tests for ONB-1:**
-1. An unlinked identity reaches only the onboarding routes (cookie and bearer). Everything else is 403 `account.not_linked`, and no user row exists until create or join succeeds.
-2. On a fresh server, creating a library needs the setup code, works once, and makes exactly one server admin.
-3. With self-service on (D-1), a second person can create their own library and can't see the first one. With it off, they get 403 and a clear problem code.
-4. Joining with a link or a code gives exactly the invited role, once. Expired, revoked and used invites fail the same way.
-5. The pending cookie is refused after 15 minutes, after a create or join, from another browser, and when tampered with.
-6. The recovery code links a new identity to the server admin only.
-7. The authorization matrix covers the unlinked actor and every new route.
+1. A first sign-in creates exactly one account and links its `sub`, through the web callback and through a bearer call. A second sign-in reuses it, and two first calls at once still make one. A new `sub` with an existing account's email gets a new account.
+2. An account with no libraries gets 200 on `/api/v1/me` and an empty `GET /api/v1/libraries`, and 404 on another library's routes.
+3. Any account can create a library and becomes its only Owner. Creating a fourth owned library is refused with 409 `library.limit_reached`. Another account can't see or reach it.
+4. Joining by link or by code gives exactly the invited role, once, and never Owner. Unknown, expired, revoked and used invites fail the same way. Code lookups are rate-limited.
+5. Removing a member or leaving ends that membership on the next request. The account and its other libraries stay, and the last owner can't leave.
+6. The setup routes are gone. The recovery code links a new identity to the named account only.
+7. The authorization matrix covers "signed in, no libraries" and every new route.
 
-## Decisions for you
+## Decisions
 
-| | Question | Recommendation |
+Your answers on 2026-10-23:
+
+| | Question | Answer |
 |---|---|---|
-| **D-1** | After setup, who may **create** a library? | **Anyone who can reach the app and signs in.** Your tailnet already limits who that is, and a new library is empty and private. The server admin can turn it off in Settings. The alternatives: only people the server admin invites to create one, or nobody (one library per server, as v1). |
-| **D-2** | Does the **first** library still need the setup code? | **Yes.** It proves the person has the PC, and it decides who becomes server admin. Without it, whoever signs in first on a fresh install takes the server. |
-| **D-3** | How many libraries may one person create? | **3.** Enough for "mine" plus a shared one, low enough that a mistake can't fill the disk. The server admin can change it. |
-| **D-4** | Short invite codes as well as links? | **Yes.** They're easier to type on a phone, with the same rules as links. |
-| **D-5** | "Ask to join" requests that an owner approves, for people without an invite? | **Not now.** Invites cover it. Later, if family keeps asking. |
-| **D-6** | Can the server admin see libraries they're not a member of? | **No**, only their names and sizes in server settings, for housekeeping. Privacy stays per library. |
-
-## Right now, before Wave 7
-
-You can still get in today:
-1. Sign out.
-2. Choose **"First time here? Set up CollectionMaxxing"** and enter the code from `C:\CollectionMaxxing\secrets\setup-code.txt`.
-3. Sign in with Apple again. Your Apple identity becomes the owner, and Wave 7 keeps it as the server admin.
+| **D-1** | Who may create a library? | **Anyone who signs in.** |
+| **D-2** | Does the first library need the setup code? | **No setup code at all.** It's a normal web app with users. The PC is only a cheap development host, and the product will be hosted later (ADR-027). |
+| **D-3** | How many libraries may one person create? | **3.** It's a config value, not a setting in the app. |
+| **D-4** | Short invite codes as well as links? | **Yes.** |
+| **D-5** | "Ask to join" requests? | **Not now.** |
+| **D-6** | What can a server admin see? | **Doesn't apply:** there's no server admin. |
+| **D-7** | When is an account created? | **On first sign-in.** |
 
 ## Not doing
 
-- Matching people by email, or creating users for identities that didn't choose create or join.
-- Public sign-up from outside the tailnet. The PC stays private.
-- Moving items between libraries (a later wave, if libraries multiply).
+- Matching people by email.
+- A server admin, an operator console, or server settings in the app.
+- Deleting a library, and transferring ownership. Account deletion still takes the libraries you own alone. Both are follow-ups if libraries multiply.
+- Moving items between libraries.
+- Moving off the PC. Hosting the product is a later decision, with its own cost (ADR-027).
