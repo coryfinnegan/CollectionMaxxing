@@ -30,6 +30,7 @@ public class AppSignInRegistrationTests(ApiFixture api) : ManagementTest(api)
         second.GetProperty("lastSeenAt").GetDateTimeOffset().ShouldBeGreaterThan(first.GetProperty("lastSeenAt").GetDateTimeOffset());
         (await CountAppSignInsAsync(account.UserId)).ShouldBe(1);
 
+        App.Time.Advance(TimeSpan.FromMinutes(1)); // so "most recently seen" is not a tie
         (await RegisterAsync(App.Auth0.AccessToken(owner.Identity.Subject), Guid.NewGuid(), "iPad")).StatusCode.ShouldBe(HttpStatusCode.Created);
         var listed = await owner.GetAsync(AppSignIns); // the web app lists them with its cookie
         listed.StatusCode.ShouldBe(HttpStatusCode.OK);
