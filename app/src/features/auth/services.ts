@@ -1,20 +1,22 @@
 // The swappable pieces of the auth screens, set once at app start (and replaced by fakes in tests).
-import { BrowserPasskeyClient, FakePasskeyClient, type PasskeyClient } from './passkeys';
-import { type QrRenderer, type QrScanner, UnavailableQrScanner } from './qr';
+import type { ReactElement } from 'react';
 import { QrCode } from './QrCode';
 
-// Mock mode (no real server to register a passkey with) uses the scripted client.
-let passkeys: PasskeyClient = process.env.EXPO_PUBLIC_API_MOCK === '1' ? new FakePasskeyClient() : new BrowserPasskeyClient();
-let scanner: QrScanner = new UnavailableQrScanner();
+export type QrRenderer = (props: { value: string; size: number }) => ReactElement;
+
+/** Leaves the app for a URL (the sign-in, or Auth0's sign-out). Tests swap it for a spy. */
+export type Navigator = (url: string) => void;
+
+const browserNavigator: Navigator = (url) => {
+  (globalThis as { location?: { assign: (url: string) => void } }).location?.assign(url);
+};
+
+let navigator: Navigator = browserNavigator;
 let qrRenderer: QrRenderer = QrCode;
 
-export const getPasskeys = () => passkeys;
-export const setPasskeys = (client: PasskeyClient) => {
-  passkeys = client;
-};
-export const getQrScanner = () => scanner;
-export const setQrScanner = (next: QrScanner) => {
-  scanner = next;
+export const getNavigator = () => navigator;
+export const setNavigator = (next: Navigator) => {
+  navigator = next;
 };
 export const getQrRenderer = () => qrRenderer;
 export const setQrRenderer = (next: QrRenderer) => {

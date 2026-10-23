@@ -12,7 +12,7 @@ namespace CollectionMaxxing.Application.Common;
 /// <summary>
 /// The application's view of the database. Handlers depend on this port; Infrastructure's
 /// <c>AppDbContext</c> implements it. Every table of the v1 schema is listed here, so a feature uses the set it needs
-/// without touching this file. (Users and passkeys belong to ASP.NET Core Identity, which the ID stream reaches
+/// without touching this file. (Users and roles belong to ASP.NET Core Identity, which the ID stream reaches
 /// through its own services, not through this port.)
 /// </summary>
 public interface IAppDbContext
@@ -24,9 +24,13 @@ public interface IAppDbContext
 
     DbSet<LibraryInvite> LibraryInvites { get; }
 
-    DbSet<DevicePairing> DevicePairings { get; }
+    /// <summary>Auth0 identities linked to users (<c>user_logins</c>).</summary>
+    DbSet<UserLogin> Logins { get; }
 
     DbSet<SetupCode> SetupCodes { get; }
+
+    /// <summary>The iPhones signed in with Auth0 that registered themselves (<c>app_sign_ins</c>).</summary>
+    DbSet<AppSignIn> AppSignIns { get; }
 
     // Your stuff (library-scoped)
     DbSet<Location> Locations { get; }

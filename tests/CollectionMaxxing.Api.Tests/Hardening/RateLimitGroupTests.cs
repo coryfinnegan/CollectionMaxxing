@@ -152,8 +152,8 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
     public async Task Callers_who_are_not_signed_in_are_judged_by_address_not_all_together()
     {
         var host = Host(("Default", 3));
-        using var one = host.CreateClient();
-        using var two = host.CreateClient();
+        using var one = host.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var two = host.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         one.DefaultRequestHeaders.Add(PeerFilter.Header, "198.51.100.1");
         two.DefaultRequestHeaders.Add(PeerFilter.Header, "198.51.100.2");
 
@@ -161,11 +161,11 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
         var second = await SendAsync(two, 3, () => new HttpRequestMessage(HttpMethod.Get, "/account/login"));
 
         first[3].ShouldBe(HttpStatusCode.TooManyRequests);
-        second.ShouldAllBe(s => s == HttpStatusCode.OK);
+        second.ShouldAllBe(s => s == HttpStatusCode.Found); // off to Auth0
     }
 
     [Fact]
-    public async Task The_code_and_passkey_endpoints_also_have_an_hourly_limit()
+    public async Task The_code_endpoints_also_have_an_hourly_limit()
     {
         var host = Host(("AuthHourly", 2));
         using var client = host.CreateClient();
@@ -177,15 +177,29 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
     }
 
     [Fact]
-    public async Task Pairing_and_other_token_requests_still_use_the_hourly_auth_limit()
+    public async Task Setup_attempts_use_the_hourly_auth_limit_too()
     {
         var host = Host(("AuthHourly", 2));
         using var client = host.CreateClient();
 
-        var statuses = await SendAsync(client, 3, () => TokenRequest(("grant_type", "urn:cm:device_pairing"), ("pairing_code", "000000"), ("device_name", "x")));
+        var statuses = await SendAsync(client, 3, () => new HttpRequestMessage(HttpMethod.Post, "/setup") { Content = JsonContent.Create(new { code = "x" }) });
 
         statuses.Take(2).ShouldAllBe(s => s != HttpStatusCode.TooManyRequests);
         statuses[2].ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task Signing_out_never_counts_against_the_hourly_auth_limit()
+    {
+        var host = Host(("AuthHourly", 2));
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("X-CSRF", "1");
+
+        var statuses = await SendAsync(client, 5, () => new HttpRequestMessage(HttpMethod.Post, "/account/logout"));
+        var recover = await SendAsync(client, 2, () => new HttpRequestMessage(HttpMethod.Post, "/account/recover") { Content = JsonContent.Create(new { code = "x" }) });
+
+        statuses.ShouldAllBe(s => s == HttpStatusCode.OK);
+        recover.ShouldAllBe(s => s != HttpStatusCode.TooManyRequests);
     }
 
     [Theory]
@@ -273,9 +287,6 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
         client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, userId.ToString());
         return client;
     }
-
-    private static HttpRequestMessage TokenRequest(params (string Key, string Value)[] fields) =>
-        new(HttpMethod.Post, "/connect/token") { Content = new FormUrlEncodedContent(fields.Select(f => new KeyValuePair<string, string>(f.Key, f.Value))) };
 
     private static async Task<List<HttpStatusCode>> SendAsync(HttpClient client, int count, Func<HttpRequestMessage> request)
     {

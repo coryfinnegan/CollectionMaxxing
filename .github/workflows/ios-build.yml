@@ -58,11 +58,18 @@ jobs:
           HAS_P12: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
           HAS_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE != '' }}
           HAS_API_KEY: ${{ secrets.ASC_API_KEY_P8 != '' }}
+          HAS_AUTH0_DOMAIN: ${{ secrets.EXPO_PUBLIC_AUTH0_DOMAIN != '' }}
+          HAS_AUTH0_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_AUTH0_CLIENT_ID != '' }}
+          HAS_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL != '' }}
         run: |
           missing=""
           [ "$HAS_P12" = "true" ] || missing="$missing APPLE_CERTIFICATE_P12"
           [ "$HAS_PROFILE" = "true" ] || missing="$missing APPLE_PROVISIONING_PROFILE"
           [ "$HAS_API_KEY" = "true" ] || missing="$missing ASC_API_KEY_P8"
+          # Sign-in (docs/14): the Auth0 tenant, the iPhone app's client id and the server's address are built into the app.
+          [ "$HAS_AUTH0_DOMAIN" = "true" ] || missing="$missing EXPO_PUBLIC_AUTH0_DOMAIN"
+          [ "$HAS_AUTH0_CLIENT_ID" = "true" ] || missing="$missing EXPO_PUBLIC_AUTH0_CLIENT_ID"
+          [ "$HAS_API_URL" = "true" ] || missing="$missing EXPO_PUBLIC_API_URL"
           [ -n "$TEAM_ID" ] || missing="$missing APPLE_TEAM_ID"
           [ -n "$PROFILE_NAME" ] || missing="$missing APPLE_PROFILE_NAME"
           if [ -n "$missing" ]; then
@@ -173,6 +180,7 @@ jobs:
         env:
           IOS_SIGNING_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           IOS_SIGNING_PROFILE: ${{ vars.APPLE_PROFILE_NAME }}
+          EXPO_PUBLIC_AUTH0_DOMAIN: ${{ secrets.EXPO_PUBLIC_AUTH0_DOMAIN }}
         run: |
           # Every upload of a version needs a higher build number; the run number only ever grows for this workflow.
           export IOS_BUILD_NUMBER="${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
@@ -188,6 +196,11 @@ jobs:
 
       - name: Archive
         working-directory: app/ios
+        env:
+          # Inlined into the JS bundle: the Auth0 tenant and iPhone client id for sign-in, and the server the app talks to.
+          EXPO_PUBLIC_AUTH0_DOMAIN: ${{ secrets.EXPO_PUBLIC_AUTH0_DOMAIN }}
+          EXPO_PUBLIC_AUTH0_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_AUTH0_CLIENT_ID }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
         run: |
           # The JS bundle is built inside xcodebuild; About shows "Build <sha> from <date>" (Expo inlines EXPO_PUBLIC_*).
           export EXPO_PUBLIC_BUILD_SHA="$(git rev-parse HEAD)"

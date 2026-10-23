@@ -1,10 +1,8 @@
-using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries.Members;
 using Microsoft.AspNetCore.Authentication;
-using OpenIddict.Abstractions;
 
 namespace CollectionMaxxing.Api.Auth;
 
@@ -18,11 +16,10 @@ public sealed class CurrentUserMiddleware(RequestDelegate next)
     {
         if (context.User.Identity?.IsAuthenticated == true)
         {
-            // A bearer token must carry the API scope (docs/07, layer 3). Ours all do; one that doesn't was made for something else.
-            if (AuthSetup.IsBearerCall(context.Request) && !context.User.HasScope(OpenIddictSetup.ApiScope))
+            // A valid Auth0 token whose identity nobody linked: refused, and nothing is created for it (docs/14, "Linking").
+            if (AuthSetup.IsBearerCall(context.Request) && CurrentSession.UserId(context.User) is null)
             {
-                await ProblemResults.Problem(StatusCodes.Status401Unauthorized, "Unauthorized", "The token is not for this API.")
-                    .ExecuteAsync(context);
+                await AuthProblems.NotLinked().ExecuteAsync(context);
                 return;
             }
 

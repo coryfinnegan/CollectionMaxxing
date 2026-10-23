@@ -1,16 +1,14 @@
-// Me > Devices and browsers: where you are signed in, revoke one, and add an iPhone with a QR code and a 6-digit code.
+// Me > Devices and browsers: the browsers you are signed in on, and your iPhones (docs/14 "Web").
+// Browsers can be signed out one by one. iPhones are signed out together: each one signs in with Auth0 on its own.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { useState } from 'react';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
-import { type PairDeviceDto, type SessionDto, listSessions, pairDevice, revokeSession, revokeWebSessions } from './api';
-import { getQrRenderer } from './services';
+import { type SessionDto, listDevices, revokeBrowser, revokeWebSessions, signOutAllIphones } from './api';
 import { Button, Card, ListRow, Screen, Text } from '@/ui';
-import { spacing } from '@/theme/tokens';
 
-const sessionsKey = ['me', 'sessions'] as const;
+const devicesKey = ['me', 'devices'] as const;
 
 export function formatLastSeen(iso: string | null | undefined, now = Date.now()): string {
   if (!iso) return 'Not seen yet';
@@ -23,78 +21,36 @@ export function formatLastSeen(iso: string | null | undefined, now = Date.now())
   return `Last seen ${days} ${days === 1 ? 'day' : 'days'} ago`;
 }
 
-/** Seconds left until `expiresAt`, ticking once a second. */
-export function useSecondsLeft(expiresAt: string | null): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return expiresAt ? Math.max(0, Math.ceil((new Date(expiresAt).getTime() - now) / 1000)) : 0;
-}
-
-const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-
-function PairingCard({ pairing, onClose }: { pairing: PairDeviceDto; onClose: () => void }) {
-  const renderQr = getQrRenderer();
-  const seconds = useSecondsLeft(pairing.expiresAt);
-  return (
-    <Card>
-      <Text variant="heading">Add a device</Text>
-      {seconds > 0 ? (
-        <>
-          <Text tone="muted">On your iPhone, open CollectionMaxxing and scan this QR code, or enter the code below.</Text>
-          <View style={{ alignItems: 'center', gap: spacing.md }}>
-            {renderQr({ value: JSON.stringify({ serverUrl: pairing.serverUrl, token: pairing.token }), size: 200 })}
-            <Text variant="title" accessibilityLabel={`Code ${pairing.code.split('').join(' ')}`}>
-              {pairing.code}
-            </Text>
-            <Text tone="muted">Expires in {clock(seconds)}</Text>
-          </View>
-        </>
-      ) : (
-        <Text accessibilityRole="alert">This code has expired. Add a device again to get a new one.</Text>
-      )}
-      <Button label="Done" variant="secondary" onPress={onClose} />
-    </Card>
-  );
-}
+type Confirming = { kind: 'browser'; session: SessionDto } | { kind: 'all-browsers' } | { kind: 'all-iphones' };
 
 export function DevicesScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const sessions = useQuery({ queryKey: sessionsKey, queryFn: listSessions });
-  const [confirming, setConfirming] = useState<SessionDto | null>(null);
-  const [confirmingAll, setConfirmingAll] = useState(false);
-  const [pairing, setPairing] = useState<PairDeviceDto | null>(null);
+  const devices = useQuery({ queryKey: devicesKey, queryFn: listDevices });
+  const [confirming, setConfirming] = useState<Confirming | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const done = (leaves: boolean) => {
+    setConfirming(null);
+    // On the web this browser's own session may have just ended. Elsewhere: stay and refresh.
+    if (leaves) router.replace('/login');
+    else queryClient.invalidateQueries({ queryKey: devicesKey });
+  };
+  const failed = (e: unknown) => {
+    setConfirming(null);
+    setMessage(friendlyError(e));
+  };
+
   const revoke = useMutation({
-    mutationFn: (session: SessionDto) => revokeSession(session),
-    onSuccess: (_data, session) => {
-      setConfirming(null);
-      if (session.isCurrent) router.replace('/login');
-      else queryClient.invalidateQueries({ queryKey: sessionsKey });
-    },
-    onError: (e) => setMessage(friendlyError(e)),
+    mutationFn: (session: SessionDto) => revokeBrowser(session.id),
+    onSuccess: (_data, session) => done(session.isCurrent),
+    onError: failed,
   });
+  const revokeAllBrowsers = useMutation({ mutationFn: revokeWebSessions, onSuccess: () => done(isWeb()), onError: failed });
+  const revokeAllIphones = useMutation({ mutationFn: signOutAllIphones, onSuccess: () => done(false), onError: failed });
 
-  const revokeAll = useMutation({
-    mutationFn: revokeWebSessions,
-    onSuccess: () => {
-      setConfirmingAll(false);
-      // On the web this browser's own session just ended. On the phone only browsers were signed out: stay and refresh.
-      if (isWeb()) router.replace('/login');
-      else queryClient.invalidateQueries({ queryKey: sessionsKey });
-    },
-    onError: (e) => setMessage(friendlyError(e)),
-  });
-
-  const add = useMutation({
-    mutationFn: pairDevice,
-    onSuccess: setPairing,
-    onError: (e) => setMessage(friendlyError(e)),
-  });
+  const browsers = devices.data?.browsers ?? [];
+  const iphones = devices.data?.iphones ?? [];
 
   return (
     <Screen title="Devices and browsers" subtitle="Where you are signed in.">
@@ -104,78 +60,100 @@ export function DevicesScreen() {
         </Text>
       ) : null}
 
-      {pairing ? <PairingCard pairing={pairing} onClose={() => setPairing(null)} /> : null}
-
-      {confirming ? (
+      {confirming?.kind === 'browser' ? (
         <Card>
-          <Text variant="heading">Sign out {confirming.deviceName}?</Text>
+          <Text variant="heading">Sign out {confirming.session.deviceName}?</Text>
           <Text tone="muted">
-            {confirming.isCurrent
-              ? "This is the device you're using right now. You'll be signed out and asked to sign in again."
+            {confirming.session.isCurrent
+              ? "This is the browser you're using right now. You'll be signed out and asked to sign in again."
               : 'It will be signed out right away.'}
           </Text>
           <Button
-            label={confirming.isCurrent ? 'Sign out this device' : 'Sign out'}
+            label={confirming.session.isCurrent ? 'Sign out this browser' : 'Sign out'}
             variant="danger"
             busy={revoke.isPending}
-            onPress={() => revoke.mutate(confirming)}
+            onPress={() => revoke.mutate(confirming.session)}
           />
           <Button label="Cancel" variant="secondary" onPress={() => setConfirming(null)} />
         </Card>
       ) : null}
 
-      {confirmingAll ? (
+      {confirming?.kind === 'all-browsers' ? (
         <Card>
           <Text variant="heading">Sign out of all browsers?</Text>
-          <Text tone="muted">
-            Every browser you are signed in on, including this one, will be signed out right away. Your phones stay signed in.
-          </Text>
-          <Button label="Sign out all" variant="danger" busy={revokeAll.isPending} onPress={() => revokeAll.mutate()} />
-          <Button label="Cancel" variant="secondary" onPress={() => setConfirmingAll(false)} />
+          <Text tone="muted">Every browser you are signed in on, including this one, will be signed out right away. Your iPhones stay signed in.</Text>
+          <Button label="Sign out all browsers" variant="danger" busy={revokeAllBrowsers.isPending} onPress={() => revokeAllBrowsers.mutate()} />
+          <Button label="Cancel" variant="secondary" onPress={() => setConfirming(null)} />
         </Card>
       ) : null}
 
+      {confirming?.kind === 'all-iphones' ? (
+        <Card>
+          <Text variant="heading">Sign out all iPhones?</Text>
+          <Text tone="muted">Every iPhone you use will be signed out. Each one signs in again when you next open the app.</Text>
+          <Button label="Sign out all iPhones" variant="danger" busy={revokeAllIphones.isPending} onPress={() => revokeAllIphones.mutate()} />
+          <Button label="Cancel" variant="secondary" onPress={() => setConfirming(null)} />
+        </Card>
+      ) : null}
+
+      {devices.isLoading ? <Text tone="muted">Loading...</Text> : null}
+      {devices.isError ? <Text tone="danger">{friendlyError(devices.error)}</Text> : null}
+      {devices.data?.failed.map((half) => (
+        <Text key={half} tone="muted" accessibilityRole="alert">
+          {`Couldn't load your ${half}. Try again in a moment.`}
+        </Text>
+      ))}
+
       <Card>
-        {sessions.isLoading ? <Text tone="muted">Loading...</Text> : null}
-        {sessions.isError ? <Text tone="danger">{friendlyError(sessions.error)}</Text> : null}
-        {sessions.data?.failed.map((half) => (
-          <Text key={half} tone="muted" accessibilityRole="alert">
-            {`Couldn't load your ${half}. Try again in a moment.`}
-          </Text>
-        ))}
-        {(sessions.data?.sessions ?? []).map((s) => (
+        <Text variant="heading">Browsers</Text>
+        {devices.data && browsers.length === 0 && !devices.data.failed.includes('browsers') ? <Text tone="muted">No browsers yet.</Text> : null}
+        {browsers.map((s) => (
           <ListRow
             key={s.id}
-            title={s.isCurrent ? `${s.deviceName} (this device)` : s.deviceName}
+            title={s.isCurrent ? `${s.deviceName} (this browser)` : s.deviceName}
             subtitle={formatLastSeen(s.lastSeenAt)}
             trailing={
               <Button
-                label="Revoke"
-                accessibilityLabel={`Revoke ${s.deviceName}`}
+                label="Sign out"
+                accessibilityLabel={`Sign out ${s.deviceName}`}
                 variant="secondary"
                 onPress={() => {
                   setMessage(null);
-                  setConfirming(s);
+                  setConfirming({ kind: 'browser', session: s });
                 }}
               />
             }
           />
         ))}
+        <Button
+          label="Sign out of all browsers"
+          variant="secondary"
+          onPress={() => {
+            setMessage(null);
+            setConfirming({ kind: 'all-browsers' });
+          }}
+        />
       </Card>
 
-      <Button
-        label="Sign out of all browsers"
-        variant="secondary"
-        onPress={() => {
-          setMessage(null);
-          setConfirmingAll(true);
-        }}
-      />
-
-      <Button label="Add a device" busy={add.isPending} onPress={() => {
-        setMessage(null);
-        add.mutate();
-      }} />
+      <Card>
+        <Text variant="heading">iPhones</Text>
+        {devices.data && iphones.length === 0 && !devices.data.failed.includes('iPhones') ? (
+          <Text tone="muted">No iPhones yet. Install the app from TestFlight and sign in.</Text>
+        ) : null}
+        {iphones.map((p) => (
+          <ListRow key={p.id} title={p.deviceName} subtitle={formatLastSeen(p.lastSeenAt)} />
+        ))}
+        {iphones.length > 0 ? (
+          <Button
+            label="Sign out all iPhones"
+            variant="secondary"
+            onPress={() => {
+              setMessage(null);
+              setConfirming({ kind: 'all-iphones' });
+            }}
+          />
+        ) : null}
+      </Card>
     </Screen>
   );
 }

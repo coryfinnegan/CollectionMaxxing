@@ -1,6 +1,11 @@
 # 14 — Moving sign-in to Auth0 (plan)
 
-**Status:** **Accepted**, 2026-10-22. You approved the plan: D-1 to D-6 take their defaults, and D-7 is "wipe the database and start as a fresh install". This is Wave 6. The decision record is [ADR-025](12-decision-log.md#adr-025-auth0-for-sign-in-our-api-keeps-authorization). Once this ships, [07](07-authentication-and-authorization.md) is rewritten to match and this plan is archived.
+**Status:** **Done (Wave 6).** The cutover is in the release that carries app version 1.1.0. How sign-in works now is in [07](07-authentication-and-authorization.md); this page is the record of the plan. The decision record is [ADR-025](12-decision-log.md#adr-025-auth0-for-sign-in-our-api-keeps-authorization).
+
+**What changed from the plan while building it:**
+- **Revocation goes through grants.** The Free plan has no refresh-token endpoints (`/api/v2/refresh-tokens`, `delete:refresh_tokens`), so the Management app has the scopes `delete:grants` and `delete:users`, and "Sign out all iPhones" deletes the person's grants (`DELETE /api/v2/grants?user_id=…`). One phone can't be revoked alone. This settled the AUTH0-0 question.
+- **Google stays in "Testing"** in Google Cloud Console, with the family added as test users, so there is no app verification.
+- **Apple uses a separate primary App ID** (`io.github.coryfinnegan.collectionmaxxing.web`) for the Services ID, so the app's own App ID is untouched.
 
 ## Summary
 

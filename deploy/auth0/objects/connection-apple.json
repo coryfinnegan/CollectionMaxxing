@@ -1,0 +1,13 @@
+{
+  "name": "apple",
+  "strategy": "apple",
+  "options": {
+    "client_id": "{{APPLE_SERVICES_ID}}",
+    "team_id": "{{APPLE_TEAM_ID}}",
+    "kid": "{{APPLE_KEY_ID}}",
+    "app_secret": "{{APPLE_PRIVATE_KEY}}",
+    "email": true,
+    "name": true,
+    "scope": "name email"
+  }
+}

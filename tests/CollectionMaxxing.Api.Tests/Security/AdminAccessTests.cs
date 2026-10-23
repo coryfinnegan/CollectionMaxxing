@@ -36,8 +36,8 @@ public class AdminAccessTests(ApiFixture api) : InviteTest(api)
         var libraryId = account.LibraryId!.Value;
         var (editor, _) = await AddMemberAsync(owner, libraryId, "editor", "Edith");
         var (viewer, _) = await AddMemberAsync(owner, libraryId, "viewer", "Vic");
-        var ownerPhone = await PairAsync(owner, "Owner phone");
-        var editorPhone = await PairAsync(editor, "Editor phone", App.NewBrowser().Http);
+        var ownerPhone = await SignInPhoneAsync(owner, "Owner phone");
+        var editorPhone = await SignInPhoneAsync(editor, "Editor phone", App.NewBrowser().Http);
         var anonymous = App.NewBrowser();
 
         var failures = new List<string>();

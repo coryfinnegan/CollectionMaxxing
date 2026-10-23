@@ -7,6 +7,7 @@ namespace CollectionMaxxing.Application.Accounts.Devices;
 public static class ListWebSessions
 {
     public const string Kind = "web";
+    public const string Active = "active";
 
     public sealed class Handler(IWebSessions webSessions)
     {
@@ -17,7 +18,7 @@ public static class ListWebSessions
         {
             var browsers = await webSessions.ListActiveAsync(userId, cancellationToken);
             return new Page<SessionDto>([.. browsers.Select(w =>
-                new SessionDto(w.Id, w.Label, Kind, w.CreatedAt, w.LastSeenAt, w.Id == currentSessionId, ListSessions.Active))]);
+                new SessionDto(w.Id, w.Label, Kind, w.CreatedAt, w.LastSeenAt, w.Id == currentSessionId, Active))]);
         }
     }
 }
@@ -31,7 +32,7 @@ public static class RevokeWebSession
         public async Task<Result> HandleAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken) =>
             await webSessions.RevokeAsync(userId, sessionId, cancellationToken)
                 ? Result.Success()
-                : Result.Failure(PairingErrors.SessionNotFound);
+                : Result.Failure(WebSessionErrors.SessionNotFound);
     }
 }
 
@@ -42,4 +43,12 @@ public static class RevokeWebSessions
     {
         public Task HandleAsync(Guid userId, CancellationToken cancellationToken) => webSessions.RevokeAllAsync(userId, cancellationToken);
     }
+}
+
+/// <summary>Why a session request was refused.</summary>
+public static class WebSessionErrors
+{
+    /// <summary>The session doesn't exist, or it is somebody else's. The two look the same on purpose.</summary>
+    public static readonly DomainError SessionNotFound =
+        new(ErrorKind.NotFound, "session.not_found", "That device doesn't exist.");
 }

@@ -5,9 +5,10 @@ import { createOwnedIndex } from '@/features/offline/ownedIndex';
 import { entry } from '@/features/offline/testData';
 import { setTrayStore } from '@/features/scan/tray/storage';
 import { MemoryKeyValueStore, createTrayStore } from '@/features/scan/tray/trayStore';
+import { setNavigator } from '@/features/auth/services';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
-import { MemoryTokenStore } from '@/lib/auth/tokenStore';
-import { mockAccount, resetMockAccount } from '@/mocks/me';
+import { MemoryNativeAuth } from '@/lib/auth/native';
+import { resetMockAccount } from '@/mocks/me';
 import { makeQueryClient, renderWithProviders } from '@/test/render';
 import { useLockSetting } from './appLock';
 import { registerLocalDataClearer } from './localData';
@@ -36,13 +37,13 @@ const ready = { available: true, vision: true, guidedGeneration: true, contextSi
 const unavailable = (reason: string) => ({ available: false, vision: false, guidedGeneration: false, contextSize: null, reason });
 
 const bio: Biometrics = { isAvailable: async () => true, authenticate: async () => true };
-let tokenStore: MemoryTokenStore;
+let nativeAuth: MemoryNativeAuth;
 
 beforeEach(() => {
   resetMockAccount();
   mockRouter.replace.mockClear();
-  tokenStore = new MemoryTokenStore({ refreshToken: 'mock-refresh', serverUrl: 'http://api.test' });
-  configureAuth({ platform: 'native', tokenStore });
+  nativeAuth = new MemoryNativeAuth();
+  configureAuth({ platform: 'native', native: nativeAuth });
   setBiometrics(bio);
   setSettingsStorage(new MemoryKeyValueStore());
   useLockSetting.getState().reload();
@@ -82,16 +83,24 @@ describe('Settings > Recognition', () => {
     expect(screen.getByText(label)).toBeTruthy();
   });
 
-  it('is hidden on the web, which only offers Sign out', async () => {
+  it('is hidden on the web, which offers Sign out and Sign-in methods', async () => {
     configureAuth({ platform: 'web' });
     await renderWithProviders(<SettingsScreen />);
     expect(screen.queryByText('Recognition')).toBeNull();
     expect(screen.queryByLabelText('Unpair this iPhone')).toBeNull();
     expect(screen.getByLabelText('Sign out')).toBeTruthy();
+    expect(screen.getByText('Sign-in methods')).toBeTruthy();
   });
 });
 
 describe('Settings > Sign out', () => {
+  // Sign-out navigates to the URL the server returned (Auth0's sign-out; the mock sends the browser back to /login).
+  const navigate = jest.fn();
+  beforeEach(() => {
+    navigate.mockClear();
+    setNavigator(navigate);
+  });
+
   it('runs every registered local-data clearer and empties the query cache (web)', async () => {
     const clearer = jest.fn();
     const unregister = registerLocalDataClearer(clearer);
@@ -106,7 +115,7 @@ describe('Settings > Sign out', () => {
 
     await fireEvent.press(screen.getByLabelText('Sign out'));
 
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/login'));
     expect(clearer).toHaveBeenCalledTimes(1);
     expect(queryClient.getQueryData(['anything'])).toBeUndefined();
     unregister();
@@ -122,7 +131,7 @@ describe('Settings > Sign out', () => {
 
     await fireEvent.press(screen.getByLabelText('Sign out'));
 
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/login'));
     unregister();
     expect(getOwnedCache('lib-1').state.syncedAt).toBeNull();
     expect(storage.getString('owned-index-v1:lib-1')).toBeUndefined();
@@ -140,7 +149,7 @@ describe('Settings > Security', () => {
     expect(useLockSetting.getState().enabled).toBe(true);
   });
 
-  it('unpairs: revokes, wipes the Keychain, offline index and tray, and returns to pairing', async () => {
+  it('signs out: revokes at Auth0, wipes the credentials, offline index and tray, and returns to sign-in', async () => {
     const tray = createTrayStore({ storage: new MemoryKeyValueStore() });
     tray.getState().scan({ value: '0123456789012', symbology: 'ean-13' });
     expect(tray.getState().lines.length).toBe(1);
@@ -149,13 +158,13 @@ describe('Settings > Security', () => {
     const unregister = registerLocalDataClearer(offline);
     await renderWithProviders(<SettingsScreen />);
 
-    await fireEvent.press(screen.getByLabelText('Unpair this iPhone'));
-    expect(mockAccount.revoked).toHaveLength(0); // asks first
-    await fireEvent.press(screen.getByLabelText('Unpair and remove local data'));
+    await fireEvent.press(screen.getByLabelText('Sign out of this iPhone'));
+    expect(nativeAuth.signedOut).toBe(false); // asks first
+    await fireEvent.press(screen.getByLabelText('Sign out and remove local data'));
 
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/pair'));
-    expect(mockAccount.revoked).toEqual(['mock-refresh']);
-    expect(await tokenStore.load()).toBeNull();
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    expect(nativeAuth.signedOut).toBe(true);
+    expect(nativeAuth.token).toBeNull();
     expect(offline).toHaveBeenCalled();
     expect(tray.getState().lines).toHaveLength(0);
     unregister();

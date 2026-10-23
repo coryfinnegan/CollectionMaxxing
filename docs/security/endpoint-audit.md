@@ -23,24 +23,21 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 |---|---|---|
 | 1. Authentication | Cookie (web) or bearer token (phone), otherwise 401 | `Security/BearerTokenAbuseTests`, `Auth/*` |
 | 2. Fallback policy | Authenticated user required unless `AllowAnonymous` and on the allow-list | `EndpointPolicyTests`, `MatrixCompletenessTests` |
-| 3. Scope | A bearer token must carry the `api` scope and the API audience | `BearerTokenAbuseTests` (fixed by QA-1a, see F2 and F3) |
+| 3. Token | A bearer token must come from our Auth0 tenant (RS256), name the API audience, and its `sub` must be linked to an active user (AUTH-1) | `BearerTokenAbuseTests`, `Auth/Auth0SignInTests` |
 | 4. Route group | `/api/admin/**` needs the platform admin role | `Security/AdminAccessTests` |
 | 5. Resource | Library membership and minimum role: not a member 404, role too low 403 | `Security/CrossLibraryAccessTests` (locked), `AuthorizationMatrixTests` |
 | 6. Data filter | EF Core global query filter on `library_id` | `Security/CrossLibraryAccessTests`: the attacker names the victim's ids through their own library and gets 404 |
 
 ## Endpoints
 
-"IDOR test: Y" means a caller who belongs to another library, or to none, is tried against the endpoint with the victim's real ids and gets 404 (`Security/CrossLibraryAccessTests`, plus `Scanning/ScanSessionIsolationTests`, `Pairing/DeviceSessionTests`, `Exports/ExportTests`, `Catalog/CoverEndpointTests`). "n/a" says why there is no object to attack.
+"IDOR test: Y" means a caller who belongs to another library, or to none, is tried against the endpoint with the victim's real ids and gets 404 (`Security/CrossLibraryAccessTests`, plus `Scanning/ScanSessionIsolationTests`, `Exports/ExportTests`, `Catalog/CoverEndpointTests`). "n/a" says why there is no object to attack.
 
 | Method | Route | Policy | Who may call | Matrix row | IDOR test | DTO leaks internals (API3) |
 |---|---|---|---|---|---|---|
-| GET | `/account/login` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
-| POST | `/account/login` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
-| POST | `/account/logout` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
-| POST | `/account/passkey/creation-options` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
-| POST | `/account/passkey/register` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
-| POST | `/account/passkey/request-options` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
-| POST | `/account/recover` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
+| GET | `/account/login` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
+| GET | `/account/not-linked` | anonymous (allow-listed) | everyone | Y | n/a (no data) | the web app's page |
+| POST | `/account/logout` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
+| POST | `/account/recover` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 | POST | `/api/admin/catalog/releases/{id:guid}:verify` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | stub (501) |
 | GET | `/api/admin/evals/golden` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | eval report only; admin only, off by default |
 | GET | `/api/admin/evals/golden/{id}/image` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | eval report only; admin only, off by default |
@@ -88,12 +85,14 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | DELETE | `/api/v1/me` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
 | GET | `/api/v1/me` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | MeResponse: id and memberships. No email, username or stamps |
 | PATCH | `/api/v1/me` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | MeResponse: id and memberships. No email, username or stamps |
-| POST | `/api/v1/me/devices/pair` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | PairDeviceDto: token and code, returned once to their owner |
+| GET | `/api/v1/me/app-sign-ins` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | AppSignInDto: device name, times. No install id, token or Auth0 subject |
+| POST | `/api/v1/me/app-sign-ins` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | AppSignInDto: device name, times. Refused for a browser session (403) |
+| DELETE | `/api/v1/me/app-sign-ins` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
 | GET | `/api/v1/me/export` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | ExportDto, or the caller's own zip |
 | GET | `/api/v1/me/export/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | ExportDto, or the caller's own zip |
 | GET | `/api/v1/me/export/{id:guid}/download` | signed in | any signed-in caller (own data only) | Y | Y | ExportDto, or the caller's own zip |
-| GET | `/api/v1/me/sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | SessionDto: name, times, status. No token or hash |
-| DELETE | `/api/v1/me/sessions/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
+| GET | `/api/v1/me/sign-in-methods` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | SignInMethodDto: provider, email, times. No Auth0 subject |
+| DELETE | `/api/v1/me/sign-in-methods/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
 | GET | `/api/v1/me/web-sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | SessionDto: label, times, status. No cookie or session secret |
 | DELETE | `/api/v1/me/web-sessions/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
 | DELETE | `/api/v1/me/web-sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
@@ -109,15 +108,13 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | POST | `/api/v1/scan-sessions/{id:guid}/commit:undo` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | GET | `/api/v1/scan-sessions/{id:guid}/events` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/identify` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
-| POST | `/connect/revoke` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | OAuth token response (the caller's own tokens) |
-| POST | `/connect/token` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | OAuth token response (the caller's own tokens) |
 | GET | `/health/live` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
 | GET | `/health/ready` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
-| GET | `/join/{token}` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
+| GET | `/join/{token}` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 | GET | `/media/covers/{assetId:guid}` | signed in | any signed-in caller (own data only) | Y | Y | image bytes, nosniff, private caching for library covers |
 | GET | `/openapi/{documentName}.json` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
-| GET | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
-| POST | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | passkey options, or SignedInDto (user id, display name, library id) |
+| GET | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
+| POST | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 
 ## Endpoints that are not in the routing table
 
@@ -152,7 +149,6 @@ The OpenAPI document (`/openapi/{documentName}.json`) is anonymous and exists on
 | F1 | Medium | **Two refreshes at the same moment with one token both won.** OpenIddict ignores a failed redemption on a refresh grant ("that may be caused by concurrent requests"), so six parallel requests each got a live token pair. A thief and the phone racing would each hold a chain, and a later replay of an old token would not tell them apart. | Fixed. The token endpoint now spends the refresh token itself, atomically, before issuing; a loser is a replay and revokes the device's chain. `Auth/Pairing/TokenEndpoint.cs`, test `RefreshTokenAbuseTests.Two_refreshes_at_the_same_moment...` |
 | F2 | Low | **The token audience was not checked.** A token signed by the server but made for another audience was accepted. | Fixed. Tokens are issued for `collectionmaxxing-api` and validation requires it. `OpenIddictSetup.cs`, `TokenEndpoint.cs` |
 | F3 | Low | **The `api` scope was not enforced** although docs/07 layer 3 says it is. | Fixed. A bearer call without the scope is 401. `CurrentUserMiddleware.cs`, `AuthSetup.IsBearerCall` |
-| F4 | Low | **A form with a NUL character (`%00`) in it made `/connect/token` and `/connect/revoke` answer 500** (an unhandled exception from ASP.NET's form reader) and log a stack trace. | Fixed. 400 problem document. `Problems/MalformedFormExceptionHandler.cs` |
 | F5 | Low to medium | **A copied web session cookie keeps working after sign-out** until the 8-hour idle or 30-day absolute limit. The cookie is a sealed ticket with nothing on the server to revoke. Phones are not affected. | Fixed: [#177](https://github.com/coryfinnegan/CollectionMaxxing/issues/177). The cookie names a `web_sessions` row, checked on every request; sign-out, "sign out everywhere", removing a member and deleting an account revoke it (`Security/WebSessionTests`) |
 | F6 | Info | The audit's routing-table read cannot see the two OpenIddict discovery endpoints. | Documented above and pinned by tests |
 

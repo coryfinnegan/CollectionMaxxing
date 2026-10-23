@@ -1,12 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
-using CollectionMaxxing.Api.Tests.Pairing;
 using CollectionMaxxing.Api.Tests.Support;
 
 namespace CollectionMaxxing.Api.Tests.RateLimiting;
 
 // LOCKED acceptance tests of ID-2b (issue #63): the limiter keys on the forwarded client address only when the connection comes from
 // a configured trusted proxy, never on a header an arbitrary caller sends. Do not edit, weaken, skip or delete: add new tests instead.
+// AUTH-1 (#228) removed pairing; the code-guessing endpoint these tests hammer is now the recovery code (POST /account/recover).
 public abstract class RateLimitTestBase(ApiFixture api) : HardeningTest(api)
 {
     protected override Dictionary<string, string?> MoreSettings => new()
@@ -17,10 +17,11 @@ public abstract class RateLimitTestBase(ApiFixture api) : HardeningTest(api)
         ["Auth:RateLimit:TrustedProxies:1"] = "192.168.0.0/24",
     };
 
-    protected static Task<HttpResponseMessage> PairingAttemptAsync(HttpClient phone, int i) => RedeemCodeAsync(phone, "00000" + (i % 10));
+    protected static Task<HttpResponseMessage> PairingAttemptAsync(HttpClient phone, int i) =>
+        phone.PostAsJsonAsync("/account/recover", new { code = "WRONG-CODE-" + i });
 
     protected static Task<HttpResponseMessage> SetupAttemptAsync(HttpClient phone, int i) =>
-        phone.PostAsJsonAsync("/setup", new { code = "WRONG-" + i, displayName = "x" });
+        phone.PostAsJsonAsync("/setup", new { code = "WRONG-" + i });
 }
 
 public class UntrustedPeerRateLimitTests(ApiFixture api) : RateLimitTestBase(api)
@@ -149,14 +150,23 @@ public class TrustedProxyRateLimitTests(ApiFixture api) : RateLimitTestBase(api)
     [Fact]
     public async Task A_wrong_code_guesser_behind_the_proxy_does_not_lock_out_the_owner_behind_the_same_proxy()
     {
-        var (browser, _) = await SetUpOwnerAsync();
-        var offer = await OfferAsync(browser);
+        var (_, owner) = await SetUpOwnerAsync();
         var attacker = From("10.0.0.1", "203.0.113.5");
-        foreach (var guess in WrongCodes(offer.Code, 3))
+        for (var i = 0; i < 5; i++)
         {
-            await RedeemCodeAsync(attacker, guess);
+            await PairingAttemptAsync(attacker, i);
         }
 
-        (await RedeemCodeAsync(From("10.0.0.1", "203.0.113.6"), offer.Code)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var browser = Browser("10.0.0.1", "203.0.113.6");
+        browser.Identity = (await OwnerIdentityAsync(owner.UserId))!;
+        (await browser.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
+        browser.HasSessionCookie.ShouldBeTrue();
+    }
+
+    private async Task<Auth.TestIdentity?> OwnerIdentityAsync(Guid userId)
+    {
+        await using var context = Db.CreateContext();
+        var subject = context.Logins.Where(l => l.UserId == userId).Select(l => l.Subject).Single();
+        return await Task.FromResult(new Auth.TestIdentity(subject));
     }
 }

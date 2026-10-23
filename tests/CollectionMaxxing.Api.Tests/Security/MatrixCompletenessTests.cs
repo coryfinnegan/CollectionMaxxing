@@ -31,7 +31,7 @@ public class MatrixCompletenessTests(ApiFixture api)
     public void The_real_routing_table_has_the_endpoints_the_audit_expects_to_find()
     {
         // A guard against the audit passing because it saw nothing.
-        Real.Count.ShouldBeGreaterThan(80);
+        Real.Count.ShouldBeGreaterThan(75);
         Real.Count(e => e.LibraryMinimum is not null).ShouldBeGreaterThan(30);
         Real.Count(e => e.ScanSessionMinimum is not null).ShouldBeGreaterThan(8);
         Real.Count(e => e.RequiresAdminPolicy).ShouldBeGreaterThan(3);

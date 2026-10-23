@@ -296,13 +296,14 @@ public class CrossLibraryAccessTests(ApiFixture api) : CatalogTest(api)
     }
 
     [Fact]
-    public async Task A_device_of_someone_else_is_404_to_revoke_and_missing_from_the_list()
+    public async Task A_sign_in_method_of_someone_else_is_404_to_remove_and_missing_from_the_list()
     {
+        // AUTH-1 (#228): paired devices became Auth0 sign-in methods; the same object-level rule applies to them.
         var w = await SeedAsync();
         using var mallory = Mallory(w);
 
-        (await mallory.DeleteAsync($"/api/v1/me/sessions/{Guid.NewGuid()}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        var listed = await ReadJsonAsync(await mallory.GetAsync("/api/v1/me/sessions"));
+        (await mallory.DeleteAsync($"/api/v1/me/sign-in-methods/{Guid.NewGuid()}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var listed = await ReadJsonAsync(await mallory.GetAsync("/api/v1/me/sign-in-methods"));
         listed.GetProperty("items").GetArrayLength().ShouldBe(0);
     }
 

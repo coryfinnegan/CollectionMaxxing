@@ -9,7 +9,7 @@ namespace CollectionMaxxing.Infrastructure.Identity;
 
 public static class IdentityRegistration
 {
-    /// <summary>Users, roles and passkeys on ASP.NET Core Identity, plus the stores the sign-in use cases need.</summary>
+    /// <summary>Users and roles on ASP.NET Core Identity, plus the stores the sign-in use cases need.</summary>
     public static IServiceCollection AddIdentityAccounts(this IServiceCollection services)
     {
         services.AddOptions<AuthOptions>().BindConfiguration(AuthOptions.SectionName);
@@ -24,7 +24,6 @@ public static class IdentityRegistration
             .AddEntityFrameworkStores<AppDbContext>();
 
         services.TryAddScoped<IAccountStore, IdentityAccountStore>();
-        services.TryAddScoped<IPasskeyStore, PasskeyStore>();
         services.TryAddScoped<IWebSessions, WebSessionStore>();
         services.TryAddSingleton<ISetupCodeAnnouncer, SetupCodeAnnouncer>();
         return services;

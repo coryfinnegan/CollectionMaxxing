@@ -4,7 +4,7 @@ using CollectionMaxxing.Api.Tests.Support;
 namespace CollectionMaxxing.Api.Tests.Auth;
 
 /// <summary>
-/// Follow-up from the ID-1 verifier (issue #21): the CSRF header rule is tested on the sign-out and passkey endpoints, not only on
+/// Follow-up from the ID-1 verifier (issue #21): the CSRF header rule is tested on the sign-out, setup and recovery endpoints, not only on
 /// <c>/locations</c>. A request that carries the session cookie but not <c>X-CSRF: 1</c> is refused before anything happens.
 /// </summary>
 public class CsrfCoverageTests(ApiFixture api) : AuthTest(api)
@@ -12,11 +12,8 @@ public class CsrfCoverageTests(ApiFixture api) : AuthTest(api)
     public static TheoryData<string> CookieWrites =>
     [
         "/account/logout",
-        "/account/passkey/creation-options",
-        "/account/passkey/request-options",
-        "/account/passkey/register",
-        "/account/login",
         "/account/recover",
+        "/setup",
     ];
 
     [Theory]
@@ -40,18 +37,18 @@ public class CsrfCoverageTests(ApiFixture api) : AuthTest(api)
         (await browser.PostAsync("/account/logout", csrf: false)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        (await browser.PostAsync("/account/logout")).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await browser.PostAsync("/account/logout")).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
-    public async Task A_wrong_header_value_on_a_passkey_endpoint_is_403_too()
+    public async Task A_wrong_header_value_on_a_sign_in_endpoint_is_403_too()
     {
         var (browser, _) = await SetUpOwnerAsync();
 
         var response = await browser.SendAsync(
             HttpMethod.Post,
-            "/account/passkey/creation-options",
+            "/account/recover",
             new { },
             csrf: false,
             tweak: request => request.Headers.Add("X-CSRF", "0"));

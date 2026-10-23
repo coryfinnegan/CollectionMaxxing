@@ -1,6 +1,7 @@
+using System.Globalization;
 using System.Security.Claims;
-using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Application.Accounts.Devices;
+using CollectionMaxxing.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
@@ -8,8 +9,9 @@ using Microsoft.AspNetCore.Identity;
 namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
-/// The web session (docs/07, "Web: passkeys + same-origin cookie"): one <c>__Host-</c> cookie, so it's bound to the exact host,
-/// has no Domain, is Secure-only and HttpOnly, and SameSite=Strict. 8 hours sliding, 30 days absolute.
+/// The web session (docs/14, "Web: Auth0 signs you in, our cookie keeps you in"): one <c>__Host-</c> cookie, so it's bound to the exact
+/// host, has no Domain, is Secure-only and HttpOnly, and SameSite=Strict. 30 days sliding, one year absolute (D-2). Only our own code
+/// issues it, after the Auth0 callback has been checked (<see cref="SignInAsync"/>); the OpenID Connect handler never does.
 /// </summary>
 public static class AuthCookie
 {
@@ -18,7 +20,7 @@ public static class AuthCookie
     /// <summary>The scheme of the session cookie (Identity's application scheme, so Identity's own sign-in code agrees with ours).</summary>
     public static readonly string Scheme = IdentityConstants.ApplicationScheme;
 
-    /// <summary>The claim that says when the user last proved themselves with a passkey (OIDC's <c>auth_time</c>, seconds since 1970).</summary>
+    /// <summary>The claim that says when the user last signed in at Auth0 (the ID token's <c>auth_time</c>, seconds since 1970).</summary>
     public const string AuthTimeClaim = "auth_time";
 
     /// <summary>
@@ -27,8 +29,11 @@ public static class AuthCookie
     /// </summary>
     public const string SessionIdClaim = "cm_sid";
 
-    /// <summary>Where the ticket remembers when the session began, so renewals can't stretch it past 30 days.</summary>
+    /// <summary>Where the ticket remembers when the session began, so renewals can't stretch it past a year.</summary>
     internal const string StartedItem = "cm.started";
+
+    /// <summary>A ticket this old is re-issued on its next use, so the idle window is measured from (about) the last visit.</summary>
+    public static readonly TimeSpan RenewAfter = TimeSpan.FromDays(1);
 
     public static readonly TimeSpan IdleLifetime = IWebSessions.IdleLifetime;
     public static readonly TimeSpan AbsoluteLifetime = IWebSessions.AbsoluteLifetime;
@@ -59,28 +64,40 @@ public static class AuthCookie
     }
 
     /// <summary>
-    /// Signs the user in with a fresh session: <c>auth_time</c> is now, the 30-day clock starts now, and the browser gets a new
-    /// <c>web_sessions</c> row whose id goes into the cookie. A session this browser already held (it signed in again without signing out) is revoked.
+    /// Signs the user in with a fresh session: the cookie carries the user, the identity they used (<paramref name="loginId"/>) and when
+    /// they signed in at Auth0 (<paramref name="authTime"/>, if Auth0 said), the absolute clock starts now, and the browser gets a new
+    /// <c>web_sessions</c> row. Sessions this browser already held (it signed in again without signing out) are revoked.
     /// </summary>
-    public static async Task SignInAsync(HttpContext context, ClaimsPrincipal principal, TimeProvider time)
+    public static async Task SignInAsync(HttpContext context, Guid userId, Guid loginId, DateTimeOffset? authTime, IEnumerable<(Guid UserId, Guid SessionId)> replaces)
     {
-        var userId = UserId(principal) ?? throw new InvalidOperationException("The user signing in has no id.");
-        var sessions = context.RequestServices.GetRequiredService<IWebSessions>();
-        if (CurrentSession.WebSessionId(context.User) is { } previous && UserId(context.User) is { } previousUser)
+        var services = context.RequestServices;
+        var sessions = services.GetRequiredService<IWebSessions>();
+        var previous = replaces.ToList();
+        if (CurrentSession.WebSessionId(context.User) is { } current && UserId(context.User) is { } currentUser)
         {
-            await sessions.RevokeAsync(previousUser, previous, context.RequestAborted);
+            previous.Add((currentUser, current));
         }
 
-        var now = time.GetUtcNow().ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var identity = (ClaimsIdentity)principal.Identity!;
-        foreach (var stale in identity.FindAll(AuthTimeClaim).Concat(identity.FindAll(SessionIdClaim)).ToList())
+        foreach (var (owner, oldSession) in previous.Distinct())
         {
-            identity.RemoveClaim(stale);
+            await sessions.RevokeAsync(owner, oldSession, context.RequestAborted);
         }
+
+        var user = await services.GetRequiredService<UserManager<AppUser>>().FindByIdAsync(userId.ToString())
+            ?? throw new InvalidOperationException("The user signing in is gone.");
+        var principal = await services.GetRequiredService<IUserClaimsPrincipalFactory<AppUser>>().CreateAsync(user);
+        var identity = (ClaimsIdentity)principal.Identity!;
+        var time = services.GetRequiredService<TimeProvider>();
+        var now = time.GetUtcNow().ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
 
         var sessionId = await sessions.StartAsync(userId, BrowserLabel.From(context.Request.Headers.UserAgent.ToString()), context.RequestAborted);
-        identity.AddClaim(new Claim(AuthTimeClaim, now, ClaimValueTypes.Integer64));
+        if (authTime is { } signedInAt)
+        {
+            identity.AddClaim(new Claim(AuthTimeClaim, signedInAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64));
+        }
+
         identity.AddClaim(new Claim(SessionIdClaim, sessionId.ToString()));
+        identity.AddClaim(new Claim(CurrentSession.LoginIdClaim, loginId.ToString()));
 
         var properties = new AuthenticationProperties { IsPersistent = true };
         properties.Items[StartedItem] = now;
@@ -99,7 +116,7 @@ public static class AuthCookie
     }
 
     /// <summary>
-    /// Runs on every request that carries the cookie. The ticket must be inside its 30 days, and must name a session of this user that has
+    /// Runs on every request that carries the cookie. The ticket must be inside its year, and must name a session of this user that has
     /// not been revoked. A cookie from before web sessions existed names none, so it is refused; the person signs in again.
     /// </summary>
     private static async Task ValidateAsync(CookieValidatePrincipalContext context)
@@ -132,8 +149,15 @@ public static class AuthCookie
             context.RejectPrincipal();
             await context.HttpContext.SignOutAsync(Scheme);
         }
+        else if (context.Properties.IssuedUtc is not { } issued || time.GetUtcNow() - issued >= RenewAfter)
+        {
+            // A true 30-day idle window (D-2): ASP.NET's sliding expiration renews only once half the lifetime has passed, which would make the
+            // real limit 15 to 30 days. Renewing once the ticket is about a day old keeps it at 30 days after the last use. The absolute
+            // year is untouched: it is measured from StartedItem, which a renewal keeps.
+            context.ShouldRenew = true;
+        }
     }
 
     /// <summary>The user id of a signed-in caller (cookie or bearer token), or null.</summary>
-    public static Guid? UserId(ClaimsPrincipal user) => Pairing.CurrentSession.UserId(user);
+    public static Guid? UserId(ClaimsPrincipal user) => CurrentSession.UserId(user);
 }

@@ -8,17 +8,19 @@ if (!/^\d+(\.\d+){0,2}$/.test(buildNumber)) {
   throw new Error(`IOS_BUILD_NUMBER should be one to three dot-separated integers, got "${buildNumber}".`);
 }
 
+// Registered in the Apple Developer account; the App Store Connect app and the provisioning profile are tied to it.
+const bundleIdentifier = 'io.github.coryfinnegan.collectionmaxxing';
+
 const config: ExpoConfig = {
   name: 'CollectionMaxxing',
   slug: 'collectionmaxxing',
   scheme: 'collectionmaxxing',
-  version: '1.0.4',
+  version: '1.1.0',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   userInterfaceStyle: 'automatic',
   ios: {
-    // Registered in the Apple Developer account; the App Store Connect app and the provisioning profile are tied to it.
-    bundleIdentifier: 'io.github.coryfinnegan.collectionmaxxing',
+    bundleIdentifier,
     buildNumber,
     supportsTablet: false,
     // PrivacyInfo.xcprivacy (OPS-2a, #172): no tracking, no collected data, and the required-reason APIs the libraries use.
@@ -50,6 +52,13 @@ const config: ExpoConfig = {
         photosPermission: 'CollectionMaxxing reads the photos you pick to recognise the items in them. Pictures are processed on your phone.',
         microphonePermission: false,
       },
+    ],
+    // Auth0 sign-in (docs/14, ADR-025). The callback is <scheme>://<domain>/ios/<bundle id>/callback, which the iPhone
+    // app in deploy/auth0 allows; the scheme is the SDK's default, spelled out because the plugin can't infer it for
+    // Android. ios-build.yml passes the real domain; the placeholder keeps CI and local builds working.
+    [
+      'react-native-auth0',
+      { domain: process.env.EXPO_PUBLIC_AUTH0_DOMAIN || 'auth0-domain.invalid', customScheme: `${bundleIdentifier}.auth0` },
     ],
     // Manual signing of the Release build with the App Store profile, only when CI passes both (ADR-024).
     ['./plugins/withReleaseSigning', { teamId: process.env.IOS_SIGNING_TEAM_ID, profile: process.env.IOS_SIGNING_PROFILE }],

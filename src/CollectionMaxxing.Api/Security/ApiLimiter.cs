@@ -2,14 +2,13 @@ using System.Globalization;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using CollectionMaxxing.Api.Auth;
-using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Problems;
 using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Api.Security;
 
 /// <summary>
-/// The "Rate limits" table of docs/08 (apart from the 10-a-minute code and passkey limiter, which is <c>Auth:RateLimit</c>). Each caller has
+/// The "Rate limits" table of docs/08 (apart from the 10-a-minute code and sign-in limiter, which is <c>Auth:RateLimit</c>). Each caller has
 /// one bucket per group: a signed-in user is a user, anyone else is the address they came from. Idle buckets are forgotten.
 /// </summary>
 public sealed class ApiLimiter : IDisposable
@@ -141,12 +140,10 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
             }
         }
 
-        if (HttpMethods.IsPost(method) && path.StartsWithSegments("/connect/token"))
+        // Signing out must always work, whoever has been busy from the same address.
+        if (HttpMethods.IsPost(method) && path.StartsWithSegments("/account/logout"))
         {
-            // A paired phone refreshes about six times an hour and on every cold start. Counting that against the hourly limit would
-            // sooner or later refuse the owner's own device, and the app must never read a refusal as "un-paired". A refresh token is
-            // long and random, so it can't be guessed; the everything-else bucket still bounds how often it is tried.
-            return await IsRefreshGrantAsync(request) ? (null, 0) : (nameof(SecurityOptions.LimitOptions.AuthHourly), 1);
+            return (null, 0);
         }
 
         if (HttpMethods.IsPost(method) && (path.StartsWithSegments("/account") || path.StartsWithSegments("/setup")))
@@ -155,25 +152,6 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
         }
 
         return (null, 0);
-    }
-
-    /// <summary>True when the token request is a form with <c>grant_type=refresh_token</c>. The form is cached on the request, so the token server reads it again for free.</summary>
-    private static async Task<bool> IsRefreshGrantAsync(HttpRequest request)
-    {
-        if (!request.HasFormContentType)
-        {
-            return false;
-        }
-
-        try
-        {
-            var form = await request.ReadFormAsync();
-            return form.TryGetValue("grant_type", out var grant) && grant.Count == 1 && grant[0] == "refresh_token";
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or InvalidOperationException or BadHttpRequestException)
-        {
-            return false; // a form we can't read is not a refresh; the token server answers it
-        }
     }
 
     /// <summary>A signed-in caller is their user id; anyone else is the address they came from.</summary>

@@ -32,11 +32,11 @@ test.describe('phone width', () => {
     expect(await fitsWidth(page)).toBe(true);
 
     await page.goto('/login');
-    await expect(page.getByRole('button', { name: 'Sign in with a passkey' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     expect(await fitsWidth(page)).toBe(true);
 
     await page.goto('/setup');
-    await expect(page.getByRole('button', { name: 'Create passkey' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
     expect(await fitsWidth(page)).toBe(true);
 
     await page.goto('/join/valid-invite');

@@ -1,10 +1,15 @@
-// Calls to the sign-in, device and session endpoints (docs/04 "Account and session"). Written against the contract and the
-// MSW mocks; the generated client does not cover the browser-facing sign-in routes.
+// Calls to the sign-in, sign-in-method and device endpoints (docs/14 "Web"). The routes are typed by hand in ./contract until the
+// generated client covers them.
 import { customFetch } from '@/lib/http';
-import type { PasskeyJson } from './passkeys';
+import type {
+  AppSignInDto,
+  LogoutDto,
+  NextStepDto,
+  PageOfAppSignInDto,
+  PageOfSignInMethodDto,
+  SignInMethodDto,
+} from './contract';
 
-export type SignedIn = { userId: string; displayName: string; libraryId?: string | null };
-export type PasskeyOptions = { options: PasskeyJson };
 export type SessionDto = {
   id: string;
   deviceName: string;
@@ -13,57 +18,54 @@ export type SessionDto = {
   lastSeenAt?: string | null;
   isCurrent: boolean;
 };
-export type PairDeviceDto = { serverUrl: string; token: string; code: string; expiresAt: string };
 
+const get = async <T>(url: string): Promise<T> => (await customFetch<{ data: T }>(url)).data;
 const post = async <T>(url: string, body?: object): Promise<T> =>
   (await customFetch<{ data: T }>(url, { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) })).data;
 
-/** First run: the setup code and the owner's name, answered with passkey creation options. */
-export const startSetup = (code: string, displayName: string) => post<PasskeyOptions>('/setup', { code, displayName });
+/** First run: the setup code. The answer says where to go next: the sign-in. */
+export const startSetup = (code: string) => post<NextStepDto>('/setup', { code });
 
-/** Joining by invite: the invite token and the new member's name. */
-export const startJoin = (inviteToken: string, displayName: string) =>
-  post<PasskeyOptions>('/account/passkey/creation-options', { inviteToken, displayName });
+/** Ends this browser's session. The answer is where to send the browser to end the Auth0 session too. */
+export const logout = () => post<LogoutDto>('/account/logout');
 
-export const finishRegistration = (credential: PasskeyJson, options: { name?: string; invite?: string } = {}) =>
-  post<SignedIn>(`/account/passkey/register${options.invite ? `?invite=${encodeURIComponent(options.invite)}` : ''}`, {
-    credential,
-    name: options.name,
-  });
+export const listSignInMethods = async (): Promise<SignInMethodDto[]> =>
+  (await get<PageOfSignInMethodDto>('/api/v1/me/sign-in-methods')).items;
 
-export const requestLoginOptions = () => post<PasskeyOptions>('/account/passkey/request-options');
-export const finishLogin = (credential: PasskeyJson) => post<SignedIn>('/account/login', { credential });
-export const logout = () => customFetch('/account/logout', { method: 'POST' });
+export const removeSignInMethod = (id: string) =>
+  customFetch(`/api/v1/me/sign-in-methods/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
-const listFrom = async (url: string): Promise<SessionDto[]> =>
-  (await customFetch<{ data: { items: SessionDto[] } }>(url)).data.items;
+export const listBrowsers = async (): Promise<SessionDto[]> =>
+  (await get<{ items: SessionDto[] }>('/api/v1/me/web-sessions')).items;
 
-export type SessionList = {
-  sessions: SessionDto[];
+export const listIphones = async (): Promise<AppSignInDto[]> => (await get<PageOfAppSignInDto>('/api/v1/me/app-sign-ins')).items;
+
+export type DeviceList = {
+  browsers: SessionDto[];
+  iphones: AppSignInDto[];
   /** Which half of the list could not be loaded, when the other half did. */
-  failed: ('phones' | 'browsers')[];
+  failed: ('iPhones' | 'browsers')[];
 };
 
-/**
- * Where you are signed in: paired phones (`kind: 'device'`) and browsers (`kind: 'web'`), most recently seen first. If one of the
- * two lists fails, the other is still returned and `failed` names the missing half; if both fail, this throws.
- */
-export const listSessions = async (): Promise<SessionList> => {
-  const [devices, browsers] = await Promise.allSettled([listFrom('/api/v1/me/sessions'), listFrom('/api/v1/me/web-sessions')]);
-  if (devices.status === 'rejected' && browsers.status === 'rejected') throw devices.reason;
-  const failed: SessionList['failed'] = [];
-  if (devices.status === 'rejected') failed.push('phones');
+/** Where you are signed in. If one of the two lists fails the other is still returned and `failed` names the missing half. */
+export const listDevices = async (): Promise<DeviceList> => {
+  const [browsers, iphones] = await Promise.allSettled([listBrowsers(), listIphones()]);
+  if (browsers.status === 'rejected' && iphones.status === 'rejected') throw browsers.reason;
+  const failed: DeviceList['failed'] = [];
+  if (iphones.status === 'rejected') failed.push('iPhones');
   if (browsers.status === 'rejected') failed.push('browsers');
-  const seen = (s: SessionDto) => new Date(s.lastSeenAt ?? s.createdAt).getTime();
-  const sessions = [...(devices.status === 'fulfilled' ? devices.value : []), ...(browsers.status === 'fulfilled' ? browsers.value : [])];
-  return { sessions: sessions.sort((a, b) => seen(b) - seen(a)), failed };
+  return {
+    browsers: browsers.status === 'fulfilled' ? browsers.value : [],
+    iphones: iphones.status === 'fulfilled' ? iphones.value : [],
+    failed,
+  };
 };
 
-/** Signs one phone or browser out. */
-export const revokeSession = ({ id, kind }: Pick<SessionDto, 'id' | 'kind'>) =>
-  customFetch(`/api/v1/me/${kind === 'web' ? 'web-sessions' : 'sessions'}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** Signs one browser out. */
+export const revokeBrowser = (id: string) => customFetch(`/api/v1/me/web-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
-/** Signs every browser of this person out, this one included. Paired phones keep their own sign-in. */
+/** Signs every browser of this person out, this one included. iPhones keep their own sign-in. */
 export const revokeWebSessions = () => customFetch('/api/v1/me/web-sessions', { method: 'DELETE' });
 
-export const pairDevice = () => post<PairDeviceDto>('/api/v1/me/devices/pair');
+/** Signs every iPhone of this person out. */
+export const signOutAllIphones = () => customFetch('/api/v1/me/app-sign-ins', { method: 'DELETE' });

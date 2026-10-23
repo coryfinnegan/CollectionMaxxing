@@ -50,13 +50,17 @@ services:
       ConnectionStrings__collectionmaxxing: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       Catalog__CoversRoot: /data/files/covers
-      # Sign-in. The relying-party id is the name people browse to (your Tailscale name); it can't change later without
-      # losing every passkey. The two PFX files and the one-time setup code live in the secrets folder (docs/07).
-      Auth__RelyingPartyId: ${CM_RELYING_PARTY_ID:?set in .env (your Tailscale name)}
+      # Sign-in through Auth0 (docs/07, docs/14). deploy/auth0/Apply-Auth0.ps1 writes these values to <secrets>\auth0\api.env;
+      # copy them into .env. All six are required: without the Management credentials "Sign out all iPhones" would
+      # silently do nothing at Auth0. The one-time setup code is written to the secrets folder.
       Auth__SecretsPath: /secrets
-      Auth__Keys__SigningCertificatePath: /secrets/openiddict-signing.pfx
-      Auth__Keys__EncryptionCertificatePath: /secrets/openiddict-encryption.pfx
-      Auth__Keys__CertificatePassword: ${CM_CERT_PASSWORD:-}
+      Auth__PublicOrigin: ${CM_PUBLIC_ORIGIN:?set in .env (see deploy/auth0)}
+      Auth__Auth0__Domain: ${CM_AUTH0_DOMAIN:?set in .env (see deploy/auth0)}
+      Auth__Auth0__Audience: urn:collectionmaxxing:api
+      Auth__Auth0__WebClientId: ${CM_AUTH0_WEB_CLIENT_ID:?set in .env (see deploy/auth0)}
+      Auth__Auth0__WebClientSecret: ${CM_AUTH0_WEB_CLIENT_SECRET:?set in .env (see deploy/auth0)}
+      Auth__Auth0__ManagementClientId: ${CM_AUTH0_MANAGEMENT_CLIENT_ID:?set in .env (see deploy/auth0)}
+      Auth__Auth0__ManagementClientSecret: ${CM_AUTH0_MANAGEMENT_CLIENT_SECRET:?set in .env (see deploy/auth0)}
       # The Data Protection key ring lives on the files volume so sign-ins survive deploys (the volume is covered by
       # BitLocker and the nightly backup). The API refuses to start outside Development without it.
       Auth__KeyRing__Path: /data/files/keyring

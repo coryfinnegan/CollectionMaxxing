@@ -13,3 +13,11 @@ export class PasskeyUnsupportedError extends Error {
     this.name = 'PasskeyUnsupportedError';
   }
 }
+
+/** The person chose "Not now" on the confirm-it's-you prompt. */
+export class ReauthCancelledError extends Error {
+  constructor() {
+    super('Sign-in confirmation cancelled');
+    this.name = 'ReauthCancelledError';
+  }
+}

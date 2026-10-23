@@ -42,7 +42,7 @@ public static class AdminCommands
             var issued = await scope.ServiceProvider.GetRequiredService<IssueCode.Handler>().HandleAsync(SetupCodePurpose.Recovery, cancellationToken);
             await output.WriteLineAsync(
                 $"Recovery code: {issued!.Code}{Environment.NewLine}"
-                + $"Open the web app's sign-in page, choose \"Lost your passkey?\" and enter it. It works once and expires at {issued.ExpiresAt.ToString("u", CultureInfo.InvariantCulture)}.");
+                + $"Open the web app's sign-in page, choose \"Can't sign in?\" and enter it, then sign in with the account you want to use. It works once and expires at {issued.ExpiresAt.ToString("u", CultureInfo.InvariantCulture)}.");
             return 0;
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)

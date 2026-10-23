@@ -9,7 +9,7 @@ namespace CollectionMaxxing.Api.Tests.Support;
 /// <summary>
 /// The test sign-in: the caller's user id travels in the <c>X-Test-User</c> header, and any platform roles (e.g. <c>admin</c>,
 /// comma separated) in <c>X-Test-Roles</c>. No user header means anonymous.
-/// Real sign-in (passkeys) is covered by the tests in Auth/ with <c>AuthApp</c>; every other test keeps using this one.
+/// Real sign-in (Auth0, through a fake tenant) is covered by the tests in Auth/ with <c>AuthApp</c>; every other test keeps using this one.
 /// </summary>
 public sealed class TestAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -22,6 +22,9 @@ public sealed class TestAuthHandler(
     public const string UserHeader = "X-Test-User";
     public const string RolesHeader = "X-Test-Roles";
 
+    /// <summary>When the test user last signed in, in seconds since 1970. Absent means "just now".</summary>
+    public const string AuthTimeHeader = "X-Test-Auth-Time";
+
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue(UserHeader, out var value))
@@ -29,12 +32,12 @@ public sealed class TestAuthHandler(
             return Task.FromResult(AuthenticateResult.NoResult());
         }
 
-        // Every test user "just signed in with a passkey", so endpoints that need a recent one let them through.
+        // Every test user "just signed in", so endpoints that need a recent sign-in let them through.
         // The re-auth tests use real sign-in instead (see Auth/AuthApp).
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, value.ToString()),
-            new("auth_time", time.GetUtcNow().ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
+            new("auth_time", Request.Headers.TryGetValue(AuthTimeHeader, out var authTime) ? authTime.ToString() : time.GetUtcNow().ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
         };
         if (Request.Headers.TryGetValue(RolesHeader, out var roles))
         {

@@ -1,83 +1,76 @@
-import { HttpResponse, http } from 'msw';
-import { server } from '@/mocks/server';
-import { baseUrl, configureAuth, refreshAccessToken, resetAuth } from './session';
-import { MemoryTokenStore } from './tokenStore';
+import { AuthLostError, MemoryNativeAuth, type NativeAuth } from './native';
+import { authHeaders, baseUrl, configureAuth, endSession, refreshAccessToken, resetAuth } from './session';
 
-const API = 'http://api.test';
+afterEach(() => resetAuth());
 
-beforeEach(() => {
-  jest.spyOn(console, 'warn').mockImplementation(() => {}); // "Could not reach the server" is expected in the network-error case
-});
+/** A NativeAuth whose token calls are scripted. */
+const scripted = (getAccessToken: NativeAuth['getAccessToken']): NativeAuth => Object.assign(new MemoryNativeAuth(), { getAccessToken });
 
-afterEach(() => {
-  resetAuth();
-  jest.restoreAllMocks();
-});
+describe('credentials for a request (native)', () => {
+  it('sends the Credentials Manager token as the bearer', async () => {
+    configureAuth({ platform: 'native', native: new MemoryNativeAuth('tok') });
+    expect(await authHeaders('GET')).toEqual({ Authorization: 'Bearer tok' });
+  });
 
-describe('refreshing the session (native)', () => {
-  const setup = () => {
-    const store = new MemoryTokenStore({ refreshToken: 'refresh-1', serverUrl: API });
+  it('with no credentials at all, sends the person to Sign in', async () => {
     const onAuthLost = jest.fn();
-    const clear = jest.spyOn(store, 'clear');
-    configureAuth({ platform: 'native', tokenStore: store, onAuthLost });
-    return { store, onAuthLost, clear };
-  };
+    configureAuth({ platform: 'native', native: new MemoryNativeAuth(null), onAuthLost });
+
+    expect(await authHeaders('GET')).toEqual({});
+    expect(onAuthLost).toHaveBeenCalledWith('login');
+  });
 
   it.each([
-    ['a 429 with Retry-After', () => new HttpResponse(null, { status: 429, headers: { 'Retry-After': '30' } })],
-    ['a 429 without Retry-After', () => new HttpResponse(null, { status: 429 })],
-    ['a 503', () => new HttpResponse(null, { status: 503 })],
-    ['a 400 that is not invalid_grant', () => HttpResponse.json({ error: 'invalid_request' }, { status: 400 })],
-    ['a network error', () => HttpResponse.error()],
-  ])('%s keeps the credentials and does not send the person to pairing', async (_name, respond) => {
-    server.use(http.post(`${API}/connect/token`, respond));
-    const { store, onAuthLost, clear } = setup();
+    ['a network error', new Error('Network request failed')],
+    ['a timeout', new Error('timeout')],
+    ['a 429', Object.assign(new Error('Too many requests'), { status: 429 })],
+    ['a 503', Object.assign(new Error('Service unavailable'), { status: 503 })],
+  ])('%s keeps the credentials, does not send the person to Sign in, and surfaces the error', async (_name, error) => {
+    const onAuthLost = jest.fn();
+    const native = scripted(() => Promise.reject(error));
+    const clear = jest.spyOn(native, 'clear');
+    configureAuth({ platform: 'native', native, onAuthLost });
 
-    await expect(refreshAccessToken()).resolves.toBe(false);
-
-    expect(clear).not.toHaveBeenCalled();
+    await expect(authHeaders('GET')).rejects.toBe(error);
     expect(onAuthLost).not.toHaveBeenCalled();
-    expect(await store.load()).toEqual({ refreshToken: 'refresh-1', serverUrl: API });
+    expect(clear).not.toHaveBeenCalled();
+  });
+});
+
+describe('refreshing after a 401 (native)', () => {
+  it('forces one refresh shared by concurrent callers', async () => {
+    const getAccessToken = jest.fn().mockResolvedValue('fresh');
+    configureAuth({ platform: 'native', native: scripted(getAccessToken) });
+
+    const tokens = await Promise.all([refreshAccessToken(), refreshAccessToken(), refreshAccessToken()]);
+
+    expect(tokens).toEqual(['fresh', 'fresh', 'fresh']);
+    expect(getAccessToken).toHaveBeenCalledTimes(1);
+    expect(getAccessToken).toHaveBeenCalledWith(true);
   });
 
-  it.each([
-    ['a 400 invalid_grant', () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 })],
-    ['a 401', () => new HttpResponse(null, { status: 401 })],
-  ])('%s means the device was revoked: credentials cleared, back to pairing', async (_name, respond) => {
-    server.use(http.post(`${API}/connect/token`, respond));
-    const { store, onAuthLost } = setup();
+  it('a refresh Auth0 rejects sends the person to Sign in', async () => {
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native: scripted(() => Promise.reject(new AuthLostError())), onAuthLost });
 
-    await expect(refreshAccessToken()).resolves.toBe(false);
-
-    expect(await store.load()).toBeNull();
-    expect(onAuthLost).toHaveBeenCalledWith('pair');
+    expect(await refreshAccessToken()).toBeNull();
+    expect(onAuthLost).toHaveBeenCalledWith('login');
   });
 
-  it('after a 429 it waits for Retry-After before asking again, then retries and succeeds', async () => {
-    const now = jest.spyOn(Date, 'now');
-    now.mockReturnValue(Date.parse('2026-01-01T00:00:00Z'));
-    let calls = 0;
-    server.use(
-      http.post(`${API}/connect/token`, () => {
-        calls++;
-        return calls === 1
-          ? new HttpResponse(null, { status: 429, headers: { 'Retry-After': '30' } })
-          : HttpResponse.json({ access_token: 'fresh', refresh_token: 'refresh-2' });
-      }),
-    );
-    const { store } = setup();
+  it('a refresh that cannot run (offline, 5xx, 429) returns null and leaves the person signed in', async () => {
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native: scripted(() => Promise.reject(new Error('Network request failed'))), onAuthLost });
 
-    await expect(refreshAccessToken()).resolves.toBe(false);
-    now.mockReturnValue(Date.parse('2026-01-01T00:00:10Z'));
-    await expect(refreshAccessToken()).resolves.toBe(false);
-    expect(calls).toBe(1); // still inside the 30 seconds: no second request
-
-    now.mockReturnValue(Date.parse('2026-01-01T00:00:31Z'));
-    await expect(refreshAccessToken()).resolves.toBe(true);
-    expect(calls).toBe(2);
-    expect((await store.load())?.refreshToken).toBe('refresh-2');
-    now.mockRestore();
+    expect(await refreshAccessToken()).toBeNull();
+    expect(onAuthLost).not.toHaveBeenCalled();
   });
+});
+
+it('ending the session clears the stored credentials', async () => {
+  const native = new MemoryNativeAuth('tok');
+  configureAuth({ platform: 'native', native });
+  await endSession();
+  expect(native.token).toBeNull();
 });
 
 describe('baseUrl', () => {

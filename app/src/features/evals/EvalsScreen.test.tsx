@@ -1,7 +1,7 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import { setPictureFiles } from '@/features/scan/pictureFiles';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
-import { MemoryTokenStore } from '@/lib/auth/tokenStore';
+import { MemoryNativeAuth } from '@/lib/auth/native';
 import { evalsMock } from '@/mocks/evals';
 import { renderWithProviders } from '@/test/render';
 import { EvalsScreen } from './EvalsScreen';
@@ -9,7 +9,7 @@ import { makeKit } from './evalsTestKit';
 
 beforeEach(() => {
   evalsMock.reset();
-  configureAuth({ platform: 'native', tokenStore: new MemoryTokenStore({ refreshToken: 'mock-refresh', serverUrl: 'http://api.test' }) });
+  configureAuth({ platform: 'native', native: new MemoryNativeAuth() });
 });
 afterEach(() => {
   resetAuth();

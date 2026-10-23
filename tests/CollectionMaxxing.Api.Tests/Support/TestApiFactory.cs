@@ -1,10 +1,12 @@
 using CollectionMaxxing.Infrastructure.Jobs;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace CollectionMaxxing.Api.Tests.Support;
 
@@ -26,6 +28,11 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
                 ["Security:Limits:Export:Permits"] = "100000",
                 ["Security:Limits:AuthHourly:Permits"] = "100000",
                 ["Auth:Setup:IssueOnStartup"] = "false",
+                ["Auth:Auth0:Domain"] = "tenant.auth0.test",
+                ["Auth:Auth0:Audience"] = "urn:collectionmaxxing:api",
+                ["Auth:Auth0:WebClientId"] = "web-client-id",
+                ["Auth:Auth0:WebClientSecret"] = "web-client-secret-for-tests",
+                ["Auth:PublicOrigin"] = "https://localhost",
             }));
 
         builder.ConfigureTestServices(services =>
@@ -45,6 +52,15 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
                     options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
                 })
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+
+            // GET /account/login still goes to "Auth0": a fixed configuration, so nothing is fetched over the network.
+            services.Configure<OpenIdConnectOptions>(CollectionMaxxing.Api.Auth.Auth0Setup.OidcScheme, options =>
+                options.Configuration = new OpenIdConnectConfiguration
+                {
+                    Issuer = "https://tenant.auth0.test/",
+                    AuthorizationEndpoint = "https://tenant.auth0.test/authorize",
+                    TokenEndpoint = "https://tenant.auth0.test/oauth/token",
+                });
         });
     }
 }

@@ -1,6 +1,6 @@
+using CollectionMaxxing.Api.Accounts.AppSignIns;
 using CollectionMaxxing.Api.Accounts.Deletion;
 using CollectionMaxxing.Api.Auth;
-using CollectionMaxxing.Api.Auth.Pairing;
 using CollectionMaxxing.Api.Exports;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Accounts;
@@ -15,7 +15,10 @@ public static class AccountEndpoints
     public static IServiceCollection AddAccounts(this IServiceCollection services)
     {
         services.AddScoped<GetMe.Handler>();
-        services.AddDevicePairing();
+        services.AddScoped<ListWebSessions.Handler>();
+        services.AddScoped<RevokeWebSession.Handler>();
+        services.AddScoped<RevokeWebSessions.Handler>();
+        services.AddAppSignIns();
         services.AddAccountDeletion();
         services.AddExports(); // LIB-2b; the lead may move this line to Program.cs
         return services;
@@ -38,27 +41,28 @@ public static class AccountEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization().IsStub();
 
-        // Delete account (LIB-2c): a passkey assertion made for this request, then soft delete; the purge job follows in 30 days.
+        // Delete account (LIB-2c): a sign-in from the last five minutes, then soft delete; the purge job follows in 30 days.
         app.MapDeleteAccount();
 
-        // Paired devices (ID-2). The phones are OpenIddict authorizations; revoking one ends its tokens at once.
-        app.MapGet("/api/v1/me/sessions", async (ICurrentUser user, HttpContext http, ListSessions.Handler handler, CancellationToken cancellationToken) =>
-                TypedResults.Ok(await handler.HandleAsync(user.UserId!.Value, CurrentSession.Id(http.User), cancellationToken)))
-            .WithName("ListSessions").WithTags("Account")
-            .Produces<Page<SessionDto>>()
+        // Sign-in methods: the Auth0 identities linked to the caller (Google, Apple). Removing one needs a recent sign-in, and the last one stays.
+        app.MapGet("/api/v1/me/sign-in-methods", async (ICurrentUser user, HttpContext http, ListSignInMethods.Handler handler, CancellationToken cancellationToken) =>
+                TypedResults.Ok(await handler.HandleAsync(user.UserId!.Value, CurrentSession.LoginId(http.User), cancellationToken)))
+            .WithName("ListSignInMethods").WithTags("Account")
+            .Produces<Page<SignInMethodDto>>()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization();
 
-        app.MapDelete("/api/v1/me/sessions/{id:guid}", async (Guid id, ICurrentUser user, RevokeSession.Handler handler, CancellationToken cancellationToken) =>
+        app.MapDelete("/api/v1/me/sign-in-methods/{id:guid}", async (Guid id, ICurrentUser user, RemoveSignInMethod.Handler handler, CancellationToken cancellationToken) =>
             {
                 var result = await handler.HandleAsync(user.UserId!.Value, id, cancellationToken);
                 return result.IsSuccess ? Results.NoContent() : result.Error!.ToProblem();
             })
-            .WithName("RevokeSession").WithTags("Account")
+            .WithName("RemoveSignInMethod").WithTags("Account")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .RequireAuthorization();
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireAuthorization().RequireRecentSignIn();
 
         // Signed-in browsers (the web session cookie): listed in Settings next to the phones, and each can be signed out.
         app.MapGet("/api/v1/me/web-sessions", async (ICurrentUser user, HttpContext http, ListWebSessions.Handler handler, CancellationToken cancellationToken) =>
@@ -89,7 +93,7 @@ public static class AccountEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .RequireAuthorization();
 
-        // "Sign out everywhere" for the web: every browser of the caller, this one included. Phones are unpaired one by one, above.
+        // "Sign out everywhere" for the web: every browser of the caller, this one included.
         app.MapDelete("/api/v1/me/web-sessions", async (ICurrentUser user, HttpContext http, RevokeWebSessions.Handler handler, CancellationToken cancellationToken) =>
             {
                 await handler.HandleAsync(user.UserId!.Value, cancellationToken);
@@ -101,17 +105,8 @@ public static class AccountEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization();
 
-        app.MapPost("/api/v1/me/devices/pair", async (ICurrentUser user, CreatePairing.Handler handler, CancellationToken cancellationToken) =>
-            {
-                var result = await handler.HandleAsync(user.UserId!.Value, cancellationToken);
-                return result.IsSuccess
-                    ? Results.Created((string?)null, result.Value)
-                    : ProblemResults.Problem(StatusCodes.Status401Unauthorized, "Unauthorized", result.Error!.Message, result.Error.Code);
-            })
-            .WithName("PairDevice").WithTags("Account")
-            .Produces<PairDeviceDto>(StatusCodes.Status201Created)
-            .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization().RequireRecentPasskey();
+        // The iPhones signed in with Auth0 (AUTH-2): register, list, sign them all out.
+        app.MapAppSignIns();
 
         // Export my data (LIB-2b): the start route plus its status and download siblings.
         app.MapExportEndpoints();

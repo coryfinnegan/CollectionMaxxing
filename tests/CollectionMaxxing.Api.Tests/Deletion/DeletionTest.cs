@@ -19,8 +19,8 @@ using WebClient = CollectionMaxxing.Api.Tests.Auth.WebClient;
 namespace CollectionMaxxing.Api.Tests.Deletion;
 
 /// <summary>
-/// Base class for the account-deletion tests (LIB-2c): real passkey sign-in, a clock the test controls, a covers folder in a
-/// temporary directory, and the pieces of deleting an account: the fresh passkey assertion, a library full of data, the purge job.
+/// Base class for the account-deletion tests (LIB-2c): real Auth0 sign-in (the fake tenant), a clock the test controls, a covers folder
+/// in a temporary directory, and the pieces of deleting an account: a recent sign-in, a library full of data, the purge job.
 /// </summary>
 public abstract class DeletionTest(ApiFixture api) : InviteTest(api)
 {
@@ -43,28 +43,19 @@ public abstract class DeletionTest(ApiFixture api) : InviteTest(api)
     /// <summary>Like <c>SetUpOwnerAsync</c>, with a name to look for in logs and tables.</summary>
     protected async Task<(WebClient Browser, WebClient.SignedIn Owner)> SetUpNamedOwnerAsync(string displayName)
     {
-        var browser = App.NewBrowser();
-        var owner = await browser.SetUpOwnerAsync(await App.IssueCodeAsync(CollectionMaxxing.Domain.Accounts.SetupCodePurpose.Setup), displayName);
+        var browser = App.NewBrowser(TestIdentity.Google(displayName));
+        var owner = await browser.SetUpOwnerAsync(await App.IssueCodeAsync(CollectionMaxxing.Domain.Accounts.SetupCodePurpose.Setup));
         return (browser, owner);
     }
 
     // ---- deleting ------------------------------------------------------------------------------------------------------
 
-    /// <summary>What the web app does just before deleting: asks for passkey options and signs them. The result is the credential JSON.</summary>
-    protected static async Task<JsonElement> AssertAsync(WebClient browser, SoftwareAuthenticator? authenticator = null)
+    /// <summary>What the web app does: <c>DELETE /api/v1/me</c>, after a fresh sign-in (<c>reauth=1</c>) so the session is recent.</summary>
+    protected static async Task<HttpResponseMessage> DeleteAccountAsync(WebClient browser)
     {
-        var optionsResponse = await browser.PostAsync("/account/passkey/request-options");
-        optionsResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var options = (await optionsResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("options");
-        return JsonDocument.Parse((authenticator ?? browser.Authenticator).Sign(options.GetRawText())).RootElement.Clone();
+        (await browser.ReauthAsync()).Headers.Location?.ToString().ShouldBe("/");
+        return await browser.SendAsync(HttpMethod.Delete, "/api/v1/me", null);
     }
-
-    protected static Task<HttpResponseMessage> DeleteWithAsync(WebClient browser, JsonElement credential) =>
-        browser.SendAsync(HttpMethod.Delete, "/api/v1/me", new { credential });
-
-    /// <summary>A passkey assertion made for this request, then the delete.</summary>
-    protected static async Task<HttpResponseMessage> DeleteAccountAsync(WebClient browser) =>
-        await DeleteWithAsync(browser, await AssertAsync(browser));
 
     protected async Task<(DateTimeOffset? DeletedAt, string DisplayName)> UserRowAsync(Guid userId)
     {
@@ -293,14 +284,11 @@ public abstract class DeletionTest(ApiFixture api) : InviteTest(api)
         await connection.OpenAsync();
         var queries = new Dictionary<string, string>
         {
-            ["user_passkeys"] = "select count(*) from user_passkeys where user_id = @id",
-            ["device_pairings"] = "select count(*) from device_pairings where user_id = @id",
+            ["user_logins"] = "select count(*) from user_logins where user_id = @id",
             ["web_sessions"] = "select count(*) from web_sessions where user_id = @id",
             ["idempotency_keys"] = "select count(*) from idempotency_keys where user_id = @id",
             ["library_members"] = "select count(*) from library_members where user_id = @id",
             ["user_roles"] = "select count(*) from user_roles where user_id = @id",
-            ["openiddict_authorizations"] = "select count(*) from openiddict_authorizations where subject = @text",
-            ["openiddict_tokens"] = "select count(*) from openiddict_tokens where subject = @text",
         };
         foreach (var (name, sql) in queries)
         {

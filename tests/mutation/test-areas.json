@@ -1,5 +1,5 @@
 {
-  "Accounts": ["Auth", "Pairing", "Security", "Authorization", "Deletion"],
+  "Accounts": ["Auth", "Security", "Authorization", "Deletion"],
   "Admin": ["Security"],
   "Audit": ["Security"],
   "Invites": ["Security"],

@@ -20,6 +20,7 @@ function Test-Case {
     }
     finally {
         $global:CmRunner = $null
+        $global:CmAuth0Runner = $null
     }
 }
 
@@ -184,7 +185,8 @@ function New-TestRoot {
     Set-Content -LiteralPath (Join-Path $root '.env') -Value @(
         '# throwaway test values', 'POSTGRES_PASSWORD=test-only-password', 'CM_BACKUP_DIR=/tmp/cm-test-backups',
         'CM_API_PORT=5480', 'CM_DASHBOARD_PORT=18888', 'CM_HEARTBEAT_URL=https://hc.example/test-uuid',
-        'CM_RELYING_PARTY_ID=pc.tailnet.ts.net', 'CM_SECRETS_DIR=/tmp/cm-test-secrets')
+        'CM_SECRETS_DIR=/tmp/cm-test-secrets',
+        'CM_PUBLIC_ORIGIN=https://pc.tailnet.ts.net', 'CM_AUTH0_DOMAIN=test.us.auth0.com', 'CM_AUTH0_WEB_CLIENT_ID=test-web', 'CM_AUTH0_WEB_CLIENT_SECRET=test-secret', 'CM_AUTH0_MANAGEMENT_CLIENT_ID=test-mgmt', 'CM_AUTH0_MANAGEMENT_CLIENT_SECRET=test-secret')
     $root
 }
 

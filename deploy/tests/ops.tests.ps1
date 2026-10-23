@@ -1,4 +1,4 @@
-# Tests for Set-TailscaleServe, Install/Uninstall-Deployer, the signing keys and the compose file.
+# Tests for Set-TailscaleServe, Install/Uninstall-Deployer, the compose file.
 
 $script:TsScript = Join-Path $PSScriptRoot '../tailscale/Set-TailscaleServe.ps1'
 $script:InstallScript = Join-Path $PSScriptRoot '../deployer/Install-Deployer.ps1'
@@ -199,26 +199,6 @@ Test-Case 'uninstall: dry run prints the delete and removes nothing; -Apply dele
     Assert-Equal '/Delete /TN CollectionMaxxingDeployer /F' ($m[0].Arguments -join ' ')
 }
 
-# ---- signing keys -------------------------------------------------------------------------------------------------------
-
-Test-Case 'secrets: a dry run creates nothing; -Apply makes two loadable PFX files and never overwrites them' {
-    $dir = Join-Path ([IO.Path]::GetTempPath()) ("cm-ops1-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-    $script = Join-Path $PSScriptRoot '../deployer/New-Secrets.ps1'
-    try {
-        & $script -Path $dir 6>$null
-        Assert-False (Test-Path $dir) 'dry run must not create the folder'
-        & $script -Path $dir -Apply 6>$null
-        foreach ($name in 'openiddict-signing.pfx', 'openiddict-encryption.pfx') {
-            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new((Join-Path $dir $name), [string]$null)
-            Assert-True $cert.HasPrivateKey "$name has a private key"
-        }
-        $before = (Get-FileHash (Join-Path $dir 'openiddict-signing.pfx')).Hash
-        & $script -Path $dir -Apply 6>$null
-        Assert-Equal $before (Get-FileHash (Join-Path $dir 'openiddict-signing.pfx')).Hash 'an existing key is never replaced'
-    }
-    finally { Remove-TestRoot $dir }
-}
-
 # ---- the compose file (real `docker compose config`, which needs the CLI but no daemon) -------------------------
 
 function Get-RealComposeConfig {
@@ -227,7 +207,9 @@ function Get-RealComposeConfig {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     try {
         $envFile = Join-Path $dir '.env'
-        $values = @{ POSTGRES_PASSWORD = 'throwaway'; CM_BACKUP_DIR = $dir; CM_TAG = 'test'; CM_RELYING_PARTY_ID = 'pc.tailnet.ts.net'; CM_SECRETS_DIR = $dir } + $EnvValues
+        $values = @{ POSTGRES_PASSWORD = 'throwaway'; CM_BACKUP_DIR = $dir; CM_TAG = 'test'; CM_SECRETS_DIR = $dir
+        CM_PUBLIC_ORIGIN = 'https://pc.tailnet.ts.net'; CM_AUTH0_DOMAIN = 'test.us.auth0.com'; CM_AUTH0_WEB_CLIENT_ID = 'test-web'
+        CM_AUTH0_WEB_CLIENT_SECRET = 'test-secret'; CM_AUTH0_MANAGEMENT_CLIENT_ID = 'test-mgmt'; CM_AUTH0_MANAGEMENT_CLIENT_SECRET = 'test-secret' } + $EnvValues
         Set-Content -LiteralPath $envFile -Value ($values.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" })
         $compose = Join-Path $PSScriptRoot '../docker-compose.yml'
         $r = Invoke-CmReal -Command 'docker' -Arguments @('compose', '--env-file', $envFile, '-f', $compose, '-p', 'collectionmaxxing', 'config', '--format', 'json') -Env @{}

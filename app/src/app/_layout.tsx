@@ -18,7 +18,7 @@ export default function RootLayout() {
   const colors = useColors();
   const navigationTheme = useNavigationTheme();
   const router = useRouter();
-  // 401s send the iPhone to pairing and the browser to sign-in; reauth_required opens a passkey prompt.
+  // 401s send the iPhone and the browser to sign-in; reauth_required asks for a fresh sign-in on web.
   useEffect(() => installAuth(router), [router]);
   useEffect(installFocusRing, []);
   // The browser paints the page behind the app (overscroll, address-bar gaps) with the document background: keep it on our ground colour.
@@ -53,10 +53,10 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="pair" options={{ title: 'Pair with your server', headerShown: false }} />
         <Stack.Screen name="setup" options={{ title: 'Set up', headerShown: false }} />
         <Stack.Screen name="login" options={{ title: 'Sign in', headerShown: false }} />
         <Stack.Screen name="join/[token]" options={{ title: 'Join', headerShown: false }} />
+        <Stack.Screen name="account/not-linked" options={{ title: 'Not part of a library', headerShown: false }} />
         <Stack.Screen name="item/[id]/index" options={{ title: 'Item' }} />
         <Stack.Screen name="item/[id]/edit" options={{ title: 'Edit item' }} />
         <Stack.Screen name="scanner" options={{ title: 'Scanner', presentation: 'fullScreenModal' }} />

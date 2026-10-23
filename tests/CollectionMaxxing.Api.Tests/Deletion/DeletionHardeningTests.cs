@@ -121,7 +121,7 @@ public class DeletionHardeningTests(ApiFixture api) : DeletionTest(api)
 
         // Ten days later the user tries again. The dedupe key means the earlier job (due in 20 days) is the one that stays.
         App.Time.Advance(10 * Day);
-        (await browser.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK); // the session has lapsed in ten days
+        (await browser.LoginAsync()).Headers.Location?.ToString().ShouldBe("/"); // a fresh sign-in, so the delete counts as recent
         (await DeleteAccountAsync(browser)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         var deletedAt = (await UserRowAsync(owner.UserId)).DeletedAt!.Value;
 
@@ -201,7 +201,7 @@ public class DeletionHardeningTests(ApiFixture api) : DeletionTest(api)
         var (token, created) = await CreateInviteAsync(owner, libraryId, "editor", "Sam the plumber");
         var inviteId = created.GetProperty("invite").GetProperty("id").GetGuid();
         var (sam, registered) = await JoinAsync(token, "Sam");
-        registered.StatusCode.ShouldBe(HttpStatusCode.Created);
+        registered.Headers.Location?.ToString().ShouldBe("/");
         await using (var before = Db.CreateContext())
         {
             var invite = await before.LibraryInvites.IgnoreQueryFilters().AsNoTracking().SingleAsync(i => i.Id == inviteId);
@@ -230,7 +230,7 @@ public class DeletionHardeningTests(ApiFixture api) : DeletionTest(api)
         var (token, _) = await CreateInviteAsync(owner, libraryId, "viewer", "Guest");
         var guest = App.NewBrowser();
         var options = await StartJoinAsync(guest, token, "Guest");
-        options.StatusCode.ShouldBe(HttpStatusCode.OK);
+        options.StatusCode.ShouldBe(HttpStatusCode.Found);
 
         // The owner's delete got as far as deactivating the account, but has not revoked the invites yet.
         await using (var context = Db.CreateContext())
@@ -238,9 +238,10 @@ public class DeletionHardeningTests(ApiFixture api) : DeletionTest(api)
             await context.Users.Where(u => u.Id == ownerAccount.UserId).ExecuteUpdateAsync(set => set.SetProperty(u => u.DeletedAt, App.Time.GetUtcNow()));
         }
 
-        var registered = await guest.RegisterAsync(options, invite: token);
+        var registered = await guest.FinishAsync(options);
 
-        ((int)registered.StatusCode).ShouldBeInRange(400, 499);
+        registered.Headers.Location?.ToString().ShouldBe(InviteInvalid);
+        guest.HasSessionCookie.ShouldBeFalse();
         (await CountMembersAsync(libraryId)).ShouldBe(1, "the library must not gain a member it would keep without an owner");
     }
 
