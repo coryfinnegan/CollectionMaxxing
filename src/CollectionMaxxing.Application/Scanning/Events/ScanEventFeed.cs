@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -41,12 +42,16 @@ public sealed record ScanEventBatch(IReadOnlyList<ScanEvent> Events, bool Sessio
 /// or background job (in any process) reaches the client, and nothing is lost between a slow code being Pending and resolved.
 /// The counter is handed out in commit order (see <see cref="ScanCandidate.ChangeSeq"/>), so a look can never skip a change
 /// that commits late. The first look sends everything after <c>Last-Event-ID</c> on a reconnect (a candidate that was only
-/// updated while the client was away comes back as <c>candidate.updated</c>), then the session's status. Not thread-safe: one
-/// per connection.
+/// updated while the client was away comes back as <c>candidate.updated</c>), then the session's status. A client who stops belonging to
+/// the session's library while the stream is open is looked up again at every look (the request's own memberships were read once, when
+/// it opened), and the stream ends at the next one. Not thread-safe: one per connection.
 /// </summary>
 public sealed class ScanEventCursor
 {
     private readonly IAppDbContext _db;
+    private readonly IMembershipReader _memberships;
+    private readonly Guid _userId;
+    private readonly Guid _libraryId;
     private readonly Guid _sessionId;
     private readonly int _after;
     private readonly HashSet<Guid> _known = [];
@@ -55,9 +60,12 @@ public sealed class ScanEventCursor
     private int _highWater;
     private ScanSessionStatus? _statusShown;
 
-    internal ScanEventCursor(IAppDbContext db, Guid sessionId, int after)
+    internal ScanEventCursor(IAppDbContext db, IMembershipReader memberships, Guid userId, Guid libraryId, Guid sessionId, int after)
     {
         _db = db;
+        _memberships = memberships;
+        _userId = userId;
+        _libraryId = libraryId;
         _sessionId = sessionId;
         _after = after;
         _highWater = after;
@@ -65,6 +73,13 @@ public sealed class ScanEventCursor
 
     public async Task<ScanEventBatch> NextAsync(CancellationToken cancellationToken)
     {
+        // Left or removed since the last look: no more events, however long the stream was going to run.
+        var memberships = await _memberships.GetMembershipsAsync(_userId, cancellationToken);
+        if (memberships.All(m => m.LibraryId != _libraryId))
+        {
+            return new ScanEventBatch([], true);
+        }
+
         var status = await _db.ScanSessions.AsNoTracking()
             .Where(s => s.Id == _sessionId).Select(s => (ScanSessionStatus?)s.Status).SingleOrDefaultAsync(cancellationToken);
         if (status is null)
@@ -130,11 +145,11 @@ public sealed class ScanEventCursor
 }
 
 /// <summary>Use case: open the event stream of the caller's own scan session.</summary>
-public sealed class ScanEventFeed(IAppDbContext db, ICurrentUser currentUser)
+public sealed class ScanEventFeed(IAppDbContext db, ICurrentUser currentUser, IMembershipReader memberships)
 {
     /// <returns>The stream, or null when the session isn't the caller's (the same 404 as every other scan endpoint).</returns>
     public async Task<ScanEventCursor?> OpenAsync(Guid sessionId, int? lastEventId, CancellationToken cancellationToken) =>
         await ScanSessions.FindMineAsync(db, currentUser, sessionId, cancellationToken) is { } session
-            ? new ScanEventCursor(db, session.Id, Math.Max(0, lastEventId ?? 0))
+            ? new ScanEventCursor(db, memberships, session.UserId, session.LibraryId, session.Id, Math.Max(0, lastEventId ?? 0))
             : null;
 }
