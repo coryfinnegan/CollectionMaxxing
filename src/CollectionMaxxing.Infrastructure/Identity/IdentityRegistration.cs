@@ -25,6 +25,7 @@ public static class IdentityRegistration
 
         services.TryAddScoped<IAccountStore, IdentityAccountStore>();
         services.TryAddScoped<IWebSessions, WebSessionStore>();
+        services.TryAddScoped<IPlatformRoles, IdentityPlatformRoles>();
         return services;
     }
 }
