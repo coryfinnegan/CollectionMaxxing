@@ -1,14 +1,16 @@
 import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { isWeb, restoreSession } from '@/lib/auth/session';
+import { getNativeAuth, isWeb } from '@/lib/auth/session';
 
-// iPhone: pairing comes first, but only when this device has no stored credentials. Web: the library, and a 401 sends
-// the browser to sign-in.
+// iPhone: the library if there is a sign-in that works, otherwise Sign in. Web: the library, and a 401 sends the browser to sign-in.
 export default function Index() {
-  const [target, setTarget] = useState<'/pair' | '/library' | null>(isWeb() ? '/library' : null);
+  const [target, setTarget] = useState<'/login' | '/library' | null>(isWeb() ? '/library' : null);
   useEffect(() => {
     if (target) return;
-    restoreSession().then((paired) => setTarget(paired ? '/library' : '/pair'));
+    getNativeAuth()
+      .hasValidCredentials()
+      .then((valid) => setTarget(valid ? '/library' : '/login'))
+      .catch(() => setTarget('/login'));
   }, [target]);
   return target ? <Redirect href={target} /> : null;
 }

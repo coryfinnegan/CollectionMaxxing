@@ -1,15 +1,11 @@
 // MSW mocks of the sign-in endpoints (docs/14). Sign-in itself is a browser navigation, so only its JSON helpers are mocked. Magic values:
 //   setup code   CM-SETUP-OK works, CM-EXPIRED is gone, anything else is wrong
 //   invite       valid-invite works, expired-invite is gone, anything else is unknown
-//   pairing      token pair-token-ok or code 123456 works on /connect/token (the iPhone's old pairing, until its own task replaces it)
 import { HttpResponse, http } from 'msw';
 import type { AppSignInDto, SignInMethodDto } from '@/features/auth/contract';
 
 export const MOCK_SETUP_CODE = 'CM-SETUP-OK';
 export const MOCK_INVITE = 'valid-invite';
-export const MOCK_PAIR_TOKEN = 'pair-token-ok';
-export const MOCK_PAIR_CODE = '123456';
-export const MOCK_SERVER_URL = 'https://pc.tailnet.ts.net';
 /** Where the mocked sign-out sends the browser: back to our own sign-in page (the real one goes to Auth0 first). */
 export const MOCK_LOGOUT_URL = '/login';
 
@@ -36,7 +32,6 @@ export const mockAuth = {
   methods: seedMethods(),
   /** When true, sensitive calls answer 401 reauth_required. */
   requireReauth: false,
-  refreshCalls: 0,
 };
 
 export function resetMockAuth() {
@@ -44,7 +39,6 @@ export function resetMockAuth() {
   mockAuth.iphones = seedIphones();
   mockAuth.methods = seedMethods();
   mockAuth.requireReauth = false;
-  mockAuth.refreshCalls = 0;
 }
 
 const problem = (status: number, title: string, extra: object = {}) =>
@@ -83,18 +77,11 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.post('*/connect/token', async ({ request }) => {
-    const form = new URLSearchParams(await request.text());
-    if (form.get('grant_type') === 'refresh_token') {
-      mockAuth.refreshCalls++;
-      return form.get('refresh_token') === 'mock-refresh'
-        ? HttpResponse.json({ access_token: 'mock-access', refresh_token: 'mock-refresh', token_type: 'Bearer', expires_in: 600 })
-        : HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
-    }
-    const ok = form.get('pairing_token') === MOCK_PAIR_TOKEN || form.get('pairing_code') === MOCK_PAIR_CODE;
-    return ok
-      ? HttpResponse.json({ access_token: 'mock-access', refresh_token: 'mock-refresh', token_type: 'Bearer', expires_in: 600 })
-      : HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
+  http.post('*/api/v1/me/app-sign-ins', async ({ request }) => {
+    const body = (await request.json()) as { deviceName?: string };
+    const row: AppSignInDto = { id: request.headers.get('X-Install-Id') ?? 'unknown', deviceName: body.deviceName ?? 'iPhone', createdAt: '2026-10-22T09:00:00Z', lastSeenAt: null };
+    mockAuth.iphones = [...mockAuth.iphones.filter((p) => p.id !== row.id), row];
+    return HttpResponse.json(row, { status: 201 });
   }),
 
   http.get('*/api/v1/me/web-sessions', () =>
