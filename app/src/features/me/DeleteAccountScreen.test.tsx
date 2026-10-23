@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { ReauthCancelledError } from '@/lib/auth/errors';
 import { mockAuth, resetMockAuth } from '@/mocks/auth';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
-import { MemoryTokenStore } from '@/lib/auth/tokenStore';
+import { MemoryNativeAuth } from '@/lib/auth/native';
 import { mockAccount, resetMockAccount } from '@/mocks/me';
 import { renderWithProviders } from '@/test/render';
 import { DeleteAccountScreen, membersMessage } from './DeleteAccountScreen';
@@ -12,14 +12,14 @@ const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
 const CONFIRM = 'Delete my account';
-let tokenStore: MemoryTokenStore;
+let nativeAuth: MemoryNativeAuth;
 
 beforeEach(() => {
   resetMockAccount();
   mockRouter.replace.mockClear();
   resetMockAuth();
-  tokenStore = new MemoryTokenStore({ refreshToken: 'mock-refresh', serverUrl: 'https://pc.tailnet.ts.net' });
-  configureAuth({ platform: 'web', tokenStore });
+  nativeAuth = new MemoryNativeAuth();
+  configureAuth({ platform: 'web', native: nativeAuth });
 });
 afterEach(() => resetAuth());
 
@@ -34,7 +34,7 @@ describe('DeleteAccountScreen', () => {
 
   it('deletes nothing when the person declines the fresh sign-in', async () => {
     mockAuth.requireReauth = true;
-    configureAuth({ platform: 'web', tokenStore, reauth: () => Promise.reject(new ReauthCancelledError()) });
+    configureAuth({ platform: 'web', native: nativeAuth, reauth: () => Promise.reject(new ReauthCancelledError()) });
     await renderWithProviders(<DeleteAccountScreen />);
 
     await fireEvent.press(screen.getByLabelText(CONFIRM));
@@ -55,7 +55,7 @@ describe('DeleteAccountScreen', () => {
     expect(await screen.findByText(membersMessage)).toBeTruthy();
     expect(mockAccount.deleted).toBe(false);
     expect(cleared).not.toHaveBeenCalled();
-    expect(await tokenStore.load()).not.toBeNull();
+    expect(nativeAuth.token).not.toBeNull();
     expect(mockRouter.replace).not.toHaveBeenCalled();
     unregister();
   });
@@ -70,7 +70,7 @@ describe('DeleteAccountScreen', () => {
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
     expect(mockAccount.deleted).toBe(true);
     expect(cleared).toHaveBeenCalled();
-    expect(await tokenStore.load()).toBeNull();
+    expect(nativeAuth.token).toBeNull();
     unregister();
   });
 

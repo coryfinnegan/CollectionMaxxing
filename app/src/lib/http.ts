@@ -1,6 +1,6 @@
 // The one fetch wrapper the generated client uses (see orval.config.ts).
-// The base URL is the paired server on iOS, else EXPO_PUBLIC_API_URL; failures throw an ApiError that carries Problem Details.
-// Auth (docs/07): web sends the cookie plus X-CSRF on writes; iOS sends a bearer token. Concurrent 401s share one refresh.
+// The base URL is EXPO_PUBLIC_API_URL (the page's own origin on web); failures throw an ApiError that carries Problem Details.
+// Auth (docs/14): web sends the cookie plus X-CSRF on writes; iOS sends Auth0's bearer token. Concurrent 401s share one refresh.
 import {
   authHeaders,
   baseUrl,
@@ -84,6 +84,11 @@ async function send<T>(url: string, options: RequestInit, attempts: Attempts): P
   }
 
   const error = new ApiError(response.status, (body ?? {}) as ProblemDetails, retryAfterMs(response.headers.get('Retry-After')));
+  // Signed in, but with an account that belongs to no library here.
+  if (response.status === 403 && !isWeb() && error.problem.code === 'account.not_linked') {
+    notifyAuthLost('not-linked');
+    throw error;
+  }
   if (response.status !== 401) throw error;
 
   // A recent-passkey check failed: ask for one passkey prompt, then retry once. Cancelling surfaces the prompt's error.
@@ -99,9 +104,13 @@ async function send<T>(url: string, options: RequestInit, attempts: Attempts): P
     notifyAuthLost('login');
     throw error;
   }
-  if (!attempts.refreshed && (await refreshAccessToken())) {
-    return send<T>(url, options, { ...attempts, refreshed: true });
+  // iOS: ask Auth0 for a fresh token once and retry once. Only a refused retry means signing in again; a refresh that could not
+  // run (offline, 5xx, 429) keeps the credentials and surfaces this 401 as the usual error.
+  if (!attempts.refreshed) {
+    if (await refreshAccessToken()) return send<T>(url, options, { ...attempts, refreshed: true });
+    throw error;
   }
+  notifyAuthLost('login');
   throw error;
 }
 

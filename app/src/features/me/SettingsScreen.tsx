@@ -13,7 +13,7 @@ import { GetIphoneAppRow } from './GetIphoneAppRow';
 import { useLockSetting } from './appLock';
 import { clearLocalData } from './localData';
 import { getBiometrics, getVision } from './services';
-import { unpairThisDevice } from './unpair';
+import { signOutThisDevice } from './unpair';
 
 const APPLE_INTELLIGENCE_LABEL: Record<RecognitionState['appleIntelligence'], string> = {
   on: 'On',
@@ -40,7 +40,7 @@ export function RecognitionSection() {
     <Card>
       <Text variant="heading">Recognition</Text>
       {state === null ? (
-        <Text tone="muted">Checking…</Text>
+        <Text tone="muted">Checkingâ€¦</Text>
       ) : state.engine === 'apple_model' ? (
         <>
           <Text>Engine: Apple on-device model</Text>
@@ -99,9 +99,9 @@ export function SecuritySection() {
     onError: (e) => setMessage(friendlyError(e)),
   });
 
-  const unpair = useMutation({
-    mutationFn: () => unpairThisDevice(queryClient),
-    onSuccess: () => router.replace('/pair'),
+  const signOutDevice = useMutation({
+    mutationFn: () => signOutThisDevice(queryClient),
+    onSuccess: () => router.replace('/login'),
     onError: (e) => setMessage(friendlyError(e)),
   });
 
@@ -121,12 +121,12 @@ export function SecuritySection() {
       {message ? <Text tone="danger" accessibilityRole="alert">{message}</Text> : null}
       {confirming ? (
         <>
-          <Text>This signs this iPhone out of your library and removes its saved sign-in, offline items and scan tray. Your library on the server isn&apos;t touched. You&apos;ll pair again to use it.</Text>
-          <Button label="Unpair and remove local data" variant="danger" busy={unpair.isPending} onPress={() => unpair.mutate()} />
+          <Text>This signs this iPhone out of your library and removes its saved sign-in, offline items and scan tray. Your library on the server isn&apos;t touched. You&apos;ll sign in again to use it.</Text>
+          <Button label="Sign out and remove local data" variant="danger" busy={signOutDevice.isPending} onPress={() => signOutDevice.mutate()} />
           <Button label="Cancel" variant="secondary" onPress={() => setConfirming(false)} />
         </>
       ) : (
-        <Button label="Unpair this iPhone" variant="secondary" onPress={() => setConfirming(true)} />
+        <Button label="Sign out of this iPhone" variant="secondary" onPress={() => setConfirming(true)} />
       )}
     </Card>
   );

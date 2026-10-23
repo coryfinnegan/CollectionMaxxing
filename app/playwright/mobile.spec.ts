@@ -28,7 +28,6 @@ const routes: { name: string; path: string }[] = [
   { name: 'result', path: '/result/c1000000-0000-4000-8000-000000000001' },
   { name: 'login', path: '/login' },
   { name: 'setup', path: '/setup' },
-  { name: 'pair', path: '/pair' },
   { name: 'not-linked', path: '/account/not-linked' },
   { name: 'join', path: '/join/valid-invite' },
 ];

@@ -2,8 +2,8 @@ import { HttpResponse, http } from 'msw';
 import { server } from '@/mocks/server';
 import { ApiError, customFetch } from './http';
 import { PasskeyCancelledError } from './auth/errors';
-import { configureAuth, resetAuth, startSession } from './auth/session';
-import { MemoryTokenStore } from './auth/tokenStore';
+import { AuthLostError, MemoryNativeAuth } from './auth/native';
+import { configureAuth, resetAuth } from './auth/session';
 
 const API = 'http://api.test';
 const problem = (status: number, body: object = {}) =>
@@ -12,58 +12,139 @@ const problem = (status: number, body: object = {}) =>
 afterEach(() => resetAuth());
 
 describe('native client', () => {
-  const paired = () =>
-    new MemoryTokenStore({ refreshToken: 'refresh-1', serverUrl: API });
+  /** Hands out `tokens` in order, remembers whether a refresh was forced. */
+  const tokens = (...values: string[]) => {
+    const native = new MemoryNativeAuth();
+    const getAccessToken = jest.fn(async (forceRefresh?: boolean) => {
+      void forceRefresh;
+      return values.shift() ?? 'last';
+    });
+    native.getAccessToken = getAccessToken;
+    return { native, getAccessToken };
+  };
+  const ping = (status: number, goodToken = 'fresh') =>
+    http.get(`${API}/api/v1/ping`, ({ request }) =>
+      request.headers.get('Authorization') === `Bearer ${goodToken}` ? HttpResponse.json({ ok: true }) : problem(status),
+    );
+
+  it('a 401 gets one forced refresh and one retry with the new token', async () => {
+    server.use(ping(401));
+    const { native, getAccessToken } = tokens('stale', 'fresh', 'fresh');
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native, onAuthLost });
+
+    const result = await customFetch<{ status: number }>('/api/v1/ping');
+
+    expect(result.status).toBe(200);
+    expect(getAccessToken.mock.calls.map((c) => c[0] ?? false)).toEqual([false, true, false]);
+    expect(onAuthLost).not.toHaveBeenCalled();
+  });
 
   it('five concurrent 401s cause one refresh and all five requests then succeed', async () => {
-    let refreshCalls = 0;
-    server.use(
-      http.post(`${API}/connect/token`, async () => {
-        refreshCalls++;
-        await new Promise((r) => setTimeout(r, 20));
-        return HttpResponse.json({ access_token: 'fresh', refresh_token: 'refresh-2' });
-      }),
-      http.get(`${API}/api/v1/ping`, ({ request }) =>
-        request.headers.get('Authorization') === 'Bearer fresh' ? HttpResponse.json({ ok: true }) : problem(401),
-      ),
-    );
-    const store = paired();
-    configureAuth({ platform: 'native', tokenStore: store });
-    // Prime an expired access token, as if the app had been open for a while.
-    await startSession({ accessToken: 'stale', refreshToken: 'refresh-1', serverUrl: API });
+    server.use(ping(401));
+    let current = 'stale'; // like the Credentials Manager: a forced refresh replaces what later calls return
+    const getAccessToken = jest.fn(async (forceRefresh?: boolean) => {
+      if (forceRefresh) current = 'fresh';
+      return current;
+    });
+    configureAuth({ platform: 'native', native: Object.assign(new MemoryNativeAuth(), { getAccessToken }) });
 
     const results = await Promise.all(Array.from({ length: 5 }, () => customFetch<{ status: number }>('/api/v1/ping')));
 
     expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
-    expect(refreshCalls).toBe(1);
-    expect((await store.load())?.refreshToken).toBe('refresh-2');
+    expect(getAccessToken.mock.calls.filter((c) => c[0] === true)).toHaveLength(1);
   });
 
-  it('a failed refresh clears the token store and routes to pairing', async () => {
-    server.use(
-      http.post(`${API}/connect/token`, () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 })),
-      http.get(`${API}/api/v1/ping`, () => problem(401)),
-    );
-    const store = paired();
+  it('a refresh Auth0 rejects sends the person to Sign in', async () => {
+    server.use(http.get(`${API}/api/v1/ping`, () => problem(401)));
+    const native = Object.assign(new MemoryNativeAuth(), {
+      getAccessToken: jest.fn(async (force?: boolean) => {
+        if (force) throw new AuthLostError();
+        return 'stale';
+      }),
+    });
     const onAuthLost = jest.fn();
-    configureAuth({ platform: 'native', tokenStore: store, onAuthLost });
+    configureAuth({ platform: 'native', native, onAuthLost });
 
     await expect(customFetch('/api/v1/ping')).rejects.toBeInstanceOf(ApiError);
+    expect(onAuthLost).toHaveBeenCalledWith('login');
+  });
 
-    expect(await store.load()).toBeNull();
-    expect(onAuthLost).toHaveBeenCalledWith('pair');
+  it('a 401 that survives the retry sends the person to Sign in', async () => {
+    server.use(http.get(`${API}/api/v1/ping`, () => problem(401)));
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native: new MemoryNativeAuth('tok'), onAuthLost });
+
+    await expect(customFetch('/api/v1/ping')).rejects.toBeInstanceOf(ApiError);
+    expect(onAuthLost).toHaveBeenCalledWith('login');
+  });
+
+  it('a 401 whose refresh fails on the network keeps the credentials and does not send the person to Sign in', async () => {
+    server.use(http.get(`${API}/api/v1/ping`, () => problem(401)));
+    const native = Object.assign(new MemoryNativeAuth(), {
+      getAccessToken: jest.fn(async (force?: boolean) => {
+        if (force) throw new Error('Network request failed');
+        return 'stale';
+      }),
+    });
+    const clear = jest.spyOn(native, 'clear');
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native, onAuthLost });
+
+    await expect(customFetch('/api/v1/ping')).rejects.toBeInstanceOf(ApiError);
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+  });
+
+  it.each([429, 500, 503])('a %i never clears the credentials or sends the person to Sign in', async (status) => {
+    server.use(http.get(`${API}/api/v1/ping`, () => problem(status)));
+    const native = new MemoryNativeAuth('tok');
+    const clear = jest.spyOn(native, 'clear');
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native, onAuthLost });
+
+    await expect(customFetch('/api/v1/ping')).rejects.toMatchObject({ status });
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    expect(native.token).toBe('tok');
+  });
+
+  it('a network error while asking for the token surfaces as it is and keeps the credentials', async () => {
+    const native = Object.assign(new MemoryNativeAuth(), { getAccessToken: jest.fn().mockRejectedValue(new Error('Network request failed')) });
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native, onAuthLost });
+
+    await expect(customFetch('/api/v1/ping')).rejects.toThrow('Network request failed');
+    expect(onAuthLost).not.toHaveBeenCalled();
+  });
+
+  it('403 account.not_linked opens the not-linked page', async () => {
+    server.use(http.get(`${API}/api/v1/ping`, () => problem(403, { code: 'account.not_linked' })));
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native: new MemoryNativeAuth('tok'), onAuthLost });
+
+    await expect(customFetch('/api/v1/ping')).rejects.toMatchObject({ status: 403 });
+    expect(onAuthLost).toHaveBeenCalledWith('not-linked');
+  });
+
+  it('any other 403 is only an error', async () => {
+    server.use(http.get(`${API}/api/v1/ping`, () => problem(403, { code: 'role.forbidden' })));
+    const onAuthLost = jest.fn();
+    configureAuth({ platform: 'native', native: new MemoryNativeAuth('tok'), onAuthLost });
+
+    await expect(customFetch('/api/v1/ping')).rejects.toMatchObject({ status: 403 });
+    expect(onAuthLost).not.toHaveBeenCalled();
   });
 
   it('sends the bearer token, no CSRF header and no cookies', async () => {
     let seen: Request | undefined;
     server.use(
-      http.post(`${API}/connect/token`, () => HttpResponse.json({ access_token: 'tok', refresh_token: 'refresh-2' })),
       http.post(`${API}/api/v1/things`, ({ request }) => {
         seen = request;
         return HttpResponse.json({}, { status: 201 });
       }),
     );
-    configureAuth({ platform: 'native', tokenStore: paired() });
+    configureAuth({ platform: 'native', native: new MemoryNativeAuth('tok') });
 
     await customFetch('/api/v1/things', { method: 'POST', body: '{}' });
 
@@ -73,18 +154,12 @@ describe('native client', () => {
   });
 
   it('does not refresh for a failed sign-in request', async () => {
-    let refreshCalls = 0;
-    server.use(
-      http.post(`${API}/connect/token`, () => {
-        refreshCalls++;
-        return HttpResponse.json({}, { status: 400 });
-      }),
-    );
-    configureAuth({ platform: 'native', tokenStore: new MemoryTokenStore() });
+    const { native, getAccessToken } = tokens('tok');
+    configureAuth({ platform: 'native', native });
     server.use(http.post(`${API}/account/login`, () => problem(401)));
 
     await expect(customFetch('/account/login', { method: 'POST', body: '{}' })).rejects.toBeInstanceOf(ApiError);
-    expect(refreshCalls).toBe(0);
+    expect(getAccessToken.mock.calls.filter((c) => c[0] === true)).toHaveLength(0);
   });
 });
 
