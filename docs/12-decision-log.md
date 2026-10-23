@@ -452,3 +452,18 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - Auth0 holds each person's name and email from Google or Apple. Library data never leaves the PC, and account deletion deletes the Auth0 user.
   - About 6,000 lines of auth code, the PFX certificates and their yearly rotation go away.
 - **2026-10-23 note: revocation uses grants.** Building AUTH-2 showed that the Free plan refuses Auth0's refresh-token endpoints. "Sign out all iPhones" therefore deletes the person's grants (`delete:grants`), together with `users.tokens_not_before` to refuse access tokens already issued. One phone can't be revoked alone, which was the fallback this ADR already allowed. Google stays in "Testing" with test users, and Sign in with Apple uses a separate primary App ID for its Services ID.
+
+## ADR-026: Onboarding: create a library or join one
+
+- **Status:** **Proposed** (2026-10-23). It waits on your answers to D-1 to D-6 in [15](15-onboarding.md#decisions-for-you).
+- **Context:** at the Wave 6 cutover, signing in with an identity that wasn't linked yet led to "This account isn't part of a library". Setup and joining both had to be chosen *before* going to Auth0, and the plain **Sign in** button could never create anything. You expected to be asked whether to join a library or create your own.
+- **Decision (proposed):**
+  - Sign in first, then decide. An unlinked identity lands on a **Welcome** page (web) or screen (iPhone) with **Create your library**, **Join a library** (an invite link or a short code) and **Use another account**.
+  - A short-lived sealed cookie (web), or an `Unlinked` bearer policy limited to three onboarding routes (iPhone), carries the verified identity until the person chooses. No user exists until they do.
+  - The first library still needs the setup code, and makes its creator **server admin**. After that, D-1 decides who may create libraries. The recovery code links to the server admin.
+  - People are never matched by email, and joining still needs an invite.
+- **Alternatives:** keep the separate setup button and only improve the not-linked copy; open self-service with no setup code (whoever signs in first takes the server); "ask to join" requests instead of invites.
+- **Consequences:**
+  - More than one library per server becomes possible, so there's a library switcher, a server admin flag, and `server_settings`.
+  - The `/setup` routes go away; the setup code moves into "Create your library".
+  - The authorization matrix gains an "unlinked identity" actor.
