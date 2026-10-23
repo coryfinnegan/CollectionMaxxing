@@ -172,7 +172,7 @@ public static class AuthorizationMatrix
         SignedIn("GET", "/api/v1/me/web-sessions", allowed: Ok), // the caller's own signed-in browsers
         SignedIn("DELETE", "/api/v1/me/web-sessions/{id:guid}", allowed: NotFound), // the seeded id is no browser of theirs
         SignedIn("DELETE", "/api/v1/me/web-sessions", allowed: NoContent), // signs the caller's own browsers out; for every role, nobody else's
-        SignedIn("POST", "/api/v1/me/app-sign-ins", """{ "deviceName": "Test iPhone" }""", allowed: Created) with { Headers = InstallId }, // AUTH-2: registers the caller's own phone, for every role
+        SignedIn("POST", "/api/v1/me/app-sign-ins", """{ "deviceName": "Test iPhone" }""", allowed: Created) with { Headers = InstallId, Admin = Conflict }, // AUTH-2: registers the caller's own phone, for every role (the matrix admin has no user row to hang it on, so the insert is refused 409; real users always have one)
         SignedIn("GET", "/api/v1/me/app-sign-ins", allowed: Ok), // the caller's own phones
         SignedIn("DELETE", "/api/v1/me/app-sign-ins", allowed: NoContent), // signs out the caller's own phones, nobody else's
         SignedIn("GET", "/api/v1/me/export", allowed: Accepted), // LIB-2b: starts a job for the caller's own libraries; any signed-in person may

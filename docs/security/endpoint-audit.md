@@ -85,6 +85,9 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | DELETE | `/api/v1/me` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
 | GET | `/api/v1/me` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | MeResponse: id and memberships. No email, username or stamps |
 | PATCH | `/api/v1/me` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | MeResponse: id and memberships. No email, username or stamps |
+| GET | `/api/v1/me/app-sign-ins` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | AppSignInDto: device name, times. No install id, token or Auth0 subject |
+| POST | `/api/v1/me/app-sign-ins` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | AppSignInDto: device name, times. Refused for a browser session (403) |
+| DELETE | `/api/v1/me/app-sign-ins` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
 | GET | `/api/v1/me/export` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | ExportDto, or the caller's own zip |
 | GET | `/api/v1/me/export/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | ExportDto, or the caller's own zip |
 | GET | `/api/v1/me/export/{id:guid}/download` | signed in | any signed-in caller (own data only) | Y | Y | ExportDto, or the caller's own zip |
