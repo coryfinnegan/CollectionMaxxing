@@ -32,6 +32,9 @@ public static class AuthCookie
     /// <summary>Where the ticket remembers when the session began, so renewals can't stretch it past a year.</summary>
     internal const string StartedItem = "cm.started";
 
+    /// <summary>A ticket this old is re-issued on its next use, so the idle window is measured from (about) the last visit.</summary>
+    public static readonly TimeSpan RenewAfter = TimeSpan.FromDays(1);
+
     public static readonly TimeSpan IdleLifetime = IWebSessions.IdleLifetime;
     public static readonly TimeSpan AbsoluteLifetime = IWebSessions.AbsoluteLifetime;
 
@@ -145,6 +148,13 @@ public static class AuthCookie
         {
             context.RejectPrincipal();
             await context.HttpContext.SignOutAsync(Scheme);
+        }
+        else if (context.Properties.IssuedUtc is not { } issued || time.GetUtcNow() - issued >= RenewAfter)
+        {
+            // A true 30-day idle window (D-2): ASP.NET's sliding expiration renews only once half the lifetime has passed, which would make the
+            // real limit 15 to 30 days. Renewing once the ticket is about a day old keeps it at 30 days after the last use. The absolute
+            // year is untouched: it is measured from StartedItem, which a renewal keeps.
+            context.ShouldRenew = true;
         }
     }
 

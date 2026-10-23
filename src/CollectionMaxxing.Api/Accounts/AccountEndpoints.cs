@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Accounts.AppSignIns;
 using CollectionMaxxing.Api.Accounts.Deletion;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Exports;
@@ -17,6 +18,7 @@ public static class AccountEndpoints
         services.AddScoped<ListWebSessions.Handler>();
         services.AddScoped<RevokeWebSession.Handler>();
         services.AddScoped<RevokeWebSessions.Handler>();
+        services.AddAppSignIns();
         services.AddAccountDeletion();
         services.AddExports(); // LIB-2b; the lead may move this line to Program.cs
         return services;
@@ -102,6 +104,9 @@ public static class AccountEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization();
+
+        // The iPhones signed in with Auth0 (AUTH-2): register, list, sign them all out.
+        app.MapAppSignIns();
 
         // Export my data (LIB-2b): the start route plus its status and download siblings.
         app.MapExportEndpoints();

@@ -120,6 +120,7 @@ public static class AuthorizationMatrix
     private static readonly IReadOnlyDictionary<string, string> Idempotent = new Dictionary<string, string> { ["Idempotency-Key"] = "test-key-1" };
     private static readonly IReadOnlyDictionary<string, string> IfMatch = new Dictionary<string, string> { ["If-Match"] = "\"1\"" };
     private static readonly IReadOnlyDictionary<string, string> Csrf = new Dictionary<string, string> { ["X-CSRF"] = "1" };
+    private static readonly IReadOnlyDictionary<string, string> InstallId = new Dictionary<string, string> { ["X-Install-Id"] = "5d1f7c52-8d0e-4a35-9d4c-3a3a8c1f2b10" };
 
     /// <summary>A session whose last sign-in was long ago (see <c>TestAuthHandler.AuthTimeHeader</c>).</summary>
     private static readonly IReadOnlyDictionary<string, string> StaleSignIn = new Dictionary<string, string> { ["X-Test-Auth-Time"] = "0" };
@@ -171,6 +172,9 @@ public static class AuthorizationMatrix
         SignedIn("GET", "/api/v1/me/web-sessions", allowed: Ok), // the caller's own signed-in browsers
         SignedIn("DELETE", "/api/v1/me/web-sessions/{id:guid}", allowed: NotFound), // the seeded id is no browser of theirs
         SignedIn("DELETE", "/api/v1/me/web-sessions", allowed: NoContent), // signs the caller's own browsers out; for every role, nobody else's
+        SignedIn("POST", "/api/v1/me/app-sign-ins", """{ "deviceName": "Test iPhone" }""", allowed: Created) with { Headers = InstallId }, // AUTH-2: registers the caller's own phone, for every role
+        SignedIn("GET", "/api/v1/me/app-sign-ins", allowed: Ok), // the caller's own phones
+        SignedIn("DELETE", "/api/v1/me/app-sign-ins", allowed: NoContent), // signs out the caller's own phones, nobody else's
         SignedIn("GET", "/api/v1/me/export", allowed: Accepted), // LIB-2b: starts a job for the caller's own libraries; any signed-in person may
         SignedIn("GET", "/api/v1/me/export/{id:guid}", allowed: NotFound), // the seeded id is no export of theirs
         SignedIn("GET", "/api/v1/me/export/{id:guid}/download", allowed: NotFound),

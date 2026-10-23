@@ -20,7 +20,12 @@ public abstract class AuthTest(ApiFixture api) : ApiTest(api)
     public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
-        App = new AuthApp(Db.ConnectionString, Settings);
+        App = new AuthApp(Db.ConnectionString, Settings, ConfigureServices);
+    }
+
+    /// <summary>Extra services for this test's app (a fake Management API, say).</summary>
+    protected virtual void ConfigureServices(Microsoft.Extensions.DependencyInjection.IServiceCollection services)
+    {
     }
 
     public override async ValueTask DisposeAsync()
