@@ -3,6 +3,7 @@ using CollectionMaxxing.Api.Libraries;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Invites;
+using CollectionMaxxing.Application.Libraries;
 using CollectionMaxxing.Domain.Libraries;
 
 namespace CollectionMaxxing.Api.Invites;
@@ -60,6 +61,36 @@ public static class InviteEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
+
+        // Joining while signed in (docs/15): the invite is a link, a link's token or a short code. Unknown, expired, revoked and used invites
+        // all get the same 404, byte for byte. Limited per client and per account, so codes can't be guessed.
+        app.MapPost("/api/v1/invites:preview", async (InviteLookupRequest body, GetInvitePreview.Handler handler, CancellationToken cancellationToken) =>
+            {
+                var result = await handler.HandleAsync(InviteKey.Parse(body.Invite), cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value) : InviteProblems.Invalid();
+            })
+            .WithName("PreviewInvite").WithTags("Invites")
+            .Produces<InvitePreviewDto>()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .RequireAuthorization().RequirePerClientAndAccountRateLimit();
+
+        // Exactly the invited role (editor or viewer, never owner), once. A member of that library already gets 409 and the invite stays unspent.
+        app.MapPost("/api/v1/invites:accept", async (InviteLookupRequest body, AcceptInvite.Handler handler, CancellationToken cancellationToken) =>
+            {
+                var result = await handler.HandleAsync(body.Invite, cancellationToken);
+                return result.IsSuccess ? Results.Ok(result.Value)
+                    : result.Error == InviteErrors.Invalid ? InviteProblems.Invalid()
+                    : result.Error!.ToProblem();
+            })
+            .WithName("AcceptInvite").WithTags("Invites")
+            .Produces<LibrarySummaryDto>()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .RequireAuthorization().RequirePerClientAndAccountRateLimit();
 
         return app;
     }

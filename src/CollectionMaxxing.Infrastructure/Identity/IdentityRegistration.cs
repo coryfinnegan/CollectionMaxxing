@@ -25,7 +25,6 @@ public static class IdentityRegistration
 
         services.TryAddScoped<IAccountStore, IdentityAccountStore>();
         services.TryAddScoped<IWebSessions, WebSessionStore>();
-        services.TryAddSingleton<ISetupCodeAnnouncer, SetupCodeAnnouncer>();
         return services;
     }
 }

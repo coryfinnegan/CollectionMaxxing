@@ -69,6 +69,11 @@ public class HouseholdAbuseTests(ApiFixture api) : InviteTest(api)
             });
 
         registered.Headers.Location?.ToString().ShouldBe("/");
+
+        // ONB-1: joining is POST /api/v1/invites:accept once signed in; the body can't name a role, a library or a user either.
+        var accepted = await joiner.PostAsync("/api/v1/invites:accept", new { invite = token, role = "owner", libraryId, userId = account.UserId, isAdmin = true });
+        accepted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ReadAsync(accepted)).GetProperty("role").GetString().ShouldBe("viewer");
         var sam = await joiner.MeAsync();
         (await RoleOfAsync(libraryId, sam.UserId)).ShouldBe("viewer");
         sam.UserId.ShouldNotBe(account.UserId);
@@ -85,12 +90,18 @@ public class HouseholdAbuseTests(ApiFixture api) : InviteTest(api)
         var (token, _) = await CreateInviteAsync(owner, libraryId, "viewer");
         var stranger = App.NewBrowser();
 
-        // The invite makes a NEW user; nothing in the request can name an existing one.
-        var registered = await stranger.SignInAsync($"/account/login?invite={Uri.EscapeDataString(token)}&userId={account.UserId}&link=1");
+        // Linking needs a session of one's own, so this goes nowhere.
+        (await stranger.SignInAsync($"/account/login?invite={Uri.EscapeDataString(token)}&userId={account.UserId}&link=1")).Headers.Location?.ToString().ShouldBe("/login");
+
+        // A first sign-in makes a NEW user (ONB-1), and accepting the invite joins that user; nothing in the request can name an existing one.
+        var registered = await stranger.SignInAsync($"/account/login?invite={Uri.EscapeDataString(token)}&userId={account.UserId}");
+        var accepted = await stranger.PostAsync("/api/v1/invites:accept", new { invite = token, userId = account.UserId });
 
         registered.Headers.Location?.ToString().ShouldBe("/");
+        accepted.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await stranger.MeAsync()).UserId.ShouldNotBe(account.UserId);
         (await CountUsersAsync()).ShouldBe(2);
+        (await CountLoginsAsync()).ShouldBe(2);
     }
 
     [Fact]
@@ -120,19 +131,22 @@ public class HouseholdAbuseTests(ApiFixture api) : InviteTest(api)
         var libraryId = account.LibraryId!.Value;
         var (token, _) = await CreateInviteAsync(owner, libraryId, "editor");
         var (member, registered) = await JoinAsync(token);
-        registered.Headers.Location?.ToString().ShouldBe("/");
+        registered.StatusCode.ShouldBe(HttpStatusCode.OK);
         var memberAccount = await member.MeAsync();
         (await owner.SendAsync(HttpMethod.Delete, $"{MembersUrl(libraryId)}/{memberAccount.UserId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // The spent link is spent for good.
+        // The spent link is spent for good, for them and for anyone else.
+        await ShouldBeInvalidInviteAsync(await member.JoinAsync(token));
         var again = App.NewBrowser();
-        (await StartJoinAsync(again, token)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
+        await ShouldBeInvalidInviteAsync(await again.JoinAsync(token));
         (await again.GetAsync($"/api/v1/invites/{token}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
-        // The old identity signs in nobody.
+        // ONB-1: their sign-in still works (removal ends only the membership), but it reaches nothing of this library.
         member.ClearCookies();
-        (await member.LoginAsync()).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
-        (await member.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await member.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
+        (await member.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await AsDeviceAsync(HttpMethod.Get, $"/api/v1/libraries/{libraryId}/items", App.Auth0.AccessToken(member.Identity.Subject))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await CountMembersAsync(libraryId)).ShouldBe(1);
     }
 
 }

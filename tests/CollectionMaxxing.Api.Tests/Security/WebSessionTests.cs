@@ -94,6 +94,8 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
     [Fact]
     public async Task Removing_a_member_revokes_their_browser_sessions_and_leaves_the_owners_alone()
     {
+        // ONB-1 (#249, docs/15): removal ends only that membership, so the member's browser sessions live on (their account and other
+        // libraries stay), but every one of them, a copied cookie included, loses the library on its very next request.
         var (owner, ownerAccount) = await SetUpOwnerAsync();
         var libraryId = ownerAccount.LibraryId!.Value;
         var (member, memberAccount) = await AddMemberAsync(owner, libraryId, "editor");
@@ -103,13 +105,14 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
 
         (await owner.SendAsync(HttpMethod.Delete, $"{MembersUrl(libraryId)}/{memberAccount.UserId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        (await ActiveRowsAsync(memberAccount.UserId)).ShouldBeEmpty();
+        (await ActiveRowsAsync(memberAccount.UserId)).Count.ShouldBe(2);
         (await ActiveRowsAsync(ownerAccount.UserId)).Count.ShouldBe(1);
-        (await owner.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await owner.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.OK);
         var thief = App.NewBrowser();
         thief.UseSessionCookie(copy);
-        (await thief.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        (await memberSecond.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await thief.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await memberSecond.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await memberSecond.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -288,7 +291,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
     {
         var browser = App.NewBrowser();
         browser.Http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", userAgent);
-        await browser.SetUpOwnerAsync(await App.IssueCodeAsync(CollectionMaxxing.Domain.Accounts.SetupCodePurpose.Setup));
+        await browser.SetUpOwnerAsync();
 
         (await WebSessionsAsync(browser)).Single().GetProperty("deviceName").GetString().ShouldBe(expected);
     }

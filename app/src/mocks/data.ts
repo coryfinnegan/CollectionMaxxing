@@ -6,6 +6,8 @@ export const MOCK_LIBRARY_ID = '11111111-1111-4111-8111-111111111111';
 export const mockMe = (): MeResponse => ({
   id: '22222222-2222-4222-8222-222222222222',
   memberships: [{ libraryId: MOCK_LIBRARY_ID, role: 'owner' }],
+  displayName: 'Cory',
+  email: 'cory@example.com',
 });
 
 const seed = (): LocationDto[] => [

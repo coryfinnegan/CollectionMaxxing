@@ -40,13 +40,16 @@ public static class AuthProblems
             "Too many attempts. Wait a minute and try again.",
             "rate_limited");
 
-    /// <summary>403: a valid Auth0 token whose identity isn't linked to anyone here. Nothing was created for it.</summary>
-    public static IResult NotLinked() =>
+    /// <summary>
+    /// 503: the first bearer call of a new identity, while Auth0's <c>/userinfo</c> can't be asked for its name and email. Nothing was
+    /// created; the next call tries again.
+    /// </summary>
+    public static IResult ProfileUnavailable() =>
         ProblemResults.Problem(
-            StatusCodes.Status403Forbidden,
-            "Forbidden",
-            "This account isn't part of a library. Ask the owner for an invite.",
-            "account.not_linked");
+            StatusCodes.Status503ServiceUnavailable,
+            "Service unavailable",
+            "Your account can't be set up right now. Try again in a minute.",
+            "account.profile_unavailable");
 
     /// <summary>400: a <c>returnUrl</c> that would leave this site.</summary>
     public static IResult BadReturnUrl() =>
@@ -56,10 +59,7 @@ public static class AuthProblems
             "The return address must be a page of this site.",
             "account.bad_return_url");
 
-    /// <summary>
-    /// Business failures of the sign-in use cases: a wrong code is a 400, a code that expired or was used is 410, and
-    /// a closed setup is a 404 (the setup endpoints do not exist once there is an owner).
-    /// </summary>
+    /// <summary>Business failures of the sign-in use cases: a wrong code is a 400, and a code that expired or was used is 410.</summary>
     public static IResult From(DomainError error) => error.Code switch
     {
         "code.expired" or "code.used" => ProblemResults.Problem(StatusCodes.Status410Gone, "Gone", error.Message, error.Code),

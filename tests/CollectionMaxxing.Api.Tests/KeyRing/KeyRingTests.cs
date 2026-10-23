@@ -38,7 +38,7 @@ public class KeyRingTests(ApiFixture api) : ApiTest(api)
         await using (var before = NewHost(KeyPath))
         {
             var browser = before.NewBrowser();
-            await browser.SetUpOwnerAsync(await before.IssueCodeAsync(SetupCodePurpose.Setup));
+            await browser.SetUpOwnerAsync();
             (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
             sessionCookie = CookieHeader(browser, WebClient.SessionCookie);
         }
@@ -59,7 +59,7 @@ public class KeyRingTests(ApiFixture api) : ApiTest(api)
         await using (var before = NewHost(KeyPath))
         {
             var owner = before.NewBrowser();
-            await owner.SetUpOwnerAsync(await before.IssueCodeAsync(SetupCodePurpose.Setup));
+            await owner.SetUpOwnerAsync();
             identity = owner.Identity;
 
             var visitor = before.NewBrowser(identity);
@@ -87,7 +87,7 @@ public class KeyRingTests(ApiFixture api) : ApiTest(api)
     {
         await using var host = NewHost(KeyPath);
         var browser = host.NewBrowser();
-        await browser.SetUpOwnerAsync(await host.IssueCodeAsync(SetupCodePurpose.Setup));
+        await browser.SetUpOwnerAsync();
 
         Directory.Exists(KeyPath).ShouldBeTrue();
         Directory.GetFiles(KeyPath, "key-*.xml").ShouldNotBeEmpty();
@@ -100,7 +100,7 @@ public class KeyRingTests(ApiFixture api) : ApiTest(api)
         await using (var before = NewHost(KeyPath))
         {
             var browser = before.NewBrowser();
-            await browser.SetUpOwnerAsync(await before.IssueCodeAsync(SetupCodePurpose.Setup));
+            await browser.SetUpOwnerAsync();
             sessionCookie = CookieHeader(browser, WebClient.SessionCookie);
         }
 

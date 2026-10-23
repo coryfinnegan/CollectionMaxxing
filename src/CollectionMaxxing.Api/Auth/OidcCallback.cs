@@ -9,12 +9,11 @@ namespace CollectionMaxxing.Api.Auth;
 /// <summary>
 /// What happens at <c>/signin-oidc</c> once the OpenID Connect handler has checked Auth0's answer (state, nonce, the ID token's
 /// signature, issuer and audience). The handler is stopped there (<c>HandleResponse</c>), so it never signs anyone in; this code reads
-/// the sealed intent, lets <see cref="CompleteSignIn"/> decide, and only then issues the session cookie. The answer is always a 302
-/// (contract addendum, issue #228).
+/// the sealed intent, lets <see cref="CompleteSignIn"/> decide (an identity nobody has yet becomes a new account, <see cref="CreateAccount"/>),
+/// and only then issues the session cookie. The answer is always a 302 (contract addendum, issue #228).
 /// </summary>
 public static class OidcCallback
 {
-    public const string NotLinkedPage = "/account/not-linked";
     public const string LoginPage = "/login";
 
     public static async Task HandleAsync(TicketReceivedContext context)
@@ -45,6 +44,22 @@ public static class OidcCallback
 
         var outcome = await http.RequestServices.GetRequiredService<CompleteSignIn.Handler>()
             .HandleAsync(sealedIntent.Intent, identity, http.RequestAborted);
+        if (outcome.Kind == SignInOutcomeKind.NewIdentity)
+        {
+            // A first sign-in: the account is made now, from the ID token (docs/15). New accounts are limited per client.
+            var client = http.RequestServices.GetRequiredService<ClientAddressResolver>().Resolve(http);
+            if (http.RequestServices.GetRequiredService<AccountLimits>().TryTakeNewAccount(client) is not null)
+            {
+                Redirect(http, LoginPage + "?error=rate_limited");
+                return;
+            }
+
+            var created = await http.RequestServices.GetRequiredService<CreateAccount.Handler>().HandleAsync(identity, http.RequestAborted);
+            outcome = created.IsSuccess
+                ? new SignInOutcome(SignInOutcomeKind.SignedIn, created.Value.UserId, created.Value.LoginId)
+                : SignInOutcome.Failed;
+        }
+
         var returnUrl = sealedIntent.ReturnUrl;
         switch (outcome.Kind)
         {
@@ -60,15 +75,6 @@ public static class OidcCallback
                 break;
             case SignInOutcomeKind.Linked:
                 Redirect(http, returnUrl); // the person's own session goes on as it was
-                break;
-            case SignInOutcomeKind.NotLinked:
-                Redirect(http, NotLinkedPage);
-                break;
-            case SignInOutcomeKind.InviteInvalid:
-                Redirect(http, LoginPage + "?error=invite_invalid");
-                break;
-            case SignInOutcomeKind.SetupClosed:
-                Redirect(http, LoginPage + "?error=setup_closed");
                 break;
             case SignInOutcomeKind.AlreadyLinked:
                 Redirect(http, QueryHelpers.AddQueryString(returnUrl, "error", "already_linked"));

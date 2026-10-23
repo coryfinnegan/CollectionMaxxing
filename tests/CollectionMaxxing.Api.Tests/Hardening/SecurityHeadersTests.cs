@@ -11,7 +11,7 @@ public sealed class SecurityHeadersTests : IDisposable
 
     public static TheoryData<string, string, bool, HttpStatusCode> Requests => new()
     {
-        { "a page that answers 200 (the not-linked page)", "/account/not-linked", false, HttpStatusCode.OK },
+        { "a page that answers 200 (the liveness check; ONB-1 removed the not-linked page)", "/health/live", false, HttpStatusCode.OK },
         { "a 401 (not signed in)", "/api/v1/libraries", false, HttpStatusCode.Unauthorized },
         { "a 500 (the database is down)", "/api/v1/libraries", true, HttpStatusCode.InternalServerError },
         { "a web file (the app shell)", "/join/some-token", false, HttpStatusCode.OK },

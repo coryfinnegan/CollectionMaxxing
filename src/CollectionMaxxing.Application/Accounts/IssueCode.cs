@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Accounts;
-using CollectionMaxxing.Domain.Libraries;
+using CollectionMaxxing.Domain.Common;
 using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Accounts;
@@ -8,33 +9,50 @@ namespace CollectionMaxxing.Application.Accounts;
 /// <summary>A one-time code in the clear. This is the only moment it exists in the clear: the database keeps a hash.</summary>
 public sealed record IssuedCode(string Code, DateTimeOffset ExpiresAt);
 
-/// <summary>Use case: make a one-time setup or recovery code.</summary>
+/// <summary>
+/// Use case: <c>cm-admin recovery-code &lt;email&gt;</c>, a support tool for the person at the host (docs/15, "Recovery"). Makes a
+/// recovery code for the one account with that email. The sign-in it later links goes to that account only.
+/// </summary>
 public static class IssueCode
 {
-    public sealed class Handler(IAppDbContext db, IIdGenerator ids, TimeProvider time)
+    public sealed class Handler(IAppDbContext db, IUserDirectory users, IIdGenerator ids, TimeProvider time)
     {
         /// <summary>
-        /// Makes a new code and cancels any older unused one of the same kind, so only the code that was printed last works.
-        /// A setup code can't be made once an owner exists: it returns null.
+        /// Finds the account (its own email or the email of one of its sign-ins, ignoring case) and makes a new code for it, cancelling any
+        /// older unused one of that account. An unknown email, or one that two accounts share, is an error and nothing is issued.
         /// </summary>
-        public async Task<IssuedCode?> HandleAsync(SetupCodePurpose purpose, CancellationToken cancellationToken)
+        public async Task<Result<IssuedCode>> HandleAsync(string? email, CancellationToken cancellationToken)
         {
-            if (purpose == SetupCodePurpose.Setup && await OwnerExistsAsync(db, cancellationToken))
+            var address = email?.Trim();
+            if (string.IsNullOrEmpty(address))
             {
-                return null;
+                return AccountErrors.RecoveryEmailRequired;
             }
 
+            var accounts = await users.FindActiveByEmailAsync(address, cancellationToken);
+            if (accounts.Count == 0)
+            {
+                return AccountErrors.RecoveryEmailUnknown;
+            }
+
+            if (accounts.Count > 1)
+            {
+                return AccountErrors.RecoveryEmailAmbiguous;
+            }
+
+            var userId = accounts[0];
             await db.SetupCodes
-                .Where(c => c.Purpose == purpose && c.UsedAt == null)
+                .Where(c => c.UserId == userId && c.UsedAt == null)
                 .ExecuteDeleteAsync(cancellationToken);
 
             var now = time.GetUtcNow();
             var code = OneTimeCodes.Generate();
-            var expiresAt = now + OneTimeCodes.LifetimeOf(purpose);
+            var expiresAt = now + OneTimeCodes.Lifetime;
             db.SetupCodes.Add(new SetupCode
             {
                 Id = ids.NewId(),
-                Purpose = purpose,
+                Purpose = SetupCodePurpose.Recovery,
+                UserId = userId,
                 CodeHash = OneTimeCodes.Hash(code),
                 CreatedAt = now,
                 ExpiresAt = expiresAt,
@@ -43,8 +61,4 @@ public static class IssueCode
             return new IssuedCode(code, expiresAt);
         }
     }
-
-    /// <summary>True once the first owner exists. Reads memberships across libraries, so it ignores the library filter.</summary>
-    public static Task<bool> OwnerExistsAsync(IAppDbContext db, CancellationToken cancellationToken) =>
-        db.LibraryMembers.IgnoreQueryFilters().AnyAsync(m => m.Role == LibraryRole.Owner, cancellationToken);
 }

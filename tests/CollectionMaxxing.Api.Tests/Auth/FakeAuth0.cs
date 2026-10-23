@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Text.Json;
 using CollectionMaxxing.Api.Auth;
@@ -8,10 +9,13 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using WireMock;
 using WireMock.Matchers;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
+using WireMock.Types;
+using WireMock.Util;
 
 namespace CollectionMaxxing.Api.Tests.Auth;
 
@@ -26,7 +30,7 @@ public sealed record TestIdentity(string Subject, string? Email = null, string? 
 }
 
 /// <summary>
-/// A fake Auth0 tenant on loopback (WireMock): the discovery document, the JWKS and <c>/oauth/token</c>. Tokens are signed with the
+/// A fake Auth0 tenant on loopback (WireMock): the discovery document, the JWKS, <c>/oauth/token</c> and <c>/userinfo</c>. Tokens are signed with the
 /// test key from TestSupport. The issuer is <c>https://tenant.auth0.test/</c>, as the API is configured to expect; only the metadata
 /// address points at WireMock.
 /// </summary>
@@ -41,6 +45,8 @@ public sealed class FakeAuth0 : IDisposable
 
     private readonly WireMockServer _server = LoopbackWireMock.Start();
     private readonly JsonWebTokenHandler _tokens = new() { SetDefaultTimesOnTokenCreation = false };
+    private readonly ConcurrentDictionary<string, TestIdentity> _profiles = new();
+    private readonly ConcurrentDictionary<string, int> _userInfoCalls = new();
 
     public FakeAuth0()
     {
@@ -51,6 +57,7 @@ public sealed class FakeAuth0 : IDisposable
             ["token_endpoint"] = Url("/oauth/token"),
             ["jwks_uri"] = Url("/.well-known/jwks.json"),
             ["end_session_endpoint"] = Issuer + "oidc/logout",
+            ["userinfo_endpoint"] = Url("/userinfo"),
             ["response_types_supported"] = new[] { "code" },
             ["subject_types_supported"] = new[] { "public" },
             ["id_token_signing_alg_values_supported"] = new[] { "RS256" },
@@ -63,6 +70,53 @@ public sealed class FakeAuth0 : IDisposable
         var jwks = new { keys = new[] { new { kty = "RSA", use = "sig", alg = "RS256", kid = TestSigningKey.KeyId, n = Base64UrlEncoder.Encode(key.Modulus), e = Base64UrlEncoder.Encode(key.Exponent) } } };
         _server.Given(Request.Create().WithPath("/.well-known/jwks.json").UsingGet())
             .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(JsonSerializer.Serialize(jwks)));
+
+        // /userinfo answers for the access token it is given: the profile set with SetProfile, or just the sub. No token, no answer.
+        _server.Given(Request.Create().WithPath("/userinfo").UsingGet()).RespondWith(Response.Create().WithCallback(UserInfo));
+    }
+
+    /// <summary>When true, <c>/userinfo</c> answers 503 (Auth0 can't be reached).</summary>
+    public bool UserInfoDown { get; set; }
+
+    /// <summary>What Auth0's <c>/userinfo</c> says about <paramref name="who"/> (its name and email).</summary>
+    public void SetProfile(TestIdentity who) => _profiles[who.Subject] = who;
+
+    /// <summary>How many times <c>/userinfo</c> was asked about <paramref name="subject"/>.</summary>
+    public int UserInfoCalls(string subject) => _userInfoCalls.GetValueOrDefault(subject);
+
+    private ResponseMessage UserInfo(IRequestMessage request)
+    {
+        var header = request.Headers is { } headers && headers.TryGetValue("Authorization", out var values) ? values.FirstOrDefault() ?? string.Empty : string.Empty;
+        var subject = header.StartsWith("Bearer ", StringComparison.Ordinal) && _tokens.CanReadToken(header[7..])
+            ? _tokens.ReadJsonWebToken(header[7..]).Subject
+            : null;
+        if (subject is null || UserInfoDown)
+        {
+            return new ResponseMessage { StatusCode = subject is null ? 401 : 503 };
+        }
+
+        _userInfoCalls.AddOrUpdate(subject, 1, (_, count) => count + 1);
+        var body = new Dictionary<string, object> { ["sub"] = subject };
+        if (_profiles.TryGetValue(subject, out var profile))
+        {
+            if (profile.Name is not null)
+            {
+                body["name"] = profile.Name;
+            }
+
+            if (profile.Email is not null)
+            {
+                body["email"] = profile.Email;
+            }
+        }
+
+        var message = new ResponseMessage
+        {
+            StatusCode = 200,
+            BodyData = new BodyData { BodyAsString = JsonSerializer.Serialize(body), DetectedBodyType = BodyType.String },
+        };
+        message.AddHeader("Content-Type", "application/json");
+        return message;
     }
 
     /// <summary>The API's settings for this tenant (the config contract of issue #226).</summary>

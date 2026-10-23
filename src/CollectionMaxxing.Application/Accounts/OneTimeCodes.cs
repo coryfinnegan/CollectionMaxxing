@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using CollectionMaxxing.Domain.Accounts;
 using CollectionMaxxing.Domain.Common;
 
 namespace CollectionMaxxing.Application.Accounts;
@@ -13,12 +12,8 @@ public static class OneTimeCodes
     private const int Groups = 4;
     private const int GroupLength = 4;
 
-    public static TimeSpan LifetimeOf(SetupCodePurpose purpose) => purpose switch
-    {
-        SetupCodePurpose.Setup => TimeSpan.FromHours(24),
-        SetupCodePurpose.Recovery => TimeSpan.FromMinutes(30),
-        _ => throw new ArgumentOutOfRangeException(nameof(purpose)),
-    };
+    /// <summary>A recovery code lasts 30 minutes.</summary>
+    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
 
     /// <summary>A new random code such as <c>7KQ2-M9XD-4HTA-RW8E</c>: 16 characters from a 31-letter alphabet, about 79 bits.</summary>
     public static string Generate()
@@ -40,7 +35,7 @@ public static class OneTimeCodes
 
     /// <summary>
     /// What the database stores. The codes are random and long, so a plain SHA-256 is enough (there is nothing to
-    /// brute-force); the point of hashing is that a copy of the database can't be used to set up or recover the server.
+    /// brute-force); the point of hashing is that a copy of the database can't be used to recover an account.
     /// </summary>
     public static string Hash(string code) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Normalize(code))));
@@ -61,11 +56,17 @@ public static class AccountErrors
     public static readonly DomainError CodeUsed =
         new(ErrorKind.Conflict, "code.used", "That code has already been used.");
 
-    public static readonly DomainError SetupClosed =
-        new(ErrorKind.NotFound, "setup.closed", "Setup is finished.");
+    public static readonly DomainError NoAccount =
+        new(ErrorKind.NotFound, "recovery.no_account", "That account doesn't exist any more.");
 
-    public static readonly DomainError NoOwner =
-        new(ErrorKind.NotFound, "recovery.no_owner", "There is no account to recover yet.");
+    public static readonly DomainError RecoveryEmailRequired =
+        new(ErrorKind.Validation, "recovery.email_required", "Name the account to recover by its email address.", "email");
+
+    public static readonly DomainError RecoveryEmailUnknown =
+        new(ErrorKind.NotFound, "recovery.email_unknown", "No account has that email address. Nothing was issued.");
+
+    public static readonly DomainError RecoveryEmailAmbiguous =
+        new(ErrorKind.Conflict, "recovery.email_ambiguous", "More than one account has that email address. Nothing was issued.");
 
     public static readonly DomainError AlreadyLinked =
         new(ErrorKind.Conflict, "account.already_linked", "That sign-in already belongs to an account.");

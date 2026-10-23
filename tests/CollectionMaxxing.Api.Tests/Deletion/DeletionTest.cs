@@ -44,7 +44,7 @@ public abstract class DeletionTest(ApiFixture api) : InviteTest(api)
     protected async Task<(WebClient Browser, WebClient.SignedIn Owner)> SetUpNamedOwnerAsync(string displayName)
     {
         var browser = App.NewBrowser(TestIdentity.Google(displayName));
-        var owner = await browser.SetUpOwnerAsync(await App.IssueCodeAsync(CollectionMaxxing.Domain.Accounts.SetupCodePurpose.Setup));
+        var owner = await browser.SetUpOwnerAsync();
         return (browser, owner);
     }
 

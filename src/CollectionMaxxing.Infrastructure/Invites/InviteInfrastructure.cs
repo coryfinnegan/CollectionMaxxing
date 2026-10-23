@@ -1,12 +1,8 @@
-using CollectionMaxxing.Application.Accounts;
-using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Invites;
 using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Libraries;
-using CollectionMaxxing.Infrastructure.Identity;
 using CollectionMaxxing.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -18,14 +14,14 @@ public static class InviteRegistration
     /// <summary>The stores behind invites and members: joining by invite, and the people behind user ids.</summary>
     public static IServiceCollection AddInviteStores(this IServiceCollection services)
     {
-        services.TryAddScoped<IInviteAcceptance, IdentityInviteAcceptance>();
+        services.TryAddScoped<IInviteAcceptance, InviteAcceptance>();
         services.TryAddScoped<IUserDirectory, IdentityUserDirectory>();
         return services;
     }
 }
 
-/// <summary>Names and deactivation of accounts, on ASP.NET Core Identity's user table.</summary>
-internal sealed class IdentityUserDirectory(AppDbContext db, TimeProvider time) : IUserDirectory
+/// <summary>Names and the state of accounts, on ASP.NET Core Identity's user table.</summary>
+internal sealed class IdentityUserDirectory(AppDbContext db) : IUserDirectory
 {
     public async Task<IReadOnlyDictionary<Guid, string>> DisplayNamesAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken)
     {
@@ -40,39 +36,41 @@ internal sealed class IdentityUserDirectory(AppDbContext db, TimeProvider time) 
             .ToDictionaryAsync(u => u.Id, u => u.DisplayName, cancellationToken);
     }
 
-    public async Task DeactivateAsync(Guid userId, CancellationToken cancellationToken)
-    {
-        var now = time.GetUtcNow();
-
-        // "Deleted" is how the rest of the system already says "can't sign in": the Auth0 callback and every authenticated request
-        // (cookie or bearer token) check it.
-        await db.Users
-            .Where(u => u.Id == userId && u.DeletedAt == null)
-            .ExecuteUpdateAsync(set => set.SetProperty(u => u.DeletedAt, now), cancellationToken);
-    }
+    public Task<AccountProfile?> GetProfileAsync(Guid userId, CancellationToken cancellationToken) =>
+        db.Users.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new AccountProfile(u.DisplayName, u.Email))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public Task<bool> IsDeactivatedAsync(Guid userId, CancellationToken cancellationToken) =>
         db.Users.AsNoTracking().AnyAsync(u => u.Id == userId && u.DeletedAt != null, cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> FindActiveByEmailAsync(string email, CancellationToken cancellationToken)
+    {
+        // Identity normalizes emails to upper case (UpperInvariantLookupNormalizer); the sign-ins keep theirs as Auth0 gave them.
+        var normalized = email.Trim().ToUpperInvariant();
+        var pattern = email.Trim().Replace(@"\", @"\\", StringComparison.Ordinal).Replace("%", @"\%", StringComparison.Ordinal).Replace("_", @"\_", StringComparison.Ordinal);
+        var fromLogins = db.Logins.Where(l => l.Email != null && EF.Functions.ILike(l.Email, pattern, @"\")).Select(l => l.UserId);
+        return await db.Users.AsNoTracking()
+            .Where(u => u.DeletedAt == null && (u.NormalizedEmail == normalized || fromLogins.Contains(u.Id)))
+            .Select(u => u.Id)
+            .ToListAsync(cancellationToken);
+    }
 }
 
-/// <summary>Joins a library by invite with ASP.NET Core Identity. One transaction: it all happens, or none of it.</summary>
-internal sealed class IdentityInviteAcceptance(AppDbContext db, UserManager<AppUser> users, TimeProvider time) : IInviteAcceptance
+/// <summary>Adds a signed-in account to a library by invite. One transaction: it all happens, or none of it.</summary>
+internal sealed class InviteAcceptance(AppDbContext db, TimeProvider time) : IInviteAcceptance
 {
-    public async Task<Result<LinkedLogin>> AcceptAsync(
-        Guid inviteId,
-        Guid userId,
-        string displayName,
-        ExternalIdentity identity,
-        CancellationToken cancellationToken)
+    public async Task<Result<LibraryRole>> AcceptAsync(Guid inviteId, Guid userId, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        // Spend the invite first, in one statement that also checks it is still good. Two people finishing at the same moment both
-        // run this: Postgres makes the second wait for the first, re-reads the row, and finds it spent.
+        // Spend the invite first, in one statement that also checks it is still good. Two people accepting at the same moment both run
+        // this: Postgres makes the second wait for the first, re-reads the row, and finds it spent.
         var spent = await db.LibraryInvites.IgnoreQueryFilters()
             .Where(i => i.Id == inviteId && i.AcceptedAt == null && i.RevokedAt == null && i.ExpiresAt > now)
-            .ExecuteUpdateAsync(set => set.SetProperty(i => i.AcceptedAt, now), cancellationToken);
+            .ExecuteUpdateAsync(set => set.SetProperty(i => i.AcceptedAt, now).SetProperty(i => i.AcceptedBy, userId), cancellationToken);
         if (spent != 1)
         {
             return InviteErrors.Invalid; // the transaction is disposed without a commit, so nothing is kept
@@ -99,18 +97,7 @@ internal sealed class IdentityInviteAcceptance(AppDbContext db, UserManager<AppU
             return InviteErrors.Invalid;
         }
 
-        var user = new AppUser
-        {
-            Id = userId,
-            UserName = userId.ToString("N"),
-            DisplayName = displayName,
-            CreatedAt = now,
-        };
-        Check(await users.CreateAsync(user));
-
         db.LibraryMembers.Add(new LibraryMember(invite.LibraryId, userId, invite.Role, now));
-        var login = IdentityAccountStore.NewLogin(userId, identity, now);
-        db.Logins.Add(login);
         try
         {
             await db.SaveChangesAsync(cancellationToken);
@@ -118,23 +105,10 @@ internal sealed class IdentityInviteAcceptance(AppDbContext db, UserManager<AppU
         catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
         {
             db.ChangeTracker.Clear();
-            return AccountErrors.AlreadyLinked; // the identity joined at the same moment; nothing is kept
+            return InviteErrors.AlreadyMember; // joined at the same moment by another invite; this one stays unspent
         }
-
-        await db.LibraryInvites.IgnoreQueryFilters()
-            .Where(i => i.Id == inviteId)
-            .ExecuteUpdateAsync(set => set.SetProperty(i => i.AcceptedBy, userId), cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return new LinkedLogin(login.Id, userId);
-    }
-
-    // An Identity failure here is a bug or a broken database, not something the caller can fix: throw so the transaction rolls back.
-    private static void Check(IdentityResult result)
-    {
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException("Identity refused the change: " + string.Join("; ", result.Errors.Select(e => e.Code)));
-        }
+        return invite.Role;
     }
 }

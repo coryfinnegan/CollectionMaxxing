@@ -79,6 +79,10 @@ internal sealed class SetupCodeConfiguration : IEntityTypeConfiguration<SetupCod
         builder.Property(c => c.CodeHash).HasMaxLength(200).IsRequired();
 
         builder.HasIndex(c => c.CodeHash).IsUnique();
+
+        // A recovery code is for one named account, and goes with it.
+        builder.HasOne<AppUser>().WithMany().HasForeignKey(c => c.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(c => c.UserId);
     }
 }
 
@@ -100,12 +104,14 @@ internal sealed class LibraryInviteConfiguration : IEntityTypeConfiguration<Libr
             .IsRequired();
         builder.Property(i => i.Name).HasMaxLength(LibraryInvite.MaxNameLength).IsRequired();
         builder.Property(i => i.TokenHash).HasMaxLength(200).IsRequired();
+        builder.Property(i => i.CodeHash).HasMaxLength(200);
 
         builder.HasOne<Library>().WithMany().HasForeignKey(i => i.LibraryId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<AppUser>().WithMany().HasForeignKey(i => i.CreatedBy).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<AppUser>().WithMany().HasForeignKey(i => i.AcceptedBy).OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(i => i.TokenHash).IsUnique();
+        builder.HasIndex(i => i.CodeHash).IsUnique();
         builder.HasIndex(i => new { i.LibraryId, i.ExpiresAt });
     }
 }
