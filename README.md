@@ -101,8 +101,8 @@ iPhone / browser -> Tailscale HTTPS -> tailscale serve -> 127.0.0.1:5480 (API + 
 **One-time install** (about an hour). The full checklist, with what to expect and how to undo each step, is in [deploy/README.md](deploy/README.md). In short:
 
 1. Clone the repo to `C:\CollectionMaxxing\repo`.
-2. Copy `deploy/.env.example` to `C:\CollectionMaxxing\.env` and fill it in (database password, your Tailscale name, backup folder).
-3. Create the token signing keys: `deploy/deployer/New-Secrets.ps1 -Apply`.
+2. Copy `deploy/.env.example` to `C:\CollectionMaxxing\.env` and fill it in (database password, your address, backup folder).
+3. Set up sign-in: a free Auth0 tenant configured by `deploy/auth0/Apply-Auth0.ps1` (docs/14). Copy the values it writes to `secrets\auth0\api.env` into `.env`.
 4. Dry-run, then do the first deploy: `deploy/deployer/Deploy-CollectionMaxxing.ps1 -Apply`.
 5. Publish it privately: `deploy/tailscale/Set-TailscaleServe.ps1 -Apply`.
 6. Register the 2-minute deployer task: `deploy/deployer/Install-Deployer.ps1 -Apply`.
