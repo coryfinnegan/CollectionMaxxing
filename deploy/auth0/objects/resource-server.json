@@ -1,0 +1,9 @@
+{
+  "name": "CollectionMaxxing API",
+  "identifier": "urn:collectionmaxxing:api",
+  "signing_alg": "RS256",
+  "token_lifetime": 3600,
+  "token_lifetime_for_web": 3600,
+  "allow_offline_access": true,
+  "skip_consent_for_verifiable_first_party_clients": true
+}

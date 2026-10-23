@@ -1,0 +1,5 @@
+{
+  "client_id": "{{SERVER_CLIENT_ID}}",
+  "audience": "https://{{AUTH0_DOMAIN}}/api/v2/",
+  "scope": ["delete:users", "delete:grants"]
+}
