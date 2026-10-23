@@ -228,9 +228,8 @@ public class DeletionHardeningTests(ApiFixture api) : DeletionTest(api)
         var (owner, ownerAccount) = await SetUpOwnerAsync();
         var libraryId = ownerAccount.LibraryId!.Value;
         var (token, _) = await CreateInviteAsync(owner, libraryId, "viewer", "Guest");
-        var guest = App.NewBrowser();
-        var options = await StartJoinAsync(guest, token, "Guest");
-        options.StatusCode.ShouldBe(HttpStatusCode.Found);
+        var guest = App.NewBrowser(Auth.TestIdentity.Google("Guest"));
+        (await guest.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
 
         // The owner's delete got as far as deactivating the account, but has not revoked the invites yet.
         await using (var context = Db.CreateContext())
@@ -238,10 +237,9 @@ public class DeletionHardeningTests(ApiFixture api) : DeletionTest(api)
             await context.Users.Where(u => u.Id == ownerAccount.UserId).ExecuteUpdateAsync(set => set.SetProperty(u => u.DeletedAt, App.Time.GetUtcNow()));
         }
 
-        var registered = await guest.FinishAsync(options);
+        var registered = await guest.JoinAsync(token);
 
-        registered.Headers.Location?.ToString().ShouldBe(InviteInvalid);
-        guest.HasSessionCookie.ShouldBeFalse();
+        await ShouldBeInvalidInviteAsync(registered);
         (await CountMembersAsync(libraryId)).ShouldBe(1, "the library must not gain a member it would keep without an owner");
     }
 

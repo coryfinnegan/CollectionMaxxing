@@ -329,10 +329,10 @@ Test-Case 'rollback: the script exposes it as -RollbackTo and is a dry run witho
     try {
         Set-TestState -Root $root -State (Get-StateAt $script:Sha2)
         New-FakeMachine @{ Sha = $script:Sha1 } | Out-Null
-        & $script -Root $root -ComposeFile 'compose.test.yml' -RollbackTo $script:Sha1 6>$null
+        & $script -Root $root -ComposeFile (New-TestComposePath $root) -RollbackTo $script:Sha1 6>$null
         Assert-Equal 0 $LASTEXITCODE
         Assert-Equal 0 (Get-MutatingCalls).Count
-        & $script -Root $root -ComposeFile 'compose.test.yml' -SmokeDelaySeconds 0 -RollbackTo $script:Sha1 -Apply 6>$null
+        & $script -Root $root -ComposeFile (New-TestComposePath $root) -SmokeDelaySeconds 0 -RollbackTo $script:Sha1 -Apply 6>$null
         Assert-Equal 0 $LASTEXITCODE
         Assert-Equal $script:Sha1 (Get-TestState -Root $root).current.sha
     }
@@ -345,7 +345,7 @@ Test-Case 'script: a refused deploy makes the script itself exit non-zero' {
     try {
         Set-TestState -Root $root -State (Get-StateAt $script:Sha2)
         New-FakeMachine @{ Sha = $script:Sha1 } | Out-Null
-        & $script -Root $root -ComposeFile 'compose.test.yml' -SmokeDelaySeconds 0 -Apply 6>$null
+        & $script -Root $root -ComposeFile (New-TestComposePath $root) -SmokeDelaySeconds 0 -Apply 6>$null
         Assert-Equal 4 $LASTEXITCODE
         Assert-Equal 1 (Get-AlertCalls).Count
     }

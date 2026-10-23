@@ -153,16 +153,13 @@ public sealed class WebClient(HttpClient http, FakeAuth0 auth0, FakeTimeProvider
         return QueryHelpers.ParseQuery(location.Query).ToDictionary(p => p.Key, p => (string?)p.Value.ToString());
     }
 
-    /// <summary>Signs in with this browser's identity (it must be linked already).</summary>
+    /// <summary>Signs in with this browser's identity (the first time, that makes its account).</summary>
     public Task<HttpResponseMessage> LoginAsync() => SignInAsync();
 
-    /// <summary>First run: enter the setup code.</summary>
-    public Task<HttpResponseMessage> StartSetupAsync(string code) => PostAsync("/setup", new { code });
-
-    /// <summary>Recovery: enter the recovery code from the PC's command line.</summary>
+    /// <summary>Recovery: enter the recovery code from the host's command line.</summary>
     public Task<HttpResponseMessage> StartRecoveryAsync(string code) => PostAsync("/account/recover", new { code });
 
-    /// <summary>Follows the <c>next</c> of a <c>POST /setup</c> or <c>POST /account/recover</c> answer through Auth0.</summary>
+    /// <summary>Follows the <c>next</c> of a <c>POST /account/recover</c> answer through Auth0.</summary>
     public async Task<HttpResponseMessage> ContinueAsync(HttpResponseMessage started, TestIdentity? who = null)
     {
         started.StatusCode.ShouldBe(HttpStatusCode.OK, await started.Content.ReadAsStringAsync());
@@ -170,9 +167,31 @@ public sealed class WebClient(HttpClient http, FakeAuth0 auth0, FakeTimeProvider
         return await SignInAsync(next, who);
     }
 
-    /// <summary>Joins by invite: <c>/account/login?invite=…</c> through Auth0.</summary>
-    public Task<HttpResponseMessage> JoinAsync(string token, TestIdentity? who = null) =>
-        SignInAsync("/account/login?invite=" + Uri.EscapeDataString(token), who);
+    /// <summary>
+    /// Joins by invite the way the web app does it (docs/15): signs in as <paramref name="who"/> unless this browser already has a session
+    /// (the first time, that makes the account), then <c>POST /api/v1/invites:accept</c> with the token. Returns the accept's answer.
+    /// </summary>
+    public async Task<HttpResponseMessage> JoinAsync(string token, TestIdentity? who = null)
+    {
+        if (!HasSessionCookie)
+        {
+            var signedIn = await SignInAsync("/account/login?returnUrl=" + Uri.EscapeDataString("/join/" + token), who);
+            if (!HasSessionCookie)
+            {
+                return signedIn;
+            }
+        }
+
+        return await PostAsync("/api/v1/invites:accept", new { invite = token });
+    }
+
+    /// <summary>Creates a library (<c>POST /api/v1/libraries</c>) and returns its id. Fails the test if it wasn't created.</summary>
+    public async Task<Guid> CreateLibraryAsync(string name = "My library")
+    {
+        var response = await PostAsync("/api/v1/libraries", new { name });
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+    }
 
     /// <summary>Signs in again (<c>reauth=1</c>), so the session counts as recent.</summary>
     public Task<HttpResponseMessage> ReauthAsync(DateTimeOffset? authTime = null) => SignInAsync("/account/login?reauth=1", authTime: authTime);
@@ -180,13 +199,14 @@ public sealed class WebClient(HttpClient http, FakeAuth0 auth0, FakeTimeProvider
     /// <summary>Adds <paramref name="other"/> as a second sign-in method (<c>link=1</c>).</summary>
     public Task<HttpResponseMessage> LinkAsync(TestIdentity other) => SignInAsync("/account/login?link=1", other);
 
-    /// <summary>Does the whole first run and returns who was created.</summary>
-    public async Task<SignedIn> SetUpOwnerAsync(string code)
+    /// <summary>Signs in (which makes the account the first time), creates a library and returns who this is, with that library.</summary>
+    public async Task<SignedIn> SetUpOwnerAsync(string libraryName = "My library")
     {
-        var done = await ContinueAsync(await StartSetupAsync(code));
+        var done = await SignInAsync();
         done.StatusCode.ShouldBe(HttpStatusCode.Found);
         done.Headers.Location?.ToString().ShouldBe("/");
-        return await MeAsync();
+        var library = await CreateLibraryAsync(libraryName);
+        return (await MeAsync()) with { LibraryId = library };
     }
 
     /// <summary>Who this browser is signed in as, from <c>GET /api/v1/me</c>.</summary>

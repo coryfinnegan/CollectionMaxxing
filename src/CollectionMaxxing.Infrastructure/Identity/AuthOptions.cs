@@ -8,7 +8,7 @@ public sealed class AuthOptions
 {
     public const string SectionName = "Auth";
 
-    /// <summary>The server's secrets folder: the setup code. Git-ignored.</summary>
+    /// <summary>The server's secrets folder (the Development key ring lives under it). Git-ignored.</summary>
     public string SecretsPath { get; set; } = "secrets";
 
     /// <summary>
@@ -18,8 +18,6 @@ public sealed class AuthOptions
     public string? PublicOrigin { get; set; }
 
     public Auth0Options Auth0 { get; set; } = new();
-
-    public SetupOptions Setup { get; set; } = new();
 
     public RateLimitOptions RateLimit { get; set; } = new();
 
@@ -46,17 +44,20 @@ public sealed class AuthOptions
         public string? ManagementClientSecret { get; set; }
     }
 
-    public sealed class SetupOptions
-    {
-        /// <summary>Make and print a setup code when the server starts with no owner. Off in tests.</summary>
-        public bool IssueOnStartup { get; set; } = true;
-    }
-
     public sealed class RateLimitOptions
     {
-        /// <summary>Attempts per window, per caller, on the endpoints that take a code or start a sign-in.</summary>
+        /// <summary>
+        /// Attempts per window, per client address, on the endpoints that take a code or start a sign-in, and on creating a library and
+        /// previewing or accepting an invite.
+        /// </summary>
         public int PermitLimit { get; set; } = 10;
 
         public int WindowSeconds { get; set; } = 60;
+
+        /// <summary>Attempts per window, per account, on creating a library and previewing or accepting an invite (docs/15, "Security").</summary>
+        public int AccountPermitLimit { get; set; } = 10;
+
+        /// <summary>New accounts per hour from one client address: a first sign-in, on the web or with a bearer token.</summary>
+        public int NewAccountsPerHour { get; set; } = 20;
     }
 }

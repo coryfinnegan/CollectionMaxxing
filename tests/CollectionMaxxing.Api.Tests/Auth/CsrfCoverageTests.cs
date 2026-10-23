@@ -13,7 +13,8 @@ public class CsrfCoverageTests(ApiFixture api) : AuthTest(api)
     [
         "/account/logout",
         "/account/recover",
-        "/setup",
+        "/api/v1/libraries", // ONB-1 (#249): POST /setup is gone; creating a library and joining one are the new cookie writes
+        "/api/v1/invites:accept",
     ];
 
     [Theory]

@@ -15,6 +15,7 @@ internal static class InviteServices
         services.AddScoped<ListInvites.Handler>();
         services.AddScoped<RevokeInvite.Handler>();
         services.AddScoped<GetInvitePreview.Handler>();
+        services.AddScoped<AcceptInvite.Handler>();
         return services;
     }
 }

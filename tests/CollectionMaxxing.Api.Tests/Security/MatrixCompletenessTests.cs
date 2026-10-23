@@ -35,7 +35,7 @@ public class MatrixCompletenessTests(ApiFixture api)
         Real.Count(e => e.LibraryMinimum is not null).ShouldBeGreaterThan(30);
         Real.Count(e => e.ScanSessionMinimum is not null).ShouldBeGreaterThan(8);
         Real.Count(e => e.RequiresAdminPolicy).ShouldBeGreaterThan(3);
-        Real.Count(e => e.AllowsAnonymous).ShouldBeGreaterThan(8);
+        Real.Count(e => e.AllowsAnonymous).ShouldBeGreaterThan(7); // ONB-1 (#249) removed GET /setup, POST /setup and GET /account/not-linked: 8 remain
     }
 
     // ---- the audit must bite: each of these made-up worlds has one fault and the audit must name it ---------------------

@@ -47,11 +47,14 @@ public abstract class AuthTest(ApiFixture api) : ApiTest(api)
         return await context.Users.CountAsync();
     }
 
-    /// <summary>Sets up the owner and returns their signed-in browser and who they are.</summary>
+    /// <summary>
+    /// An owner: a new account (its first sign-in) that has created a library. Returns their signed-in browser, and who they are with that
+    /// library.
+    /// </summary>
     protected async Task<(WebClient Browser, WebClient.SignedIn Owner)> SetUpOwnerAsync()
     {
         var browser = App.NewBrowser(TestIdentity.Google("Owner"));
-        var owner = await browser.SetUpOwnerAsync(await App.IssueCodeAsync(CollectionMaxxing.Domain.Accounts.SetupCodePurpose.Setup));
+        var owner = await browser.SetUpOwnerAsync("Owner's library");
         return (browser, owner);
     }
 

@@ -177,12 +177,13 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
     }
 
     [Fact]
-    public async Task Setup_attempts_use_the_hourly_auth_limit_too()
+    public async Task Recovery_attempts_use_the_hourly_auth_limit_too()
     {
+        // ONB-1 removed /setup; the recovery code is the code a stranger could still guess.
         var host = Host(("AuthHourly", 2));
         using var client = host.CreateClient();
 
-        var statuses = await SendAsync(client, 3, () => new HttpRequestMessage(HttpMethod.Post, "/setup") { Content = JsonContent.Create(new { code = "x" }) });
+        var statuses = await SendAsync(client, 3, () => new HttpRequestMessage(HttpMethod.Post, "/account/recover") { Content = JsonContent.Create(new { code = "x" }) });
 
         statuses.Take(2).ShouldAllBe(s => s != HttpStatusCode.TooManyRequests);
         statuses[2].ShouldBe(HttpStatusCode.TooManyRequests);

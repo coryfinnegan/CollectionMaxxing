@@ -19,7 +19,7 @@ namespace CollectionMaxxing.Api.Auth;
 /// Auth0 as the way in (ADR-025, docs/14 "Target design"), with Microsoft's own handlers and no Auth0 SDK:
 /// <list type="bullet">
 /// <item><b>JwtBearer</b> checks the iPhone's access tokens: issuer <c>https://{Domain}/</c>, our audience, RS256 only. The token's
-/// <c>sub</c> is then looked up in <c>user_logins</c>; an unlinked one gets 403 <c>account.not_linked</c> (see <see cref="CurrentUserMiddleware"/>).</item>
+/// <c>sub</c> is then looked up in <c>user_logins</c>; the first call of one nobody has yet creates its account (see <see cref="CurrentUserMiddleware"/>).</item>
 /// <item><b>OpenID Connect</b> runs the web's code flow (with PKCE) for challenges only. It never signs anyone in: its sign-in scheme
 /// refuses, and <see cref="OidcCallback"/> decides after the callback and calls <see cref="AuthCookie.SignInAsync"/> itself.</item>
 /// </list>
@@ -125,7 +125,7 @@ public static class Auth0Setup
 
     /// <summary>
     /// After the token checks out: find who its <c>sub</c> is linked to, and build the principal from scratch, so nothing in the token
-    /// but <c>sub</c> can say who the caller is. An unlinked <c>sub</c> keeps only <c>sub</c>; the next middleware answers 403. A phone
+    /// but <c>sub</c> can say who the caller is. An unlinked <c>sub</c> keeps only <c>sub</c>; the next middleware makes its account. A phone
     /// carries no platform role: the admin routes are for the web session (as they were with paired phones).
     /// </summary>
     private static async Task LinkBearerAsync(Microsoft.AspNetCore.Authentication.JwtBearer.TokenValidatedContext context)

@@ -1,6 +1,5 @@
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Accounts.Devices;
-using CollectionMaxxing.Application.Invites;
 using CollectionMaxxing.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Options;
@@ -8,24 +7,23 @@ using Microsoft.Extensions.Options;
 namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
-/// The sign-in endpoints of docs/14 and the contract addendum of issue #228: starting an Auth0 sign-in, checking a setup or recovery
-/// code first, and signing out. The callback itself is <see cref="OidcCallback"/>.
+/// The sign-in endpoints of docs/14, docs/15 and the contract addendum of issue #228: starting an Auth0 sign-in, checking a recovery code
+/// first, and signing out. The callback itself is <see cref="OidcCallback"/>.
 /// </summary>
 public sealed class SignInFlow(
     SignInIntentCookie intents,
     PlanSignIn.Handler plan,
-    GetInvitePreview.Handler invites,
     IOptions<AuthOptions> auth,
     IPublicServerUrl server)
 {
     /// <summary>
     /// <c>GET /account/login</c>: a browser navigation that ends at Auth0. <paramref name="returnUrl"/> must be a local path.
     /// <c>reauth=1</c> and <c>link=1</c> need the session cookie and make Auth0 ask again (<c>max_age=0</c>, <c>prompt=login</c>);
-    /// <c>invite</c> joins a library; <c>intent=setup</c> or <c>intent=recover</c> carries on from <c>POST /setup</c> or
-    /// <c>POST /account/recover</c>. Whatever it is travels in the sealed intent cookie, never in Auth0's state alone. An invite that
-    /// can't be used is turned away here already, so nobody goes to Auth0 for nothing (it is checked again when they come back).
+    /// <c>intent=recover</c> carries on from <c>POST /account/recover</c>. Anything else is a plain sign-in, which makes the account the
+    /// first time (joining a library is <c>POST /api/v1/invites:accept</c> once signed in). Whatever it is travels in the sealed intent
+    /// cookie, never in Auth0's state alone.
     /// </summary>
-    public async Task<IResult> StartAsync(HttpContext http, string? returnUrl, string? reauth, string? link, string? invite, string? intent)
+    public IResult Start(HttpContext http, string? returnUrl, string? reauth, string? link, string? intent)
     {
         var target = string.IsNullOrEmpty(returnUrl) ? "/" : returnUrl;
         if (!IsLocal(target))
@@ -40,16 +38,7 @@ public sealed class SignInFlow(
         var wantsReauth = reauth == "1";
 
         SignInIntent purpose;
-        if (!string.IsNullOrEmpty(invite))
-        {
-            if (!(await invites.HandleAsync(invite, http.RequestAborted)).IsSuccess)
-            {
-                return Results.Redirect(OidcCallback.LoginPage + "?error=invite_invalid");
-            }
-
-            purpose = new SignInIntent(SignInPurpose.Invite, InviteToken: invite);
-        }
-        else if (wantsLink || wantsReauth)
+        if (wantsLink || wantsReauth)
         {
             if (userId is null || sessionId is null)
             {
@@ -81,20 +70,10 @@ public sealed class SignInFlow(
         return Results.Challenge(properties, [Auth0Setup.OidcScheme]);
     }
 
-    /// <summary><c>POST /setup</c>: the setup code, checked only while there is no owner. Spent when the sign-in comes back.</summary>
-    public async Task<IResult> StartSetupAsync(HttpContext http, SetupRequest body, CancellationToken cancellationToken)
-    {
-        var planned = await plan.ForSetupAsync(body.Code, cancellationToken);
-        if (!planned.IsSuccess)
-        {
-            return AuthProblems.From(planned.Error!);
-        }
-
-        intents.Write(http, planned.Value, "/");
-        return TypedResults.Ok(new NextStepDto("/account/login?intent=setup"));
-    }
-
-    /// <summary><c>POST /account/recover</c>: a recovery code from <c>cm-admin recovery-code</c>. The next sign-in is linked to the owner.</summary>
+    /// <summary>
+    /// <c>POST /account/recover</c>: a recovery code from <c>cm-admin recovery-code &lt;email&gt;</c>. The next sign-in is linked to the
+    /// account the code was made for, and to no other.
+    /// </summary>
     public async Task<IResult> StartRecoveryAsync(HttpContext http, RecoverRequest body, CancellationToken cancellationToken)
     {
         var planned = await plan.ForRecoveryAsync(body.Code, cancellationToken);
@@ -129,5 +108,5 @@ public sealed class SignInFlow(
         && !url.Any(c => char.IsControl(c) || c == '\\');
 
     private static bool PendingMatches(SignInPurpose purpose, string? intent) =>
-        (purpose, intent) is (SignInPurpose.Setup, "setup") or (SignInPurpose.Recovery, "recover");
+        (purpose, intent) is (SignInPurpose.Recovery, "recover");
 }

@@ -1,14 +1,13 @@
 using System.Globalization;
 using CollectionMaxxing.Application.Accounts;
-using CollectionMaxxing.Application.Common;
-using CollectionMaxxing.Domain.Accounts;
 
 namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
-/// Commands for the person at the PC, run as arguments of the API itself (docs/07, "Recovery"):
-/// <c>dotnet run --project src/CollectionMaxxing.Api -- --recovery-code</c>, or <c>cm-admin recovery-code</c> in the container.
-/// Physical access to the PC is the recovery factor. A command prints its result and the program exits without serving.
+/// Support commands for the person at the host, run as arguments of the API itself (docs/07, "Recovery"; docs/15):
+/// <c>dotnet run --project src/CollectionMaxxing.Api -- --recovery-code someone@example.com</c>, or <c>cm-admin recovery-code
+/// someone@example.com</c> in the container. Access to the host is the recovery factor; it isn't an app role. A command prints its result
+/// and the program exits without serving.
 /// </summary>
 public static class AdminCommands
 {
@@ -17,32 +16,37 @@ public static class AdminCommands
     /// <summary>Runs the command named in <paramref name="args"/>, if any. Returns true when it did, so the caller can exit.</summary>
     public static async Task<bool> TryRunAdminCommandAsync(this WebApplication app, string[] args)
     {
-        if (!args.Contains(RecoveryCodeFlag, StringComparer.OrdinalIgnoreCase))
+        var flag = Array.FindIndex(args, a => string.Equals(a, RecoveryCodeFlag, StringComparison.OrdinalIgnoreCase));
+        if (flag < 0)
         {
             return false;
         }
 
-        Environment.ExitCode = await RunRecoveryCodeAsync(app.Services, Console.Out, Console.Error, CancellationToken.None);
+        var email = flag + 1 < args.Length ? args[flag + 1] : null;
+        Environment.ExitCode = await RunRecoveryCodeAsync(app.Services, email, Console.Out, Console.Error, CancellationToken.None);
         return true;
     }
 
-    /// <summary>Makes a recovery code for the owner and prints it. Returns the process exit code: 0 when a code was printed.</summary>
-    public static async Task<int> RunRecoveryCodeAsync(IServiceProvider services, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    /// <summary>
+    /// Makes a recovery code for the one account with <paramref name="email"/> and prints it. Returns the process exit code: 0 when a code was
+    /// printed. An unknown email (or one two accounts share) is an error, and nothing is issued.
+    /// </summary>
+    public static async Task<int> RunRecoveryCodeAsync(IServiceProvider services, string? email, TextWriter output, TextWriter error, CancellationToken cancellationToken)
     {
         try
         {
             using var scope = services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<IAppDbContext>();
-            if (!await IssueCode.OwnerExistsAsync(db, cancellationToken))
+            var issued = await scope.ServiceProvider.GetRequiredService<IssueCode.Handler>().HandleAsync(email, cancellationToken);
+            if (!issued.IsSuccess)
             {
-                await error.WriteLineAsync("There is no owner to recover yet. Use the setup code instead (see secrets/setup-code.txt, or restart the server).");
+                await error.WriteLineAsync(issued.Error!.Message + $" Usage: {RecoveryCodeFlag} <email of the account>");
                 return 1;
             }
 
-            var issued = await scope.ServiceProvider.GetRequiredService<IssueCode.Handler>().HandleAsync(SetupCodePurpose.Recovery, cancellationToken);
             await output.WriteLineAsync(
-                $"Recovery code: {issued!.Code}{Environment.NewLine}"
-                + $"Open the web app's sign-in page, choose \"Can't sign in?\" and enter it, then sign in with the account you want to use. It works once and expires at {issued.ExpiresAt.ToString("u", CultureInfo.InvariantCulture)}.");
+                $"Recovery code: {issued.Value.Code}{Environment.NewLine}"
+                + "Give it to the account's owner. They open the web app's sign-in page, choose \"Can't sign in?\" and enter it, then sign in with "
+                + $"the Google or Apple account they want to use. It works once, for that account only, and expires at {issued.Value.ExpiresAt.ToString("u", CultureInfo.InvariantCulture)}.");
             return 0;
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)

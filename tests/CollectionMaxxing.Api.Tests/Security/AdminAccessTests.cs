@@ -34,6 +34,19 @@ public class AdminAccessTests(ApiFixture api) : InviteTest(api)
     {
         var (owner, account) = await SetUpOwnerAsync();
         var libraryId = account.LibraryId!.Value;
+
+        // ONB-1 (ADR-027): nobody becomes the platform admin by using the app any more; the role is given on the host. Give it to the owner
+        // here, and sign in again so the session carries it.
+        using (var scope = App.Services.CreateScope())
+        {
+            var roles = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.RoleManager<Microsoft.AspNetCore.Identity.IdentityRole<Guid>>>();
+            var users = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<Infrastructure.Identity.AppUser>>();
+            (await roles.CreateAsync(new Microsoft.AspNetCore.Identity.IdentityRole<Guid>("admin"))).Succeeded.ShouldBeTrue();
+            (await users.AddToRoleAsync((await users.FindByIdAsync(account.UserId.ToString()))!, "admin")).Succeeded.ShouldBeTrue();
+        }
+
+        owner.ClearCookies();
+        (await owner.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         var (editor, _) = await AddMemberAsync(owner, libraryId, "editor", "Edith");
         var (viewer, _) = await AddMemberAsync(owner, libraryId, "viewer", "Vic");
         var ownerPhone = await SignInPhoneAsync(owner, "Owner phone");

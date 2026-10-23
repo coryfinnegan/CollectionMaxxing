@@ -108,10 +108,10 @@ public class DeleteAccountTests(ApiFixture api) : DeletionTest(api)
         (await secondBrowser.LoginAsync()).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
         secondBrowser.HasSessionCookie.ShouldBeFalse();
 
-        // The open invite died with the account.
+        // The open invite died with the account. (ONB-1: the guest's sign-in is an account of their own, which joins nothing.)
         var (guest, joined) = await JoinAsync(inviteToken, "Guest");
-        joined.Headers.Location?.ToString().ShouldBe("/login?error=invite_invalid");
-        guest.HasSessionCookie.ShouldBeFalse();
+        await ShouldBeInvalidInviteAsync(joined);
+        (await ReadAsync(await guest.GetAsync("/api/v1/libraries"))).GetProperty("items").GetArrayLength().ShouldBe(0);
 
         var row = await UserRowAsync(owner.UserId);
         row.DeletedAt.ShouldNotBeNull();

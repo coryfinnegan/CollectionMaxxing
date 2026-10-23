@@ -22,6 +22,9 @@ public enum Actor
 
     /// <summary>A signed-in platform administrator who belongs to no library: the admin role is not a library role.</summary>
     Admin,
+
+    /// <summary>Signed in with a brand-new account that belongs to no library yet (docs/15, the Welcome screen).</summary>
+    NoLibraries,
 }
 
 /// <summary>
@@ -43,6 +46,9 @@ public sealed record EndpointCase(
     /// <summary>What a platform admin gets. Defaults to what any other non-member gets.</summary>
     public int? Admin { get; init; }
 
+    /// <summary>What a signed-in account with no libraries gets. Defaults to what any other non-member gets.</summary>
+    public int? NoLibraries { get; init; }
+
     public string? Query { get; init; }
 
     public IReadOnlyDictionary<string, string>? Headers { get; init; }
@@ -57,6 +63,7 @@ public sealed record EndpointCase(
         Actor.Editor => Editor,
         Actor.Owner => Owner,
         Actor.Admin => Admin ?? OtherUser,
+        Actor.NoLibraries => NoLibraries ?? OtherUser,
         _ => throw new ArgumentOutOfRangeException(nameof(actor)),
     };
 }
@@ -77,13 +84,11 @@ public static class AuthorizationMatrix
         "/health/ready",
         "/openapi/{documentName}.json",
 
-        // Sign-in (Auth0), setup, recovery, sign-out and joining by invite (AUTH-1, #228). The Auth0 callback, /signin-oidc, is the
+        // Sign-in (Auth0), recovery, sign-out and the invite page (AUTH-1 #228, ONB-1 #249). The Auth0 callback, /signin-oidc, is the
         // OpenID Connect handler's and not an endpoint.
-        "/setup",
         "/account/login",
         "/account/logout",
         "/account/recover",
-        "/account/not-linked",
         "/join/{token}",
 
         // The join page asks what the invite is for (rate-limited; the same 404 for every token that isn't usable).
@@ -179,21 +184,23 @@ public static class AuthorizationMatrix
         SignedIn("GET", "/api/v1/me/export/{id:guid}", allowed: NotFound), // the seeded id is no export of theirs
         SignedIn("GET", "/api/v1/me/export/{id:guid}/download", allowed: NotFound),
 
-        // ---- Sign-in, setup, recovery, sign-out (AUTH-1, Auth0): the only anonymous endpoints -------------------
-        // The world always has an owner, so setup is closed: 404 for everyone.
-        Everyone("GET", "/setup", null, NotFound),
-        Everyone("POST", "/setup", Json, NotFound),
+        // ---- Sign-in, recovery, sign-out (AUTH-1, Auth0): the only anonymous endpoints. No setup routes (ONB-1). ---------
         Everyone("GET", "/account/login", null, Found), // off to Auth0, signed in or not
         Everyone("POST", "/account/logout", null, Ok) with { Headers = Csrf }, // works without a session too, never without X-CSRF: 1 (contract addendum 2)
         Everyone("POST", "/account/recover", Json, BadRequest), // {} has no code
-        Everyone("GET", "/account/not-linked", null, Ok),
         Everyone("GET", "/join/{token}", null, Ok),
 
         // Built (ID-3a). The matrix's token is no invite, so everyone gets the one "not found" answer.
         Everyone("GET", "/api/v1/invites/{token}", null, NotFound),
 
+        // ONB-1: joining while signed in, with a link, a token or a code. The matrix's code is no invite: the one "not found" answer.
+        SignedIn("POST", "/api/v1/invites:preview", """{ "invite": "ABCD-EFGH-JK" }""", allowed: NotFound),
+        SignedIn("POST", "/api/v1/invites:accept", """{ "invite": "ABCD-EFGH-JK" }""", allowed: NotFound),
+
         // ---- Libraries and members (LIB), invites (ID-3a): built ----------------------------------------------
         SignedIn("GET", "/api/v1/libraries", allowed: Ok),
+        SignedIn("POST", "/api/v1/libraries", """{ "name": "Another library" }""", allowed: Created) with { Admin = Conflict }, // ONB-1: anyone signed in (the matrix admin has no user row to own it, so the insert is refused 409; real users always have one)
+        new EndpointCase("DELETE", $"{Libraries}/membership", null, Unauthorized, NotFound, NoContent, NoContent, Conflict), // ONB-1: any member leaves; the owner can't (409 library.last_owner)
         InLibrary("GET", Libraries, LibraryRole.Viewer, allowed: Ok),
         InLibrary("PATCH", Libraries, LibraryRole.Owner, """{ "name": "Renamed" }""", Ok),
         InLibrary("GET", $"{Libraries}/members", LibraryRole.Viewer, allowed: Ok),

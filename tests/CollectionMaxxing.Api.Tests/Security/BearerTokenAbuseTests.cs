@@ -185,19 +185,41 @@ public class BearerTokenAbuseTests(ApiFixture api) : InviteTest(api)
     }
 
     [Fact]
-    public async Task A_removed_members_token_is_401_on_every_route_group_at_once()
+    public async Task A_removed_members_token_loses_that_library_on_every_route_group_at_once()
     {
+        // ONB-1 (docs/15): removal ends that membership only. The token still works for the person's own account, and is 404 on
+        // everything of the library they were removed from, from the very next call.
         var (owner, libraryId, _, _) = await ArrangeAsync();
         var (member, memberAccount) = await AddMemberAsync(owner, libraryId, "editor");
         var memberToken = App.Auth0.AccessToken(member.Identity.Subject);
         var memberLibrary = new TestLibrary(libraryId, memberAccount.UserId, memberAccount.UserId, memberAccount.UserId, memberAccount.UserId);
         var routes = RoutesFor(libraryId, await TestData.CreateScanSessionAsync(Db, memberLibrary, memberAccount.UserId));
-        (await CallAsync(routes[0], memberToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        foreach (var route in routes)
+        {
+            (await CallAsync(route, memberToken)).StatusCode.ShouldBe((HttpStatusCode)route.Control[0], route.ToString());
+        }
 
         (await owner.SendAsync(HttpMethod.Delete, $"{MembersUrl(libraryId)}/{memberAccount.UserId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        await ShouldBeRefusedEverywhereAsync(routes, memberToken, "removed member");
-        await ShouldBeRefusedEverywhereAsync(routes, App.Auth0.AccessToken(member.Identity.Subject), "removed member, a fresh token");
+        foreach (var token in new[] { memberToken, App.Auth0.AccessToken(member.Identity.Subject) })
+        {
+            var failures = new List<string>();
+            foreach (var route in routes)
+            {
+                var inLibrary = route.Url.Contains(libraryId.ToString(), StringComparison.Ordinal) || route.Url.StartsWith("/api/v1/scan-sessions/", StringComparison.Ordinal);
+                var expected = inLibrary ? HttpStatusCode.NotFound : (HttpStatusCode)route.Control[0];
+                using var response = await CallAsync(route, token);
+                if (response.StatusCode != expected)
+                {
+                    failures.Add($"{route}: {(int)response.StatusCode}, expected {(int)expected}");
+                }
+            }
+
+            failures.ShouldBeEmpty();
+        }
+
+        var libraries = await ReadAsync(await CallAsync(routes.Single(r => r.Url == "/api/v1/libraries"), memberToken));
+        libraries.GetProperty("items").GetArrayLength().ShouldBe(0);
     }
 
     [Fact]

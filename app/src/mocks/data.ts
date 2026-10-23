@@ -15,6 +15,8 @@ export const mockAccount: { libraries: LibrarySummaryDto[]; signedIn: boolean; n
 export const mockMe = (): MeResponse => ({
   id: '22222222-2222-4222-8222-222222222222',
   memberships: mockAccount.libraries.map((l) => ({ libraryId: l.id, role: l.role })),
+  displayName: 'Cory',
+  email: 'cory@example.com',
 });
 
 const seed = (): LocationDto[] => [

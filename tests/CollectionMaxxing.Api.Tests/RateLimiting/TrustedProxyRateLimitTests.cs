@@ -20,8 +20,12 @@ public abstract class RateLimitTestBase(ApiFixture api) : HardeningTest(api)
     protected static Task<HttpResponseMessage> PairingAttemptAsync(HttpClient phone, int i) =>
         phone.PostAsJsonAsync("/account/recover", new { code = "WRONG-CODE-" + i });
 
-    protected static Task<HttpResponseMessage> SetupAttemptAsync(HttpClient phone, int i) =>
-        phone.PostAsJsonAsync("/setup", new { code = "WRONG-" + i });
+    /// <summary>
+    /// ONB-1 (#249) removed <c>POST /setup</c>; the other sign-in endpoint on the same per-client limit is <c>GET /account/login</c>. A
+    /// return address off the site makes it a 400, like the wrong setup code was.
+    /// </summary>
+    protected static Task<HttpResponseMessage> SignInAttemptAsync(HttpClient phone, int i) =>
+        phone.GetAsync("/account/login?returnUrl=" + Uri.EscapeDataString($"https://evil.test/{i}"));
 }
 
 public class UntrustedPeerRateLimitTests(ApiFixture api) : RateLimitTestBase(api)
@@ -45,7 +49,7 @@ public class UntrustedPeerRateLimitTests(ApiFixture api) : RateLimitTestBase(api
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 5; i++)
         {
-            statuses.Add((await SetupAttemptAsync(From("10.0.0.2", $"203.0.113.{i + 10}"), i)).StatusCode);
+            statuses.Add((await SignInAttemptAsync(From("10.0.0.2", $"203.0.113.{i + 10}"), i)).StatusCode);
         }
 
         statuses.Take(3).ShouldAllBe(s => s == HttpStatusCode.BadRequest);
@@ -100,11 +104,11 @@ public class TrustedProxyRateLimitTests(ApiFixture api) : RateLimitTestBase(api)
     {
         for (var i = 0; i < 3; i++)
         {
-            (await SetupAttemptAsync(From("10.0.0.1", "203.0.113.5"), i)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+            (await SignInAttemptAsync(From("10.0.0.1", "203.0.113.5"), i)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         }
 
-        var limited = await SetupAttemptAsync(From("10.0.0.1", "203.0.113.5"), 4);
-        var someoneElse = await SetupAttemptAsync(From("10.0.0.1", "203.0.113.6"), 5);
+        var limited = await SignInAttemptAsync(From("10.0.0.1", "203.0.113.5"), 4);
+        var someoneElse = await SignInAttemptAsync(From("10.0.0.1", "203.0.113.6"), 5);
 
         limited.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
         limited.Headers.RetryAfter.ShouldNotBeNull();

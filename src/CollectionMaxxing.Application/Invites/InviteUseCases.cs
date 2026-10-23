@@ -1,6 +1,6 @@
-using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Accounts.Devices;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Libraries;
 using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Libraries;
@@ -46,6 +46,7 @@ public static class CreateInvite
 
             var now = time.GetUtcNow();
             var token = InviteSecrets.NewToken();
+            var code = InviteSecrets.NewCode();
             var invite = new LibraryInvite
             {
                 Id = ids.NewId(),
@@ -53,6 +54,7 @@ public static class CreateInvite
                 Role = role,
                 Name = name,
                 TokenHash = InviteSecrets.Hash(token),
+                CodeHash = InviteSecrets.HashCode(InviteSecrets.NormalizeCode(code)!),
                 CreatedBy = userId,
                 CreatedAt = now,
                 ExpiresAt = now + InviteSecrets.Lifetime,
@@ -61,7 +63,7 @@ public static class CreateInvite
             await db.SaveChangesAsync(cancellationToken);
 
             var link = $"{server.Value}/join/{token}";
-            return new CreatedInviteDto(ToDto(invite), link, link);
+            return new CreatedInviteDto(ToDto(invite), link, link, code);
         }
     }
 
@@ -113,20 +115,24 @@ public static class RevokeInvite
     }
 }
 
-/// <summary>Use case: what the join page shows. Anyone with the link may ask; nobody learns anything about a token that isn't usable.</summary>
+/// <summary>
+/// Use case: what the join page shows (<c>GET /api/v1/invites/{token}</c>, and <c>POST /api/v1/invites:preview</c> with a link, a token or
+/// a code). Nobody learns anything about an invite that isn't usable.
+/// </summary>
 public static class GetInvitePreview
 {
     public sealed class Handler(IAppDbContext db, IUserDirectory users, TimeProvider time)
     {
-        public async Task<Result<InvitePreviewDto>> HandleAsync(string? token, CancellationToken cancellationToken)
+        public Task<Result<InvitePreviewDto>> HandleAsync(string? token, CancellationToken cancellationToken) =>
+            HandleAsync(InviteKey.ForToken(token), cancellationToken);
+
+        public async Task<Result<InvitePreviewDto>> HandleAsync(InviteKey key, CancellationToken cancellationToken)
         {
             var now = time.GetUtcNow();
-            var hash = InviteSecrets.Hash(token ?? string.Empty);
 
-            // An unknown, an expired, a used and a revoked token must cost the same and answer the same: every token runs the same
-            // lookups, and only the last line decides. (The filters are off because nobody is signed in.)
-            var invite = await db.LibraryInvites.IgnoreQueryFilters().AsNoTracking()
-                .FirstOrDefaultAsync(i => i.TokenHash == hash, cancellationToken);
+            // An unknown, an expired, a used and a revoked invite must cost the same and answer the same: every one runs the same
+            // lookups, and only the last line decides. (The filters are off: the caller isn't a member of the library yet.)
+            var invite = await FindAsync(db, key, cancellationToken);
             var libraryId = invite?.LibraryId ?? Guid.Empty;
             var libraryName = await db.Libraries.IgnoreQueryFilters().AsNoTracking()
                 .Where(l => l.Id == libraryId).Select(l => l.Name).FirstOrDefaultAsync(cancellationToken);
@@ -143,27 +149,57 @@ public static class GetInvitePreview
     /// <summary>Not used, not revoked and not out of date.</summary>
     internal static bool IsUsable(LibraryInvite invite, DateTimeOffset now) =>
         invite.AcceptedAt is null && invite.RevokedAt is null && invite.ExpiresAt > now;
+
+    /// <summary>The invite <paramref name="key"/> names, in any library and in any state, or null.</summary>
+    internal static Task<LibraryInvite?> FindAsync(IAppDbContext db, InviteKey key, CancellationToken cancellationToken) =>
+        key.IsCode
+            ? db.LibraryInvites.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(i => i.CodeHash == key.Hash, cancellationToken)
+            : db.LibraryInvites.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(i => i.TokenHash == key.Hash, cancellationToken);
 }
 
-/// <summary>Writes the account of a person who joins by invite. Implemented by Infrastructure on ASP.NET Core Identity.</summary>
+/// <summary>Adds a signed-in account to a library by invite. Implemented by Infrastructure.</summary>
 public interface IInviteAcceptance
 {
     /// <summary>
     /// In one transaction: spends the invite (only if it is still unused, unrevoked and in date, decided in a single statement so two
-    /// people finishing together can't both win), creates the user linked to <paramref name="identity"/>, and makes them a member with the
-    /// invited role. Fails with <see cref="InviteErrors.Invalid"/> (or <c>AccountErrors.AlreadyLinked</c> when the identity was linked
-    /// meanwhile) and changes nothing.
+    /// people accepting together can't both win) and makes <paramref name="userId"/> a member with the invited role, which is never Owner.
+    /// Fails with <see cref="InviteErrors.Invalid"/> or <see cref="InviteErrors.AlreadyMember"/>, and then changes nothing.
     /// </summary>
-    Task<Result<LinkedLogin>> AcceptAsync(Guid inviteId, Guid userId, string displayName, ExternalIdentity identity, CancellationToken cancellationToken);
+    Task<Result<LibraryRole>> AcceptAsync(Guid inviteId, Guid userId, CancellationToken cancellationToken);
 }
 
-/// <summary>Finding an invite that can still be used. Joining itself happens when the person comes back from Auth0 (<c>CompleteSignIn</c>).</summary>
-public static class PlanInvite
+/// <summary>
+/// Use case: <c>POST /api/v1/invites:accept</c>. A signed-in account joins a library with an invite link, token or code, and gets exactly
+/// the invited role. Unknown, expired, revoked and used invites all get the same answer.
+/// </summary>
+public static class AcceptInvite
 {
-    internal static async Task<LibraryInvite?> FindUsableAsync(IAppDbContext db, string? token, DateTimeOffset now, CancellationToken cancellationToken)
+    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser, IInviteAcceptance acceptance, TimeProvider time)
     {
-        var hash = InviteSecrets.Hash(token ?? string.Empty);
-        var invite = await db.LibraryInvites.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(i => i.TokenHash == hash, cancellationToken);
-        return invite is not null && GetInvitePreview.IsUsable(invite, now) ? invite : null;
+        public async Task<Result<LibrarySummaryDto>> HandleAsync(string? invite, CancellationToken cancellationToken)
+        {
+            var userId = currentUser.UserId ?? throw new InvalidOperationException("Accepting an invite needs a signed-in caller; the endpoint requires authorization.");
+            var found = await GetInvitePreview.FindAsync(db, InviteKey.Parse(invite), cancellationToken);
+            if (found is null || !GetInvitePreview.IsUsable(found, time.GetUtcNow()))
+            {
+                return InviteErrors.Invalid;
+            }
+
+            // Already in the library: say so, and leave the invite for whoever it was really for.
+            if (currentUser.RoleIn(found.LibraryId) is not null)
+            {
+                return InviteErrors.AlreadyMember;
+            }
+
+            var accepted = await acceptance.AcceptAsync(found.Id, userId, cancellationToken);
+            if (!accepted.IsSuccess)
+            {
+                return accepted.Error!;
+            }
+
+            var name = await db.Libraries.IgnoreQueryFilters().AsNoTracking()
+                .Where(l => l.Id == found.LibraryId).Select(l => l.Name).FirstAsync(cancellationToken);
+            return new LibrarySummaryDto(found.LibraryId, name, accepted.Value);
+        }
     }
 }

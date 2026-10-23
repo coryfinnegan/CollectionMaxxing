@@ -4,10 +4,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
-/// First-run setup, Auth0 sign-in, recovery and sign-out (docs/14, issue #228). These are the endpoints that answer anonymous callers,
-/// and each one is on the allow-list in the authorization matrix. The browser navigations (<c>GET /setup</c>, <c>/account/login</c>,
-/// <c>/account/not-linked</c>, <c>/join/{token}</c>) are left out of the OpenAPI document. Every endpoint that takes a code or starts a
-/// sign-in is rate-limited per client. The Auth0 callback (<c>/signin-oidc</c>) is the OpenID Connect handler's, not an endpoint.
+/// Auth0 sign-in, recovery and sign-out (docs/14, docs/15, issue #228). These are the endpoints that answer anonymous callers, and each one
+/// is on the allow-list in the authorization matrix. The browser navigations (<c>/account/login</c>, <c>/join/{token}</c>) are left out of
+/// the OpenAPI document. Every endpoint that takes a code or starts a sign-in is rate-limited per client. The Auth0 callback
+/// (<c>/signin-oidc</c>) is the OpenID Connect handler's, not an endpoint: a first sign-in there makes the account (ADR-026).
 /// </summary>
 public static class SignInEndpoints
 {
@@ -15,37 +15,22 @@ public static class SignInEndpoints
 
     public static IEndpointRouteBuilder MapSignInEndpoints(this IEndpointRouteBuilder app)
     {
-        // Setup exists only while there is no owner; afterwards it answers 404.
-        app.MapGet("/setup", async (GetSetupStatus.Handler status, SpaPage spa, CancellationToken cancellationToken) =>
-                await status.IsOpenAsync(cancellationToken) ? spa.Index() : Results.NotFound())
-            .WithName("SetupPage").WithTags("Sign-in")
-            .ExcludeFromDescription().AllowAnonymous();
-        app.MapPost("/setup", (SetupRequest body, HttpContext http, SignInFlow flow, CancellationToken cancellationToken) =>
-                flow.StartSetupAsync(http, body, cancellationToken))
-            .WithName("Setup").WithTags("Sign-in")
-            .Produces<NextStepDto>()
-            .ProducesValidationProblem()
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status410Gone)
-            .ProducesProblem(StatusCodes.Status429TooManyRequests)
-            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
-
         // Sign in: off to Auth0, and back through /signin-oidc.
         app.MapGet(
                 "/account/login",
-                (HttpContext http, SignInFlow flow, string? returnUrl, string? reauth, string? link, string? invite, string? intent) =>
-                    flow.StartAsync(http, returnUrl, reauth, link, invite, intent))
+                (HttpContext http, SignInFlow flow, string? returnUrl, string? reauth, string? link, string? intent) =>
+                    flow.Start(http, returnUrl, reauth, link, intent))
             .WithName("Login").WithTags("Sign-in")
             .ExcludeFromDescription().AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
 
-        // Sign out. Works without a session too (the not-linked page signs out of Auth0), but always needs X-CSRF: 1.
+        // Sign out. Works without a session too ("Use another account" signs out of Auth0), but always needs X-CSRF: 1.
         app.MapPost("/account/logout", (HttpContext http, SignInFlow flow) => flow.LogoutAsync(http))
             .WithName("Logout").WithTags("Sign-in")
             .Produces<LogoutDto>()
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .AllowAnonymous().AddEndpointFilter<RequireCsrfHeaderFilter>();
 
-        // Recovery after losing every sign-in: a one-time code from the PC's command line links the next identity to the owner.
+        // Recovery after losing every sign-in: a one-time code from the host's command line links the next identity to the named account.
         app.MapPost("/account/recover", (RecoverRequest body, HttpContext http, SignInFlow flow, CancellationToken cancellationToken) =>
                 flow.StartRecoveryAsync(http, body, cancellationToken))
             .WithName("Recover").WithTags("Sign-in")
@@ -56,13 +41,8 @@ public static class SignInEndpoints
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
 
-        // Where an identity nobody linked lands: "This account isn't part of a library."
-        app.MapGet("/account/not-linked", (SpaPage spa) => spa.Index())
-            .WithName("NotLinkedPage").WithTags("Sign-in")
-            .ExcludeFromDescription().AllowAnonymous();
-
-        // The page a family member opens from an invite link. The SPA asks GET /api/v1/invites/{token} whether the invite is usable,
-        // then sends them to /account/login?invite={token}; the invite is only spent when they come back from Auth0.
+        // The page someone opens from an invite link. The SPA asks GET /api/v1/invites/{token} what the invite is for. Signed out, it
+        // signs in first (/account/login?returnUrl=/join/{token}); signed in, it joins with POST /api/v1/invites:accept.
         app.MapGet("/join/{token}", (SpaPage spa) => spa.Index())
             .WithName("JoinPage").WithTags("Sign-in")
             .ExcludeFromDescription().AllowAnonymous();

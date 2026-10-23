@@ -1,8 +1,6 @@
 using CollectionMaxxing.Application.Accounts;
-using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Accounts;
 using CollectionMaxxing.Domain.Common;
-using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -14,57 +12,43 @@ namespace CollectionMaxxing.Infrastructure.Identity;
 internal sealed class IdentityAccountStore(
     AppDbContext db,
     UserManager<AppUser> users,
-    RoleManager<IdentityRole<Guid>> roles,
-    IIdGenerator ids,
     TimeProvider time) : IAccountStore
 {
-    /// <summary>The platform administrator role (same name as <c>Roles.Admin</c> in the API). The owner who sets the server up is the admin.</summary>
-    private const string AdminRole = "admin";
-
-    public async Task<Result<LinkedLogin>> CreateOwnerAsync(
-        Guid userId,
-        string displayName,
-        ExternalIdentity identity,
-        Guid setupCodeId,
-        CancellationToken cancellationToken)
+    public async Task<LinkedLogin> CreateAccountAsync(Guid userId, string displayName, ExternalIdentity identity, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
+        var created = await CreateUnlessLinkedAsync(userId, displayName, identity, now, cancellationToken);
+        if (created is not null)
+        {
+            return created;
+        }
+
+        // Somebody else's first sign-in with the same identity won the unique index: theirs is the account. Nothing of ours was kept.
+        return await db.Logins.AsNoTracking()
+            .Where(l => l.Subject == identity.Subject)
+            .Select(l => new LinkedLogin(l.Id, l.UserId))
+            .SingleAsync(cancellationToken);
+    }
+
+    private async Task<LinkedLogin?> CreateUnlessLinkedAsync(Guid userId, string displayName, ExternalIdentity identity, DateTimeOffset now, CancellationToken cancellationToken)
+    {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-
-        if (await SpendCodeAsync(setupCodeId, now, cancellationToken) is { } codeError)
-        {
-            return codeError;
-        }
-
-        if (await IssueCode.OwnerExistsAsync(db, cancellationToken))
-        {
-            return AccountErrors.SetupClosed;
-        }
-
+        var email = identity.Email?.Trim();
         var user = new AppUser
         {
             Id = userId,
             UserName = userId.ToString("N"),
             DisplayName = displayName,
+            Email = string.IsNullOrEmpty(email) || email.Length > UserLogin.MaxEmailLength ? null : email,
             CreatedAt = now,
         };
         Check(await users.CreateAsync(user));
 
-        if (!await roles.RoleExistsAsync(AdminRole))
-        {
-            Check(await roles.CreateAsync(new IdentityRole<Guid>(AdminRole)));
-        }
-
-        Check(await users.AddToRoleAsync(user, AdminRole));
-
-        var library = new Library(ids.NewId(), $"{displayName}'s library", now);
-        db.Libraries.Add(library);
-        db.LibraryMembers.Add(new LibraryMember(library.Id, userId, LibraryRole.Owner, now));
         var login = NewLogin(userId, identity, now);
         db.Logins.Add(login);
         if (!await TrySaveAsync(cancellationToken))
         {
-            return AccountErrors.AlreadyLinked;
+            return null; // the transaction is disposed without a commit, so the user row goes too
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -83,7 +67,7 @@ internal sealed class IdentityAccountStore(
 
         if (!await db.Users.AnyAsync(u => u.Id == userId && u.DeletedAt == null, cancellationToken))
         {
-            return AccountErrors.NoOwner;
+            return AccountErrors.NoAccount;
         }
 
         var existing = await db.Logins.AsNoTracking().FirstOrDefaultAsync(l => l.Subject == identity.Subject, cancellationToken);
