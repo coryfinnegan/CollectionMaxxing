@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures';
+import { fakeSignIn } from './signin';
 
 test.describe('members and join', () => {
   test('inviting shows the link once, and a second browser joins from it', async ({ page, open, browser, baseURL, shot }) => {
@@ -29,9 +30,11 @@ test.describe('members and join', () => {
     const guest = await other.newPage();
     await guest.goto(joinPath);
     await expect(guest.getByRole('heading', { name: "Join Cory's library as Editor" })).toBeVisible();
-    await guest.getByRole('textbox', { name: 'Your name' }).fill('Taylor');
-    await guest.getByRole('button', { name: 'Create passkey' }).click();
+    const token = joinPath.split('/').pop();
+    const signIn = await fakeSignIn(guest, '/library');
+    await guest.getByRole('button', { name: 'Sign in to join' }).click();
     await expect(guest).toHaveURL(/\/library$/);
+    expect(signIn.urls).toEqual([`/account/login?invite=${token}`]);
     await other.close();
   });
 

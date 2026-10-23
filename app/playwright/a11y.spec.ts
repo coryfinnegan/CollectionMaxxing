@@ -4,7 +4,7 @@ import { expect, test } from './fixtures';
 test.describe('accessibility', () => {
   test('sign-in, setup and join', async ({ page, open, expectAccessible }) => {
     await open('/login');
-    await expect(page.getByRole('button', { name: 'Sign in with a passkey' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     await expectAccessible();
 
     await page.getByRole('button', { name: 'First time here? Set up CollectionMaxxing' }).click();

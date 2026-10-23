@@ -1,0 +1,22 @@
+{
+  "name": "CollectionMaxxing iPhone",
+  "description": "The iPhone app: Authorization Code + PKCE with react-native-auth0, rotating refresh tokens (docs/14).",
+  "app_type": "native",
+  "is_first_party": true,
+  "oidc_conformant": true,
+  "cross_origin_authentication": false,
+  "grant_types": ["authorization_code", "refresh_token"],
+  "token_endpoint_auth_method": "none",
+  "callbacks": ["{{BUNDLE_ID}}.auth0://{{AUTH0_DOMAIN}}/ios/{{BUNDLE_ID}}/callback"],
+  "allowed_logout_urls": ["{{BUNDLE_ID}}.auth0://{{AUTH0_DOMAIN}}/ios/{{BUNDLE_ID}}/callback"],
+  "jwt_configuration": { "alg": "RS256" },
+  "refresh_token": {
+    "rotation_type": "rotating",
+    "expiration_type": "expiring",
+    "leeway": 60,
+    "idle_token_lifetime": 7776000,
+    "infinite_idle_token_lifetime": false,
+    "token_lifetime": 31557600,
+    "infinite_token_lifetime": false
+  }
+}

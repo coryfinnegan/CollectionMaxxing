@@ -1,10 +1,10 @@
 // Mock account endpoints for the Me tab (docs/04 "Account and session"). Magic state makes each outcome reachable:
 //   export   GET /me/export starts a job; each poll moves queued -> running -> ready (or failed when exportOutcome is 'failed')
-//   delete   DELETE /me answers 401 reauth_required without a passkey credential, 409 while libraryHasMembers, else 204
+//   delete   DELETE /me answers 401 reauth_required while mockAuth.requireReauth, 409 while libraryHasMembers, else 204
 //   bin      the deleted items list; restoring removes the row
-//   revoke   POST /connect/revoke (unpairing this iPhone)
 import { HttpResponse, http } from 'msw';
 import type { DeletedItemDto, ExportDto } from '@/api/generated/models';
+import { mockAuth } from './auth';
 
 const DAY = 86_400_000;
 
@@ -47,8 +47,7 @@ export const mockAccount: {
   exportStarts: number;
   libraryHasMembers: boolean;
   deleted: boolean;
-  revoked: string[];
-} = { bin: seedBin(), exportOutcome: 'ready', exportPolls: 0, exportStarts: 0, libraryHasMembers: false, deleted: false, revoked: [] };
+} = { bin: seedBin(), exportOutcome: 'ready', exportPolls: 0, exportStarts: 0, libraryHasMembers: false, deleted: false };
 
 export function resetMockAccount() {
   mockAccount.bin = seedBin();
@@ -57,7 +56,6 @@ export function resetMockAccount() {
   mockAccount.exportStarts = 0;
   mockAccount.libraryHasMembers = false;
   mockAccount.deleted = false;
-  mockAccount.revoked = [];
 }
 
 const JOB_ID = 'f6666666-0000-4000-8000-000000000001';
@@ -83,9 +81,8 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
-  http.delete('*/api/v1/me', async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as { credential?: unknown };
-    if (!body.credential) {
+  http.delete('*/api/v1/me', () => {
+    if (mockAuth.requireReauth) {
       return problem(401, "Confirm it's you", { type: 'https://collectionmaxxing.app/problems/reauth_required', code: 'reauth_required', reauth: true });
     }
     if (mockAccount.libraryHasMembers) return problem(409, 'Your library still has members.', { code: 'library_has_members' });
@@ -102,11 +99,5 @@ export const handlers = [
     if (!row) return;
     mockAccount.bin = mockAccount.bin.filter((d) => d !== row);
     return HttpResponse.json({ id: row.id, releaseId: row.releaseId, deletedAt: null });
-  }),
-
-  http.post('*/connect/revoke', async ({ request }) => {
-    const form = new URLSearchParams(await request.text());
-    mockAccount.revoked.push(form.get('token') ?? '');
-    return new HttpResponse(null, { status: 200 });
   }),
 ];

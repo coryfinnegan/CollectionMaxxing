@@ -7,14 +7,14 @@ import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { SettingsScreen } from '@/features/me/SettingsScreen';
 import { setSettingsStorage } from '@/features/me/services';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
-import { MemoryTokenStore } from '@/lib/auth/tokenStore';
+import { MemoryNativeAuth } from '@/lib/auth/native';
 import { evalsMock, goldenPhotos } from '@/mocks/evals';
 import { renderWithProviders } from '@/test/render';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
 
 function native() {
-  configureAuth({ platform: 'native', tokenStore: new MemoryTokenStore({ refreshToken: 'mock-refresh', serverUrl: 'http://api.test' }) });
+  configureAuth({ platform: 'native', native: new MemoryNativeAuth() });
 }
 
 beforeEach(() => {

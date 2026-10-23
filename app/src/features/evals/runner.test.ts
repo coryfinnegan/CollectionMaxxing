@@ -2,7 +2,7 @@ import { HttpResponse, http } from 'msw';
 import type { EvalRunRequest } from '@/api/generated/models';
 import { promptOf } from '@/features/scan/recognition/defaults';
 import { authHeaders, configureAuth, resetAuth } from '@/lib/auth/session';
-import { MemoryTokenStore } from '@/lib/auth/tokenStore';
+import { MemoryNativeAuth } from '@/lib/auth/native';
 import { evalsMock } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
@@ -29,7 +29,7 @@ const runs = () => evalsMock.runs as Body[];
 
 beforeEach(() => {
   evalsMock.reset();
-  configureAuth({ platform: 'native', tokenStore: new MemoryTokenStore({ refreshToken: 'mock-refresh', serverUrl: 'http://api.test' }) });
+  configureAuth({ platform: 'native', native: new MemoryNativeAuth() });
 });
 afterEach(() => {
   resetAuth();
