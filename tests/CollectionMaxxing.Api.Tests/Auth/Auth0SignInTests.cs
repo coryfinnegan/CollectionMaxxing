@@ -247,6 +247,7 @@ public class Auth0BearerTests(ApiFixture api) : InviteTest(api)
 
         var response = await phone.GetAsync("/api/v1/me");
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await ReadAsync(response)).GetProperty("code").GetString().ShouldBe("account.deactivated");
 
         // Nor can they sign in on the web again with the same identity.
         var again = App.NewBrowser(member.Identity);

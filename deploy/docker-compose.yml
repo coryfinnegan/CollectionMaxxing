@@ -52,7 +52,7 @@ services:
       Catalog__CoversRoot: /data/files/covers
       # Sign-in through Auth0 (docs/07, docs/14). deploy/auth0/Apply-Auth0.ps1 writes these values to <secrets>\auth0\api.env;
       # copy them into .env. All six are required: without the Management credentials "Sign out all iPhones" would
-      # silently do nothing at Auth0. The one-time setup code is written to the secrets folder.
+      # silently do nothing at Auth0.
       Auth__SecretsPath: /secrets
       Auth__PublicOrigin: ${CM_PUBLIC_ORIGIN:?set in .env (see deploy/auth0)}
       Auth__Auth0__Domain: ${CM_AUTH0_DOMAIN:?set in .env (see deploy/auth0)}

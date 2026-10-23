@@ -146,7 +146,7 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
             return (null, 0);
         }
 
-        if (HttpMethods.IsPost(method) && (path.StartsWithSegments("/account") || path.StartsWithSegments("/setup")))
+        if (HttpMethods.IsPost(method) && path.StartsWithSegments("/account"))
         {
             return (nameof(SecurityOptions.LimitOptions.AuthHourly), 1);
         }

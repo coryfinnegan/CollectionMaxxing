@@ -15,6 +15,7 @@ internal static class SignInServices
         services.AddScoped<SignInFlow>();
         services.AddScoped<SpaPage>();
         services.AddScoped<IssueCode.Handler>();
+        services.AddScoped<SetDevTools.Handler>();
         services.AddScoped<VerifyCode.Handler>();
         services.AddScoped<PlanSignIn.Handler>();
         services.AddScoped<CompleteSignIn.Handler>();
