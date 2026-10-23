@@ -22,6 +22,7 @@ public static class RateLimiting
             .ValidateOnStart();
         services.AddSingleton<ClientAddressResolver>();
         services.AddSingleton<AccountLimits>();
+        services.AddSingleton<NewAccountTurns>();
         services.AddRateLimiter(_ => { });
         services.AddOptions<RateLimiterOptions>().Configure<IOptions<AuthOptions>>((limiter, auth) =>
         {

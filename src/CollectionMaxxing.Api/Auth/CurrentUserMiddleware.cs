@@ -4,6 +4,7 @@ using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries.Members;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Api.Auth;
 
@@ -54,7 +55,10 @@ public sealed class CurrentUserMiddleware(RequestDelegate next)
 
     /// <summary>
     /// A valid Auth0 access token whose <c>sub</c> nobody has: make its account, limited per client, and carry on as that account. Returns
-    /// the answer to give instead when that can't be done now (429, or 503 while Auth0 can't be asked); nothing is created then.
+    /// the answer to give instead when that can't be done now (429, or 503 while Auth0 can't be asked); nothing is created then. First
+    /// calls of one identity take turns, so the second finds the account the first made. A permit of the "new accounts" budget is taken
+    /// only when an account is really about to be made: after Auth0 has said who the caller is, never for a retry that got a 503 or for a
+    /// call that joins an account somebody else just made.
     /// </summary>
     private static async Task<IResult?> CreateBearerAccountAsync(HttpContext context)
     {
@@ -64,28 +68,38 @@ public sealed class CurrentUserMiddleware(RequestDelegate next)
             return null; // the 401 below
         }
 
-        var client = services.GetRequiredService<ClientAddressResolver>().Resolve(context);
-        if (services.GetRequiredService<AccountLimits>().TryTakeNewAccount(client) is { } wait)
+        using var turn = await services.GetRequiredService<NewAccountTurns>().WaitAsync(subject, context.RequestAborted);
+        var linked = await services.GetRequiredService<IAppDbContext>().Logins.AsNoTracking()
+            .Where(l => l.Subject == subject)
+            .Select(l => new LinkedLogin(l.Id, l.UserId))
+            .FirstOrDefaultAsync(context.RequestAborted);
+        if (linked is null)
         {
-            return AccountLimits.Refused(context, wait);
-        }
+            var token = context.Request.Headers.Authorization.ToString()["Bearer ".Length..].Trim();
+            var profile = await services.GetRequiredService<Auth0UserInfo>().GetAsync(subject, token, context.RequestAborted);
+            if (profile is null)
+            {
+                return AuthProblems.ProfileUnavailable();
+            }
 
-        var token = context.Request.Headers.Authorization.ToString()["Bearer ".Length..].Trim();
-        var profile = await services.GetRequiredService<Auth0UserInfo>().GetAsync(subject, token, context.RequestAborted);
-        if (profile is null)
-        {
-            return AuthProblems.ProfileUnavailable();
-        }
+            var client = services.GetRequiredService<ClientAddressResolver>().Resolve(context);
+            if (services.GetRequiredService<AccountLimits>().TryTakeNewAccount(client) is { } wait)
+            {
+                return AccountLimits.Refused(context, wait);
+            }
 
-        var created = await services.GetRequiredService<CreateAccount.Handler>().HandleAsync(profile, context.RequestAborted);
-        if (!created.IsSuccess)
-        {
-            return null; // deleted meanwhile: the 401 below
+            var created = await services.GetRequiredService<CreateAccount.Handler>().HandleAsync(profile, context.RequestAborted);
+            if (!created.IsSuccess)
+            {
+                return null; // deleted meanwhile: the 401 below
+            }
+
+            linked = created.Value;
         }
 
         var identity = new ClaimsIdentity(context.User.Claims, Auth0Setup.BearerScheme, ClaimTypes.Name, ClaimTypes.Role);
-        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, created.Value.UserId.ToString()));
-        identity.AddClaim(new Claim(CurrentSession.LoginIdClaim, created.Value.LoginId.ToString()));
+        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, linked.UserId.ToString()));
+        identity.AddClaim(new Claim(CurrentSession.LoginIdClaim, linked.LoginId.ToString()));
         context.User = new ClaimsPrincipal(identity);
         return null;
     }
