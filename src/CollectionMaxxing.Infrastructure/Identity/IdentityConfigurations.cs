@@ -37,6 +37,21 @@ internal sealed class UserLoginConfiguration : IEntityTypeConfiguration<UserLogi
     }
 }
 
+internal sealed class AppSignInConfiguration : IEntityTypeConfiguration<AppSignIn>
+{
+    public void Configure(EntityTypeBuilder<AppSignIn> builder)
+    {
+        builder.ToTable("app_sign_ins");
+        builder.HasKey(s => s.Id);
+        builder.Property(s => s.Id).ValueGeneratedNever();
+        builder.Property(s => s.DeviceName).HasMaxLength(AppSignIn.MaxDeviceNameLength).IsRequired();
+
+        // A phone registers once per install: signing in again on it updates this row. The unique index makes two registrations at once safe.
+        builder.HasOne<AppUser>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(s => new { s.UserId, s.InstallId }).IsUnique();
+    }
+}
+
 internal sealed class WebSessionConfiguration : IEntityTypeConfiguration<WebSession>
 {
     public void Configure(EntityTypeBuilder<WebSession> builder)

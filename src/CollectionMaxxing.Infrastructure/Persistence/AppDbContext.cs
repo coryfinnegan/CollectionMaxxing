@@ -36,6 +36,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ICurren
 
     public DbSet<SetupCode> SetupCodes => Set<SetupCode>();
 
+    public DbSet<AppSignIn> AppSignIns => Set<AppSignIn>();
+
     public DbSet<Location> Locations => Set<Location>();
 
     public DbSet<Item> Items => Set<Item>();

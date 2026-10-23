@@ -13,7 +13,7 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
     [
         // Identity and tenancy
         "users", "roles", "user_roles", "user_claims", "role_claims", "user_logins", "user_tokens",
-        "web_sessions", "setup_codes", "libraries", "library_members", "library_invites",
+        "web_sessions", "app_sign_ins", "setup_codes", "libraries", "library_members", "library_invites",
 
         // Catalogue
         "works", "releases", "release_identifiers", "assets", "platforms", "provider_cache", "provider_quota",

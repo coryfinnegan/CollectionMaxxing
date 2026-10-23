@@ -113,6 +113,7 @@ public class BearerTokenAbuseTests(ApiFixture api) : InviteTest(api)
         "not valid yet",
         "no expiry",
         "tampered payload",
+        "no sub",
         "truncated",
         "random text",
         "empty",
@@ -151,6 +152,7 @@ public class BearerTokenAbuseTests(ApiFixture api) : InviteTest(api)
             "no expiry" => auth0.AccessToken(subject, c => c.Remove("exp")),
             "tampered payload" => Tamper(good),
             "truncated" => good[..(good.Length / 2)],
+            "no sub" => auth0.AccessToken(subject, c => c.Remove("sub")), // signed, right issuer and audience, about nobody: 401, not 403 not_linked
             "random text" => "not-a-token",
             _ => string.Empty,
         };

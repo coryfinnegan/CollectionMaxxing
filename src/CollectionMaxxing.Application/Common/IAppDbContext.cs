@@ -29,6 +29,9 @@ public interface IAppDbContext
 
     DbSet<SetupCode> SetupCodes { get; }
 
+    /// <summary>The iPhones signed in with Auth0 that registered themselves (<c>app_sign_ins</c>).</summary>
+    DbSet<AppSignIn> AppSignIns { get; }
+
     // Your stuff (library-scoped)
     DbSet<Location> Locations { get; }
 

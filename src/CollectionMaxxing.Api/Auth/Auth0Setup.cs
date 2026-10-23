@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using CollectionMaxxing.Application.Accounts.Devices;
+using CollectionMaxxing.Application.Accounts.IdentityProvider;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -129,20 +131,35 @@ public static class Auth0Setup
     private static async Task LinkBearerAsync(Microsoft.AspNetCore.Authentication.JwtBearer.TokenValidatedContext context)
     {
         var subject = context.Principal?.FindFirstValue("sub");
-        var services = context.HttpContext.RequestServices;
-        var claims = new List<Claim>();
-        if (!string.IsNullOrEmpty(subject))
+        if (string.IsNullOrEmpty(subject))
         {
-            claims.Add(new Claim("sub", subject));
-            var login = await services.GetRequiredService<IAppDbContext>().Logins.AsNoTracking()
-                .Where(l => l.Subject == subject)
-                .Select(l => new { l.Id, l.UserId })
-                .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
-            if (login is not null)
+            // Validly signed, with the right issuer and audience, but about nobody: not a sign-in at all.
+            context.Fail("The token has no sub.");
+            return;
+        }
+
+        var services = context.HttpContext.RequestServices;
+        var claims = new List<Claim> { new("sub", subject) };
+        var login = await services.GetRequiredService<IAppDbContext>().Logins.AsNoTracking()
+            .Where(l => l.Subject == subject)
+            .Select(l => new { l.Id, l.UserId })
+            .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+        if (login is not null)
+        {
+            // Signing the phones out, removing a member and deleting an account set a cutoff: a token issued before it is refused at once,
+            // however much of its hour is left. A token issued in the same second as the cutoff, or later, is a new sign-in and works.
+            var issuedAt = long.TryParse(context.Principal!.FindFirstValue("iat"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds)
+                ? seconds
+                : (long?)null;
+            var cutoff = await services.GetRequiredService<ITokenCutoffs>().GetAsync(login.UserId, context.HttpContext.RequestAborted);
+            if (TokenCutoff.Refuses(cutoff, issuedAt))
             {
-                claims.Add(new Claim(ClaimTypes.NameIdentifier, login.UserId.ToString()));
-                claims.Add(new Claim(CurrentSession.LoginIdClaim, login.Id.ToString()));
+                context.Fail("The token was issued before this person was signed out.");
+                return;
             }
+
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, login.UserId.ToString()));
+            claims.Add(new Claim(CurrentSession.LoginIdClaim, login.Id.ToString()));
         }
 
         context.Principal = new ClaimsPrincipal(new ClaimsIdentity(claims, BearerScheme, ClaimTypes.Name, ClaimTypes.Role));
