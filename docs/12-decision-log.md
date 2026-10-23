@@ -452,3 +452,36 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - Auth0 holds each person's name and email from Google or Apple. Library data never leaves the PC, and account deletion deletes the Auth0 user.
   - About 6,000 lines of auth code, the PFX certificates and their yearly rotation go away.
 - **2026-10-23 note: revocation uses grants.** Building AUTH-2 showed that the Free plan refuses Auth0's refresh-token endpoints. "Sign out all iPhones" therefore deletes the person's grants (`delete:grants`), together with `users.tokens_not_before` to refuse access tokens already issued. One phone can't be revoked alone, which was the fallback this ADR already allowed. Google stays in "Testing" with test users, and Sign in with Apple uses a separate primary App ID for its Services ID.
+
+## ADR-026: Onboarding: every sign-in is an account; people create or join libraries
+
+- **Status:** **Accepted** (your answers to D-1 to D-7 in [15](15-onboarding.md#decisions), 2026-10-23). It **amends ADR-025**: an identity Auth0 vouches for is no longer refused until something links it.
+- **Context:** at the Wave 6 cutover, signing in with an identity that wasn't linked yet led to "This account isn't part of a library". Setup and joining both had to be chosen *before* going to Auth0, and the plain **Sign in** button could never create anything. You expected to be asked whether to join a library or create your own.
+- **Decision:**
+  - **Your first sign-in creates your account.** On the web at `/signin-oidc`, and on the iPhone at the first API call, with the name and email from Auth0. Nothing is matched by email.
+  - With no libraries yet, you land on **Welcome**: **Create your library**, **Join a library** (an invite link or a short code) and **Use another account**.
+  - Anyone signed in can create libraries, up to 3 they own. Joining needs an invite, which never grants Owner.
+  - Removing a member, or leaving, ends only that membership. The setup code and `/setup` go away. The recovery code links to a named account.
+- **Alternatives:**
+  - Keep the separate setup button and only improve the not-linked copy.
+  - A pending identity with no account until create or join (this plan's first draft). It's more moving parts: a sealed cookie and a bearer policy just for onboarding.
+  - "Ask to join" requests instead of invites (not now).
+- **Consequences:**
+  - The library switcher, `POST /api/v1/libraries`, invite codes and "Leave library" arrive.
+  - The authorization matrix gains a "signed in, no libraries" actor.
+  - `account.not_linked` goes, and so do the one-library helpers (`OwnerExistsAsync`, `FindOwnerAsync`).
+
+## ADR-027: A multi-user web app; the PC is only a development host
+
+- **Status:** **Accepted** (your direction, 2026-10-23: "Consider the backend and front end an app that will be running on the web just like any other web site"). It **amends ADR-020**: libraries belong to people, not to a household server.
+- **Context:** v1 was planned as one household's library on your own PC. You intend CollectionMaxxing to become a hosted product. The PC hosts it now only because that costs nothing while we build it.
+- **Decision:**
+  - The back end and the web app are an ordinary multi-user web app. People have accounts, own libraries and share them by invite as Editor or Viewer.
+  - **Nothing in the app belongs to whoever runs the host.** There's no server admin, setup code or server-wide settings. Limits are configuration.
+  - Code and reviews assume the app is on the open internet. Tailscale is a development-time wall only.
+  - Host tools (`cm-admin`, the deployer, backups) stay outside the app.
+- **Alternatives:** stay self-hosted for one household with a server admin role (the first draft of [15](15-onboarding.md)).
+- **Consequences:**
+  - Wave 7 removes the one-library assumptions ([15](15-onboarding.md)).
+  - Moving to a cloud host is a later decision, with its own cost, because ADR-024's Apple Developer Program is still the only paid item.
+  - Multi-tenant concerns (rate limits, per-account caps, account deletion) are reviewed as product features, not household extras.
