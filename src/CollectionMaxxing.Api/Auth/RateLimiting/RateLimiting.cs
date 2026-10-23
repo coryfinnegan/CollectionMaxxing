@@ -6,8 +6,9 @@ using Microsoft.Extensions.Options;
 namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
-/// Limits how fast anyone can try codes and passkeys: the endpoints that take a setup, recovery or invite code, or a passkey,
-/// are the ones a stranger on the tailnet could hammer. 429 with <c>Retry-After</c>, as Problem Details.
+/// Limits how fast anyone can try codes and start sign-ins: the endpoints that take a recovery code or an invite, start a sign-in or create
+/// a library are the ones a stranger could hammer. One bucket per client address. 429 with <c>Retry-After</c>, as Problem Details. The
+/// per-account and new-account limits are <see cref="AccountLimits"/>.
 /// </summary>
 public static class RateLimiting
 {
@@ -20,6 +21,7 @@ public static class RateLimiting
             .Validate(ClientAddressResolver.EntriesAreValid, "Auth:RateLimit:TrustedProxies must list IP addresses or ranges (for example 127.0.0.1 or 172.16.0.0/12).")
             .ValidateOnStart();
         services.AddSingleton<ClientAddressResolver>();
+        services.AddSingleton<AccountLimits>();
         services.AddRateLimiter(_ => { });
         services.AddOptions<RateLimiterOptions>().Configure<IOptions<AuthOptions>>((limiter, auth) =>
         {

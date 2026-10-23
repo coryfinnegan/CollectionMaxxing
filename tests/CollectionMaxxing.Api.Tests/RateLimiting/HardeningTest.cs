@@ -49,7 +49,7 @@ public abstract class HardeningTest(ApiFixture api) : ApiTest(api)
     protected async Task<(WebClient Browser, WebClient.SignedIn Owner)> SetUpOwnerAsync(WebClient? browser = null)
     {
         browser ??= App.NewBrowser(TestIdentity.Google("Owner"));
-        var owner = await browser.SetUpOwnerAsync(await App.IssueCodeAsync(SetupCodePurpose.Setup));
+        var owner = await browser.SetUpOwnerAsync();
         return (browser, owner);
     }
 }

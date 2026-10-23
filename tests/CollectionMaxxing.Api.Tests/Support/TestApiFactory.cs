@@ -25,9 +25,10 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
 
                 // Tests sign in over and over from one address; the rate limit is tested on its own (Auth/RateLimitTests).
                 ["Auth:RateLimit:PermitLimit"] = "100000",
+                ["Auth:RateLimit:AccountPermitLimit"] = "100000",
+                ["Auth:RateLimit:NewAccountsPerHour"] = "100000",
                 ["Security:Limits:Export:Permits"] = "100000",
                 ["Security:Limits:AuthHourly:Permits"] = "100000",
-                ["Auth:Setup:IssueOnStartup"] = "false",
                 ["Auth:Auth0:Domain"] = "tenant.auth0.test",
                 ["Auth:Auth0:Audience"] = "urn:collectionmaxxing:api",
                 ["Auth:Auth0:WebClientId"] = "web-client-id",

@@ -25,25 +25,29 @@ public class MemberTests(ApiFixture api) : InviteTest(api)
     [Fact]
     public async Task Removing_a_member_makes_their_very_next_api_call_401_and_their_refresh_fail()
     {
+        // ONB-1 (#249, docs/15): removal ends only that membership. The very next call, from the web session or the phone, is 404 on the
+        // library; the account itself stays (so /me is still 200 and a fresh sign-in still works, into no library).
         var (owner, ownerAccount) = await SetUpOwnerAsync();
         var libraryId = ownerAccount.LibraryId!.Value;
         var (sam, samAccount) = await AddMemberAsync(owner, libraryId, "editor", "Sam");
         var phone = await SignInPhoneAsync(sam, "Sam's iPhone");
-        (await sam.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await AsDeviceAsync(HttpMethod.Get, "/api/v1/me", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await sam.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await AsDeviceAsync(HttpMethod.Get, $"/api/v1/libraries/{libraryId}", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var removed = await owner.SendAsync(HttpMethod.Delete, $"{MembersUrl(libraryId)}/{samAccount.UserId}", null);
 
         removed.StatusCode.ShouldBe(HttpStatusCode.NoContent, await BodyOfAsync(removed));
 
-        // The web session and the phone's access token (with nine minutes left) are refused at once...
-        (await sam.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        (await AsDeviceAsync(HttpMethod.Get, "/api/v1/me", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        // The web session and the phone's access token (with nine minutes left) lose the library at once...
+        (await sam.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await AsDeviceAsync(HttpMethod.Get, $"/api/v1/libraries/{libraryId}/items", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
-        // ...and the account is no longer a way in, with the old cookie or a fresh Auth0 sign-in.
-        (await sam.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        // ...and a fresh Auth0 sign-in is the same account, with no way back into the library.
+        (await sam.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
         sam.ClearCookies();
-        (await sam.LoginAsync()).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
+        (await sam.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
+        (await sam.MeAsync()).ShouldBe(new Auth.WebClient.SignedIn(samAccount.UserId, null));
+        (await sam.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         // The owner's own session is untouched, and the member is off the list.
         (await ListMembersAsync(owner, libraryId)).Select(m => m.GetProperty("userId").GetGuid()).ShouldBe([ownerAccount.UserId]);

@@ -92,6 +92,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("used_at");
 
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
                     b.HasKey("Id")
                         .HasName("pk_setup_codes");
 
@@ -99,9 +103,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_setup_codes_code_hash");
 
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_setup_codes_user_id");
+
                     b.ToTable("setup_codes", null, t =>
                         {
-                            t.HasCheckConstraint("ck_setup_codes_purpose", "\"purpose\" in ('setup', 'recovery')");
+                            t.HasCheckConstraint("ck_setup_codes_purpose", "\"purpose\" in ('recovery')");
                         });
                 });
 
@@ -914,6 +921,11 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("accepted_by");
 
+                    b.Property<string>("CodeHash")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("code_hash");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -963,6 +975,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                     b.HasIndex("AcceptedBy")
                         .HasDatabaseName("ix_library_invites_accepted_by");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_library_invites_code_hash");
 
                     b.HasIndex("CreatedBy")
                         .HasDatabaseName("ix_library_invites_created_by");
@@ -1878,6 +1894,16 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_app_sign_ins_asp_net_users_user_id");
+                });
+
+            modelBuilder.Entity("CollectionMaxxing.Domain.Accounts.SetupCode", b =>
+                {
+                    b.HasOne("CollectionMaxxing.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_setup_codes_users_user_id");
                 });
 
             modelBuilder.Entity("CollectionMaxxing.Domain.Accounts.UserLogin", b =>

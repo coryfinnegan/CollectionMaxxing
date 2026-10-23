@@ -26,7 +26,7 @@ public static class AccountEndpoints
 
     public static IEndpointRouteBuilder MapAccountEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/v1/me", (GetMe.Handler handler) => TypedResults.Ok(handler.Handle()))
+        app.MapGet("/api/v1/me", async (GetMe.Handler handler, CancellationToken cancellationToken) => TypedResults.Ok(await handler.HandleAsync(cancellationToken)))
             .WithName("GetMe")
             .WithTags("Account")
             .Produces<MeResponse>()

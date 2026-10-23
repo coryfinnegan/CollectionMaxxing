@@ -1,4 +1,3 @@
-using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Accounts.Devices;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Common;
@@ -95,14 +94,15 @@ public static class UpdateMember
 }
 
 /// <summary>
-/// Use case: the owner removes a member. They lose the library, their account is deactivated (it has no library left), and every device
-/// and session of theirs stops working at once. The items they added stay.
+/// Use case: the owner removes a member. Only that membership ends (docs/15): memberships are read on every request, so the member loses
+/// this library on their very next call, cookie or token. Their account, their sign-ins and their other libraries stay, and so do the items
+/// they added.
 /// </summary>
 public static class RemoveMember
 {
     public sealed record Command(Guid LibraryId, Guid UserId);
 
-    public sealed class Handler(IAppDbContext db, IMembershipReader memberships, IUserDirectory users, IDeviceAuthorizations devices, IWebSessions webSessions)
+    public sealed class Handler(IAppDbContext db)
     {
         public async Task<Result> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -121,20 +121,40 @@ public static class RemoveMember
             var removed = await db.LibraryMembers
                 .Where(m => m.LibraryId == command.LibraryId && m.UserId == command.UserId && m.Role != LibraryRole.Owner)
                 .ExecuteDeleteAsync(cancellationToken);
-            if (removed == 0)
+            return removed == 0 ? Result.Failure(MemberErrors.NotFound) : Result.Success();
+        }
+    }
+}
+
+/// <summary>
+/// Use case: a member leaves a library (<c>DELETE …/libraries/{id}/membership</c>). Only that membership ends; the account and its other
+/// libraries stay. The owner can't leave: a library always has its one owner.
+/// </summary>
+public static class LeaveLibrary
+{
+    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser)
+    {
+        public async Task<Result> HandleAsync(Guid libraryId, CancellationToken cancellationToken)
+        {
+            if (currentUser.UserId is not { } userId || currentUser.RoleIn(libraryId) is not { } role)
             {
-                return Result.Failure(MemberErrors.NotFound);
+                return Result.Failure(Errors.LibraryNotFound);
             }
 
-            // With no library left the account has no use. Deactivating it is what makes the web session and the phone's access token
-            // fail on the very next call; revoking the phones ends their refresh tokens too.
-            if ((await memberships.GetMembershipsAsync(command.UserId, cancellationToken)).Count == 0)
+            if (role == LibraryRole.Owner)
             {
-                await users.DeactivateAsync(command.UserId, cancellationToken);
+                return Result.Failure(MemberErrors.LastOwner);
             }
 
-            await devices.RevokeAllAsync(command.UserId, cancellationToken);
-            await webSessions.RevokeAllAsync(command.UserId, cancellationToken);
+            // One statement, which never removes an owner (in case they became one a moment ago). Gone already is fine: they have left.
+            var removed = await db.LibraryMembers
+                .Where(m => m.LibraryId == libraryId && m.UserId == userId && m.Role != LibraryRole.Owner)
+                .ExecuteDeleteAsync(cancellationToken);
+            if (removed == 0 && await db.LibraryMembers.AnyAsync(m => m.LibraryId == libraryId && m.UserId == userId, cancellationToken))
+            {
+                return Result.Failure(MemberErrors.LastOwner);
+            }
+
             return Result.Success();
         }
     }

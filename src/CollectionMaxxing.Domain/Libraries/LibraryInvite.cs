@@ -2,7 +2,10 @@ using CollectionMaxxing.Domain.Common;
 
 namespace CollectionMaxxing.Domain.Libraries;
 
-/// <summary>A single-use, revocable link that lets one person join a library. Only the hash of the token is stored.</summary>
+/// <summary>
+/// A single-use, revocable invite that lets one person join a library, by its link or by its short code. Only the hashes of the token and
+/// the code are stored.
+/// </summary>
 public sealed class LibraryInvite : ILibraryScoped, IConcurrencyVersioned
 {
     public const int MaxNameLength = 100;
@@ -18,6 +21,9 @@ public sealed class LibraryInvite : ILibraryScoped, IConcurrencyVersioned
     public string Name { get; init; } = string.Empty;
 
     public string TokenHash { get; init; } = string.Empty;
+
+    /// <summary>The hash of the short code (<c>ABCD-EFGH-JK</c>). Null on invites made before codes existed: they work by link only.</summary>
+    public string? CodeHash { get; init; }
 
     public Guid CreatedBy { get; init; }
 

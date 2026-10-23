@@ -1,8 +1,8 @@
 namespace CollectionMaxxing.Api.Auth;
 
 /// <summary>
-/// Serves the web app's <c>index.html</c> for the pages that start in the browser (<c>/setup</c>, <c>/account/login</c>,
-/// <c>/join/{token}</c>); the SPA decides what to show. Until the web build is copied into <c>wwwroot</c> (APP-2b) it serves a
+/// Serves the web app's <c>index.html</c> for the pages that start in the browser and that no static file answers (<c>/join/{token}</c>);
+/// the SPA decides what to show. Until the web build is copied into <c>wwwroot</c> (APP-2b) it serves a
 /// plain placeholder, so the server is usable and testable without it.
 /// </summary>
 public sealed class SpaPage(IWebHostEnvironment environment)

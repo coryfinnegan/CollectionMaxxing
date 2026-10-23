@@ -34,7 +34,7 @@ public class SignInLockoutTests(ApiFixture api) : RateLimitTestBase(api)
         var stranger = From("10.0.0.1", "203.0.113.5");
         for (var i = 0; i < 5; i++)
         {
-            await stranger.PostAsJsonAsync("/setup", new { code = "WRONG-" + i });
+            await stranger.PostAsJsonAsync("/api/v1/invites:preview", new { invite = "WRONG-" + i }); // ONB-1: /setup is gone
             await stranger.PostAsJsonAsync("/account/recover", new { code = "WRONG-" + i });
             await stranger.GetAsync("/account/login");
         }
@@ -50,7 +50,7 @@ public class SignInLockoutTests(ApiFixture api) : RateLimitTestBase(api)
     [Fact]
     public async Task A_recovery_code_still_works_for_the_owner_while_a_stranger_guesses_codes()
     {
-        var (_, owner) = await SetUpOwnerAsync(Browser("10.0.0.1", "203.0.113.6"));
+        var (ownerBrowser, owner) = await SetUpOwnerAsync(Browser("10.0.0.1", "203.0.113.6"));
         var stranger = From("10.0.0.1", "203.0.113.5");
         for (var i = 0; i < 5; i++)
         {
@@ -58,7 +58,7 @@ public class SignInLockoutTests(ApiFixture api) : RateLimitTestBase(api)
         }
 
         var recovering = Browser("10.0.0.1", "203.0.113.8", TestIdentity.Apple("Owner"));
-        var done = await recovering.ContinueAsync(await recovering.StartRecoveryAsync(await App.IssueCodeAsync(Domain.Accounts.SetupCodePurpose.Recovery)));
+        var done = await recovering.ContinueAsync(await recovering.StartRecoveryAsync(await App.IssueRecoveryCodeAsync(ownerBrowser.Identity.Email!)));
 
         done.Headers.Location?.ToString().ShouldBe("/");
         (await recovering.MeAsync()).UserId.ShouldBe(owner.UserId);

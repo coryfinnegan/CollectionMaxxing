@@ -123,16 +123,17 @@ public class InviteCreationTests(ApiFixture api) : InviteTest(api)
     }
 
     [Fact]
-    public async Task Joining_uses_the_invited_name_when_the_person_does_not_give_one()
+    public async Task Joining_keeps_the_name_the_account_got_from_its_sign_in()
     {
+        // ONB-1 (docs/15): the account exists before it joins, named from Google or Apple; the invite's name is only the owner's label.
         var (owner, ownerAccount) = await SetUpOwnerAsync();
         var libraryId = ownerAccount.LibraryId!.Value;
         var (token, _) = await CreateInviteAsync(owner, libraryId, "viewer", "Sam");
 
-        var (_, registered) = await JoinAsync(token, displayName: null);
+        var (_, registered) = await JoinAsync(token, "Samantha");
 
-        registered.Headers.Location?.ToString().ShouldBe("/");
-        (await ListMembersAsync(owner, libraryId)).Select(m => m.GetProperty("displayName").GetString()).Order().ShouldBe(["Owner", "Sam"]);
+        registered.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ListMembersAsync(owner, libraryId)).Select(m => m.GetProperty("displayName").GetString()).Order().ShouldBe(["Owner", "Samantha"]);
     }
 
     [Fact]
@@ -204,20 +205,22 @@ public class InviteLogHygieneTests(ApiFixture api) : InviteTest(api)
         var guest = App.NewBrowser();
         (await guest.GetAsync($"/join/{used}")).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await guest.GetAsync($"/api/v1/invites/{used}")).StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await JoinAsync(used)).Registered.Headers.Location?.ToString().ShouldBe("/");
+        (await JoinAsync(used)).Registered.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await guest.GetAsync($"/api/v1/invites/{used}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         (await guest.GetAsync($"/join/{unknown}")).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await guest.GetAsync($"/api/v1/invites/{unknown}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        (await StartJoinAsync(guest, unknown)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
+        (await guest.JoinAsync(unknown)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await guest.PostAsync("/api/v1/invites:preview", new { invite = unknown })).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await guest.GetAsync($"/signin-oidc?code={unknown}&state={unknown}")).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
 
         (await owner.SendAsync(HttpMethod.Delete, $"{InvitesUrl(libraryId)}/{revokedInvite.GetProperty("invite").GetProperty("id").GetGuid()}", null))
             .StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await StartJoinAsync(guest, revoked)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
+        (await guest.JoinAsync(revoked)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         App.Time.Advance(TimeSpan.FromDays(8));
-        (await StartJoinAsync(guest, expiring)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
+        guest.ClearCookies();
+        (await guest.JoinAsync(expiring)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await guest.GetAsync($"/api/v1/invites/{expiring}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         owner.ClearCookies();
         (await owner.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");

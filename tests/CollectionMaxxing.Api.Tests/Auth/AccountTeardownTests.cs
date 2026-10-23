@@ -8,48 +8,42 @@ using Microsoft.Extensions.DependencyInjection;
 namespace CollectionMaxxing.Api.Tests.Auth;
 
 // LOCKED acceptance tests of AUTH-2 (issue #229), member removal and the purge reach Auth0. Do not edit, weaken, skip or delete: add new tests instead.
+// ONB-1 (#249, docs/15): removing a member now ends only that membership. The person keeps their account, their sign-ins and their other
+// libraries, so removal no longer signs them out at Auth0 or sets a token cutoff; it locks them out of that library from their next call
+// because memberships are read on every request. The two removal tests below say so. Deleting an account still reaches Auth0.
 public class AccountTeardownTests(ApiFixture api) : ManagementTest(api)
 {
     [Fact]
-    public async Task Removing_a_member_locks_their_token_out_at_once_even_when_auth0_returns_500_and_the_revoke_is_retried()
+    public async Task Removing_a_member_locks_their_token_out_of_that_library_at_once_whatever_auth0_says()
     {
         var (owner, account) = await SetUpOwnerAsync();
         var libraryId = account.LibraryId!.Value;
         var (member, memberAccount) = await AddMemberAsync(owner, libraryId, "editor");
         var token = EarlierToken(member.Identity.Subject);
-        (await CallAsync(HttpMethod.Get, "/api/v1/me", token)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CallAsync(HttpMethod.Get, $"/api/v1/libraries/{libraryId}", token)).StatusCode.ShouldBe(HttpStatusCode.OK);
         Management.Failing(500);
 
         var removed = await owner.SendAsync(HttpMethod.Delete, $"{MembersUrl(libraryId)}/{memberAccount.UserId}", null);
 
         removed.StatusCode.ShouldBe(HttpStatusCode.NoContent, "an Auth0 outage never blocks removing a member");
-        (await CallAsync(HttpMethod.Get, "/api/v1/me", token)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        (await CallAsync(HttpMethod.Get, "/api/v1/me", App.Auth0.AccessToken(member.Identity.Subject))).StatusCode.ShouldBe(HttpStatusCode.Unauthorized, "the removed member is deactivated");
-        (await TokensNotBeforeAsync(memberAccount.UserId)).ShouldNotBeNull("the cutoff is set whatever Auth0 said");
-        Management.GrantRevocations.ShouldNotBeEmpty("Auth0 was asked");
-        (await JobsAsync(RevokeIdentitySessions.JobType)).ShouldHaveSingleItem().Status.ShouldBe(JobStatus.Pending);
-
-        var failedTries = Management.GrantRevocations.Count;
-        Management.Healthy();
-        await RunDueJobsAsync();
-
-        (await JobsAsync(RevokeIdentitySessions.JobType)).ShouldHaveSingleItem().Status.ShouldBe(JobStatus.Succeeded);
-        Management.GrantRevocations.Count.ShouldBe(failedTries + 1);
-        Management.GrantRevocations[^1].Url.ShouldContain("user_id=" + member.Identity.Subject);
+        (await CallAsync(HttpMethod.Get, $"/api/v1/libraries/{libraryId}", token)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await CallAsync(HttpMethod.Get, $"/api/v1/libraries/{libraryId}/items", App.Auth0.AccessToken(member.Identity.Subject))).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await CallAsync(HttpMethod.Get, "/api/v1/me", token)).StatusCode.ShouldBe(HttpStatusCode.OK, "the account stays");
+        (await TokensNotBeforeAsync(memberAccount.UserId)).ShouldBeNull("nobody was signed out");
         (await TokensNotBeforeAsync(account.UserId)).ShouldBeNull("the owner was not signed out");
     }
 
     [Fact]
-    public async Task Removing_a_member_asks_auth0_to_end_their_refresh_tokens_and_nobody_elses()
+    public async Task Removing_a_member_asks_auth0_for_nothing_and_signs_nobody_out()
     {
         var (owner, account) = await SetUpOwnerAsync();
         var libraryId = account.LibraryId!.Value;
-        var (member, memberAccount) = await AddMemberAsync(owner, libraryId, "viewer");
+        var (_, memberAccount) = await AddMemberAsync(owner, libraryId, "viewer");
 
         (await owner.SendAsync(HttpMethod.Delete, $"{MembersUrl(libraryId)}/{memberAccount.UserId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        Management.GrantRevocations.ShouldHaveSingleItem().Url.ShouldContain("user_id=" + member.Identity.Subject);
-        (await JobsAsync(RevokeIdentitySessions.JobType)).ShouldBeEmpty("nothing failed, so nothing is retried");
+        Management.GrantRevocations.ShouldBeEmpty("only the membership ends");
+        (await JobsAsync(RevokeIdentitySessions.JobType)).ShouldBeEmpty();
     }
 
     [Fact]

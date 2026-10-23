@@ -13,8 +13,11 @@ public sealed record InviteDto(
     DateTimeOffset? AcceptedAt,
     DateTimeOffset? RevokedAt);
 
-/// <summary>A new invite. The link and QR payload are returned this once; only a hash of the token is stored.</summary>
-public sealed record CreatedInviteDto(InviteDto Invite, string Link, string QrPayload);
+/// <summary>
+/// A new invite. The link, the QR payload and the short <c>Code</c> (<c>ABCD-EFGH-JK</c>) are returned this once; only hashes of the token
+/// and the code are stored.
+/// </summary>
+public sealed record CreatedInviteDto(InviteDto Invite, string Link, string QrPayload, string Code);
 
 /// <summary>What the join page shows before the person signs in: who invited them, to what, and as what.</summary>
 public sealed record InvitePreviewDto(string OwnerName, string LibraryName, LibraryRole Role, DateTimeOffset ExpiresAt);

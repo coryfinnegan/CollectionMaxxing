@@ -22,136 +22,11 @@ namespace CollectionMaxxing.Api.Tests.Auth;
 // LOCKED acceptance tests of AUTH-1 (issue #228): sign-in moves to Auth0. Do not edit, weaken, skip or delete: add new tests instead.
 // Real sign-in throughout: the fake Auth0 tenant on loopback, the real OpenID Connect and JwtBearer handlers, real Postgres.
 
-/// <summary>Locked test 1: an identity nobody linked gets nothing.</summary>
-public class UnlinkedIdentityTests(ApiFixture api) : AuthTest(api)
-{
-    [Fact]
-    public async Task An_unlinked_identity_gets_no_cookie_and_no_user_on_the_web()
-    {
-        await SetUpOwnerAsync();
-        var (users, logins) = (await CountUsersAsync(), await CountLoginsAsync());
+// Locked tests 1 and 2 of AUTH-1 (an unlinked identity gets nothing; the setup code makes the one owner) were retired by ONB-1 (#249):
+// ADR-026 makes every first sign-in an account and ADR-027 removes the setup code. Their replacements are the locked ONB-1 tests in
+// Onboarding/OnboardingAcceptanceTests.cs (AccountOnFirstSignInTests, SetupGoneAndRecoveryTests). People are still never matched by email.
 
-        var stranger = App.NewBrowser();
-        var response = await stranger.SignInAsync();
-
-        response.StatusCode.ShouldBe(HttpStatusCode.Found);
-        response.Headers.Location?.ToString().ShouldBe("/account/not-linked");
-        stranger.HasSessionCookie.ShouldBeFalse();
-        stranger.SetCookies.ShouldNotContain(c => c.Name.Value == WebClient.SessionCookie && !string.IsNullOrEmpty(c.Value.Value));
-        (await CountUsersAsync()).ShouldBe(users);
-        (await CountLoginsAsync()).ShouldBe(logins);
-        (await stranger.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-    }
-
-    [Fact]
-    public async Task An_unlinked_identity_on_a_fresh_server_gets_nothing_either()
-    {
-        var stranger = App.NewBrowser();
-        var response = await stranger.SignInAsync();
-
-        response.Headers.Location?.ToString().ShouldBe("/account/not-linked");
-        stranger.HasSessionCookie.ShouldBeFalse();
-        (await CountUsersAsync()).ShouldBe(0);
-        (await CountOwnersAsync()).ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task A_bearer_token_of_an_unlinked_identity_is_403_account_not_linked_and_creates_nothing()
-    {
-        await SetUpOwnerAsync();
-        var users = await CountUsersAsync();
-
-        var response = await App.NewPhone(TestIdentity.Google().Subject).GetAsync("/api/v1/me");
-
-        await ShouldBeProblemAsync(response, HttpStatusCode.Forbidden);
-        (await ReadAsync(response)).GetProperty("code").GetString().ShouldBe("account.not_linked");
-        (await CountUsersAsync()).ShouldBe(users);
-    }
-
-    [Fact]
-    public async Task An_email_that_matches_a_member_links_nothing()
-    {
-        var (owner, _) = await SetUpOwnerAsync();
-        var sameEmail = new TestIdentity("apple|" + Guid.NewGuid().ToString("N"), owner.Identity.Email, "Owner");
-
-        var response = await App.NewBrowser(sameEmail).SignInAsync();
-
-        response.Headers.Location?.ToString().ShouldBe("/account/not-linked");
-        (await CountLoginsAsync()).ShouldBe(1);
-    }
-}
-
-/// <summary>Locked test 2: the setup code works once, only while there's no owner, and makes the owner of a new library.</summary>
-public class Auth0SetupTests(ApiFixture api) : AuthTest(api)
-{
-    [Fact]
-    public async Task The_setup_code_makes_the_identity_the_owner_and_admin_of_a_new_library()
-    {
-        var browser = App.NewBrowser();
-        var owner = await browser.SetUpOwnerAsync(await App.IssueCodeAsync(SetupCodePurpose.Setup));
-
-        owner.LibraryId.ShouldNotBeNull();
-        (await CountOwnersAsync()).ShouldBe(1);
-        await using var context = Db.CreateContext();
-        var login = await context.Logins.SingleAsync();
-        login.UserId.ShouldBe(owner.UserId);
-        login.Subject.ShouldBe(browser.Identity.Subject);
-        (await context.LibraryMembers.IgnoreQueryFilters().SingleAsync()).Role.ShouldBe(LibraryRole.Owner);
-        (await context.UserRoles.CountAsync(r => r.UserId == owner.UserId)).ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task The_setup_code_works_once()
-    {
-        var code = await App.IssueCodeAsync(SetupCodePurpose.Setup);
-        await App.NewBrowser().SetUpOwnerAsync(code);
-
-        // Setup is closed now, whatever the code.
-        await ShouldBeProblemAsync(await App.NewBrowser().StartSetupAsync(code), HttpStatusCode.NotFound);
-        (await CountOwnersAsync()).ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task Two_people_who_both_entered_the_code_make_one_owner()
-    {
-        var code = await App.IssueCodeAsync(SetupCodePurpose.Setup);
-        var first = App.NewBrowser();
-        var second = App.NewBrowser();
-        var firstStarted = await first.StartSetupAsync(code);
-        var secondStarted = await second.StartSetupAsync(code);
-
-        (await first.ContinueAsync(firstStarted)).Headers.Location?.ToString().ShouldBe("/");
-        var late = await second.ContinueAsync(secondStarted);
-
-        late.Headers.Location?.ToString().ShouldBe("/login?error=setup_closed");
-        second.HasSessionCookie.ShouldBeFalse();
-        (await CountOwnersAsync()).ShouldBe(1);
-        (await CountUsersAsync()).ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task A_sign_in_without_the_setup_code_never_makes_an_owner()
-    {
-        await App.IssueCodeAsync(SetupCodePurpose.Setup);
-
-        var response = await App.NewBrowser().SignInAsync("/account/login?intent=setup");
-
-        response.Headers.Location?.ToString().ShouldBe("/account/not-linked");
-        (await CountOwnersAsync()).ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task A_wrong_setup_code_starts_nothing()
-    {
-        await App.IssueCodeAsync(SetupCodePurpose.Setup);
-        var browser = App.NewBrowser();
-
-        await ShouldBeProblemAsync(await browser.StartSetupAsync("AAAA-BBBB-CCCC-DDDD"), HttpStatusCode.BadRequest);
-        browser.Cookie(SignInIntentCookie.Name).ShouldBeNull();
-    }
-}
-
-/// <summary>Locked test 2 (recovery half): a recovery code links a new identity to the owner, never makes or moves an owner.</summary>
+/// <summary>Locked test 2 (recovery half): a recovery code links a new identity to the account it names, never makes or moves one.</summary>
 public class Auth0RecoveryTests(ApiFixture api) : InviteTest(api)
 {
     [Fact]
@@ -160,7 +35,7 @@ public class Auth0RecoveryTests(ApiFixture api) : InviteTest(api)
         var (owner, account) = await SetUpOwnerAsync();
         var lostEverything = App.NewBrowser(TestIdentity.Apple("Owner"));
 
-        var response = await lostEverything.ContinueAsync(await lostEverything.StartRecoveryAsync(await App.IssueCodeAsync(SetupCodePurpose.Recovery)));
+        var response = await lostEverything.ContinueAsync(await lostEverything.StartRecoveryAsync(await App.IssueRecoveryCodeAsync(owner.Identity.Email!)));
 
         response.Headers.Location?.ToString().ShouldBe("/");
         (await lostEverything.MeAsync()).UserId.ShouldBe(account.UserId);
@@ -172,8 +47,8 @@ public class Auth0RecoveryTests(ApiFixture api) : InviteTest(api)
     [Fact]
     public async Task A_recovery_code_works_once()
     {
-        await SetUpOwnerAsync();
-        var code = await App.IssueCodeAsync(SetupCodePurpose.Recovery);
+        var (owner, _) = await SetUpOwnerAsync();
+        var code = await App.IssueRecoveryCodeAsync(owner.Identity.Email!);
         var first = App.NewBrowser();
         await first.ContinueAsync(await first.StartRecoveryAsync(code));
 
@@ -189,7 +64,7 @@ public class Auth0RecoveryTests(ApiFixture api) : InviteTest(api)
         var memberIdentity = member.Identity;
 
         var thief = App.NewBrowser(memberIdentity);
-        var response = await thief.ContinueAsync(await thief.StartRecoveryAsync(await App.IssueCodeAsync(SetupCodePurpose.Recovery)));
+        var response = await thief.ContinueAsync(await thief.StartRecoveryAsync(await App.IssueRecoveryCodeAsync(owner.Identity.Email!)));
 
         response.Headers.Location?.ToString().ShouldBe("/?error=already_linked");
         thief.HasSessionCookie.ShouldBeFalse();
@@ -199,7 +74,10 @@ public class Auth0RecoveryTests(ApiFixture api) : InviteTest(api)
     }
 }
 
-/// <summary>Locked test 3: an invite is accepted once, with exactly the invited role; expired and revoked invites fail.</summary>
+/// <summary>
+/// Locked test 3: an invite is accepted once, with exactly the invited role; expired and revoked invites fail. (ONB-1: joining is now
+/// <c>POST /api/v1/invites:accept</c> after signing in, not a sign-in intent; the rules are the same.)
+/// </summary>
 public class Auth0InviteTests(ApiFixture api) : InviteTest(api)
 {
     [Theory]
@@ -227,10 +105,9 @@ public class Auth0InviteTests(ApiFixture api) : InviteTest(api)
 
         var (second, again) = await JoinAsync(token, "Alex");
 
-        again.Headers.Location?.ToString().ShouldBe("/login?error=invite_invalid");
-        second.HasSessionCookie.ShouldBeFalse();
+        await ShouldBeInvalidInviteAsync(again);
+        (await LibrariesOfAsync(second)).ShouldBeEmpty();
         (await CountMembersAsync(account.LibraryId!.Value)).ShouldBe(2);
-        (await CountUsersAsync()).ShouldBe(2);
     }
 
     [Fact]
@@ -240,16 +117,14 @@ public class Auth0InviteTests(ApiFixture api) : InviteTest(api)
         var (token, _) = await CreateInviteAsync(owner, account.LibraryId!.Value, "editor");
         var first = App.NewBrowser();
         var second = App.NewBrowser();
-        var firstStarted = await StartJoinAsync(first, token);
-        var secondStarted = await StartJoinAsync(second, token);
+        await first.LoginAsync();
+        await second.LoginAsync();
 
-        (await first.FinishAsync(firstStarted)).Headers.Location?.ToString().ShouldBe("/");
-        var late = await second.FinishAsync(secondStarted);
+        var answers = await Task.WhenAll(first.JoinAsync(token), second.JoinAsync(token));
 
-        late.Headers.Location?.ToString().ShouldBe("/login?error=invite_invalid");
-        second.HasSessionCookie.ShouldBeFalse();
+        answers.Count(a => a.StatusCode == HttpStatusCode.OK).ShouldBe(1);
+        answers.Count(a => a.StatusCode == HttpStatusCode.NotFound).ShouldBe(1);
         (await CountMembersAsync(account.LibraryId!.Value)).ShouldBe(2);
-        (await CountUsersAsync()).ShouldBe(2);
     }
 
     [Fact]
@@ -259,13 +134,13 @@ public class Auth0InviteTests(ApiFixture api) : InviteTest(api)
         var (token, _) = await CreateInviteAsync(owner, account.LibraryId!.Value);
         App.Time.Advance(TimeSpan.FromDays(7) - TimeSpan.FromMinutes(1));
         var joiner = App.NewBrowser();
-        var started = await StartJoinAsync(joiner, token);
+        (await joiner.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         App.Time.Advance(TimeSpan.FromMinutes(2));
 
-        var response = await joiner.FinishAsync(started);
+        var response = await joiner.JoinAsync(token);
 
-        response.Headers.Location?.ToString().ShouldBe("/login?error=invite_invalid");
-        (await CountUsersAsync()).ShouldBe(1);
+        await ShouldBeInvalidInviteAsync(response);
+        (await CountMembersAsync(account.LibraryId!.Value)).ShouldBe(1);
     }
 
     [Fact]
@@ -277,9 +152,9 @@ public class Auth0InviteTests(ApiFixture api) : InviteTest(api)
 
         var (joiner, response) = await JoinAsync(token);
 
-        response.Headers.Location?.ToString().ShouldBe("/login?error=invite_invalid");
-        joiner.HasSessionCookie.ShouldBeFalse();
-        (await CountUsersAsync()).ShouldBe(1);
+        await ShouldBeInvalidInviteAsync(response);
+        (await LibrariesOfAsync(joiner)).ShouldBeEmpty();
+        (await CountMembersAsync(account.LibraryId!.Value)).ShouldBe(1);
     }
 
     [Fact]
@@ -292,9 +167,9 @@ public class Auth0InviteTests(ApiFixture api) : InviteTest(api)
 
         var (joiner, response) = await JoinAsync(token);
 
-        response.Headers.Location?.ToString().ShouldBe("/login?error=invite_invalid");
-        joiner.HasSessionCookie.ShouldBeFalse();
-        (await CountUsersAsync()).ShouldBe(1);
+        await ShouldBeInvalidInviteAsync(response);
+        (await LibrariesOfAsync(joiner)).ShouldBeEmpty();
+        (await CountMembersAsync(account.LibraryId!.Value)).ShouldBe(1);
     }
 
     [Fact]
@@ -305,10 +180,13 @@ public class Auth0InviteTests(ApiFixture api) : InviteTest(api)
 
         var response = await App.NewBrowser(owner.Identity).JoinAsync(token);
 
-        response.Headers.Location?.ToString().ShouldBe("/?error=already_linked");
+        await ShouldBeProblemAsync(response, HttpStatusCode.Conflict);
         (await CountUsersAsync()).ShouldBe(1);
         (await CountMembersAsync(account.LibraryId!.Value)).ShouldBe(1);
     }
+
+    private static async Task<JsonElement[]> LibrariesOfAsync(WebClient browser) =>
+        [.. (await ReadAsync(await browser.GetAsync("/api/v1/libraries"))).GetProperty("items").EnumerateArray()];
 }
 
 /// <summary>Locked tests 4 and 5: bearer tokens are checked strictly, and a deactivated user's token stops working.</summary>
@@ -359,16 +237,16 @@ public class Auth0BearerTests(ApiFixture api) : InviteTest(api)
     [Fact]
     public async Task A_deactivated_users_otherwise_valid_token_is_401_on_their_next_call()
     {
+        // ONB-1: removing a member ends only that membership (LeaveAndRemoveTests); deleting the account is what deactivates it.
         var (owner, account) = await SetUpOwnerAsync();
-        var (member, memberAccount) = await AddMemberAsync(owner, account.LibraryId!.Value, "editor");
+        var (member, _) = await AddMemberAsync(owner, account.LibraryId!.Value, "editor");
         var phone = PhoneOf(member);
         (await phone.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        (await owner.SendAsync(HttpMethod.Delete, $"{MembersUrl(account.LibraryId!.Value)}/{memberAccount.UserId}", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await member.SendAsync(HttpMethod.Delete, "/api/v1/me", null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         var response = await phone.GetAsync("/api/v1/me");
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        (await ReadAsync(response)).GetProperty("code").GetString().ShouldBe("account.deactivated");
 
         // Nor can they sign in on the web again with the same identity.
         var again = App.NewBrowser(member.Identity);
@@ -569,7 +447,8 @@ public class NoOldSignInRoutesTests(ApiFixture api) : AuthTest(api)
         routes.ShouldNotContain(r => r.StartsWith("/api/v1/me/sessions", StringComparison.OrdinalIgnoreCase));
         routes.ShouldContain("/api/v1/me/sign-in-methods");
         routes.ShouldContain("/api/v1/me/sign-in-methods/{id:guid}");
-        routes.ShouldContain("/account/not-linked");
+        routes.ShouldNotContain("/account/not-linked"); // ONB-1: a first sign-in makes the account, so nobody lands there
+        routes.ShouldNotContain("/setup");
     }
 }
 

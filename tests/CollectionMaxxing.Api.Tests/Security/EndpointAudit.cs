@@ -151,6 +151,11 @@ public static class EndpointAudit
                 yield return $"{endpoint.Name}: a non-member must get 404 but the matrix says {row.OtherUser}";
             }
 
+            if (row.ExpectedFor(Actor.NoLibraries) != 404)
+            {
+                yield return $"{endpoint.Name}: an account with no libraries must get 404 but the matrix says {row.ExpectedFor(Actor.NoLibraries)}";
+            }
+
             foreach (var (actor, role) in new[] { (Actor.Viewer, LibraryRole.Viewer), (Actor.Editor, LibraryRole.Editor), (Actor.Owner, LibraryRole.Owner) })
             {
                 var expected = row.ExpectedFor(actor);

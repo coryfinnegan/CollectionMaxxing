@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using CollectionMaxxing.Application.Accounts;
-using CollectionMaxxing.Domain.Accounts;
 using CollectionMaxxing.Infrastructure.Jobs;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -38,8 +37,9 @@ public sealed class AuthApp : IAsyncDisposable
                 {
                     ["ConnectionStrings:collectionmaxxing"] = connectionString,
                     ["Auth:SecretsPath"] = _secretsPath,
-                    ["Auth:Setup:IssueOnStartup"] = "false",
                     ["Auth:RateLimit:PermitLimit"] = "10000",
+                    ["Auth:RateLimit:AccountPermitLimit"] = "10000",
+                    ["Auth:RateLimit:NewAccountsPerHour"] = "10000",
                     ["Security:Limits:Export:Permits"] = "100000",
                     ["Security:Limits:AuthHourly:Permits"] = "100000",
                 };
@@ -103,12 +103,12 @@ public sealed class AuthApp : IAsyncDisposable
         return client;
     }
 
-    /// <summary>Issues a one-time code the way the server's start-up and its command line do.</summary>
-    public async Task<string> IssueCodeAsync(SetupCodePurpose purpose)
+    /// <summary>Issues a recovery code for the account with <paramref name="email"/>, the way <c>cm-admin recovery-code</c> does.</summary>
+    public async Task<string> IssueRecoveryCodeAsync(string email)
     {
         using var scope = Services.CreateScope();
-        var issued = await scope.ServiceProvider.GetRequiredService<IssueCode.Handler>().HandleAsync(purpose, CancellationToken.None);
-        return issued?.Code ?? throw new InvalidOperationException($"No {purpose} code was issued.");
+        var issued = await scope.ServiceProvider.GetRequiredService<IssueCode.Handler>().HandleAsync(email, CancellationToken.None);
+        return issued.IsSuccess ? issued.Value.Code : throw new InvalidOperationException($"No recovery code was issued: {issued.Error!.Code}.");
     }
 
     public async ValueTask DisposeAsync()

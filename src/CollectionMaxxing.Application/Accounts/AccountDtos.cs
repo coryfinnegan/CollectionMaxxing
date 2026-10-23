@@ -14,7 +14,7 @@ public sealed record ExportDto(Guid JobId, string Status, string? DownloadUrl);
 /// </summary>
 public sealed record SignInMethodDto(Guid Id, string Provider, string? Email, DateTimeOffset CreatedAt, DateTimeOffset? LastUsedAt, bool IsCurrent);
 
-/// <summary>Where the browser goes next: <c>POST /setup</c> and <c>POST /account/recover</c> answer with the sign-in to start.</summary>
+/// <summary>Where the browser goes next: <c>POST /account/recover</c> answers with the sign-in to start.</summary>
 public sealed record NextStepDto(string Next);
 
 /// <summary>Auth0's sign-out address. The web app navigates there after <c>POST /account/logout</c>.</summary>

@@ -35,7 +35,6 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | Method | Route | Policy | Who may call | Matrix row | IDOR test | DTO leaks internals (API3) |
 |---|---|---|---|---|---|---|
 | GET | `/account/login` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
-| GET | `/account/not-linked` | anonymous (allow-listed) | everyone | Y | n/a (no data) | the web app's page |
 | POST | `/account/logout` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 | POST | `/account/recover` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 | POST | `/api/admin/catalog/releases/{id:guid}:verify` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | stub (501) |
@@ -50,7 +49,10 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | GET | `/api/v1/catalog/releases/{id:guid}/artwork` | signed in | any signed-in caller (own data only) | Y | Y (private releases) | ReleaseDto / WorkDto: catalogue fields, no provider payloads. Unsaved provider results carry the provider's own cover URL (see accepted risks) |
 | GET | `/api/v1/catalog/search` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | ReleaseDto / WorkDto: catalogue fields, no provider payloads. Unsaved provider results carry the provider's own cover URL (see accepted risks) |
 | GET | `/api/v1/invites/{token}` | anonymous (allow-listed) | everyone | Y | n/a (anonymous; one answer for every unusable token) | InvitePreviewDto: owner name, library name, role, expiry. Same 404 for every unusable token |
+| POST | `/api/v1/invites:accept` | signed in | any signed-in caller (own data only) | Y | n/a (joins the caller only; one answer for every unusable invite) | LibrarySummaryDto: id, name, the invited role. Same 404 for every unusable invite; rate-limited per client and per account |
+| POST | `/api/v1/invites:preview` | signed in | any signed-in caller (own data only) | Y | n/a (one answer for every unusable invite) | InvitePreviewDto: owner name, library name, role, expiry. Same 404 for every unusable invite; rate-limited per client and per account |
 | GET | `/api/v1/libraries` | signed in | any signed-in caller (own data only) | Y | n/a (lists only the caller's own libraries) | LibrarySummaryDto: id, name, the caller's own role |
+| POST | `/api/v1/libraries` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; the caller becomes the owner) | LibraryDto: the new library, role owner. At most `Libraries:MaxOwnedPerUser` owned; rate-limited per client and per account |
 | GET | `/api/v1/libraries/{libraryId:guid}` | library role | viewer and above | Y | Y | library data of the caller's own library |
 | PATCH | `/api/v1/libraries/{libraryId:guid}` | library role | owner and above | Y | Y | library data of the caller's own library |
 | GET | `/api/v1/libraries/{libraryId:guid}/feature-prints` | library role | viewer and above | Y | Y | FeaturePrintDto: opaque bytes of the library's own items |
@@ -74,6 +76,7 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | PATCH | `/api/v1/libraries/{libraryId:guid}/locations/{id:guid}` | library role | editor and above | Y | Y | library data of the caller's own library |
 | GET | `/api/v1/libraries/{libraryId:guid}/members` | library role | viewer and above | Y | Y | MemberDto: id, display name, role, joined. Devices and last-seen for the owner only |
 | DELETE | `/api/v1/libraries/{libraryId:guid}/members/{userId:guid}` | library role | owner and above | Y | Y | none (204, no body) |
+| DELETE | `/api/v1/libraries/{libraryId:guid}/membership` | library role | viewer and above | Y | Y | none (204, no body); the owner gets 409 |
 | PATCH | `/api/v1/libraries/{libraryId:guid}/members/{userId:guid}` | library role | owner and above | Y | Y | MemberDto: id, display name, role, joined. Devices and last-seen for the owner only |
 | GET | `/api/v1/libraries/{libraryId:guid}/ownership` | library role | viewer and above | Y | Y | OwnershipDto: titles, formats, locations of the library's own copies |
 | GET | `/api/v1/libraries/{libraryId:guid}/ownership/snapshot` | library role | viewer and above | Y | Y | OwnershipDto: titles, formats, locations of the library's own copies |
@@ -113,8 +116,6 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | GET | `/join/{token}` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 | GET | `/media/covers/{assetId:guid}` | signed in | any signed-in caller (own data only) | Y | Y | image bytes, nosniff, private caching for library covers |
 | GET | `/openapi/{documentName}.json` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
-| GET | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
-| POST | `/setup` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 
 ## Endpoints that are not in the routing table
 

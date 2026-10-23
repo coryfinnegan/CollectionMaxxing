@@ -59,7 +59,10 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
             ownCandidates[actor] = await AddCandidateAsync(library.Id, session);
         }
 
-        return new World(library, otherLibrary.OwnerId, locationId, sessionId, itemId, tagId, ownSessions, ownCandidates);
+        // A brand-new account: a real user row, and no library at all (docs/15, the Welcome screen).
+        var newcomerId = await TestData.CreateUserAsync(Db);
+
+        return new World(library, otherLibrary.OwnerId, newcomerId, locationId, sessionId, itemId, tagId, ownSessions, ownCandidates);
     }
 
     private async Task<Guid> AddCandidateAsync(Guid libraryId, Guid sessionId)
@@ -90,10 +93,11 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
         Actor.Editor => Api.CreateClient(world.Library.EditorId),
         Actor.Owner => Api.CreateClient(world.Library.OwnerId),
         Actor.Admin => Api.CreateClient(Guid.CreateVersion7(), roles: "admin"),
+        Actor.NoLibraries => Api.CreateClient(world.NewcomerId),
         _ => throw new ArgumentOutOfRangeException(nameof(actor)),
     };
 
-    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid LocationId, Guid SessionId, Guid ItemId, Guid TagId, IReadOnlyDictionary<Actor, Guid> OwnSessions, IReadOnlyDictionary<Actor, Guid> OwnCandidates)
+    private sealed record World(TestLibrary Library, Guid OtherUserId, Guid NewcomerId, Guid LocationId, Guid SessionId, Guid ItemId, Guid TagId, IReadOnlyDictionary<Actor, Guid> OwnSessions, IReadOnlyDictionary<Actor, Guid> OwnCandidates)
     {
         /// <summary>Replaces <c>{libraryId:guid}</c>-style route parameters with real ids.</summary>
         public string Fill(string route, Actor actor) => RouteParameter().Replace(route, match => match.Groups["name"].Value switch

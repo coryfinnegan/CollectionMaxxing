@@ -36,26 +36,29 @@ public abstract class InviteTest(ApiFixture api) : AuthTest(api)
     /// <summary>The token is the last segment of <c>https://host/join/{token}</c>.</summary>
     protected static string TokenOf(string link) => link[(link.LastIndexOf('/') + 1)..];
 
-    /// <summary>The first step of joining: the browser opens <c>/account/login?invite=…</c>, which sends it to Auth0 (or to the sign-in page with <c>invite_invalid</c>).</summary>
-    protected static Task<HttpResponseMessage> StartJoinAsync(WebClient browser, string token, string? displayName = "Sam") =>
-        browser.GetAsync("/account/login?invite=" + Uri.EscapeDataString(token));
-
-    /// <summary>Where a refused invite sends the browser.</summary>
-    protected const string InviteInvalid = "/login?error=invite_invalid";
-
-    /// <summary>Joining: a new browser opens <c>/account/login?invite=…</c> and signs in at Auth0. Returns it and the callback's answer.</summary>
+    /// <summary>
+    /// Joining (docs/15): a new browser signs in (its first sign-in makes the account) and accepts the invite with
+    /// <c>POST /api/v1/invites:accept</c>. Returns it and the accept's answer.
+    /// </summary>
     protected async Task<(WebClient Browser, HttpResponseMessage Registered)> JoinAsync(string token, string? displayName = "Sam")
     {
         var browser = App.NewBrowser(TestIdentity.Google(displayName));
         return (browser, await browser.JoinAsync(token));
     }
 
-    /// <summary>True when <paramref name="response"/> is the callback's "you're in": a 302 to the return address and a session cookie.</summary>
-    protected static void ShouldBeSignedIn(WebClient browser, HttpResponseMessage response, string returnUrl = "/")
+    /// <summary>True when <paramref name="response"/> is the accept's "you're in": 200 with the library, and the browser is signed in.</summary>
+    protected static void ShouldBeSignedIn(WebClient browser, HttpResponseMessage response)
     {
-        response.StatusCode.ShouldBe(HttpStatusCode.Found);
-        response.Headers.Location?.ToString().ShouldBe(returnUrl);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
         browser.HasSessionCookie.ShouldBeTrue();
+    }
+
+    /// <summary>The one answer for an invite that can't be used: 404 <c>invite.invalid</c>.</summary>
+    protected static async Task ShouldBeInvalidInviteAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound, body);
+        body.ShouldContain("\"invite.invalid\"");
     }
 
     /// <summary>The owner invites someone with <paramref name="role"/> and they join. Returns their signed-in browser.</summary>

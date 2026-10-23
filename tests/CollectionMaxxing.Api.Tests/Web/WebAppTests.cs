@@ -130,13 +130,13 @@ public sealed partial class WebAppTests : IDisposable
 
         var live = await client.GetAsync("/health/live", TestContext.Current.CancellationToken);
         var api = await client.GetAsync("/api/v1/libraries", TestContext.Current.CancellationToken);
-        var login = await client.GetAsync("/account/not-linked", TestContext.Current.CancellationToken);
+        var invite = await client.GetAsync("/api/v1/invites/no-such-token", TestContext.Current.CancellationToken);
         var join = await client.GetAsync("/join/some-token", TestContext.Current.CancellationToken);
 
         live.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await live.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldNotContain("shell");
         api.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
-        login.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await invite.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldNotContain("shell"); // the API's own answer
         join.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
@@ -198,10 +198,10 @@ public sealed partial class WebAppTests : IDisposable
         using var client = bare.Client();
 
         var root = await client.GetAsync("/", TestContext.Current.CancellationToken);
-        var login = await client.GetStringAsync("/account/not-linked", TestContext.Current.CancellationToken);
+        var join = await client.GetStringAsync("/join/some-token", TestContext.Current.CancellationToken);
 
         root.IsSuccessStatusCode.ShouldBeFalse();
-        login.ShouldContain("hasn't been installed");
+        join.ShouldContain("hasn't been installed");
     }
 
     private static void InlineScriptsAreAllowed(string html)
