@@ -92,6 +92,7 @@ function New-FakeMachine {
         HelperFails             make the deployer's helper container (`docker run --rm`, e.g. removing the old .ipa) fail
         RepoDirty               the deployer's clone has uncommitted changes to tracked files (`git status` lists one)
         RepoBranch              the branch the clone is on (default main; $null = a detached HEAD)
+        ComposeAt               sha -> text of deploy/docker-compose.yml at that commit (default: a comment naming the sha)
         MergeFails              make `git merge --ff-only` fail (the clone has diverged)
     #>
     param([hashtable]$Opt = @{})
@@ -102,14 +103,20 @@ function New-FakeMachine {
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
     $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
-    $m.HelperFails = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false
+    $m.HelperFails = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false; $m.ComposeAt = @{}; $m.ComposeConfigFor = @{}
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     $global:CmMachine = $m
     $global:CmRunner = {
         param($Command, $Arguments, $Env, $Mutating)
         $m = $global:CmMachine
         $display = Format-CmCommand -Command $Command -Arguments $Arguments -Env $Env
-        $global:CmCalls.Add([pscustomobject]@{ Command = $Command; Arguments = $Arguments; Env = $Env; Mutating = $Mutating; Display = $display })
+        # For a compose call, remember which file it was given and what was in it at that moment (the deployer deletes its temp copies).
+        $composeFile = $null; $composeText = $null
+        if ($Command -eq 'docker' -and $Arguments.Count -gt 0 -and $Arguments[0] -eq 'compose') {
+            $fi = [array]::IndexOf($Arguments, '-f')
+            if ($fi -ge 0) { $composeFile = $Arguments[$fi + 1]; if (Test-Path -LiteralPath $composeFile) { $composeText = (Get-Content -LiteralPath $composeFile -Raw).Trim() } }
+        }
+        $global:CmCalls.Add([pscustomobject]@{ Command = $Command; Arguments = $Arguments; Env = $Env; Mutating = $Mutating; Display = $display; ComposeFile = $composeFile; ComposeText = $composeText })
         $ok = { param($lines = @()) [pscustomobject]@{ ExitCode = 0; Output = @($lines) } }
         $fail = { param($code = 1) [pscustomobject]@{ ExitCode = $code; Output = @() } }
         $line = $Arguments -join ' '
@@ -128,7 +135,10 @@ function New-FakeMachine {
                     return & $ok @($json)
                 }
                 if ($line -match '^compose .* ps -q') { return & $ok @($m.RunningServices) }
-                if ($line -match '^compose .* config --format json') { return & $ok @(($m.ComposeConfig | ConvertTo-Json -Depth 8 -Compress)) }
+                if ($line -match '^compose .* config --format json') {
+                    $cfg = if ($composeText -and $m.ComposeConfigFor.ContainsKey($composeText)) { $m.ComposeConfigFor[$composeText] } else { $m.ComposeConfig }
+                    return & $ok @(($cfg | ConvertTo-Json -Depth 8 -Compress))
+                }
                 if ($line -match '^compose .* run --rm migrate') { return [pscustomobject]@{ ExitCode = $m.MigrateExit; Output = @() } }
                 if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
                 if ($line -match '^run --rm') { if ($m.HelperFails) { return & $fail } return & $ok }
@@ -159,6 +169,12 @@ function New-FakeMachine {
                     }
                     'status' { if ($m.RepoDirty) { return & $ok @(' M deploy/deployer/Cm.Deploy.ps1') } return & $ok }
                     'symbolic-ref' { if ($null -eq $m.RepoBranch) { return & $fail 1 } return & $ok @($m.RepoBranch) }
+                    'show' {
+                        # `git show <sha>:deploy/docker-compose.yml`: the compose file at that commit ($m.ComposeAt: sha -> text).
+                        $sha = ("$($a[1])" -split ':')[0]
+                        if ($m.ComposeAt.ContainsKey($sha)) { return & $ok @($m.ComposeAt[$sha]) }
+                        return & $ok @("# compose file at $sha")
+                    }
                     'merge' { if ($m.MergeFails) { return & $fail 128 } return & $ok }
                     default { return & $ok }
                 }
@@ -209,7 +225,15 @@ function Get-TestState {
     if (Test-Path -LiteralPath $p) { try { Get-Content -LiteralPath $p -Raw | ConvertFrom-Json -AsHashtable } catch { @{ unreadable = $true } } } else { @{} }
 }
 
+function New-TestComposePath {
+    <# Like production: the compose file sits in <root>/repo/deploy, where the deployer writes its per-commit copies. #>
+    param([string]$Root)
+    $deploy = Join-Path $Root 'repo/deploy'
+    New-Item -ItemType Directory -Force -Path $deploy | Out-Null
+    Join-Path $deploy 'docker-compose.yml'
+}
+
 function New-TestContext {
     param([string]$Root)
-    New-CmContext -Root $Root -ComposeFile 'compose.test.yml' -SmokeRetries 3 -SmokeDelaySeconds 0
+    New-CmContext -Root $Root -ComposeFile (New-TestComposePath $Root) -SmokeRetries 3 -SmokeDelaySeconds 0
 }
