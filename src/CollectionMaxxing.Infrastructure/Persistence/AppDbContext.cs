@@ -16,7 +16,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Infrastructure.Persistence;
 
 /// <summary>
-/// The one database context: ASP.NET Core Identity's tables (users, passkeys), OpenIddict's, and ours. It doesn't list
+/// The one database context: ASP.NET Core Identity's tables (users, roles) and ours. It doesn't list
 /// our entities' mapping: each feature keeps its entity configuration in its own folder (an
 /// <c>IEntityTypeConfiguration&lt;T&gt;</c>), found by <c>ApplyConfigurationsFromAssembly</c>.
 /// </summary>
@@ -32,7 +32,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ICurren
 
     public DbSet<LibraryInvite> LibraryInvites => Set<LibraryInvite>();
 
-    public DbSet<DevicePairing> DevicePairings => Set<DevicePairing>();
+    public DbSet<UserLogin> Logins => Set<UserLogin>();
 
     public DbSet<SetupCode> SetupCodes => Set<SetupCode>();
 
@@ -83,7 +83,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ICurren
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder); // Identity's tables
-        builder.UseOpenIddict<Guid>(); // OpenIddict's tables (the model only; its services come with sign-in)
+
+        // Auth0 signs people in (ADR-025): Identity keeps users and roles, but its passkeys and external logins are not used. Our own
+        // user_logins table (UserLogin) links Auth0 identities to users.
+        builder.Ignore<IdentityUserPasskey<Guid>>();
+        builder.Ignore<IdentityUserLogin<Guid>>();
         builder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
         IdentityModel.Configure(builder);
 

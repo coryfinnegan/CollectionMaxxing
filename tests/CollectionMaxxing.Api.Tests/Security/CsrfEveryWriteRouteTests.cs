@@ -42,13 +42,12 @@ public partial class CsrfEveryWriteRouteTests(ApiFixture api)
     {
         var routes = WriteRoutes();
 
-        routes.Count.ShouldBeGreaterThan(40);
+        routes.Count.ShouldBeGreaterThan(35); // AUTH-1 removed the passkey, pairing and token routes
         routes.ShouldContain(r => r.Url.StartsWith("/api/v1/libraries/", StringComparison.Ordinal));
         routes.ShouldContain(r => r.Url.StartsWith("/api/v1/scan-sessions/", StringComparison.Ordinal));
         routes.ShouldContain(r => r.Url.StartsWith("/api/v1/me", StringComparison.Ordinal));
         routes.ShouldContain(r => r.Url.StartsWith("/api/admin/", StringComparison.Ordinal));
         routes.ShouldContain(r => r.Url.StartsWith("/account/", StringComparison.Ordinal));
-        routes.ShouldContain(r => r.Url.StartsWith("/connect/", StringComparison.Ordinal));
         new[] { "POST", "PUT", "PATCH", "DELETE" }.ShouldBeSubsetOf(routes.Select(r => r.Method).Distinct());
     }
 
@@ -108,7 +107,7 @@ public partial class CsrfEveryWriteRouteTests(ApiFixture api)
     public async Task A_bearer_write_is_not_asked_for_the_csrf_header_but_still_has_to_authenticate()
     {
         var failures = new List<string>();
-        foreach (var (method, url) in WriteRoutes().Where(r => !r.Url.StartsWith("/connect/", StringComparison.Ordinal) && !r.Url.StartsWith("/account/", StringComparison.Ordinal) && r.Url != "/setup"))
+        foreach (var (method, url) in WriteRoutes().Where(r => !r.Url.StartsWith("/account/", StringComparison.Ordinal) && r.Url != "/setup"))
         {
             using var response = await SendAsync(method, url, r => r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "not-a-token"));
             if (response.StatusCode != HttpStatusCode.Unauthorized)

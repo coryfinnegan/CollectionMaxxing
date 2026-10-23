@@ -7,15 +7,15 @@ namespace CollectionMaxxing.Api.Auth;
 /// <summary>The problem responses of sign-in, setup and re-authentication.</summary>
 public static class AuthProblems
 {
-    /// <summary>The <c>type</c> of the 401 that asks the web app to run a passkey sign-in again.</summary>
+    /// <summary>The <c>type</c> of the 401 that asks the web app to send the person through a fresh sign-in.</summary>
     public const string ReauthRequiredType = "https://collectionmaxxing.app/problems/reauth_required";
 
-    /// <summary>401 with <c>reauth: true</c>: the action needs a passkey assertion from the last five minutes.</summary>
+    /// <summary>401 with <c>reauth: true</c>: the action needs a sign-in from the last five minutes.</summary>
     public static IResult ReauthRequired() =>
         TypedResults.Problem(
             statusCode: StatusCodes.Status401Unauthorized,
             title: "Confirm it's you",
-            detail: "This needs a passkey sign-in from the last 5 minutes. Sign in with your passkey again.",
+            detail: "This needs a sign-in from the last 5 minutes. Sign in again to continue.",
             type: ReauthRequiredType,
             extensions: new Dictionary<string, object?>
             {
@@ -24,7 +24,7 @@ public static class AuthProblems
                 ["traceId"] = Activity.Current?.Id,
             });
 
-    /// <summary>403: a cookie-authenticated write without the <c>X-CSRF: 1</c> header.</summary>
+    /// <summary>403: a cookie-authenticated write (or a sign-out) without the <c>X-CSRF: 1</c> header.</summary>
     public static IResult CsrfRequired() =>
         ProblemResults.Problem(
             StatusCodes.Status403Forbidden,
@@ -40,17 +40,21 @@ public static class AuthProblems
             "Too many attempts. Wait a minute and try again.",
             "rate_limited");
 
-    /// <summary>401 for a passkey (or session) the server doesn't accept. Deliberately says nothing about why.</summary>
-    public static IResult NotSignedIn(string detail = "That passkey wasn't accepted.") =>
-        ProblemResults.Problem(StatusCodes.Status401Unauthorized, "Unauthorized", detail, "passkey_rejected");
+    /// <summary>403: a valid Auth0 token whose identity isn't linked to anyone here. Nothing was created for it.</summary>
+    public static IResult NotLinked() =>
+        ProblemResults.Problem(
+            StatusCodes.Status403Forbidden,
+            "Forbidden",
+            "This account isn't part of a library. Ask the owner for an invite.",
+            "account.not_linked");
 
-    /// <summary>The ceremony didn't start with a code, token or recent sign-in, or it timed out.</summary>
-    public static IResult CeremonyRequired() =>
+    /// <summary>400: a <c>returnUrl</c> that would leave this site.</summary>
+    public static IResult BadReturnUrl() =>
         ProblemResults.Problem(
             StatusCodes.Status400BadRequest,
-            "Start again",
-            "Passkeys can only be created after entering a setup code, recovery code or invite, or while signed in. Start again.",
-            "passkey_ceremony_required");
+            "Bad request",
+            "The return address must be a page of this site.",
+            "account.bad_return_url");
 
     /// <summary>
     /// Business failures of the sign-in use cases: a wrong code is a 400, a code that expired or was used is 410, and

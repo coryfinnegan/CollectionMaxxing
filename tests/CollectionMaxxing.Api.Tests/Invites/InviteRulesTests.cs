@@ -6,6 +6,7 @@ using Npgsql;
 namespace CollectionMaxxing.Api.Tests.Invites;
 
 // LOCKED acceptance tests of ID-3a (issue #64), the rules of an invite. Do not edit, weaken, skip or delete: add new tests instead.
+// AUTH-1 (#228): "passkey options" became the trip to Auth0 (a 302), and the refusal is the redirect to /login?error=invite_invalid.
 public class InviteRulesTests(ApiFixture api) : InviteTest(api)
 {
     [Fact]
@@ -20,20 +21,20 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
         var second = App.NewBrowser();
         var firstOptions = await StartJoinAsync(first, token, "First");
         var secondOptions = await StartJoinAsync(second, token, "Second");
-        firstOptions.StatusCode.ShouldBe(HttpStatusCode.OK);
-        secondOptions.StatusCode.ShouldBe(HttpStatusCode.OK);
+        firstOptions.StatusCode.ShouldBe(HttpStatusCode.Found);
+        secondOptions.StatusCode.ShouldBe(HttpStatusCode.Found);
 
-        var won = await first.RegisterAsync(firstOptions, token);
-        var lost = await second.RegisterAsync(secondOptions, token);
+        var won = await first.FinishAsync(firstOptions);
+        var lost = await second.FinishAsync(secondOptions);
 
-        won.StatusCode.ShouldBe(HttpStatusCode.Created, await BodyOfAsync(won));
-        await ShouldBeProblemAsync(lost, HttpStatusCode.NotFound);
+        won.Headers.Location?.ToString().ShouldBe("/");
+        lost.Headers.Location?.ToString().ShouldBe(InviteInvalid);
         second.HasSessionCookie.ShouldBeFalse();
         (await CountMembersAsync(libraryId)).ShouldBe(2);
         (await CountUsersAsync()).ShouldBe(2);
 
         // And the link is dead for anyone who opens it later.
-        await ShouldBeProblemAsync(await StartJoinAsync(App.NewBrowser(), token), HttpStatusCode.NotFound);
+        (await StartJoinAsync(App.NewBrowser(), token)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
     }
 
     [Fact]
@@ -50,10 +51,10 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
             var oneOptions = await StartJoinAsync(one, token, "One");
             var twoOptions = await StartJoinAsync(two, token, "Two");
 
-            var results = await Task.WhenAll(one.RegisterAsync(oneOptions, token), two.RegisterAsync(twoOptions, token));
+            var results = await Task.WhenAll(one.FinishAsync(oneOptions), two.FinishAsync(twoOptions));
 
-            results.Count(r => r.StatusCode == HttpStatusCode.Created).ShouldBe(1, $"round {round}");
-            results.Count(r => r.StatusCode == HttpStatusCode.NotFound).ShouldBe(1, $"round {round}");
+            results.Count(r => r.Headers.Location?.ToString() == "/").ShouldBe(1, $"round {round}");
+            results.Count(r => r.Headers.Location?.ToString() == InviteInvalid).ShouldBe(1, $"round {round}");
             (await CountMembersAsync(libraryId)).ShouldBe(2 + round, $"round {round}");
         }
     }
@@ -67,7 +68,7 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
 
         var (_, registered) = await JoinAsync(token);
 
-        registered.StatusCode.ShouldBe(HttpStatusCode.Created, await BodyOfAsync(registered));
+        registered.Headers.Location?.ToString().ShouldBe("/");
     }
 
     [Fact]
@@ -80,7 +81,7 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
 
         var response = await StartJoinAsync(App.NewBrowser(), token);
 
-        await ShouldBeProblemAsync(response, HttpStatusCode.NotFound);
+        response.Headers.Location?.ToString().ShouldBe(InviteInvalid);
         (await CountMembersAsync(libraryId)).ShouldBe(1);
     }
 
@@ -93,12 +94,12 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
         App.Time.Advance(TimeSpan.FromDays(7) - TimeSpan.FromMinutes(1));
         var guest = App.NewBrowser();
         var options = await StartJoinAsync(guest, token);
-        options.StatusCode.ShouldBe(HttpStatusCode.OK);
+        options.StatusCode.ShouldBe(HttpStatusCode.Found);
         App.Time.Advance(TimeSpan.FromMinutes(2));
 
-        var registered = await guest.RegisterAsync(options, token);
+        var registered = await guest.FinishAsync(options);
 
-        await ShouldBeProblemAsync(registered, HttpStatusCode.NotFound);
+        registered.Headers.Location?.ToString().ShouldBe(InviteInvalid);
         (await CountMembersAsync(libraryId)).ShouldBe(1);
         (await CountUsersAsync()).ShouldBe(1);
     }
@@ -111,13 +112,13 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
         var (token, created) = await CreateInviteAsync(owner, libraryId, "viewer");
         var guest = App.NewBrowser();
         var options = await StartJoinAsync(guest, token);
-        options.StatusCode.ShouldBe(HttpStatusCode.OK);
+        options.StatusCode.ShouldBe(HttpStatusCode.Found);
 
         var revoke = await owner.SendAsync(HttpMethod.Delete, $"{InvitesUrl(libraryId)}/{created.GetProperty("invite").GetProperty("id").GetGuid()}", null);
         revoke.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        await ShouldBeProblemAsync(await guest.RegisterAsync(options, token), HttpStatusCode.NotFound);
-        await ShouldBeProblemAsync(await StartJoinAsync(App.NewBrowser(), token), HttpStatusCode.NotFound);
+        (await guest.FinishAsync(options)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
+        (await StartJoinAsync(App.NewBrowser(), token)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
         (await CountMembersAsync(libraryId)).ShouldBe(1);
     }
 
@@ -131,12 +132,12 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
         var (used, _) = await CreateInviteAsync(owner, libraryId, "viewer", "Used");
         (await owner.SendAsync(HttpMethod.Delete, $"{InvitesUrl(libraryId)}/{revokedInvite.GetProperty("invite").GetProperty("id").GetGuid()}", null))
             .StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await JoinAsync(used)).Registered.StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await JoinAsync(used)).Registered.Headers.Location?.ToString().ShouldBe("/");
         App.Time.Advance(TimeSpan.FromDays(8));
         owner.ClearCookies();
-        (await owner.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await owner.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         var (fresh, _) = await CreateInviteAsync(owner, libraryId, "viewer", "Fresh");
-        (await JoinAsync(fresh)).Registered.StatusCode.ShouldBe(HttpStatusCode.Created); // sanity: a good one still works
+        (await JoinAsync(fresh)).Registered.Headers.Location?.ToString().ShouldBe("/"); // sanity: a good one still works
 
         var tokens = new[] { "no-such-token", Guid.NewGuid().ToString("N"), expired, revoked, used };
         var starts = new List<(HttpStatusCode Status, string Body)>();
@@ -144,12 +145,13 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
         foreach (var token in tokens)
         {
             var start = await StartJoinAsync(App.NewBrowser(), token);
-            starts.Add((start.StatusCode, await BodyOfAsync(start)));
+            starts.Add((start.StatusCode, start.Headers.Location?.ToString() + await BodyOfAsync(start)));
             var preview = await App.NewBrowser().GetAsync($"/api/v1/invites/{token}");
             previews.Add((preview.StatusCode, await BodyOfAsync(preview)));
         }
 
-        starts.Select(s => s.Status).Distinct().ShouldBe([HttpStatusCode.NotFound]);
+        starts.Select(s => s.Status).Distinct().ShouldBe([HttpStatusCode.Found]);
+        starts.Select(s => s.Body).Distinct().ShouldBe([InviteInvalid]);
         starts.Select(s => s.Body).Distinct().Count().ShouldBe(1, "the body must not depend on why the token failed");
         previews.Select(s => s.Status).Distinct().ShouldBe([HttpStatusCode.NotFound]);
         previews.Select(s => s.Body).Distinct().Count().ShouldBe(1, "the body must not depend on why the token failed");
@@ -194,22 +196,23 @@ public class InviteRulesTests(ApiFixture api) : InviteTest(api)
         var users = await CountUsersAsync();
         var members = await CountMembersAsync(libraryId);
 
-        // No ceremony at all, with and without a token in the URL.
+        // No sign-in at all, or a sign-in with no invite: nothing.
         var stranger = App.NewBrowser();
-        (await stranger.RegisterUnpromptedAsync()).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await stranger.RegisterUnpromptedAsync(invite: "made-up")).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await stranger.GetAsync("/signin-oidc?code=made-up&state=made-up")).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
+        (await stranger.SignInAsync()).Headers.Location?.ToString().ShouldBe("/account/not-linked");
 
         // A token that doesn't exist starts nothing.
-        (await StartJoinAsync(stranger, "made-up")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await StartJoinAsync(stranger, "made-up")).Headers.Location?.ToString().ShouldBe(InviteInvalid);
 
-        // Creation options with an empty or missing token are not an invite either.
-        (await stranger.PostAsync("/account/passkey/creation-options", new { displayName = "Sam" })).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        // An empty token is not an invite either.
+        (await stranger.SignInAsync("/account/login?invite=")).Headers.Location?.ToString().ShouldBe("/account/not-linked");
 
-        // A signed-in owner's add-a-passkey ceremony can't be turned into a join by putting a token in the URL.
-        var options = await owner.PostAsync("/account/passkey/creation-options", new { });
-        options.StatusCode.ShouldBe(HttpStatusCode.OK);
+        // An invite's token in the callback's address is not an invite: only the sealed intent counts.
         var (token, _) = await CreateInviteAsync(owner, libraryId, "viewer");
-        (await owner.RegisterAsync(options, invite: token)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var started = await stranger.GetAsync("/account/login");
+        stranger.Challenge(started).ShouldNotBeNull();
+        (await stranger.FinishAsync(started)).Headers.Location?.ToString().ShouldBe("/account/not-linked");
+        (await stranger.GetAsync($"/signin-oidc?invite={token}&code=x&state=y")).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
 
         (await CountUsersAsync()).ShouldBe(users);
         (await CountMembersAsync(libraryId)).ShouldBe(members);

@@ -1,8 +1,6 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Auth;
-using CollectionMaxxing.Api.Tests.Pairing;
 using CollectionMaxxing.Api.Tests.Support;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,11 +9,13 @@ using WebClient = CollectionMaxxing.Api.Tests.Auth.WebClient;
 namespace CollectionMaxxing.Api.Tests.Invites;
 
 /// <summary>
-/// Base class for the household tests (invites, joining, members): real passkey sign-in for the owner and for each member who
-/// joins, a clock the test controls, and a "phone" for the bearer-token side.
+/// Base class for the household tests (invites, joining, members): real Auth0 sign-in (the fake tenant) for the owner and for each
+/// member who joins, a clock the test controls, and a "phone" for the bearer-token side.
 /// </summary>
-public abstract class InviteTest(ApiFixture api) : PairingTest(api)
+public abstract class InviteTest(ApiFixture api) : AuthTest(api)
 {
+    public const string PublicUrl = FakeAuth0.PublicOrigin;
+
     protected static string InvitesUrl(Guid libraryId) => $"/api/v1/libraries/{libraryId}/invites";
 
     protected static string MembersUrl(Guid libraryId) => $"/api/v1/libraries/{libraryId}/members";
@@ -36,17 +36,26 @@ public abstract class InviteTest(ApiFixture api) : PairingTest(api)
     /// <summary>The token is the last segment of <c>https://host/join/{token}</c>.</summary>
     protected static string TokenOf(string link) => link[(link.LastIndexOf('/') + 1)..];
 
-    /// <summary>The first step of joining: the browser asks for passkey creation options with the invite token.</summary>
+    /// <summary>The first step of joining: the browser opens <c>/account/login?invite=…</c>, which sends it to Auth0 (or to the sign-in page with <c>invite_invalid</c>).</summary>
     protected static Task<HttpResponseMessage> StartJoinAsync(WebClient browser, string token, string? displayName = "Sam") =>
-        browser.PostAsync("/account/passkey/creation-options", new { inviteToken = token, displayName });
+        browser.GetAsync("/account/login?invite=" + Uri.EscapeDataString(token));
 
-    /// <summary>The whole join: options, a new passkey, registration. Returns the new browser and the registration response.</summary>
+    /// <summary>Where a refused invite sends the browser.</summary>
+    protected const string InviteInvalid = "/login?error=invite_invalid";
+
+    /// <summary>Joining: a new browser opens <c>/account/login?invite=…</c> and signs in at Auth0. Returns it and the callback's answer.</summary>
     protected async Task<(WebClient Browser, HttpResponseMessage Registered)> JoinAsync(string token, string? displayName = "Sam")
     {
-        var browser = App.NewBrowser();
-        var options = await StartJoinAsync(browser, token, displayName);
-        options.StatusCode.ShouldBe(HttpStatusCode.OK, await options.Content.ReadAsStringAsync());
-        return (browser, await browser.RegisterAsync(options, invite: token));
+        var browser = App.NewBrowser(TestIdentity.Google(displayName));
+        return (browser, await browser.JoinAsync(token));
+    }
+
+    /// <summary>True when <paramref name="response"/> is the callback's "you're in": a 302 to the return address and a session cookie.</summary>
+    protected static void ShouldBeSignedIn(WebClient browser, HttpResponseMessage response, string returnUrl = "/")
+    {
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location?.ToString().ShouldBe(returnUrl);
+        browser.HasSessionCookie.ShouldBeTrue();
     }
 
     /// <summary>The owner invites someone with <paramref name="role"/> and they join. Returns their signed-in browser.</summary>
@@ -55,9 +64,8 @@ public abstract class InviteTest(ApiFixture api) : PairingTest(api)
     {
         var (token, _) = await CreateInviteAsync(owner, libraryId, role, name);
         var (browser, registered) = await JoinAsync(token, name);
-        registered.StatusCode.ShouldBe(HttpStatusCode.Created, await registered.Content.ReadAsStringAsync());
-        var member = await registered.Content.ReadFromJsonAsync<WebClient.SignedIn>(Json) ?? throw new InvalidOperationException("No body.");
-        return (browser, member);
+        ShouldBeSignedIn(browser, registered);
+        return (browser, await browser.MeAsync());
     }
 
     protected static async Task<JsonElement[]> ListMembersAsync(WebClient browser, Guid libraryId)
@@ -80,6 +88,9 @@ public abstract class InviteTest(ApiFixture api) : PairingTest(api)
             .Select(m => m.Role).SingleAsync();
         return role.ToString().ToLowerInvariant();
     }
+
+    protected static string Sha256Hex(string text) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
 
     protected static async Task<string> BodyOfAsync(HttpResponseMessage response) => await response.Content.ReadAsStringAsync();
 }

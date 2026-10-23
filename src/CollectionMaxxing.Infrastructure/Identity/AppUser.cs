@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Identity;
 namespace CollectionMaxxing.Infrastructure.Identity;
 
 /// <summary>
-/// A person who can sign in. Passwordless: <c>password_hash</c> is never filled in, sign-in is by passkey (web) or by a
-/// paired device (iPhone). <c>Email</c> is optional and never used to sign in.
+/// A person who can sign in. Passwordless: <c>password_hash</c> is never filled in, sign-in is with an Auth0 identity linked in
+/// <c>user_logins</c>. <c>Email</c> is optional and never used to sign in.
 /// </summary>
 public sealed class AppUser : IdentityUser<Guid>
 {

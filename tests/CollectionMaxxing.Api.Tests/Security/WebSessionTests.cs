@@ -28,7 +28,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var copy = browser.SessionCookieValue!;
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        (await browser.PostAsync("/account/logout")).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await browser.PostAsync("/account/logout")).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         var thief = App.NewBrowser();
         thief.UseSessionCookie(copy);
@@ -41,9 +41,9 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
     {
         var (browser, _) = await SetUpOwnerAsync();
         var copy = browser.SessionCookieValue!;
-        (await browser.PostAsync("/account/logout")).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await browser.PostAsync("/account/logout")).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        (await browser.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await browser.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
 
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
         browser.SessionCookieValue.ShouldNotBe(copy);
@@ -58,7 +58,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var (browser, owner) = await SetUpOwnerAsync();
         var first = browser.SessionCookieValue!;
 
-        (await browser.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await browser.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
 
         var old = App.NewBrowser();
         old.UseSessionCookie(first);
@@ -74,7 +74,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var (first, owner) = await SetUpOwnerAsync();
         var second = await SecondBrowserOfAsync(first);
         var (member, _) = await AddMemberAsync(first, owner.LibraryId!.Value, "editor");
-        var phone = await PairAsync(first);
+        var phone = await SignInPhoneAsync(first);
 
         var response = await second.SendAsync(HttpMethod.Delete, "/api/v1/me/web-sessions", null);
 
@@ -85,7 +85,7 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         (await AsDeviceAsync(HttpMethod.Get, "/api/v1/me", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK); // the phone has its own sign-in
         (await ActiveRowsAsync(owner.UserId)).ShouldBeEmpty();
 
-        (await first.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await first.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         (await first.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
@@ -226,13 +226,13 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
         var (browser, _) = await SetUpOwnerAsync();
         var legacy = Reseal(browser.SessionCookieValue!, identity => identity.FindAll(SessionIdClaim).ToList().ForEach(identity.RemoveClaim));
         var old = App.NewBrowser();
-        old.Authenticator = browser.Authenticator;
+        old.Identity = browser.Identity;
         old.UseSessionCookie(legacy);
 
         await ShouldBeProblemAsync(await old.GetAsync("/api/v1/me"), HttpStatusCode.Unauthorized);
         old.HasSessionCookie.ShouldBeFalse("the browser is told to forget the dead cookie");
 
-        (await old.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await old.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         (await old.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
@@ -298,17 +298,15 @@ public class WebSessionTests(ApiFixture api) : InviteTest(api)
     private async Task<WebClient> SecondBrowserOfAsync(WebClient existing)
     {
         var another = App.NewBrowser();
-        another.Authenticator = existing.Authenticator;
-        (await another.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        another.Identity = existing.Identity;
+        (await another.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         return another;
     }
 
     private static async Task<HttpResponseMessage> DeleteMemberAccountAsync(WebClient member)
     {
-        var options = await member.PostAsync("/account/passkey/request-options");
-        var challenge = (await ReadAsync(options)).GetProperty("options");
-        var credential = JsonDocument.Parse(member.Authenticator.Sign(challenge.GetRawText())).RootElement.Clone();
-        return await member.SendAsync(HttpMethod.Delete, "/api/v1/me", new { credential });
+        await member.ReauthAsync();
+        return await member.SendAsync(HttpMethod.Delete, "/api/v1/me", null);
     }
 
     private static async Task<List<JsonElement>> WebSessionsAsync(WebClient browser)

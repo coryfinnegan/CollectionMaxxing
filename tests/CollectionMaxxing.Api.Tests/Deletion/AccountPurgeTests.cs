@@ -52,7 +52,6 @@ public class AccountPurgeTests(ApiFixture api) : DeletionTest(api)
     public async Task The_purge_removes_the_users_sign_in_material_and_leaves_a_name_free_tombstone()
     {
         var (browser, owner) = await SetUpOwnerAsync();
-        await PairAsync(browser);
         await using (var context = Db.CreateContext())
         {
             await context.Database.ExecuteSqlInterpolatedAsync($"""
@@ -61,7 +60,7 @@ public class AccountPurgeTests(ApiFixture api) : DeletionTest(api)
                 """);
         }
 
-        (await PersonalRowsAsync(owner.UserId)).Keys.ShouldContain("user_passkeys");
+        (await PersonalRowsAsync(owner.UserId)).Keys.ShouldContain("user_logins");
         (await DeleteAccountAsync(browser)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         App.Time.Advance(30 * Day + TimeSpan.FromSeconds(1));
         await RunDueJobsAsync();
@@ -94,7 +93,7 @@ public class AccountPurgeTests(ApiFixture api) : DeletionTest(api)
         App.Time.Advance(30 * Day + TimeSpan.FromSeconds(1));
         await RunDueJobsAsync();
 
-        (await owner.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK); // 30 days on, the owner's old session has long expired
+        (await owner.LoginAsync()).Headers.Location?.ToString().ShouldBe("/"); // 30 days on, the owner's old session has long expired
         var item = await ReadAsync(await owner.GetAsync($"/api/v1/libraries/{libraryId}/items/{itemId}"));
         item.GetProperty("item").GetProperty("createdByName").GetString().ShouldBe("Removed user");
         (await CountMembersAsync(libraryId)).ShouldBe(1, "Sam is no longer a member");
@@ -145,7 +144,6 @@ public class AccountPurgeTests(ApiFixture api) : DeletionTest(api)
         var (browser, owner) = await SetUpNamedOwnerAsync("Zanzibar Quill");
         var libraryId = owner.LibraryId!.Value;
         await SeedLibraryAsync(libraryId, owner.UserId);
-        await PairAsync(browser);
         await using (var context = Db.CreateContext())
         {
             context.ProviderCache.Add(new ProviderCacheEntry
@@ -170,7 +168,7 @@ public class AccountPurgeTests(ApiFixture api) : DeletionTest(api)
             owner.UserId.ToString(),
             owner.UserId.ToString("N"),
             owner.UserId.ToString("N").ToUpperInvariant(),
-            browser.Authenticator.CredentialIdText,
+            browser.Identity.Subject,
         };
         secrets.AddRange(browser.SetCookies.Select(c => c.Value.Value!).Where(v => v.Length > 8));
         App.Logs.Lines.Count.ShouldBeGreaterThan(0, "the capture should see the app's log lines");

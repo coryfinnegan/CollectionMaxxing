@@ -27,9 +27,9 @@ public class SessionCookieTests(ApiFixture api) : AuthTest(api)
     {
         var (first, _) = await SetUpOwnerAsync();
         var again = App.NewBrowser();
-        again.Authenticator = first.Authenticator;
+        again.Identity = first.Identity;
 
-        (await again.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await again.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
 
         var cookie = again.SetCookies.Last(c => c.Name == WebClient.SessionCookie);
         (cookie.HttpOnly, cookie.Secure, cookie.SameSite, cookie.Domain.HasValue, cookie.Path.Value).ShouldBe((true, true, SameSiteMode.Strict, false, "/"));
@@ -127,44 +127,45 @@ public class SessionCookieTests(ApiFixture api) : AuthTest(api)
         response.Headers.Contains("Access-Control-Allow-Origin").ShouldBeFalse();
     }
 
+    // AUTH-1 (#228), D-2: the lifetimes moved from 8 hours sliding / 30 days absolute to 30 days sliding / one year absolute.
     [Fact]
-    public async Task The_session_ends_after_eight_hours_without_use()
+    public async Task The_session_ends_after_thirty_days_without_use()
     {
         var (browser, _) = await SetUpOwnerAsync();
 
-        App.Time.Advance(TimeSpan.FromHours(8) - TimeSpan.FromSeconds(1));
+        App.Time.Advance(TimeSpan.FromDays(30) - TimeSpan.FromSeconds(1));
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        App.Time.Advance(TimeSpan.FromHours(8) + TimeSpan.FromSeconds(1));
+        App.Time.Advance(TimeSpan.FromDays(30) + TimeSpan.FromSeconds(1));
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
-    public async Task Using_the_session_keeps_it_alive_past_eight_hours()
+    public async Task Using_the_session_keeps_it_alive_past_thirty_days()
     {
         var (browser, _) = await SetUpOwnerAsync();
 
         for (var i = 0; i < 4; i++)
         {
-            App.Time.Advance(TimeSpan.FromHours(7));
-            (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK, $"after {(i + 1) * 7} hours");
+            App.Time.Advance(TimeSpan.FromDays(20));
+            (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK, $"after {(i + 1) * 20} days");
         }
     }
 
     [Fact]
-    public async Task The_session_ends_after_thirty_days_even_if_it_is_always_in_use()
+    public async Task The_session_ends_after_a_year_even_if_it_is_always_in_use()
     {
         var (browser, _) = await SetUpOwnerAsync();
         var start = App.Time.GetUtcNow();
 
-        while (App.Time.GetUtcNow() - start < TimeSpan.FromDays(30) - TimeSpan.FromHours(7))
+        while (App.Time.GetUtcNow() - start < TimeSpan.FromDays(365) - TimeSpan.FromDays(20))
         {
-            App.Time.Advance(TimeSpan.FromHours(7));
+            App.Time.Advance(TimeSpan.FromDays(20));
             (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK, $"{App.Time.GetUtcNow() - start} into the session");
         }
 
-        // Still inside 30 days, then past it: used within the last 8 hours, but 30 days is the limit.
-        App.Time.Advance(start + TimeSpan.FromDays(30) + TimeSpan.FromSeconds(1) - App.Time.GetUtcNow());
+        // Still inside the year, then past it: used within the last 30 days, but a year is the limit.
+        App.Time.Advance(start + TimeSpan.FromDays(365) + TimeSpan.FromSeconds(1) - App.Time.GetUtcNow());
         (await browser.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 }

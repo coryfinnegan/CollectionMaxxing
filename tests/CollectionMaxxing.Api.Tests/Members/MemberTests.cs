@@ -28,7 +28,7 @@ public class MemberTests(ApiFixture api) : InviteTest(api)
         var (owner, ownerAccount) = await SetUpOwnerAsync();
         var libraryId = ownerAccount.LibraryId!.Value;
         var (sam, samAccount) = await AddMemberAsync(owner, libraryId, "editor", "Sam");
-        var phone = await PairAsync(sam, "Sam's iPhone");
+        var phone = await SignInPhoneAsync(sam, "Sam's iPhone");
         (await sam.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await AsDeviceAsync(HttpMethod.Get, "/api/v1/me", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
@@ -40,15 +40,10 @@ public class MemberTests(ApiFixture api) : InviteTest(api)
         (await sam.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await AsDeviceAsync(HttpMethod.Get, "/api/v1/me", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
 
-        // ...the phone can't refresh...
-        var refresh = await RefreshAsync(phone.RefreshToken);
-        refresh.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await OAuthErrorAsync(refresh)).ShouldBe("invalid_grant");
-
-        // ...and the account is no longer a way in, with the old cookie or a fresh passkey sign-in.
+        // ...and the account is no longer a way in, with the old cookie or a fresh Auth0 sign-in.
         (await sam.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         sam.ClearCookies();
-        (await sam.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await sam.LoginAsync()).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
 
         // The owner's own session is untouched, and the member is off the list.
         (await ListMembersAsync(owner, libraryId)).Select(m => m.GetProperty("userId").GetGuid()).ShouldBe([ownerAccount.UserId]);
@@ -145,7 +140,7 @@ public class MemberTests(ApiFixture api) : InviteTest(api)
         var libraryId = ownerAccount.LibraryId!.Value;
         var (viewer, viewerAccount) = await AddMemberAsync(owner, libraryId, "viewer", "Alex");
         var (token, _) = await CreateInviteAsync(owner, libraryId, "editor", "Jordan");
-        await PairAsync(viewer, "Alex's iPhone");
+        await SignInPhoneAsync(viewer, "Alex's iPhone");
 
         var members = await ListMembersAsync(viewer, libraryId);
 
@@ -171,14 +166,15 @@ public class MemberTests(ApiFixture api) : InviteTest(api)
         var (owner, ownerAccount) = await SetUpOwnerAsync();
         var libraryId = ownerAccount.LibraryId!.Value;
         var (sam, samAccount) = await AddMemberAsync(owner, libraryId, "editor", "Sam");
-        await PairAsync(sam, "Sam's iPhone");
+        await SignInPhoneAsync(sam, "Sam's iPhone");
         await AddMemberAsync(owner, libraryId, "viewer", "Alex");
 
         var members = await ListMembersAsync(owner, libraryId);
 
         var samRow = members.Single(m => m.GetProperty("userId").GetGuid() == samAccount.UserId);
-        samRow.GetProperty("devices").EnumerateArray().Select(d => d.GetString()).ShouldBe(["Sam's iPhone"]);
-        samRow.GetProperty("lastSeenAt").ValueKind.ShouldBe(JsonValueKind.String);
+        // AUTH-1 (#228): phones sign in with Auth0 now and are registered with the server by AUTH-2 (#229); until then nobody has one listed.
+        samRow.GetProperty("devices").GetArrayLength().ShouldBe(0);
+        samRow.GetProperty("lastSeenAt").ValueKind.ShouldBe(JsonValueKind.Null);
         var alexRow = members.Single(m => m.GetProperty("displayName").GetString() == "Alex");
         alexRow.GetProperty("devices").GetArrayLength().ShouldBe(0);
     }

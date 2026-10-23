@@ -37,8 +37,6 @@ public sealed class ProductionErrorTests(ApiFixture api) : IAsyncLifetime
         await api.Db.ResetAsync();
         _library = await TestData.CreateLibraryAsync(api.Db);
         Directory.CreateDirectory(_root);
-        WritePfx("signing.pfx");
-        WritePfx("encryption.pfx");
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Production");
@@ -48,8 +46,11 @@ public sealed class ProductionErrorTests(ApiFixture api) : IAsyncLifetime
                     ["ConnectionStrings:collectionmaxxing"] = api.Db.ConnectionString,
                     ["Auth:SecretsPath"] = Path.Combine(_root, "secrets"),
                     ["Auth:KeyRing:Path"] = Path.Combine(_root, "keys"),
-                    ["Auth:Keys:SigningCertificatePath"] = Path.Combine(_root, "signing.pfx"),
-                    ["Auth:Keys:EncryptionCertificatePath"] = Path.Combine(_root, "encryption.pfx"),
+                    ["Auth:Auth0:Domain"] = "tenant.auth0.test",
+                    ["Auth:Auth0:Audience"] = "urn:collectionmaxxing:api",
+                    ["Auth:Auth0:WebClientId"] = "web-client-id",
+                    ["Auth:Auth0:WebClientSecret"] = "web-client-secret-for-tests",
+                    ["Auth:PublicOrigin"] = "https://pc.tailnet.ts.net",
                     ["Auth:Setup:IssueOnStartup"] = "false",
                     ["Auth:RateLimit:PermitLimit"] = "100000",
                 }));
@@ -85,14 +86,6 @@ public sealed class ProductionErrorTests(ApiFixture api) : IAsyncLifetime
         }
 
         return ValueTask.CompletedTask;
-    }
-
-    private void WritePfx(string name)
-    {
-        using var rsa = RSA.Create(2048);
-        var request = new CertificateRequest("CN=cm-test", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddYears(1));
-        File.WriteAllBytes(Path.Combine(_root, name), certificate.Export(X509ContentType.Pfx));
     }
 
     private HttpClient Client(Guid? user = null, bool broken = false)
@@ -232,14 +225,16 @@ public sealed class ProductionErrorTests(ApiFixture api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_malformed_token_form_is_a_client_error_and_says_nothing_about_the_server()
+    public async Task A_malformed_sign_in_callback_goes_back_to_the_sign_in_page_and_says_nothing_about_the_server()
     {
         using var client = Client();
-        using var content = new StringContent("grant_type=refresh_token%00", Encoding.UTF8, "application/x-www-form-urlencoded");
+        using var content = new StringContent("code=x%00&state=%00", Encoding.UTF8, "application/x-www-form-urlencoded");
 
-        using var response = await client.PostAsync("/connect/token", content);
+        using var response = await client.PostAsync("/signin-oidc", content);
 
-        await ShouldBeCleanProblemAsync(response, 400, "NUL in a form");
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
+        (await response.Content.ReadAsStringAsync()).ShouldBeEmpty();
     }
 
     /// <summary>Throws, with a message that is full of secrets, when the request carries the header.</summary>

@@ -3,14 +3,12 @@ using CollectionMaxxing.Application.Common;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
-using OpenIddict.Validation.AspNetCore;
 
 namespace CollectionMaxxing.Api.Auth;
 
 public static class AuthSetup
 {
-    /// <summary>The scheme that picks between the two ways in: the session cookie (web) or a bearer token (iPhone).</summary>
+    /// <summary>The scheme that picks between the two ways in: the session cookie (web) or an Auth0 bearer token (iPhone).</summary>
     public const string SchemeName = "CookieOrBearer";
 
     /// <summary>Whether the caller presented a bearer token (the iPhone) rather than leaving it to the session cookie (the web).</summary>
@@ -23,13 +21,15 @@ public static class AuthSetup
         services.AddScoped<CurrentUser>();
         services.AddScoped<ICurrentUser>(provider => provider.GetRequiredService<CurrentUser>());
 
-        // Two ways in: the __Host-cm session cookie (web, same origin) or an OpenIddict bearer token (iPhone). An Authorization
-        // header means a bearer call; anything else is judged by its cookie.
+        // Two ways in: the __Host-cm session cookie (web, same origin) or an Auth0 access token (iPhone). An Authorization header
+        // means a bearer call; anything else is judged by its cookie. The OpenID Connect scheme is only ever challenged by
+        // GET /account/login (Auth0Setup).
         services.AddAuthentication(SchemeName)
             .AddPolicyScheme(SchemeName, "Session cookie or bearer token", options =>
                 options.ForwardDefaultSelector = context =>
-                    IsBearerCall(context.Request) ? OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme : AuthCookie.Scheme)
-            .AddCookie(AuthCookie.Scheme, AuthCookie.Configure);
+                    IsBearerCall(context.Request) ? Auth0Setup.BearerScheme : AuthCookie.Scheme)
+            .AddCookie(AuthCookie.Scheme, AuthCookie.Configure)
+            .AddAuth0();
         services.AddOptions<CookieAuthenticationOptions>(AuthCookie.Scheme).Configure<TimeProvider>((cookie, time) => cookie.TimeProvider = time);
 
         // Deny by default: an endpoint with no authorization metadata still needs a signed-in user.
@@ -38,10 +38,9 @@ public static class AuthSetup
             .AddPolicy(Policies.Admin, policy => policy.RequireAuthenticatedUser().RequireRole(Roles.Admin));
         services.AddSingleton<IAuthorizationHandler, LibraryRoleHandler>();
 
-        // The cookie and the passkey ceremony are sealed with Data Protection keys kept in a configured folder (Auth:KeyRing:Path).
+        // The cookie, the sign-in intent and Auth0's state are sealed with Data Protection keys kept in a configured folder (Auth:KeyRing:Path).
         services.AddPersistedKeyRing();
 
-        services.AddTokenServer();
         services.AddAuthRateLimiting();
         return services;
     }

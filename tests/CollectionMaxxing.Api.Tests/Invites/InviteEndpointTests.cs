@@ -25,7 +25,7 @@ public class InviteCreationTests(ApiFixture api) : InviteTest(api)
         problem.GetProperty("reauth").GetBoolean().ShouldBeTrue();
         (await owner.GetAsync(InvitesUrl(libraryId))).StatusCode.ShouldBe(HttpStatusCode.OK); // listing needs no re-auth
 
-        (await owner.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await owner.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         (await InviteAsync(owner, libraryId)).StatusCode.ShouldBe(HttpStatusCode.Created);
     }
 
@@ -74,7 +74,7 @@ public class InviteCreationTests(ApiFixture api) : InviteTest(api)
         var (acceptedToken, _) = await CreateInviteAsync(owner, libraryId, "viewer", "Accepted");
         var (_, revoked) = await CreateInviteAsync(owner, libraryId, "viewer", "Revoked");
         await CreateInviteAsync(owner, libraryId, "editor", "Pending");
-        (await JoinAsync(acceptedToken, "Accepted")).Registered.StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await JoinAsync(acceptedToken, "Accepted")).Registered.Headers.Location?.ToString().ShouldBe("/");
         (await owner.SendAsync(HttpMethod.Delete, $"{InvitesUrl(libraryId)}/{revoked.GetProperty("invite").GetProperty("id").GetGuid()}", null))
             .StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
@@ -95,7 +95,7 @@ public class InviteCreationTests(ApiFixture api) : InviteTest(api)
         var libraryId = ownerAccount.LibraryId!.Value;
         var (_, pending) = await CreateInviteAsync(owner, libraryId, "viewer", "Pending");
         var (acceptedToken, accepted) = await CreateInviteAsync(owner, libraryId, "viewer", "Accepted");
-        (await JoinAsync(acceptedToken)).Registered.StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await JoinAsync(acceptedToken)).Registered.Headers.Location?.ToString().ShouldBe("/");
         string Url(System.Text.Json.JsonElement created) => $"{InvitesUrl(libraryId)}/{created.GetProperty("invite").GetProperty("id").GetGuid()}";
 
         (await owner.SendAsync(HttpMethod.Delete, Url(pending), null)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
@@ -131,8 +131,7 @@ public class InviteCreationTests(ApiFixture api) : InviteTest(api)
 
         var (_, registered) = await JoinAsync(token, displayName: null);
 
-        var member = await registered.Content.ReadFromJsonAsync<WebClient.SignedIn>(Json);
-        member!.DisplayName.ShouldBe("Sam");
+        registered.Headers.Location?.ToString().ShouldBe("/");
         (await ListMembersAsync(owner, libraryId)).Select(m => m.GetProperty("displayName").GetString()).Order().ShouldBe(["Owner", "Sam"]);
     }
 
@@ -146,11 +145,11 @@ public class InviteCreationTests(ApiFixture api) : InviteTest(api)
         (await sam.GetAsync($"/api/v1/libraries/{libraryId}")).StatusCode.ShouldBe(HttpStatusCode.OK);
         var me = await ReadAsync(await sam.GetAsync("/api/v1/me"));
         me.GetProperty("id").GetGuid().ShouldBe(samAccount.UserId);
-        var phone = await PairAsync(sam, "Sam's iPhone");
+        var phone = await SignInPhoneAsync(sam, "Sam's iPhone");
         (await AsDeviceAsync(HttpMethod.Get, $"/api/v1/libraries/{libraryId}", phone.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // The owner's devices are not Sam's, and Sam is not an administrator.
-        (await SessionsAsync(owner)).ShouldBeEmpty();
+        // The owner's sign-in methods are not Sam's, and Sam is not an administrator.
+        (await ReadAsync(await owner.GetAsync("/api/v1/me/sign-in-methods"))).GetProperty("items").GetArrayLength().ShouldBe(1);
         (await sam.GetAsync("/api/admin/jobs")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
 }
@@ -205,23 +204,23 @@ public class InviteLogHygieneTests(ApiFixture api) : InviteTest(api)
         var guest = App.NewBrowser();
         (await guest.GetAsync($"/join/{used}")).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await guest.GetAsync($"/api/v1/invites/{used}")).StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await JoinAsync(used)).Registered.StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await JoinAsync(used)).Registered.Headers.Location?.ToString().ShouldBe("/");
         (await guest.GetAsync($"/api/v1/invites/{used}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         (await guest.GetAsync($"/join/{unknown}")).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await guest.GetAsync($"/api/v1/invites/{unknown}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        (await StartJoinAsync(guest, unknown)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        (await guest.RegisterUnpromptedAsync(invite: unknown)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await StartJoinAsync(guest, unknown)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
+        (await guest.GetAsync($"/signin-oidc?code={unknown}&state={unknown}")).Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
 
         (await owner.SendAsync(HttpMethod.Delete, $"{InvitesUrl(libraryId)}/{revokedInvite.GetProperty("invite").GetProperty("id").GetGuid()}", null))
             .StatusCode.ShouldBe(HttpStatusCode.NoContent);
-        (await StartJoinAsync(guest, revoked)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await StartJoinAsync(guest, revoked)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
 
         App.Time.Advance(TimeSpan.FromDays(8));
-        (await StartJoinAsync(guest, expiring)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await StartJoinAsync(guest, expiring)).Headers.Location?.ToString().ShouldBe(InviteInvalid);
         (await guest.GetAsync($"/api/v1/invites/{expiring}")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         owner.ClearCookies();
-        (await owner.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await owner.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         (await owner.GetAsync(InvitesUrl(libraryId))).StatusCode.ShouldBe(HttpStatusCode.OK);
         await owner.GetAsync(MembersUrl(libraryId));
 

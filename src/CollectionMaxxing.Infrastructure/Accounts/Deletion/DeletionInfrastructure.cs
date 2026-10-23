@@ -6,13 +6,11 @@ using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Infrastructure.Catalog;
 using CollectionMaxxing.Infrastructure.Jobs;
 using CollectionMaxxing.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using OpenIddict.Abstractions;
 
 namespace CollectionMaxxing.Infrastructure.Accounts.Deletion;
 
@@ -20,7 +18,7 @@ public static class AccountDeletionRegistration
 {
     /// <summary>
     /// Registers the purge of deleted accounts: its job handler and the stores it uses. Needs <c>AddInfrastructure()</c>, <c>AddJobs()</c>,
-    /// <c>AddAudit()</c> and the OpenIddict services of sign-in. Other features add their own <see cref="ILibraryPurgeStep"/>s.
+    /// <c>AddAudit()</c> and the Identity services of sign-in. Other features add their own <see cref="ILibraryPurgeStep"/>s.
     /// </summary>
     public static IServiceCollection AddAccountPurge(this IServiceCollection services)
     {
@@ -39,11 +37,8 @@ public static class AccountDeletionRegistration
     }
 }
 
-/// <summary>Deleted accounts on ASP.NET Core Identity and OpenIddict.</summary>
-internal sealed class IdentityDeletedAccounts(
-    AppDbContext db,
-    IOpenIddictAuthorizationManager authorizations,
-    IOpenIddictTokenManager tokens) : IDeletedAccounts
+/// <summary>Deleted accounts on ASP.NET Core Identity.</summary>
+internal sealed class IdentityDeletedAccounts(AppDbContext db) : IDeletedAccounts
 {
     /// <summary>What "Added by" says for a person who is gone.</summary>
     internal const string RemovedUserName = PurgeAccount.RemovedUserName;
@@ -73,37 +68,12 @@ internal sealed class IdentityDeletedAccounts(
             return; // never erase an account that is still in use
         }
 
-        // Phones: every token and every authorization of the user (they were revoked when the account was deleted; now the rows go).
         var subject = userId.ToString("D", CultureInfo.InvariantCulture);
-        var found = new List<object>();
-        await foreach (var token in tokens.FindBySubjectAsync(subject, cancellationToken))
-        {
-            found.Add(token);
-        }
-
-        foreach (var token in found)
-        {
-            await tokens.DeleteAsync(token, cancellationToken);
-        }
-
-        found.Clear();
-        await foreach (var authorization in authorizations.FindBySubjectAsync(subject, cancellationToken))
-        {
-            found.Add(authorization);
-        }
-
-        foreach (var authorization in found)
-        {
-            await authorizations.DeleteAsync(authorization, cancellationToken);
-        }
-
-        await db.DevicePairings.Where(p => p.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.Set<CollectionMaxxing.Domain.Accounts.WebSession>().Where(s => s.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.IdempotencyKeys.Where(k => k.UserId == userId).ExecuteDeleteAsync(cancellationToken);
-        await db.Set<IdentityUserPasskey<Guid>>().Where(p => p.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.UserRoles.Where(r => r.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await db.UserClaims.Where(c => c.UserId == userId).ExecuteDeleteAsync(cancellationToken);
-        await db.UserLogins.Where(l => l.UserId == userId).ExecuteDeleteAsync(cancellationToken);
+        await db.Logins.Where(l => l.UserId == userId).ExecuteDeleteAsync(cancellationToken); // their Auth0 identities may be linked afresh
         await db.UserTokens.Where(t => t.UserId == userId).ExecuteDeleteAsync(cancellationToken);
 
         // The row stays: items they added to other libraries still point at it. It no longer holds anything about them.
@@ -131,7 +101,7 @@ internal sealed class IdentityPurgeBacklog(AppDbContext db) : IPurgeBacklog
 {
     public async Task<IReadOnlyList<Guid>> UsersAwaitingPurgeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken)
     {
-        // A purged user has no place in any library, no passkey, and the tombstone's name. Whatever is left of those means the purge isn't finished.
+        // A purged user has no place in any library, no linked identity, and the tombstone's name. Whatever is left of those means the purge isn't finished.
         // (Re-queueing a user who is in fact purged would be harmless: the purge finds nothing to do.)
         // An export record is kept while its file is stuck; it names the person in its payload.
         var exportType = BuildExport.JobType;
@@ -144,7 +114,7 @@ internal sealed class IdentityPurgeBacklog(AppDbContext db) : IPurgeBacklog
             .Where(u => u.DeletedAt != null && u.DeletedAt <= deletedBefore)
             .Where(u => u.DisplayName != PurgeAccount.RemovedUserName
                 || db.LibraryMembers.IgnoreQueryFilters().Any(m => m.UserId == u.Id)
-                || db.Set<IdentityUserPasskey<Guid>>().Any(p => p.UserId == u.Id)
+                || db.Logins.Any(l => l.UserId == u.Id)
                 || withExports.Contains(u.Id))
             .OrderBy(u => u.DeletedAt)
             .Select(u => u.Id)

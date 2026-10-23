@@ -44,8 +44,8 @@ internal sealed class IdentityUserDirectory(AppDbContext db, TimeProvider time) 
     {
         var now = time.GetUtcNow();
 
-        // "Deleted" is how the rest of the system already says "can't sign in": the passkey login, the pairing grant, the refresh grant
-        // and every authenticated request check it.
+        // "Deleted" is how the rest of the system already says "can't sign in": the Auth0 callback and every authenticated request
+        // (cookie or bearer token) check it.
         await db.Users
             .Where(u => u.Id == userId && u.DeletedAt == null)
             .ExecuteUpdateAsync(set => set.SetProperty(u => u.DeletedAt, now), cancellationToken);
@@ -58,11 +58,11 @@ internal sealed class IdentityUserDirectory(AppDbContext db, TimeProvider time) 
 /// <summary>Joins a library by invite with ASP.NET Core Identity. One transaction: it all happens, or none of it.</summary>
 internal sealed class IdentityInviteAcceptance(AppDbContext db, UserManager<AppUser> users, TimeProvider time) : IInviteAcceptance
 {
-    public async Task<Result<SignedInDto>> AcceptAsync(
+    public async Task<Result<LinkedLogin>> AcceptAsync(
         Guid inviteId,
         Guid userId,
         string displayName,
-        PasskeyCredential passkey,
+        ExternalIdentity identity,
         CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
@@ -107,31 +107,27 @@ internal sealed class IdentityInviteAcceptance(AppDbContext db, UserManager<AppU
             CreatedAt = now,
         };
         Check(await users.CreateAsync(user));
-        Check(await users.AddOrUpdatePasskeyAsync(user, ToInfo(passkey)));
 
         db.LibraryMembers.Add(new LibraryMember(invite.LibraryId, userId, invite.Role, now));
-        await db.SaveChangesAsync(cancellationToken);
+        var login = IdentityAccountStore.NewLogin(userId, identity, now);
+        db.Logins.Add(login);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
+        {
+            db.ChangeTracker.Clear();
+            return AccountErrors.AlreadyLinked; // the identity joined at the same moment; nothing is kept
+        }
+
         await db.LibraryInvites.IgnoreQueryFilters()
             .Where(i => i.Id == inviteId)
             .ExecuteUpdateAsync(set => set.SetProperty(i => i.AcceptedBy, userId), cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return new SignedInDto(userId, displayName, invite.LibraryId);
+        return new LinkedLogin(login.Id, userId);
     }
-
-    private static UserPasskeyInfo ToInfo(PasskeyCredential passkey) =>
-        new(
-            passkey.CredentialId,
-            passkey.PublicKey,
-            passkey.CreatedAt,
-            passkey.SignCount,
-            [.. passkey.Transports],
-            passkey.IsUserVerified,
-            passkey.IsBackupEligible,
-            passkey.IsBackedUp,
-            passkey.AttestationObject,
-            passkey.ClientDataJson)
-        { Name = passkey.Name };
 
     // An Identity failure here is a bug or a broken database, not something the caller can fix: throw so the transaction rolls back.
     private static void Check(IdentityResult result)

@@ -13,7 +13,7 @@ public static class WebApp
 {
     /// <summary>Paths that belong to the API; an unknown one under these is a plain 404, never the app shell.</summary>
     private static readonly string[] ReservedPrefixes =
-        ["/api", "/connect", "/.well-known", "/account", "/media", "/health", "/scan-sessions", "/setup", "/join"];
+        ["/api", "/connect", "/.well-known", "/account", "/signin-oidc", "/media", "/health", "/scan-sessions", "/setup", "/join"];
 
     private const string ImmutableCache = "public, max-age=31536000, immutable";
 

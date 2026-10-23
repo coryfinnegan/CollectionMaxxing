@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Infrastructure.Identity;
 
 /// <summary>
-/// Gives the tables ASP.NET Core Identity and OpenIddict bring along our naming (snake_case, no "AspNet" prefix), so the
-/// whole schema reads the same. Model only: the Identity and OpenIddict services are set up by the ID stream.
+/// Gives the tables ASP.NET Core Identity brings along our naming (snake_case, no "AspNet" prefix), so the whole schema reads
+/// the same. Model only: the Identity services are set up by sign-in.
 /// </summary>
 internal static class IdentityModel
 {
@@ -15,13 +15,7 @@ internal static class IdentityModel
         ["AspNetUserRoles"] = "user_roles",
         ["AspNetUserClaims"] = "user_claims",
         ["AspNetRoleClaims"] = "role_claims",
-        ["AspNetUserLogins"] = "user_logins",
         ["AspNetUserTokens"] = "user_tokens",
-        ["AspNetUserPasskeys"] = "user_passkeys",
-        ["OpenIddictApplications"] = "openiddict_applications",
-        ["OpenIddictAuthorizations"] = "openiddict_authorizations",
-        ["OpenIddictScopes"] = "openiddict_scopes",
-        ["OpenIddictTokens"] = "openiddict_tokens",
     };
 
     public static void Configure(ModelBuilder modelBuilder)

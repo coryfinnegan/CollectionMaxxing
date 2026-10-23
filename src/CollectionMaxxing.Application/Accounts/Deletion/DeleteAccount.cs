@@ -11,7 +11,7 @@ namespace CollectionMaxxing.Application.Accounts.Deletion;
 /// <summary>
 /// Use case: a user deletes their own account (docs/07, "Sign out, devices and deletion"). They are soft-deleted at once: they can't sign in,
 /// and every phone, refresh token, web session and open invite of theirs dies. The purge job then removes their data after 30 days
-/// (<see cref="PurgeAccount"/>). The caller has proved themselves with a passkey assertion made for this request before it gets here.
+/// (<see cref="PurgeAccount"/>). The caller has signed in within the last five minutes (<c>RequireRecentSignIn</c>) before it gets here.
 /// An owner whose library has other members is refused and nothing is touched.
 /// </summary>
 public static class DeleteAccount
@@ -50,7 +50,7 @@ public static class DeleteAccount
                 cancellationToken);
 
             // Deactivating is what shuts every way in at once: from the next request the web session and the phone's access token are
-            // refused, the refresh grant and the passkey sign-in fail. It also checks the members again, in the same step: someone who
+            // refused, and the Auth0 sign-in finds a deactivated account. It also checks the members again, in the same step: someone who
             // joined since the check above would otherwise be left in a library with no owner. The rest of the clean-up runs in that same
             // transaction: if any of it fails, nothing is deactivated, so the person can try again and no invite or audit row is lost.
             // If members turned up, nothing has changed except the queued purge, which does nothing for an account that was never deleted.

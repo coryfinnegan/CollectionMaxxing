@@ -1,20 +1,21 @@
-using System.Text.Json;
-
 namespace CollectionMaxxing.Application.Accounts;
 
-// Response shapes of the account, session and sign-in endpoints (docs/04, docs/07). Fields are the contract.
+// Response shapes of the account, session and sign-in endpoints (docs/04, docs/14). Fields are the contract.
 
-/// <summary>A paired device. <c>Status</c> is <c>active</c>, or <c>revoked</c> (by the person, or because a stolen refresh token was replayed).</summary>
+/// <summary>A signed-in browser. <c>Status</c> is <c>active</c>.</summary>
 public sealed record SessionDto(Guid Id, string DeviceName, string Kind, DateTimeOffset CreatedAt, DateTimeOffset? LastSeenAt, bool IsCurrent, string Status);
-
-/// <summary>A new device pairing: the payload of the QR code and its 6-digit fallback, valid for two minutes, single use.</summary>
-public sealed record PairDeviceDto(string ServerUrl, string Token, string Code, DateTimeOffset ExpiresAt);
 
 /// <summary>An export that has been started, and where to download it once it is ready.</summary>
 public sealed record ExportDto(Guid JobId, string Status, string? DownloadUrl);
 
-/// <summary>WebAuthn options to hand to the browser's passkey API.</summary>
-public sealed record PasskeyOptionsDto(JsonElement Options);
+/// <summary>
+/// One identity the person can sign in with (Settings, Sign-in methods). <c>Provider</c> is <c>google</c>, <c>apple</c> or <c>other</c>,
+/// read from the start of Auth0's <c>sub</c>; <c>IsCurrent</c> marks the identity behind this session.
+/// </summary>
+public sealed record SignInMethodDto(Guid Id, string Provider, string? Email, DateTimeOffset CreatedAt, DateTimeOffset? LastUsedAt, bool IsCurrent);
 
-/// <summary>The result of signing in or finishing setup.</summary>
-public sealed record SignedInDto(Guid UserId, string DisplayName, Guid? LibraryId);
+/// <summary>Where the browser goes next: <c>POST /setup</c> and <c>POST /account/recover</c> answer with the sign-in to start.</summary>
+public sealed record NextStepDto(string Next);
+
+/// <summary>Auth0's sign-out address. The web app navigates there after <c>POST /account/logout</c>.</summary>
+public sealed record LogoutDto(string LogoutUrl);

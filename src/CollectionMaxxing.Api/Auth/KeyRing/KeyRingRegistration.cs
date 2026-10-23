@@ -16,7 +16,7 @@ public sealed class KeyRingOptions
 
     /// <summary>
     /// The folder (a mounted volume in the container) that holds ASP.NET's Data Protection key ring: the keys that seal the session
-    /// cookie and the passkey ceremony state. Required outside Development, so a redeploy can't quietly start with fresh keys and
+    /// cookie, the sign-in intent and Auth0 state. Required outside Development, so a redeploy can't quietly start with fresh keys and
     /// sign everybody out. In Development it defaults to <c>keyring</c> under <c>Auth:SecretsPath</c>.
     /// </summary>
     public string? Path { get; set; }
@@ -60,7 +60,7 @@ internal sealed class KeyRingOptionsValidator(IOptions<AuthOptions> auth, IHostE
 
     private const string MissingMessage =
         "Auth:KeyRing:Path must be set outside Development: it is the folder (a mounted volume) where the Data Protection keys are kept, "
-        + "so that sign-ins and passkey ceremonies survive a restart or a redeploy. Refusing to start with throwaway keys.";
+        + "so that sign-ins and sign-ins in progress survive a restart or a redeploy. Refusing to start with throwaway keys.";
 
     public ValidateOptionsResult Validate(string? name, KeyRingOptions options)
     {

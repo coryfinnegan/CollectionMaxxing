@@ -111,19 +111,18 @@ public sealed partial class WebAppTests : IDisposable
         (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldNotContain("shell");
     }
 
-    [Theory]
-    [InlineData("/.well-known/openid-configuration")]
-    [InlineData("/.well-known/jwks")]
-    public async Task The_openid_discovery_endpoints_are_still_openiddicts_json_with_the_web_app_installed(string path)
+    [Fact]
+    public async Task The_Auth0_callback_is_not_shadowed_by_the_web_app()
     {
-        using var client = _host.Client();
+        using var client = _host.Client(followRedirects: false);
 
-        var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
+        var response = await client.GetAsync("/signin-oidc?code=x&state=y", TestContext.Current.CancellationToken);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        response.Content.Headers.ContentType?.MediaType.ShouldBe("application/json");
+        response.StatusCode.ShouldBe(HttpStatusCode.Found);
+        response.Headers.Location?.ToString().ShouldBe("/login?error=signin_failed");
         (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).ShouldNotContain("shell");
     }
+
     [Fact]
     public async Task Real_endpoints_are_not_shadowed_by_the_web_app()
     {
@@ -131,7 +130,7 @@ public sealed partial class WebAppTests : IDisposable
 
         var live = await client.GetAsync("/health/live", TestContext.Current.CancellationToken);
         var api = await client.GetAsync("/api/v1/libraries", TestContext.Current.CancellationToken);
-        var login = await client.GetAsync("/account/login", TestContext.Current.CancellationToken);
+        var login = await client.GetAsync("/account/not-linked", TestContext.Current.CancellationToken);
         var join = await client.GetAsync("/join/some-token", TestContext.Current.CancellationToken);
 
         live.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -199,7 +198,7 @@ public sealed partial class WebAppTests : IDisposable
         using var client = bare.Client();
 
         var root = await client.GetAsync("/", TestContext.Current.CancellationToken);
-        var login = await client.GetStringAsync("/account/login", TestContext.Current.CancellationToken);
+        var login = await client.GetStringAsync("/account/not-linked", TestContext.Current.CancellationToken);
 
         root.IsSuccessStatusCode.ShouldBeFalse();
         login.ShouldContain("hasn't been installed");

@@ -77,21 +77,17 @@ public static class AuthorizationMatrix
         "/health/ready",
         "/openapi/{documentName}.json",
 
-        // Sign-in, setup, recovery and joining by invite: the ceremonies that create the signed-in caller.
+        // Sign-in (Auth0), setup, recovery, sign-out and joining by invite (AUTH-1, #228). The Auth0 callback, /signin-oidc, is the
+        // OpenID Connect handler's and not an endpoint.
         "/setup",
         "/account/login",
+        "/account/logout",
         "/account/recover",
-        "/account/passkey/creation-options",
-        "/account/passkey/request-options",
-        "/account/passkey/register",
+        "/account/not-linked",
         "/join/{token}",
 
         // The join page asks what the invite is for (rate-limited; the same 404 for every token that isn't usable).
         "/api/v1/invites/{token}",
-
-        // OpenIddict's token endpoints (the iPhone redeems its pairing here).
-        "/connect/token",
-        "/connect/revoke",
     ];
 
     /// <summary>Platform plumbing that isn't part of the API contract, so it has no matrix row.</summary>
@@ -106,6 +102,7 @@ public static class AuthorizationMatrix
     private const string Sessions = "/api/v1/scan-sessions/{id:guid}";
 
     private const int Ok = 200;
+    private const int Found = 302;
     private const int Created = 201;
     private const int Accepted = 202;
     private const int NoContent = 204;
@@ -122,6 +119,10 @@ public static class AuthorizationMatrix
 
     private static readonly IReadOnlyDictionary<string, string> Idempotent = new Dictionary<string, string> { ["Idempotency-Key"] = "test-key-1" };
     private static readonly IReadOnlyDictionary<string, string> IfMatch = new Dictionary<string, string> { ["If-Match"] = "\"1\"" };
+    private static readonly IReadOnlyDictionary<string, string> Csrf = new Dictionary<string, string> { ["X-CSRF"] = "1" };
+
+    /// <summary>A session whose last sign-in was long ago (see <c>TestAuthHandler.AuthTimeHeader</c>).</summary>
+    private static readonly IReadOnlyDictionary<string, string> StaleSignIn = new Dictionary<string, string> { ["X-Test-Auth-Time"] = "0" };
 
     /// <summary>Anonymous: 401. Any signed-in caller: <paramref name="allowed"/>.</summary>
     private static EndpointCase SignedIn(string method, string route, string? body = null, int allowed = Stub, string? query = null) =>
@@ -164,36 +165,24 @@ public static class AuthorizationMatrix
         // ---- Account and session (ID) ----------------------------------------------------------------------
         new EndpointCase("GET", "/api/v1/me", null, Unauthorized, Ok, Ok, Ok, Ok) { Admin = Ok },
         SignedIn("PATCH", "/api/v1/me", Json),
-        SignedIn("DELETE", "/api/v1/me", allowed: Unauthorized), // LIB-2c: only ever the caller's own account, and only with a passkey assertion made for the request (none here), so 401 reauth_required for every role
-        SignedIn("GET", "/api/v1/me/sessions", allowed: Ok),
-        SignedIn("DELETE", "/api/v1/me/sessions/{id:guid}", allowed: NotFound), // the seeded id is no device of theirs
+        SignedIn("DELETE", "/api/v1/me", allowed: Unauthorized) with { Headers = StaleSignIn }, // LIB-2c, AUTH-1: only the caller's own account, and only with a sign-in from the last 5 minutes (none here), so 401 reauth_required for every role
+        SignedIn("GET", "/api/v1/me/sign-in-methods", allowed: Ok), // AUTH-1: the caller's own linked identities
+        SignedIn("DELETE", "/api/v1/me/sign-in-methods/{id:guid}", allowed: NotFound), // the seeded id is no sign-in method of theirs
         SignedIn("GET", "/api/v1/me/web-sessions", allowed: Ok), // the caller's own signed-in browsers
         SignedIn("DELETE", "/api/v1/me/web-sessions/{id:guid}", allowed: NotFound), // the seeded id is no browser of theirs
         SignedIn("DELETE", "/api/v1/me/web-sessions", allowed: NoContent), // signs the caller's own browsers out; for every role, nobody else's
-        SignedIn("POST", "/api/v1/me/devices/pair", allowed: Created) with { Admin = Unauthorized }, // the matrix admin has no row in users, so has no account to pair
         SignedIn("GET", "/api/v1/me/export", allowed: Accepted), // LIB-2b: starts a job for the caller's own libraries; any signed-in person may
         SignedIn("GET", "/api/v1/me/export/{id:guid}", allowed: NotFound), // the seeded id is no export of theirs
         SignedIn("GET", "/api/v1/me/export/{id:guid}/download", allowed: NotFound),
 
-        // ---- Sign-in, setup, recovery, tokens (ID): the only anonymous endpoints ---------------------------
-        // OpenIddict now fronts the token endpoint and rejects a request that is not a form-encoded grant (400); a well-formed grant
-        // reaches the stub (501), which Auth/TokenEndpointTests checks. Revocation is added with the grants (ID-2).
-        Everyone("POST", "/connect/token", Json, BadRequest),
-        Everyone("POST", "/connect/revoke", Json, BadRequest),
-
-        // Built (ID-1). The world always has an owner, so setup is closed: 404 for everyone.
+        // ---- Sign-in, setup, recovery, sign-out (AUTH-1, Auth0): the only anonymous endpoints -------------------
+        // The world always has an owner, so setup is closed: 404 for everyone.
         Everyone("GET", "/setup", null, NotFound),
         Everyone("POST", "/setup", Json, NotFound),
-        Everyone("GET", "/account/login", null, Ok),
-        Everyone("POST", "/account/login", Json, BadRequest),
-        SignedIn("POST", "/account/logout", allowed: NoContent),
-
-        // Starting a passkey ceremony with no code or token is refused for a stranger and allowed for a signed-in user
-        // (who just signed in, so the recent-passkey rule is met); the test admin has no row in the database.
-        new EndpointCase("POST", "/account/passkey/creation-options", Json, BadRequest, Ok, Ok, Ok, Ok) { Admin = Unauthorized },
-        Everyone("POST", "/account/passkey/request-options", null, Ok),
-        Everyone("POST", "/account/passkey/register", Json, BadRequest),
-        Everyone("POST", "/account/recover", Json, BadRequest),
+        Everyone("GET", "/account/login", null, Found), // off to Auth0, signed in or not
+        Everyone("POST", "/account/logout", null, Ok) with { Headers = Csrf }, // works without a session too, never without X-CSRF: 1 (contract addendum 2)
+        Everyone("POST", "/account/recover", Json, BadRequest), // {} has no code
+        Everyone("GET", "/account/not-linked", null, Ok),
         Everyone("GET", "/join/{token}", null, Ok),
 
         // Built (ID-3a). The matrix's token is no invite, so everyone gets the one "not found" answer.

@@ -22,8 +22,6 @@ public sealed class ProductionHost : IDisposable
     public ProductionHost(Dictionary<string, string?>? settings = null, string environment = "Production", string? webRoot = null)
     {
         Directory.CreateDirectory(_root);
-        var signing = MakeCertificate("signing");
-        var encryption = MakeCertificate("encryption");
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
@@ -40,8 +38,11 @@ public sealed class ProductionHost : IDisposable
                     ["Auth:SecretsPath"] = Path.Combine(_root, "secrets"),
                     ["Auth:KeyRing:Path"] = Path.Combine(_root, "keys"),
                     ["Auth:Setup:IssueOnStartup"] = "false",
-                    ["Auth:Keys:SigningCertificatePath"] = signing,
-                    ["Auth:Keys:EncryptionCertificatePath"] = encryption,
+                    ["Auth:Auth0:Domain"] = "tenant.auth0.test",
+                    ["Auth:Auth0:Audience"] = "urn:collectionmaxxing:api",
+                    ["Auth:Auth0:WebClientId"] = "web-client-id",
+                    ["Auth:Auth0:WebClientSecret"] = "web-client-secret-for-tests",
+                    ["Auth:PublicOrigin"] = "https://pc.tailnet.ts.net",
                 };
                 foreach (var (key, value) in settings ?? [])
                 {
@@ -70,20 +71,9 @@ public sealed class ProductionHost : IDisposable
         });
     }
 
-    private string MakeCertificate(string name)
+    public HttpClient Client(Guid? userId = null, bool followRedirects = true)
     {
-        using var rsa = System.Security.Cryptography.RSA.Create(2048);
-        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
-            "CN=test " + name, rsa, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
-        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddYears(1));
-        var path = Path.Combine(_root, name + ".pfx");
-        File.WriteAllBytes(path, certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx));
-        return path;
-    }
-
-    public HttpClient Client(Guid? userId = null)
-    {
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = followRedirects });
         if (userId is { } id)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, id.ToString());

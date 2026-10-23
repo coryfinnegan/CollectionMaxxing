@@ -9,7 +9,7 @@ namespace CollectionMaxxing.Api.Invites;
 
 /// <summary>
 /// Invitations to join a library (docs/04, "Libraries and members"). Managing them is for the owner; creating one needs a recent
-/// passkey. The one anonymous endpoint, the preview the join page asks for, is rate-limited and answers every token that isn't usable
+/// sign-in. The one anonymous endpoint, the preview the join page asks for, is rate-limited and answers every token that isn't usable
 /// with the same 404.
 /// </summary>
 public static class InviteEndpoints
@@ -36,7 +36,7 @@ public static class InviteEndpoints
             .Produces<CreatedInviteDto>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireLibraryRole(LibraryRole.Owner).RequireRecentPasskey();
+            .RequireLibraryRole(LibraryRole.Owner).RequireRecentSignIn();
 
         library.MapDelete("/invites/{id:guid}", async (Guid libraryId, Guid id, RevokeInvite.Handler handler, CancellationToken cancellationToken) =>
             {
@@ -48,7 +48,7 @@ public static class InviteEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireLibraryRole(LibraryRole.Owner);
 
-        // What the join page shows before the person creates a passkey. Anonymous (they have no account yet) and rate-limited like the
+        // What the join page shows before the person signs in. Anonymous (they have no account yet) and rate-limited like the
         // other endpoints that take a secret. An unknown, expired, used and revoked token all get the same 404, byte for byte.
         app.MapGet("/api/v1/invites/{token}", async (string token, GetInvitePreview.Handler handler, CancellationToken cancellationToken) =>
             {
