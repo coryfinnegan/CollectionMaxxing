@@ -126,10 +126,23 @@ describe('JoinScreen', () => {
   });
 
   it('does not offer to join until the invite is known', async () => {
+    // Hold the preview until the button has been checked: an instant mock answer could otherwise win the race on a busy runner.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.get('*/api/v1/invites/:token', async () => {
+        await held;
+        return HttpResponse.json({ ownerName: 'Cory', role: 'editor' });
+      }),
+    );
     await renderWithProviders(<JoinScreen token={MOCK_INVITE} />);
 
     expect(screen.getByLabelText('Sign in to join').props.accessibilityState.disabled).toBe(true);
+    release();
     await screen.findByText("Join Cory's library as Editor");
+    await waitFor(() => expect(screen.getByLabelText('Sign in to join').props.accessibilityState.disabled).toBe(false));
   });
 
   it.each(['expired-invite', 'used-invite', 'who-knows'])('shows the same message for the bad, used or expired token %s', async (token) => {
