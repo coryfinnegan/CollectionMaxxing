@@ -62,6 +62,8 @@ flowchart TB
 | `aspire-dashboard` | Microsoft's standalone Aspire Dashboard | OpenTelemetry logs, traces and metrics in a browser, on `127.0.0.1` only |
 | `backup` | `postgres:17` + rclone, on a schedule | See Backups below |
 
+**Sign-in settings (`.env`):** the API needs `CM_PUBLIC_ORIGIN` (the address people browse to), `CM_AUTH0_DOMAIN`, `CM_AUTH0_WEB_CLIENT_ID`, `CM_AUTH0_WEB_CLIENT_SECRET`, `CM_AUTH0_MANAGEMENT_CLIENT_ID` and `CM_AUTH0_MANAGEMENT_CLIENT_SECRET`. All six are required, and the stack won't start without them. Without the Management credentials, "Sign out all iPhones" would do nothing at Auth0. `deploy/auth0/Apply-Auth0.ps1` writes the values to `<secrets>uth0pi.env`; copy them into `.env`. There are no signing certificates to make or rotate: Auth0 holds the token keys ([07](07-authentication-and-authorization.md#keys-and-secrets)). The only sign-in file in the secrets folder is the one-time `setup-code.txt`. Signing in needs the internet and Auth0; a browser that is already signed in doesn't, because the cookie is ours.
+
 **Docker:** keep Docker Desktop (WSL2 backend), but **update it**. 24.0.7 is from 2023. Set it to start when you sign in, and turn on Windows' "Use my sign-in info to automatically finish setting up after an update", so the stack comes back after Windows Update reboots.
 
 **The GPU** isn't used: recognition runs on the iPhone with Apple's frameworks (ADR-017). It's there as a free upgrade path if the M3 evals ever show real misses, but that would mean going beyond Apple-only, so it'd be your call.
@@ -140,9 +142,9 @@ The Apple Developer Program ($99/yr) is paid for, and the app ships through **Te
 - Removing someone takes two steps: the Members screen, and App Store Connect.
 - Family who only browse need no app: the web app works in Safari.
 
-The membership would allow push notifications, Sign in with Apple, associated domains and Private Cloud Compute. The plan still uses none of them:
+The membership would allow push notifications, native Sign in with Apple, associated domains and Private Cloud Compute. The plan still uses none of them:
 
-- Sign-in uses passkeys and QR pairing ([07](07-authentication-and-authorization.md)).
+- Sign-in goes through Auth0 with Google and Apple's web sign-in, which needs no app capability ([07](07-authentication-and-authorization.md)).
 - There are no push notifications: results wait in the app, and backup alerts come by email.
 - Hard cases go to Fix it.
 

@@ -451,3 +451,4 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - Signing in needs the internet and Auth0. A browser that's already signed in doesn't; a phone refreshes through Auth0 once an hour.
   - Auth0 holds each person's name and email from Google or Apple. Library data never leaves the PC, and account deletion deletes the Auth0 user.
   - About 6,000 lines of auth code, the PFX certificates and their yearly rotation go away.
+- **2026-10-23 note: revocation uses grants.** Building AUTH-2 showed that the Free plan refuses Auth0's refresh-token endpoints. "Sign out all iPhones" therefore deletes the person's grants (`delete:grants`), together with `users.tokens_not_before` to refuse access tokens already issued. One phone can't be revoked alone, which was the fallback this ADR already allowed. Google stays in "Testing" with test users, and Sign in with Apple uses a separate primary App ID for its Services ID.

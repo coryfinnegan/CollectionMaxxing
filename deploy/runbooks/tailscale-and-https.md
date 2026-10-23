@@ -14,7 +14,7 @@ The app opens at home but not out and about, the browser warns about the certifi
    ```powershell
    tailscale status
    ```
-   If it says logged out or stopped, sign in from the Tailscale tray icon. If the PC's name changed, the web address changed too: `CM_RELYING_PARTY_ID` in `C:\CollectionMaxxing\.env` must still match the old name, or passkeys stop working, so rename the machine back instead of editing `.env`.
+   If it says logged out or stopped, sign in from the Tailscale tray icon. If the PC's name changed, the web address changed too: `CM_PUBLIC_ORIGIN` in `C:\CollectionMaxxing\.env` and the callback addresses at Auth0 must match the new name, or sign-in fails. Rename the machine back, or update `CM_PUBLIC_ORIGIN`, `PUBLIC_ORIGIN` in `secrets\auth0\tenant.env` and re-run `deploy/auth0/Apply-Auth0.ps1`.
 3. Check Serve is still set up and still the only thing configured (read-only):
    ```powershell
    tailscale serve status

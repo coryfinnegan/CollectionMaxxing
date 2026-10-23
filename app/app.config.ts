@@ -15,7 +15,7 @@ const config: ExpoConfig = {
   name: 'CollectionMaxxing',
   slug: 'collectionmaxxing',
   scheme: 'collectionmaxxing',
-  version: '1.0.4',
+  version: '1.1.0',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   userInterfaceStyle: 'automatic',

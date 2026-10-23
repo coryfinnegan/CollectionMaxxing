@@ -16,7 +16,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 
 | Threat | Example | Mitigations |
 |---|---|---|
-| **S**poofing | Stolen refresh token; guessed or replayed pairing code | Rotating, device-bound refresh tokens with reuse detection; Keychain storage; pairing tokens single-use with a 2-min expiry, 6-digit codes rate-limited per client address (5 wrong guesses lock the guesser, not the pairing); passkeys; tailnet-only reachability |
+| **S**poofing | Stolen refresh token or cookie; an Auth0 identity nobody invited | Auth0's rotating refresh tokens in the Keychain; the API admits only identities linked in `user_logins` (never by email) and answers anything else with `account.not_linked`; "Sign out all iPhones" refuses older access tokens at once (`tokens_not_before`) and ends the refresh tokens at Auth0; revocable web sessions; tailnet-only reachability |
 | **T**ampering | Mass assignment (`ownerLibraryId` in a PATCH body); edits to another user's item | Explicit request DTOs only; library comes from the route or the stored resource; ETag concurrency |
 | **R**epudiation | "I didn't delete those 200 items" | `audit_events` for destructive and security actions; soft delete with restore |
 | **I**nformation disclosure | IDOR on `/items/{id}`; photo URLs guessable; EXIF GPS leak | Resource authorization + query filters + IDOR tests; private blob containers, served only through authorized endpoints or short-lived SAS; EXIF stripped by re-encoding |
@@ -28,7 +28,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 | # | Risk | Our controls |
 |---|---|---|
 | API1 | Broken object-level authorization | Resource-based policies, a 404 for non-members, EF global query filters, IDOR test suite |
-| API2 | Broken authentication | OpenIddict standard flows, PKCE, short-lived access tokens, refresh rotation + reuse detection, passwordless only |
+| API2 | Broken authentication | Auth0 handles sign-in (Authorization Code + PKCE, 1-hour access tokens, refresh rotation); the API checks issuer, audience and signature on every token; passwordless only; recent sign-in required for sensitive actions |
 | API3 | Broken object-property-level authorization | No entity binding; read DTOs never include internal fields (`provider_payloads`, `trace` only for admins) |
 | API4 | Unrestricted resource consumption | Rate limiter (below), 15 MB upload cap, pixel caps, max 50 codes per batch, pagination limits, request timeouts |
 | API5 | Broken function-level authorization | Admin endpoints in a separate group + policy; reflection test that every endpoint declares its policy |
@@ -54,8 +54,8 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 
 | Group | Limit |
 |---|---|
-| Code, passkey, setup and pairing endpoints (`Auth:RateLimit`) | 10/min per IP |
-| Pairing, setup and sign-in, on top of the 10/min (`AuthHourly`) | 30/hour per address, fixed window. Refresh-token grants are not counted. |
+| Code, setup and sign-in endpoints (`Auth:RateLimit`) | 10/min per IP |
+| Setup, recovery and sign-in, on top of the 10/min (`AuthHourly`) | 30/hour per address, fixed window |
 | Picture identification (`/identify`) | 500 items/min per user (a call costs one per item; fixed window) |
 | Barcode batches | 120/min per user |
 | Catalogue search | 60/min per user |
@@ -88,10 +88,10 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
   - No router port forwarding.
   - Windows Firewall stays default-deny inbound.
 - **Tailscale access control:** the tailnet policy lets family members reach only the PC's HTTPS port, plus the Plex/Jellyfin ports if you share those over Tailscale, and nothing else on your network.
-- **Invites:** single use, a 7-day expiry, revocable, and stored as a hash. They only work from the tailnet, and joining requires creating a passkey. Turn on **tailnet lock** and device approval so a stolen Tailscale login can't add a device silently.
+- **Invites:** single use, a 7-day expiry, revocable, and stored as a hash. They only work from the tailnet, and joining requires signing in with Google or Apple. Turn on **tailnet lock** and device approval so a stolen Tailscale login can't add a device silently.
 - **Postgres** isn't published to the host at all; it's reachable only on the internal compose network. It uses a strong generated password from the secrets folder.
 - **Secrets:**
-  - `C:\CollectionMaxxing\secrets` holds `.env` and the OpenIddict PFX files.
+  - `C:\CollectionMaxxing\secrets` holds `.env` (with the Auth0 client secrets) and the `auth0\` settings.
   - Its Windows ACL allows only your account and SYSTEM.
   - It's mounted into containers as Docker secrets and is never in git (GitHub secret scanning + push protection back that up).
 - **Disk encryption:** **BitLocker** on the drives holding the Docker volumes and the backups.
@@ -119,9 +119,8 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
 ## Logging and monitoring
 
 - **Never logged:** tokens, cookies, auth codes, email addresses, photo bytes, provider API keys. A redaction enricher plus unit tests on the logger configuration enforce this.
-- Security events go to `audit_events` **and** the logs (Aspire Dashboard + rotating log files): sign-in, sign-in failure, refresh-token reuse detected, device revoked, account deletion, membership change, export, admin actions.
+- Security events go to `audit_events` **and** the logs (Aspire Dashboard + rotating log files): sign-in, sign-in failure, web session revoked, account deletion, membership change, export, admin actions.
 - Alerts:
-  - Refresh-token reuse detected (any)
   - More than 20 failed sign-ins per 10 min
   - AI spend over 50% / 80% of budget
   - 5xx rate over 2% for 5 min
@@ -130,10 +129,10 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
 ## iOS app (MASVS-L1)
 
 - **TestFlight build (ADR-024):** signed in CI with the Apple Distribution certificate and installed only through TestFlight, so Developer Mode stays off. The signing secrets live in a GitHub environment that only `main` and `v*` tags can use, and the upload key has the App Manager role, not Admin. Builds are internal-testing-only.
-- **Face ID app lock** (LocalAuthentication) guards the paired session if someone picks up your unlocked phone.
+- **Face ID app lock** (LocalAuthentication) guards the signed-in session if someone picks up your unlocked phone.
 - **Known gap (QA-1c finding M3):** the app-switcher cover is not built yet, so iOS's snapshot of the app can show the library. The Face ID app lock itself is built and on by default (Face ID at launch and after 5 minutes in the background; content hidden while locked).
 
-- Tokens are stored in the Keychain only (`expo-secure-store`, this-device-only accessibility); nothing sensitive goes in MMKV or AsyncStorage.
+- Auth0's tokens are stored in the Keychain only (the SDK's Credentials Manager, this device only); nothing sensitive goes in MMKV or AsyncStorage.
 - No secrets in the bundle. All third-party calls are proxied by our API.
 - App Transport Security stays at its defaults (HTTPS only). We do **not** pin certificates, because the operational risk outweighs the benefit for this threat model.
 - A blur overlay hides the app-switcher snapshot of the review screen (optional, in settings).
@@ -143,11 +142,12 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
 
 | Topic | Commitment |
 |---|---|
-| Data minimisation | No location, contacts, tracking or ads. The email is stored only if the IdP provides one. |
+| Data minimisation | No location, contacts, tracking or ads. The email is stored only if Google or Apple provides one (Apple can hide it), and only for display. |
+| Auth0 | **Auth0 holds each person's name and email** from Google or Apple, and their sign-in history (logs kept 1 day on the Free plan). No library data, photos or item names ever reach Auth0. |
 | Photos | EXIF/GPS stripped; deleted after 30 days, or right after commit if you choose that |
 | Third parties | No third-party AI; metadata providers receive **only** barcodes/titles, never user identifiers |
 | Export | Full CSV + JSON zip at any time, including your own photo files (`photos/<assetId>.jpg`, listed in `photos.json`) |
-| Deletion | In-app; purge within 30 days; all devices and sessions revoked |
+| Deletion | In-app; purge within 30 days; all sessions revoked; **the Auth0 user is deleted**, so nothing is left at Auth0 |
 | Distribution | TestFlight internal testing only (ADR-024), never the App Store. A `PrivacyInfo.xcprivacy` manifest is included, and `ITSAppUsesNonExemptEncryption` is false (HTTPS only). Apple receives each build, plus any crash reports or feedback a tester chooses to send; no library data. |
 | Attribution | TMDB and IGDB attribution on the About screen, as their terms require |
 

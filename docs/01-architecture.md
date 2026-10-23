@@ -51,7 +51,7 @@ The web app is served **from the same origin as the API**. That lets the browser
 | Runtime | **.NET 10 (LTS)** | Supported to Nov 2028. .NET 11 (Nov 2026) is STS, so skip it. |
 | Web | ASP.NET Core Minimal APIs, route groups per feature | Built-in .NET 10 validation (`AddValidation`), `TypedResults`, SSE results |
 | Data | **PostgreSQL 17**, EF Core 10 + Npgsql | `pg_trgm` for fuzzy title search/matching; `jsonb` for raw provider payloads |
-| Identity | ASP.NET Core Identity + **OpenIddict 7** | Passkeys (new in .NET 10 Identity); Apple/Google through OpenIddict's web providers |
+| Identity | **Auth0** (sign-in) + ASP.NET Core Identity (our users) | Auth0 proves who someone is; `AddOpenIdConnect` (web) and `AddJwtBearer` (iPhone) are Microsoft's handlers. See [07](07-authentication-and-authorization.md). |
 | Background work | `BackgroundService` + a Postgres job table (`FOR UPDATE SKIP LOCKED`) | Durable, multi-replica safe, no extra infrastructure |
 | HTTP resilience | `Microsoft.Extensions.Http.Resilience` | Retry with jitter that honours `Retry-After`, timeouts, circuit breakers, per-provider rate limiters |
 | Caching | `HybridCache` (memory) + `provider_cache` table (durable) | Provider responses are cached to respect quotas |
@@ -77,7 +77,7 @@ src/
   CollectionMaxxing.Domain/           Entities, value objects, domain services. No dependencies.
   CollectionMaxxing.Application/      Use-case handlers, ports (interfaces), DTOs
   CollectionMaxxing.Infrastructure/   EF Core, provider clients, blob, image (re-encode your-photo covers)
-  CollectionMaxxing.Api/              Composition root: endpoints, auth, OpenIddict, login pages, SPA host
+  CollectionMaxxing.Api/              Composition root: endpoints, auth, sign-in endpoints, SPA host
 tests/
   CollectionMaxxing.Domain.Tests/
   CollectionMaxxing.Application.Tests/
