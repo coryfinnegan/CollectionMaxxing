@@ -24,7 +24,7 @@ test.describe('phone width', () => {
     await shot('phone-item');
   });
 
-  test('edit, sign-in, setup and join fit', async ({ page, open }) => {
+  test('edit, sign-in, welcome and join fit', async ({ page, open }) => {
     await open('/library');
     await page.getByRole('button', { name: 'The Matrix, DVD' }).click();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -35,8 +35,8 @@ test.describe('phone width', () => {
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
     expect(await fitsWidth(page)).toBe(true);
 
-    await page.goto('/setup');
-    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
+    await page.goto('/welcome?account=new');
+    await expect(page.getByRole('button', { name: 'Create your library' })).toBeVisible();
     expect(await fitsWidth(page)).toBe(true);
 
     await page.goto('/join/valid-invite');

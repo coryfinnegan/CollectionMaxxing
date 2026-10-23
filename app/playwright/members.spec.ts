@@ -28,13 +28,13 @@ test.describe('members and join', () => {
     // A second, separate browser context opens the invite the dialog showed and joins.
     const other = await browser.newContext({ baseURL });
     const guest = await other.newPage();
-    await guest.goto(joinPath);
+    await guest.goto(`${joinPath}?account=signedout`); // a browser with no session yet
     await expect(guest.getByRole('heading', { name: "Join Cory's library as Editor" })).toBeVisible();
     const token = joinPath.split('/').pop();
     const signIn = await fakeSignIn(guest, '/library');
     await guest.getByRole('button', { name: 'Sign in to join' }).click();
     await expect(guest).toHaveURL(/\/library$/);
-    expect(signIn.urls).toEqual([`/account/login?invite=${token}`]);
+    expect(signIn.urls).toEqual([`/account/login?returnUrl=%2Fjoin%2F${token}`]);
     await other.close();
   });
 
@@ -42,7 +42,7 @@ test.describe('members and join', () => {
     const other = await browser.newContext({ baseURL });
     const guest = await other.newPage();
     await guest.goto('/join/not-a-real-token');
-    await expect(guest.getByText("This invite link isn't valid anymore. Ask for a new one.")).toBeVisible();
+    await expect(guest.getByText("That invite doesn't work. Ask for a new one.")).toBeVisible();
     await other.close();
   });
 
