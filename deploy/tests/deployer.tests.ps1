@@ -249,7 +249,7 @@ Test-Case 'deployer script: with no -Apply it is a dry run; with -Apply -WhatIf 
         $root = New-TestRoot
         try {
             New-FakeMachine @{} | Out-Null
-            & $script -Root $root -ComposeFile 'compose.test.yml' @extra 6>$null
+            & $script -Root $root -ComposeFile (New-TestComposePath $root) @extra 6>$null
             Assert-Equal 0 $LASTEXITCODE
             Assert-Equal 0 (Get-MutatingCalls).Count "(args: $flags)"
             Assert-NoForbiddenCalls
@@ -264,7 +264,7 @@ Test-Case 'deployer script: -Apply deploys through the same seam' {
     $root = New-TestRoot
     try {
         New-FakeMachine @{} | Out-Null
-        & $script -Root $root -ComposeFile 'compose.test.yml' -SmokeDelaySeconds 0 -Apply 6>$null
+        & $script -Root $root -ComposeFile (New-TestComposePath $root) -SmokeDelaySeconds 0 -Apply 6>$null
         Assert-Equal 0 $LASTEXITCODE
         Assert-Equal 1 (Get-Calls 'docker' '*run --rm migrate*').Count
         Assert-Equal $script:Sha2 (Get-TestState -Root $root).current.sha
@@ -331,6 +331,39 @@ Test-Case 'deployer: a portable gh under <Root>/tools/gh/bin goes first on this 
         Assert-Equal 1 @($parts | Where-Object { $_ -eq $bin }).Count 'added only once'
     }
     finally { $env:PATH = $saved; Remove-TestRoot $root }
+}
+
+Test-Case 'deployer: a release that adds a compose variable starts with the compose file at its own commit' {
+    $new = 'services: {api: {environment: [CM_NEW_REQUIRED=${CM_NEW_REQUIRED:?}]}}'
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ ComposeAt = @{ $script:Sha2 = $new; $script:Sha1 = 'services: {}' } } -Inspect { param($root) @(Get-ChildItem -LiteralPath (Join-Path $root 'repo/deploy') -Force).Count }
+    Assert-Equal 'deployed' $r.Result.Outcome
+    foreach ($c in @(@(Get-Calls 'docker' '*run --rm migrate*') + @(Get-Calls 'docker' '*up -d*'))) {
+        Assert-Equal $new $c.ComposeText "compose call used: $($c.Display)"
+        Assert-Match $c.ComposeFile ([regex]::Escape($script:Sha2.Substring(0, 12))) 'the file is the one at the new commit'
+    }
+    Assert-Equal 0 $r.Inspected 'temp compose copies are removed'
+}
+
+Test-Case 'deployer: the automatic rollback after a failed smoke test uses the previous commit compose file' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ UnhealthyTags = @($script:Sha2); ComposeAt = @{ $script:Sha2 = 'new: file'; $script:Sha1 = 'old: file' } }
+    Assert-Equal 'rolled-back' $r.Result.Outcome
+    $ups = Get-Calls 'docker' '*up -d*'
+    Assert-Equal 'new: file' $ups[0].ComposeText
+    Assert-Equal 'old: file' $ups[1].ComposeText 'rollback must not use the new release compose file'
+}
+
+Test-Case 'deployer: -RollbackTo starts the older release with its own compose file' {
+    $r = Invoke-TestDeploy -RollbackTo $script:Sha1 -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00.0000000Z' } } -Machine @{ Sha = $script:Sha1; ComposeAt = @{ $script:Sha2 = 'new: file'; $script:Sha1 = 'old: file' } }
+    Assert-Equal 'manual-rollback' $r.Result.Outcome
+    $ups = Get-Calls 'docker' '*up -d*'
+    Assert-Equal 'old: file' $ups[0].ComposeText
+}
+
+Test-Case 'deployer: a release whose compose file cannot be read at its commit deploys nothing' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ ComposeAt = @{ $script:Sha2 = '' } }
+    Assert-Equal 'refused' $r.Result.Outcome
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
 }
 
 Test-Case 'deployer: without a portable gh the PATH is left alone' {

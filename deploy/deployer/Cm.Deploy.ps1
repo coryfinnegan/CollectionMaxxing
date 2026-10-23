@@ -93,6 +93,31 @@ function Invoke-CmSmokeTest {
     $false
 }
 
+function New-CmCtxAtCommit {
+    <#
+      A copy of Ctx whose compose file is the one AT commit Sha (git show), so a release starts with its own compose file
+      (new variables, volumes, services) instead of the previous release's. It is written next to the clone's compose file
+      as an untracked, hidden file so the relative paths inside it (./recognition, ../evals) resolve the same, and the
+      clone stays clean (the clone check ignores untracked files). Returns $null when the file cannot be read.
+      Remove-CmCtxAtCommit deletes it.
+    #>
+    param($Ctx, [string]$Sha)
+    if ($Sha -cnotmatch '^[0-9a-f]{40}$') { return $null }
+    $show = Invoke-Cm -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'show', "${Sha}:deploy/docker-compose.yml")
+    if ($show.ExitCode -ne 0 -or -not (@($show.Output) -join '').Trim()) { return $null }
+    $dir = Split-Path -Parent $Ctx.ComposeFile
+    $path = Join-Path $dir ".docker-compose.$($Sha.Substring(0, 12)).$PID.yml"
+    try { Set-Content -LiteralPath $path -Value (@($show.Output) -join "`n") -Encoding utf8 } catch { return $null }
+    $copy = $Ctx.PSObject.Copy()
+    $copy.ComposeFile = $path
+    $copy
+}
+
+function Remove-CmCtxAtCommit {
+    param($Ctx, $CommitCtx)
+    if ($CommitCtx -and $CommitCtx.ComposeFile -ne $Ctx.ComposeFile) { Remove-Item -LiteralPath $CommitCtx.ComposeFile -Force -ErrorAction SilentlyContinue }
+}
+
 function Invoke-CmUp {
     param($Ctx, [string]$Tag)
     Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $Tag } -Arguments (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services))
@@ -481,8 +506,16 @@ function Invoke-CmDeployCore {
         }
         Write-CmLog "deploying $($sha.Substring(0, 12)) (attestations verified)"
 
-        # 4. Migrate (expand-only migrations, so the running api stays compatible), then restart the api.
-        $mig = Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $sha } -Arguments (Get-CmComposeArgs $Ctx @('run', '--rm', 'migrate'))
+        # 4. Migrate (expand-only migrations, so the running api stays compatible), then restart the api. Both use the
+        #    compose file AT the new commit; the clone itself is only moved after a good deploy.
+        $newCtx = New-CmCtxAtCommit -Ctx $Ctx -Sha $sha
+        if (-not $newCtx) {
+            $message = "could not read deploy/docker-compose.yml at $($sha.Substring(0, 12)) from the clone at $($Ctx.RepoDir); nothing deployed"
+            Write-CmLog $message 'ERROR'
+            return New-CmResult 'refused' 4 $message
+        }
+        $oldCtx = if ($current) { New-CmCtxAtCommit -Ctx $Ctx -Sha "$($current['sha'])" } else { $null }
+        $mig = Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $sha } -Arguments (Get-CmComposeArgs $newCtx @('run', '--rm', 'migrate'))
         if ($mig.ExitCode -ne 0) {
             $message = "migration failed for $($sha.Substring(0, 12)); the running api was not touched"
             Write-CmLog $message 'ERROR'
@@ -490,7 +523,7 @@ function Invoke-CmDeployCore {
             Write-CmState -Path $Ctx.StateFile -State $state
             return New-CmResult 'migrate-failed' 1 $message
         }
-        $up = Invoke-CmUp -Ctx $Ctx -Tag $sha
+        $up = Invoke-CmUp -Ctx $newCtx -Tag $sha
         $healthy = ($up.ExitCode -eq 0) -and (Invoke-CmSmokeTest -Ctx $Ctx)
 
         if ($healthy) {
@@ -514,7 +547,8 @@ function Invoke-CmDeployCore {
         Write-CmState -Path $Ctx.StateFile -State $state
         if ($current) {
             Write-CmLog "smoke test failed; pinning previous good $("$($current['sha'])".Substring(0, 12))" 'ERROR'
-            Invoke-CmUp -Ctx $Ctx -Tag $current['sha'] | Out-Null
+            # The previous release's own compose file; if it cannot be read, the clone's (still the previous release's).
+            Invoke-CmUp -Ctx $(if ($oldCtx) { $oldCtx } else { $Ctx }) -Tag $current['sha'] | Out-Null
             if (Invoke-CmSmokeTest -Ctx $Ctx) { Write-CmLog 'rolled back; the previous version is healthy' 'WARN'; $tail = 'the previous version is healthy again' }
             else { Write-CmLog 'rolled back but the previous version is not healthy either; check the stack' 'ERROR'; $tail = 'the previous version is NOT healthy either; check the stack' }
             return New-CmResult 'rolled-back' 1 "the smoke test failed for $($sha.Substring(0, 12)); rolled back to $("$($current['sha'])".Substring(0, 12)); $tail"
@@ -524,6 +558,8 @@ function Invoke-CmDeployCore {
         New-CmResult 'failed' 1 $message
     }
     finally {
+        Remove-CmCtxAtCommit -Ctx $Ctx -CommitCtx $newCtx
+        Remove-CmCtxAtCommit -Ctx $Ctx -CommitCtx $oldCtx
         Exit-CmLock $lock
     }
 }
@@ -578,10 +614,15 @@ function Invoke-CmRollbackCore {
         if (-not $verified.Ok) { return Refuse "rollback refused: $($verified.Reason)" }
         Write-CmLog "rolling back from $("$($current['sha'])".Substring(0, 12)) to $($Target.Substring(0, 12)) (attestations verified)" 'WARN'
 
-        $up = Invoke-CmUp -Ctx $Ctx -Tag $Target
+        # The older commit's own compose file (the clone is at the newer one); the running version's file to go back.
+        $targetCtx = New-CmCtxAtCommit -Ctx $Ctx -Sha $Target
+        if (-not $targetCtx) { return Refuse "rollback refused: could not read deploy/docker-compose.yml at $($Target.Substring(0, 12)) from the clone at $($Ctx.RepoDir)" }
+        $fromCtx = New-CmCtxAtCommit -Ctx $Ctx -Sha "$($current['sha'])"
+
+        $up = Invoke-CmUp -Ctx $targetCtx -Tag $Target
         $healthy = ($up.ExitCode -eq 0) -and (Invoke-CmSmokeTest -Ctx $Ctx)
         if (-not $healthy) {
-            Invoke-CmUp -Ctx $Ctx -Tag $current['sha'] | Out-Null
+            Invoke-CmUp -Ctx $(if ($fromCtx) { $fromCtx } else { $Ctx }) -Tag $current['sha'] | Out-Null
             $back = if (Invoke-CmSmokeTest -Ctx $Ctx) { "$("$($current['sha'])".Substring(0, 12)) is running again" } else { 'the previous version is NOT healthy either; check the stack' }
             $message = "the older version $($Target.Substring(0, 12)) did not pass the smoke test; $back"
             Write-CmLog $message 'ERROR'
@@ -602,6 +643,8 @@ function Invoke-CmRollbackCore {
         New-CmResult 'manual-rollback' 0
     }
     finally {
+        Remove-CmCtxAtCommit -Ctx $Ctx -CommitCtx $targetCtx
+        Remove-CmCtxAtCommit -Ctx $Ctx -CommitCtx $fromCtx
         Exit-CmLock $lock
     }
 }
