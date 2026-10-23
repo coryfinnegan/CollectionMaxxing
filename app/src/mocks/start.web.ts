@@ -12,6 +12,11 @@ export async function startMocking(): Promise<void> {
 async function installTestHooks(worker: ReturnType<typeof setupWorker>): Promise<void> {
   const { http, HttpResponse } = await import('msw');
   const { itemsState } = await import('./items');
+  const { mockAccount } = await import('./data');
+  // `?account=new` opens as a brand-new account with no libraries; `?account=signedout` as a browser with no session.
+  const account = new URLSearchParams(window.location.search).get('account');
+  if (account === 'new') mockAccount.libraries = [];
+  if (account === 'signedout') mockAccount.signedIn = false;
   (window as unknown as { __cm: unknown }).__cm = {
     /** Makes every API call answer 401, like a session that was revoked or timed out. */
     expireSession: () =>

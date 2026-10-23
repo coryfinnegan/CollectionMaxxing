@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { logout } from '@/features/auth/api';
 import { navigateTo } from '@/features/auth/navigation';
+import { LeaveLibraryCard } from '@/features/onboarding/LeaveLibraryCard';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, ListRow, Screen, Text } from '@/ui';
@@ -140,6 +141,7 @@ export function SettingsScreen() {
       {isWeb() ? <Card><GetIphoneAppRow /></Card> : null}
       <Card><ListRow title="Devices and browsers" subtitle="Your browsers and iPhones" onPress={() => router.push('/me/devices')} trailing={<Text tone="muted">›</Text>} /></Card>
       {isWeb() ? <Card><ListRow title="Sign-in methods" subtitle="Google and Apple accounts" onPress={() => router.push('/me/sign-in-methods')} trailing={<Text tone="muted">›</Text>} /></Card> : null}
+      {isWeb() ? <LeaveLibraryCard /> : null}
       <SecuritySection />
       <Card><ListRow title="About and privacy" onPress={() => router.push('/about')} trailing={<Text tone="muted">›</Text>} /></Card>
     </Screen>

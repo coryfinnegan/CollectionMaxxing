@@ -84,7 +84,7 @@ export const handlers = [
     };
     mockMembers.invites.push(invite);
     const link = `https://pc.tailnet.ts.net/join/${MOCK_INVITE_TOKEN}`;
-    return HttpResponse.json({ invite, link, qrPayload: link }, { status: 201 });
+    return HttpResponse.json({ invite, link, qrPayload: link, code: 'ABCD-EFGH-JK' }, { status: 201 });
   }),
 
   http.delete(`${base}/invites/:id`, ({ params }) => {

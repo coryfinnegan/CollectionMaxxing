@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import type { CreatedInviteDto } from '@/api/generated/models';
 import { getListInvitesQueryKey, useCreateInvite } from '@/api/generated/invites/invites';
+import type { WithInviteCode } from '@/features/onboarding/api';
 import { getQrRenderer } from '@/features/auth/services';
 import { friendlyError } from '@/lib/problem';
 import { useDialogBehavior } from '@/lib/a11y/useDialogBehavior';
@@ -64,6 +65,7 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
 
   if (created) {
     const renderQr = getQrRenderer();
+    const code = (created as CreatedInviteDto & WithInviteCode).code;
     return (
       <View {...dialog}>
       <Card>
@@ -77,6 +79,9 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
           label="Copy link"
           onPress={async () => setCopied((await copyToClipboard(created.link)) ? 'yes' : 'no')}
         />
+        {code ? (
+          <Text selectable accessibilityLabel="Invite code">{`Or tell them this code: ${code}`}</Text>
+        ) : null}
         {copied === 'yes' ? <Text accessibilityRole="alert">Link copied.</Text> : null}
         {copied === 'no' ? <Text accessibilityRole="alert">{"Couldn't copy. Select the link above and copy it by hand."}</Text> : null}
         <Text tone="muted">

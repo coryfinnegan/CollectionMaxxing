@@ -1,7 +1,5 @@
 // Reference slice hooks: the generated TanStack Query hooks plus optimistic updates for add, rename and delete.
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import { useGetMe } from '@/api/generated/account/account';
 import {
   getListLocationsQueryKey,
   useCreateLocation,
@@ -10,22 +8,11 @@ import {
   useUpdateLocation,
 } from '@/api/generated/locations/locations';
 import type { LocationDto } from '@/api/generated/models';
-import { useLibraryStore } from '@/state/library';
 
 type Cached = { data: { items: LocationDto[]; nextCursor?: string | null }; status: number; headers: Headers };
 
-/** The library the app is showing: the stored choice, else the first membership from GET /me. */
-export function useActiveLibraryId(): { libraryId: string | undefined; isLoading: boolean } {
-  const me = useGetMe();
-  const stored = useLibraryStore((s) => s.activeLibraryId);
-  const setStored = useLibraryStore((s) => s.setActiveLibraryId);
-  const memberships = me.data?.status === 200 ? me.data.data.memberships : [];
-  const first = memberships[0]?.libraryId;
-  useEffect(() => {
-    if (!stored && first) setStored(first);
-  }, [stored, first, setStored]);
-  return { libraryId: stored ?? first, isLoading: me.isLoading };
-}
+// Moved to the onboarding feature (it now reads GET /libraries, not GET /me); re-exported so existing imports keep working.
+export { useActiveLibraryId } from '@/features/onboarding/useLibraries';
 
 export function useLocationsList(libraryId: string | undefined) {
   const query = useListLocations(libraryId ?? '', { query: { enabled: !!libraryId } });

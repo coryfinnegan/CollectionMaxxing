@@ -1,11 +1,20 @@
 // In-memory data behind the MSW handlers, used in mock mode and in tests.
-import type { LocationDto, MeResponse } from '@/api/generated/models';
+import type { LibrarySummaryDto, LocationDto, MeResponse } from '@/api/generated/models';
 
 export const MOCK_LIBRARY_ID = '11111111-1111-4111-8111-111111111111';
 
+const seedLibraries = (): LibrarySummaryDto[] => [{ id: MOCK_LIBRARY_ID, name: "Cory's library", role: 'owner' }];
+
+/** The signed-in mock account: the libraries it belongs to (empty for a brand-new account) and whether a session exists at all. */
+export const mockAccount: { libraries: LibrarySummaryDto[]; signedIn: boolean; nextLibrary: number } = {
+  libraries: seedLibraries(),
+  signedIn: true,
+  nextLibrary: 100,
+};
+
 export const mockMe = (): MeResponse => ({
   id: '22222222-2222-4222-8222-222222222222',
-  memberships: [{ libraryId: MOCK_LIBRARY_ID, role: 'owner' }],
+  memberships: mockAccount.libraries.map((l) => ({ libraryId: l.id, role: l.role })),
 });
 
 const seed = (): LocationDto[] => [
@@ -20,6 +29,9 @@ export const mockData: { locations: LocationDto[]; nextId: number } = { location
 export const resetMockData = (): void => {
   mockData.locations = seed();
   mockData.nextId = 100;
+  mockAccount.libraries = seedLibraries();
+  mockAccount.signedIn = true;
+  mockAccount.nextLibrary = 100;
 };
 
 export const newMockId = (): string => {
