@@ -8,6 +8,6 @@
     "app_secret": "{{APPLE_PRIVATE_KEY}}",
     "email": true,
     "name": true,
-    "scope": "name email"
+    "scope": "email name"
   }
 }
