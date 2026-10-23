@@ -8,10 +8,9 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
 {
     public static TheoryData<string> Endpoints =>
     [
-        // "DELETE /api/v1/me" left this list in LIB-2c: deleting an account needs a passkey assertion made for the request itself, which is stricter
-        // than "recent" (a sign-in 4 minutes ago no longer counts). See Deletion/DeleteAccountTests.
+        // AUTH-1 (#228): pairing is gone; deleting an account and removing a sign-in method need a recent sign-in too, and are tested in
+        // Deletion/DeleteAccountTests and Auth/Auth0SignInTests.
         "POST /api/v1/libraries/{lib}/invites",
-        "POST /api/v1/me/devices/pair",
     ];
 
     private static Task<HttpResponseMessage> CallAsync(WebClient browser, WebClient.SignedIn owner, string endpoint)
@@ -31,7 +30,7 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
 
         var response = await CallAsync(browser, owner, endpoint);
 
-        // Past the re-auth gate: ID-2 built the pairing (201) and ID-3a the invite (201).
+        // Past the re-auth gate: ID-3a built the invite (201).
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
     }
 
@@ -58,14 +57,14 @@ public class ReauthTests(ApiFixture api) : AuthTest(api)
         App.Time.Advance(TimeSpan.FromMinutes(6));
         (await CallAsync(browser, owner, endpoint)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
 
-        (await browser.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await browser.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
         var response = await CallAsync(browser, owner, endpoint);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created);
     }
 
     [Fact]
-    public async Task Ordinary_endpoints_do_not_ask_for_a_recent_passkey()
+    public async Task Ordinary_endpoints_do_not_ask_for_a_recent_sign_in()
     {
         var (browser, _) = await SetUpOwnerAsync();
         App.Time.Advance(TimeSpan.FromHours(2));

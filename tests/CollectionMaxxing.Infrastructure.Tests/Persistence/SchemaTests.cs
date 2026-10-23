@@ -8,13 +8,12 @@ namespace CollectionMaxxing.Infrastructure.Tests.Persistence;
 
 public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
 {
-    /// <summary>Every table of the v1 schema (docs/03), including those ASP.NET Core Identity and OpenIddict bring along.</summary>
+    /// <summary>Every table of the v1 schema (docs/03), including those ASP.NET Core Identity brings along. No OpenIddict, passkey or pairing table is left (AUTH-1).</summary>
     private static readonly string[] ExpectedTables =
     [
         // Identity and tenancy
-        "users", "roles", "user_roles", "user_claims", "role_claims", "user_logins", "user_tokens", "user_passkeys",
-        "openiddict_applications", "openiddict_authorizations", "openiddict_scopes", "openiddict_tokens",
-        "device_pairings", "web_sessions", "setup_codes", "libraries", "library_members", "library_invites",
+        "users", "roles", "user_roles", "user_claims", "role_claims", "user_logins", "user_tokens",
+        "web_sessions", "setup_codes", "libraries", "library_members", "library_invites",
 
         // Catalogue
         "works", "releases", "release_identifiers", "assets", "platforms", "provider_cache", "provider_quota",
@@ -98,12 +97,23 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
-    public async Task Passkeys_are_stored_for_users()
+    public async Task Auth0_identities_are_linked_to_users_one_subject_at_most_once()
     {
-        var columns = await QueryStringsAsync("select column_name from information_schema.columns where table_name = 'user_passkeys'");
+        var columns = await QueryStringsAsync("select column_name from information_schema.columns where table_name = 'user_logins'");
+        var indexes = await QueryStringsAsync("select indexdef from pg_indexes where tablename = 'user_logins'");
 
-        columns.ShouldContain("credential_id");
-        columns.ShouldContain("user_id");
+        columns.ShouldBe(["created_at", "email", "id", "last_used_at", "provider", "subject", "user_id"], ignoreOrder: true);
+        indexes.ShouldContain(d => d.StartsWith("CREATE UNIQUE INDEX", StringComparison.Ordinal) && d.EndsWith("(subject)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task No_OpenIddict_passkey_or_pairing_table_is_left()
+    {
+        var tables = await QueryStringsAsync("select table_name from information_schema.tables where table_schema = 'public'");
+
+        tables.ShouldNotContain(t => t.StartsWith("openiddict_", StringComparison.Ordinal));
+        tables.ShouldNotContain("user_passkeys");
+        tables.ShouldNotContain("device_pairings");
     }
 
     [Fact]

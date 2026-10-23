@@ -150,61 +150,20 @@ public interface IInviteAcceptance
 {
     /// <summary>
     /// In one transaction: spends the invite (only if it is still unused, unrevoked and in date, decided in a single statement so two
-    /// people finishing together can't both win), creates the user with their passkey, and makes them a member with the invited role.
-    /// Fails with <see cref="InviteErrors.Invalid"/> and changes nothing if the invite was spent, revoked or expired meanwhile.
+    /// people finishing together can't both win), creates the user linked to <paramref name="identity"/>, and makes them a member with the
+    /// invited role. Fails with <see cref="InviteErrors.Invalid"/> (or <c>AccountErrors.AlreadyLinked</c> when the identity was linked
+    /// meanwhile) and changes nothing.
     /// </summary>
-    Task<Result<SignedInDto>> AcceptAsync(Guid inviteId, Guid userId, string displayName, PasskeyCredential passkey, CancellationToken cancellationToken);
+    Task<Result<LinkedLogin>> AcceptAsync(Guid inviteId, Guid userId, string displayName, ExternalIdentity identity, CancellationToken cancellationToken);
 }
 
-/// <summary>Use case: decide who a passkey about to be made for an invite is for, before the browser is asked to make it.</summary>
+/// <summary>Finding an invite that can still be used. Joining itself happens when the person comes back from Auth0 (<c>CompleteSignIn</c>).</summary>
 public static class PlanInvite
 {
-    public sealed class Handler(IAppDbContext db, IIdGenerator ids, TimeProvider time)
-    {
-        /// <param name="token">The token from the link.</param>
-        /// <param name="displayName">The name the person chose, or nothing: then the name the owner gave the invite is used.</param>
-        /// <param name="cancellationToken">Cancels the request.</param>
-        public async Task<Result<CeremonyPlan>> HandleAsync(string? token, string? displayName, CancellationToken cancellationToken)
-        {
-            var invite = await FindUsableAsync(db, token, time.GetUtcNow(), cancellationToken);
-            if (invite is null)
-            {
-                return InviteErrors.Invalid;
-            }
-
-            // A bad name can't be an error: it would tell someone guessing tokens that this one is real. Tidy it instead.
-            var chosen = displayName?.Trim();
-            var name = string.IsNullOrEmpty(chosen) ? invite.Name : chosen;
-            name = name.Length > MaxDisplayNameLength ? name[..MaxDisplayNameLength] : name;
-            return new CeremonyPlan(CeremonyPurpose.Invite, ids.NewId(), name, invite.Id);
-        }
-
-        private const int MaxDisplayNameLength = 100;
-    }
-
     internal static async Task<LibraryInvite?> FindUsableAsync(IAppDbContext db, string? token, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var hash = InviteSecrets.Hash(token ?? string.Empty);
         var invite = await db.LibraryInvites.IgnoreQueryFilters().AsNoTracking().FirstOrDefaultAsync(i => i.TokenHash == hash, cancellationToken);
         return invite is not null && GetInvitePreview.IsUsable(invite, now) ? invite : null;
-    }
-}
-
-/// <summary>Use case: the browser made the passkey for an invite. Join the library.</summary>
-public static class AcceptInvite
-{
-    public sealed class Handler(IAppDbContext db, IInviteAcceptance acceptance, TimeProvider time)
-    {
-        public async Task<Result<SignedInDto>> HandleAsync(string? token, CeremonyPlan plan, PasskeyCredential passkey, CancellationToken cancellationToken)
-        {
-            // The token in the URL must be the one the ceremony began with: a ceremony can't be finished with some other invite.
-            var invite = await PlanInvite.FindUsableAsync(db, token, time.GetUtcNow(), cancellationToken);
-            if (invite is null || plan.Purpose != CeremonyPurpose.Invite || plan.CodeId != invite.Id)
-            {
-                return InviteErrors.Invalid;
-            }
-
-            return await acceptance.AcceptAsync(invite.Id, plan.UserId, plan.DisplayName, passkey, cancellationToken);
-        }
     }
 }

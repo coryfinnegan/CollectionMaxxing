@@ -20,7 +20,7 @@ public static class AccountAuditActions
 }
 
 /// <summary>
-/// The accounts side of the purge, on ASP.NET Core Identity and OpenIddict (which Application never sees). Implemented by
+/// The accounts side of the purge, on ASP.NET Core Identity (which Application never sees). Implemented by
 /// Infrastructure. Every method can be repeated: a purge that stopped halfway runs them again.
 /// </summary>
 public interface IDeletedAccounts
@@ -35,7 +35,7 @@ public interface IDeletedAccounts
     Task ScrubAuditTrailAsync(Guid userId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Erases the person: passkeys, roles, claims, paired devices and every token, remembered requests, email and name. The user row stays
+    /// Erases the person: linked identities, roles, claims, web sessions, remembered requests, email and name. The user row stays
     /// as a tombstone called "Removed user" because their items in other people's libraries still point at it (the "Added by" line).
     /// Also empties the payload of the purge job, so the queue no longer says whose account it was.
     /// </summary>
@@ -82,7 +82,7 @@ public interface IPurgeBacklog
 {
     /// <summary>
     /// Users deleted on or before <paramref name="deletedBefore"/> that still hold something a purge removes: a place in a library (a library
-    /// is kept while one of its image files is stuck), a passkey, an export record (kept while its file is stuck), or a name other than the tombstone's. A purged user holds none of these, so they are not listed.
+    /// is kept while one of its image files is stuck), a linked identity, an export record (kept while its file is stuck), or a name other than the tombstone's. A purged user holds none of these, so they are not listed.
     /// </summary>
     Task<IReadOnlyList<Guid>> UsersAwaitingPurgeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken);
 }

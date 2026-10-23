@@ -19,26 +19,21 @@ internal sealed class AppUserConfiguration : IEntityTypeConfiguration<AppUser>
     }
 }
 
-internal sealed class DevicePairingConfiguration : IEntityTypeConfiguration<DevicePairing>
+internal sealed class UserLoginConfiguration : IEntityTypeConfiguration<UserLogin>
 {
-    public void Configure(EntityTypeBuilder<DevicePairing> builder)
+    public void Configure(EntityTypeBuilder<UserLogin> builder)
     {
-        builder.ToTable("device_pairings", t =>
-        {
-            t.HasCheckConstraint("ck_device_pairings_attempts", "attempts >= 0");
-            t.HasCheckConstraint("ck_device_pairings_expiry", "expires_at > created_at");
-        });
-        builder.HasKey(p => p.Id);
-        builder.Property(p => p.Id).ValueGeneratedNever();
-        builder.Property(p => p.TokenHash).HasMaxLength(200).IsRequired();
-        builder.Property(p => p.CodeHash).HasMaxLength(200).IsRequired();
-        builder.Property(p => p.DeviceName).HasMaxLength(200);
+        builder.ToTable("user_logins", t => t.HasCheckConstraint("ck_user_logins_provider", "provider = 'auth0'"));
+        builder.HasKey(l => l.Id);
+        builder.Property(l => l.Id).ValueGeneratedNever();
+        builder.Property(l => l.Provider).HasMaxLength(32).IsRequired();
+        builder.Property(l => l.Subject).HasMaxLength(UserLogin.MaxSubjectLength).IsRequired();
+        builder.Property(l => l.Email).HasMaxLength(UserLogin.MaxEmailLength);
 
-        builder.HasOne<AppUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
-
-        // Redeeming looks the pairing up by hash. A hash identifies exactly one pairing.
-        builder.HasIndex(p => p.TokenHash).IsUnique();
-        builder.HasIndex(p => new { p.UserId, p.ExpiresAt });
+        // An identity belongs to one user at most: the unique index is what makes "link" and "join" safe when two finish at once.
+        builder.HasOne<AppUser>().WithMany().HasForeignKey(l => l.UserId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(l => l.Subject).IsUnique();
+        builder.HasIndex(l => l.UserId);
     }
 }
 

@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace CollectionMaxxing.Api.Tests.Auth;
 
 // LOCKED acceptance tests of ID-1 (issue #14), setup half. Do not edit or weaken: add new tests instead.
+// AUTH-1 (#228): the passkey made after the code is now an Auth0 sign-in; the name comes from the Auth0 profile.
 public class SetupTests(ApiFixture api) : AuthTest(api)
 {
     [Fact]
@@ -22,9 +23,9 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
         owner.LibraryId.ShouldNotBeNull();
         (await CountOwnersAsync()).ShouldBe(1);
         var later = App.NewBrowser();
-        (await later.PostAsync("/setup", new { code, displayName = "Someone else" })).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await later.PostAsync("/setup", new { code })).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await later.GetAsync("/setup")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        (await later.PostAsync("/setup", new { code = "anything", displayName = "x" })).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await later.PostAsync("/setup", new { code = "anything" })).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await CountOwnersAsync()).ShouldBe(1);
 
         // And no new setup code can be made once an owner exists.
@@ -53,8 +54,8 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
         var start = await browser.StartSetupAsync("AAAA-AAAA-AAAA-AAAA");
         await ShouldBeProblemAsync(start, HttpStatusCode.BadRequest);
 
-        // Even an attempt to finish the ceremony anyway creates nothing.
-        (await browser.RegisterUnpromptedAsync()).IsSuccessStatusCode.ShouldBeFalse();
+        // Even an attempt to finish the sign-in anyway creates nothing.
+        (await browser.SignInAsync("/account/login?intent=setup")).Headers.Location?.ToString().ShouldBe("/account/not-linked");
         (await CountOwnersAsync()).ShouldBe(0);
         (await CountUsersAsync()).ShouldBe(0);
         browser.HasSessionCookie.ShouldBeFalse();
@@ -88,7 +89,7 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
     }
 
     [Fact]
-    public async Task A_setup_code_that_expires_while_the_passkey_is_being_made_never_creates_an_owner()
+    public async Task A_setup_code_that_expires_while_the_person_is_at_Auth0_never_creates_an_owner()
     {
         var code = await App.IssueCodeAsync(SetupCodePurpose.Setup);
         var browser = App.NewBrowser();
@@ -97,9 +98,10 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
         options.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         App.Time.Advance(TimeSpan.FromHours(1) + TimeSpan.FromSeconds(1));
-        var register = await browser.RegisterAsync(options);
+        var register = await browser.ContinueAsync(options);
 
-        register.IsSuccessStatusCode.ShouldBeFalse();
+        register.Headers.Location?.ToString().ShouldBeOneOf("/login?error=signin_failed", "/account/not-linked"); // the code, or the intent it sealed, has run out
+        browser.HasSessionCookie.ShouldBeFalse();
         (await CountOwnersAsync()).ShouldBe(0);
         (await CountUsersAsync()).ShouldBe(0);
     }
@@ -110,14 +112,14 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
         var code = await App.IssueCodeAsync(SetupCodePurpose.Setup);
         var slow = App.NewBrowser();
         var fast = App.NewBrowser();
-        var slowOptions = await slow.StartSetupAsync(code, "Slow");
-        var fastOptions = await fast.StartSetupAsync(code, "Fast");
+        var slowOptions = await slow.StartSetupAsync(code);
+        var fastOptions = await fast.StartSetupAsync(code);
 
-        var fastResult = await fast.RegisterAsync(fastOptions);
-        fastResult.StatusCode.ShouldBe(HttpStatusCode.Created);
-        var slowResult = await slow.RegisterAsync(slowOptions);
+        var fastResult = await fast.ContinueAsync(fastOptions);
+        fastResult.Headers.Location?.ToString().ShouldBe("/");
+        var slowResult = await slow.ContinueAsync(slowOptions);
 
-        slowResult.IsSuccessStatusCode.ShouldBeFalse();
+        slowResult.Headers.Location?.ToString().ShouldBe("/login?error=setup_closed");
         slow.HasSessionCookie.ShouldBeFalse();
         (await CountOwnersAsync()).ShouldBe(1);
         (await CountUsersAsync()).ShouldBe(1);
@@ -127,11 +129,15 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
     public async Task Setup_creates_the_owner_a_personal_library_and_uses_up_the_code()
     {
         var code = await App.IssueCodeAsync(SetupCodePurpose.Setup);
-        var browser = App.NewBrowser();
+        var browser = App.NewBrowser(TestIdentity.Google("Cory"));
 
-        var owner = await browser.SetUpOwnerAsync(code, "Cory");
+        var owner = await browser.SetUpOwnerAsync(code);
 
-        owner.DisplayName.ShouldBe("Cory");
+        await using (var users = Db.CreateContext())
+        {
+            (await users.Users.SingleAsync()).DisplayName.ShouldBe("Cory");
+        }
+
         var me = await ReadAsync(await browser.GetAsync("/api/v1/me"));
         me.GetProperty("id").GetGuid().ShouldBe(owner.UserId);
         var membership = me.GetProperty("memberships").EnumerateArray().Single();
@@ -154,13 +160,14 @@ public class SetupTests(ApiFixture api) : AuthTest(api)
     }
 
     [Fact]
-    public async Task Setup_needs_a_display_name()
+    public async Task Setup_without_a_name_from_Auth0_calls_the_owner_Owner()
     {
         var code = await App.IssueCodeAsync(SetupCodePurpose.Setup);
-        var browser = App.NewBrowser();
+        var browser = App.NewBrowser(new TestIdentity("apple|" + Guid.NewGuid().ToString("N")));
 
-        var start = await browser.StartSetupAsync(code, "   ");
+        await browser.SetUpOwnerAsync(code);
 
-        await ShouldBeProblemAsync(start, HttpStatusCode.BadRequest);
+        await using var context = Db.CreateContext();
+        (await context.Users.SingleAsync()).DisplayName.ShouldBe("Owner");
     }
 }

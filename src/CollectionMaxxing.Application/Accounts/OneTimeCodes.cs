@@ -67,15 +67,12 @@ public static class AccountErrors
     public static readonly DomainError NoOwner =
         new(ErrorKind.NotFound, "recovery.no_owner", "There is no account to recover yet.");
 
-    public static readonly DomainError DisplayNameRequired =
-        new(ErrorKind.Validation, "display_name.required", "Enter your name.", "displayName");
+    public static readonly DomainError AlreadyLinked =
+        new(ErrorKind.Conflict, "account.already_linked", "That sign-in already belongs to an account.");
 
-    public static readonly DomainError DisplayNameTooLong =
-        new(ErrorKind.Validation, "display_name.too_long", "That name is too long.", "displayName");
+    public static readonly DomainError SignInMethodNotFound =
+        new(ErrorKind.NotFound, "account.sign_in_method_not_found", "That sign-in method doesn't exist.");
 
-    public static readonly DomainError PasskeyNotFound =
-        new(ErrorKind.NotFound, "passkey.not_found", "That passkey doesn't exist.");
-
-    public static readonly DomainError LastPasskey =
-        new(ErrorKind.Conflict, "passkey.last", "That is your only passkey. Add another before removing it, or you'd be locked out.");
+    public static readonly DomainError LastSignInMethod =
+        new(ErrorKind.Conflict, "account.last_sign_in_method", "That is your only way to sign in. Add another before removing it, or you'd be locked out.");
 }

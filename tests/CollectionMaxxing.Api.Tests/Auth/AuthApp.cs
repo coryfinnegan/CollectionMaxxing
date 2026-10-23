@@ -14,8 +14,9 @@ using Microsoft.Extensions.Time.Testing;
 namespace CollectionMaxxing.Api.Tests.Auth;
 
 /// <summary>
-/// The real API with REAL sign-in (passkeys, the <c>__Host-cm</c> cookie), unlike <c>TestApiFactory</c> which signs in from a
-/// header. It runs on a clock the test controls and records every log line, so tests can prove what never gets logged.
+/// The real API with REAL sign-in (a fake Auth0 on loopback, the <c>__Host-cm</c> cookie, Auth0 bearer tokens), unlike
+/// <c>TestApiFactory</c> which signs in from a header. It runs on a clock the test controls and records every log line, so tests can
+/// prove what never gets logged.
 /// </summary>
 public sealed class AuthApp : IAsyncDisposable
 {
@@ -27,6 +28,7 @@ public sealed class AuthApp : IAsyncDisposable
         Time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var time = Time;
         var logs = Logs;
+        var auth0 = Auth0;
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
@@ -35,13 +37,17 @@ public sealed class AuthApp : IAsyncDisposable
                 var values = new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:collectionmaxxing"] = connectionString,
-                    ["Auth:RelyingPartyId"] = "localhost",
                     ["Auth:SecretsPath"] = _secretsPath,
                     ["Auth:Setup:IssueOnStartup"] = "false",
                     ["Auth:RateLimit:PermitLimit"] = "10000",
                     ["Security:Limits:Export:Permits"] = "100000",
                     ["Security:Limits:AuthHourly:Permits"] = "100000",
                 };
+                foreach (var (key, value) in FakeAuth0.Settings)
+                {
+                    values[key] = value;
+                }
+
                 foreach (var (key, value) in settings ?? [])
                 {
                     values[key] = value;
@@ -65,6 +71,7 @@ public sealed class AuthApp : IAsyncDisposable
                     services.Remove(worker);
                 }
 
+                auth0.Configure(services);
                 configure?.Invoke(services);
             });
         });
@@ -78,8 +85,23 @@ public sealed class AuthApp : IAsyncDisposable
 
     public IServiceProvider Services => _factory.Services;
 
-    /// <summary>A browser: its own cookie jar and its own passkey.</summary>
-    public WebClient NewBrowser() => new(_factory.CreateClient());
+    /// <summary>The fake Auth0 tenant this app trusts.</summary>
+    public FakeAuth0 Auth0 { get; } = new();
+
+    /// <summary>A browser: its own cookie jar, and its own Google identity unless one is given.</summary>
+    public WebClient NewBrowser(TestIdentity? identity = null) =>
+        new(_factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }), Auth0, Time) { Identity = identity ?? TestIdentity.Google() };
+
+    /// <summary>A phone signed in to Auth0 as <paramref name="subject"/>: every request carries its access token.</summary>
+    public HttpClient NewPhone(string subject) => NewPhoneWithToken(Auth0.AccessToken(subject));
+
+    /// <summary>A client that sends <paramref name="accessToken"/> as its bearer token.</summary>
+    public HttpClient NewPhoneWithToken(string accessToken)
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        return client;
+    }
 
     /// <summary>Issues a one-time code the way the server's start-up and its command line do.</summary>
     public async Task<string> IssueCodeAsync(SetupCodePurpose purpose)
@@ -92,6 +114,7 @@ public sealed class AuthApp : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _factory.DisposeAsync();
+        Auth0.Dispose();
         if (Directory.Exists(_secretsPath))
         {
             Directory.Delete(_secretsPath, recursive: true);

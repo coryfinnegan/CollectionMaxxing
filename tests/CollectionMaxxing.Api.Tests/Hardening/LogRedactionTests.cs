@@ -47,14 +47,7 @@ public class LogRedactionTests(ApiFixture api) : ApiTest(api)
         {
             (await client.GetAsync($"/api/v1/me/export/{Guid.NewGuid()}/download?token={Token}&email={Email}", TestContext.Current.CancellationToken)).Dispose();
             (await client.GetAsync($"/api/v1/invites/{Token}?code={Code}", TestContext.Current.CancellationToken)).Dispose();
-            using var form = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["grant_type"] = "authorization_code",
-                ["code"] = Code,
-                ["refresh_token"] = Token,
-                ["username"] = Email,
-            });
-            (await client.PostAsync("/connect/token", form, TestContext.Current.CancellationToken)).Dispose();
+            (await client.GetAsync($"/signin-oidc?code={Code}&state={Token}&email={Email}", TestContext.Current.CancellationToken)).Dispose();
             using var upload = new MultipartFormDataContent { { new ByteArrayContent(Encoding.ASCII.GetBytes(Photo)), "file", $"{Email}.jpg" } };
             (await client.PostAsync($"/api/v1/scan-sessions/{session}/candidates/{Guid.NewGuid()}/photo", upload, TestContext.Current.CancellationToken)).Dispose();
         }

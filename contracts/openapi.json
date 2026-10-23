@@ -97,22 +97,6 @@
           "Account"
         ],
         "operationId": "DeleteMe",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "oneOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/components/schemas/DeleteAccountRequest"
-                  }
-                ]
-              }
-            }
-          }
-        },
         "responses": {
           "204": {
             "description": "No Content"
@@ -140,19 +124,19 @@
         }
       }
     },
-    "/api/v1/me/sessions": {
+    "/api/v1/me/sign-in-methods": {
       "get": {
         "tags": [
           "Account"
         ],
-        "operationId": "ListSessions",
+        "operationId": "ListSignInMethods",
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PageOfSessionDto"
+                  "$ref": "#/components/schemas/PageOfSignInMethodDto"
                 }
               }
             }
@@ -170,12 +154,12 @@
         }
       }
     },
-    "/api/v1/me/sessions/{id}": {
+    "/api/v1/me/sign-in-methods/{id}": {
       "delete": {
         "tags": [
           "Account"
         ],
-        "operationId": "RevokeSession",
+        "operationId": "RemoveSignInMethod",
         "parameters": [
           {
             "name": "id",
@@ -203,6 +187,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -298,36 +292,6 @@
           },
           "404": {
             "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/me/devices/pair": {
-      "post": {
-        "tags": [
-          "Account"
-        ],
-        "operationId": "PairDevice",
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PairDeviceDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -493,7 +457,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PasskeyOptionsDto"
+                  "$ref": "#/components/schemas/NextStepDto"
                 }
               }
             }
@@ -520,66 +484,6 @@
           },
           "410": {
             "description": "Gone",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/account/login": {
-      "post": {
-        "tags": [
-          "Sign-in"
-        ],
-        "operationId": "Login",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyLoginRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SignedInDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -608,210 +512,18 @@
         ],
         "operationId": "Logout",
         "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/account/passkey/creation-options": {
-      "post": {
-        "tags": [
-          "Sign-in"
-        ],
-        "operationId": "PasskeyCreationOptions",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyCreationOptionsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PasskeyOptionsDto"
+                  "$ref": "#/components/schemas/LogoutDto"
                 }
               }
             }
           },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "410": {
-            "description": "Gone",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/account/passkey/request-options": {
-      "post": {
-        "tags": [
-          "Sign-in"
-        ],
-        "operationId": "PasskeyRequestOptions",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PasskeyOptionsDto"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/account/passkey/register": {
-      "post": {
-        "tags": [
-          "Sign-in"
-        ],
-        "operationId": "PasskeyRegister",
-        "parameters": [
-          {
-            "name": "invite",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PasskeyRegistrationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SignedInDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "410": {
-            "description": "Gone",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
+          "403": {
+            "description": "Forbidden",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -845,7 +557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PasskeyOptionsDto"
+                  "$ref": "#/components/schemas/NextStepDto"
                 }
               }
             }
@@ -6290,12 +6002,6 @@
           }
         }
       },
-      "DeleteAccountRequest": {
-        "type": "object",
-        "properties": {
-          "credential": { }
-        }
-      },
       "DeletedItemDto": {
         "required": [
           "id",
@@ -7576,6 +7282,17 @@
           }
         }
       },
+      "LogoutDto": {
+        "required": [
+          "logoutUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "logoutUrl": {
+            "type": "string"
+          }
+        }
+      },
       "ManualItemDetails": {
         "type": "object",
         "properties": {
@@ -7709,6 +7426,17 @@
           },
           "role": {
             "$ref": "#/components/schemas/LibraryRole"
+          }
+        }
+      },
+      "NextStepDto": {
+        "required": [
+          "next"
+        ],
+        "type": "object",
+        "properties": {
+          "next": {
+            "type": "string"
           }
         }
       },
@@ -8171,6 +7899,26 @@
           }
         }
       },
+      "PageOfSignInMethodDto": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignInMethodDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "PageOfTagDto": {
         "required": [
           "items"
@@ -8184,82 +7932,6 @@
             }
           },
           "nextCursor": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "PairDeviceDto": {
-        "required": [
-          "serverUrl",
-          "token",
-          "code",
-          "expiresAt"
-        ],
-        "type": "object",
-        "properties": {
-          "serverUrl": {
-            "type": "string"
-          },
-          "token": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "PasskeyCreationOptionsRequest": {
-        "type": "object",
-        "properties": {
-          "displayName": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "setupCode": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "inviteToken": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "PasskeyLoginRequest": {
-        "type": "object",
-        "properties": {
-          "credential": { }
-        }
-      },
-      "PasskeyOptionsDto": {
-        "required": [
-          "options"
-        ],
-        "type": "object",
-        "properties": {
-          "options": {
-            "$ref": "#/components/schemas/JsonElement"
-          }
-        }
-      },
-      "PasskeyRegistrationRequest": {
-        "type": "object",
-        "properties": {
-          "credential": { },
-          "name": {
             "type": [
               "null",
               "string"
@@ -8919,36 +8591,46 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "SignInMethodDto": {
+        "required": [
+          "id",
+          "provider",
+          "email",
+          "createdAt",
+          "lastUsedAt",
+          "isCurrent"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
           },
-          "displayName": {
+          "provider": {
+            "type": "string"
+          },
+          "email": {
             "type": [
               "null",
               "string"
             ]
-          }
-        }
-      },
-      "SignedInDto": {
-        "required": [
-          "userId",
-          "displayName",
-          "libraryId"
-        ],
-        "type": "object",
-        "properties": {
-          "userId": {
+          },
+          "createdAt": {
             "type": "string",
-            "format": "uuid"
+            "format": "date-time"
           },
-          "displayName": {
-            "type": "string"
-          },
-          "libraryId": {
+          "lastUsedAt": {
             "type": [
               "null",
               "string"
             ],
-            "format": "uuid"
+            "format": "date-time"
+          },
+          "isCurrent": {
+            "type": "boolean"
           }
         }
       },

@@ -5,6 +5,7 @@ using CollectionMaxxing.Domain.Accounts;
 namespace CollectionMaxxing.Api.Tests.Auth;
 
 // LOCKED acceptance test of ID-1 (issue #14): no setup code, token or credential appears in logs. Do not edit or weaken.
+// AUTH-1 (#228): the credentials are now Auth0's (the authorization code, the ID token, the access token, the subject).
 public class LogHygieneTests(ApiFixture api) : AuthTest(api)
 {
     [Fact]
@@ -15,9 +16,13 @@ public class LogHygieneTests(ApiFixture api) : AuthTest(api)
         var owner = await browser.SetUpOwnerAsync(setupCode);
         var recoveryCode = await App.IssueCodeAsync(SetupCodePurpose.Recovery);
         var otherDevice = App.NewBrowser();
-        (await otherDevice.RegisterAsync(await otherDevice.StartRecoveryAsync(recoveryCode))).StatusCode.ShouldBe(HttpStatusCode.Created);
-        (await otherDevice.LoginAsync()).StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await browser.PostAsync("/setup", new { code = "WRONG-WRONG-WRONG-WRONG", displayName = "x" })).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await otherDevice.ContinueAsync(await otherDevice.StartRecoveryAsync(recoveryCode))).Headers.Location?.ToString().ShouldBe("/");
+        (await otherDevice.LoginAsync()).Headers.Location?.ToString().ShouldBe("/");
+        var accessToken = App.Auth0.AccessToken(browser.Identity.Subject);
+        (await App.NewPhoneWithToken(accessToken).GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var unlinkedToken = App.Auth0.AccessToken("apple|unlinked-" + Guid.NewGuid().ToString("N"));
+        (await App.NewPhoneWithToken(unlinkedToken).GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await browser.PostAsync("/setup", new { code = "WRONG-WRONG-WRONG-WRONG" })).StatusCode.ShouldBe(HttpStatusCode.NotFound);
 
         // A fresh server with no owner yet: wrong codes, an invite-looking token in the URL, a join link.
         await using var fresh = new AuthApp(Db.ConnectionString);
@@ -26,9 +31,9 @@ public class LogHygieneTests(ApiFixture api) : AuthTest(api)
         var freshCode = await fresh.IssueCodeAsync(SetupCodePurpose.Setup);
         var guest = fresh.NewBrowser();
         await guest.StartSetupAsync("WRONG-WRONG-WRONG-WRONG");
-        await guest.RegisterUnpromptedAsync(invite: secretInvite);
         await guest.GetAsync($"/join/{secretInvite}");
-        await guest.PostAsync("/account/passkey/creation-options", new { inviteToken = secretInvite, displayName = "Sam" });
+        await guest.SignInAsync($"/account/login?invite={secretInvite}");
+        await guest.GetAsync("/signin-oidc?code=not-a-real-code-" + secretInvite + "&state=garbage");
         await guest.SetUpOwnerAsync(freshCode);
 
         var secrets = new List<string>
@@ -37,9 +42,12 @@ public class LogHygieneTests(ApiFixture api) : AuthTest(api)
             recoveryCode,
             freshCode,
             secretInvite,
-            browser.Authenticator.CredentialIdText,
-            otherDevice.Authenticator.CredentialIdText,
-            guest.Authenticator.CredentialIdText,
+            accessToken,
+            unlinkedToken,
+            browser.Identity.Subject,
+            otherDevice.Identity.Subject,
+            guest.Identity.Subject,
+            browser.LastChallenge!.Query,
         };
         secrets.AddRange(browser.SetCookies.Select(c => c.Value.Value!).Where(v => v.Length > 8));
         secrets.AddRange(guest.SetCookies.Select(c => c.Value.Value!).Where(v => v.Length > 8));

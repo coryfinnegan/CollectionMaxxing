@@ -4,16 +4,16 @@ namespace CollectionMaxxing.Application.Accounts.Devices;
 public sealed record WebSessionInfo(Guid Id, string Label, DateTimeOffset CreatedAt, DateTimeOffset LastSeenAt);
 
 /// <summary>
-/// The server's record of signed-in browsers (docs/07, "Web: passkeys + same-origin cookie"). The session cookie names a record; a
+/// The server's record of signed-in browsers (docs/14, "Web: Auth0 signs you in, our cookie keeps you in"). The session cookie names a record; a
 /// cookie whose record is revoked, missing or somebody else's is refused. Implemented by Infrastructure.
 /// </summary>
 public interface IWebSessions
 {
-    /// <summary>How long a browser may go unseen before it drops off the list (the cookie's own idle limit).</summary>
-    public static readonly TimeSpan IdleLifetime = TimeSpan.FromHours(8);
+    /// <summary>How long a browser may go unseen before it drops off the list (the cookie's own idle limit, D-2: 30 days sliding).</summary>
+    public static readonly TimeSpan IdleLifetime = TimeSpan.FromDays(30);
 
-    /// <summary>The cookie's absolute limit: a session older than this is dead whatever its cookie says.</summary>
-    public static readonly TimeSpan AbsoluteLifetime = TimeSpan.FromDays(30);
+    /// <summary>The cookie's absolute limit (D-2: one year): a session older than this is dead whatever its cookie says.</summary>
+    public static readonly TimeSpan AbsoluteLifetime = TimeSpan.FromDays(365);
 
     /// <summary>"Last seen" is written at most this often per session, so a request does not usually write.</summary>
     public static readonly TimeSpan LastSeenResolution = TimeSpan.FromMinutes(1);
