@@ -10,7 +10,7 @@ export function BackButton() {
       accessibilityRole="button"
       accessibilityLabel="Back"
       onPress={() => router.back()}
-      style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}
+      style={{ alignSelf: 'flex-start', minWidth: 44, minHeight: 44, justifyContent: 'center' }}
     >
       <Text variant="label" tone="scan">
         ‹ Back
