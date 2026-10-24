@@ -4,7 +4,7 @@ import { setTrayStore } from '@/features/scan/tray/storage';
 import { MemoryNativeAuth } from '@/lib/auth/native';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { renderWithProviders } from '@/test/render';
-import { NativeNotLinkedScreen, SignInScreen, signInFailedCopy } from './NativeAuthScreens';
+import { SignInScreen, signInFailedCopy } from './NativeAuthScreens';
 
 const mockRegister = jest.fn();
 jest.mock('./appSignIn', () => ({ registerThisInstall: () => mockRegister() }));
@@ -44,17 +44,5 @@ describe('Sign in (iPhone)', () => {
     expect(await screen.findByText(signInFailedCopy)).toBeTruthy();
     expect(mockRegister).not.toHaveBeenCalled();
     expect(mockRouter.replace).not.toHaveBeenCalled();
-  });
-});
-
-describe('Not part of a library (iPhone)', () => {
-  it('Sign out ends the sign-in and returns to Sign in', async () => {
-    native.token = 'tok';
-    await renderWithProviders(<NativeNotLinkedScreen />);
-
-    await fireEvent.press(screen.getByLabelText('Sign out'));
-
-    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
-    expect(native.signedOut).toBe(true);
   });
 });

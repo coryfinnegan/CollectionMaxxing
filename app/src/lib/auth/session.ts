@@ -5,8 +5,8 @@ import { createAuth0Native } from './auth0Native';
 import { AuthLostError, type NativeAuth } from './native';
 
 export type AuthPlatform = 'web' | 'native';
-/** Where the person goes when the app cannot continue: Sign in, or the "not part of a library" page. */
-export type AuthLostDestination = 'login' | 'not-linked';
+/** Where the person goes when the app cannot continue: Sign in. */
+export type AuthLostDestination = 'login';
 
 export type AuthConfig = {
   platform: AuthPlatform;

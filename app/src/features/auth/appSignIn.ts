@@ -7,8 +7,7 @@ import type { AppSignInDto } from './contract';
 export const DEVICE_NAME = 'iPhone';
 
 /**
- * Registers this install. A 404 means the server does not have the route yet: ignored. A 403 account.not_linked is handled by the
- * HTTP client (it opens the not-linked page). Anything else is logged and skipped, because the sign-in itself worked.
+ * Registers this install. A 404 means the server does not have the route yet: ignored. Anything else is logged and skipped, because the sign-in itself worked.
  */
 export async function registerThisInstall(): Promise<void> {
   try {
@@ -18,7 +17,7 @@ export async function registerThisInstall(): Promise<void> {
       headers: { 'X-Install-Id': await getInstallId() },
     });
   } catch (e) {
-    if (e instanceof ApiError && (e.status === 404 || e.status === 403)) return;
+    if (e instanceof ApiError && e.status === 404) return;
     logger.warn('Could not register this iPhone with the server.');
   }
 }

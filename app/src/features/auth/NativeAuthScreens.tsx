@@ -1,10 +1,7 @@
-// iPhone screens: Sign in (Auth0's browser sheet) and "this account isn't part of a library". Web has its own in ./WebAuthScreens.
-import { useQueryClient } from '@tanstack/react-query';
+// iPhone Sign in screen (Auth0's browser sheet). Web has its own in ./WebAuthScreens.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { signOutThisDevice } from '@/features/me/unpair';
 import { getNativeAuth } from '@/lib/auth/session';
-import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
 import { registerThisInstall } from './appSignIn';
 
@@ -26,7 +23,7 @@ export function SignInScreen() {
       setBusy(false);
       return;
     }
-    // If the account is in no library, the HTTP client has already opened the not-linked page.
+    // The first call made the account; with no library yet, the library screen sends it on to Welcome.
     await registerThisInstall();
     router.replace('/library');
   };
@@ -40,39 +37,6 @@ export function SignInScreen() {
           </Text>
         ) : null}
         <Button label="Sign in" busy={busy} onPress={signIn} />
-      </Card>
-    </Screen>
-  );
-}
-
-export function NativeNotLinkedScreen() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const leave = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await signOutThisDevice(queryClient);
-      router.replace('/login');
-    } catch (e) {
-      setError(friendlyError(e));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Screen title="Not part of a library">
-      <Card>
-        <Text>This account isn&apos;t part of a library. Ask the owner for an invite.</Text>
-        {error ? (
-          <Text tone="danger" accessibilityRole="alert">
-            {error}
-          </Text>
-        ) : null}
-        <Button label="Sign out" busy={busy} onPress={leave} />
       </Card>
     </Screen>
   );

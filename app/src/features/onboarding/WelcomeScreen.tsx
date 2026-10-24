@@ -6,6 +6,8 @@ import { useGetMe } from '@/api/generated/account/account';
 import { logout } from '@/features/auth/api';
 import { navigateTo } from '@/features/auth/navigation';
 import { clearLocalData } from '@/features/me/localData';
+import { signOutThisDevice } from '@/features/me/unpair';
+import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
 
@@ -15,8 +17,9 @@ export function useAccount(): { name: string; email: string | null } | undefined
   return me.data?.status === 200 ? { name: me.data.data.displayName, email: me.data.data.email } : undefined;
 }
 
-/** Ends this browser's Auth0 session too, so the account picker shows again. */
+/** Web: ends this browser's Auth0 session too, so the account picker shows again. iPhone: signs this install out (revokes, wipes local data) and returns to Sign in. */
 export function useUseAnotherAccount() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,9 +27,14 @@ export function useUseAnotherAccount() {
     setBusy(true);
     setError(null);
     try {
-      const { logoutUrl } = await logout();
-      await clearLocalData(queryClient);
-      navigateTo(logoutUrl);
+      if (isWeb()) {
+        const { logoutUrl } = await logout();
+        await clearLocalData(queryClient);
+        navigateTo(logoutUrl);
+      } else {
+        await signOutThisDevice(queryClient);
+        router.replace('/login');
+      }
     } catch (e) {
       setError(friendlyError(e));
       setBusy(false);

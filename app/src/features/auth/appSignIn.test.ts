@@ -48,14 +48,6 @@ describe('registering this iPhone after sign-in', () => {
     expect(onAuthLost).not.toHaveBeenCalled();
   });
 
-  it('a 403 account.not_linked opens the not-linked page', async () => {
-    server.use(
-      http.post(`${API}/api/v1/me/app-sign-ins`, () => HttpResponse.json({ status: 403, code: 'account.not_linked' }, { status: 403 })),
-    );
-    await registerThisInstall();
-    expect(onAuthLost).toHaveBeenCalledWith('not-linked');
-  });
-
   it('a server error does not undo the sign-in', async () => {
     server.use(http.post(`${API}/api/v1/me/app-sign-ins`, () => HttpResponse.json({ status: 500 }, { status: 500 })));
     await expect(registerThisInstall()).resolves.toBeUndefined();

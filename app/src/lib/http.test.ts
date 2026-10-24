@@ -118,15 +118,6 @@ describe('native client', () => {
     expect(onAuthLost).not.toHaveBeenCalled();
   });
 
-  it('403 account.not_linked opens the not-linked page', async () => {
-    server.use(http.get(`${API}/api/v1/ping`, () => problem(403, { code: 'account.not_linked' })));
-    const onAuthLost = jest.fn();
-    configureAuth({ platform: 'native', native: new MemoryNativeAuth('tok'), onAuthLost });
-
-    await expect(customFetch('/api/v1/ping')).rejects.toMatchObject({ status: 403 });
-    expect(onAuthLost).toHaveBeenCalledWith('not-linked');
-  });
-
   it('any other 403 is only an error', async () => {
     server.use(http.get(`${API}/api/v1/ping`, () => problem(403, { code: 'role.forbidden' })));
     const onAuthLost = jest.fn();

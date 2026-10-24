@@ -8,6 +8,7 @@ import { MemoryKeyValueStore, createTrayStore } from '@/features/scan/tray/trayS
 import { setNavigator } from '@/features/auth/services';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryNativeAuth } from '@/lib/auth/native';
+import { MOCK_LIBRARY_ID, mockAccount } from '@/mocks/data';
 import { resetMockAccount } from '@/mocks/me';
 import { makeQueryClient, renderWithProviders } from '@/test/render';
 import { useLockSetting } from './appLock';
@@ -20,7 +21,7 @@ import { type Biometrics, setBiometrics, setSettingsStorage } from './services';
 import { SettingsScreen } from './SettingsScreen';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter, Link: ({ children }: { children: unknown }) => children }));
 
 /** The real selector over a fake vision engine, so Settings reads what the scanner would use. */
 function recognitionWith(capabilities: object) {
@@ -90,6 +91,30 @@ describe('Settings > Recognition', () => {
     expect(screen.queryByLabelText('Unpair this iPhone')).toBeNull();
     expect(screen.getByLabelText('Sign out')).toBeTruthy();
     expect(screen.getByText('Sign-in methods')).toBeTruthy();
+  });
+});
+
+describe('Settings > Libraries (iPhone)', () => {
+  const SECOND = 'f0000000-0000-4000-8000-000000000002';
+
+  it('offers New library and Join a library, with no switcher for one library', async () => {
+    await renderWithProviders(<SettingsScreen />);
+    expect(await screen.findByText('New library')).toBeTruthy();
+    expect(screen.getByText('Join a library')).toBeTruthy();
+    expect(screen.queryByLabelText(/, (Owner|Viewer|Editor)/)).toBeNull();
+  });
+
+  it('switches library when there are several, and non-owners can leave', async () => {
+    mockAccount.libraries = [
+      { id: MOCK_LIBRARY_ID, name: 'Mine', role: 'owner' },
+      { id: SECOND, name: 'Shared', role: 'viewer' },
+    ];
+    await renderWithProviders(<SettingsScreen />);
+    expect(screen.queryByLabelText('Leave library')).toBeNull();
+
+    await fireEvent.press(await screen.findByLabelText(/^Shared,/));
+
+    expect(await screen.findByLabelText('Leave library')).toBeTruthy();
   });
 });
 

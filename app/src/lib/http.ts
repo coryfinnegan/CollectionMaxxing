@@ -84,11 +84,6 @@ async function send<T>(url: string, options: RequestInit, attempts: Attempts): P
   }
 
   const error = new ApiError(response.status, (body ?? {}) as ProblemDetails, retryAfterMs(response.headers.get('Retry-After')));
-  // Signed in, but with an account that belongs to no library here.
-  if (response.status === 403 && !isWeb() && error.problem.code === 'account.not_linked') {
-    notifyAuthLost('not-linked');
-    throw error;
-  }
   if (response.status !== 401) throw error;
 
   // A recent-passkey check failed: ask for one passkey prompt, then retry once. Cancelling surfaces the prompt's error.
