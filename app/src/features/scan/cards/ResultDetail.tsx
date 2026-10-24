@@ -1,11 +1,12 @@
 // Result detail (docs/06 M4): your own photo with the item boxed on it, the card's facts, where owned copies live, the add buttons,
 // Wrong item? Fix it, and Use my photo (the one place a picture is sent, and only the crop of this item, only when an editor taps).
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Image, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStore } from 'zustand';
 import { formatLabels } from '@/features/library/labels';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
-import { spacing } from '@/theme/tokens';
+import { spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Cover, EmptyState, FormatBadge, Screen, Text } from '@/ui';
 import { useCardActions } from '../session/useCardActions';
 import { loadSession } from '../session/sessionApi';
@@ -42,9 +43,9 @@ export function ResultDetail({ id }: { id: string }) {
 
   if (!candidate) {
     return (
-      <Screen title="Result">
+      <SafeScreen title="Result">
         <EmptyState title="That result isn't here any more" body="Open the scanner to see this scan's results." />
-      </Screen>
+      </SafeScreen>
     );
   }
 
@@ -69,7 +70,7 @@ export function ResultDetail({ id }: { id: string }) {
   }
 
   return (
-    <Screen title="Result">
+    <SafeScreen title="Result">
       {context ? (
         <PhotoViewer
           context={context}
@@ -148,6 +149,15 @@ export function ResultDetail({ id }: { id: string }) {
         </Card>
       ) : null}
       {fixing ? <FixItPanel candidate={candidate} sessionId={sessionId} onClose={() => setFixing(false)} /> : null}
-    </Screen>
+    </SafeScreen>
+  );
+}
+
+function SafeScreen({ title, children }: { title: string; children: ReactNode }) {
+  const colors = useColors();
+  return (
+    <SafeAreaView testID="result-safe-area" edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
+      <Screen title={title}>{children}</Screen>
+    </SafeAreaView>
   );
 }

@@ -88,7 +88,7 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
       {open ? (
         <View
           style={{
-            gap: 2,
+            gap: spacing.xs,
             padding: spacing.xs,
             borderRadius: radius.md,
             borderWidth: 1,

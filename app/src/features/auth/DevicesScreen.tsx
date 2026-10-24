@@ -7,6 +7,7 @@ import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { type SessionDto, listDevices, revokeBrowser, revokeWebSessions, signOutAllIphones } from './api';
 import { Button, Card, ListRow, Screen, Text } from '@/ui';
+import { BackButton } from '@/features/me/BackButton';
 
 const devicesKey = ['me', 'devices'] as const;
 
@@ -54,6 +55,7 @@ export function DevicesScreen() {
 
   return (
     <Screen title="Devices and browsers" subtitle="Where you are signed in.">
+      <BackButton />
       {message ? (
         <Text tone="danger" accessibilityRole="alert">
           {message}

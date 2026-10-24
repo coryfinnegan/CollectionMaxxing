@@ -7,13 +7,15 @@ import { renderWithProviders } from '@/test/render';
 import { SignInMethodsScreen } from './SignInMethodsScreen';
 
 let mockParams: Record<string, string> = {};
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }), useLocalSearchParams: () => mockParams }));
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() };
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter, useLocalSearchParams: () => mockParams }));
 
 const navigate = jest.fn();
 beforeEach(() => {
   resetMockAuth();
   mockParams = {};
   navigate.mockClear();
+  mockRouter.back.mockClear();
   setNavigator(navigate);
   configureAuth({ platform: 'web' });
 });
@@ -26,6 +28,15 @@ describe('SignInMethodsScreen', () => {
     expect(await screen.findByText('Google (this sign-in)')).toBeTruthy();
     expect(screen.getByText(/cory@example.com/)).toBeTruthy();
     expect(screen.getByText('Apple')).toBeTruthy();
+  });
+
+  it('offers a way back to Me', async () => {
+    await renderWithProviders(<SignInMethodsScreen />);
+    await screen.findByText('Apple');
+
+    await fireEvent.press(screen.getByLabelText('Back'));
+
+    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('Add goes to the sign-in in link mode and returns to this page', async () => {

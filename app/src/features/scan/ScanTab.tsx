@@ -1,20 +1,26 @@
 // The Scan tab: one big way into the scanner, plus a nudge when a scan is waiting for Review.
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStore } from 'zustand';
+import { useColors } from '@/theme/tokens';
 import { Button, Card, EmptyState, Screen, Text } from '@/ui';
 import { summaryLine } from './cards/copy';
 import { getTrayStore } from './tray/storage';
 
 export function ScanTab() {
-  if (Platform.OS === 'web') {
-    return (
-      <Screen title="Scan">
-        <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes." />
-      </Screen>
-    );
-  }
-  return <PhoneScanTab />;
+  const colors = useColors();
+  return (
+    <SafeAreaView testID="scan-tab-safe-area" edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
+      {Platform.OS === 'web' ? (
+        <Screen title="Scan">
+          <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes." />
+        </Screen>
+      ) : (
+        <PhoneScanTab />
+      )}
+    </SafeAreaView>
+  );
 }
 
 function PhoneScanTab() {

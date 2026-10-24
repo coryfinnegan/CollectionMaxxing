@@ -1,7 +1,9 @@
 // iPhone Sign in screen (Auth0's browser sheet). Web has its own in ./WebAuthScreens.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { getNativeAuth } from '@/lib/auth/session';
+import { useColors } from '@/theme/tokens';
 import { Button, Card, Screen, Text } from '@/ui';
 import { registerThisInstall } from './appSignIn';
 
@@ -9,6 +11,7 @@ export const signInFailedCopy = "Sign-in didn't finish. Try again.";
 
 export function SignInScreen() {
   const router = useRouter();
+  const colors = useColors();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,15 +32,17 @@ export function SignInScreen() {
   };
 
   return (
-    <Screen title="CollectionMaxxing" subtitle="Sign in to your library.">
-      <Card>
-        {error ? (
-          <Text tone="danger" accessibilityRole="alert">
-            {error}
-          </Text>
-        ) : null}
-        <Button label="Sign in" busy={busy} onPress={signIn} />
-      </Card>
-    </Screen>
+    <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
+      <Screen title="CollectionMaxxing" subtitle="Sign in to your library.">
+        <Card>
+          {error ? (
+            <Text tone="danger" accessibilityRole="alert">
+              {error}
+            </Text>
+          ) : null}
+          <Button label="Sign in" busy={busy} onPress={signIn} />
+        </Card>
+      </Screen>
+    </SafeAreaView>
   );
 }

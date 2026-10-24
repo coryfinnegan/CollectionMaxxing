@@ -5,6 +5,11 @@ import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { LocationsScreen } from './LocationsScreen';
 
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
+beforeEach(() => mockRouter.back.mockClear());
+
 describe('LocationsScreen', () => {
   it('lists locations as a tree, children after their parent', async () => {
     await renderWithProviders(<LocationsScreen />);
@@ -12,6 +17,15 @@ describe('LocationsScreen', () => {
     expect(await screen.findByText('Game room')).toBeTruthy();
     expect(screen.getByText('Shelf 1')).toBeTruthy();
     expect(screen.getByText('Living room')).toBeTruthy();
+  });
+
+  it('offers a way back to Me', async () => {
+    await renderWithProviders(<LocationsScreen />);
+    await screen.findByText('Game room');
+
+    await fireEvent.press(screen.getByLabelText('Back'));
+
+    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('adds a location inside another and shows it straight away', async () => {

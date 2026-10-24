@@ -1,6 +1,9 @@
 // About: app version, the privacy note and the provider credits. Read-only; no network needed.
 import Constants from 'expo-constants';
 import { Linking, Pressable } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { BackButton } from '@/features/me/BackButton';
+import { useColors } from '@/theme/tokens';
 import { Card, Screen, Text } from '@/ui';
 import { ATTRIBUTIONS } from './attributions';
 import { buildLine } from './buildInfo';
@@ -13,9 +16,13 @@ function versionLine(): string {
 }
 
 export function AboutScreen() {
+  const colors = useColors();
   const build = buildLine();
   return (
+    <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
     <Screen title="About" subtitle="Version, privacy and credits.">
+      {/* A hidden tab reached from Settings: the tab header has no back button, so the screen renders its own. */}
+      <BackButton />
       <Card>
         <Text variant="heading">CollectionMaxxing</Text>
         <Text>{versionLine()}</Text>
@@ -43,5 +50,6 @@ export function AboutScreen() {
         ))}
       </Card>
     </Screen>
+    </SafeAreaView>
   );
 }

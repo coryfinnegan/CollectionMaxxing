@@ -5,6 +5,7 @@ import { startExport, useGetExport } from '@/api/generated/account/account';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
+import { BackButton } from './BackButton';
 import { exportPoll, getSharer } from './services';
 
 const progress: Record<string, string> = {
@@ -54,6 +55,7 @@ export function ExportScreen() {
 
   return (
     <Screen title="Export my data" subtitle="Download everything in your library as files you can keep.">
+      <BackButton />
       {message ? (
         <Text tone="danger" accessibilityRole="alert">
           {message}
