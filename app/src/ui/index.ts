@@ -5,6 +5,7 @@ export { Cover } from './Cover';
 export { EmptyState } from './EmptyState';
 export { FormatBadge } from './FormatBadge';
 export { ListRow } from './ListRow';
+export { LoadingState } from './LoadingState';
 export { Screen } from './Screen';
 export { Sheet } from './Sheet';
 export { Snackbar } from './Snackbar';
