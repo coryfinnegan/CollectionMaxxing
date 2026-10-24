@@ -54,7 +54,7 @@ Copy-Item C:\CollectionMaxxing\repo\deploy\.env.example C:\CollectionMaxxing\.en
 [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
 notepad C:\CollectionMaxxing\.env
 ```
-Fill in `POSTGRES_PASSWORD`, `CM_PUBLIC_ORIGIN` (the address people browse to, for example `https://pc.tailnet.ts.net`), `CM_SECRETS_DIR`, `CM_BACKUP_DIR` (a folder on **F:**, not C:), `CM_TZ` and, if you want email alerts, `CM_HEARTBEAT_URL` (step 9). Leave the ports alone. `.env` is never committed. **Undo:** delete the file.
+Fill in `POSTGRES_PASSWORD`, `CM_PUBLIC_ORIGIN` (the address people browse to, for example `https://pc.tailnet.ts.net`), `CM_SECRETS_DIR`, `CM_BACKUP_DIR` (a folder on **F:**, not C:), `CM_TZ` and, if you want email alerts, `CM_HEARTBEAT_URL` (step 9). `CM_GOOGLE_BOOKS_API_KEY` is optional: paste a Google Books API key to add a second source for book lookups (leave it empty to use Open Library alone). The Windows environment variable `Providers__GoogleBooks__ApiKey` does **not** reach the containers; only this `.env` line does. After changing it, recreate the API: `$env:CM_TAG='<sha>'; docker compose -p collectionmaxxing -f C:\CollectionMaxxingepo\deploy\docker-compose.yml --env-file C:\CollectionMaxxing\.env up -d api` (`<sha>` is `current.sha` in `C:\CollectionMaxxing\state\deployer-state.json`). Leave the ports alone. `.env` is never committed. **Undo:** delete the file.
 
 ### 3. Set up Auth0 sign-in
 
