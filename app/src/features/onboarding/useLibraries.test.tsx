@@ -9,7 +9,6 @@ import { useActiveLibraryId } from './useLibraries';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
-jest.mock('@/lib/auth/session', () => ({ ...jest.requireActual('@/lib/auth/session'), isWeb: () => true }));
 
 const SECOND = 'f0000000-0000-4000-8000-000000000002';
 
@@ -48,7 +47,7 @@ describe('useActiveLibraryId', () => {
   });
 });
 
-describe('LibraryGate', () => {
+describe('LibraryGate (web and iPhone)', () => {
   it('sends an account with no libraries to Welcome', async () => {
     mockAccount.libraries = [];
     await renderWithProviders(<LibraryGate />);

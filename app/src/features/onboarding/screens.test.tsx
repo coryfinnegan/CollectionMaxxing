@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
-import { resetAuth } from '@/lib/auth/session';
+import { MemoryNativeAuth } from '@/lib/auth/native';
+import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { setNavigator } from '@/features/auth/services';
 import { MOCK_LOGOUT_URL } from '@/mocks/auth';
 import { MOCK_LIBRARY_ID, mockAccount, mockMe } from '@/mocks/data';
@@ -60,7 +61,19 @@ describe('WelcomeScreen', () => {
     expect(mockRouter.push).toHaveBeenNthCalledWith(2, '/welcome/join');
   });
 
+  it('on the iPhone, Use another account signs this install out and returns to Sign in', async () => {
+    const native = new MemoryNativeAuth('tok');
+    configureAuth({ platform: 'native', native });
+    await renderWithProviders(<WelcomeScreen />);
+    await fireEvent.press(screen.getByLabelText('Use another account'));
+
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/login'));
+    expect(native.signedOut).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('Use another account ends the Auth0 session so the account picker shows again', async () => {
+    configureAuth({ platform: 'web' });
     await renderWithProviders(<WelcomeScreen />);
     await fireEvent.press(screen.getByLabelText('Use another account'));
 
@@ -68,6 +81,7 @@ describe('WelcomeScreen', () => {
   });
 
   it('says so when signing out fails', async () => {
+    configureAuth({ platform: 'web' });
     server.use(http.post('*/account/logout', () => HttpResponse.json({ title: 'x', status: 500 }, { status: 500 })));
     await renderWithProviders(<WelcomeScreen />);
     await fireEvent.press(screen.getByLabelText('Use another account'));

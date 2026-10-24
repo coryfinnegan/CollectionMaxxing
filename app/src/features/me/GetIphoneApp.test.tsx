@@ -6,7 +6,10 @@ import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { SettingsScreen } from './SettingsScreen';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }),
+  Link: ({ children }: { children: unknown }) => children,
+}));
 
 let requested: string[] = [];
 

@@ -11,7 +11,10 @@ import { MemoryNativeAuth } from '@/lib/auth/native';
 import { evalsMock, goldenPhotos } from '@/mocks/evals';
 import { renderWithProviders } from '@/test/render';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }),
+  Link: ({ children }: { children: unknown }) => children,
+}));
 
 function native() {
   configureAuth({ platform: 'native', native: new MemoryNativeAuth() });
