@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.FeaturePrints;
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Infrastructure.Catalog;
 
 namespace CollectionMaxxing.Api.Catalog;
@@ -15,6 +16,7 @@ public static class CatalogServices
         services.AddCatalogProviders();
         services.AddScoped<SearchCatalog.Handler>();
         services.AddScoped<LookupCatalog.Handler>();
+        services.AddScoped<BookLookup>(); // ISBN lookups: the permanent local copy, then the book providers
         services.AddScoped<GetRelease.Handler>();
         services.AddScoped<ListReleaseArtwork.Handler>();
         services.AddScoped<ListPlatforms.Handler>();

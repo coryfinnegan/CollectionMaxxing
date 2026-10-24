@@ -29,6 +29,10 @@ internal static class ProviderResilienceExtensions
 #pragma warning disable EXTEXP0001 // Experimental only in name; it is the supported way to drop the app-wide default.
         builder.RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
+
+        // The default request logging prints the whole URL path. Open Library's ISBN lookup carries the code in the path, and a
+        // scanned code never goes to the log (docs/08), so a provider client logs nothing of its own; the adapters log by name.
+        builder.RemoveAllLoggers();
         builder.AddStandardResilienceHandler();
         builder.Services.AddOptions<HttpStandardResilienceOptions>(builder.Name + "-standard")
             .Configure<IOptions<ProviderResilienceOptions>>((options, shared) =>

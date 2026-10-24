@@ -27,6 +27,7 @@ public static class ProviderServiceCollectionExtensions
         services.AddSingleton<ProviderResponseCache>();
         services.AddSingleton<ProviderQuotaStore>();
         services.AddSingleton<ProviderRuntime>();
+        services.TryAddSingleton<IIsbnStore, ProviderCacheIsbnStore>();
 
         services.AddOptions<ProviderResilienceOptions>().BindConfiguration(ProviderResilienceOptions.SectionName);
         services.AddOptions<OpenLibraryOptions>().BindConfiguration(OpenLibraryOptions.SectionName);

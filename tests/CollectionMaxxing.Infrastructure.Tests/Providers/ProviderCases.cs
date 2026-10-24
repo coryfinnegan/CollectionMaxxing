@@ -33,7 +33,7 @@ internal sealed record ProviderCase(
 
     public static IReadOnlyList<ProviderCase> All { get; } =
     [
-        new("openlibrary", "/api/books", false, "openlibrary-isbn-found.json", "openlibrary-isbn-notfound.json",
+        new("openlibrary", $"/isbn/{ProviderHost.ValidIsbn}.json", false, "openlibrary-isbn-found.json", "openlibrary-isbn-notfound.json",
             async host => Count(await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default))),
         new("googlebooks", "/books/v1/volumes", false, "googlebooks-found.json", "googlebooks-empty.json",
             async host => Count(await host.Get<GoogleBooksProvider>().LookupAsync(Isbn, default))),
