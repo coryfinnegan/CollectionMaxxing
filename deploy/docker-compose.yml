@@ -50,6 +50,9 @@ services:
       ConnectionStrings__collectionmaxxing: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       Catalog__CoversRoot: /data/files/covers
+      # Google Books (optional second source for ISBN lookups, next to Open Library). Empty = switched off, silently.
+      # The key is a secret: it lives only in .env (never committed) and reaches the API only as this variable.
+      Providers__GoogleBooks__ApiKey: ${CM_GOOGLE_BOOKS_API_KEY:-}
       # Sign-in through Auth0 (docs/07, docs/14). deploy/auth0/Apply-Auth0.ps1 writes these values to <secrets>\auth0\api.env;
       # copy them into .env. All six are required: without the Management credentials "Sign out all iPhones" would
       # silently do nothing at Auth0.
