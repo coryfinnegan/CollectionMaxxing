@@ -62,7 +62,7 @@ flowchart TB
 | `aspire-dashboard` | Microsoft's standalone Aspire Dashboard | OpenTelemetry logs, traces and metrics in a browser, on `127.0.0.1` only |
 | `backup` | `postgres:17` + rclone, on a schedule | See Backups below |
 
-**Sign-in settings (`.env`):** the API needs `CM_PUBLIC_ORIGIN` (the address people browse to), `CM_AUTH0_DOMAIN`, `CM_AUTH0_WEB_CLIENT_ID`, `CM_AUTH0_WEB_CLIENT_SECRET`, `CM_AUTH0_MANAGEMENT_CLIENT_ID` and `CM_AUTH0_MANAGEMENT_CLIENT_SECRET`. All six are required, and the stack won't start without them. Without the Management credentials, "Sign out all iPhones" would do nothing at Auth0. `deploy/auth0/Apply-Auth0.ps1` writes the values to `<secrets>uth0pi.env`; copy them into `.env`. There are no signing certificates to make or rotate: Auth0 holds the token keys ([07](07-authentication-and-authorization.md#keys-and-secrets)). The only sign-in file in the secrets folder is the one-time `setup-code.txt`. Signing in needs the internet and Auth0; a browser that is already signed in doesn't, because the cookie is ours.
+**Sign-in settings (`.env`):** the API needs `CM_PUBLIC_ORIGIN` (the address people browse to), `CM_AUTH0_DOMAIN`, `CM_AUTH0_WEB_CLIENT_ID`, `CM_AUTH0_WEB_CLIENT_SECRET`, `CM_AUTH0_MANAGEMENT_CLIENT_ID` and `CM_AUTH0_MANAGEMENT_CLIENT_SECRET`. All six are required, and the stack won't start without them. Without the Management credentials, "Sign out all iPhones" would do nothing at Auth0. `deploy/auth0/Apply-Auth0.ps1` writes the values to `<secrets>uth0pi.env`; copy them into `.env`. There are no signing certificates to make or rotate: Auth0 holds the token keys ([07](07-authentication-and-authorization.md#keys-and-secrets)). There is no setup code and no sign-in file in the secrets folder. Signing in needs the internet and Auth0; a browser that is already signed in doesn't, because the cookie is ours.
 
 **Docker:** keep Docker Desktop (WSL2 backend), but **update it**. 24.0.7 is from 2023. Set it to start when you sign in, and turn on Windows' "Use my sign-in info to automatically finish setting up after an update", so the stack comes back after Windows Update reboots.
 
@@ -122,6 +122,11 @@ GitHub-hosted runners (free)                 Deployer on your PC (it pulls; noth
   - Instead, a small **deployer** script on your PC (Task Scheduler, every 2 minutes) checks GHCR for a new `main` image.
   - It deploys an image only if its build attestation proves this repo's workflow built it from `main` (`gh attestation verify`; update the gh CLI first).
   - Nothing on the internet can tell your PC to run anything.
+  - **Each release runs with its own compose file.** The deployer reads `deploy/docker-compose.yml` from git **at the release's commit** and runs `migrate` and `up` with that file; the config guard checks that file first. A release that needs a `.env` variable you lack is refused, and nothing is migrated (#246).
+- **Host commands.** The API image is chiseled, with no shell and no admin binary. Support tasks are arguments of the API itself, run through the container (details in [07](07-authentication-and-authorization.md)):
+  - `docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --recovery-code you@example.com` prints a one-time code that links the next sign-in to that account.
+  - `docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --dev-tools grant you@example.com` (or `revoke`) gives or takes away the developer-tools role for `/api/admin/*`.
+  - There is no setup code, no `setup-code.txt` and no server admin in the app (ADR-027).
 - **iPhone app:** see *Getting the app on your iPhone* below. The server no longer hands out an `.ipa`. The deployer removes the copy it used to keep, once (ADR-024).
 - **CI minutes:** the repo is public, so GitHub's standard Linux and macOS runners are free with no minute limits.
 

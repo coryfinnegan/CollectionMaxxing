@@ -138,6 +138,18 @@ flowchart LR
 
 ---
 
+## Wave 7 — Accounts and libraries for everyone (after v1.0)
+
+[15](15-onboarding.md), ADR-026 and ADR-027. CollectionMaxxing becomes a normal multi-user web app; the PC stays a development host.
+
+- [x] ONB-0: plan accepted
+- [x] ONB-1 and ONB-1b: accounts on first sign-in, create libraries (up to 3 owned), invite codes, join and leave, the developer-tools role from the host
+- [x] ONB-2: web Welcome, create or join, library switcher
+- [ ] ONB-3: the same on the iPhone
+- [ ] ONB-4: docs, release and your checkpoint
+
+---
+
 ## After v1.0
 
 | Release | Items |

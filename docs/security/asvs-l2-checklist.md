@@ -31,7 +31,7 @@ Gaps (all also listed under "Notes for the lead" in the PR):
 | Section | Status | Evidence |
 |---|---|---|
 | V1.1 Secure software development lifecycle (threat model, security in stories, tests) | Pass | `docs/08` "Threat model (STRIDE)", this file, `docs/09` (test first), `docs/13`. |
-| V1.2 Authentication architecture (no default accounts, one policy) | Pass | One sign-in path per client: `Auth/SignInEndpoints.cs`, OpenID discovery pinned by `Security/TokenServerSurfaceTests`. No default account: setup code is single use, `Auth/SetupCodeSpentTests`. |
+| V1.2 Authentication architecture (no default accounts, one policy) | Pass | One sign-in path per client: `Auth/SignInEndpoints.cs`, OpenID discovery pinned by `Security/TokenServerSurfaceTests`. No default account: every account is created by a real Auth0 sign-in. |
 | V1.4 Access control architecture (trusted enforcement point, deny by default) | Pass | `Authorization/EndpointPolicyTests`, `Security/MatrixCompletenessTests`, `Security/MatrixMutationTests`. |
 | V1.5 Input and output architecture (validate on a trusted service layer, serialization) | Pass | Request records, no entity binding: `Security/BodyCannotOverrideRouteTests`. |
 | V1.6 Cryptographic architecture (key management) | Pass | Keys are PFX files outside the repo, Data Protection key ring on a volume: `KeyRing/KeyRingTests`, `Auth/TokenServerTests.The_development_signing_and_encryption_keys_are_generated_in_the_secrets_folder_not_the_repository`. |
@@ -54,7 +54,7 @@ Gaps (all also listed under "Notes for the lead" in the PR):
 | V2.5 Credential recovery | Pass | Recovery is a one-time code from the PC's command line: `Auth/TokenServerTests.The_recovery_command_prints_a_code_that_recovers_the_owner`; no security questions, no email reset. |
 | V2.6 Look-up secrets | N/A | Not used. |
 | V2.7 Out-of-band verifiers | N/A | No SMS or e-mail codes. The 6-digit pairing code is rate-limited per address: `Pairing/PairingLockoutTests`. |
-| V2.8 One-time verifiers | Pass | Pairing and setup codes are single use, 2-minute and 24-hour lifetimes: `Pairing/PairingRedemptionTests`, `Auth/SetupCodeSpentTests`. |
+| V2.8 One-time verifiers | Pass | Invite codes are single use per join and expire: see the invite tests under `Libraries/`. |
 | V2.9 Cryptographic verifiers (passkeys) | Pass | Attestation "none" accepted, signature verified by Identity's passkey handler: `Auth/PasskeyRegistrationTests.Sign_in_with_a_passkey_the_server_does_not_know_is_refused`. |
 | V2.10 Service authentication | Pass | No service credentials in code or images; secrets come from the mounted secrets folder (`deploy/docker-compose.yml`). The repo has GitHub secret scanning and push protection. |
 

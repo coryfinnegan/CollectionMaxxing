@@ -83,7 +83,7 @@ flowchart TD
 
 - The QR code holds your server's address and a single-use token that's valid for 2 minutes, so there's nothing to type.
 - After pairing: **Use Face ID to open CollectionMaxxing?** (recommended), then the empty Library with **Scan your first shelf**.
-- Very first time ever (no owner yet): the web app asks for the **setup code** that the server printed on first start, and you create the owner account with a passkey (Windows Hello on the PC).
+- There is no setup step. The first sign-in creates your account, and a new account lands on **Welcome** (see *Welcome, create and join* below).
 
 ### M2 · Library
 
@@ -264,6 +264,30 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 - **Delete account** shows what will happen (your library and photos are deleted within 30 days, and this can't be undone), then requires a fresh sign-in.
 
 ---
+
+## Welcome, create and join (web and iPhone; [15](15-onboarding.md))
+
+```
+┌──────────────────────────────────────┐
+│ Welcome, Ana                         │
+│ You're signed in with Google as      │
+│ you@example.com.                     │
+│ ┌──────────────────────────────────┐ │
+│ │        Create your library       │ │
+│ └──────────────────────────────────┘ │
+│ ┌──────────────────────────────────┐ │
+│ │         Join a library           │ │
+│ └──────────────────────────────────┘ │
+│          Use another account         │
+└──────────────────────────────────────┘
+```
+
+- **Create your library:** field "Library name", prefilled "Ana's library". Button **Create library**. At the limit: "You already own 3 libraries, which is the most you can have."
+- **Join a library:** "Paste the invite link or type the code you were sent." The preview reads "Join Cory's library as Editor". Button **Join**. A bad code: "That invite doesn't work. Ask for a new one."
+- **Library switcher:** each library's name with your role under it. **New library** and **Join a library** sit under the list. With one library the switcher doesn't show.
+- **Leave library** (Settings, for non-owners): "You'll lose access to {library}. Your account stays." A library's last owner can't leave.
+- **Invite created:** the link, the QR code and "Or tell them this code: ABCD-EFGH-JK". It is shown once.
+- **Use another account** signs out of Auth0, so the account picker shows again.
 
 ## Web screens
 

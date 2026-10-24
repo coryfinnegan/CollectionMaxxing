@@ -7,8 +7,8 @@ Cataloguing a physical media collection should take about as long as carrying it
 ## Who it's for
 
 - **You first:** a collector with a lot of books, VHS, DVDs/Blu-rays and video games across shelves, bins and closets.
-- **Your household (v1):** family members join your library by invite, as **Editor** (scan, add, edit) or **Viewer** (browse, and check "do I own this?").
-- **Later:** possibly other collectors. The architecture is multi-user from day one, so opening it up is a config change, not a rewrite.
+- **Your household (v1):** anyone you share a library with, by invite link or short code, as **Editor** (scan, add, edit) or **Viewer** (browse, and check "do I own this?").
+- **Everyone else:** CollectionMaxxing is a normal multi-user web app. Anyone can sign in with Google or Apple, create libraries (up to 3) and share them. It is to be hosted as a product later; the PC only hosts it while we build it, because that is free ([ADR-027](12-decision-log.md#adr-027-a-multi-user-web-app-the-pc-is-only-a-development-host)). There is no server admin, setup code or server settings in the app.
 
 ## Jobs to be done
 
@@ -45,9 +45,9 @@ Barcodes give exact matches down to the edition and format. Single-item pictures
 
 ### v1.0 (MVP: self-hosted, installed on your iPhone through TestFlight)
 
-- One-time owner setup with a passkey (web); iPhone paired by QR code, with an optional Face ID app lock
-- One shared library for your household: **books, VHS, DVD, Blu-ray, 4K UHD, video games** (+ "other")
-- **Household sharing:** invite family members as **Editor** or **Viewer**; each one has their own passkey and pairs their own iPhone; items show who added them
+- Sign in with Google or Apple on the web; the first sign-in creates your account. Create a library or join one with an invite link or code ([15](15-onboarding.md)). The iPhone signs in the same way, with an optional Face ID app lock
+- **Libraries:** each person can own up to 3 and belong to others. Books, VHS, DVD, Blu-ray, 4K UHD, video games (+ "other")
+- **Sharing:** invite people as **Editor** or **Viewer** by link or short code; each has their own account and iPhone; items show who added them
 - **One scanner, no modes:** barcodes (many per frame, continuous) plus automatic pictures when no barcode is in view, all onto one receipt tray; works offline and resolves when back online
 - **Single-item pictures (on-device text + artwork matching):** loose cartridges, VHS sleeves and tapes, boxes, discs; your photo shown beside the matched artwork; "use my photo" as the cover
 - **Shelf pictures (on-device):** shelves, stacks, floor spreads; results stream in as cards; tap one to see **that item boxed on your photo** so you can find it on the shelf

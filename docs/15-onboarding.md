@@ -57,7 +57,7 @@ flowchart TD
 - **Invite links keep working:** `/join/{token}` still previews the invite. Signed out, its button is **Sign in to join**, which comes back to the same page. Signed in, it's **Join**.
 - **The setup page and the setup code go away.** No `/setup`, no "First time here?" button, no `secrets\setup-code.txt`.
 - **Leaving and removing:** a member can leave a library, and an owner can remove a member. Either way only that membership ends. The account and its other libraries stay. A library's last owner can't leave it.
-- **Recovery:** `cm-admin recovery-code <email>` stays as a host-side support tool for a named account, not an app role. The new sign-in it links goes to that account only. Everyone can also add Google and Apple to their own account in Settings.
+- **Recovery:** `docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --recovery-code <email>` stays as a host-side support tool for a named account, not an app role. The new sign-in it links goes to that account only. Everyone can also add Google and Apple to their own account in Settings.
 
 ### How the account is created
 

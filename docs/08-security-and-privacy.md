@@ -16,7 +16,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 
 | Threat | Example | Mitigations |
 |---|---|---|
-| **S**poofing | Stolen refresh token or cookie; an Auth0 identity nobody invited | Auth0's rotating refresh tokens in the Keychain; the API admits only identities linked in `user_logins` (never by email) and answers anything else with `account.not_linked`; "Sign out all iPhones" refuses older access tokens at once (`tokens_not_before`) and ends the refresh tokens at Auth0; revocable web sessions; tailnet-only reachability |
+| **S**poofing | Stolen refresh token or cookie; an Auth0 identity nobody invited | Auth0's rotating refresh tokens in the Keychain; the API admits only identities linked in `user_logins` (never by email) and creates an account only for a new identity, never by matching an existing one; "Sign out all iPhones" refuses older access tokens at once (`tokens_not_before`) and ends the refresh tokens at Auth0; revocable web sessions; tailnet-only reachability |
 | **T**ampering | Mass assignment (`ownerLibraryId` in a PATCH body); edits to another user's item | Explicit request DTOs only; library comes from the route or the stored resource; ETag concurrency |
 | **R**epudiation | "I didn't delete those 200 items" | `audit_events` for destructive and security actions; soft delete with restore |
 | **I**nformation disclosure | IDOR on `/items/{id}`; photo URLs guessable; EXIF GPS leak | Resource authorization + query filters + IDOR tests; private blob containers, served only through authorized endpoints or short-lived SAS; EXIF stripped by re-encoding |

@@ -479,7 +479,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - The back end and the web app are an ordinary multi-user web app. People have accounts, own libraries and share them by invite as Editor or Viewer.
   - **Nothing in the app belongs to whoever runs the host.** There's no server admin, setup code or server-wide settings. Limits are configuration.
   - Code and reviews assume the app is on the open internet. Tailscale is a development-time wall only.
-  - Host tools (`cm-admin`, the deployer, backups) stay outside the app.
+  - Host tools (the API's `--recovery-code` and `--dev-tools` commands, the deployer, backups) stay outside the app.
 - **Alternatives:** stay self-hosted for one household with a server admin role (the first draft of [15](15-onboarding.md)).
 - **Consequences:**
   - Wave 7 removes the one-library assumptions ([15](15-onboarding.md)).
