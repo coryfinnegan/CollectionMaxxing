@@ -2,7 +2,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '@/theme/tokens';
-import { Button, Card, Screen, Text } from '@/ui';
+import { Button, Card, LoadingState, Screen, Text } from '@/ui';
 import { getEvalRunner } from './device';
 import type { EvalRunner, EvalState } from './runner';
 
@@ -79,7 +79,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
         </Card>
       ) : null}
 
-      {state.phase === 'uploading' ? <Text>Sending the results to your PC.</Text> : null}
+      {state.phase === 'uploading' ? <LoadingState label="Sending the results to your PC." /> : null}
 
       {state.phase === 'upload_failed' ? (
         <>

@@ -19,7 +19,8 @@ afterEach(() => setTrayStore(undefined));
 describe('review layout', () => {
   it('keeps Review inside the safe area', async () => {
     await renderWithProviders(<ReviewRoute />);
-    expect(await screen.findByText('Nothing to review. Scan something and it shows up here.')).toBeTruthy();
+    expect(await screen.findByText('Nothing to review.')).toBeTruthy();
+    expect(screen.getByText('Scan something and it shows up here.')).toBeTruthy();
     expect(screen.getByTestId('review-safe-area')).toBeTruthy();
   });
 });

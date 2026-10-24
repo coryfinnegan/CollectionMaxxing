@@ -6,7 +6,7 @@ import { listSignInMethods, removeSignInMethod } from '@/features/auth/api';
 import type { SignInMethodDto } from '@/features/auth/contract';
 import { loginUrl, navigateTo, signInErrorMessage } from '@/features/auth/navigation';
 import { friendlyError } from '@/lib/problem';
-import { Button, Card, ListRow, Screen, Text } from '@/ui';
+import { Button, Card, ListRow, LoadingState, Screen, Text } from '@/ui';
 import { BackButton } from './BackButton';
 
 const methodsKey = ['me', 'sign-in-methods'] as const;
@@ -64,8 +64,8 @@ export function SignInMethodsScreen() {
       ) : null}
 
       <Card>
-        {methods.isLoading ? <Text tone="muted">Loading...</Text> : null}
-        {methods.isError ? <Text tone="danger">{friendlyError(methods.error)}</Text> : null}
+        {methods.isLoading ? <LoadingState label="Loading..." /> : null}
+        {methods.isError ? <Text tone="danger" accessibilityRole="alert">{friendlyError(methods.error)}</Text> : null}
         {items.map((method) => (
           <ListRow
             key={method.id}
@@ -86,7 +86,7 @@ export function SignInMethodsScreen() {
             }
           />
         ))}
-        {items.length === 1 ? <Text tone="muted">This is your only way to sign in, so it can&apos;t be removed. Add another first.</Text> : null}
+        {items.length === 1 ? <Text variant="caption" tone="muted">This is your only way to sign in, so it can&apos;t be removed. Add another first.</Text> : null}
       </Card>
 
       <Button label="Add a sign-in method" onPress={() => navigateTo(loginUrl({ link: true, returnUrl: PAGE }))} />

@@ -5,6 +5,7 @@ import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryNativeAuth } from '@/lib/auth/native';
 import { evalsMock } from '@/mocks/evals';
 import { renderWithProviders } from '@/test/render';
+import { evalApi } from './api';
 import { EvalsScreen } from './EvalsScreen';
 import { makeKit } from './evalsTestKit';
 
@@ -77,5 +78,21 @@ describe('EvalsScreen', () => {
       fireEvent.press(retry);
     });
     expect(await screen.findByText(/M3 gate: pass/)).toBeTruthy();
+  });
+
+  it('shows the shared loading state while the results go up to the PC', async () => {
+    const kit = makeKit({ photos: 1 });
+    // Hold the upload open so the uploading branch stays on screen.
+    const submit = jest.spyOn(evalApi, 'submit').mockReturnValue(new Promise<never>(() => {}));
+    try {
+      await renderWithProviders(<EvalsScreen runner={kit.runner} />);
+      await act(async () => {
+        fireEvent.press(screen.getByRole('button', { name: 'Start the run' }));
+      });
+      expect(await screen.findByTestId('loading-state')).toBeTruthy();
+      expect(screen.getByText('Sending the results to your PC.')).toBeTruthy();
+    } finally {
+      submit.mockRestore();
+    }
   });
 });

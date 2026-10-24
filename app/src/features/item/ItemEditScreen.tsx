@@ -17,7 +17,7 @@ import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
-import { Button, Card, Chip, EmptyState, ListRow, Screen, Sheet, Text, TextField } from '@/ui';
+import { Button, Card, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Text, TextField } from '@/ui';
 import { breadcrumb } from './breadcrumb';
 import { buildPatch, formFromItem, isValidDate, type ItemForm } from './etag';
 import { useItemDetail, useItemMutations } from './useItem';
@@ -27,7 +27,7 @@ export function ItemEditScreen({ id }: { id: string }) {
   if (isLoading || !libraryId) {
     return (
       <Screen title="Edit item">
-        <Text tone="muted">Loading this item…</Text>
+        <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
@@ -39,7 +39,7 @@ function EditLoader({ libraryId, id }: { libraryId: string; id: string }) {
   if (isLoading) {
     return (
       <Screen title="Edit item">
-        <Text tone="muted">Loading this item…</Text>
+        <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
@@ -109,7 +109,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
     <Screen title="Edit item" subtitle={detail.item.customTitle ?? detail.work.title}>
       {conflict ? (
         <Card>
-          <Text accessibilityRole="alert">Someone changed this. Reload?</Text>
+          <Text tone="danger" accessibilityRole="alert">Someone changed this. Reload?</Text>
           <Text variant="caption" tone="muted">
             Your edits are still here. Reloading replaces them with the latest version.
           </Text>

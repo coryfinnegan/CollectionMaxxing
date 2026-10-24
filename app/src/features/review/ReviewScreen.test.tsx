@@ -58,6 +58,13 @@ describe('Review screen', () => {
     expect(headers.filter((h) => h.includes(' · ') && h !== 'Review')).toEqual(['Pick one · 1', 'Not found · 1', 'You own these · 1', 'Ready · 1']);
   });
 
+  it('shows an empty state when there is nothing to review', async () => {
+    seed([]);
+    await open();
+    expect(await screen.findByText('Nothing to review.')).toBeTruthy();
+    expect(screen.getByText('Scan something and it shows up here.')).toBeTruthy();
+  });
+
   it('counts only checked rows and adds them with one commit, then offers Undo', async () => {
     seed([mario(), dune(), pick(), lost()]);
     await open();

@@ -5,7 +5,7 @@ import type { DeletedItemDto } from '@/api/generated/models';
 import { getListDeletedItemsQueryKey, useListDeletedItems } from '@/api/generated/trash/trash';
 import { useRestoreItem } from '@/api/generated/items/items';
 import { friendlyError } from '@/lib/problem';
-import { Button, EmptyState, ListRow, Card, Screen, Text } from '@/ui';
+import { Button, EmptyState, ListRow, Card, LoadingState, Screen, Text } from '@/ui';
 import { BackButton } from './BackButton';
 import { useMyRole } from './useMyRole';
 
@@ -23,7 +23,7 @@ export function RecentlyDeletedScreen() {
     return (
       <Screen title="Recently deleted">
         <BackButton />
-        <Text tone="muted">Loading…</Text>
+        <LoadingState label="Loading…" />
       </Screen>
     );
   }
@@ -31,7 +31,7 @@ export function RecentlyDeletedScreen() {
     return (
       <Screen title="Recently deleted">
         <BackButton />
-        <Text tone="muted">Only editors and the owner can see and restore deleted items.</Text>
+        <EmptyState title="Only editors and the owner can see and restore deleted items." />
       </Screen>
     );
   }
@@ -64,8 +64,8 @@ function Bin({ libraryId }: { libraryId: string }) {
     <Screen title="Recently deleted" subtitle="Deleted items stay here for 30 days.">
       <BackButton />
       {message ? <Text accessibilityRole="alert">{message}</Text> : null}
-      {list.isLoading ? <Text tone="muted">Loading…</Text> : null}
-      {list.isError ? <Text tone="danger">{friendlyError(list.error)}</Text> : null}
+      {list.isLoading ? <LoadingState label="Loading…" /> : null}
+      {list.isError ? <Text tone="danger" accessibilityRole="alert">{friendlyError(list.error)}</Text> : null}
       {!list.isLoading && !list.isError && items.length === 0 ? (
         <EmptyState title="Nothing deleted" body="Items you delete wait here for 30 days, so you can bring them back." />
       ) : null}

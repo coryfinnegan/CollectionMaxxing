@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { useColors } from '@/theme/tokens';
-import { Button, EmptyState, Screen, Text } from '@/ui';
+import { Button, EmptyState, LoadingState, Screen } from '@/ui';
 import { createDevicePipelineDeps } from '../pipeline/device';
 import { useAutoSnapConfig } from '../pipeline/useAutoSnapConfig';
 import { LazyCameraPreview } from './LazyCameraPreview';
@@ -47,7 +47,11 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
   if (!libraryId) {
     return (
       <RouteFallback title="Scanner" onClose={onClose}>
-        <Text tone="muted">{isLoading ? 'Getting your library ready…' : 'No library found. Pair this iPhone again.'}</Text>
+        {isLoading ? (
+          <LoadingState label="Getting your library ready…" />
+        ) : (
+          <EmptyState title="No library found." body="Pair this iPhone again." />
+        )}
       </RouteFallback>
     );
   }

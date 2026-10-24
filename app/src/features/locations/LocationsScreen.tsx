@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
-import { Button, Card, EmptyState, ListRow, Screen, Text, TextField } from '@/ui';
+import { Button, Card, EmptyState, ListRow, LoadingState, Screen, Text, TextField } from '@/ui';
 import { BackButton } from '@/features/me/BackButton';
 import { flattenTree } from './tree';
 import { useActiveLibraryId, useLocationMutations, useLocationsList } from './useLocations';
@@ -14,7 +14,7 @@ export function LocationsScreen() {
     return (
       <Screen title="Locations">
         <BackButton />
-        <Text tone="muted">Loading your locations…</Text>
+        <LoadingState label="Loading your locations…" />
       </Screen>
     );
   }
@@ -100,7 +100,7 @@ function LocationsList({ libraryId }: { libraryId: string }) {
           onAction={() => refetch()}
         />
       ) : isLoading ? (
-        <Text tone="muted">Loading your locations…</Text>
+        <LoadingState label="Loading your locations…" />
       ) : rows.length === 0 ? (
         <EmptyState title="No locations yet" body="Add a room or a shelf to say where things live." />
       ) : (

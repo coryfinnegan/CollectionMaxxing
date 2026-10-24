@@ -43,7 +43,7 @@ export function DeleteAccountScreen() {
       ) : null}
       {isWeb() ? (
         <>
-          <Text tone="muted">You may be asked to sign in again before anything is deleted.</Text>
+          <Text variant="caption" tone="muted">You may be asked to sign in again before anything is deleted.</Text>
           <Button
             label="Delete my account"
             variant="danger"

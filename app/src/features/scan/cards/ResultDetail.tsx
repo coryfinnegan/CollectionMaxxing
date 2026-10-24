@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStore } from 'zustand';
 import { formatLabels } from '@/features/library/labels';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
-import { spacing, useColors } from '@/theme/tokens';
+import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Cover, EmptyState, FormatBadge, Screen, Text } from '@/ui';
 import { useCardActions } from '../session/useCardActions';
 import { loadSession } from '../session/sessionApi';
@@ -124,14 +124,18 @@ export function ResultDetail({ id }: { id: string }) {
           </View>
         ) : null}
         {addable && (accepted || wishlisted) ? <Text tone="scan">{wishlisted ? 'On your wishlist' : 'Added to this scan'}</Text> : null}
-        {error ? <Text tone="danger">{error}</Text> : null}
+        {error ? (
+          <Text tone="danger" accessibilityRole="alert">
+            {error}
+          </Text>
+        ) : null}
       </Card>
 
       {canAdd && context ? (
         <Card>
           {sentCrop ? (
             <View testID="cover-choice" style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Image source={{ uri: sentCrop }} accessibilityLabel="Your photo as the cover" accessibilityIgnoresInvertColors style={{ width: 64, height: 64, borderRadius: 6 }} />
+              <Image source={{ uri: sentCrop }} accessibilityLabel="Your photo as the cover" accessibilityIgnoresInvertColors style={{ width: 64, height: 64, borderRadius: radius.sm }} />
               <Text variant="label">Your photo is the cover</Text>
             </View>
           ) : canCover ? (

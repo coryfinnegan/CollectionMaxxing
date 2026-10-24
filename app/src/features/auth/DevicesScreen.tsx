@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { type SessionDto, listDevices, revokeBrowser, revokeWebSessions, signOutAllIphones } from './api';
-import { Button, Card, ListRow, Screen, Text } from '@/ui';
+import { Button, Card, ListRow, LoadingState, Screen, Text } from '@/ui';
 import { BackButton } from '@/features/me/BackButton';
 
 const devicesKey = ['me', 'devices'] as const;
@@ -98,8 +98,12 @@ export function DevicesScreen() {
         </Card>
       ) : null}
 
-      {devices.isLoading ? <Text tone="muted">Loading...</Text> : null}
-      {devices.isError ? <Text tone="danger">{friendlyError(devices.error)}</Text> : null}
+      {devices.isLoading ? <LoadingState label="Loading..." /> : null}
+      {devices.isError ? (
+        <Text tone="danger" accessibilityRole="alert">
+          {friendlyError(devices.error)}
+        </Text>
+      ) : null}
       {devices.data?.failed.map((half) => (
         <Text key={half} tone="muted" accessibilityRole="alert">
           {`Couldn't load your ${half}. Try again in a moment.`}

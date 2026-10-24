@@ -67,6 +67,26 @@ describe('LibraryView grid', () => {
     expect(screen.getByText("That's no longer here. Refresh and try again.")).toBeTruthy();
   });
 
+  it('shows the shared loading state while the list loads', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/items', async () => {
+        await gate;
+        return HttpResponse.json({ items: [], nextCursor: null });
+      }),
+    );
+    await renderWithProviders(<LibraryView title="Library" />);
+
+    expect(screen.getByTestId('loading-state')).toBeTruthy();
+    expect(screen.getByText('Loading your library…')).toBeTruthy();
+
+    release();
+    expect(await screen.findByText('Nothing here yet.')).toBeTruthy();
+  });
+
   it('says nothing matches, rather than "nothing here", when a filter finds nothing', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');

@@ -71,7 +71,7 @@ function SearchStep({ onPick }: { onPick: (releaseId: string) => void }) {
           {"Couldn't search the catalogue. Check your connection, or add it yourself below."}
         </Text>
       ) : q.length >= 2 && !search.isLoading && results.length === 0 ? (
-        <Text tone="muted">No matches yet.</Text>
+        <Text variant="caption" tone="muted">No matches yet.</Text>
       ) : null}
       {results.flatMap((result) =>
         result.releases.map((release) => {
