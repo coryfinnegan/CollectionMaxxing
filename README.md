@@ -110,7 +110,7 @@ iPhone / browser -> Tailscale HTTPS -> tailscale serve -> 127.0.0.1:5480 (API + 
 
 Every script is a dry run unless you pass `-Apply`. After this, updates are automatic.
 
-**First sign-in:** the one-time setup code is in `C:\CollectionMaxxing\secrets\setup-code.txt` (and in the API logs). Open `https://<your-pc>.<tailnet>.ts.net` and use it to create the owner passkey. Family members join by invite as Editor or Viewer.
+**First sign-in:** open `https://<your-pc>.<tailnet>.ts.net` and press **Sign in** with Google or Apple. The first sign-in creates your account; then create your library or join one with an invite link or code. There is no setup code. Support commands for the person at the host (recovery codes, the developer-tools role) are in [docs/07](docs/07-authentication-and-authorization.md).
 
 Day-to-day operations (health checks, restore, rollback, what to do when something breaks) are in [deploy/runbooks](deploy/runbooks/README.md) and [deploy/RESTORE.md](deploy/RESTORE.md).
 

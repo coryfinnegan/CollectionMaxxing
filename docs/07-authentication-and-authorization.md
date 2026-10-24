@@ -5,51 +5,46 @@
 | | Decision |
 |---|---|
 | Who signs people in | **Auth0** (Free plan), through Universal Login, with **Google** and **Sign in with Apple**. No passwords. ([ADR-025](12-decision-log.md#adr-025-auth0-for-sign-in-our-api-keeps-authorization)) |
-| Who decides what you can do | **Our API.** Auth0 proves *who* someone is. An Auth0 identity gets in only if it is linked to one of our users (`user_logins`). |
+| Who decides what you can do | **Our API.** Auth0 proves *who* someone is. The first sign-in of an identity creates an account (`users` + `user_logins`); what that account can reach is decided by its library memberships. |
 | Web | The API runs the OIDC code flow itself (Microsoft's `AddOpenIdConnect`). The result is the same-origin `__Host-cm` cookie: **30 days idle, 1 year at most**. The browser never holds a token. |
 | iPhone app | **Authorization Code + PKCE** with `react-native-auth0`. A rotating refresh token lives in the Keychain, plus an optional **Face ID app lock**. The API checks the access token with `AddJwtBearer`. |
-| First-time setup | A **one-time setup code** printed by the server on first start. You sign in with Google or Apple, enter the code, and become the owner of a new library. |
-| Network | Reachable **only over your Tailscale network**: a second wall in front of the app's own sign-in |
-| API authorization | **Deny by default**; **resource-based library roles**; platform `admin` role for ops |
+| Getting started | **No setup.** Every first sign-in creates an account. A new account lands on Welcome, where it creates a library (up to 3 owned) or joins one by invite link or code ([15](15-onboarding.md), [ADR-026](12-decision-log.md#adr-026-onboarding-every-sign-in-is-an-account-people-create-or-join-libraries)). |
+| Network | Today reachable **only over your Tailscale network** while the PC is the development host. That wall is temporary: the app is built as a public website ([ADR-027](12-decision-log.md#adr-027-a-multi-user-web-app-the-pc-is-only-a-development-host)). |
+| API authorization | **Deny by default**; **resource-based library roles**; a developer-tools role for `/api/admin/*`, granted only from the host |
 | Proof | An **authorization-matrix test** runs every endpoint × every role on every PR |
 
 The plan and the reasons are in [14](14-auth0-migration.md). This page describes how it works now.
 
 ## Flows
 
-### Linking: who gets in
+### Accounts: first sign-in creates one
 
 `user_logins` holds `user_id`, `provider` (`auth0`), `subject` (Auth0's `sub`, such as `google-oauth2|…` or `apple|…`) and `created_at`. `subject` is unique, so an identity belongs to at most one user.
 
-- The API **never matches people by email**. An address from a provider isn't proof of who someone is. Email is stored for display only.
-- An identity that isn't linked gets **403 `account.not_linked`** ("This account isn't part of a library. Ask the owner for an invite"). Nothing is created for it. The web shows a page for it (`/account/not-linked`).
-- There are four ways to link an identity, and no others:
+- **A first sign-in creates an account.** On the web, `/signin-oidc` with an unknown identity creates the user (name and email from the ID token) and the `user_logins` link in one transaction, then starts the `__Host-cm` session. On the iPhone, the first API call with a valid access token for an unknown `sub` does the same, with name and email from Auth0's `/userinfo`. Two first calls at once make one account.
+- The API **never matches people by email**. A new `sub` is a new account even if the email matches another. Email is stored for display only.
+- An account with no libraries reaches only its own `/api/v1/me…` routes, the library list, create, and invite preview and accept. Every library route still needs membership (404 otherwise).
+- Other ways to link an identity to an *existing* account:
 
-| Path | When | What happens after the Auth0 sign-in |
+| Path | When | What happens |
 |---|---|---|
-| **Setup** | No owner exists (a fresh install) | You enter the setup code. The identity becomes the owner of a new library. |
-| **Invite** | `/join/{token}` | The invite token travels in a sealed, short-lived cookie during the Auth0 round trip. Then the user and membership are created. |
 | **Add a sign-in method** | Signed in, with a recent sign-in | The new identity is linked to you, so one person can use both Google and Apple. Removing the last one is blocked (409). |
-| **Recovery** | You've lost every linked identity | `cm-admin recovery-code` on the PC prints a one-time code. You sign in with the new identity and enter the code, and it is linked to the owner. |
+| **Recovery** | You've lost every linked identity | A host-side code for a named account (below). The next sign-in with a new identity is linked to that account only. |
 
-### First run: create the owner
+There is no setup code, no `/setup` and no "not part of a library" dead end ([15](15-onboarding.md)).
 
-```mermaid
-sequenceDiagram
-  participant PC as Server (first start)
-  participant B as Browser on the PC
-  participant A as Auth0
-  PC->>PC: No owner yet → generate a setup code (single use, 24 h)<br/>print it in the logs + write secrets/setup-code.txt
-  B->>PC: Open https://pc.tailnet.ts.net → "Set up CollectionMaxxing"
-  B->>PC: POST /setup (the setup code + your display name) → code checked first
-  B->>A: GET /account/login?intent=setup → Continue with Google / Apple
-  A-->>B: Back to /signin-oidc
-  PC->>PC: Create owner + personal library + user_logins row; delete the code
-  PC-->>B: Set-Cookie __Host-cm → Library
+### Recovery and developer tools: commands at the host
+
+Both are support commands for the person at the host. They run as arguments of the API itself, so they use the same configuration and database. The API image is chiseled with no shell and there is no separate admin binary; run them through the container:
+
+```powershell
+docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --recovery-code you@example.com
+docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --dev-tools grant you@example.com
+docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --dev-tools revoke you@example.com
 ```
 
-- The setup endpoints exist only while there is no owner. After that they return 404.
-- **Recovery** (lost every linked identity): `docker compose exec api cm-admin recovery-code` on the PC. Physical access to your PC is the recovery factor.
+- **`--recovery-code <email>`** prints a one-time code that links the *next* sign-in to that named account. Open the web sign-in page, choose "Can't sign in?", enter the code, and sign in with the Google or Apple account you now want. It works once, for that account only, and expires. An unknown email, or one that two accounts share, issues nothing. Access to the host is the recovery factor; it isn't an app role.
+- **`--dev-tools grant|revoke <email>`** gives or takes away the developer-tools role behind `/api/admin/*`: the iPhone scanner evals and the job list. A grant shows at the person's next sign-in. An unknown or shared email changes nothing. Nothing in the app can grant it, and it opens no library.
 
 ### Web: Auth0 signs you in, our cookie keeps you in
 
@@ -105,18 +100,19 @@ sequenceDiagram
   participant API as API
   participant F as Family member (their device, on your tailnet)
   O->>API: Settings → Members → Invite (name, Editor or Viewer)
-  API-->>O: Link + QR code (single use, 7 days, revocable)
-  O-->>F: Send the link (text, AirDrop…)
-  F->>API: GET /join/{token} → "Join Cory's library as Editor"
-  F->>API: Continue with Google / Apple
-  API->>API: Invite unused, unexpired, unrevoked? → mark accepted → create user + membership + user_logins row
-  API-->>F: Set-Cookie __Host-cm → your Library
+  API-->>O: Link + QR code + code (single use, 7 days, revocable)
+  O-->>F: Send the link or the short code (text, AirDrop…)
+  F->>API: GET /join/{token} → "Join Cory's library as Editor" (or types the code ABCD-EFGH-JK)
+  F->>API: Sign in with Google / Apple (the first sign-in creates their account)
+  F->>API: POST /api/v1/invites:accept
+  API->>API: Invite unused, unexpired, unrevoked? → mark accepted → create the membership with the invited role
+  API-->>F: 200 → your Library
   F->>API: On their iPhone: install from TestFlight and press Sign in
 ```
 
-- **Nobody joins without an invite.** The link also only works from your tailnet, so the person must be added to Tailscale first. That's two independent gates.
+- **Joining a library needs an invite.** An invite never grants Owner. Codes are about 50 bits, single use and rate-limited, and unknown, expired, revoked and used invites all get the same 404. While the PC is the development host, the person must also be on the tailnet.
 - Each member has **their own sign-in methods and their own devices**. Nothing is shared between accounts.
-- **Removing a member** deletes their membership and deactivates their account. The deactivation check refuses them on their next call, whatever token they hold, and their web sessions and refresh tokens are revoked. The items they added stay and still show who added them.
+- **Removing a member, or leaving,** ends only that membership. The account and its other libraries stay; memberships are read on every request, so the person loses that library on their next call. The items they added stay and still show who added them. A library's last owner can't leave.
 - **The owner can't be removed.**
 
 ### App sign-ins, revocation and deletion
@@ -138,10 +134,10 @@ sequenceDiagram
 Request (only possible from a device on your tailnet)
   │
   ├─ 1. Authentication     cookie (web) or JWT bearer (iPhone) → ClaimsPrincipal; otherwise 401
-  ├─ 2. Linked user        the token's sub must be in user_logins, else 403 account.not_linked;
+  ├─ 2. Account             the token's sub is looked up in user_logins; an unknown sub creates the account;
   │                        a deactivated user, or a token issued before tokens_not_before, is refused
   ├─ 3. Fallback policy    every endpoint requires an authenticated user unless explicitly [AllowAnonymous]
-  ├─ 4. Route-group policy /api/admin/* requires platform role `admin` (the owner)
+  ├─ 4. Route-group policy /api/admin/* requires the developer-tools role (platform `admin`)
   ├─ 5. Resource policy    library membership + minimum role for the endpoint (Viewer | Editor | Owner)
   │                         → not a member: 404 (don't reveal existence); member without the role: 403
   └─ 6. Data filter        EF Core global query filter on library_id (defence in depth)
@@ -159,7 +155,7 @@ Request (only possible from a device on your tailnet)
 | See and sign out their own browsers and iPhones | ✓ | ✓ | ✓ |
 | Delete own account | ✓ | ✓ | ✓ (recent sign-in) |
 
-In v1 there's one library, yours. Family members join it by invite as Editor or Viewer. The authorization-matrix test covers every role from the very first endpoint.
+A person can own up to 3 libraries (`Libraries:MaxOwnedPerUser`) and belong to others, as Owner, Editor or Viewer. The developer-tools role is separate from these and opens no library. The authorization-matrix test covers every role from the very first endpoint.
 
 ### Implementation
 
@@ -184,12 +180,12 @@ lib.MapPost("/items", AddItem.Handle).RequireLibraryRole(LibraryRole.Editor);
 
 Tests sign in with a **fake Auth0**: WireMock serves discovery, the signing keys and the token endpoint, and the JWTs are signed with a test key. Everything else uses `TestAuthHandler` and the `X-Test-User` header.
 
-1. **Every-endpoint-has-a-policy test.** It reflects over `EndpointDataSource` and fails if any endpoint lacks `RequireLibraryRole`, `RequireAuthorization` or `AllowAnonymous`. Anonymous endpoints must be on an explicit allow-list (`/health/*`, `/setup` while no owner exists, `/account/login`, `/signin-oidc`, `/account/not-linked`, `/join/{token}`, `/api/v1/invites/{token}` with a valid invite, `/account/recover`, static files).
-2. **Authorization matrix.** One table-driven test lists every endpoint with its expected status for `anonymous`, `other-user`, `viewer`, `editor`, `owner` and `admin`. It runs against the real pipeline (WebApplicationFactory + Testcontainers Postgres) on every PR.
+1. **Every-endpoint-has-a-policy test.** It reflects over `EndpointDataSource` and fails if any endpoint lacks `RequireLibraryRole`, `RequireAuthorization` or `AllowAnonymous`. Anonymous endpoints must be on an explicit allow-list (`/health/*`, `/account/login`, `/signin-oidc`, `/join/{token}`, `/api/v1/invites/{token}` with a valid invite, `/account/recover`, static files).
+2. **Authorization matrix.** One table-driven test lists every endpoint with its expected status for `anonymous`, `other-user`, `viewer`, `editor`, `owner` and `admin`, plus a signed-in account with no libraries. It runs against the real pipeline (WebApplicationFactory + Testcontainers Postgres) on every PR.
 3. **IDOR tests:** user B requests user A's item, session, photo, cover and export by ID, and expects 404 every time.
 4. **Sign-in tests:**
-   - a valid token for an unlinked identity gets `account.not_linked` and creates nothing;
-   - the setup endpoints 404 once an owner exists, and a setup code works once;
+   - a first sign-in creates exactly one account, and a new `sub` with an existing account's email gets a new account;
+   - the setup routes are gone; a recovery code links a new identity to the named account only;
    - each link path works once, and a second identity can't take over a linked `subject`;
    - `RequireRecentSignIn` refuses a cookie older than 5 minutes and any bearer token;
    - a token issued before `tokens_not_before` is refused, and one issued after it works;

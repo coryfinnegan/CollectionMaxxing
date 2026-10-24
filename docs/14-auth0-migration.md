@@ -2,6 +2,8 @@
 
 **Status:** **Done (Wave 6).** The cutover is in the release that carries app version 1.1.0. How sign-in works now is in [07](07-authentication-and-authorization.md); this page is the record of the plan. The decision record is [ADR-025](12-decision-log.md#adr-025-auth0-for-sign-in-our-api-keeps-authorization).
 
+**Superseded in Wave 7:** the setup code, the "not part of a library" page and owner-only linking described below are gone. Every first sign-in creates an account and people create or join libraries ([15](15-onboarding.md), ADR-026). There is no `cm-admin`; the recovery command is `docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --recovery-code <email>` ([07](07-authentication-and-authorization.md)).
+
 **What changed from the plan while building it:**
 - **Revocation goes through grants.** The Free plan has no refresh-token endpoints (`/api/v2/refresh-tokens`, `delete:refresh_tokens`), so the Management app has the scopes `delete:grants` and `delete:users`, and "Sign out all iPhones" deletes the person's grants (`DELETE /api/v2/grants?user_id=…`). One phone can't be revoked alone. This settled the AUTH0-0 question.
 - **Google stays in "Testing"** in Google Cloud Console, with the family added as test users, so there is no app verification.
@@ -124,7 +126,7 @@ sequenceDiagram
 | **Setup** | No owner exists: a fresh install, which includes the wiped server after the cutover | Enter the setup code. The identity becomes the owner of a new library, as today but with Auth0 instead of a passkey. |
 | **Invite** | `/join/{token}` | The invite token sits in a short-lived protected cookie during the Auth0 round trip. Then the user and membership are created, exactly as now. |
 | **Add a sign-in method** | Already signed in, with a recent sign-in | The new identity is linked to you, so one person can use both Google and Apple. |
-| **Recovery code** | You've lost access to every linked identity | `cm-admin recovery-code` on the PC, as today. The code links the new identity to the owner. |
+| **Recovery code** | You've lost access to every linked identity | `docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --recovery-code <email>` on the PC. The code links the new identity to that account. |
 
 ### Devices and revocation
 

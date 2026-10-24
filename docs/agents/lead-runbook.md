@@ -52,6 +52,8 @@ Prompt skeleton:
 
 ## Known quirks
 
+- **The deployer reads the compose file from git at the release's commit** (#246), not the one on disk. A release that needs a `.env` variable the host lacks is refused before anything migrates; add the variable, then let the next 2-minute run retry.
+- **Flaky app Jest test (#260):** `LibraryGrid.test.tsx` fails now and then, mostly in CI's backend job. Re-run the failed job before investigating.
 - **Docker Desktop is 24.0.7 (API 1.43).** `PostgresFixture` pins the client to the daemon's own version. Don't hard-code it.
 - **Aspire AppHost** opts out of NuGet lock files, because its packages are OS-specific.
 - **`dotnet format`** occasionally crashes (Roslyn AccessViolation). Re-run it.

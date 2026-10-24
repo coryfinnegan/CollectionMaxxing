@@ -78,7 +78,7 @@ Expect, in `C:\CollectionMaxxing\logs\deployer.log` and on screen: `deploying <1
 Invoke-RestMethod http://127.0.0.1:5480/health/ready      # Healthy
 docker compose -p collectionmaxxing ps                     # postgres, api, aspire-dashboard, backup running; migrate exited 0
 ```
-Open `http://127.0.0.1:18888` for logs, traces and metrics. The one-time **setup code** (to create the owner: you sign in with Google or Apple, then enter it) is printed in `docker compose -p collectionmaxxing logs api` and written to `C:\CollectionMaxxing\secrets\setup-code.txt`.
+Open `http://127.0.0.1:18888` for logs, traces and metrics. There is no setup code: the first sign-in creates an account, and people create or join libraries in the app. Support commands (recovery code, developer-tools role) are in [docs/07](../docs/07-authentication-and-authorization.md).
 
 If a step fails, the log says why: no `gh` login or an image that is not attested = nothing deployed; a failed migration = the old api keeps running; a failed smoke test = the previous good version is pinned and restarted.
 **Undo:** `docker compose -p collectionmaxxing -f C:\CollectionMaxxing\repo\deploy\docker-compose.yml --env-file C:\CollectionMaxxing\.env stop` (stops without deleting data; **never** use `down -v`, it deletes the database volume).
