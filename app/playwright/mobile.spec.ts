@@ -27,8 +27,9 @@ const routes: { name: string; path: string }[] = [
   { name: 'scanner', path: '/scanner' },
   { name: 'result', path: '/result/c1000000-0000-4000-8000-000000000001' },
   { name: 'login', path: '/login' },
-  { name: 'setup', path: '/setup' },
-  { name: 'not-linked', path: '/account/not-linked' },
+  { name: 'welcome', path: '/welcome?account=new' },
+  { name: 'create-library', path: '/welcome/create' },
+  { name: 'join-library', path: '/welcome/join' },
   { name: 'join', path: '/join/valid-invite' },
 ];
 

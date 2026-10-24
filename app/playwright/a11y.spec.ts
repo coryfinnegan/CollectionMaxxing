@@ -2,13 +2,9 @@ import { expect, test } from './fixtures';
 
 // An axe scan on each main page: no serious or critical violations.
 test.describe('accessibility', () => {
-  test('sign-in, setup and join', async ({ page, open, expectAccessible }) => {
+  test('sign-in and join', async ({ page, open, expectAccessible }) => {
     await open('/login');
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
-    await expectAccessible();
-
-    await page.getByRole('button', { name: 'First time here? Set up CollectionMaxxing' }).click();
-    await expect(page.getByRole('heading', { name: 'Set up CollectionMaxxing' })).toBeVisible();
     await expectAccessible();
 
     await page.goto('/join/valid-invite');

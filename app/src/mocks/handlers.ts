@@ -5,11 +5,12 @@ import type { CreateLocationRequest, LocationDto, UpdateLocationRequest } from '
 import { handlers as authHandlers } from './auth';
 import { handlers as bulkHandlers } from './bulk';
 import { handlers as catalogHandlers } from './catalog';
-import { MOCK_LIBRARY_ID, mockData, mockMe, newMockId } from './data';
+import { MOCK_LIBRARY_ID, mockAccount, mockData, mockMe, newMockId } from './data';
 import { handlers as evalsHandlers } from './evals';
 import { handlers as itemsHandlers } from './items';
 import { handlers as librariesHandlers } from './libraries';
 import { handlers as meHandlers } from './me';
+import { handlers as onboardingHandlers } from './onboarding';
 import { handlers as ownershipHandlers } from './ownership';
 import { handlers as membersHandlers } from './members';
 import { handlers as scanHandlers } from './identify'; // the barcode handlers plus the picture ones
@@ -25,8 +26,10 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
 const base = '*/api/v1/libraries/:libraryId/locations';
 
 export const handlers = [
-  ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...scanHandlers, ...evalsHandlers,
-  http.get('*/api/v1/me', () => HttpResponse.json(mockMe())),
+  ...onboardingHandlers, ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...scanHandlers, ...evalsHandlers,
+  http.get('*/api/v1/me', () =>
+    mockAccount.signedIn ? HttpResponse.json(mockMe()) : problem(401, 'Unauthorized'),
+  ),
 
   http.get(base, () => HttpResponse.json({ items: mockData.locations, nextCursor: null })),
 

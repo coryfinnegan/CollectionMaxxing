@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
-import { JoinScreen } from '@/features/auth/WebAuthScreens';
+import { JoinInviteScreen } from '@/features/onboarding/JoinInviteScreen';
 
 export default function Join() {
   const { token } = useLocalSearchParams<{ token: string }>();
-  return <JoinScreen token={token} />;
+  return <JoinInviteScreen token={token} />;
 }

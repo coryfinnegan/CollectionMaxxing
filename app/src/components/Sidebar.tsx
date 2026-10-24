@@ -1,6 +1,7 @@
 // Web layout at 768px and up: the sidebar from docs/06 "Navigation map".
 import { type Href, Link, usePathname } from 'expo-router';
 import { Pressable, View } from 'react-native';
+import { LibrarySwitcher } from '@/features/onboarding/LibrarySwitcher';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
 
@@ -33,6 +34,7 @@ export function Sidebar() {
       <Text variant="heading" style={{ marginBottom: spacing.lg }}>
         CollectionMaxxing
       </Text>
+      <LibrarySwitcher />
       {sidebarItems.map((item) => {
         const active = pathname === item.href;
         return (

@@ -4,7 +4,6 @@ import { customFetch } from '@/lib/http';
 import type {
   AppSignInDto,
   LogoutDto,
-  NextStepDto,
   PageOfAppSignInDto,
   PageOfSignInMethodDto,
   SignInMethodDto,
@@ -22,9 +21,6 @@ export type SessionDto = {
 const get = async <T>(url: string): Promise<T> => (await customFetch<{ data: T }>(url)).data;
 const post = async <T>(url: string, body?: object): Promise<T> =>
   (await customFetch<{ data: T }>(url, { method: 'POST', ...(body ? { body: JSON.stringify(body) } : {}) })).data;
-
-/** First run: the setup code. The answer says where to go next: the sign-in. */
-export const startSetup = (code: string) => post<NextStepDto>('/setup', { code });
 
 /** Ends this browser's session. The answer is where to send the browser to end the Auth0 session too. */
 export const logout = () => post<LogoutDto>('/account/logout');

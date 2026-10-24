@@ -7,7 +7,7 @@ describe('loginUrl', () => {
 
   it.each([
     [{ returnUrl: '/members?x=1' }, '/account/login?returnUrl=%2Fmembers%3Fx%3D1'],
-    [{ invite: 'tok' }, '/account/login?invite=tok'],
+    [{ returnUrl: '/join/tok' }, '/account/login?returnUrl=%2Fjoin%2Ftok'],
     [{ reauth: true, returnUrl: '/me/delete' }, '/account/login?returnUrl=%2Fme%2Fdelete&reauth=1'],
     [{ link: true }, '/account/login?link=1'],
   ])('builds %j', (options, expected) => {
@@ -30,7 +30,7 @@ describe('safeReturnUrl', () => {
 
 describe('signInErrorMessage', () => {
   it('has copy for every code the server redirects with, and none for others', () => {
-    for (const code of ['signin_failed', 'invite_invalid', 'setup_closed', 'already_linked', 'reauth_failed']) {
+    for (const code of ['signin_failed', 'invite_invalid', 'already_linked', 'reauth_failed']) {
       expect(signInErrorMessage(code)).toBeTruthy();
     }
     expect(signInErrorMessage('unknown')).toBeNull();

@@ -64,6 +64,7 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
 
   if (created) {
     const renderQr = getQrRenderer();
+    const code = created.code;
     return (
       <View {...dialog}>
       <Card>
@@ -77,6 +78,9 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
           label="Copy link"
           onPress={async () => setCopied((await copyToClipboard(created.link)) ? 'yes' : 'no')}
         />
+        {code ? (
+          <Text selectable accessibilityLabel="Invite code">{`Or tell them this code: ${code}`}</Text>
+        ) : null}
         {copied === 'yes' ? <Text accessibilityRole="alert">Link copied.</Text> : null}
         {copied === 'no' ? <Text accessibilityRole="alert">{"Couldn't copy. Select the link above and copy it by hand."}</Text> : null}
         <Text tone="muted">

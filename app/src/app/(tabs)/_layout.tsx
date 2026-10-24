@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { Sidebar } from '@/components/Sidebar';
 import { ReauthPrompt } from '@/features/auth/reauth';
+import { LibraryGate } from '@/features/onboarding/LibraryGate';
 import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
 import { AppLockGate } from '@/features/me/appLock';
 import { FingerprintBridge } from '@/features/scan/fingerprints/FingerprintBridge';
@@ -56,6 +57,7 @@ export default function TabsLayout() {
 
   return (
     <AppLockGate>
+    <LibraryGate />
     <OwnedDataBridge />
     <ReauthPrompt />
     <SnapStoreBridge />

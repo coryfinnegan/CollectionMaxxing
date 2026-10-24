@@ -1,10 +1,8 @@
 // MSW mocks of the sign-in endpoints (docs/14). Sign-in itself is a browser navigation, so only its JSON helpers are mocked. Magic values:
-//   setup code   CM-SETUP-OK works, CM-EXPIRED is gone, anything else is wrong
 //   invite       valid-invite works, expired-invite is gone, anything else is unknown
 import { HttpResponse, http } from 'msw';
 import type { AppSignInDto, SignInMethodDto } from '@/features/auth/contract';
 
-export const MOCK_SETUP_CODE = 'CM-SETUP-OK';
 export const MOCK_INVITE = 'valid-invite';
 /** Where the mocked sign-out sends the browser: back to our own sign-in page (the real one goes to Auth0 first). */
 export const MOCK_LOGOUT_URL = '/login';
@@ -48,12 +46,6 @@ const reauthProblem = () =>
   problem(401, "Confirm it's you", { type: 'https://collectionmaxxing.app/problems/reauth_required', code: 'reauth_required', reauth: true });
 
 export const handlers = [
-  http.post('*/setup', async ({ request }) => {
-    const body = (await request.json()) as { code?: string };
-    if (body.code === MOCK_SETUP_CODE) return HttpResponse.json({ next: '/account/login?returnUrl=%2Flibrary' });
-    return body.code === 'CM-EXPIRED' ? problem(410, 'Gone', { code: 'code.expired' }) : problem(400, 'Bad request', { code: 'code.invalid' });
-  }),
-
   http.post('*/account/logout', () => HttpResponse.json({ logoutUrl: MOCK_LOGOUT_URL })),
 
   http.get('*/api/v1/invites/:token', ({ params }) =>

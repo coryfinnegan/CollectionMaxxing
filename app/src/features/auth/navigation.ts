@@ -19,14 +19,13 @@ export function currentLocalUrl(): string {
   return `${location.pathname}${query ? `?${query}` : ''}`;
 }
 
-export type LoginOptions = { returnUrl?: string; reauth?: boolean; link?: boolean; invite?: string };
+export type LoginOptions = { returnUrl?: string; reauth?: boolean; link?: boolean };
 
-export function loginUrl({ returnUrl, reauth, link, invite }: LoginOptions = {}): string {
+export function loginUrl({ returnUrl, reauth, link }: LoginOptions = {}): string {
   const params = new URLSearchParams();
   if (returnUrl) params.set('returnUrl', returnUrl);
   if (reauth) params.set('reauth', '1');
   if (link) params.set('link', '1');
-  if (invite) params.set('invite', invite);
   const query = params.toString();
   return `/account/login${query ? `?${query}` : ''}`;
 }
@@ -37,7 +36,6 @@ export const navigateTo = (url: string) => getNavigator()(url);
 const errorCopy: Record<SignInError, string> = {
   signin_failed: "Sign-in didn't finish. Try again.",
   invite_invalid: "This invite link isn't valid anymore. Ask for a new one.",
-  setup_closed: 'Setup is already finished. Sign in instead.',
   already_linked: 'That account is already used by someone else here. Choose a different one.',
   reauth_failed: "We couldn't confirm it's you. Try again.",
 };
