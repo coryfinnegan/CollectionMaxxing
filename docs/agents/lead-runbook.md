@@ -73,10 +73,32 @@ Prompt skeleton:
 - **Check what CI can't see before merging:**
   - `npx expo config --type introspect` after any `app.config.ts` change. Expo's config loader can't import another `.ts` file from `app.config.ts`, and `npm run check` doesn't load the config.
   - The real web export against the enforced CSP: the inline-script hash test.
-  - Fallback routes vs middleware-served paths: `/.well-known` for OpenIddict.
+  - Fallback routes vs middleware-served paths: `/.well-known` for OpenIddict (Wave 6: `/signin-oidc`, which the web app's 404 would otherwise swallow).
 - **Scripts run on Linux CI too:** `Join-Path` with a `C:\` root throws "Cannot find drive" on Linux, and containers running as another uid can't write runner-created bind mounts (`chmod a+rwX` the per-run folders).
 - **Verifiers earn their keep on lockout paths:** rate limits that counted token refreshes, and a client that treated a 429 as "revoked", would have un-paired the owner's phone. Brief verifiers to try to lock the owner out.
 - **Builders under load:** tell every builder which local-only flakes to ignore, and give tests a real-time budget that can't expire under multi-agent load (`ResolveBudget` 2 minutes in test hosts; no hosted `JobWorker` in test apps).
+
+## Lessons from Wave 6
+
+- **A wave that must ship as one change uses an integration branch** (`w6/auth0`), because the deployer ships every push to `main`. Builder PRs target it, and one PR lands it on `main`.
+  - A PR into another branch doesn't auto-close its issue (`Closes #N` only works against the default branch). Close issues by hand.
+  - CI still runs on those PRs: `ci.yml` has no branch filter.
+  - `workflow_dispatch` only works for a workflow file that is on `main`, so a new manual workflow (`ios-check.yml`) lands there first.
+- **A deploy that adds a required `.env` setting needs the clone first.** Until #253, the deployer started a release with the previous release's compose file, so the Wave 6 cutover rolled back once. Before a cutover, run `docker compose config` with the real `.env` against the new compose file, and know the recovery path:
+  - Disable the `CollectionMaxxingDeployer` task, then fast-forward `C:\CollectionMaxxing\repo` to the release.
+  - A rolled-back sha is marked in `state\deployer-state.json` and skipped. Clear `failedSha` with `Read-CmStateStrict` / `Write-CmState` (dot-source `Cm.Common.ps1` **and** `Cm.Deploy.ps1`), never by hand-writing the JSON, and copy the file first. Writing JSON by hand once left it as `null`.
+  - Re-enable the task and let it deploy. The session's permission classifier refuses a manual `Deploy-CollectionMaxxing.ps1 -Apply`.
+- **Wipe cutovers:** take the backup, copy it into its own `pre-auth0`-style folder outside nightly retention (a nightly run prunes by age), run `scripts\restore-drill.ps1 -ConfirmLive` on it, and move old secrets and `.env` there rather than deleting them. Empty volumes from a throwaway container that mounts only that volume; never remove one.
+- **Auth0 on the Free plan:**
+  - The refresh-token endpoints answer 403 `feature_not_enabled`. Revoke by deleting the person's grants (`DELETE /api/v2/grants?user_id=`, scope `delete:grants`).
+  - Connection options are hidden and locked without the `read:connections_options` and `update:connections_options` scopes.
+  - App descriptions are limited to 140 characters.
+  - Auth0 may store a value in another order than the file (the Apple `scope`), which shows as a change on every dry run.
+  - Run `Apply-Auth0.ps1` from PowerShell, not Git Bash: the CLI looked in another home folder and couldn't find its login.
+- **Consoles in the built-in browser** (Google Cloud, Apple Developer): sessions expire during long waits, so the owner signs in again. Secrets that show once (the Google client secret, the Apple `.p8`) are downloaded by the owner and moved into the secrets folder by script. Never read them off the page. Use a **new** project and a **separate** App ID rather than editing the ones that ship the app.
+- **Verifiers found real problems again.** ASP.NET's sliding cookie renews only after half its lifetime, so "30 days idle" was really 15 to 30. Brief verifiers on every sign-in change to probe the *lifetime* claims as well as the access rules.
+- **An edit hook can refuse writes into another worktree.** If a scratch worktree for lead PRs is refused (this overrides the Wave 4 advice), branch inside the lead's own worktree instead. No agent works there.
+- **Check a done-criterion against the system, not against the owner's word.** "Signed in on the phone" is a row in `app_sign_ins`. Count rows (no personal data) before closing a wave.
 
 ## When the session limit hits
 
