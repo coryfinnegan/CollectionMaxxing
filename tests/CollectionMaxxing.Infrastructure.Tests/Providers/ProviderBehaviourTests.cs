@@ -135,6 +135,11 @@ public class ProviderBehaviourTests(PostgresFixture db) : DatabaseTest(db)
     [MemberData(nameof(ProviderCase.Names), MemberType = typeof(ProviderCase))]
     public async Task Remembers_that_a_code_is_unknown_so_it_is_not_asked_again(string name)
     {
+        if (name is "openlibrary" or "googlebooks")
+        {
+            return; // book lookups are retryable: see Does_not_remember_that_a_book_code_is_unknown
+        }
+
         using var host = ProviderHost.Create(Db, fakeTime: true);
         var provider = ProviderCase.Named(name);
         provider.RespondWith(host, 404, null);
@@ -143,5 +148,20 @@ public class ProviderBehaviourTests(PostgresFixture db) : DatabaseTest(db)
         (await provider.Ask(host)).ShouldBe(0);
 
         host.Requests(provider.Path).ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("openlibrary", 404, null)]
+    [InlineData("googlebooks", 200, "googlebooks-empty.json")]
+    public async Task Does_not_remember_that_a_book_code_is_unknown_so_it_can_be_found_later(string name, int status, string? fixture)
+    {
+        using var host = ProviderHost.Create(Db, fakeTime: true);
+        var provider = ProviderCase.Named(name);
+        provider.RespondWith(host, status, fixture);
+
+        (await provider.Ask(host)).ShouldBe(0);
+        (await provider.Ask(host)).ShouldBe(0);
+
+        host.Requests(provider.Path).ShouldBe(2); // asked again: a barcode that fails today is retryable
     }
 }

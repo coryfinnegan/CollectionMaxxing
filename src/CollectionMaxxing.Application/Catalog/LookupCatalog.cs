@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Identifiers;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,7 @@ public static class LookupCatalog
     public sealed record Query(string? Code);
 
     public sealed class Handler(
-        IAppDbContext db, IEnumerable<ICatalogProvider> providers, CatalogOptions options, ILogger<Handler> logger)
+        IAppDbContext db, IEnumerable<ICatalogProvider> providers, BookLookup bookLookup, CatalogOptions options, ILogger<Handler> logger)
     {
         public async Task<Result<CatalogLookupDto>> HandleAsync(Query query, CancellationToken cancellationToken)
         {
@@ -43,7 +44,16 @@ public static class LookupCatalog
                 }
             }
 
-            if (releases.Count == 0)
+            if (releases.Count == 0 && identifier.ProbableKind == WorkKind.Book)
+            {
+                // Books: the permanent local copy first, then the book providers at once, whichever answers first.
+                var book = await bookLookup.LookupAsync(identifier, null, options.ProviderTimeout, cancellationToken);
+                if (book.Release is { } found)
+                {
+                    releases.Add(CatalogProjection.ToReleaseDto(found));
+                }
+            }
+            else if (releases.Count == 0)
             {
                 var asked = providers.Where(p => identifier.ProbableKind is not { } kind || p.Supports(kind)).ToList();
                 using var failFast = ProviderCalls.FailFast(); // a person is waiting

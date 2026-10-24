@@ -41,7 +41,9 @@ public sealed class GoogleBooksProvider(HttpClient http, IOptions<GoogleBooksOpt
         var result = await FetchAsync(
             $"lookup:isbn:{id.Value}",
             _ => Task.FromResult(Get($"books/v1/volumes?q=isbn:{id.Value}&maxResults=1")),
-            ct);
+            ct,
+            cacheNotFound: false, // a barcode Google does not know today may be known later
+            isEmpty: doc => !doc.RootElement.Items("items").Any());
         if (result.Json is null)
         {
             return null;

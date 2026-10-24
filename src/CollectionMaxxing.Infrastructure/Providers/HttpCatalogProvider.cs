@@ -74,14 +74,17 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
     /// <summary>
     /// Gets JSON from the provider, through the cache. <paramref name="admit"/> runs just before a real call is sent (the
     /// quota check). <paramref name="refreshAuth"/> runs once on a 401, and returns true when the request is worth
-    /// sending again with fresh credentials.
+    /// sending again with fresh credentials. With <paramref name="cacheNotFound"/> false a 404 (and an answer
+    /// <paramref name="isEmpty"/> calls empty) is not remembered, so the same code is asked again next time.
     /// </summary>
     protected async Task<FetchResult> FetchAsync(
         string cacheKey,
         Func<CancellationToken, Task<HttpRequestMessage>> buildRequest,
         CancellationToken ct,
         Func<CancellationToken, Task<bool>>? admit = null,
-        Func<CancellationToken, Task<bool>>? refreshAuth = null)
+        Func<CancellationToken, Task<bool>>? refreshAuth = null,
+        bool cacheNotFound = true,
+        Func<JsonDocument, bool>? isEmpty = null)
     {
         var cached = await Runtime.Cache.TryGetAsync(Name, cacheKey, ct);
         if (cached is not null)
@@ -116,7 +119,11 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    await Runtime.Cache.SetAsync(Name, cacheKey, ProviderResponseCache.NotFoundPayload, ct);
+                    if (cacheNotFound)
+                    {
+                        await Runtime.Cache.SetAsync(Name, cacheKey, ProviderResponseCache.NotFoundPayload, ct);
+                    }
+
                     return FetchResult.NotFound;
                 }
 
@@ -141,7 +148,11 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
                 }
 
                 var json = JsonDocument.Parse(body); // a malformed body throws JsonException, handled below
-                await Runtime.Cache.SetAsync(Name, cacheKey, body, ct);
+                if (cacheNotFound || isEmpty?.Invoke(json) != true)
+                {
+                    await Runtime.Cache.SetAsync(Name, cacheKey, body, ct);
+                }
+
                 return new FetchResult(FetchStatus.Found, json);
             }
         }

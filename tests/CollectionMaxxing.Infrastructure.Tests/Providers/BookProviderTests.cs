@@ -23,7 +23,8 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
     public async Task Looks_an_isbn_up_into_a_release()
     {
         using var host = ProviderHost.Create(Db);
-        Stub(host, "/api/books", "openlibrary-isbn-found.json");
+        Stub(host, $"/isbn/{Isbn.Value}.json", "openlibrary-isbn-found.json");
+        Stub(host, "/authors/OL34184A.json", "openlibrary-author.json");
 
         var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
 
@@ -44,7 +45,7 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
     {
         using var host = ProviderHost.Create(Db);
         var bom = new byte[] { 0xEF, 0xBB, 0xBF };
-        host.Server.Given(Request.Create().WithPath("/api/books").UsingGet())
+        host.Server.Given(Request.Create().WithPath($"/isbn/{Isbn.Value}.json").UsingGet())
             .RespondWith(Response.Create().WithHeader("Content-Type", "application/json")
                 .WithBody([.. bom, .. System.Text.Encoding.UTF8.GetBytes(ProviderHost.Fixture("openlibrary-isbn-found.json"))]));
 
@@ -58,11 +59,11 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
     public async Task Asks_with_an_identifying_user_agent_that_carries_the_contact_email()
     {
         using var host = ProviderHost.Create(Db);
-        Stub(host, "/api/books", "openlibrary-isbn-found.json");
+        Stub(host, $"/isbn/{Isbn.Value}.json", "openlibrary-isbn-found.json");
 
         await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
 
-        var userAgent = host.Server.LogEntries.Single().RequestMessage!.Headers!["User-Agent"].ToString();
+        var userAgent = host.Server.LogEntries[0].RequestMessage!.Headers!["User-Agent"].ToString();
         userAgent.ShouldContain("CollectionMaxxing/1.0");
         userAgent.ShouldContain("owner@example.test");
     }
@@ -93,7 +94,7 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
     public async Task Drops_a_cover_that_is_not_on_an_allow_listed_host()
     {
         using var host = ProviderHost.Create(Db);
-        Stub(host, "/api/books", "openlibrary-isbn-evil-cover.json");
+        Stub(host, $"/isbn/{Isbn.Value}.json", "openlibrary-isbn-evil-cover.json");
 
         var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
 

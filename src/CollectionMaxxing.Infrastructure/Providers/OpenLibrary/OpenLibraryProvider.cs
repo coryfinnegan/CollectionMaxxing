@@ -21,7 +21,7 @@ public sealed class OpenLibraryOptions
 }
 
 /// <summary>
-/// Open Library: ISBN lookup (<c>/api/books</c>, which includes author names in one call) and title/author search
+/// Open Library: ISBN lookup (<c>/isbn/{isbn}.json</c>, then one call per author for the name) and title/author search
 /// (<c>/search.json</c>). Primary provider for books.
 /// </summary>
 public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOptions> options, ProviderRuntime runtime)
@@ -45,18 +45,51 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
             return null;
         }
 
-        var bibkey = $"ISBN:{id.Value}";
+        // The direct edition endpoint: much faster than /api/books, but it names authors by key only.
         var result = await FetchAsync(
-            $"lookup:{bibkey}",
-            _ => Task.FromResult(Get($"api/books?bibkeys={bibkey}&format=json&jscmd=data")),
-            ct);
+            $"lookup:isbn:{id.Value}",
+            _ => Task.FromResult(Get($"isbn/{id.Value}.json")),
+            ct,
+            cacheNotFound: false); // a barcode Open Library does not know today may be known later
         if (result.Json is null)
         {
             return null;
         }
 
         using var json = result.Json;
-        return json.RootElement.Prop(bibkey) is { } book ? FromBook(book, id) : null;
+        var edition = json.RootElement;
+        if (edition.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var authors = await AuthorNamesAsync(edition, ct);
+        return FromEdition(edition, id, authors);
+    }
+
+    private const int MaxAuthors = 5;
+
+    /// <summary>The names behind the edition's author keys. An author that cannot be fetched is left out; the book is still found.</summary>
+    private async Task<IReadOnlyList<string>> AuthorNamesAsync(JsonElement edition, CancellationToken ct)
+    {
+        var keys = edition.Items("authors")
+            .Select(a => a.Str("key"))
+            .OfType<string>()
+            .Where(k => k.StartsWith("/authors/OL", StringComparison.Ordinal) && k.All(c => char.IsLetterOrDigit(c) || c is '/'))
+            .Take(MaxAuthors)
+            .ToList();
+        var names = await Task.WhenAll(keys.Select(async key =>
+        {
+            var result = await FetchAsync($"author:{key}", _ => Task.FromResult(Get($"{key.TrimStart('/')}.json")), ct);
+            if (result.Json is null)
+            {
+                return null;
+            }
+
+            using var author = result.Json;
+            return author.RootElement.Str("name");
+        }));
+        return names.OfType<string>().ToList();
     }
 
     public override async Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct)
@@ -92,19 +125,18 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
     private static TimeSpan Interval(OpenLibraryOptions options) =>
         TokenBucketRateLimiter.IntervalFor(string.IsNullOrWhiteSpace(options.ContactEmail) ? Math.Min(options.RequestsPerSecond, 1) : options.RequestsPerSecond);
 
-    private static ProviderRelease? FromBook(JsonElement book, Identifier id)
+    private static ProviderRelease? FromEdition(JsonElement edition, Identifier id, IReadOnlyList<string> authors)
     {
-        var title = book.Str("title");
+        var title = edition.Str("title");
         if (title is null)
         {
             return null;
         }
 
-        var subtitle = book.Str("subtitle");
-        var key = book.Str("key")?.Split('/').LastOrDefault() ?? id.Value;
-        var ids = book.Prop("identifiers") is { } identifiers
-            ? identifiers.Strings("isbn_13").Concat(identifiers.Strings("isbn_10"))
-            : [];
+        var subtitle = edition.Str("subtitle");
+        var key = edition.Str("key")?.Split('/').LastOrDefault() ?? id.Value;
+        var ids = edition.Strings("isbn_13").Concat(edition.Strings("isbn_10"));
+        var cover = edition.Items("covers").FirstOrDefault(c => c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n) && n > 0);
 
         return new ProviderRelease
         {
@@ -112,11 +144,13 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
             ExternalId = key,
             Title = subtitle is null ? title : $"{title}: {subtitle}",
             Kind = WorkKind.Book,
-            Format = FormatOf(book.Str("physical_format")),
-            Year = ProviderJson.Year(book.Str("publish_date")),
-            Creators = book.Items("authors").Select(a => a.Str("name")).OfType<string>().ToList(),
-            Publisher = book.Items("publishers").Select(p => p.Str("name")).OfType<string>().FirstOrDefault(),
-            CoverUrl = CoverHosts.Allow(book.Prop("cover")?.Str("large") ?? book.Prop("cover")?.Str("medium")),
+            Format = FormatOf(edition.Str("physical_format")),
+            Year = ProviderJson.Year(edition.Str("publish_date")),
+            Creators = authors,
+            Publisher = edition.Strings("publishers").FirstOrDefault(),
+            CoverUrl = cover.ValueKind == JsonValueKind.Number
+                ? CoverHosts.Allow($"https://covers.openlibrary.org/b/id/{cover.GetInt64()}-L.jpg")
+                : null,
             Identifiers = ProviderJson.Identifiers(ids.Prepend(id.Value)),
         };
     }

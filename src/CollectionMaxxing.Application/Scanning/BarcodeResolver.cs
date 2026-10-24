@@ -45,6 +45,7 @@ public sealed record BarcodeResolution(
 /// </summary>
 public sealed class BarcodeResolver(
     IEnumerable<ICatalogProvider> providers,
+    BookLookup bookLookup,
     IProductLookup products,
     ScanningOptions options,
     ILogger<BarcodeResolver> logger)
@@ -63,16 +64,13 @@ public sealed class BarcodeResolver(
 
         if (id.ProbableKind == WorkKind.Book)
         {
-            var books = _providers
-                .Where(p => options.BookProviders.Contains(p.Name, StringComparer.OrdinalIgnoreCase) && p.Supports(WorkKind.Book))
-                .ToList();
-            var answers = await Task.WhenAll(books.Select(p => AskAsync(p.Name, token => p.LookupAsync(id, token), cancellationToken)));
-            steps.AddRange(answers.Select(a => a.Step));
-            anyFailed |= answers.Any(a => a.Failed);
-            if (answers.Select(a => a.Value).FirstOrDefault(v => v is not null) is { } book)
+            var book = await bookLookup.LookupAsync(id, options.BookProviders, null, cancellationToken);
+            steps.AddRange(book.Steps.Select(b => new TraceStep(b.Source, b.Outcome, b.Ms)));
+            anyFailed |= book.Failed;
+            if (book.Release is { } resolved)
             {
                 return new BarcodeResolution(
-                    ResolutionVerdict.Matched, [new ResolutionOption(null, book, ProviderExactScore)], book.Title, steps);
+                    ResolutionVerdict.Matched, [new ResolutionOption(null, resolved, ProviderExactScore)], resolved.Title, steps);
             }
         }
 
