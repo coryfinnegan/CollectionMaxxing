@@ -15,7 +15,7 @@ An iPhone with the app is lost or stolen, a family member leaves, or you just wa
    - on the phone, use Find My to lock or erase it, and change your Apple account password. That also signs it out of TestFlight. If you signed in with Google, check that account's security page too.
 5. If you have lost access to every Google or Apple account linked to you, make a recovery code on the PC (after the shell preamble in [README.md](README.md)):
    ```powershell
-   docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --recovery-code you@example.com
+   docker exec collectionmaxxing-api-1 dotnet CollectionMaxxing.Api.dll --recovery-code <email>
    ```
    Use the email of the account you are recovering. The code links your next sign-in to that account only. Open the app in a browser, choose "Can't sign in?", enter the one-time code and sign in with the Google or Apple account you now want to use. Physical access to the PC is the recovery factor, so do not paste the code anywhere.
 6. Sign in on the replacement phone: install the app from TestFlight ([iphone-app-testflight.md](iphone-app-testflight.md)) and press **Sign in**.
