@@ -10,7 +10,7 @@ import { flattenTree } from '@/features/locations/tree';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { NOT_FOUND_COPY, QUOTA_COPY } from '@/features/scan/cards/copy';
 import { radius, spacing, useColors } from '@/theme/tokens';
-import { Button, Chip, ListRow, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
+import { Button, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
 import { alternativesOf, isCollapsed, type ReviewGroup } from './grouping';
 import { addLabel, effective, type ReviewStatus } from './plan';
 import { useReview } from './useReview';
@@ -48,13 +48,13 @@ export function ReviewScreen({ libraryId, sessionId, onBack, undoMs }: { library
     <Screen title="Review" subtitle={review.canAdd ? undefined : 'You can look but not add. Ask an owner or editor to add these.'}>
       {total > 0 ? <Text tone="muted">{`${total} ${total === 1 ? 'item' : 'items'} scanned`}</Text> : null}
       {onBack ? <Button label="Back" variant="secondary" onPress={onBack} /> : null}
-      {review.loading ? <Text tone="muted">Loading what you scanned…</Text> : null}
+      {review.loading ? <LoadingState label="Loading what you scanned…" /> : null}
       {review.loadError ? (
         <Text tone="danger" accessibilityRole="alert">
           {review.loadError}
         </Text>
       ) : null}
-      {!review.loading && total === 0 ? <Text tone="muted">Nothing to review. Scan something and it shows up here.</Text> : null}
+      {!review.loading && total === 0 ? <EmptyState title="Nothing to review." body="Scan something and it shows up here." /> : null}
 
       {review.canAdd && total > 0 ? (
         <View style={{ gap: spacing.sm }}>

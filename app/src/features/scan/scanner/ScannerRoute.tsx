@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { Platform } from 'react-native';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
-import { EmptyState, Screen, Text } from '@/ui';
+import { EmptyState, LoadingState, Screen } from '@/ui';
 import { createDevicePipelineDeps } from '../pipeline/device';
 import { useAutoSnapConfig } from '../pipeline/useAutoSnapConfig';
 import { LazyCameraPreview } from './LazyCameraPreview';
@@ -30,7 +30,11 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
   if (!libraryId) {
     return (
       <Screen title="Scanner">
-        <Text tone="muted">{isLoading ? 'Getting your library ready…' : 'No library found. Pair this iPhone again.'}</Text>
+        {isLoading ? (
+          <LoadingState label="Getting your library ready…" />
+        ) : (
+          <EmptyState title="No library found." body="Pair this iPhone again." />
+        )}
       </Screen>
     );
   }

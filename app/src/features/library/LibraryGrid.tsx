@@ -10,7 +10,7 @@ import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLo
 import { flattenTree } from '@/features/locations/tree';
 import { friendlyError } from '@/lib/problem';
 import { spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
-import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, Sheet, Text, TextField } from '@/ui';
+import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { AddItemPanel } from './AddItemPanel';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
@@ -36,11 +36,11 @@ export function LibraryGrid({ title, fixedStatus, openAdd }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
   if (loadingLibrary || !libraryId) {
     return (
-      <View style={{ padding: spacing.lg, gap: spacing.md }}>
+      <View style={{ padding: spacing.lg, gap: spacing.lg }}>
         <Text variant="title" accessibilityRole="header">
           {title}
         </Text>
-        <Text tone="muted">Loading your library…</Text>
+        <LoadingState label="Loading your library…" />
       </View>
     );
   }
@@ -210,7 +210,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
       onAction={() => list.refetch()}
     />
   ) : list.isLoading ? (
-    <Text tone="muted">Loading your library…</Text>
+    <LoadingState label="Loading your library…" />
   ) : hasActiveFilter(filters) ? (
     <EmptyState
       title="Nothing matches."
@@ -245,7 +245,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
         onEndReached={() => {
           if (list.hasNextPage && !list.isFetchingNextPage) list.fetchNextPage();
         }}
-        ListFooterComponent={list.isFetchingNextPage ? <Text tone="muted">Loading more…</Text> : null}
+        ListFooterComponent={list.isFetchingNextPage ? <Text variant="caption" tone="muted">Loading more…</Text> : null}
         renderItem={({ item }) => (
           <ItemTile item={item} width={tileWidth} onPress={() => router.push(`/item/${item.id}`)} />
         )}

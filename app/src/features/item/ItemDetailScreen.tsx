@@ -8,7 +8,7 @@ import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
-import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, Screen, Sheet, Text } from '@/ui';
+import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
 import { breadcrumb } from './breadcrumb';
 import { UndoSnackbar } from './UndoSnackbar';
 import { useItemDetail, useItemMutations, useUndoStore } from './useItem';
@@ -18,7 +18,7 @@ export function ItemDetailScreen({ id }: { id: string }) {
   if (isLoading || !libraryId) {
     return (
       <Screen title="Item">
-        <Text tone="muted">Loading this item…</Text>
+        <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
@@ -37,7 +37,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   if (isLoading) {
     return (
       <Screen title="Item">
-        <Text tone="muted">Loading this item…</Text>
+        <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
@@ -93,7 +93,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
       <View style={{ alignItems: 'center', gap: spacing.sm }}>
         <Cover title={title} uri={release.coverUrl ?? work.coverUrl} width={160} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />
-        {work.creators.length ? <Text tone="muted">{work.creators.join(', ')}</Text> : null}
+        {work.creators.length ? <Text variant="caption" tone="muted">{work.creators.join(', ')}</Text> : null}
       </View>
 
       <Card>

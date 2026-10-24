@@ -11,7 +11,7 @@ import { formatLastSeen } from '@/features/auth/DevicesScreen';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
-import { Button, Card, Chip, ListRow, Screen, Text } from '@/ui';
+import { Button, Card, Chip, ListRow, LoadingState, Screen, Text } from '@/ui';
 import { InviteDialog } from './InviteDialog';
 
 const roleLabel: Record<LibraryRole, string> = { owner: 'Owner', editor: 'Editor', viewer: 'Viewer' };
@@ -30,7 +30,7 @@ export function MembersScreen() {
   if (isLoading || me.isLoading || !libraryId) {
     return (
       <Screen title="Members">
-        <Text tone="muted">Loading members…</Text>
+        <LoadingState label="Loading members…" />
       </Screen>
     );
   }
@@ -133,8 +133,8 @@ function Members({ libraryId, myId, isOwner }: { libraryId: string; myId: string
 
       <Card>
         <View accessibilityLabel="Members table" style={{ gap: spacing.xs }}>
-          {members.isLoading ? <Text tone="muted">Loading members…</Text> : null}
-          {members.isError ? <Text tone="danger">{friendlyError(members.error)}</Text> : null}
+          {members.isLoading ? <LoadingState label="Loading members…" /> : null}
+          {members.isError ? <Text tone="danger" accessibilityRole="alert">{friendlyError(members.error)}</Text> : null}
           {list.map((member) => {
             const isYou = member.userId === myId;
             const name = isYou ? `${member.displayName} (you)` : member.displayName;

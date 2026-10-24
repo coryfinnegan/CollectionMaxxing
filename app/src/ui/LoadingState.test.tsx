@@ -12,4 +12,9 @@ describe('LoadingState', () => {
     await render(<LoadingState />);
     expect(screen.getByTestId('loading-state')).toBeTruthy();
   });
+
+  it('announces status-like loading when asked', async () => {
+    await render(<LoadingState label="Your export is waiting to start." alert />);
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
 });

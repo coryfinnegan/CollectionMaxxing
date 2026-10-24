@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from 'zustand';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { getTrayStore } from '@/features/scan/tray/storage';
-import { Screen, Text } from '@/ui';
+import { LoadingState, Screen } from '@/ui';
 import { ReviewScreen } from './ReviewScreen';
 
 export function ReviewRoute() {
@@ -12,7 +12,7 @@ export function ReviewRoute() {
   if (isLoading || !libraryId) {
     return (
       <Screen title="Review">
-        <Text tone="muted">Loading…</Text>
+        <LoadingState label="Loading…" />
       </Screen>
     );
   }

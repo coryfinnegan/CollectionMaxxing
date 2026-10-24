@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { startExport, useGetExport } from '@/api/generated/account/account';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
-import { Button, Card, Screen, Text } from '@/ui';
+import { Button, Card, LoadingState, Screen, Text } from '@/ui';
 import { exportPoll, getSharer } from './services';
 
 const progress: Record<string, string> = {
@@ -76,7 +76,7 @@ export function ExportScreen() {
         ) : status === 'idle' ? (
           <Button label="Start export" busy={start.isPending} onPress={begin} />
         ) : (
-          <Text accessibilityRole="alert">{progress[status] ?? progress.queued}</Text>
+          <LoadingState label={progress[status] ?? progress.queued} alert />
         )}
       </Card>
     </Screen>

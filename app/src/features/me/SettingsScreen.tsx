@@ -8,7 +8,7 @@ import { LibrarySwitcher } from '@/features/onboarding/LibrarySwitcher';
 import { LeaveLibraryCard } from '@/features/onboarding/LeaveLibraryCard';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
-import { Button, Card, ListRow, Screen, Text } from '@/ui';
+import { Button, Card, ListRow, LoadingState, Screen, Text } from '@/ui';
 import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { EvalsRow } from '@/features/evals/EvalsRow';
 import { GetIphoneAppRow } from './GetIphoneAppRow';
@@ -42,7 +42,7 @@ export function RecognitionSection() {
     <Card>
       <Text variant="heading">Recognition</Text>
       {state === null ? (
-        <Text tone="muted">Checking…</Text>
+        <LoadingState label="Checking…" />
       ) : state.engine === 'apple_model' ? (
         <>
           <Text>Engine: Apple on-device model</Text>

@@ -147,6 +147,7 @@ describe('DevicesScreen', () => {
     await renderWithProviders(<DevicesScreen />);
 
     expect(await screen.findByText("That didn't work. Try again.")).toBeTruthy();
+    expect(await screen.findByRole('alert')).toBeTruthy();
   });
 
   it('cancelling "sign out of all browsers" changes nothing', async () => {

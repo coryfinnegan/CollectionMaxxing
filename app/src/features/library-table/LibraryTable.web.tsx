@@ -16,7 +16,7 @@ import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { friendlyError } from '@/lib/problem';
 import { radius, spacing, useColors } from '@/theme/tokens';
-import { Button, Chip, Cover, EmptyState, ListRow, Sheet, Text, TextField } from '@/ui';
+import { Button, Chip, Cover, EmptyState, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { capForBulk, resultMessage } from './bulk';
 import { ColumnChooser } from './ColumnChooser.web';
 import { columnDefs, type ColumnId, loadColumns, saveColumns, sortForColumn } from './columns';
@@ -45,11 +45,11 @@ export function LibraryTable({ title, fixedStatus }: LibraryTableProps) {
   const { libraryId, isLoading } = useActiveLibraryId();
   if (isLoading || !libraryId) {
     return (
-      <View style={{ padding: spacing.lg, gap: spacing.md }}>
+      <View style={{ padding: spacing.lg, gap: spacing.lg }}>
         <Text variant="title" accessibilityRole="header">
           {title}
         </Text>
-        <Text tone="muted">Loading your library…</Text>
+        <LoadingState label="Loading your library…" />
       </View>
     );
   }
@@ -187,7 +187,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
       onAction={() => list.refetch()}
     />
   ) : list.isLoading ? (
-    <Text tone="muted">Loading your library…</Text>
+    <LoadingState label="Loading your library…" />
   ) : hasActiveFilter(filters) ? (
     <EmptyState
       title="Nothing matches."
@@ -207,7 +207,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.ground }}>
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
         <Text variant="title" accessibilityRole="header">
           {title}
         </Text>
@@ -285,7 +285,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         ) : null}
 
         {notice ? (
-          <Text accessibilityRole="alert" style={{ color: notice.ok ? colors.ink : colors.danger }}>
+          <Text accessibilityRole="alert" tone={notice.ok ? 'ink' : 'danger'}>
             {notice.text}
           </Text>
         ) : null}
@@ -314,7 +314,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                         accessibilityState={{ selected: active }}
                         onPress={() => sortBy(column.id)}
                       >
-                        <Text variant="label" style={{ color: active ? colors.scan : colors.ink }}>
+                        <Text variant="label" tone={active ? 'scan' : 'ink'}>
                           {column.label}
                           {active ? ' ↑' : ''}
                         </Text>
@@ -443,7 +443,7 @@ function Checkbox({
           height: 22,
           borderRadius: radius.sm,
           borderWidth: 2,
-          borderColor: checked || mixed ? colors.scan : colors.muted,
+          borderColor: checked || mixed ? colors.scan : colors.control,
           backgroundColor: checked || mixed ? colors.scan : 'transparent',
           alignItems: 'center',
           justifyContent: 'center',

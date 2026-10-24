@@ -24,6 +24,7 @@ describe('ExportScreen', () => {
     await fireEvent.press(screen.getByLabelText('Start export'));
 
     expect(await screen.findByText('Your export is waiting to start.')).toBeTruthy();
+    expect(screen.getByTestId('loading-state')).toBeTruthy();
     expect(screen.queryByLabelText('Download export')).toBeNull();
     expect(await screen.findByText(/Putting your library into files/)).toBeTruthy();
     expect(screen.queryByLabelText('Download export')).toBeNull();

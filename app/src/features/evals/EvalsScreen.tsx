@@ -1,6 +1,6 @@
 // Owner-only dev screen: run the golden photos through both engines on this iPhone and see the PC's gate table when it is done.
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { Button, Card, Screen, Text } from '@/ui';
+import { Button, Card, LoadingState, Screen, Text } from '@/ui';
 import { getEvalRunner } from './device';
 import type { EvalRunner, EvalState } from './runner';
 
@@ -75,7 +75,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
         </Card>
       ) : null}
 
-      {state.phase === 'uploading' ? <Text>Sending the results to your PC.</Text> : null}
+      {state.phase === 'uploading' ? <LoadingState label="Sending the results to your PC." /> : null}
 
       {state.phase === 'upload_failed' ? (
         <>

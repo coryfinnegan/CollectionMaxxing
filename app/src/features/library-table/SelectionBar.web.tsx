@@ -45,7 +45,7 @@ export function SelectionBar(props: Props) {
         padding: spacing.md,
         borderRadius: radius.lg,
         borderWidth: 1,
-        borderColor: colors.scan,
+        borderColor: colors.line,
         backgroundColor: colors.surface,
       }}
     >
