@@ -110,14 +110,17 @@ function Invoke-ZapRun {
         $stack = Start-SecStack -RunId $runId -Port $Port -ApiImage $image -WorkDir $work
         $token = $null
         if ($Kind -eq 'api') {
-            $editor = New-ThrowawayEditorToken -Base "http://127.0.0.1:$($stack.HostPort)" -SecretsDir $stack.Secrets
+            $editor = New-ThrowawayEditorToken -Base "http://127.0.0.1:$($stack.HostPort)" -Auth0 $stack.Auth0
             $token = $editor.Token; $libraryId = $editor.LibraryId
             Write-Sec 'ok   throwaway editor signed in (token kept in memory only)'
         }
         $result = Invoke-ZapScan -Kind $Kind -RunId $runId -Network $stack.Network -Target "http://api:5480$StartPath" -Threads $Threads -MaxMinutes $MaxMinutes -ReportDir $reports -Token $token -LibraryId $libraryId
         if (Write-ZapResult $Kind $result $reports) { $exit = 0 }
     }
-    catch { Write-Host "FAIL $($_.Exception.Message)" }
+    catch {
+        Write-Host "FAIL $($_.Exception.Message)"
+        if ($env:CM_SEC_DEBUG) { Write-Host $_.ScriptStackTrace }
+    }
     finally {
         if (-not $DryRun -and -not $KeepStack -and $runId) {
             Remove-SecResources | Out-Null

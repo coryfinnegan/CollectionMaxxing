@@ -37,13 +37,11 @@ jobs:
           dotnet build CollectionMaxxing.slnx --no-restore
       - name: Tooling tests
         run: pwsh -NoProfile -File scripts/security/Run-Tests.ps1
-      # Both ZAP scans start the API on the old sign-in (software passkey, QR pairing), which Wave 6 removed. Until the stack signs in
-      # through a fake Auth0, a failure here doesn't fail the night: https://github.com/coryfinnegan/CollectionMaxxing/issues/242
+      # Both scans sign in through a fake Auth0 that runs inside the scan's own Docker network (scripts/fake-auth0, QA-6, #242): no internet,
+      # a per-run CA and signing key, and the API's settings are the production ones.
       - name: ZAP baseline
-        continue-on-error: true
         run: pwsh -NoProfile -File scripts/security/Run-ZapBaseline.ps1 -WebDist app/dist
       - name: ZAP API scan
-        continue-on-error: true
         run: pwsh -NoProfile -File scripts/security/Run-ZapApi.ps1 -WebDist app/dist
       - name: Image scan
         run: pwsh -NoProfile -File scripts/security/Run-ImageScan.ps1

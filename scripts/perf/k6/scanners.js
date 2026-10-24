@@ -1,18 +1,19 @@
 // CollectionMaxxing load check (QA-2a, #170): virtual scanners against a throwaway stack.
 //
 // Started by scripts/perf/Run-Perf.ps1 inside a k6 container on an isolated Docker network; it is never pointed at anything
-// else (the runner has no URL parameter). Environment: PROFILE, BASE_URL, SETUP_CODE, RP_ID, ORIGIN.
+// else (the runner has no URL parameter). Environment: PROFILE, BASE_URL. The accounts' bearer tokens come from /out/tokens.json, which the
+// runner signs with a fake Auth0's throwaway key (scripts/fake-auth0) before k6 starts.
 //
 // What one scanner does (docs/04 "Scanning", kept inside the docs/08 rate limits; the arithmetic is proved in tests.ps1):
 //   - opens a scan session; every 2 to 4 s sends a barcode batch (1 to 5 codes) or an identify of 1 to 3 items;
 //   - follows results by polling `GET /scan-sessions/{id}?since=` (k6 cannot hold an SSE stream; polling is the app's own fallback);
 //   - an ownership delta sync every 20 s, a commit about once a minute (then a new session);
-//   - library browsing and catalogue search at human speed; refreshes its token before it expires.
+//   - library browsing and catalogue search at human speed. Its access token lasts an hour, longer than any profile runs.
 // A 429 is expected traffic here, not a failure: it is counted separately (rate_limited) and reported as a finding.
 import http from 'k6/http';
+import encoding from 'k6/encoding';
 import { sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
-import { SoftwareAuthenticator } from './webauthn.js';
 
 const config = JSON.parse(open('../profiles.json'));
 const PROFILE = __ENV.PROFILE || 'smoke';
@@ -22,8 +23,9 @@ if (!profile) {
 }
 const model = config.model;
 const BASE_URL = __ENV.BASE_URL;
-const RP_ID = __ENV.RP_ID;
-const ORIGIN = __ENV.ORIGIN;
+// One token per account, signed by the runner for the fake Auth0 the API trusts (the file is in the run's temp folder, mounted at /out).
+const TOKEN_FILE = JSON.parse(open('/out/tokens.json'));
+const TOKENS = TOKEN_FILE.tokens;
 
 // ---- options: thresholds and abort rules (static-checked in tests.ps1) ------------------------------------------------
 const run = 'http_req_duration{phase:run}';
@@ -59,7 +61,7 @@ export const options = {
 // 429 is an answer we expect to be able to get; everything else outside 2xx and 3xx is an error.
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 429));
 
-const CALLS = ['session_open', 'barcodes', 'identify', 'poll', 'accept', 'sync', 'commit', 'browse', 'search', 'token_refresh'];
+const CALLS = ['session_open', 'barcodes', 'identify', 'poll', 'accept', 'sync', 'commit', 'browse', 'search'];
 const trends = {};
 const limited = {};
 const counts = {};
@@ -72,36 +74,66 @@ const rateLimited = new Counter('rate_limited');
 const candidatesSeen = new Counter('candidates_seen');
 const itemsCommitted = new Counter('items_committed');
 
-// ---- seed: users, devices and tokens through the API's own flows --------------------------------------------------------
-class Browser {
-  constructor() {
-    this.cookies = {};
-  }
-
-  headers(extra) {
-    const names = Object.keys(this.cookies);
-    const h = { 'Content-Type': 'application/json', 'X-CSRF': '1', ...extra };
-    if (names.length > 0) h.Cookie = names.map((n) => `${n}=${this.cookies[n]}`).join('; ');
-    return h;
-  }
-
-  remember(res) {
-    for (const name of Object.keys(res.cookies || {})) {
-      const c = res.cookies[name][0];
-      if (c && c.value) this.cookies[name] = c.value;
-    }
+// ---- seed: accounts, a library, an invite and its acceptance, through the API's own flows ------------------------------------
+class Account {
+  /** Calls as a bearer token (the iPhone), or, with `cookies`, as a web session (the owner's sign-in, which an invite needs). */
+  constructor(token, cookies) {
+    this.token = token;
+    this.cookies = cookies || null;
   }
 
   send(method, path, body, what) {
-    const res = http.request(method, `${BASE_URL}${path}`, body === undefined ? null : JSON.stringify(body), {
-      headers: this.headers(),
+    const headers = { 'Content-Type': 'application/json', 'X-CSRF': '1' };
+    if (this.cookies) headers.Cookie = cookieHeader(this.cookies);
+    else headers.Authorization = `Bearer ${this.token}`;
+    return http.request(method, `${BASE_URL}${path}`, body === undefined ? null : JSON.stringify(body), {
+      headers,
       jar: new http.CookieJar(),
       tags: { phase: 'seed', name: `seed ${what}` },
       redirects: 0,
     });
-    this.remember(res);
-    return res;
   }
+}
+
+const cookieHeader = (cookies) => Object.keys(cookies).map((n) => `${n}=${cookies[n]}`).join('; ');
+
+function remember(cookies, res) {
+  for (const name of Object.keys(res.cookies || {})) {
+    const c = res.cookies[name][0];
+    if (c && c.value) cookies[name] = c.value;
+    else delete cookies[name];
+  }
+}
+
+function queryOf(location) {
+  const out = {};
+  for (const pair of String(location).split('?')[1].split('&')) {
+    const [k, v] = pair.split('=');
+    out[k] = decodeURIComponent((v || '').replace(/\+/g, ' '));
+  }
+  return out;
+}
+
+/**
+ * The owner signs in on the web, playing the browser against the fake Auth0: the login redirects to Auth0's authorize address (with the state
+ * and nonce), and the callback gets a code the fake turns into an ID token for the owner (the code is base64url of {sub, nonce}).
+ * Returns the cookies of the session. A bearer token never counts as a recent sign-in, which creating an invite needs.
+ */
+function webSignIn(sub) {
+  const cookies = {};
+  const get = (path, what) => http.get(`${BASE_URL}${path}`, {
+    headers: { Cookie: cookieHeader(cookies) }, jar: new http.CookieJar(), redirects: 0, tags: { phase: 'seed', name: `seed ${what}` },
+  });
+  const start = must(get('/account/login?returnUrl=%2F', 'web sign-in'), 302, 'web sign-in start');
+  remember(cookies, start);
+  const authorize = queryOf(start.headers.Location);
+  const code = encoding.b64encode(JSON.stringify({ sub, nonce: authorize.nonce }), 'rawurl');
+  const callback = get(`/signin-oidc?code=${encodeURIComponent(code)}&state=${encodeURIComponent(authorize.state)}`, 'web sign-in callback');
+  remember(cookies, callback);
+  if (callback.status !== 302 || callback.headers.Location !== '/') {
+    throw new Error(`seed: the web sign-in callback answered ${callback.status} to ${callback.headers.Location}`);
+  }
+  return cookies;
 }
 
 function must(res, status, what) {
@@ -111,45 +143,29 @@ function must(res, status, what) {
   return res;
 }
 
-async function register(browser, optionsResponse, inviteToken, what) {
-  must(optionsResponse, 200, `${what} options`);
-  const authenticator = await SoftwareAuthenticator.create(RP_ID, ORIGIN);
-  const credential = await authenticator.createCredential(optionsResponse.json('options'));
-  const query = inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : '';
-  return must(browser.send('POST', `/account/passkey/register${query}`, { credential, name: 'Load passkey' }, `${what} register`), 201, `${what} register`).json();
-}
-
-export async function setup() {
-  const owner = new Browser();
-  const first = await register(owner, owner.send('POST', '/setup', { code: __ENV.SETUP_CODE, displayName: 'Load owner' }, 'setup'), null, 'owner');
-  const libraryId = first.libraryId;
-  const accounts = [owner];
+export function setup() {
+  if (TOKENS.length < profile.accounts) {
+    throw new Error(`seed: ${profile.accounts} accounts needed but tokens.json has ${TOKENS.length}`);
+  }
+  // The owner signs in on the web (that makes the account and gives a recent sign-in), then makes the library and one invite per other account.
+  const web = new Account(null, webSignIn(TOKEN_FILE.ownerSub));
+  const libraryId = must(web.send('POST', '/api/v1/libraries', { name: 'Load library' }, 'create library'), 201, 'create library').json('id');
+  const accounts = [new Account(TOKENS[0])];
   for (let i = 1; i < profile.accounts; i++) {
     const invite = must(
-      owner.send('POST', `/api/v1/libraries/${libraryId}/invites`, { name: `Load member ${i}`, role: 'editor' }, 'invite'), 201, 'invite').json();
-    const token = invite.link.substring(invite.link.lastIndexOf('/') + 1);
-    const member = new Browser();
-    const options = member.send('POST', '/account/passkey/creation-options', { inviteToken: token, displayName: `Load member ${i}` }, 'join options');
-    await register(member, options, token, `member ${i}`);
+      web.send('POST', `/api/v1/libraries/${libraryId}/invites`, { name: `Load member ${i}`, role: 'editor' }, 'invite'), 201, 'invite').json();
+    // A member's first call with a token the API has not seen makes the account (it asks the fake Auth0 who the token is); then the code is accepted.
+    const member = new Account(TOKENS[i]);
+    must(member.send('GET', '/api/v1/me', undefined, `member ${i} first call`), 200, `member ${i} first call`);
+    must(member.send('POST', '/api/v1/invites:accept', { invite: invite.code }, 'accept invite'), 200, `member ${i} accept invite`);
     accounts.push(member);
   }
 
   const devices = [];
   for (let d = 0; d < profile.scanners; d++) {
-    const account = accounts[d % accounts.length];
-    const offer = must(account.send('POST', '/api/v1/me/devices/pair', undefined, 'pair'), 201, 'pair').json();
-    const paired = must(
-      http.post(`${BASE_URL}/connect/token`, { grant_type: 'urn:cm:device_pairing', pairing_token: offer.token, device_name: `Load scanner ${d}` },
-        { tags: { phase: 'seed', name: 'seed redeem' } }), 200, 'redeem').json();
-    devices.push({
-      accessToken: paired.access_token,
-      refreshToken: paired.refresh_token,
-      expiresAt: Date.now() + paired.expires_in * 1000,
-      libraryId,
-      account: d % accounts.length,
-    });
+    devices.push({ accessToken: accounts[d % accounts.length].token, libraryId, account: d % accounts.length });
   }
-  console.log(`seeded ${accounts.length} accounts and ${devices.length} devices`);
+  console.log(`seeded ${accounts.length} accounts for ${devices.length} scanners`);
   return { devices };
 }
 
@@ -176,8 +192,6 @@ function newState(device) {
   return {
     device,
     token: device.accessToken,
-    refresh: device.refreshToken,
-    expiresAt: device.expiresAt,
     sessionId: null,
     seq: 0,
     cursor: null,
@@ -209,22 +223,6 @@ function call(st, name, method, path, body, extra) {
     counts[name].add(1);
   }
   return res;
-}
-
-function refreshToken(st) {
-  const res = http.post(`${BASE_URL}/connect/token`, { grant_type: 'refresh_token', refresh_token: st.refresh },
-    { tags: { phase: 'run', name: 'token_refresh' } });
-  if (res.status === 200) {
-    const body = res.json();
-    st.token = body.access_token;
-    st.refresh = body.refresh_token;
-    st.expiresAt = Date.now() + body.expires_in * 1000;
-    trends.token_refresh.add(res.timings.duration);
-    counts.token_refresh.add(1);
-  } else if (res.status === 429) {
-    rateLimited.add(1);
-    limited.token_refresh.add(1);
-  }
 }
 
 function openSession(st) {
@@ -287,7 +285,6 @@ export default function (data) {
   const st = state;
   const now = Date.now();
 
-  if (st.expiresAt - now < 90000) refreshToken(st);
   if (st.sessionId === null) openSession(st);
 
   if (st.sessionId !== null) {

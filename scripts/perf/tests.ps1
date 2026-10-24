@@ -54,7 +54,7 @@ function Use-FakeDocker([scriptblock]$Answer = { param($a) @() }) {
 
 function Get-TestPlan([string]$Name = 'smoke') {
   $p = Resolve-PerfProfile -Name $Name
-  Get-PerfPlan -Profile $p -RunId '20261018120000-abc' -OutDir 'C:\temp\cm\out' -SecretsDir 'C:\temp\cm\secrets' -Tag 'test'
+  Get-PerfPlan -Profile $p -RunId '20261018120000-abc' -OutDir 'C:\temp\cm\out' -Auth0Dir 'C:\temp\cm\fake-auth0' -Tag 'test'
 }
 
 # ---- the runner's guards ---------------------------------------------------------------------------------------------
@@ -127,7 +127,7 @@ It 'the safety check really catches a published port, a forbidden port and an un
 It 'the target is only the throwaway API inside the private network' {
   $plan = Get-TestPlan
   Should-BeTrue ($plan.ApiUrl -match '^http://cm-perf-[0-9a-f-]+-api:5481$') "api url: $($plan.ApiUrl)"
-  $script = (Get-Content -LiteralPath (Join-Path $here 'k6/scanners.js') -Raw) + (Get-Content -LiteralPath (Join-Path $here 'k6/webauthn.js') -Raw)
+  $script = Get-Content -LiteralPath (Join-Path $here 'k6/scanners.js') -Raw
   Should-BeTrue ($script -notmatch "https?://(?!\$\{)") 'the k6 scripts contain no URL of their own (BASE_URL comes from the environment)'
   $runner = Get-Content -LiteralPath (Join-Path $here 'Run-Perf.ps1') -Raw
   $ast = [System.Management.Automation.Language.Parser]::ParseInput($runner, [ref]$null, [ref]$null)
@@ -153,7 +153,77 @@ It 'the dry run prints the plan and starts nothing' {
 
 It 'secrets are placeholders in the plan' {
   $text = (Format-PerfPlan -Plan (Get-TestPlan)) -join "`n"
-  Should-BeTrue ($text -match '\{\{DB_PASSWORD\}\}' -and $text -match '\{\{SETUP_CODE\}\}') 'placeholders are shown, not values'
+  Should-BeTrue ($text -match '\{\{DB_PASSWORD\}\}') 'the database password is a placeholder, not a value'
+  Should-BeTrue ($text -notmatch 'SETUP_CODE|setup-code') 'there is no setup code any more'
+}
+
+# ---- the fake Auth0 --------------------------------------------------------------------------------------------------------------
+It 'the plan starts a hardened fake Auth0 on the internal network before the API, with the alias its certificate names' {
+  $plan = Get-TestPlan
+  $steps = @($plan.Commands | ForEach-Object { $_.Step })
+  Should-Be ($steps -join ',') 'network,database,migrate,auth0,api,k6' 'the order of the steps'
+  $fake = ($plan.Commands | Where-Object Step -eq 'auth0').Args
+  $line = $fake -join ' '
+  Should-BeTrue ($line -match '--name cm-perf-[0-9a-f-]+-auth0 ') 'named cm-perf-*'
+  Should-BeTrue ($line -match '--network cm-perf-[0-9a-f-]+ ') 'on the private network'
+  Should-BeTrue ($line -match '--network-alias fake-auth0') 'the alias the certificate is for'
+  Should-BeTrue ($fake -contains 'cm.agent=qa-2a') 'labelled'
+  Should-BeTrue ($line -match '--read-only' -and $line -match '--cap-drop ALL' -and $line -match '--user 65534') 'hardened'
+  Should-BeTrue ($line -match 'python:3\.13-alpine python -u /fake/server\.py') 'a public image running our server.py'
+  Should-Be $plan.Containers[4] ($fake[$fake.IndexOf('--name') + 1]) 'the fake is the fifth container of the plan'
+}
+
+It 'the API is configured like production against the fake, trusts only its CA, and gets no key and no weakening switch' {
+  $plan = Get-TestPlan
+  $api = ($plan.Commands | Where-Object Step -eq 'api').Args
+  $line = $api -join ' '
+  foreach ($setting in 'Auth__Auth0__Domain=fake-auth0:8443', 'Auth__Auth0__Audience=urn:collectionmaxxing:api', 'SSL_CERT_FILE=/fake-auth0-ca/ca.pem', 'Auth__PublicOrigin=https://') {
+    Should-BeTrue ($line -match [regex]::Escape($setting)) "the API gets $setting"
+  }
+  Should-BeTrue ($line -match 'fake-auth0.ca,target=/fake-auth0-ca,readonly') 'only the ca folder is mounted, read-only'
+  Should-BeTrue ($line -notmatch 'target=/fake,|server\.key|signing\.json|/secrets') 'no key, no signing material, no secrets folder'
+  Should-BeTrue ($line -notmatch 'Insecure|DisableHttps|RequireHttps|ValidateIssuer|ValidateAudience|SkipCert|Unsafe') 'no setting that weakens TLS or issuer checks'
+  Should-BeTrue ($line -notmatch 'RelyingParty|Auth__Keys|SetupCode') 'none of the removed sign-in settings'
+  $k6 = ($plan.Commands | Where-Object Step -eq 'k6').Args -join ' '
+  Should-BeTrue ($k6 -notmatch 'SETUP_CODE|RP_ID|ORIGIN') 'k6 gets no setup code and no passkey origin'
+}
+
+It 'each account gets a signed token and the owner is the first; the tokens file and the keys are removed after the run' {
+  $out = Join-Path ([System.IO.Path]::GetTempPath()) "cm-perf-test-$([guid]::NewGuid().ToString('N'))"
+  $dir = Join-Path $out 'fake-auth0'
+  try {
+    $profile = Resolve-PerfProfile 'full'
+    [void](New-PerfAuth0 -Auth0Dir $dir -OutDir $out -Profile $profile)
+    $file = Get-Content -LiteralPath (Join-Path $out 'tokens.json') -Raw | ConvertFrom-Json
+    Should-Be @($file.tokens).Count $profile.Accounts 'one token per account'
+    Should-Be $file.ownerSub 'auth0|cm-perf-user-1' 'the owner is the first account'
+    $subs = foreach ($t in $file.tokens) {
+      $payload = $t.Split('.')[1].Replace('-', '+').Replace('_', '/'); while ($payload.Length % 4) { $payload += '=' }
+      $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
+      Should-Be $claims.iss 'https://fake-auth0:8443/' 'issuer'
+      Should-Be $claims.aud 'urn:collectionmaxxing:api' 'audience'
+      Should-BeTrue ($claims.exp - $claims.iat -ge 3600) 'a token outlives any profile'
+      $claims.sub
+    }
+    Should-Be (@($subs | Select-Object -Unique).Count) $profile.Accounts 'every account has its own sub'
+    Should-Be ((Get-Content -LiteralPath (Join-Path $dir 'users.json') -Raw | ConvertFrom-Json).PSObject.Properties.Name.Count) $profile.Accounts 'the fake knows every account'
+    Should-BeTrue (Test-Path -LiteralPath (Join-Path $dir 'ca/ca.pem')) 'the CA certificate is there for the API'
+    Remove-PerfAuth0Files -Auth0Dir $dir -OutDir $out
+    Should-BeTrue (-not (Test-Path -LiteralPath $dir)) 'the fake Auth0 folder is gone'
+    Should-BeTrue (-not (Test-Path -LiteralPath (Join-Path $out 'tokens.json'))) 'the tokens file is gone'
+  }
+  finally { Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+It 'the k6 seed uses the new flow: web sign-in for the owner, library, invite, bearer first call and accept; none of the old sign-in' {
+  $js = Get-Content -LiteralPath (Join-Path $here 'k6/scanners.js') -Raw
+  foreach ($needle in '/account/login', '/signin-oidc', "'/api/v1/libraries'", '/invites`', "'/api/v1/invites:accept'", "'/api/v1/me'", 'invite.code', '/out/tokens.json') {
+    Should-BeTrue ($js.Contains($needle)) "scanners.js mentions $needle"
+  }
+  foreach ($old in "'/setup'", 'connect/token', 'passkey', 'pairing', 'webauthn', 'SETUP_CODE', 'refresh_token') {
+    Should-BeTrue (-not $js.Contains($old)) "scanners.js no longer mentions $old"
+  }
+  Should-BeTrue (-not (Test-Path -LiteralPath (Join-Path $here 'k6/webauthn.js'))) 'the software authenticator is gone'
 }
 
 # ---- the profiles and the k6 script -------------------------------------------------------------------------------------------

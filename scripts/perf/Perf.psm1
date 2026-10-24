@@ -8,6 +8,10 @@
 
 Set-StrictMode -Version Latest
 
+# Sign-in is Auth0, and the run has no internet: a fake Auth0 runs in the throwaway network (scripts/fake-auth0), the API trusts its per-run CA
+# and the runner signs one bearer token per account. Nothing in the API's settings is weakened; it is configured as in production.
+. (Join-Path $PSScriptRoot '../fake-auth0/FakeAuth0.ps1')
+
 $script:Label = 'cm.agent=qa-2a'
 $script:ForbiddenPorts = @(8080, 8409, 32400, 8096, 5480)
 $script:ApiPort = 5481   # inside the container only; nothing is published
@@ -114,15 +118,15 @@ function Get-PerfBuildCommands {
   )
 }
 
-# Placeholders {{DB_PASSWORD}} and {{SETUP_CODE}} are filled in when the command really runs and never printed.
+# The placeholder {{DB_PASSWORD}} is filled in when the command really runs and never printed.
 function Get-PerfPlan {
   param(
     [Parameter(Mandatory)]$Profile, [Parameter(Mandatory)][string]$RunId, [Parameter(Mandatory)][string]$OutDir,
-    [Parameter(Mandatory)][string]$SecretsDir, [string]$Tag = 'dev'
+    [Parameter(Mandatory)][string]$Auth0Dir, [string]$Tag = 'dev'
   )
   $stack = (Get-PerfConfig).stack
   $net = "cm-perf-$RunId"
-  $db = "$net-db"; $api = "$net-api"; $migrate = "$net-migrate"; $k6 = "$net-k6"
+  $db = "$net-db"; $api = "$net-api"; $migrate = "$net-migrate"; $k6 = "$net-k6"; $auth0 = "$net-auth0"
   $labels = @('--label', $script:Label, '--label', "cm.run=$RunId")
   $hardening = @('--security-opt', 'no-new-privileges:true')
   $connection = "Host=$db;Database=collectionmaxxing;Username=collectionmaxxing;Password={{DB_PASSWORD}}"
@@ -131,10 +135,6 @@ function Get-PerfPlan {
     ASPNETCORE_HTTP_PORTS = "$script:ApiPort"
     'ConnectionStrings__collectionmaxxing' = $connection
     Server__PublicUrl = 'https://pc.tailnet.ts.net'
-    Auth__RelyingPartyId = $api
-    Auth__SecretsPath = '/secrets'
-    Auth__Keys__SigningCertificatePath = '/secrets/signing.pfx'
-    Auth__Keys__EncryptionCertificatePath = '/secrets/encryption.pfx'
     Auth__KeyRing__Path = '/data/files/keyring'
     Catalog__CoversRoot = '/data/files/covers'
     Files__Root = '/data/files'
@@ -151,7 +151,7 @@ function Get-PerfPlan {
     Providers__OpenLibrary__RequestsPerSecond = '1000'
     # Without a contact address Open Library is held to one call a second whatever its rate says; with the fake address the lifted rate applies.
     Providers__OpenLibrary__ContactEmail = 'perf@example.test'
-    # The seed signs everyone up from one address, which the sign-in limits (10 a minute, 30 an hour per address) would refuse.
+    # The seed makes every account, library and invite from one address, which the per-address limits (10 a minute, 30 an hour) could refuse.
     # Only these two are widened; the limits the scanners live under (default, search, barcodes, identify) are the shipped ones.
     Auth__RateLimit__PermitLimit = '10000'
     Security__Limits__AuthHourly__Permits = '100000'
@@ -159,6 +159,7 @@ function Get-PerfPlan {
   # The providers' host names point at the container itself: a lookup is refused at once instead of timing out for 5 s per attempt, so no
   # request ever leaves the machine and the numbers measure our API and database, not a provider's latency.
   $providerHosts = @('api.igdb.com', 'api.themoviedb.org', 'api.upcitemdb.com', 'covers.openlibrary.org', 'id.twitch.tv', 'image.tmdb.org', 'images.igdb.com', 'openlibrary.org', 'www.googleapis.com') | ForEach-Object { '--add-host'; "$_`:127.0.0.1" }
+  foreach ($pair in (Get-FakeAuth0ApiEnvironment).GetEnumerator()) { $apiEnv[$pair.Key] = $pair.Value }
   $apiEnvArgs = $apiEnv.GetEnumerator() | Sort-Object Name | ForEach-Object { '-e'; "$($_.Name)=$($_.Value)" }
 
   $commands = @(
@@ -174,12 +175,13 @@ function Get-PerfPlan {
       Args = @('run', '--rm', '--name', $migrate, '--network', $net) + $labels + $hardening + @(
         '-e', "ConnectionStrings__collectionmaxxing=$connection", (Get-PerfImageName 'migrate' $Tag))
     }
+    [pscustomobject]@{ Step = 'auth0'; Args = @('run', '-d') + $labels + (Get-FakeAuth0ContainerArgs -Name $auth0 -Network $net -Directory $Auth0Dir) }
     [pscustomobject]@{
       Step = 'api'
       Args = @('run', '-d', '--name', $api, '--network', $net) + $labels + $hardening + @(
         '--cap-drop', 'ALL', '--cpus', $stack.apiCpus, '--memory', $stack.apiMemory,
-        '--tmpfs', '/data/files:rw,size=128m,uid=1654,gid=1654,mode=0755') + $providerHosts + @(
-        '--mount', "type=bind,source=$SecretsDir,target=/secrets") + $apiEnvArgs + @((Get-PerfImageName 'api' $Tag))
+        '--tmpfs', '/data/files:rw,size=128m,uid=1654,gid=1654,mode=0755') + $providerHosts +
+      (Get-FakeAuth0ApiMount -Directory $Auth0Dir) + $apiEnvArgs + @((Get-PerfImageName 'api' $Tag))
     }
     [pscustomobject]@{
       Step = 'k6'
@@ -187,12 +189,11 @@ function Get-PerfPlan {
         '--cpus', $stack.k6Cpus, '--memory', $stack.k6Memory,
         '--mount', "type=bind,source=$(Get-PerfRoot),target=/scripts,readonly",
         '--mount', "type=bind,source=$OutDir,target=/out",
-        '-e', "PROFILE=$($Profile.Name)", '-e', "BASE_URL=$apiUrl", '-e', 'SETUP_CODE={{SETUP_CODE}}',
-        '-e', "RP_ID=$api", '-e', "ORIGIN=https://$api",
+        '-e', "PROFILE=$($Profile.Name)", '-e', "BASE_URL=$apiUrl",
         'grafana/k6:1.0.0', 'run', '/scripts/k6/scanners.js')
     }
   )
-  [pscustomobject]@{ RunId = $RunId; Network = $net; Containers = @($db, $api, $migrate, $k6); ApiUrl = $apiUrl; Profile = $Profile; Commands = $commands; Tag = $Tag }
+  [pscustomobject]@{ RunId = $RunId; Network = $net; Containers = @($db, $api, $migrate, $k6, $auth0); ApiUrl = $apiUrl; Profile = $Profile; Commands = $commands; Tag = $Tag }
 }
 
 function Expand-PerfArgs {
@@ -265,18 +266,31 @@ function Stop-PerfResources {
   [pscustomobject]@{ Containers = $ids.Count; Networks = $nets.Count }
 }
 
-# ---- secrets for the throwaway API ---------------------------------------------------------------------------------------------
+# ---- the fake Auth0 and the accounts' tokens ----------------------------------------------------------------------------------------
 
-function New-PerfCertificate {
-  param([Parameter(Mandatory)][string]$Path)
-  $rsa = [System.Security.Cryptography.RSA]::Create(2048)
-  try {
-    $request = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
-      'CN=cm-perf', $rsa, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-    $cert = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddMinutes(-5), [DateTimeOffset]::UtcNow.AddDays(2))
-    [System.IO.File]::WriteAllBytes($Path, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx))
-  }
-  finally { $rsa.Dispose() }
+# The people of a run: one account per profile account. The first is the owner of the load library.
+function Get-PerfAccounts {
+  param([Parameter(Mandatory)][int]$Count)
+  @(1..$Count | ForEach-Object { [pscustomobject]@{ Sub = "auth0|cm-perf-user-$_"; Name = "Load user $_"; Email = "load$_@example.test" } })
+}
+
+# Makes the fake Auth0's keys and certificates in $Auth0Dir, and writes one bearer token per account to $OutDir/tokens.json (read by k6, deleted by
+# Remove-PerfAuth0Files). Returns the signing material.
+function New-PerfAuth0 {
+  param([Parameter(Mandatory)][string]$Auth0Dir, [Parameter(Mandatory)][string]$OutDir, [Parameter(Mandatory)]$Profile)
+  $accounts = Get-PerfAccounts -Count $Profile.Accounts
+  $material = New-FakeAuth0Material -Directory $Auth0Dir -Users $accounts
+  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+  $tokens = @($accounts | ForEach-Object { New-FakeAuth0Token -Material $material -Subject $_.Sub })
+  # The owner's sub travels too: the seed signs the owner in on the web (an invite needs a recent sign-in, which a bearer token never has).
+  @{ tokens = $tokens; ownerSub = $accounts[0].Sub } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'tokens.json')
+  $material
+}
+
+function Remove-PerfAuth0Files {
+  param([string]$Auth0Dir, [string]$OutDir)
+  if ($Auth0Dir) { Remove-Item -LiteralPath $Auth0Dir -Recurse -Force -ErrorAction SilentlyContinue }
+  if ($OutDir) { Remove-Item -LiteralPath (Join-Path $OutDir 'tokens.json') -Force -ErrorAction SilentlyContinue }
 }
 
 function New-PerfPassword { -join ((1..24) | ForEach-Object { 'abcdefghijkmnpqrstuvwxyz23456789'[(Get-Random -Maximum 32)] }) }
@@ -310,4 +324,4 @@ function Get-PerfStatsSummary {
 
 Export-ModuleMember -Function Get-PerfConfig, Set-PerfDockerRunner, Invoke-PerfDocker, Assert-PerfDocker, Resolve-PerfProfile, Assert-PerfStartAllowed,
 Get-PerfConfiguredLimits, Get-PerfRateBudget, New-PerfRunId, Get-PerfBuildCommands, Get-PerfPlan, Expand-PerfArgs, Test-PerfPlanSafe,
-Format-PerfPlan, Stop-PerfResources, New-PerfCertificate, New-PerfPassword, Get-PerfStatsSummary, Get-PerfImageName
+Format-PerfPlan, Stop-PerfResources, Get-PerfAccounts, New-PerfAuth0, Remove-PerfAuth0Files, New-PerfPassword, Get-PerfStatsSummary, Get-PerfImageName
