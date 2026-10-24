@@ -1,4 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import DetailRoute from '@/app/item/[id]/index';
+import EditRoute from '@/app/item/[id]/edit';
 import { LibraryView } from '@/features/library/LibraryView';
 import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
@@ -8,7 +10,10 @@ import { ItemEditScreen } from './ItemEditScreen';
 import { useUndoStore } from './useItem';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+jest.mock('expo-router', () => ({
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({ id: 'c0000000-0000-4000-8000-000000000001' }),
+}));
 
 const MATRIX = 'c0000000-0000-4000-8000-000000000001';
 const entry = () => itemsState.entries.find((e) => e.item.id === MATRIX)!;
@@ -152,5 +157,19 @@ describe('ItemEditScreen', () => {
     for (const button of screen.getAllByRole('button')) {
       expect(button.props.accessibilityLabel).toBeTruthy();
     }
+  });
+});
+
+describe('item routes', () => {
+  it('keeps the detail screen inside the safe area', async () => {
+    await renderWithProviders(<DetailRoute />);
+    await screen.findByText('The Matrix');
+    expect(screen.getByTestId('item-detail-safe-area')).toBeTruthy();
+  });
+
+  it('keeps the edit screen inside the safe area', async () => {
+    await renderWithProviders(<EditRoute />);
+    await screen.findByLabelText('Notes');
+    expect(screen.getByTestId('item-edit-safe-area')).toBeTruthy();
   });
 });

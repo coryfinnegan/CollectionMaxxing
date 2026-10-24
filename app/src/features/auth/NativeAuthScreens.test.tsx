@@ -35,6 +35,12 @@ describe('Sign in (iPhone)', () => {
     expect(mockRegister).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps content clear of the notch and home indicator', async () => {
+    await renderWithProviders(<SignInScreen />);
+
+    expect(screen.getByTestId('safe-area')).toBeTruthy();
+  });
+
   it('backing out of the sheet explains and registers nothing', async () => {
     native.signIn = jest.fn().mockRejectedValue(new Error('user_cancelled'));
     await renderWithProviders(<SignInScreen />);

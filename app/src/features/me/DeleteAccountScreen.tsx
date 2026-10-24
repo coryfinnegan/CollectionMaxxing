@@ -7,6 +7,7 @@ import { ApiError, customFetch } from '@/lib/http';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
+import { BackButton } from './BackButton';
 import { clearLocalData } from './localData';
 
 export const membersMessage =
@@ -28,6 +29,7 @@ export function DeleteAccountScreen() {
 
   return (
     <Screen title="Delete account" subtitle="Delete your library and photos. This can't be undone.">
+      <BackButton />
       <Card>
         <Text variant="heading">What will happen</Text>
         <Text>Your account is signed out everywhere right away.</Text>

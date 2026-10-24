@@ -161,4 +161,12 @@ describe('DevicesScreen', () => {
     expect(mockAuth.sessions).toHaveLength(2);
     expect(mockRouter.replace).not.toHaveBeenCalled();
   });
+
+  it('offers a way back to the previous screen', async () => {
+    mockRouter.back.mockClear();
+    await renderWithProviders(<DevicesScreen />);
+
+    await fireEvent.press(await screen.findByRole('button', { name: 'Back' }));
+    expect(mockRouter.back).toHaveBeenCalledTimes(1);
+  });
 });

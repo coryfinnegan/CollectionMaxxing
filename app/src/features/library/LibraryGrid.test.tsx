@@ -145,6 +145,12 @@ describe('LibraryView grid', () => {
       expect(button.props.accessibilityLabel).toBeTruthy();
     }
   });
+
+  it('keeps the grid inside the safe area', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+    expect(screen.getByTestId('library-safe-area')).toBeTruthy();
+  });
 });
 
 describe('Add item', () => {

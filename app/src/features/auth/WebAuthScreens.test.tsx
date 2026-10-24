@@ -58,6 +58,12 @@ describe('LoginScreen', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('keeps content clear of the notch and home indicator', async () => {
+    await renderWithProviders(<LoginScreen />);
+
+    expect(screen.getByTestId('safe-area')).toBeTruthy();
+  });
+
   it('has no first-run setup button: every first sign-in makes an account', async () => {
     await renderWithProviders(<LoginScreen />);
 
