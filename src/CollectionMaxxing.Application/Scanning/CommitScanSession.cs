@@ -41,6 +41,7 @@ public static class CommitScanSession
         TimeProvider clock,
         BarcodeLearner learner,
         IPhotoStore photoStore,
+        ReleaseCovers releaseCovers,
         ILogger<Handler> logger)
     {
         public async Task<Result<CommitResultDto>> HandleAsync(Command command, CancellationToken cancellationToken)
@@ -135,6 +136,7 @@ public static class CommitScanSession
             var overrides = (options?.Overrides ?? []).ToDictionary(o => o.CandidateId!.Value);
             var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session, accepted, now, cancellationToken);
 
+            var coverFiles = await releaseCovers.FetchMissingAsync(releaseFor.Values.Distinct().ToList(), cancellationToken);
             var photos = await CandidatePhotos.AssetIdsAsync(db, accepted, cancellationToken);
             var created = new List<Guid>();
             foreach (var candidate in accepted)
@@ -203,7 +205,16 @@ public static class CommitScanSession
             });
 
             // One SaveChanges is one transaction. A second commit racing this one loses on the session's row version.
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                await releaseCovers.DeleteFilesAsync(coverFiles); // nothing points at the covers just downloaded
+                throw;
+            }
+
             await CandidatePhotos.DeleteFilesAsync(db, photoStore, logger, unusedPhotos, cancellationToken);
             return result;
         }

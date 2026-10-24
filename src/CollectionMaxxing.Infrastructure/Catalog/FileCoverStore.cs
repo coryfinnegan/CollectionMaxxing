@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Catalog;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace CollectionMaxxing.Infrastructure.Catalog;
 
@@ -49,6 +50,7 @@ public static class CatalogInfrastructure
     public static IServiceCollection AddCatalogStorage(this IServiceCollection services)
     {
         services.AddScoped<ILocalCatalogSearch, LocalCatalogSearch>();
+        services.TryAddSingleton<ICoverFetcher, HttpCoverFetcher>();
         return services.AddSingleton<ICoverStore>(provider =>
             new FileCoverStore(provider.GetRequiredService<IConfiguration>()[CoversRootKey] ?? Path.Combine("data", "covers")));
     }

@@ -36,6 +36,7 @@ public static class ScanningServices
         services.AddScoped<SubmitBarcodes.Handler>();
         services.AddScoped<DecideCandidate.Handler>();
         services.AddScoped<SearchForCandidate.Handler>();
+        services.AddScoped<ReleaseCovers>();
         services.AddScoped<CommitScanSession.Handler>();
         services.AddScoped<UndoScanCommit.Handler>(); // SCAN-1e
         services.AddScoped<AbandonScanSession.Handler>();
