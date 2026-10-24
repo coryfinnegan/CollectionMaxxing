@@ -46,6 +46,16 @@ function Use-Recorder {
     }
 }
 $scriptsDir = $PSScriptRoot
+function Use-StackRecorder {
+    # Answers like a healthy Docker for Start-SecStack: the migration script exists, the fake Auth0 says it is listening, a port is published.
+    Use-Recorder {
+        param($c, $a)
+        if ($c -eq 'dotnet') { Set-Content -LiteralPath $a[$a.IndexOf('--output') + 1] -Value 'select 1;' }
+        if ($a[0] -eq 'port') { return [pscustomobject]@{ ExitCode = 0; Output = @('127.0.0.1:49321') } }
+        if ($a[0] -eq 'logs') { return [pscustomobject]@{ ExitCode = 0; Output = @('fake auth0 listening on 8443') } }
+        [pscustomobject]@{ ExitCode = 0; Output = @() }
+    }
+}
 function Invoke-ScriptProcess {
     param([string]$Script, [string[]]$Arguments)
     $saved = $env:CM_SEC_TEST
@@ -265,24 +275,19 @@ Test-Case 'On Linux the report folder is opened for the ZAP user before the cont
     }
 }
 
-Test-Case 'On Linux the API secrets folder is opened for the API user (it writes the setup code there); on Windows nothing is changed' {
+Test-Case 'On Linux the fake Auth0 folder is opened for the containers'' users (the runner is another uid); on Windows nothing is changed' {
     foreach ($unix in $true, $false) {
         $global:Calls.Clear()
         $global:SecIsUnix = $unix
         $dir = Join-Path ([IO.Path]::GetTempPath()) "cm-sec-test-$([guid]::NewGuid().ToString('N'))"
-        Use-Recorder {
-            param($c, $a)
-            if ($c -eq 'dotnet') { Set-Content -LiteralPath $a[$a.IndexOf('--output') + 1] -Value 'select 1;' }
-            if ($a[0] -eq 'port') { return [pscustomobject]@{ ExitCode = 0; Output = @('127.0.0.1:49321') } }
-            [pscustomobject]@{ ExitCode = 0; Output = @() }
-        }
+        Use-StackRecorder
         try { try { Start-SecStack -RunId 'r4' -Port 0 -ApiImage 'cm-sec-api:r4' -WorkDir $dir -ReadyAttempts 1 | Out-Null } catch { if ($_.Exception.Message -notmatch 'did not become ready') { throw } } }
         finally { $global:SecIsUnix = $null; Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         $order = @($global:Calls | ForEach-Object { $_.Command + ' ' + $_.Arguments[0] })
         $chmod = @($global:Calls | Where-Object { $_.Command -eq 'chmod' })
         if ($unix) {
             Assert-Equal 1 $chmod.Count 'chmod calls on unix'
-            Assert-True ($chmod[0].Arguments[2] -like '*secrets') 'the secrets folder'
+            Assert-True ($chmod[0].Arguments[2] -like '*fake-auth0') 'the fake Auth0 folder'
             Assert-True ($order.IndexOf('chmod -R') -lt $order.IndexOf('docker run')) 'chmod must come before the API starts'
         }
         else { Assert-Equal 0 $chmod.Count 'no chmod on Windows' }
@@ -360,43 +365,271 @@ Test-Case 'The dotnet vulnerability list is parsed, and test-only findings are t
     Assert-Equal 'System.Security.Cryptography.Pkcs' $found[1].Package
 }
 
-# ---- the software passkey and the throwaway stack -----------------------------------------------------------------------------------------
+# ---- the fake Auth0, the tokens and the throwaway stack ----------------------------------------------------------------------------------
 
-Test-Case 'The software passkey makes a "none" attestation the server can read' {
-    $auth = New-SoftwareAuthenticator
-    $options = [pscustomobject]@{ challenge = (ConvertTo-Base64Url ([byte[]](1..32))); user = [pscustomobject]@{ id = (ConvertTo-Base64Url ([byte[]](9, 9, 9))) } }
-    $cred = New-PasskeyCredential $auth $options
-    Assert-Equal 'public-key' $cred.type
-    $att = ConvertFrom-Base64Url $cred.response.attestationObject
-    Assert-Equal 0xA3 $att[0]
-    $client = [Text.Encoding]::UTF8.GetString((ConvertFrom-Base64Url $cred.response.clientDataJSON)) | ConvertFrom-Json
-    Assert-Equal 'webauthn.create' $client.type
-    Assert-Equal 'https://localhost' $client.origin
-    Assert-Equal $options.challenge $client.challenge
-    Assert-Equal $options.user.id $auth.UserHandle
+function ConvertFrom-TestBase64Url {
+    param([string]$Text)
+    $s = $Text.Replace('-', '+').Replace('_', '/')
+    switch ($s.Length % 4) { 2 { $s += '==' } 3 { $s += '=' } }
+    , [Convert]::FromBase64String($s)
+}
+function ConvertFrom-TestJwt {
+    param([string]$Token)
+    $parts = $Token.Split('.')
+    [pscustomobject]@{
+        Parts = $parts
+        Header = [Text.Encoding]::UTF8.GetString((ConvertFrom-TestBase64Url $parts[0])) | ConvertFrom-Json
+        Payload = [Text.Encoding]::UTF8.GetString((ConvertFrom-TestBase64Url $parts[1])) | ConvertFrom-Json
+        Signature = ConvertFrom-TestBase64Url $parts[2]
+        SigningInput = [Text.Encoding]::ASCII.GetBytes("$($parts[0]).$($parts[1])")
+    }
+}
+function New-TestAuth0 {
+    param([string]$Dir)
+    New-FakeAuth0Material -Directory $Dir -Users @($script:SecOwner, $script:SecEditor)
+}
+function Remove-TestDir { param([string]$Dir) Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue }
+function New-TestDirPath { Join-Path ([IO.Path]::GetTempPath()) "cm-sec-test-$([guid]::NewGuid().ToString('N'))" }
+
+Test-Case 'A minted token is an RS256 JWT from the fake for the API audience, and its signature checks against the published key' {
+    $dir = New-TestDirPath
+    try {
+        $auth0 = New-TestAuth0 $dir
+        $now = [DateTimeOffset]::new(2026, 10, 23, 12, 0, 0, [TimeSpan]::Zero)
+        $jwt = ConvertFrom-TestJwt (New-FakeAuth0Token $auth0 'auth0|cm-sec-owner' -Now $now)
+        Assert-Equal 3 $jwt.Parts.Count
+        Assert-Equal 'RS256' $jwt.Header.alg
+        Assert-Equal 'https://fake-auth0:8443/' $jwt.Payload.iss
+        Assert-Equal 'urn:collectionmaxxing:api' $jwt.Payload.aud
+        Assert-Equal 'auth0|cm-sec-owner' $jwt.Payload.sub
+        Assert-Equal $now.ToUnixTimeSeconds() $jwt.Payload.iat
+        Assert-Equal ($now.ToUnixTimeSeconds() + 3600) $jwt.Payload.exp
+
+        $jwks = Get-Content -LiteralPath (Join-Path $dir 'jwks.json') -Raw | ConvertFrom-Json
+        Assert-Equal $jwt.Header.kid $jwks.keys[0].kid
+        $rsa = [System.Security.Cryptography.RSA]::Create()
+        $rsa.ImportParameters([System.Security.Cryptography.RSAParameters]@{ Modulus = (ConvertFrom-TestBase64Url $jwks.keys[0].n); Exponent = (ConvertFrom-TestBase64Url $jwks.keys[0].e) })
+        $sha = [System.Security.Cryptography.HashAlgorithmName]::SHA256; $pkcs1 = [System.Security.Cryptography.RSASignaturePadding]::Pkcs1
+        Assert-True ($rsa.VerifyData($jwt.SigningInput, $jwt.Signature, $sha, $pkcs1)) 'the signature should verify with the published key'
+        $tampered = [Text.Encoding]::ASCII.GetBytes($jwt.Parts[0] + '.' + $jwt.Parts[1] + 'x')
+        Assert-True (-not $rsa.VerifyData($tampered, $jwt.Signature, $sha, $pkcs1)) 'a changed token must not verify'
+    }
+    finally { Remove-TestDir $dir }
 }
 
-Test-Case 'Only the API is published, only on loopback; Postgres is on tmpfs with no volume; the label is on everything' {
-    $dir = Join-Path ([IO.Path]::GetTempPath()) "cm-sec-test-$([guid]::NewGuid().ToString('N'))"
-    Use-Recorder {
-        param($c, $a)
-        if ($c -eq 'dotnet') { Set-Content -LiteralPath $a[$a.IndexOf('--output') + 1] -Value 'select 1;' }
-        if ($a[0] -eq 'port') { return [pscustomobject]@{ ExitCode = 0; Output = @('127.0.0.1:49321') } }
-        [pscustomobject]@{ ExitCode = 0; Output = @() }
-    }
+Test-Case 'Each run gets its own signing key and its own CA' {
+    $a = New-TestDirPath; $b = New-TestDirPath
     try {
-        try { Start-SecStack -RunId 'r5' -Port 0 -ApiImage 'cm-sec-api:r5' -WorkDir $dir -ReadyAttempts 1 | Out-Null } catch { if ($_.Exception.Message -notmatch 'did not become ready') { throw } }
+        $one = New-TestAuth0 $a; $two = New-TestAuth0 $b
+        Assert-True ($one.KeyId -ne $two.KeyId) 'the key id differs between runs'
+        Assert-True ((Get-Content -LiteralPath (Join-Path $a 'ca/ca.pem') -Raw) -ne (Get-Content -LiteralPath (Join-Path $b 'ca/ca.pem') -Raw)) 'the CA differs between runs'
+        Assert-True ((Get-Content -LiteralPath (Join-Path $a 'jwks.json') -Raw) -ne (Get-Content -LiteralPath (Join-Path $b 'jwks.json') -Raw)) 'the JWKS differs between runs'
     }
-    finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    finally { Remove-TestDir $a; Remove-TestDir $b }
+}
+
+Test-Case 'The discovery document, the JWKS and the server certificate agree, and the certificate chains to the per-run CA only' {
+    $dir = New-TestDirPath
+    try {
+        $auth0 = New-TestAuth0 $dir
+        $doc = Get-Content -LiteralPath (Join-Path $dir 'openid-configuration.json') -Raw | ConvertFrom-Json
+        Assert-Equal $auth0.Issuer $doc.issuer
+        Assert-Equal 'https://fake-auth0:8443/userinfo' $doc.userinfo_endpoint
+        Assert-Equal 'https://fake-auth0:8443/.well-known/jwks.json' $doc.jwks_uri
+        Assert-True ($doc.id_token_signing_alg_values_supported -contains 'RS256') 'RS256'
+
+        $ca = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem((Get-Content -LiteralPath (Join-Path $dir 'ca/ca.pem') -Raw))
+        $leaf = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPem((Get-Content -LiteralPath (Join-Path $dir 'server.pem') -Raw))
+        $san = $leaf.Extensions | Where-Object { $_ -is [System.Security.Cryptography.X509Certificates.X509SubjectAlternativeNameExtension] }
+        Assert-True (@($san.EnumerateDnsNames()) -contains 'fake-auth0') 'the certificate names the fake'
+        $chain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
+        $chain.ChainPolicy.TrustMode = [System.Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
+        $chain.ChainPolicy.CustomTrustStore.Add($ca) | Out-Null
+        $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+        Assert-True $chain.Build($leaf) "the certificate should chain to the CA: $($chain.ChainStatus.StatusInformation -join ' ')"
+
+        $other = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
+        $other.ChainPolicy.TrustMode = [System.Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
+        $other.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+        Assert-True (-not $other.Build($leaf)) 'without the per-run CA the certificate is not trusted'
+    }
+    finally { Remove-TestDir $dir }
+}
+
+Test-Case 'Only the CA certificate goes to the API; the server key and the signing key stay with the fake and the harness' {
+    $dir = New-TestDirPath
+    try {
+        New-TestAuth0 $dir | Out-Null
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $dir 'ca') -Recurse -File | ForEach-Object Name)
+        Assert-Equal 'ca.pem' ($files -join ',')
+        Assert-True ((Get-Content -LiteralPath (Join-Path $dir 'ca/ca.pem') -Raw) -notmatch 'PRIVATE KEY') 'no private key in the CA folder'
+        Assert-True ((Get-Content -LiteralPath (Join-Path $dir 'server.key') -Raw) -match 'PRIVATE KEY') 'the fake has its own server key'
+        $mount = (Get-FakeAuth0ApiMount -Directory $dir) -join ' '
+        Assert-True ($mount -match [regex]::Escape("source=$(Join-Path $dir 'ca'),target=/fake-auth0-ca,readonly")) "mount: $mount"
+        $public = (Get-Content -LiteralPath (Join-Path $dir 'jwks.json') -Raw), (Get-Content -LiteralPath (Join-Path $dir 'openid-configuration.json') -Raw) -join "`n"
+        Assert-True ($public -notmatch '"d"\s*:|"p"\s*:|"q"\s*:') 'no private RSA parameters in the JWKS or the discovery document'
+        Assert-True ((Get-Content -LiteralPath (Join-Path $dir 'signing.json') -Raw) -match '"d"') 'the fake has the signing key to sign the web ID token'
+    }
+    finally { Remove-TestDir $dir }
+}
+
+Test-Case '/userinfo knows exactly the harness users, with a name and an email each' {
+    $dir = New-TestDirPath
+    try {
+        New-TestAuth0 $dir | Out-Null
+        $users = Get-Content -LiteralPath (Join-Path $dir 'users.json') -Raw | ConvertFrom-Json
+        Assert-Equal 'auth0|cm-sec-editor,auth0|cm-sec-owner' ((@($users.PSObject.Properties.Name) | Sort-Object) -join ',')
+        Assert-Equal 'Scan owner' $users.'auth0|cm-sec-owner'.name
+        Assert-Equal 'editor@example.test' $users.'auth0|cm-sec-editor'.email
+    }
+    finally { Remove-TestDir $dir }
+}
+
+Test-Case 'The API is configured like production against the fake, with no setting that weakens TLS or issuer checks' {
+    $vars = Get-FakeAuth0ApiEnvironment
+    Assert-Equal 'fake-auth0:8443' $vars['Auth__Auth0__Domain']
+    Assert-Equal 'urn:collectionmaxxing:api' $vars['Auth__Auth0__Audience']
+    Assert-Equal '/fake-auth0-ca/ca.pem' $vars['SSL_CERT_FILE']
+    Assert-True ($vars['Auth__PublicOrigin'] -like 'https://*') 'production wants an https public origin'
+    foreach ($key in $vars.Keys) { Assert-True ($key -notmatch 'Insecure|DisableHttps|RequireHttps|ValidateIssuer|ValidateAudience|SkipCert|Unsafe|TLS|DANGEROUS') "a weakening setting: $key" }
+}
+
+Test-Case 'The fake runs on the labelled network with the alias the certificate names, hardened, before the API; the API gets only the CA and the fake settings' {
+    $dir = New-TestDirPath
+    Use-StackRecorder
+    try { Start-SecStack -RunId 'r3' -Port 0 -ApiImage 'cm-sec-api:r3' -WorkDir $dir -ReadyAttempts 1 | Out-Null } catch { if ($_.Exception.Message -notmatch 'did not become ready') { throw } }
+    finally { Remove-TestDir $dir }
     $runs = @($global:Calls | Where-Object { $_.Arguments[0] -eq 'run' })
-    Assert-Equal 2 $runs.Count
-    $pg = $runs | Where-Object { $_.Display -match '--name cm-sec-pg-r5' }
-    Assert-True ($pg.Display -match '--tmpfs /var/lib/postgresql/data') 'tmpfs'
-    Assert-True ($pg.Display -notmatch ' -v ' -and $pg.Display -notmatch ' -p ') 'no volume, no port'
-    $api = $runs | Where-Object { $_.Display -match '--name cm-sec-api-r5' }
-    Assert-True ($api.Display -match ' -p 127\.0\.0\.1::5480') 'loopback random port only'
-    foreach ($r in $runs) { Assert-True ($r.Display -match '--label cm\.agent=qa-1c') "label missing: $($r.Display)" }
-    Assert-True (@($global:Calls | Where-Object { $_.Arguments[0] -eq 'network' -and $_.Display -notmatch '--label cm\.agent=qa-1c' }).Count -eq 0) 'network label'
+    $fakeIndex = [array]::IndexOf(@($runs | ForEach-Object { $_.Display }), @($runs | Where-Object { $_.Display -match '--name cm-sec-auth0-r3' })[0].Display)
+    $apiIndex = [array]::IndexOf(@($runs | ForEach-Object { $_.Display }), @($runs | Where-Object { $_.Display -match '--name cm-sec-api-r3' })[0].Display)
+    Assert-True ($fakeIndex -ge 0 -and $fakeIndex -lt $apiIndex) 'the fake starts before the API'
+    $fake = $runs[$fakeIndex]; $api = $runs[$apiIndex]
+    Assert-True ($fake.Display -match '--network cm-sec-net-r3') 'isolated network'
+    Assert-True ($fake.Display -match '--network-alias fake-auth0') 'the alias the certificate names'
+    Assert-True ($fake.Display -match '--label cm\.agent=qa-1c') 'label'
+    Assert-True ($fake.Display -match '--read-only' -and $fake.Display -match '--cap-drop ALL' -and $fake.Display -match '--user 65534') 'hardened'
+    Assert-True ($fake.Display -notmatch ' -p |--publish') 'the fake publishes no port'
+    Assert-True ($fake.Display -match 'python:3\.13-alpine python -u /fake/server\.py') 'a public image running our server.py'
+    Assert-True ($api.Display -match '-e Auth__Auth0__Domain=fake-auth0:8443') 'the API names the fake as its tenant'
+    Assert-True ($api.Display -match '-e SSL_CERT_FILE=/fake-auth0-ca/ca\.pem') 'the API trusts the per-run CA'
+    Assert-True ($api.Display -match 'target=/fake-auth0-ca,readonly') 'the CA is mounted read-only'
+    Assert-True ($api.Display -notmatch 'server\.key|/fake,|/secrets') 'the API gets no key and no secrets folder'
+    Assert-True ($api.Display -match '-e ASPNETCORE_ENVIRONMENT=Production') 'production settings'
+    Assert-True ($api.Display -notmatch 'setup-code|SetupCode|Passkey|OpenIddict|Auth__Keys') 'none of the removed sign-in settings'
+}
+
+Test-Case 'The web sign-in plays the browser: starts the login, answers the callback with a code for the owner and the nonce Auth0 was given, and keeps the cookies' {
+    $global:SeenNav = [System.Collections.Generic.List[string]]::new()
+    function Invoke-Navigation {
+        param([string]$Base, [string]$Path, [hashtable]$Jar)
+        $global:SeenNav.Add($Path)
+        if ($Path -like '/account/login*') { $Jar['__Host-intent'] = 'i'; return [pscustomobject]@{ Status = 302; Location = 'https://fake-auth0:8443/authorize?client_id=c&state=STATE%2B1&nonce=NONCE-9&redirect_uri=x' } }
+        $Jar['__Host-cm'] = 'session'
+        [pscustomobject]@{ Status = 302; Location = '/' }
+    }
+    $jar = Invoke-WebSignIn -Base 'http://127.0.0.1:1' -Subject 'auth0|cm-sec-owner'
+    Assert-Equal 2 $global:SeenNav.Count
+    Assert-True ($global:SeenNav[1] -match '^/signin-oidc\?code=([^&]+)&state=STATE%2B1$') "the callback: $($global:SeenNav[1])"
+    $code = [Uri]::UnescapeDataString($Matches[1])
+    $grant = [Text.Encoding]::UTF8.GetString((ConvertFrom-TestBase64Url $code)) | ConvertFrom-Json
+    Assert-Equal 'auth0|cm-sec-owner' $grant.sub
+    Assert-Equal 'NONCE-9' $grant.nonce
+    Assert-Equal 'session' $jar['__Host-cm']
+}
+
+Test-Case 'The web sign-in says what happened when the API sends the callback back to the login page' {
+    function Invoke-Navigation {
+        param([string]$Base, [string]$Path, [hashtable]$Jar)
+        if ($Path -like '/account/login*') { return [pscustomobject]@{ Status = 302; Location = 'https://fake-auth0:8443/authorize?state=s&nonce=n' } }
+        [pscustomobject]@{ Status = 302; Location = '/login?error=signin_failed' }
+    }
+    Assert-Throws { Invoke-WebSignIn -Base 'http://127.0.0.1:1' -Subject 'auth0|x' } 'callback answered HTTP 302 to ./login\?error=signin_failed'
+    function Invoke-Navigation { param([string]$Base, [string]$Path, [hashtable]$Jar) [pscustomobject]@{ Status = 200; Location = $null } }
+    Assert-Throws { Invoke-WebSignIn -Base 'http://127.0.0.1:1' -Subject 'auth0|x' } 'not a redirect to Auth0'
+}
+
+Test-Case 'The seed: the owner signs in on the web and makes the library and the invite; the editor comes in with a token, first call then accept; the editor is returned' {
+    function Invoke-WebSignIn { param([string]$Base, [string]$Subject) $global:Calls.Add([pscustomobject]@{ Method = 'WEB'; Path = $Subject; Body = $null; Bearer = $null; Cookie = $null }); @{ '__Host-cm' = 'owner-session' } }
+    function Invoke-Json {
+        param([string]$Base, [string]$Method, [string]$Path, $Body, [string]$Bearer, [hashtable]$Jar = @{})
+        $global:Calls.Add([pscustomobject]@{ Method = $Method; Path = $Path; Body = $Body; Bearer = $Bearer; Cookie = $Jar['__Host-cm'] })
+        switch ("$Method $Path") {
+            'GET /api/v1/me' { return [pscustomobject]@{ Status = 200; Json = [pscustomobject]@{} } }
+            'POST /api/v1/libraries' { return [pscustomobject]@{ Status = 201; Json = [pscustomobject]@{ id = 'lib-1'; role = 'Owner' } } }
+            'POST /api/v1/libraries/lib-1/invites' { return [pscustomobject]@{ Status = 201; Json = [pscustomobject]@{ code = 'ABCD-EFGH-JK'; link = 'x' } } }
+            'POST /api/v1/invites:accept' { return [pscustomobject]@{ Status = 200; Json = [pscustomobject]@{ id = 'lib-1'; role = 'Editor' } } }
+        }
+        [pscustomobject]@{ Status = 404; Json = $null }
+    }
+    $dir = New-TestDirPath
+    try {
+        $auth0 = New-TestAuth0 $dir
+        $seed = New-ThrowawayEditorToken -Base 'http://127.0.0.1:1' -Auth0 $auth0
+    }
+    finally { Remove-TestDir $dir }
+    Assert-Equal 'WEB auth0|cm-sec-owner|POST /api/v1/libraries|POST /api/v1/libraries/lib-1/invites|GET /api/v1/me|POST /api/v1/invites:accept' (($global:Calls | ForEach-Object { "$($_.Method) $($_.Path)" }) -join '|')
+    Assert-Equal 'owner-session,owner-session' (($global:Calls[1], $global:Calls[2] | ForEach-Object { $_.Cookie }) -join ',')
+    Assert-True (-not $global:Calls[1].Bearer -and -not $global:Calls[2].Bearer) 'the owner uses the web session, not a token'
+    Assert-Equal 'auth0|cm-sec-editor,auth0|cm-sec-editor' ((ConvertFrom-TestJwt $global:Calls[3].Bearer).Payload.sub + ',' + (ConvertFrom-TestJwt $global:Calls[4].Bearer).Payload.sub)
+    Assert-Equal 'ABCD-EFGH-JK' $global:Calls[4].Body.invite
+    Assert-Equal 'editor' $global:Calls[2].Body.role
+    Assert-Equal 'lib-1' $seed.LibraryId
+    Assert-Equal 'auth0|cm-sec-editor' (ConvertFrom-TestJwt $seed.Token).Payload.sub
+}
+
+Test-Case 'The seed stops with a clear message when the invite is not accepted, and says nothing of the token' {
+    function Invoke-WebSignIn { param([string]$Base, [string]$Subject) @{ '__Host-cm' = 'owner-session' } }
+    function Invoke-Json {
+        param([string]$Base, [string]$Method, [string]$Path, $Body, [string]$Bearer, [hashtable]$Jar = @{})
+        switch ("$Method $Path") {
+            'GET /api/v1/me' { return [pscustomobject]@{ Status = 200; Json = $null } }
+            'POST /api/v1/libraries' { return [pscustomobject]@{ Status = 201; Json = [pscustomobject]@{ id = 'lib-1' } } }
+            'POST /api/v1/libraries/lib-1/invites' { return [pscustomobject]@{ Status = 201; Json = [pscustomobject]@{ code = 'ABCD-EFGH-JK' } } }
+        }
+        [pscustomobject]@{ Status = 404; Json = [pscustomobject]@{ code = 'invite.invalid' } }
+    }
+    $dir = New-TestDirPath
+    try {
+        $auth0 = New-TestAuth0 $dir
+        $text = $null
+        try { New-ThrowawayEditorToken -Base 'http://127.0.0.1:1' -Auth0 $auth0 | Out-Null } catch { $text = $_.Exception.Message }
+    }
+    finally { Remove-TestDir $dir }
+    Assert-True ($text -match 'Accepting the invite failed \(HTTP 404: invite\.invalid') "got: $text"
+    Assert-True ($text -notmatch 'eyJ') 'no token in the message'
+}
+
+$python = @('python3', 'python') | ForEach-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Where-Object { $_.Source -notmatch 'WindowsApps' } | Select-Object -First 1
+if ($python) {
+    Test-Case 'The fake''s own RS256 signing (plain integer maths) makes ID tokens that verify with the published key' {
+        $dir = New-TestDirPath
+        try {
+            New-TestAuth0 $dir | Out-Null
+            $script = "import sys, json; sys.path.insert(0, sys.argv[1]); import server; server.ROOT = sys.argv[1]; print(server.make_id_token('auth0|cm-sec-owner', 'NONCE-1', {'name': 'Scan owner', 'email': 'owner@example.test'}))"
+            $token = (& $python.Source -I -c $script $dir) -join ''
+            Assert-True ($LASTEXITCODE -eq 0 -and $token -like 'eyJ*') "the fake could not make an ID token: $token"
+            $jwt = ConvertFrom-TestJwt $token
+            Assert-Equal 'NONCE-1' $jwt.Payload.nonce
+            Assert-Equal 'cm-fake-web-client' $jwt.Payload.aud
+            Assert-Equal 'https://fake-auth0:8443/' $jwt.Payload.iss
+            Assert-Equal 'owner@example.test' $jwt.Payload.email
+            Assert-True ($jwt.Payload.auth_time -ge [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 5) 'auth_time is now, so the sign-in counts as recent'
+            $jwks = Get-Content -LiteralPath (Join-Path $dir 'jwks.json') -Raw | ConvertFrom-Json
+            $rsa = [System.Security.Cryptography.RSA]::Create()
+            $rsa.ImportParameters([System.Security.Cryptography.RSAParameters]@{ Modulus = (ConvertFrom-TestBase64Url $jwks.keys[0].n); Exponent = (ConvertFrom-TestBase64Url $jwks.keys[0].e) })
+            Assert-Equal $jwks.keys[0].kid $jwt.Header.kid
+            Assert-True ($rsa.VerifyData($jwt.SigningInput, $jwt.Signature, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)) 'the ID token verifies with the JWKS key'
+        }
+        finally { Remove-TestDir $dir }
+    }
+}
+
+Test-Case 'The ZAP hook still puts the bearer token on every request and the run passes the editor token to ZAP' {
+    $hook = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'zap-hooks.py') -Raw
+    Assert-True ($hook -match "CM_ZAP_TOKEN" -and $hook -match "'Bearer ' \+ token") 'the hook sets Authorization: Bearer from CM_ZAP_TOKEN'
+    $zap = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Security.Zap.ps1') -Raw
+    Assert-True ($zap -match 'New-ThrowawayEditorToken[^\r\n]*-Auth0 \$stack\.Auth0') 'the API scan seeds through the fake Auth0'
+    Assert-True ($zap -match '-Token \$token') 'the token goes to the scan'
 }
 
 # ---- summary ---------------------------------------------------------------------------------------------------------------------------

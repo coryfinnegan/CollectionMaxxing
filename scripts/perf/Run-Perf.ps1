@@ -8,6 +8,10 @@
   everything it started. Nothing is published to the host and there is no URL parameter: it cannot be pointed at the live stack.
   Providers can't be reached either (the network is internal), so no real provider is ever called.
 
+  Sign-in is Auth0 and the run has no internet, so a fake Auth0 (scripts/fake-auth0) runs in the same private network, over TLS, and the API
+  trusts that run's own CA. The runner signs a bearer token per account with the run's throwaway key; k6 seeds through the API's own flow
+  (the owner signs in on the web, makes a library and invites; the others come in with tokens and accept). Nothing in the API is weakened.
+
   Profiles (scripts/perf/profiles.json):   smoke  2 scanners, 30 s      (what the builder ran)
                                            gaming 5 scanners, 3 min
                                            full   20 scanners, 10 min   (needs  -Profile full -ConfirmFull)
@@ -46,11 +50,11 @@ catch { Refuse $_.Exception.Message }
 $cap = if ($MaxMinutes -gt 0) { $MaxMinutes } else { $chosen.MaxMinutes }
 $runId = New-PerfRunId
 $out = Join-Path ([System.IO.Path]::GetTempPath()) "collectionmaxxing-perf/$runId"
-$secrets = Join-Path $out 'secrets'
+$auth0Dir = Join-Path $out 'fake-auth0'
 $tag = ((& git -C $repo rev-parse --short HEAD 2>$null) | Select-Object -First 1)
 if (-not $tag) { $tag = 'dev' }
 
-$plan = Get-PerfPlan -Profile $chosen -RunId $runId -OutDir $out -SecretsDir $secrets -Tag $tag
+$plan = Get-PerfPlan -Profile $chosen -RunId $runId -OutDir $out -Auth0Dir $auth0Dir -Tag $tag
 $build = Get-PerfBuildCommands -Tag $tag -RepoRoot $repo
 $unsafe = @(Test-PerfPlanSafe -Plan $plan -BuildCommands $build)
 if ($unsafe.Count -gt 0) { Refuse "the plan broke a safety rule: $($unsafe -join '; ')" }
@@ -78,13 +82,12 @@ if ($BuildOnly) { Write-Host 'images are ready.'; exit 0 }
 
 # ---- the run ---------------------------------------------------------------------------------------------------------------------
 $password = New-PerfPassword
-$secretValues = @{ DB_PASSWORD = $password; SETUP_CODE = '' }
+$secretValues = @{ DB_PASSWORD = $password }
 $exit = 0
-New-Item -ItemType Directory -Force -Path $secrets | Out-Null
+New-Item -ItemType Directory -Force -Path $out | Out-Null
 $process = $null
 try {
-  New-PerfCertificate -Path (Join-Path $secrets 'signing.pfx')
-  New-PerfCertificate -Path (Join-Path $secrets 'encryption.pfx')
+  [void](New-PerfAuth0 -Auth0Dir $auth0Dir -OutDir $out -Profile $chosen)
   $step = @{}; foreach ($c in $plan.Commands) { $step[$c.Step] = $c }
   $docker = { param($c) $r = Invoke-PerfDocker -DockerArgs (Expand-PerfArgs -CommandArgs $c.Args -Secrets $secretValues); if ($r.Code -ne 0) { throw "$($c.Step) failed: $(($r.Output | Select-Object -Last 6) -join ' | ')" }; $r }
 
@@ -99,17 +102,23 @@ try {
   & $docker $step['migrate'] | Out-Null
   Write-Host 'ok   database ready, migrations applied'
 
+  & $docker $step['auth0'] | Out-Null
+  $fakeUp = $false
+  for ($i = 0; $i -lt 30 -and -not $fakeUp; $i++) {
+    $fakeUp = ((Invoke-PerfDocker -DockerArgs @('logs', $plan.Containers[4])).Output -join "`n") -match 'fake auth0 listening'
+    if (-not $fakeUp) { Start-Sleep -Seconds 1 }
+  }
+  if (-not $fakeUp) { throw 'the fake Auth0 did not start in 30 s' }
+  Write-Host 'ok   fake Auth0 is up'
+
   & $docker $step['api'] | Out-Null
-  $codeFile = Join-Path $secrets 'setup-code.txt'
   $listening = $false
   for ($i = 0; $i -lt 60 -and -not $listening; $i++) {
     $logs = (Invoke-PerfDocker -DockerArgs @('logs', $plan.Containers[1])).Output -join "`n"
-    $listening = ($logs -match 'Now listening on') -and (Test-Path -LiteralPath $codeFile)
+    $listening = $logs -match 'Now listening on'
     if (-not $listening) { Start-Sleep -Seconds 2 }
   }
   if (-not $listening) { throw 'the API did not start in 120 s (docker logs of the cm-perf api container may say why before cleanup)' }
-  $secretValues.SETUP_CODE = ((Get-Content -LiteralPath $codeFile -Raw) -split '\s+' | Where-Object { $_ -match '^[A-Za-z0-9-]{8,}$' } | Select-Object -First 1)
-  if (-not $secretValues.SETUP_CODE) { throw 'no setup code was written' }
   Write-Host 'ok   API is up; starting k6 (Ctrl+C stops everything)'
 
   $k6 = Expand-PerfArgs -CommandArgs $step['k6'].Args -Secrets $secretValues
@@ -168,7 +177,7 @@ finally {
   # Keep the API's log (temp folder only) so a slow or failed run can be explained after the containers are gone.
   try { (Invoke-PerfDocker -DockerArgs @('logs', '--tail', '300', $plan.Containers[1])).Output | Set-Content -LiteralPath (Join-Path $out 'api.log') } catch { }
   [void](Stop-PerfResources -RunId $runId)
-  try { Remove-Item -LiteralPath $secrets -Recurse -Force -ErrorAction SilentlyContinue } catch { }
+  Remove-PerfAuth0Files -Auth0Dir $auth0Dir -OutDir $out   # the fake's keys and the accounts' tokens do not outlive the run
   Write-Host 'stopped'
 }
 exit $exit

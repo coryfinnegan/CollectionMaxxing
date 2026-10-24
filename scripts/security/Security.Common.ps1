@@ -44,7 +44,7 @@ function Open-SecFolderForContainer {
     <#
       A folder bind-mounted into a container keeps the host's owner and mode. On Linux the container's user (ZAP's zap, uid 1000;
       the API's app user) is not the user who made the folder (the runner, another uid), so it could not write into it: no
-      report.json, no setup-code.txt. Docker Desktop on Windows/macOS hides this. These are per-run temp folders holding only
+      report.json, nothing the fake Auth0 needs. Docker Desktop on Windows/macOS hides this. These are per-run temp folders holding only
       throwaway material, so opening the mode (not --user, which would leave ZAP without a writable home) is enough.
       Not done on Windows, where chmod does not exist and is not needed.
     #>
@@ -117,8 +117,8 @@ function Get-SecPlan {
     )
     $network = "$($script:NamePrefix)-net-$RunId"
     $images = switch ($Mode) {
-        'zap-baseline' { @($script:PostgresImage, "$($script:NamePrefix)-api:$RunId (built from deploy/docker/Dockerfile.api)", $script:ZapImage) }
-        'zap-api' { @($script:PostgresImage, "$($script:NamePrefix)-api:$RunId (built from deploy/docker/Dockerfile.api)", $script:ZapImage) }
+        'zap-baseline' { @($script:PostgresImage, $script:FakeAuth0Image, "$($script:NamePrefix)-api:$RunId (built from deploy/docker/Dockerfile.api)", $script:ZapImage) }
+        'zap-api' { @($script:PostgresImage, $script:FakeAuth0Image, "$($script:NamePrefix)-api:$RunId (built from deploy/docker/Dockerfile.api)", $script:ZapImage) }
         'image-scan' { @("$($script:NamePrefix)-api:$RunId (built from deploy/docker/Dockerfile.api)", $script:TrivyImage) }
         default { @() }
     }
@@ -127,9 +127,9 @@ function Get-SecPlan {
         RunId = $RunId
         Network = $(if ($Mode -in 'zap-baseline', 'zap-api') { $network } else { '(none)' })
         Images = $images
-        Containers = $(if ($Mode -in 'zap-baseline', 'zap-api') { @("$($script:NamePrefix)-pg-$RunId", "$($script:NamePrefix)-api-$RunId", "$($script:NamePrefix)-zap-$RunId") } elseif ($Mode -eq 'image-scan') { @("$($script:NamePrefix)-trivy-$RunId") } else { @() })
+        Containers = $(if ($Mode -in 'zap-baseline', 'zap-api') { @("$($script:NamePrefix)-pg-$RunId", "$($script:NamePrefix)-auth0-$RunId", "$($script:NamePrefix)-api-$RunId", "$($script:NamePrefix)-zap-$RunId") } elseif ($Mode -eq 'image-scan') { @("$($script:NamePrefix)-trivy-$RunId") } else { @() })
         Label = $script:Label
-        ZapMode = $(switch ($Mode) { 'zap-baseline' { 'baseline (passive: spider and passive rules only)' } 'zap-api' { 'api scan (active, from contracts/openapi.json, as the throwaway owner)' } default { 'not used' } })
+        ZapMode = $(switch ($Mode) { 'zap-baseline' { 'baseline (passive: spider and passive rules only)' } 'zap-api' { 'api scan (active, from contracts/openapi.json, as a throwaway editor with a fake Auth0 bearer token)' } default { 'not used' } })
         ThreadsPerHost = $Threads
         WallClockMinutes = $MaxMinutes
         PublishedPort = $(if ($Mode -in 'zap-baseline', 'zap-api') { if ($Port -gt 0) { "127.0.0.1:$Port" } else { '127.0.0.1:<random>' } } else { '(none)' })
