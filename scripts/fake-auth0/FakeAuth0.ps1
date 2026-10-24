@@ -148,5 +148,6 @@ function Get-FakeAuth0ContainerArgs {
 function Get-FakeAuth0ApiMount {
     <# The API container gets only the CA certificate (the ca/ folder), never the server key or the signing material. #>
     param([Parameter(Mandatory)][string]$Directory)
-    @('--mount', "type=bind,source=$(Join-Path $Directory 'ca'),target=/fake-auth0-ca,readonly")
+    # Plain string joining, not Join-Path: tests pass a Windows-looking path on Linux, where Join-Path would look for a drive.
+    @('--mount', "type=bind,source=$($Directory.TrimEnd('/', '\'))$([IO.Path]::DirectorySeparatorChar)ca,target=/fake-auth0-ca,readonly")
 }
