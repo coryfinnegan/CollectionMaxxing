@@ -10,9 +10,9 @@ public sealed class ProviderResilienceOptions
 {
     public const string SectionName = "Providers:Resilience";
 
-    public TimeSpan AttemptTimeout { get; set; } = TimeSpan.FromSeconds(5);
+    public TimeSpan AttemptTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
-    public TimeSpan TotalTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan TotalTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
     public int MaxRetryAttempts { get; set; } = 3;
 

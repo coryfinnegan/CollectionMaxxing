@@ -4,5 +4,5 @@ namespace CollectionMaxxing.Application.Catalog;
 public sealed class CatalogOptions
 {
     /// <summary>How long one provider may take to answer before the request carries on without it.</summary>
-    public TimeSpan ProviderTimeout { get; set; } = TimeSpan.FromSeconds(5);
+    public TimeSpan ProviderTimeout { get; set; } = TimeSpan.FromSeconds(20);
 }

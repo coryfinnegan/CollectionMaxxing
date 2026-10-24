@@ -18,7 +18,7 @@ public sealed class ScanningOptions
     public TimeSpan ResolveBudget { get; set; } = TimeSpan.FromSeconds(2);
 
     /// <summary>How long the background job gives one code, which no request is waiting for.</summary>
-    public TimeSpan JobResolveBudget { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan JobResolveBudget { get; set; } = TimeSpan.FromSeconds(90);
 
     /// <summary>How many codes of one batch are looked up at the same time.</summary>
     public int Parallelism { get; set; } = 4;
