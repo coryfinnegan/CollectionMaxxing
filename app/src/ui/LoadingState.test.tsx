@@ -11,6 +11,7 @@ describe('LoadingState', () => {
   it('shows just the spinner without a label', async () => {
     await render(<LoadingState />);
     expect(screen.getByTestId('loading-state')).toBeTruthy();
+    expect(screen.getByLabelText('Loading')).toBeTruthy();
   });
 
   it('announces status-like loading when asked', async () => {
