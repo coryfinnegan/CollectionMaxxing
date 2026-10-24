@@ -1,5 +1,6 @@
 // The close-scanner sheet (docs/06 M3): shown over the scanner when items are waiting.
 import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { spacing } from '@/theme/tokens';
 import { Button, Sheet, Text } from '@/ui';
 import type { CloseState } from './closeMachine';
@@ -14,10 +15,14 @@ type Props = {
 export const itemsCopy = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
 
 export function CloseScannerSheet({ state, unreviewed, onChoose, onDismiss }: Props) {
+  const insets = useSafeAreaInsets();
   if (state.phase === 'idle') return null;
   const busy = state.phase === 'discarding';
   return (
-    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', padding: spacing.lg }]}>
+    <View
+      pointerEvents="box-none"
+      style={[StyleSheet.absoluteFill, { justifyContent: 'flex-end', paddingTop: spacing.lg, paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.lg }]}
+    >
       <Sheet title="Close the scanner" onClose={onDismiss}>
         <Text>{`${itemsCopy(unreviewed)} scanned and not added yet. Review them now, keep them for later, or discard this scan. Discarding adds nothing to your library.`}</Text>
         {state.error ? (

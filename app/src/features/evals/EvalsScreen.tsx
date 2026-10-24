@@ -1,5 +1,7 @@
 // Owner-only dev screen: run the golden photos through both engines on this iPhone and see the PC's gate table when it is done.
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useColors } from '@/theme/tokens';
 import { Button, Card, Screen, Text } from '@/ui';
 import { getEvalRunner } from './device';
 import type { EvalRunner, EvalState } from './runner';
@@ -38,12 +40,14 @@ function Summary({ state }: { state: EvalState }) {
 }
 
 export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner }) {
+  const colors = useColors();
   const state = useSyncExternalStore(runner.subscribe, runner.getState);
   const elapsed = useElapsed(state);
   const working = state.phase === 'starting' || state.phase === 'running' || state.phase === 'paused';
   const apple = state.step === 'apple' ? 'Apple model' : 'Vision text';
 
   return (
+    <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
     <Screen title="Run evals" subtitle="Reads your PC's test photos on this iPhone and sends the readings back to be scored.">
       {state.phase === 'idle' ? (
         <>
@@ -106,5 +110,6 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
         </>
       ) : null}
     </Screen>
+    </SafeAreaView>
   );
 }

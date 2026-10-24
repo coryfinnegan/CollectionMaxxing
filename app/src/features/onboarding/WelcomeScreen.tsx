@@ -2,6 +2,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGetMe } from '@/api/generated/account/account';
 import { logout } from '@/features/auth/api';
 import { navigateTo } from '@/features/auth/navigation';
@@ -9,6 +10,7 @@ import { clearLocalData } from '@/features/me/localData';
 import { signOutThisDevice } from '@/features/me/unpair';
 import { isWeb } from '@/lib/auth/session';
 import { friendlyError } from '@/lib/problem';
+import { useColors } from '@/theme/tokens';
 import { Button, Card, Screen, Text } from '@/ui';
 
 /** The signed-in account from `GET /api/v1/me`: its name and, when it has one, its email. */
@@ -45,20 +47,23 @@ export function useUseAnotherAccount() {
 
 export function WelcomeScreen() {
   const router = useRouter();
+  const colors = useColors();
   const account = useAccount();
   const another = useUseAnotherAccount();
   return (
-    <Screen title={account ? `Welcome, ${account.name}.` : 'Welcome.'} subtitle={account?.email ? `You're signed in as ${account.email}.` : undefined}>
-      <Card>
-        <Button label="Create your library" onPress={() => router.push('/welcome/create')} />
-        <Button label="Join a library" variant="secondary" onPress={() => router.push('/welcome/join')} />
-        <Button label="Use another account" variant="secondary" busy={another.busy} onPress={another.run} />
-        {another.error ? (
-          <Text tone="danger" accessibilityRole="alert">
-            {another.error}
-          </Text>
-        ) : null}
-      </Card>
-    </Screen>
+    <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
+      <Screen title={account ? `Welcome, ${account.name}.` : 'Welcome.'} subtitle={account?.email ? `You're signed in as ${account.email}.` : undefined}>
+        <Card>
+          <Button label="Create your library" onPress={() => router.push('/welcome/create')} />
+          <Button label="Join a library" variant="secondary" onPress={() => router.push('/welcome/join')} />
+          <Button label="Use another account" variant="secondary" busy={another.busy} onPress={another.run} />
+          {another.error ? (
+            <Text tone="danger" accessibilityRole="alert">
+              {another.error}
+            </Text>
+          ) : null}
+        </Card>
+      </Screen>
+    </SafeAreaView>
   );
 }

@@ -5,10 +5,14 @@ import { renderWithProviders } from '@/test/render';
 import { ExportScreen } from './ExportScreen';
 import { exportPoll, setSharer } from './services';
 
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
 const deliver = jest.fn(async () => {});
 
 beforeEach(() => {
   resetMockAccount();
+  mockRouter.back.mockClear();
   deliver.mockClear();
   exportPoll.intervalMs = 200; // slow enough for the test to see each state
   setSharer({ deliver });
@@ -44,6 +48,14 @@ describe('ExportScreen', () => {
     await fireEvent.press(screen.getByLabelText('Start the export again'));
     expect(await screen.findByLabelText('Download export')).toBeTruthy();
     expect(mockAccount.exportStarts).toBe(2);
+  });
+
+  it('offers a way back to Me', async () => {
+    await renderWithProviders(<ExportScreen />);
+
+    await fireEvent.press(screen.getByLabelText('Back'));
+
+    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('offers the share sheet on the iPhone', async () => {

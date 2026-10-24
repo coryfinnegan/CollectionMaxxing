@@ -52,6 +52,12 @@ describe('WelcomeScreen', () => {
     expect(screen.queryByText(/signed in as/)).toBeNull();
   });
 
+  it('keeps content clear of the notch and home indicator', async () => {
+    await renderWithProviders(<WelcomeScreen />);
+
+    expect(screen.getByTestId('safe-area')).toBeTruthy();
+  });
+
   it('offers create, join and another account', async () => {
     await renderWithProviders(<WelcomeScreen />);
     await fireEvent.press(screen.getByLabelText('Create your library'));
@@ -102,6 +108,12 @@ describe('CreateLibraryScreen', () => {
     expect(mockAccount.libraries).toHaveLength(1);
     expect(mockAccount.libraries[0]).toMatchObject({ name: "Cory's library", role: 'owner' });
     expect(useLibraryStore.getState().activeLibraryId).toBe(mockAccount.libraries[0]!.id);
+  });
+
+  it('keeps content clear of the notch and home indicator', async () => {
+    await renderWithProviders(<CreateLibraryScreen />);
+
+    expect(screen.getByTestId('safe-area')).toBeTruthy();
   });
 
   it('sends the name as typed', async () => {
@@ -166,6 +178,12 @@ describe('JoinLibraryScreen', () => {
     expect(mockAccount.libraries).toContainEqual(expect.objectContaining({ name: "Cory's library", role: 'editor' }));
   });
 
+  it('keeps content clear of the notch and home indicator', async () => {
+    await renderWithProviders(<JoinLibraryScreen />);
+
+    expect(screen.getByTestId('safe-area')).toBeTruthy();
+  });
+
   it('forgives case and dashes in a code', async () => {
     await renderWithProviders(<JoinLibraryScreen />);
     await type(MOCK_CODE.toLowerCase().replace(/-/g, ' '));
@@ -225,6 +243,12 @@ describe('JoinInviteScreen', () => {
     await fireEvent.press(screen.getByLabelText('Sign in to join'));
 
     expect(navigate).toHaveBeenCalledWith('/account/login?returnUrl=%2Fjoin%2Fvalid-invite');
+  });
+
+  it('keeps content clear of the notch and home indicator', async () => {
+    await renderWithProviders(<JoinInviteScreen token="valid-invite" />);
+
+    expect(screen.getByTestId('safe-area')).toBeTruthy();
   });
 
   it('signed in, offers Join and joins', async () => {

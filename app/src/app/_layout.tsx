@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, ThemeProvider, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 import { installAuth } from '@/features/auth/bootstrap';
 import { installFocusRing } from '@/lib/a11y/webFocusRing';
@@ -43,6 +44,7 @@ export default function RootLayout() {
   if (!ready) return null;
   return (
     <QueryClientProvider client={queryClient}>
+    <SafeAreaProvider>
       <StatusBar style="auto" />
       <ThemeProvider value={navigationTheme}>
       <Stack
@@ -66,6 +68,7 @@ export default function RootLayout() {
         <Stack.Screen name="result/[id]" options={{ title: 'Result' }} />
       </Stack>
       </ThemeProvider>
+    </SafeAreaProvider>
     </QueryClientProvider>
   );
 }

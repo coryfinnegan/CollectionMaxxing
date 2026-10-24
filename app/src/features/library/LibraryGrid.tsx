@@ -3,6 +3,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
@@ -36,12 +37,12 @@ export function LibraryGrid({ title, fixedStatus, openAdd }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
   if (loadingLibrary || !libraryId) {
     return (
-      <View style={{ padding: spacing.lg, gap: spacing.md }}>
+      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ padding: spacing.lg, gap: spacing.md }}>
         <Text variant="title" accessibilityRole="header">
           {title}
         </Text>
         <Text tone="muted">Loading your library…</Text>
-      </View>
+      </SafeAreaView>
     );
   }
   return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} />;
@@ -227,8 +228,10 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
     />
   );
 
+  // The header and the tab bar already account for the top and bottom insets; the sides keep
+  // landscape content clear of the notch.
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ground }}>
+    <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
       <FlatList<ItemSummaryDto>
         key={columns}
         testID="library-grid"
@@ -253,7 +256,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
       <View style={{ padding: spacing.lg }}>
         <UndoSnackbar />
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

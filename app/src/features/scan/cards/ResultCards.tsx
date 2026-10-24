@@ -103,7 +103,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
           style={{ flexDirection: 'row', gap: spacing.sm }}
         >
           <Cover title={copy.title} uri={candidate.release?.coverUrl} width={44} />
-          <View style={{ flex: 1, gap: 2 }}>
+          <View style={{ flex: 1, gap: spacing.xs }}>
             <Text variant="label" numberOfLines={2}>
               {copy.title}
             </Text>

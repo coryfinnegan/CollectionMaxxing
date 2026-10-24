@@ -6,7 +6,13 @@ import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { RecentlyDeletedScreen, daysLeft } from './RecentlyDeletedScreen';
 
-beforeEach(() => resetMockAccount());
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
+beforeEach(() => {
+  resetMockAccount();
+  mockRouter.back.mockClear();
+});
 
 const asRole = (role: 'owner' | 'editor' | 'viewer') =>
   server.use(http.get('*/api/v1/me', () => HttpResponse.json({ ...mockMe(), memberships: [{ ...mockMe().memberships[0], role }] })));
@@ -19,6 +25,15 @@ describe('RecentlyDeletedScreen', () => {
     expect(screen.getByText('28 days left')).toBeTruthy();
     expect(screen.getByText('Star Fox 64')).toBeTruthy();
     expect(screen.getByText('1 day left')).toBeTruthy();
+  });
+
+  it('offers a way back to Me', async () => {
+    await renderWithProviders(<RecentlyDeletedScreen />);
+    await screen.findByText('Aliens');
+
+    await fireEvent.press(screen.getByLabelText('Back'));
+
+    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('restores an item and removes its row', async () => {
