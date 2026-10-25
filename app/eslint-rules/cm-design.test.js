@@ -44,7 +44,11 @@ describe('cm-design/no-inline-styles', () => {
       'const el = <View style={{ backgroundColor: colors.ground }} />;',
       'const el = <View style={{ width: getWidth() }} />;',
       "const el = <View style={{ flexDirection: wide ? 'row' : 'column' }} />;",
+      // Passes ONLY because the inner translateY is dynamic — the static
+      // twin below (translateY: 5) fails. The pair proves nested values are
+      // inspected rather than waved through.
       'const el = <View style={{ transform: [{ translateY: shown ? 0 : -200 }] }} />;',
+      'const el = <View style={{ width: `${w}px` }} />;',
       'const el = <View style={[styles.a, { backgroundColor: colors.accent }]} />;',
       'const el = <View style={(s) => ({ opacity: pressed ? 1 : 0.5 })} />;',
     ],
@@ -58,6 +62,10 @@ describe('cm-design/no-inline-styles', () => {
       { code: 'const el = <View style={{ width: 44, height: 44 }} />;', errors: 1 },
       { code: 'const el = <View style={[styles.a, { width: barWidth, height: 16 }]} />;', errors: 1 },
       { code: 'const el = <View style={{ marginTop: -8 }} />;', errors: 1 },
+      { code: 'const el = <View style={{ width: `100%` }} />;', errors: 1 },
+      { code: 'const el = <View style={{ transform: [{ translateY: 5 }] }} />;', errors: 1 },
+      { code: 'const el = <View style={{ shadowOffset: { width: 0, height: 2 } }} />;', errors: 1 },
+      { code: "const el = <View style={{ flexDirection: 'row' as const }} />;", errors: 1 },
     ],
   });
 });

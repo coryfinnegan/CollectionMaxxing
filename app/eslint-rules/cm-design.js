@@ -29,15 +29,22 @@ const noRawColors = {
 
 const styleProps = new Set(['style', 'contentContainerStyle']);
 
-// A style value is static when it is a literal or a literal in disguise (a
-// template with no expressions, a negated literal). Anything else — an
-// identifier, a member expression like colors.ground, a call, a conditional —
-// is dynamic: a module-scope StyleSheet cannot express it (#331).
+// A style value is static when it is a literal or a literal in disguise: an
+// expression-free template, a unary expression over a static value, an
+// array or object holding a static value, or a TS as/satisfies cast of one.
+// Anything else — an identifier, a member expression like colors.ground, a
+// call, a conditional — is dynamic: a module-scope StyleSheet cannot
+// express it (#331).
 function isStaticStyleValue(node) {
   if (!node) return false;
   if (node.type === 'Literal') return true;
   if (node.type === 'TemplateLiteral') return node.expressions.length === 0;
   if (node.type === 'UnaryExpression') return isStaticStyleValue(node.argument);
+  if (node.type === 'ArrayExpression') return node.elements.some(isStaticStyleValue);
+  if (node.type === 'ObjectExpression') return inlineObjectHasStaticProp(node);
+  if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSTypeAssertion') {
+    return isStaticStyleValue(node.expression);
+  }
   return false;
 }
 
