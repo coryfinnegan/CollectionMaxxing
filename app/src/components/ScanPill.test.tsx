@@ -15,6 +15,16 @@ jest.mock('expo-router/unstable-native-tabs', () => ({
   NativeTabs: { BottomAccessory: { usePlacement: () => mockUsePlacement() } },
 }));
 
+const mockGlassState = { available: false };
+jest.mock('expo-glass-effect', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+  const { View } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    GlassView: (props: object) => React.createElement(View, { ...props, accessibilityLabel: 'liquid glass' }),
+    isLiquidGlassAvailable: () => mockGlassState.available,
+  };
+});
+
 const fakeHaptics = () => {
   const calls: string[] = [];
   const driver: HapticDriver = {
@@ -32,6 +42,7 @@ const fakeHaptics = () => {
 beforeEach(() => {
   mockRouter.navigate.mockClear();
   mockUsePlacement.mockReturnValue('regular');
+  mockGlassState.available = false;
 });
 
 afterEach(() => setHapticDriver(null));
@@ -61,6 +72,15 @@ describe('ScanPill', () => {
     expect(screen.queryByText('Scan a barcode')).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'Scan a barcode' }));
     expect(mockRouter.navigate).toHaveBeenCalledWith('/scan');
+  });
+
+  it('floats in liquid glass on iOS 26+, and stays a plain pill elsewhere', async () => {
+    await renderWithProviders(<ScanPill />);
+    expect(screen.queryByLabelText('liquid glass')).toBeNull();
+
+    mockGlassState.available = true;
+    await renderWithProviders(<ScanPill />);
+    expect(screen.getAllByLabelText('liquid glass')).toHaveLength(1);
   });
 
   it('is stateless: two instances press alike', async () => {

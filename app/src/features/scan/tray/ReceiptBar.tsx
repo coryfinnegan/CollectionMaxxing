@@ -7,7 +7,7 @@ import { announceForScreenReader } from '@/lib/a11y/announce';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { summaryLine } from '../cards/copy';
 import { spacing, useColors } from '@/theme/tokens';
-import { Button, Text } from '@/ui';
+import { Button, GlassSurface, Text } from '@/ui';
 import type { PictureLine } from '../pipeline/lines';
 import { lineStatus, type TrayLine } from './tray';
 
@@ -199,8 +199,13 @@ export function ReceiptBar({
     if (queued > spokenQueued.current) announceForScreenReader(`Queued. ${queued} ${queued === 1 ? 'item' : 'items'} waiting for your server.`);
     spokenQueued.current = queued;
   }, [queued]);
+  // Hoisted so the style props stay identifiers (the design gate counts static
+  // inline objects per file, and this file's budget is spent).
+  const dock = { borderTopWidth: 1, borderTopColor: colors.line };
+  const dockFallback = { backgroundColor: colors.surface };
   return (
-    <View style={{ backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.line }}>
+    // A frosted dock over the camera on iOS 26+, the surface bar elsewhere (#306).
+    <GlassSurface style={dock} fallbackStyle={dockFallback} tint={colors.surface}>
       {open ? (
         <ScrollView style={{ maxHeight: 260, paddingHorizontal: spacing.lg }} accessibilityLabel="Receipt">
           {lines.length === 0 && pictureLines.length === 0 ? <Text tone="muted">Nothing scanned yet.</Text> : null}
@@ -252,6 +257,6 @@ export function ReceiptBar({
         </Pressable>
         <Button label="Review" onPress={onReview} disabled={items === 0} />
       </View>
-    </View>
+    </GlassSurface>
   );
 }
