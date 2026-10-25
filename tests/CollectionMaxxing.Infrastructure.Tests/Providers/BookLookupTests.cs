@@ -194,6 +194,55 @@ public class BookLookupTests(PostgresFixture db) : DatabaseTest(db)
         ProviderCalls(host).ShouldBe(callsAfterFirst);
     }
 
+    [Fact]
+    public async Task A_first_answer_without_a_cover_waits_for_an_answer_with_one()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, EditionPath, 200, "openlibrary-isbn-no-cover.json");
+        Stub(host, "/authors/OL34184A.json", 200, "openlibrary-author.json");
+        Stub(host, GooglePath, 200, "googlebooks-found.json", delay: TimeSpan.FromMilliseconds(500));
+
+        var result = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        result.Release.ShouldNotBeNull();
+        result.Release.Provider.ShouldBe("googlebooks");
+        result.Release.CoverUrl.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task A_first_answer_with_a_cover_does_not_wait_for_the_other_provider()
+    {
+        using var host = ProviderHost.Create(Db);
+        StubOpenLibraryFound(host);
+        Stub(host, GooglePath, 200, "googlebooks-found.json", delay: TimeSpan.FromSeconds(4));
+
+        var started = DateTimeOffset.UtcNow;
+        var result = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        result.Release.ShouldNotBeNull();
+        result.Release.Provider.ShouldBe("openlibrary");
+        (DateTimeOffset.UtcNow - started).ShouldBeLessThan(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
+    public async Task Two_answers_without_a_cover_return_the_first_and_are_kept()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, EditionPath, 200, "openlibrary-isbn-no-cover.json");
+        Stub(host, "/authors/OL34184A.json", 200, "openlibrary-author.json");
+        Stub(host, GooglePath, 200, "googlebooks-empty.json");
+
+        var first = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+        first.Release.ShouldNotBeNull();
+        first.Release.CoverUrl.ShouldBeNull();
+        var callsAfterFirst = ProviderCalls(host);
+
+        var again = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        again.Release.ShouldNotBeNull();
+        ProviderCalls(host).ShouldBe(callsAfterFirst);
+    }
+
     private sealed class CapturingLogger : ILogger<BookLookup>
     {
         public List<string> Messages { get; } = [];
