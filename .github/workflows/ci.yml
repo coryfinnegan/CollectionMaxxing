@@ -21,8 +21,15 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - name: Run quality gate
-        run: bash scripts/check.sh
+      # One phase per step (#297): timings and failures localize. No app phase here; the app job owns npm run check.
+      - name: Restore
+        run: bash scripts/check.sh restore
+      - name: Build
+        run: bash scripts/check.sh build
+      - name: Format
+        run: bash scripts/check.sh format
+      - name: Test
+        run: bash scripts/check.sh test
       - name: Deploy script tests
         run: pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
       # The mutation sampler's own tests (QA-3a): scripts/check doesn't run them, and the nightly sweep relies on them.
