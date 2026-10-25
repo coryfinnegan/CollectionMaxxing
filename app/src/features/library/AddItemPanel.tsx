@@ -16,16 +16,25 @@ type Props = { libraryId: string; onClose: () => void };
 export function AddItemPanel({ libraryId, onClose }: Props) {
   const { create } = useItemMutations(libraryId);
   const key = useRef(newIdempotencyKey());
+  // A key replays the first payload it was sent with, so it belongs to one payload:
+  // a changed payload needs a fresh key, while retrying the same payload keeps its key.
+  const lastPayload = useRef<string | null>(null);
   const [mode, setMode] = useState<'search' | 'manual'>('search');
   const [error, setError] = useState<string | null>(null);
 
   const submit = (data: CreateItemRequest) => {
+    const payload = JSON.stringify(data);
+    if (payload !== lastPayload.current) {
+      key.current = newIdempotencyKey();
+      lastPayload.current = payload;
+    }
     setError(null);
     create.mutate(
       { data, idempotencyKey: key.current },
       {
         onSuccess: () => {
           key.current = newIdempotencyKey();
+          lastPayload.current = null;
           onClose();
         },
         onError: (e) => setError(friendlyError(e)),
