@@ -1,10 +1,18 @@
 # Signs the iPhone app and uploads it to TestFlight (ADR-024). The one-time setup and the yearly certificate renewal
 # are in deploy/runbooks/iphone-app-testflight.md.
 #
+#   push to main        build and upload whenever the app changed (paths: app/**): every merge that touches the app
+#                       ships to TestFlight (#277)
 #   v* tag              build that tag, upload it, and create the GitHub release
 #   schedule            rebuild the latest release with a new build number: a TestFlight build stops opening 90 days
 #                       after upload, and this runs on the 1st of every other month, so a quiet spell never lets it lapse
 #   workflow_dispatch   build the chosen branch (main) and upload it, for example to check the setup before tagging
+#
+# No redundant builds (#277 req 3): a push to main whose head commit message carries [skip ios-build] skips this
+# workflow's only job. A release-action version bump that is about to be tagged needs no push build, because the tag
+# build uploads the same code. A blanket paths-ignore of app/app.config.ts would also skip version-bump PRs that must
+# upload (#277 req 4), so the marker is opt-out per push instead: the person merging adds it to the squash-merge
+# message. Tags, schedules and manual dispatches always build. Only the head commit's message is checked.
 #
 # The signing secrets live in the `testflight` environment, which only main and v* tags can use, so pull requests and
 # forks never see them. Builds go to internal testers only (testFlightInternalTestingOnly): never to the App Store.
@@ -13,7 +21,10 @@ name: iOS build (TestFlight)
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
+    # Path filters are not evaluated for tag pushes, so v* tags always build; only main-branch pushes are filtered.
+    paths: ['app/**']
   schedule:
     - cron: '17 9 1 */2 *'
 
@@ -26,6 +37,8 @@ concurrency:
 
 jobs:
   build:
+    # Honours the [skip ios-build] marker on pushes to main (see the header comment); every other trigger runs.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main' || !contains(github.event.head_commit.message, '[skip ios-build]')
     runs-on: xcode-27 # macOS 26 + Xcode 27 (iOS 27 SDK), actions/runner-images#14404
     timeout-minutes: 60
     environment: testflight
