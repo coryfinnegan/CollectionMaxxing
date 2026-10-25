@@ -29,7 +29,7 @@ internal static class ItemProjection
                 var name = element.ValueKind switch
                 {
                     JsonValueKind.String => element.GetString(),
-                    JsonValueKind.Object when element.TryGetProperty("name", out var n) => n.GetString(),
+                    JsonValueKind.Object when element.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String => n.GetString(),
                     _ => null,
                 };
                 if (!string.IsNullOrWhiteSpace(name))
