@@ -18,35 +18,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - name: Detect solution
-        id: detect
-        run: |
-          if compgen -G "*.slnx" > /dev/null; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No *.slnx yet; skipping backend checks."
-          fi
       - uses: actions/setup-dotnet@v6
-        if: steps.detect.outputs.present == 'true'
         with:
           global-json-file: global.json
       - name: Run quality gate
-        if: steps.detect.outputs.present == 'true'
         run: bash scripts/check.sh
       - name: Deploy script tests
-        if: steps.detect.outputs.present == 'true'
         run: pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
       # The mutation sampler's own tests (QA-3a): scripts/check doesn't run them, and the nightly sweep relies on them.
       - name: Mutation tooling tests
-        if: steps.detect.outputs.present == 'true'
         run: pwsh -NoProfile -File scripts/mutation/tests.ps1
       # The k6 tooling (QA-2a) and security scan scripts (QA-1c) test themselves with fakes; no load or scan runs here.
       - name: Perf tooling tests
-        if: steps.detect.outputs.present == 'true'
         run: pwsh -NoProfile -File scripts/perf/tests.ps1 -SkipDocker
       - name: Security scan tooling tests
-        if: steps.detect.outputs.present == 'true'
         run: pwsh -NoProfile -File scripts/security/Run-Tests.ps1
 
   app:
@@ -54,34 +39,21 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - name: Detect app
-        id: detect
-        run: |
-          if [ -f app/package.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No app/package.json yet; skipping app checks."
-          fi
       - uses: actions/setup-node@v7
-        if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
       - name: Install
-        if: steps.detect.outputs.present == 'true'
         working-directory: app
         run: npm ci
       # A warm Jest transform cache: cold runs on the 2-core runner made the first library tests time out (#87).
       - uses: actions/cache@v6
-        if: steps.detect.outputs.present == 'true'
         with:
           path: app/.jest-cache
           key: jest-${{ runner.os }}-${{ hashFiles('app/package-lock.json', 'app/jest.config.js') }}-${{ github.sha }}
           restore-keys: jest-${{ runner.os }}-${{ hashFiles('app/package-lock.json', 'app/jest.config.js') }}-
       - name: Check
-        if: steps.detect.outputs.present == 'true'
         working-directory: app
         env:
           JEST_CACHE_DIR: ${{ github.workspace }}/app/.jest-cache
@@ -92,34 +64,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - name: Detect Playwright specs
-        id: detect
-        run: |
-          if [ -f app/playwright.config.ts ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No app/playwright.config.ts yet; skipping e2e."
-          fi
       - uses: actions/setup-node@v7
-        if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
       - name: Install
-        if: steps.detect.outputs.present == 'true'
         working-directory: app
         run: npm ci
       - name: Install browsers
-        if: steps.detect.outputs.present == 'true'
         working-directory: app
         run: npx playwright install --with-deps chromium
       - name: Generate API client
-        if: steps.detect.outputs.present == 'true'
         working-directory: app
         run: npm run generate
       - name: Playwright
-        if: steps.detect.outputs.present == 'true'
         working-directory: app
         run: npm run test:e2e
