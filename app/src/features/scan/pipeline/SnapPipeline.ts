@@ -113,6 +113,7 @@ export class SnapPipeline {
     const photoUri = trackPicture(event.photo.uri, snapId); // the scaled snap: deleted once the store has its own copy
     store.getState().addSnap({
       snapId,
+      libraryId: this.deps.libraryId,
       trigger: event.trigger,
       createdAt: this.now(),
       thumbUri: event.photo.uri,
@@ -194,7 +195,7 @@ export class SnapPipeline {
   /** Re-reads snaps the app was killed in the middle of, from the still the snap store kept. */
   private resume() {
     for (const snap of this.deps.store.getState().snaps) {
-      if (snap.phase !== 'reading' || reading.has(snap.snapId)) continue;
+      if (snap.libraryId !== this.deps.libraryId || snap.phase !== 'reading' || reading.has(snap.snapId)) continue;
       const stored = this.deps.snaps.get(snap.snapId);
       if (!stored) {
         void this.drop(snap.snapId);
@@ -237,7 +238,7 @@ export class SnapPipeline {
     let resets = 0;
     const renamed = new Set<string>();
     for (;;) {
-      const next = store.getState().snaps.find((s) => s.phase === 'read' && !s.sent);
+      const next = store.getState().snaps.find((s) => s.libraryId === this.deps.libraryId && s.phase === 'read' && !s.sent);
       if (!next) return;
       if (this.barcodeInView()) return; // held until the barcode is out of view
       try {
@@ -281,7 +282,8 @@ export class SnapPipeline {
           tray.getState().setSessionId(null);
           tray.getState().setOnline(true);
           for (const waiting of store.getState().snaps) {
-            if (waiting.phase === 'read' && !waiting.sent) store.getState().setSendId(waiting.snapId, (this.deps.newId ?? randomId)());
+            if (waiting.libraryId === this.deps.libraryId && waiting.phase === 'read' && !waiting.sent)
+              store.getState().setSendId(waiting.snapId, (this.deps.newId ?? randomId)());
           }
           if (resets++ > 0) return; // twice in one send: the next flush tries again
           continue;
@@ -357,7 +359,7 @@ export class SnapPipeline {
   sweep() {
     const { store, tray } = this.deps;
     const before = store.getState().snaps.map((s) => s.snapId);
-    store.getState().sweep(tray.getState().sessionId);
+    store.getState().sweep(tray.getState().sessionId, this.deps.libraryId);
     const after = new Set(store.getState().snaps.map((s) => s.snapId));
     for (const snapId of before) {
       if (after.has(snapId)) continue;
@@ -397,6 +399,7 @@ export class SnapPipeline {
 
   private itemFor(card: CandidateDto): { snap: PicSnap; item: PicItem } | undefined {
     for (const snap of this.deps.store.getState().snaps) {
+      if (snap.libraryId !== this.deps.libraryId) continue; // the same title scanned in another library is another picture
       const item = snap.items.find((i) => i.candidateId === card.id || (!!card.localId && i.localId === card.localId));
       if (item) return { snap, item };
     }

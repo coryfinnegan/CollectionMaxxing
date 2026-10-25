@@ -203,8 +203,8 @@ describe('offline and the PC being off', () => {
   it('reads again a snap the app was killed in the middle of, from the still it kept', async () => {
     const kit = makeKit();
     const stored = await kit.snaps.saveStill('snap-halfway', PHOTO);
-    kit.store.getState().addSnap({ snapId: 'snap-halfway', trigger: 'auto', createdAt: 1, thumbUri: PHOTO.uri, phase: 'reading', sent: false, items: [], unreadableCount: 0 });
-    kit.store.getState().addSnap({ snapId: 'snap-lost', trigger: 'auto', createdAt: 2, thumbUri: PHOTO.uri, phase: 'reading', sent: false, items: [], unreadableCount: 0 });
+    kit.store.getState().addSnap({ snapId: 'snap-halfway', libraryId: MOCK_LIBRARY_ID, trigger: 'auto', createdAt: 1, thumbUri: PHOTO.uri, phase: 'reading', sent: false, items: [], unreadableCount: 0 });
+    kit.store.getState().addSnap({ snapId: 'snap-lost', libraryId: MOCK_LIBRARY_ID, trigger: 'auto', createdAt: 2, thumbUri: PHOTO.uri, phase: 'reading', sent: false, items: [], unreadableCount: 0 });
     kit.reader.script(readingOf([dune]));
 
     const pipeline = new SnapPipeline(kit.deps);

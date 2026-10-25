@@ -64,6 +64,7 @@ export async function seedSnap(
   }));
   pipeline.getState().addSnap({
     snapId,
+    libraryId: MOCK_LIBRARY_ID,
     trigger: 'shutter',
     createdAt: Date.now(),
     thumbUri: 'file:///tmp/thumb.jpg',

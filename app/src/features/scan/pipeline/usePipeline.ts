@@ -70,7 +70,9 @@ export function usePipeline({
   const byId = useCardsStore((s) => s.byId);
   const local = useCardsStore((s) => s.local);
   const cards = useMemo(() => withLocalCards({ byId, local }), [byId, local]);
-  const lines = useMemo(() => pictureLines(snaps, cards, online), [snaps, cards, online]);
+  // One store holds every library's snaps; the receipt shows only this scanner's own.
+  const mine = useMemo(() => (deps ? snaps.filter((s) => s.libraryId === deps.libraryId) : snaps), [deps, snaps]);
+  const lines = useMemo(() => pictureLines(mine, cards, online), [mine, cards, online]);
   const counts = useMemo(() => pictureCounts(lines), [lines]);
 
   const onSnap = useCallback((event: SnapEvent) => void pipeline?.onSnap(event), [pipeline]);
