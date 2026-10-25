@@ -17,6 +17,6 @@ describe('navigation theme', () => {
     expect(theme.colors.background).toBe(darkColors.ground);
     expect(theme.colors.card).toBe(darkColors.surface);
     expect(theme.colors.text).toBe(darkColors.ink);
-    expect(theme.colors.primary).toBe(darkColors.scan);
+    expect(theme.colors.primary).toBe(darkColors.accent);
   });
 });

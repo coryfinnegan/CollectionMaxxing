@@ -40,11 +40,11 @@ function SkipLink() {
         paddingVertical: spacing.sm,
         paddingHorizontal: spacing.lg,
         borderRadius: radius.md,
-        backgroundColor: colors.scan,
+        backgroundColor: colors.accent,
         transform: [{ translateY: shown ? 0 : -200 }],
       }}
     >
-      <Text variant="label" style={{ color: colors.onScan }}>
+      <Text variant="label" style={{ color: colors.onAccent }}>
         Skip to main content
       </Text>
     </Pressable>
@@ -75,7 +75,7 @@ export default function TabsLayout() {
             headerTintColor: colors.ink,
             // Every web page names itself in its own content, so the navigator's title bar would only repeat it.
             headerShown: Platform.OS !== 'web' && !wide,
-            tabBarActiveTintColor: colors.scan,
+            tabBarActiveTintColor: colors.accent,
             tabBarInactiveTintColor: colors.muted,
             tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line },
             tabBarIconStyle: { display: 'none' },

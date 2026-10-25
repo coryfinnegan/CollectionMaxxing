@@ -14,7 +14,7 @@ export function LoadingState({ label, alert = false }: LoadingStateProps) {
   const colors = useColors();
   return (
     <View testID="loading-state" style={{ alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxl }}>
-      <ActivityIndicator size="large" color={colors.scan} accessibilityLabel={label ?? 'Loading'} />
+      <ActivityIndicator size="large" color={colors.accent} accessibilityLabel={label ?? 'Loading'} />
       {label ? (
         <Text tone="muted" accessibilityRole={alert ? 'alert' : undefined} style={{ textAlign: 'center' }}>
           {label}

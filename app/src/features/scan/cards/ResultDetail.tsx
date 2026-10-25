@@ -122,7 +122,7 @@ export function ResultDetail({ id }: { id: string }) {
             <Button label="Wishlist" variant="secondary" disabled={busy} onPress={() => actions.onWishlist(candidate)} />
           </View>
         ) : null}
-        {addable && (accepted || wishlisted) ? <Text tone="scan">{wishlisted ? 'On your wishlist' : 'Added to this scan'}</Text> : null}
+        {addable && (accepted || wishlisted) ? <Text tone="accent">{wishlisted ? 'On your wishlist' : 'Added to this scan'}</Text> : null}
         {error ? (
           <Text tone="danger" accessibilityRole="alert">
             {error}

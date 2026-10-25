@@ -3,7 +3,7 @@ import { type TextVariant, typeScale, useColors } from '@/theme/tokens';
 
 export type TextProps = RNTextProps & {
   variant?: TextVariant;
-  tone?: 'ink' | 'muted' | 'danger' | 'scan';
+  tone?: 'ink' | 'muted' | 'danger' | 'accent';
 };
 
 export function Text({ variant = 'body', tone = 'ink', style, ...rest }: TextProps) {

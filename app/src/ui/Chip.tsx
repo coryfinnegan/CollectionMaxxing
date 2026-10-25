@@ -32,11 +32,11 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
         paddingHorizontal: spacing.md,
         borderRadius: radius.pill,
         borderWidth: 1,
-        borderColor: selected ? colors.scan : colors.control,
-        backgroundColor: selected ? colors.scan : colors.surface,
+        borderColor: selected ? colors.accent : colors.control,
+        backgroundColor: selected ? colors.accent : colors.surface,
       }}
     >
-      <Text variant="label" style={{ color: selected ? colors.onScan : colors.ink }}>
+      <Text variant="label" style={{ color: selected ? colors.onAccent : colors.ink }}>
         {label}
       </Text>
     </Pressable>

@@ -28,7 +28,7 @@ function OwnedAnswerLine({ code }: { code: string | null }) {
   if (!text) return null;
   return (
     <View accessibilityLiveRegion="polite">
-      <Text variant="label" tone={first ? 'scan' : 'muted'}>
+      <Text variant="label" tone={first ? 'accent' : 'muted'}>
         {text}
       </Text>
       {answer.staleMessage ? (
@@ -115,7 +115,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
           </View>
         </Pressable>
         {copy.status ? (
-          <Text variant="label" tone={copy.kind === 'owned' ? 'scan' : copy.kind === 'error' ? 'danger' : 'muted'} accessibilityLiveRegion="polite">
+          <Text variant="label" tone={copy.kind === 'owned' ? 'accent' : copy.kind === 'error' ? 'danger' : 'muted'} accessibilityLiveRegion="polite">
             {copy.status}
           </Text>
         ) : null}
@@ -124,7 +124,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
           <Button label="Fix it" variant="secondary" accessibilityLabel={`Fix it: ${copy.title}`} onPress={() => actions.onFixIt?.(candidate)} />
         ) : null}
         {addable && (accepted || wishlisted) ? (
-          <Text variant="label" tone="scan">
+          <Text variant="label" tone="accent">
             {wishlisted ? 'On your wishlist' : 'Added to this scan'}
           </Text>
         ) : null}

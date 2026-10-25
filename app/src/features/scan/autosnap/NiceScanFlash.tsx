@@ -32,18 +32,18 @@ export function NiceScanFlash({ visible, reduceMotion }: { visible: boolean; red
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.sm,
-        backgroundColor: colors.scan,
+        backgroundColor: colors.accent,
         paddingHorizontal: spacing.xl,
         paddingVertical: spacing.md,
         borderRadius: radius.pill,
       }}
     >
       <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-        <Text variant="heading" style={{ color: colors.onScan }}>
+        <Text variant="heading" style={{ color: colors.onAccent }}>
           ✓
         </Text>
       </View>
-      <Text variant="heading" style={{ color: colors.onScan }}>
+      <Text variant="heading" style={{ color: colors.onAccent }}>
         Nice scan!
       </Text>
     </Animated.View>

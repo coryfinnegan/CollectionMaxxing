@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { useBarcodeFrameProcessor } from '@/native/cm-vision';
-import { spacing } from '@/theme/tokens';
+import { fixed, spacing } from '@/theme/tokens';
 import { trackPicture } from '../pictureFiles';
 import { Button, Text } from '@/ui';
 import type { VisionCameraSource } from './ScannerSource';
@@ -89,5 +89,5 @@ const toFileUri = (path: string) => (path.startsWith('file://') ? path : `file:/
 
 const styles = StyleSheet.create({
   message: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl },
-  onCamera: { color: '#FFFFFF', textAlign: 'center' },
+  onCamera: { color: fixed.white, textAlign: 'center' },
 });

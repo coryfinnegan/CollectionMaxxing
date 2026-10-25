@@ -315,7 +315,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                         accessibilityState={{ selected: active }}
                         onPress={() => sortBy(column.id)}
                       >
-                        <Text variant="label" tone={active ? 'scan' : 'ink'}>
+                        <Text variant="label" tone={active ? 'accent' : 'ink'}>
                           {column.label}
                           {active ? ' ↑' : ''}
                         </Text>
@@ -444,13 +444,13 @@ function Checkbox({
           height: 22,
           borderRadius: radius.sm,
           borderWidth: 2,
-          borderColor: checked || mixed ? colors.scan : colors.control,
-          backgroundColor: checked || mixed ? colors.scan : 'transparent',
+          borderColor: checked || mixed ? colors.accent : colors.control,
+          backgroundColor: checked || mixed ? colors.accent : 'transparent',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Text variant="caption" style={{ color: colors.onScan }}>
+        <Text variant="caption" style={{ color: colors.onAccent }}>
           {checked ? '✓' : mixed ? '–' : ''}
         </Text>
       </View>

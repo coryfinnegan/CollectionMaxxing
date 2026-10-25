@@ -31,11 +31,11 @@ export function LibrarySwitcher() {
                   paddingHorizontal: spacing.md,
                   borderRadius: radius.md,
                   borderWidth: 1,
-                  borderColor: active ? colors.scan : colors.line,
+                  borderColor: active ? colors.accent : colors.line,
                   backgroundColor: active ? colors.ground : 'transparent',
                 }}
               >
-                <Text variant="label" tone={active ? 'scan' : 'ink'}>
+                <Text variant="label" tone={active ? 'accent' : 'ink'}>
                   {library.name}
                 </Text>
                 <Text variant="caption" tone="muted">

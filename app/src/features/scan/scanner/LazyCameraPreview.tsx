@@ -1,7 +1,7 @@
 // Loads the camera only when the scanner opens, and shows a plain message if it cannot load (Expo Go, tests).
 import { Component, lazy, Suspense, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { spacing } from '@/theme/tokens';
+import { fixed, spacing } from '@/theme/tokens';
 import { Text } from '@/ui';
 import type { VisionCameraSource } from './ScannerSource';
 
@@ -37,5 +37,5 @@ export function LazyCameraPreview({ source }: { source: VisionCameraSource }) {
 
 const styles = StyleSheet.create({
   message: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  onCamera: { color: '#FFFFFF', textAlign: 'center' },
+  onCamera: { color: fixed.white, textAlign: 'center' },
 });

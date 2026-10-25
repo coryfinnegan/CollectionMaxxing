@@ -69,11 +69,11 @@ function PictureRow({ line, onRemove }: { line: PictureLine; onRemove(): void })
         <View style={{ width: 36, height: 36, borderRadius: 4, backgroundColor: colors.line }} />
       )}
       <View style={{ flex: 1 }}>
-        <Text variant="label" style={{ color: '#1A1C22' }}>
+        <Text variant="label" style={{ color: colors.receiptInk }}>
           {line.title}
         </Text>
         {label ? (
-          <Text variant="caption" style={{ color: '#5E6472' }}>
+          <Text variant="caption" style={{ color: colors.receiptMuted }}>
             {label}
           </Text>
         ) : null}
@@ -123,16 +123,16 @@ function ReceiptRow({
       }}
     >
       <View style={{ flex: 1 }}>
-        <Text variant="label" style={{ color: '#1A1C22' }}>
+        <Text variant="label" style={{ color: colors.receiptInk }}>
           {name}
         </Text>
         {label ? (
-          <Text variant="caption" style={{ color: '#5E6472' }}>
+          <Text variant="caption" style={{ color: colors.receiptMuted }}>
             {label}
           </Text>
         ) : null}
       </View>
-      <Text variant="label" style={{ color: '#1A1C22' }}>{`×${line.copies}`}</Text>
+      <Text variant="label" style={{ color: colors.receiptInk }}>{`×${line.copies}`}</Text>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Add another copy of ${name}`}
@@ -140,7 +140,7 @@ function ReceiptRow({
         hitSlop={8}
         style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
       >
-        <Text variant="label" tone="scan">
+        <Text variant="label" tone="accent">
           +1
         </Text>
       </Pressable>

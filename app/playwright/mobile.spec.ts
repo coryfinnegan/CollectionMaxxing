@@ -91,8 +91,8 @@ for (const scheme of ['light', 'dark'] as const) {
 
     test('the tab bar, the stack header and the page use the theme colours', async ({ page, open, shot }) => {
       const dark = scheme === 'dark';
-      const surface = dark ? 'rgb(27, 30, 38)' : 'rgb(255, 255, 255)';
-      const ground = dark ? 'rgb(16, 18, 24)' : 'rgb(243, 244, 246)';
+      const surface = dark ? 'rgb(25, 25, 24)' : 'rgb(253, 253, 252)';
+      const ground = dark ? 'rgb(17, 17, 16)' : 'rgb(249, 249, 248)';
       /** The first painted background at or above whatever sits at this point of the screen. */
       const paintedAt = (x: number, y: number) =>
         page.evaluate(

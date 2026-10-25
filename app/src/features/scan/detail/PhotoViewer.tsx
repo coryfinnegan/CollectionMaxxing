@@ -79,7 +79,7 @@ export function PhotoViewer({ context, currentId, onSelect }: { context: SnapCon
               width: placed.width,
               height: placed.height,
               borderWidth: 3,
-              borderColor: colors.scan,
+              borderColor: colors.accent,
               borderRadius: radius.sm,
             }}
           />
