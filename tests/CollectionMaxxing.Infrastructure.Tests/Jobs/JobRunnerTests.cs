@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Domain.Operations;
 using CollectionMaxxing.Infrastructure.Jobs;
@@ -5,6 +6,7 @@ using CollectionMaxxing.TestSupport;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Infrastructure.Tests.Jobs;
 
@@ -172,5 +174,50 @@ public class JobRunnerTests(PostgresFixture db) : DatabaseTest(db)
         job.Status.ShouldBe(JobStatus.Pending);
         job.Attempts.ShouldBe(0);
         job.LockedBy.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_stale_worker_whose_lock_was_reclaimed_logs_an_error_instead_of_silently_dropping_its_finish()
+    {
+        var logs = new CapturingLogger();
+        await using var harness = new JobHarness(Db, logProvider: logs);
+        harness.Log.Behaviour = async (_, token) =>
+        {
+            // Another worker re-claimed the job while this run was still going (its lock expired mid-run).
+            var thief = "thief";
+            await using var context = Db.CreateContext();
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE jobs SET locked_by = {thief}, locked_until = {harness.Time.GetUtcNow() + TimeSpan.FromMinutes(10)}", token);
+        };
+        var id = (await harness.EnqueueAsync(JobHarness.PingType, new Ping("stolen"))).ShouldNotBeNull();
+
+        (await harness.Runner.RunNextAsync("victim", CancellationToken.None)).ShouldBeTrue();
+
+        logs.Lines.ShouldContain(line => line.Level == LogLevel.Error && line.Message.Contains(id.ToString(), StringComparison.Ordinal));
+        var job = (await JobHarness.JobsAsync(Db)).Single();
+        job.Status.ShouldBe(JobStatus.Running);
+        job.LockedBy.ShouldBe("thief");
+    }
+
+    private sealed class CapturingLogger : ILoggerProvider
+    {
+        public ConcurrentQueue<(LogLevel Level, string Message)> Lines { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new Capture(Lines);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class Capture(ConcurrentQueue<(LogLevel Level, string Message)> lines) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                lines.Enqueue((logLevel, formatter(state, exception)));
+        }
     }
 }

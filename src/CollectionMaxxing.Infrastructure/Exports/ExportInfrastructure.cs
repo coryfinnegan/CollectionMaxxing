@@ -43,7 +43,15 @@ public sealed class FileExportStore : IExportStore
         }
         catch
         {
-            File.Delete(temporary);
+            // Best effort: the write already failed, and a stuck temp file must not hide the real error.
+            try
+            {
+                File.Delete(temporary);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+            {
+            }
+
             throw;
         }
     }
@@ -127,6 +135,7 @@ public sealed class ExportJobs(AppDbContext db) : IExportJobs
             SELECT (payload -> 'data' ->> 'userId')::uuid AS user_id, status
             FROM jobs
             WHERE type = {type} AND payload -> 'data' ->> 'exportId' = {id}
+            ORDER BY created_at DESC
             LIMIT 1
             """).ToListAsync(cancellationToken))
             .Select(row => new ExportJobState(row.UserId, row.Status))
