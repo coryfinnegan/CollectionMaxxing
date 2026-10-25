@@ -16,6 +16,21 @@ describe('friendlyError', () => {
     expect(logger.error).not.toHaveBeenCalled();
   });
 
+  it('blames the connection for a plain network-failure Error without logging it', () => {
+    expect(friendlyError(new Error('Network request failed'))).toBe(
+      "Couldn't reach your server. Check your connection and try again.",
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('reports a null-dereference TypeError generically and logs the real error', () => {
+    expect(friendlyError(new TypeError("Cannot read property 'x' of undefined"))).toBe('Something went wrong. Try again.');
+
+    expect(loggedErrors()).toHaveLength(1);
+    expect(loggedErrors()[0]).toContain("Cannot read property 'x' of undefined");
+    expect(loggedErrors()[0]).toContain('TypeError');
+  });
+
   it('reports a programming error generically and logs the real error', () => {
     expect(friendlyError(new Error('boom'))).toBe('Something went wrong. Try again.');
 

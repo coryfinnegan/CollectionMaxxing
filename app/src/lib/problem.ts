@@ -9,6 +9,14 @@ const fieldCopy: Record<string, string> = {
   title: 'Give it a title.',
 };
 
+// How each platform words a failed fetch: React Native ('Network request failed'), Chrome ('Failed to fetch'),
+// Node ('fetch failed'), Firefox ('NetworkError ...'), plus timeouts.
+const TRANSPORT_FAILURE = /network request failed|failed to fetch|fetch failed|networkerror|timeout|timed out/i;
+
+function isTransportFailure(error: unknown): error is Error {
+  return error instanceof Error && TRANSPORT_FAILURE.test(error.message);
+}
+
 export function friendlyError(error: unknown, fallback = "That didn't work. Try again."): string {
   if (error instanceof ReauthCancelledError) return "Okay, nothing was changed.";
   if (error instanceof PasskeyCancelledError) return "Passkey cancelled. Try again when you're ready.";
@@ -30,8 +38,9 @@ export function friendlyError(error: unknown, fallback = "That didn't work. Try 
     if (status === 429) return 'Too many attempts. Wait a minute and try again.';
     return fallback;
   }
-  // fetch itself failed: the server wasn't reachable
-  if (error instanceof TypeError) {
+  // fetch itself failed: the server wasn't reachable. Transports word it differently per platform, so match
+  // the message (consistent with TRANSIENT in auth/native.ts), not the constructor: a TypeError can also be a bug.
+  if (isTransportFailure(error)) {
     return "Couldn't reach your server. Check your connection and try again.";
   }
   // Anything else is a bug, not a network failure: keep the copy generic and put the real error in the log.
