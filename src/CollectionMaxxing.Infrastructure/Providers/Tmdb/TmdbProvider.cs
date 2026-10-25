@@ -48,18 +48,27 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
             return [];
         }
 
-        var found = new List<ProviderRelease>();
-        if (query.Kind is null or WorkKind.Film)
-        {
-            found.AddRange(await SearchKindAsync(WorkKind.Film, query, ct));
-        }
+        var films = query.Kind is null or WorkKind.Film ? await SearchKindAsync(WorkKind.Film, query, ct) : [];
+        var shows = query.Kind is null or WorkKind.Tv ? await SearchKindAsync(WorkKind.Tv, query, ct) : [];
 
-        if (query.Kind is null or WorkKind.Tv)
-        {
-            found.AddRange(await SearchKindAsync(WorkKind.Tv, query, ct));
-        }
+        // Round-robin before the limit cuts: appending a full film page first would starve television (#292).
+        return Interleave(films, shows).Take(query.Limit).ToList();
+    }
 
-        return found.Take(query.Limit).ToList();
+    private static IEnumerable<ProviderRelease> Interleave(IReadOnlyList<ProviderRelease> first, IReadOnlyList<ProviderRelease> second)
+    {
+        for (var i = 0; i < first.Count || i < second.Count; i++)
+        {
+            if (i < first.Count)
+            {
+                yield return first[i];
+            }
+
+            if (i < second.Count)
+            {
+                yield return second[i];
+            }
+        }
     }
 
     private async Task<IReadOnlyList<ProviderRelease>> SearchKindAsync(WorkKind kind, CatalogQuery query, CancellationToken ct)

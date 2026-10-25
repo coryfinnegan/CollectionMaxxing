@@ -35,14 +35,9 @@ public static class LookupCatalog
                                     where i.Value == identifier.Value
                                     select r.Id).Distinct().ToListAsync(cancellationToken);
 
-            var releases = new List<ReleaseDto>();
-            foreach (var id in releaseIds.Order())
-            {
-                if (await ItemProjection.LoadReleaseAsync(db, id, cancellationToken) is { } loaded)
-                {
-                    releases.Add(ItemProjection.ToReleaseDto(loaded));
-                }
-            }
+            var releases = (await ItemProjection.LoadReleasesAsync(db, releaseIds, cancellationToken))
+                .Select(ItemProjection.ToReleaseDto)
+                .ToList();
 
             if (releases.Count == 0 && identifier.ProbableKind == WorkKind.Book)
             {

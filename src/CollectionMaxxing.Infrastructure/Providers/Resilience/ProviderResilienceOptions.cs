@@ -12,7 +12,10 @@ public sealed class ProviderResilienceOptions
 
     public TimeSpan AttemptTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
-    public TimeSpan TotalTimeout { get; set; } = TimeSpan.FromSeconds(60);
+    // Covers the whole retry schedule with room to spare: 1 attempt + 3 retries at the attempt timeout, plus the
+    // exponential backoff between them (1 s + 2 s + 4 s, jittered). A total shorter than that ends a hanging
+    // provider's call before its later retries ever run (#292).
+    public TimeSpan TotalTimeout { get; set; } = TimeSpan.FromSeconds(120);
 
     public int MaxRetryAttempts { get; set; } = 3;
 
