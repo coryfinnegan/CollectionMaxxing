@@ -50,11 +50,9 @@ foreach ($suite in $shellSuites) {
         continue
     }
     $lines = @(& $bash ((Join-Path $PSScriptRoot $suite) -replace '\\', '/') 2>&1 | ForEach-Object { "$_" })
-    # (Not named $passed: TestKit is dot-sourced, so its $script:Passed counter lives in this very scope.)
-    $shellPassed = @($lines | Where-Object { $_ -like 'PASS *' }).Count
-    $shellFailed = @($lines | Where-Object { $_ -like 'FAIL *' })
-    if ($shellPassed -eq 0 -and $shellFailed.Count -eq 0) { $shellFailed = @("FAIL $suite ran nothing:`n     $($lines | Select-Object -Last 5 | Out-String)") }
-    Add-ExternalResults -Passed $shellPassed -Failed $shellFailed
+    $suiteExit = $LASTEXITCODE   # the suite's own verdict: each suite ends ((fail == 0)); capture it before anything else runs
+    $result = Get-ShellSuiteResult -Suite $suite -Lines $lines -ExitCode $suiteExit
+    Add-ExternalResults -Passed $result.Passed -Failed $result.Failed
 }
 
 # ---- optional: prove the Dockerfiles build ------------------------------------------------------------------------
