@@ -1505,6 +1505,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("channel");
+
                     b.Property<DateTimeOffset?>("CommittedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("committed_at");
@@ -1529,6 +1535,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.Property<Guid>("LibraryId")
                         .HasColumnType("uuid")
                         .HasColumnName("library_id");
+
+                    b.Property<string>("MediaHint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("media_hint");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1567,7 +1579,11 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                     b.ToTable("scan_sessions", null, t =>
                         {
+                            t.HasCheckConstraint("ck_scan_sessions_channel", "\"channel\" in ('home', 'in_store')");
+
                             t.HasCheckConstraint("ck_scan_sessions_default_status", "\"default_status\" in ('owned', 'wishlist', 'lent', 'sold', 'missing')");
+
+                            t.HasCheckConstraint("ck_scan_sessions_media_hint", "\"media_hint\" in ('books', 'games', 'movies', 'mixed')");
 
                             t.HasCheckConstraint("ck_scan_sessions_status", "\"status\" in ('open', 'committed', 'abandoned')");
                         });

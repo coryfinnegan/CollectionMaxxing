@@ -82,6 +82,20 @@ describe('per-library session creation', () => {
     expect(asked.sort()).toEqual([LIB_A, LIB_B].sort());
   });
 
+  it('sends the session context when creating', async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/scan-sessions', async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ id: 'session-1' }, { status: 201 });
+      }),
+    );
+
+    await createSessionOnce(LIB_A, { defaultLocationId: 'loc-1', defaultStatus: 'wishlist', mediaHint: 'games', channel: 'in_store' });
+
+    expect(bodies).toEqual([{ defaultLocationId: 'loc-1', defaultStatus: 'wishlist', mediaHint: 'games', channel: 'in_store' }]);
+  });
+
   it('shares one in-flight request when one library asks twice at once', async () => {
     let calls = 0;
     server.use(

@@ -3,7 +3,7 @@
 // lookups start `pending` and resolve later, every candidate carries ownership, a viewer cannot accept (403),
 // and the events endpoint is a real stream that tests can drive and drop.
 import { HttpResponse, http } from 'msw';
-import type { CandidateDto, OwnershipDto, ReleaseDto } from '@/api/generated/models';
+import type { CandidateDto, CreateScanSessionRequest, OwnershipDto, ReleaseDto } from '@/api/generated/models';
 import { DEV_CODES } from '@/features/scan/scanner/devCodes';
 import { MOCK_LIBRARY_ID, newMockId } from './data';
 
@@ -58,6 +58,8 @@ type MockSession = {
   /** Idempotency-Key -> the answer already given. */
   answers: Map<string, CandidateDto[]>;
   status: 'open' | 'committed' | 'abandoned';
+  /** What the session was created with; a session seeded without one is a blank home scan. */
+  context?: CreateScanSessionRequest;
 };
 
 type Stream = { sessionId: string; controller: ReadableStreamDefaultController<Uint8Array> };
@@ -192,9 +194,11 @@ const ownershipFor = (code: string): OwnershipDto => {
 };
 
 export const handlers = [
-  http.post('*/api/v1/libraries/:libraryId/scan-sessions', ({ params }) => {
+  http.post('*/api/v1/libraries/:libraryId/scan-sessions', async ({ params, request }) => {
     if (params.libraryId !== MOCK_LIBRARY_ID) return problem(404, 'Not found');
-    const session: MockSession = { id: newMockId(), libraryId: MOCK_LIBRARY_ID, seq: 0, candidates: [], answers: new Map(), status: 'open' };
+    const text = await request.text();
+    const context = (text ? JSON.parse(text) : {}) as CreateScanSessionRequest;
+    const session: MockSession = { id: newMockId(), libraryId: MOCK_LIBRARY_ID, seq: 0, candidates: [], answers: new Map(), status: 'open', context };
     scanMock.sessions.set(session.id, session);
     return HttpResponse.json({ id: session.id }, { status: 201 });
   }),
@@ -207,8 +211,10 @@ export const handlers = [
       id: session.id,
       libraryId: session.libraryId,
       status: session.status,
-      defaultLocationId: null,
-      defaultStatus: null,
+      defaultLocationId: session.context?.defaultLocationId ?? null,
+      defaultStatus: session.context?.defaultStatus ?? null,
+      mediaHint: session.context?.mediaHint ?? 'mixed',
+      channel: session.context?.channel ?? 'home',
       createdAt: '2026-10-01T12:00:00Z',
       committedAt: null,
       candidates: session.candidates.filter((c) => c.changeSeq > since),

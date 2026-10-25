@@ -134,7 +134,8 @@ public static class ScanningEndpoints
     private static async Task<IResult> CreateSession(
         Guid libraryId, CreateScanSessionRequest body, CreateScanSession.Handler handler, CancellationToken cancellationToken)
     {
-        var result = await handler.HandleAsync(new CreateScanSession.Command(libraryId, body.DefaultLocationId, body.DefaultStatus), cancellationToken);
+        var result = await handler.HandleAsync(
+            new CreateScanSession.Command(libraryId, body.DefaultLocationId, body.DefaultStatus, body.MediaHint, body.Channel), cancellationToken);
         return result.IsSuccess
             ? TypedResults.Created($"{ScanSessionRoutes.Prefix}/{result.Value.Id}", result.Value)
             : result.Error!.ToScanProblem();

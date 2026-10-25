@@ -67,6 +67,58 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
     }
 
     [Fact]
+    public async Task Scope_library_ranks_what_you_own_first()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Jurassic Park");
+        var (_, ownedReleaseId) = await CatalogSeed.AddAsync(Db, "Jurassic Park III", year: 2001);
+        await TestData.CreateItemAsync(Db, library, ownedReleaseId);
+        var client = ClientWith(library.ViewerId);
+
+        // Without the scope the closer title wins, owned or not.
+        (await TitlesAsync(await client.GetAsync("/api/v1/catalog/search?q=jurassic park")))
+            .ShouldBe(["Jurassic Park", "Jurassic Park III"]);
+
+        (await TitlesAsync(await client.GetAsync("/api/v1/catalog/search?q=jurassic park&scope=library")))
+            .ShouldBe(["Jurassic Park III", "Jurassic Park"]);
+    }
+
+    [Fact]
+    public async Task Scope_library_ranks_your_librarys_own_releases_first()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Jurassic Park");
+        await CatalogSeed.AddAsync(Db, "Jurassic Park III", year: 2001, ownerLibraryId: library.Id);
+        var client = ClientWith(library.ViewerId);
+
+        (await TitlesAsync(await client.GetAsync("/api/v1/catalog/search?q=jurassic park&scope=library")))
+            .ShouldBe(["Jurassic Park III", "Jurassic Park"]);
+    }
+
+    [Fact]
+    public async Task Scope_library_does_not_promote_what_another_library_owns()
+    {
+        var mine = await CreateLibraryAsync();
+        var theirs = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Jurassic Park");
+        var (_, releaseId) = await CatalogSeed.AddAsync(Db, "Jurassic Park III", year: 2001);
+        await TestData.CreateItemAsync(Db, theirs, releaseId);
+
+        var titles = await TitlesAsync(await ClientWith(mine.ViewerId).GetAsync("/api/v1/catalog/search?q=jurassic park&scope=library"));
+
+        titles.ShouldBe(["Jurassic Park", "Jurassic Park III"]);
+    }
+
+    [Fact]
+    public async Task An_unknown_scope_is_a_validation_problem_on_scope()
+    {
+        var response = await ClientWith(await SomeUserAsync()).GetAsync("/api/v1/catalog/search?q=alien&scope=galaxy");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadJsonAsync(response)).GetProperty("errors").TryGetProperty("scope", out _).ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task An_unknown_kind_is_a_validation_problem_on_kind()
     {
         var response = await ClientWith(await SomeUserAsync()).GetAsync("/api/v1/catalog/search?q=alien&kind=podcast");

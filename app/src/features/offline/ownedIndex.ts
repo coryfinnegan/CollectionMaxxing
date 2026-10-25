@@ -32,6 +32,8 @@ export type OwnedQuery = string | { code?: string | null; releaseId?: string | n
 export interface OwnedIndex {
   /** Answers from the local copy, synchronously. */
   lookup(query: OwnedQuery): OwnedLookup;
+  /** Owned copies whose title contains every word of the query, best match first. The scanner's offline search. */
+  searchTitles(query: string, limit?: number): OwnedCopy[];
   /** How many owned items the copy holds. */
   readonly size: number;
   /** Every entry, for saving. */
@@ -113,6 +115,21 @@ class MapOwnedIndex implements OwnedIndex {
 
     if (matched.size === 0 && soft.size === 0) return EMPTY;
     return { owned: [...matched.values()].map(toCopy), softMatches: [...soft.values()].map(toCopy) };
+  }
+
+  searchTitles(query: string, limit = 20): OwnedCopy[] {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+    const scored: { copy: OwnedCopy; score: number }[] = [];
+    for (const e of this.items.values()) {
+      const title = (e.title ?? '').toLowerCase();
+      if (title.length === 0 || !words.every((w) => title.includes(w))) continue;
+      // An exact title wins; otherwise the shorter title (fewer extra words) wins, then A to Z.
+      const score = title === words.join(' ') ? 0 : title.length;
+      scored.push({ copy: toCopy(e), score });
+    }
+    scored.sort((a, b) => a.score - b.score || (a.copy.title ?? '').localeCompare(b.copy.title ?? ''));
+    return scored.slice(0, Math.max(1, limit)).map((s) => s.copy);
   }
 }
 

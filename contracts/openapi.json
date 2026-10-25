@@ -4556,6 +4556,13 @@
               "type": "integer",
               "format": "int32"
             }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6261,6 +6268,26 @@
               },
               {
                 "$ref": "#/components/schemas/ItemStatus"
+              }
+            ]
+          },
+          "mediaHint": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanMediaHint"
+              }
+            ]
+          },
+          "channel": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanChannel"
               }
             ]
           }
@@ -8850,10 +8877,26 @@
           }
         }
       },
+      "ScanChannel": {
+        "enum": [
+          "home",
+          "in_store",
+          null
+        ]
+      },
       "ScanEngine": {
         "enum": [
           "apple_model",
           "vision_pipeline",
+          null
+        ]
+      },
+      "ScanMediaHint": {
+        "enum": [
+          "books",
+          "games",
+          "movies",
+          "mixed",
           null
         ]
       },
@@ -8864,6 +8907,8 @@
           "status",
           "defaultLocationId",
           "defaultStatus",
+          "mediaHint",
+          "channel",
           "createdAt",
           "committedAt",
           "candidates"
@@ -8897,6 +8942,12 @@
                 "$ref": "#/components/schemas/ItemStatus"
               }
             ]
+          },
+          "mediaHint": {
+            "$ref": "#/components/schemas/ScanMediaHint"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/ScanChannel"
           },
           "createdAt": {
             "type": "string",
