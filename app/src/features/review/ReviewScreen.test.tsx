@@ -120,6 +120,42 @@ describe('Review screen', () => {
     expect(screen.queryByLabelText('Undo')).toBeNull();
   });
 
+  it('celebrates a commit with the success moment, dismissed on a tap, Undo intact', async () => {
+    seed([mario()]);
+    await open();
+    fireEvent.press(await screen.findByLabelText('Add 1 item'));
+
+    const party = await screen.findByTestId('commit-celebration');
+    expect(screen.getByTestId('celebration-spot', { includeHiddenElements: true })).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(party);
+    });
+    await waitFor(() => expect(screen.queryByTestId('commit-celebration')).toBeNull());
+    expect(screen.getByText('Added 1 item')).toBeTruthy();
+    expect(screen.getByLabelText('Undo')).toBeTruthy();
+  });
+
+  it('takes the celebration away with the Undo', async () => {
+    seed([mario()]);
+    await open();
+    fireEvent.press(await screen.findByLabelText('Add 1 item'));
+    await screen.findByTestId('commit-celebration');
+
+    fireEvent.press(screen.getByLabelText('Undo'));
+    await screen.findByText(/Undone/);
+    expect(screen.queryByTestId('commit-celebration')).toBeNull();
+  });
+
+  it('shows no celebration when the commit fails', async () => {
+    seed([mario()]);
+    reviewMock.failNextCommit = true;
+    await open();
+    fireEvent.press(await screen.findByLabelText('Add 1 item'));
+
+    await screen.findByText(/Nothing was added/);
+    expect(screen.queryByTestId('commit-celebration')).toBeNull();
+  });
+
   it('keeps the Undo for ten seconds by default', async () => {
     const { UNDO_MS } = jest.requireActual('./useReview');
     expect(UNDO_MS).toBe(10_000);

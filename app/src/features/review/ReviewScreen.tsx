@@ -11,6 +11,7 @@ import { useLocationsList } from '@/features/locations/useLocations';
 import { NOT_FOUND_COPY, QUOTA_COPY } from '@/features/scan/cards/copy';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
+import { CommitCelebration } from './CommitCelebration';
 import { alternativesOf, isCollapsed, type ReviewGroup } from './grouping';
 import { addLabel, effective, type ReviewStatus } from './plan';
 import { useReview } from './useReview';
@@ -54,7 +55,10 @@ export function ReviewScreen({ libraryId, sessionId, onBack, undoMs }: { library
           {review.loadError}
         </Text>
       ) : null}
-      {!review.loading && total === 0 ? <EmptyState title="Nothing to review." body="Scan something and it shows up here." /> : null}
+      {!review.loading && total === 0 ? <EmptyState title="Nothing to review." body="Scan something and it shows up here." animation="empty-library" /> : null}
+      {review.celebration ? (
+        <CommitCelebration key={review.celebration.key} message={review.celebration.message} onDone={review.dismissCelebration} />
+      ) : null}
 
       {review.canAdd && total > 0 ? (
         <View style={{ gap: spacing.sm }}>

@@ -3,15 +3,18 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { flattenTree } from '@/features/locations/tree';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
 import { spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
+import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
@@ -228,6 +231,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       body="Try a different search or filter."
       actionLabel="Clear filters"
       onAction={clearFilters}
+      animation="no-results"
     />
   ) : (
     <EmptyState
@@ -235,6 +239,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       body={emptyCopy[view].body}
       actionLabel={view === 'library' ? 'Scan your first shelf' : undefined}
       onAction={view === 'library' ? () => router.push('/scan') : undefined}
+      animation="empty-library"
     />
   );
 
@@ -259,8 +264,8 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
           if (list.hasNextPage && !list.isFetchingNextPage) list.fetchNextPage();
         }}
         ListFooterComponent={list.isFetchingNextPage ? <Text variant="caption" tone="muted">Loading more…</Text> : null}
-        renderItem={({ item }) => (
-          <ItemTile item={item} width={tileWidth} onPress={() => router.push(`/item/${item.id}`)} />
+        renderItem={({ item, index }) => (
+          <ItemTile item={item} width={tileWidth} index={index} onPress={() => router.push(`/item/${item.id}`)} />
         )}
       />
       <View style={{ padding: spacing.lg }}>
@@ -270,21 +275,28 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
   );
 }
 
-function ItemTile({ item, width, onPress }: { item: ItemSummaryDto; width: number; onPress: () => void }) {
+function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width: number; index: number; onPress: () => void }) {
   const details = [formatLabels[item.format], item.platform].filter(Boolean).join(', ');
+  const reduceMotion = useReduceMotion();
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${item.title}, ${details}`}
-      onPress={onPress}
-      testID={`item-${item.id}`}
-      style={{ width, gap: spacing.xs }}
+    <Animated.View
+      entering={maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick).delay(staggerDelay(index)))}
+      layout={maybeLayout(reduceMotion)}
+      style={{ width }}
     >
-      <Cover title={item.title} uri={item.coverUrl} width={width} />
-      <Text variant="label" numberOfLines={2}>
-        {item.title}
-      </Text>
-      <FormatBadge label={formatLabels[item.format]} />
-    </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${item.title}, ${details}`}
+        onPress={onPress}
+        testID={`item-${item.id}`}
+        style={{ gap: spacing.xs }}
+      >
+        <Cover title={item.title} uri={item.coverUrl} width={width} sharedTag={sharedCoverTag(reduceMotion, item.id)} />
+        <Text variant="label" numberOfLines={2}>
+          {item.title}
+        </Text>
+        <FormatBadge label={formatLabels[item.format]} />
+      </Pressable>
+    </Animated.View>
   );
 }

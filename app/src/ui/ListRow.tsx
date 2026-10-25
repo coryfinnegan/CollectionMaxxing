@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { spacing, useColors } from '@/theme/tokens';
+import { maybeEntering, maybeLayout, motionMs } from './motion';
 import { Text } from './Text';
 import { usePressFeedback } from './usePressFeedback';
 
@@ -18,6 +20,9 @@ type ListRowProps = {
 export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID }: ListRowProps) {
   const colors = useColors();
   const press = usePressFeedback('tap');
+  const reduceMotion = useReduceMotion();
+  const entering = maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick));
+  const layout = maybeLayout(reduceMotion);
   const body = (
     <View
       style={{
@@ -46,22 +51,27 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
     </View>
   );
   return onPress ? (
-    <Animated.View style={press.style}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
-        onPress={() => {
-          press.buzz();
-          onPress();
-        }}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        testID={testID}
-      >
-        {body}
-      </Pressable>
+    // The layout animation sits on a wrapper: the press feedback owns this view's opacity, and Reanimated warns when both share one view.
+    <Animated.View layout={layout}>
+      <Animated.View style={press.style} entering={entering}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+          onPress={() => {
+            press.buzz();
+            onPress();
+          }}
+          onPressIn={press.onPressIn}
+          onPressOut={press.onPressOut}
+          testID={testID}
+        >
+          {body}
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   ) : (
-    <View testID={testID}>{body}</View>
+    <Animated.View entering={entering} layout={layout} testID={testID}>
+      {body}
+    </Animated.View>
   );
 }

@@ -20,11 +20,39 @@ const runOnUI = (fn) => fn;
 
 const Animated = { View: ViewRN, Text: TextRN, Image: ImageRN };
 
+// Entering and layout presets (#304): chainable stand-ins. Behavior tests assert an
+// animation was asked for (defined) or skipped (undefined), not how it moved.
+const chainable = () => {
+  const animation = {
+    duration: () => animation,
+    delay: () => animation,
+    springify: () => animation,
+    damping: () => animation,
+    stiffness: () => animation,
+    mass: () => animation,
+    overshootClamping: () => animation,
+    withInitialValues: () => animation,
+    build: () => animation,
+    getDuration: () => 0,
+  };
+  return animation;
+};
+const FadeIn = chainable();
+const FadeInDown = chainable();
+const FadeInUp = chainable();
+const FadeOut = chainable();
+const Layout = chainable();
+
 module.exports = {
   __esModule: true,
   default: Animated,
   Animated,
   Easing: EasingRN,
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  FadeOut,
+  Layout,
   useSharedValue,
   useAnimatedStyle,
   useDerivedValue,

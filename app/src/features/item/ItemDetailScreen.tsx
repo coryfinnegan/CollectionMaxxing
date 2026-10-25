@@ -6,9 +6,11 @@ import type { ItemDetailDto } from '@/api/generated/models';
 import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLabels } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
 import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
+import { sharedCoverTag } from '@/ui/motion';
 import { breadcrumb } from './breadcrumb';
 import { UndoSnackbar } from './UndoSnackbar';
 import { useItemDetail, useItemMutations, useUndoStore } from './useItem';
@@ -27,6 +29,7 @@ export function ItemDetailScreen({ id }: { id: string }) {
 
 function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   const router = useRouter();
+  const reduceMotion = useReduceMotion();
   const { detail, etag, isLoading, isError, error, refetch } = useItemDetail(libraryId, id);
   const { locations } = useLocationsList(libraryId);
   const { update, remove } = useItemMutations(libraryId);
@@ -91,7 +94,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   return (
     <Screen title={title} showTitleOnPhone subtitle={facts} subtitleVariant="mono">
       <View style={{ alignItems: 'center', gap: spacing.sm }}>
-        <Cover title={title} uri={release.coverUrl ?? work.coverUrl} width={160} />
+        <Cover title={title} uri={release.coverUrl ?? work.coverUrl} width={160} sharedTag={sharedCoverTag(reduceMotion, id)} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />
         {work.creators.length ? <Text variant="caption" tone="muted">{work.creators.join(', ')}</Text> : null}
       </View>

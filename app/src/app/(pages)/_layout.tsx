@@ -17,6 +17,7 @@ export default function PagesLayout() {
           headerTintColor: colors.ink,
           contentStyle: { backgroundColor: colors.ground },
           headerShown: Platform.OS !== 'web',
+          animationDuration: 250, // screen pushes match the motion vocabulary (#304)
         }}
       >
         <Stack.Screen name="wishlist" options={{ title: 'Wishlist' }} />

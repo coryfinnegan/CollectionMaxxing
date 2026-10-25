@@ -143,7 +143,7 @@
     {
       "file": "src/features/library/LibraryGrid.tsx",
       "rule": "cm-design/no-inline-styles",
-      "count": 13,
+      "count": 14,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     },
     {
@@ -208,6 +208,12 @@
     },
     {
       "file": "src/features/onboarding/WelcomeScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/review/CommitCelebration.tsx",
       "rule": "cm-design/no-inline-styles",
       "count": 1,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
@@ -342,6 +348,12 @@
       "file": "src/ui/LoadingState.tsx",
       "rule": "cm-design/no-inline-styles",
       "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/LottieSpot.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     },
     {

@@ -198,9 +198,10 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         setSearch('');
         setState(defaultState());
       }}
+      animation="no-results"
     />
   ) : (
-    <EmptyState title="Nothing here yet." body="Use Add item to put something on your shelf." />
+    <EmptyState title="Nothing here yet." body="Use Add item to put something on your shelf." animation="empty-library" />
   );
 
   const allSelected = rowIds.length > 0 && rowIds.every((id) => selection.ids.has(id));
