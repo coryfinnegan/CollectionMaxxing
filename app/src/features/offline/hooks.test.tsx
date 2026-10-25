@@ -76,6 +76,18 @@ describe('useOwnedLookup offline', () => {
 
     expect(await screen.findByText(/hasn't synced yet/)).toBeTruthy();
   });
+
+  it('trusts the remembered library while the list cannot load, even a stale id', async () => {
+    // Offline the list stays paused and cannot judge the stored id, so the local copy answers from it.
+    const synced = getOwnedCache(MOCK_LIBRARY_ID).state;
+    getOwnedCache('stale-library-id').commit({ ...synced });
+    getOwnedCache(MOCK_LIBRARY_ID).clear(); // only the stale library's copy has the answer now
+    useLibraryStore.setState({ activeLibraryId: 'stale-library-id' });
+
+    await renderWithProviders(<Answer code="042100005264" now={() => 2 * H + 5 * 60_000} />);
+
+    expect(await screen.findByText('owned:Jaws (vhs) at Living room › Shelf B')).toBeTruthy();
+  });
 });
 
 describe('useOwnedLookup online', () => {
@@ -107,6 +119,21 @@ describe('useOwnedLookup online', () => {
 
     expect(await screen.findByText('Based on your last sync, 1 h ago')).toBeTruthy();
     expect(screen.getByText('owned:Jaws (vhs) at Living room › Shelf B')).toBeTruthy();
+  });
+
+  it('asks the server about the first library on a fresh sign-in', async () => {
+    useLibraryStore.setState({ activeLibraryId: null });
+    const asked: unknown[] = [];
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership', ({ params }) => {
+        asked.push(params.libraryId);
+        return HttpResponse.json({ owned: false, count: 0, sameWorkOtherFormat: [], copies: [] });
+      }),
+    );
+
+    await renderWithProviders(<Answer code="042100005264" />);
+
+    await waitFor(() => expect(asked).toEqual([MOCK_LIBRARY_ID]));
   });
 });
 
@@ -159,5 +186,22 @@ describe('useOwnedSync', () => {
     });
 
     await waitFor(() => expect(calls).toBe(2));
+  });
+
+  it('syncs the library on screen once the list arrives, not a stale stored id', async () => {
+    useLibraryStore.setState({ activeLibraryId: 'stale-library-id' });
+    const synced: unknown[] = [];
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership/snapshot', ({ params, request }) => {
+        synced.push(params.libraryId);
+        return HttpResponse.json({ entries: [], nextCursor: new URL(request.url).searchParams.get('since') ?? '0', hasMore: false });
+      }),
+    );
+
+    await renderWithProviders(<Syncer />);
+
+    // The stored id may be tried while the list loads; the sync converges on the resolved library.
+    await waitFor(() => expect(synced).toContain(MOCK_LIBRARY_ID));
+    expect(synced[synced.length - 1]).toBe(MOCK_LIBRARY_ID);
   });
 });

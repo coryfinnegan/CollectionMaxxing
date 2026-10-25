@@ -2,7 +2,7 @@
 // Other features (the offline cache) register their own clearer so unpairing and account deletion leave nothing behind.
 import type { QueryClient } from '@tanstack/react-query';
 import { endSession } from '@/lib/auth/session';
-import { getTrayStore } from '@/features/scan/tray/storage';
+import { clearTrayData } from '@/features/scan/tray/storage';
 
 type Clearer = () => void | Promise<void>;
 const clearers = new Set<Clearer>();
@@ -15,7 +15,7 @@ export function registerLocalDataClearer(clearer: Clearer): () => void {
 
 export async function clearLocalData(queryClient: QueryClient): Promise<void> {
   await endSession(); // clears the Keychain and the in-memory access token
-  getTrayStore().getState().clear();
+  clearTrayData(); // every library's tray, not just the one open
   for (const clearer of clearers) await clearer();
   queryClient.clear();
 }

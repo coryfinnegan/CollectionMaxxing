@@ -7,7 +7,7 @@ import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { useCardsStore, withLocalCards } from '../cards/cardsStore';
 import type { ScannerSource } from '../scanner/ScannerSource';
 import { getPipelineStore } from './pipelineStore';
-import { getTrayStore } from '../tray/storage';
+import { getTrayStore, useTrayValue } from '../tray/storage';
 import type { TrayStore } from '../tray/trayStore';
 import { devFixtureReader, DEV_FIXTURE_PHOTO } from './devFixtures';
 import { pictureCounts, pictureLines } from './lines';
@@ -30,7 +30,7 @@ export function usePipeline({
 }) {
   const pipeline = useMemo(() => (deps ? new SnapPipeline(deps) : undefined), [deps]);
   const store = deps?.store ?? getPipelineStore();
-  const tray: StoreApi<TrayStore> = deps?.tray ?? getTrayStore();
+  const tray: StoreApi<TrayStore> | undefined = deps ? (deps.tray ?? getTrayStore(deps.libraryId)) : undefined;
   const lastBarcodeAt = useRef(-Infinity);
   const outcome = useRef(onOutcome);
   useEffect(() => {
@@ -59,14 +59,14 @@ export function usePipeline({
   }, [pipeline, resendMs]);
 
   // A committed or discarded scan leaves the receipt.
-  const sessionId = useStore(tray, (s) => s.sessionId);
+  const sessionId = useTrayValue(tray, (s) => s.sessionId, null);
   useEffect(() => {
     pipeline?.sweep();
   }, [pipeline, sessionId]);
 
   const snaps = useStore(store, (s) => s.snaps);
   const unreadableCount = useStore(store, (s) => s.unreadableCount);
-  const online = useStore(tray, (s) => s.online);
+  const online = useTrayValue(tray, (s) => s.online, true);
   const byId = useCardsStore((s) => s.byId);
   const local = useCardsStore((s) => s.local);
   const cards = useMemo(() => withLocalCards({ byId, local }), [byId, local]);

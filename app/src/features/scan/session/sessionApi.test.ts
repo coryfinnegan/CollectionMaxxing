@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/mocks/server';
 import { candidate } from '@/features/review/testData';
 import { useCardsStore } from '../cards/cardsStore';
-import { followSession, resumeCursor } from './sessionApi';
+import { createSessionOnce, followSession, resumeCursor } from './sessionApi';
 
 const SESSION = 'b1000000-0000-4000-8000-000000000001';
 
@@ -58,5 +58,44 @@ describe('the session cursor', () => {
 
     expect(asked[0]).toBe(5);
     expect(asked.slice(1).every((since) => since === 7)).toBe(true); // 7 is the changeSeq; seq (1) would ask for it again
+  });
+});
+
+describe('per-library session creation', () => {
+  const LIB_A = 'aaaaaaaa-0000-4000-8000-000000000000';
+  const LIB_B = 'bbbbbbbb-0000-4000-8000-000000000000';
+
+  it('creates one session per library when two libraries ask at once', async () => {
+    const asked: string[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/scan-sessions', async ({ params }) => {
+        asked.push(String(params.libraryId));
+        await new Promise((r) => setTimeout(r, 20)); // hold the first request open while the second starts
+        return HttpResponse.json({ id: `session-for-${params.libraryId}` }, { status: 201 });
+      }),
+    );
+
+    const [a, b] = await Promise.all([createSessionOnce(LIB_A), createSessionOnce(LIB_B)]);
+
+    expect(a).toBe(`session-for-${LIB_A}`);
+    expect(b).toBe(`session-for-${LIB_B}`);
+    expect(asked.sort()).toEqual([LIB_A, LIB_B].sort());
+  });
+
+  it('shares one in-flight request when one library asks twice at once', async () => {
+    let calls = 0;
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/scan-sessions', async () => {
+        calls += 1;
+        await new Promise((r) => setTimeout(r, 20));
+        return HttpResponse.json({ id: 'session-1' }, { status: 201 });
+      }),
+    );
+
+    const [a, b] = await Promise.all([createSessionOnce(LIB_A), createSessionOnce(LIB_A)]);
+
+    expect(a).toBe('session-1');
+    expect(b).toBe('session-1');
+    expect(calls).toBe(1);
   });
 });

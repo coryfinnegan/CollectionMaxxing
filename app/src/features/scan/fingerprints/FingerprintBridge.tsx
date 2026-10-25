@@ -6,6 +6,7 @@ import { AppState, Platform } from 'react-native';
 import { useGetMe } from '@/api/generated/account/account';
 import { registerLocalDataClearer } from '@/features/me/localData';
 import { getOwnedCache } from '@/features/offline/ownedCache';
+import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { useLibraryStore } from '@/state/library';
 import { useCardsStore } from '../cards/cardsStore';
 import { getSnapStore } from '../pipeline/snapStore';
@@ -22,7 +23,11 @@ import { clearFingerprintData, getFingerprintStore } from './store';
 const RECOMPUTE_PER_SYNC = 25;
 
 export function FingerprintBridge({ vision, cover }: { vision?: PrintVision; cover?: CoverSource } = {}) {
-  const libraryId = useLibraryStore((s) => s.activeLibraryId);
+  // The resolved library the screens show; what this device remembers while the list cannot load, so matching
+  // and restoring still work offline.
+  const { libraryId: resolved } = useActiveLibraryId();
+  const stored = useLibraryStore((s) => s.activeLibraryId);
+  const libraryId = resolved ?? stored ?? undefined;
   const me = useGetMe();
   const profile = me.data?.status === 200 ? me.data.data : undefined;
   const userId = profile?.id;
@@ -42,7 +47,7 @@ export function FingerprintBridge({ vision, cover }: { vision?: PrintVision; cov
       vision: printVision,
       snaps: getSnapStore(),
       cards: useCardsStore,
-      sessionId: () => getTrayStore().getState().sessionId,
+      sessionId: () => (libraryId ? getTrayStore(libraryId).getState().sessionId : null),
       loadSession,
     });
     const stopRecording = recorder.start();

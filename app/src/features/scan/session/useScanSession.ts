@@ -27,7 +27,7 @@ export function useLibraryRole(libraryId: string | undefined): { role: LibraryRo
 export function useScanSession({
   libraryId,
   sources,
-  store = getTrayStore(),
+  store = getTrayStore(libraryId),
   tuning = {},
 }: {
   libraryId: string;

@@ -6,6 +6,7 @@ import { ReauthPrompt } from '@/features/auth/reauth';
 import { LibraryGate } from '@/features/onboarding/LibraryGate';
 import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
 import { AppLockGate } from '@/features/me/appLock';
+import { CardsBridge } from '@/features/scan/cards/CardsBridge';
 import { FingerprintBridge } from '@/features/scan/fingerprints/FingerprintBridge';
 import { SnapStoreBridge } from '@/features/scan/pipeline/SnapStoreBridge';
 import { WIDE_BREAKPOINT, radius, spacing, useColors } from '@/theme/tokens';
@@ -62,6 +63,7 @@ export default function TabsLayout() {
     <ReauthPrompt />
     <SnapStoreBridge />
     <FingerprintBridge />
+    <CardsBridge />
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
       <SkipLink />
       {wide ? <Sidebar /> : null}

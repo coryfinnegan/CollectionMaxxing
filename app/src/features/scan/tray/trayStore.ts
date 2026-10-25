@@ -54,6 +54,8 @@ export type TrayStore = TrayState & {
 
 export type TrayDeps = {
   storage: KeyValueStore;
+  /** Which saved tray this store reads and writes (one per library). */
+  storageKey?: string;
   now?: () => number;
   newKey?: () => string;
   cooldownMs?: number;
@@ -65,9 +67,9 @@ const randomKey = () =>
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 
-function load(storage: KeyValueStore): TrayState {
+function load(storage: KeyValueStore, storageKey: string): TrayState {
   try {
-    const raw = storage.getString(STORAGE_KEY);
+    const raw = storage.getString(storageKey);
     if (!raw) return emptyTray();
     const parsed = JSON.parse(raw) as Partial<TrayState>;
     return {
@@ -80,7 +82,7 @@ function load(storage: KeyValueStore): TrayState {
   }
 }
 
-export function createTrayStore({ storage, now = Date.now, newKey = randomKey, cooldownMs = DEFAULT_COOLDOWN_MS }: TrayDeps): StoreApi<TrayStore> {
+export function createTrayStore({ storage, storageKey = STORAGE_KEY, now = Date.now, newKey = randomKey, cooldownMs = DEFAULT_COOLDOWN_MS }: TrayDeps): StoreApi<TrayStore> {
   const store = createStore<TrayStore>()((set, get) => {
     const update = (next: TrayState) => set({ lines: next.lines, outbox: next.outbox, sessionId: next.sessionId });
     const snapshot = (): TrayState => {
@@ -88,7 +90,7 @@ export function createTrayStore({ storage, now = Date.now, newKey = randomKey, c
       return { lines, outbox, sessionId };
     };
     return {
-      ...load(storage),
+      ...load(storage, storageKey),
       online: true,
       problem: null,
       scan(code) {
@@ -108,7 +110,7 @@ export function createTrayStore({ storage, now = Date.now, newKey = randomKey, c
   store.subscribe((state) => {
     const { lines, outbox, sessionId } = state;
     try {
-      storage.set(STORAGE_KEY, JSON.stringify({ lines, outbox, sessionId }));
+      storage.set(storageKey, JSON.stringify({ lines, outbox, sessionId }));
     } catch {
       // Storage full or unavailable: the tray still works for this run.
     }

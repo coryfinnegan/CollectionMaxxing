@@ -57,7 +57,7 @@ export function createDevicePipelineDeps(libraryId: string): PipelineDeps {
   let art: ArtDeps | undefined;
   return {
     libraryId,
-    tray: getTrayStore(),
+    tray: getTrayStore(libraryId),
     store: getPipelineStore(),
     snaps: getSnapStore(),
     recognition: { read: (still, onItem) => getRecognition().selector.read(still, onItem) },

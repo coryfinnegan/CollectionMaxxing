@@ -21,18 +21,24 @@ export function announce(events: { event: CardEvent }[]) {
   }
 }
 
-let creating: Promise<string> | undefined;
+const creating = new Map<string, Promise<string>>();
 
-/** Makes the library's scan session. Barcodes and pictures can both ask at once; they share one request, so there is one session. */
+/**
+ * Makes the library's scan session. Barcodes and pictures can both ask at once; they share one request per library,
+ * so there is one session. Each library has its own in-flight request: Library B never receives Library A's session.
+ */
 export function createSessionOnce(libraryId: string): Promise<string> {
-  creating ??= (async () => {
+  const running = creating.get(libraryId);
+  if (running) return running;
+  const next = (async () => {
     const response = await createScanSession(libraryId, {});
     if (response.status !== 201) throw new ApiError(response.status, {});
     return response.data.id;
   })().finally(() => {
-    creating = undefined;
+    if (creating.get(libraryId) === next) creating.delete(libraryId);
   });
-  return creating;
+  creating.set(libraryId, next);
+  return next;
 }
 
 export function flushDeps(libraryId: string): FlushDeps {
