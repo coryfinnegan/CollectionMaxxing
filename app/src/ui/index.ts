@@ -11,3 +11,4 @@ export { Sheet } from './Sheet';
 export { Snackbar } from './Snackbar';
 export { Text } from './Text';
 export { TextField } from './TextField';
+export { usePressFeedback, type PressHaptic } from './usePressFeedback';

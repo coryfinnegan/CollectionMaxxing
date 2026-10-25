@@ -38,7 +38,7 @@ export function CreateLibraryScreen() {
               {error}
             </Text>
           ) : null}
-          <Button label="Create library" busy={create.isPending} onPress={submit} />
+          <Button label="Create library" haptic="commit" busy={create.isPending} onPress={submit} />
           <Button label="Back" variant="secondary" onPress={() => router.replace(loaded && libraries.length > 0 ? '/library' : '/welcome')} />
         </Card>
       </Screen>

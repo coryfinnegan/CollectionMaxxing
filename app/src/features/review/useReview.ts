@@ -7,6 +7,7 @@ import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { useLibraryRole } from '@/features/scan/session/useScanSession';
 import { getTrayStore } from '@/features/scan/tray/storage';
 import type { TrayStore } from '@/features/scan/tray/trayStore';
+import { haptics } from '@/lib/haptics';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { commitDraft, loadIntoCards, patchCandidate, searchCandidate, skipCandidate, undoCommit } from './api';
@@ -118,6 +119,7 @@ export function useReview({
         undoKey: newIdempotencyKey(),
         canUndo: true,
       });
+      void haptics.succeed();
     } catch (error) {
       setCommitError(`${friendlyError(error)} Nothing was added, and your picks are still checked.`);
     } finally {

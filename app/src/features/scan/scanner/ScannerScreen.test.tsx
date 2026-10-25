@@ -47,8 +47,10 @@ beforeEach(() => {
   haptic = [];
   const driver: HapticDriver = {
     tap: () => void haptic.push('tap'),
+    mediumTap: () => void haptic.push('medium'),
     longTap: () => void haptic.push('long'),
     tick: () => void haptic.push('tick'),
+    success: () => void haptic.push('success'),
     wait: async () => undefined,
   };
   setHapticDriver(driver);

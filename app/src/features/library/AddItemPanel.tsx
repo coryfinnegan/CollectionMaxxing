@@ -134,7 +134,7 @@ function ManualStep({ busy, onSubmit }: { busy: boolean; onSubmit: (data: Create
           <Chip key={f} label={formatLabels[f]} accessibilityLabel={`Format ${formatLabels[f]}`} selected={format === f} onPress={() => setFormat(f)} />
         ))}
       </View>
-      <Button label="Add to library" onPress={save} busy={busy} />
+      <Button label="Add to library" haptic="commit" onPress={save} busy={busy} />
     </View>
   );
 }

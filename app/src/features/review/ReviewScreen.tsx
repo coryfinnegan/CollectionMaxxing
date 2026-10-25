@@ -115,7 +115,7 @@ export function ReviewScreen({ libraryId, sessionId, onBack, undoMs }: { library
         </Text>
       ) : null}
       {review.canAdd && total > 0 ? (
-        <Button label={addLabel(review.count)} busy={review.committing} disabled={review.count === 0} onPress={() => void review.commit()} />
+        <Button label={addLabel(review.count)} haptic="commit" busy={review.committing} disabled={review.count === 0} onPress={() => void review.commit()} />
       ) : null}
       {review.toast ? (
         <Snackbar message={review.toast.message} actionLabel={review.toast.canUndo ? 'Undo' : undefined} onAction={() => void review.undo()} />

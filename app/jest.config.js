@@ -21,6 +21,9 @@ module.exports = {
   moduleNameMapper: {
     // msw's package exports null out the react-native condition that jest-expo resolves with
     '^msw/node$': '<rootDir>/node_modules/msw/lib/node/index.js',
+    // expo-router's testing setup mocks reanimated with the shipped mock, which cannot load here
+    // (it pulls the native worklets); point it at our stand-in instead (#302).
+    '^react-native-reanimated/mock$': '<rootDir>/__mocks__/reanimated-impl.js',
     '^@/(.*)$': '<rootDir>/src/$1',
   },
 };

@@ -43,7 +43,14 @@ const setup = async ({ reduceMotion = false }: { reduceMotion?: boolean } = {}) 
 
 beforeEach(() => {
   ticks = 0;
-  const driver: HapticDriver = { tap: () => undefined, longTap: () => undefined, tick: () => void (ticks += 1), wait: async () => undefined };
+  const driver: HapticDriver = {
+    tap: () => undefined,
+    mediumTap: () => undefined,
+    longTap: () => undefined,
+    tick: () => void (ticks += 1),
+    success: () => undefined,
+    wait: async () => undefined,
+  };
   setHapticDriver(driver);
   useCardsStore.getState().reset();
   setTrayStore(createTrayStore({ storage: new MemoryKeyValueStore(), newKey: () => 'batch', now: () => 1_000 }));

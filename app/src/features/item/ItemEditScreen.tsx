@@ -184,7 +184,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
       ) : null}
 
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-        <Button label="Save changes" onPress={save} busy={update.isPending} />
+        <Button label="Save changes" haptic="commit" onPress={save} busy={update.isPending} />
         <Button label="Cancel" variant="secondary" onPress={() => router.back()} />
       </View>
     </Screen>
