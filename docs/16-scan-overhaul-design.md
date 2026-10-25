@@ -29,7 +29,7 @@ The current pipeline already matches the research direction in several places:
 | Server grounding + pure scorer | EXISTS | `Application/Scanning/Identify/`, `Domain/Catalog/Matching/MatchScorer.cs` (Matched ≥ 0.90 + lead ≥ 0.08; Ambiguous ≥ 0.60) |
 | Review screen with Ready/Pick/Not-found/Owned groups | EXISTS | `app/src/features/review/ReviewScreen.tsx`, `grouping.ts`, `plan.ts` |
 | Commit + Undo, barcode learning loop | EXISTS | `CommitScanSession.cs`, `UndoScanCommit.cs`, `BarcodeLearner` |
-| Background jobs + SSE + polling fallback | EXISTS | `Application/Jobs/`, `ScanEventFeed`, `changeSeq` cursor |
+| Background jobs + SSE + polling fallback | EXISTS | `Application/Jobs/`, `Application/Scanning/Events/ScanEventFeed.cs`, `changeSeq` cursor |
 | Offline tray outbox + owned-index + crops on phone | EXISTS | MMKV stores, `snapStore.ts` (`cm-snaps/`, 7-day/50-snap), `offline/ownedCache.ts` |
 | Session defaults on server | EXISTS (unwired in UI) | `ScanSession.DefaultLocationId/DefaultStatus` |
 | Eval scorer + M3 gate + regression rule | EXISTS (no baseline) | `Application/Evals/*`, `evals/baseline.json` (`"metrics": {}` by design → `no_baseline`) |
@@ -50,8 +50,9 @@ iPhone (Expo + VisionCamera v5, Apple-only, ADR-017)
 │ Transport: batched POST + Idempotency-Key, SSE w/ Last-Event-ID, ?since= fallback
 ▼
 API (.NET 10, /api/v1/scan-sessions/*)
-│ ScanSessionRoutes → Create/Get/Barcodes/Identify/Art/Photo/Decide/Search/
-│                     Commit/Undo/Abandon (+ NEW: provisionals, crops, auto-commit)
+│ ScanningEndpoints (+ Identify/Artwork/Events subfolders, CandidatePhotoEndpoint)
+│   → Create/Get/Barcodes/Identify/Art/Photo/Decide/Search/Commit/Undo/Abandon
+│   (+ NEW: provisionals, crops, auto-commit)
 │ IdentifyGrounding → MatchScorer → CandidateResolver (+OwnershipQuery)
 │ JobQueue (in-proc, pg) → scan.resolve_candidate / scan.identify_resolve / safety jobs
 │ ScanEventFeed (changeSeq SSE) → candidate/segment/session events
@@ -107,7 +108,7 @@ Server: `POST …/scan-sessions` already takes defaults (keep shape); add option
 `mediaHint` + `channel`. No new session entity — `ScanSession` already carries
 `DefaultLocationId/DefaultStatus`.
 
-Typed search ≤ 2 taps: search icon in the scanner chrome → `GET /catalog/search`
+Typed search ≤ 2 taps: search icon in the scanner chrome → `GET /api/v1/catalog/search`
 scoped `libraryFirst` (existing endpoint; add optional `scope=library` bias so owned
 answers render first). Offline: searches the owned-index + fingerprint matches.
 
@@ -225,7 +226,7 @@ upgrades in place (T0 path). This is also the games/movies primary path (§12).
 **(d) Type-ahead title search, pre-filled and neighbour-constrained.** NEW: T2 row →
 search sheet pre-filled with the OCR guess; query biased by segment neighbours
 (same snap's agreed authors/series sent as `contextWorkIds[]` to a session-scoped
-search — extend per-candidate `:search`, keep global `/catalog/search` untouched).
+search — extend per-candidate `:search`, keep global `/api/v1/catalog/search` untouched).
 Neighbour constraint is a *ranking bias*, never a filter (a filter could hide the
 right answer and poison precision).
 
@@ -338,7 +339,7 @@ vs base", "omnibus vs vol. 1" ambiguity → T2.
 | `POST …/provisionals` / `…/provisionals/{pid}:promote\|:resolve\|:delete` | NEW — provisional lifecycle (§11) |
 | `PATCH /items/{id}` (existing update) | reused for Move-it-here (location-only patch, undoable) |
 | `POST …/items/{id}:rematch` | += `upgradeFromBarcode` mode (§11) |
-| `GET /catalog/search` | += optional `scope=library` bias (scanner search ≤ 2 taps) |
+| `GET /api/v1/catalog/search` | += optional `scope=library` bias (scanner search ≤ 2 taps) |
 | `POST /api/admin/evals/runs` etc. | += new metrics in report (§17); shapes additive |
 
 Auth: scan routes keep existing owner-404 + role filters; crop/provisional routes
@@ -448,7 +449,7 @@ Measure: recall, precision, time-to-first-results, total-time-to-trustworthy vs 
 barcode pace for the same shelf (~8–15 s/item), review burden (`review_rate`), and
 the duplicate re-scan test. Lines:
 
-- PASS: recall ≥ 90%, precision ≥ 95%, review ≤ 25%, faster than barcode, duplicates clean.
+- PASS: recall ≥ 90%, precision ≥ 95%, review burden ≤ 25%, faster than barcode, duplicates clean.
 - FAIL: recall < 75%, precision < 90%, or any silent false positive
   (`auto_add_precision` < 100% on the acceptance run fails even if overall precision passes).
 
@@ -503,7 +504,9 @@ App: `app/src/app/(tabs)/scan.tsx`, `app/src/features/scan/ScanTab.tsx`,
 `app/src/app/review.tsx`, `features/review/*`, `app/src/app/result/[id].tsx`,
 `detail/*`, `app/src/app/evals.tsx`, `app/src/features/evals/*`.
 
-API/Application: `src/CollectionMaxxing.Api/Scanning/ScanSessionRoutes.cs`
+API/Application: `src/CollectionMaxxing.Api/Scanning/ScanningEndpoints.cs`
+(+ `Identify/`/`Artwork/`/`Events/` subfolders, `CandidatePhotoEndpoint.cs`;
+`ScanSessionRoutes.cs` is only the route group + owner/access filters)
 (Create/Get/Events/Barcodes/Identify/Art/Photo/Decide/Search/Commit/Undo/Abandon),
 `Api/Recognition/RecognitionEndpoints.cs`, `Api/Evals/EvalsEndpoints.cs`,
 `Application/Scanning/Identify/*` (`IdentifyGrounding`, `MatchScorer` use),
