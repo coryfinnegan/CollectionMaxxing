@@ -65,6 +65,12 @@ public static class EvalRegression
             Add($"kind.{kind}.top1", numbers.Top1Pct);
             Add($"kind.{kind}.top3", numbers.Top3Pct);
         }
+
+        foreach (var (shot, numbers) in slice.ByShotKind)
+        {
+            Add($"shotkind.{shot}.top1", numbers.Top1Pct);
+            Add($"shotkind.{shot}.top3", numbers.Top3Pct);
+        }
     }
 
     /// <summary>Compares <paramref name="actual"/> with <paramref name="baseline"/> (null when there is none). A metric the baseline does not have is new, not a regression.</summary>
