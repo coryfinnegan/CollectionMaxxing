@@ -60,6 +60,19 @@ A self-hosted collection tracker: a .NET 10 API and Postgres on the owner's Wind
 - Manual version bumps (`version` in `app/app.config.ts`) and `v*` tags only change the marketing version and cut a GitHub release. They are not a required step for routine changes.
 - A version bump that will be tagged right away should carry `[skip ios-build]` in the merge commit message, so the tag build is the only build. A version-bump PR meant to ship on merge must not carry the marker.
 
+## Design system
+
+- [DESIGN.md](DESIGN.md) is the authority for app UI: tokens, type, voice, and
+  banned patterns. It outranks the generic agent skills on any UI question.
+  Product context lives in [PRODUCT.md](PRODUCT.md).
+- Project skills live in `.agents/skills/` with identical copies in
+  `.claude/skills/` (Muse reads both, Claude Code reads `.claude/skills/`).
+  The app gate fails if the two trees drift apart; update both together.
+- UI work must keep `npm run check` green (the `words` and `design` ratchet
+  steps fail new raw colors, inline styles, raw text, and doubled titles)
+  and the Playwright visual spec green. Regenerate snapshots deliberately
+  with `npx playwright test visual --update-snapshots` and review the diff.
+
 ## Definition of done
 
 - Tests were written first and describe behaviour.
