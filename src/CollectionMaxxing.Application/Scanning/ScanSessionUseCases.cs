@@ -15,7 +15,7 @@ namespace CollectionMaxxing.Application.Scanning;
 /// </summary>
 public static class CreateScanSession
 {
-    public sealed record Command(Guid LibraryId, Guid? DefaultLocationId, ItemStatus? DefaultStatus);
+    public sealed record Command(Guid LibraryId, Guid? DefaultLocationId, ItemStatus? DefaultStatus, ScanMediaHint? MediaHint = null, ScanChannel? Channel = null);
 
     public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock)
     {
@@ -43,6 +43,8 @@ public static class CreateScanSession
                 Status = ScanSessionStatus.Open,
                 DefaultLocationId = command.DefaultLocationId,
                 DefaultStatus = command.DefaultStatus,
+                MediaHint = command.MediaHint ?? ScanMediaHint.Mixed,
+                Channel = command.Channel ?? ScanChannel.Home,
                 CreatedAt = clock.GetUtcNow(),
             };
             db.ScanSessions.Add(session);
@@ -86,6 +88,8 @@ public static class GetScanSession
                 session.Status,
                 session.DefaultLocationId,
                 session.DefaultStatus,
+                session.MediaHint,
+                session.Channel,
                 session.CreatedAt,
                 session.CommittedAt,
                 await CandidateProjection.ToDtosAsync(db, candidates, cancellationToken));

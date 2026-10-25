@@ -22,7 +22,9 @@ public static class SearchCatalog
 
     private const int LocalCandidateCap = 200;
 
-    public sealed record Query(string? Q, string? Kind, string? Platform, int? Year, int? Limit);
+    public const string LibraryScope = "library";
+
+    public sealed record Query(string? Q, string? Kind, string? Platform, int? Year, int? Limit, string? Scope = null);
 
     public sealed class Handler(
         IAppDbContext db, ILocalCatalogSearch local, IEnumerable<ICatalogProvider> providers, CatalogOptions options, ILogger<Handler> logger)
@@ -50,6 +52,13 @@ public static class SearchCatalog
                 kind = EnumText.Parse<WorkKind>(query.Kind);
             }
 
+            if (!string.IsNullOrWhiteSpace(query.Scope) && query.Scope != LibraryScope)
+            {
+                return CatalogErrors.Invalid("catalog.scope_invalid", "That isn't a search scope.", "scope");
+            }
+
+            var libraryFirst = query.Scope == LibraryScope;
+
             var limit = Math.Clamp(query.Limit ?? DefaultLimit, 1, MaxLimit);
             var title = query.Q.Trim();
 
@@ -64,8 +73,36 @@ public static class SearchCatalog
                 results.AddRange(await SearchProvidersAsync(title, query, kind, limit, known, cancellationToken));
             }
 
-            var ranked = results.OrderByDescending(r => r.Score).ThenBy(r => r.Work.Title, StringComparer.OrdinalIgnoreCase).Take(limit).ToList();
-            return new Page<CatalogSearchResultDto>(ranked);
+            var ordered = results.OrderByDescending(r => r.Score).ThenBy(r => r.Work.Title, StringComparer.OrdinalIgnoreCase).ToList();
+            if (libraryFirst)
+            {
+                var mine = await MyReleaseIdsAsync(ordered.SelectMany(r => r.Releases).Select(r => r.Id).ToList(), cancellationToken);
+                ordered = ordered.OrderByDescending(r => r.Releases.Any(rel => mine.Contains(rel.Id))).ToList(); // stable: score order kept inside each half
+            }
+
+            return new Page<CatalogSearchResultDto>(ordered.Take(limit).ToList());
+        }
+
+        /// <summary>
+        /// The releases the caller's libraries own (an existing Owned or Lent copy) or made for themselves. The table filters
+        /// already hide every other library's items and private releases, so what matches is the caller's by construction.
+        /// </summary>
+        private async Task<HashSet<Guid>> MyReleaseIdsAsync(List<Guid> releaseIds, CancellationToken cancellationToken)
+        {
+            if (releaseIds.Count == 0)
+            {
+                return [];
+            }
+
+            var owned = await db.Items.AsNoTracking()
+                .Where(i => i.DeletedAt == null && Ownership.OwnershipQuery.OwnedStatuses.Contains(i.Status) && releaseIds.Contains(i.ReleaseId))
+                .Select(i => i.ReleaseId)
+                .ToListAsync(cancellationToken);
+            var local = await db.Releases.AsNoTracking()
+                .Where(r => releaseIds.Contains(r.Id) && r.OwnerLibraryId != null)
+                .Select(r => r.Id)
+                .ToListAsync(cancellationToken);
+            return owned.Concat(local).ToHashSet();
         }
 
         private async Task<List<CatalogSearchResultDto>> SearchLocalAsync(string title, Query query, WorkKind? kind, CancellationToken cancellationToken)

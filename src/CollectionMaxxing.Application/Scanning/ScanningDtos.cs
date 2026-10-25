@@ -77,6 +77,8 @@ public sealed record ScanSessionDto(
     ScanSessionStatus Status,
     Guid? DefaultLocationId,
     ItemStatus? DefaultStatus,
+    ScanMediaHint MediaHint,
+    ScanChannel Channel,
     DateTimeOffset CreatedAt,
     DateTimeOffset? CommittedAt,
     IReadOnlyList<CandidateDto> Candidates);

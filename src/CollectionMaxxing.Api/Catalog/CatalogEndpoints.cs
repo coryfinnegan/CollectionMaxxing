@@ -86,7 +86,7 @@ public static class CatalogEndpoints
         [AsParameters] CatalogSearchQuery query, SearchCatalog.Handler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(
-            new SearchCatalog.Query(query.Q, query.Kind, query.Platform, query.Year, query.Limit), cancellationToken);
+            new SearchCatalog.Query(query.Q, query.Kind, query.Platform, query.Year, query.Limit, query.Scope), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
     }
 

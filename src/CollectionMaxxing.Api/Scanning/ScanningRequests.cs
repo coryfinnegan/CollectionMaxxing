@@ -4,8 +4,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CollectionMaxxing.Api.Scanning;
 
-/// <summary>Body of <c>POST …/scan-sessions</c>. There are no modes: defaults only save typing at Review.</summary>
-public sealed record CreateScanSessionRequest(Guid? DefaultLocationId = null, ItemStatus? DefaultStatus = null);
+/// <summary>
+/// Body of <c>POST …/scan-sessions</c>. There are no modes: defaults only save typing at Review. <c>MediaHint</c> says what
+/// is being scanned (mixed when missing) and <c>Channel</c> says where (home when missing; in a store, Review asks for each location later).
+/// </summary>
+public sealed record CreateScanSessionRequest(
+    Guid? DefaultLocationId = null, ItemStatus? DefaultStatus = null, ScanMediaHint? MediaHint = null, ScanChannel? Channel = null);
 
 /// <summary>Query of <c>GET /api/v1/scan-sessions/{id}</c>: with <c>since</c>, only candidates after that sequence number.</summary>
 public sealed record ScanSessionQuery([FromQuery(Name = "since")] int? Since = null);

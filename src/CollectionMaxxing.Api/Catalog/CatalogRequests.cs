@@ -3,13 +3,18 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CollectionMaxxing.Api.Catalog;
 
-/// <summary>Query of <c>GET /api/v1/catalog/search</c>. <c>kind</c> is text (minimal APIs bind enums case-sensitively; the API spells them lower snake_case); the handler validates it.</summary>
+/// <summary>
+/// Query of <c>GET /api/v1/catalog/search</c>. <c>kind</c> and <c>scope</c> are text (minimal APIs bind enums case-sensitively;
+/// the API spells them lower snake_case); the handler validates them. <c>scope=library</c> ranks what the caller's libraries
+/// own or made for themselves first (the scanner's typed search).
+/// </summary>
 public sealed record CatalogSearchQuery(
     [FromQuery(Name = "q")] string Q,
     [FromQuery(Name = "kind")] string? Kind = null,
     [FromQuery(Name = "platform")] string? Platform = null,
     [FromQuery(Name = "year")] int? Year = null,
-    [FromQuery(Name = "limit")] int? Limit = null);
+    [FromQuery(Name = "limit")] int? Limit = null,
+    [FromQuery(Name = "scope")] string? Scope = null);
 
 /// <summary>Query of <c>GET /api/v1/catalog/lookup</c>: a single barcode or catalogue number.</summary>
 public sealed record CatalogLookupQuery([FromQuery(Name = "code")] string Code);
