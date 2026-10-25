@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "followUp": "https://github.com/coryfinnegan/CollectionMaxxing/issues/307",
+  "entries": [
+    {
+      "file": "src/app/(tabs)/_layout.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 4,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/app/(tabs)/members.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/app/(tabs)/settings.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/app/item/[id]/edit.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/app/item/[id]/index.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/components/Sidebar.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/about/AboutScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/auth/NativeAuthScreens.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/auth/QrPlaceholder.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/auth/reauth.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/auth/reauth.tsx",
+      "rule": "cm-design/no-raw-colors",
+      "count": 1,
+      "reason": "Pre-existing color literal, grandfathered; new literals fail. Follow-up: #307."
+    },
+    {
+      "file": "src/features/auth/WebAuthScreens.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/evals/EvalsScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/item/ItemDetailScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 6,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/item/ItemEditScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 4,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/library-table/ColumnChooser.web.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/library-table/InlineCell.web.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 5,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/library-table/LibraryTable.web.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 22,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/library-table/SelectionBar.web.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 8,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/library/AddItemPanel.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 4,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/library/LibraryGrid.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 13,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/library/LibraryView.web.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/locations/LocationsScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 5,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/me/appLock.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/me/BackButton.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/members/InviteDialog.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 5,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/members/MembersScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/onboarding/CreateLibraryScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/onboarding/JoinInviteScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/onboarding/JoinLibraryScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/onboarding/LibrarySwitcher.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 4,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/onboarding/WelcomeScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/review/ReviewRoute.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/review/ReviewScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 16,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/autosnap/NiceScanFlash.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/cards/ResultCards.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 9,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/cards/ResultDetail.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 6,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/close/CloseScannerSheet.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/close/ScannerWithClose.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/detail/FixItPanel.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/detail/PhotoViewer.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 6,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/pipeline/FixItSheet.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/scanner/ScannerRoute.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/scanner/ScannerScreen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 20,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/ScanTab.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/features/scan/tray/ReceiptBar.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 19,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Button.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Card.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Chip.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Cover.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/EmptyState.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/FormatBadge.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/ListRow.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/LoadingState.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Screen.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Sheet.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Snackbar.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/Text.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/ui/TextField.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    }
+  ]
+}
