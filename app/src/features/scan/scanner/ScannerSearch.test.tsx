@@ -45,7 +45,7 @@ describe('scanner search', () => {
     try {
       await renderWithProviders(<ScannerSearch libraryId={MOCK_LIBRARY_ID} onClose={() => undefined} />);
 
-      fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'alien');
+      fireEvent.changeText(await screen.findByLabelText('Type to search'), 'alien');
 
       expect(await screen.findByText('DVD · 1979 · You own 1 · Living room › Shelf B')).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
@@ -66,7 +66,7 @@ describe('scanner search', () => {
     try {
       await renderWithProviders(<ScannerSearch libraryId={MOCK_LIBRARY_ID} onClose={() => undefined} />);
 
-      fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'alien');
+      fireEvent.changeText(await screen.findByLabelText('Type to search'), 'alien');
 
       expect(await screen.findByText('DVD · Living room › Shelf B')).toBeTruthy();
       expect(await screen.findByText('Blu-ray · Living room › Shelf B')).toBeTruthy();

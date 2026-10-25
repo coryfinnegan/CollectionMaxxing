@@ -1,7 +1,7 @@
 // The scan session's context: where its items go, their status, what is being scanned and where.
 // Set once per session in the SessionSheet and inherited by every capture; the last home location and status per
 // library are remembered (MMKV), so a fresh session re-offers them. "Not placed" is always an explicit choice, never silence.
-import type { ItemStatus, ScanChannel, ScanMediaHint, ScanSessionDto } from '@/api/generated/models';
+import type { CreateScanSessionRequest, ItemStatus, ScanChannel, ScanMediaHint, ScanSessionDto } from '@/api/generated/models';
 import { MemoryKeyValueStore, type KeyValueStore } from '../tray/trayStore';
 
 export type SessionMediaHint = Exclude<ScanMediaHint, null>;
@@ -74,6 +74,16 @@ export function rememberSessionContext(libraryId: string, context: SessionContex
   } catch {
     // Storage full or unavailable: this session still works.
   }
+}
+
+/** What a new session is created with: the context as the create call carries it, so Review inherits it. */
+export function sessionCreateBody(context: SessionContext): CreateScanSessionRequest {
+  return {
+    defaultLocationId: context.locationId,
+    defaultStatus: context.status,
+    mediaHint: context.mediaHint,
+    channel: context.channel,
+  };
 }
 
 /** What a fresh session in this library starts from: the last home spot, or a blank home scan. */

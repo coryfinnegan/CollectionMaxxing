@@ -38,7 +38,7 @@ export function ScannerSearch({ libraryId, onClose }: { libraryId: string; onClo
   return (
     <Sheet title="Search" onClose={onClose}>
       <View style={styles.body}>
-        <TextField label="Search the catalog" value={text} onChangeText={setText} placeholder="Title, author or barcode" autoCapitalize="none" autoCorrect={false} />
+        <TextField label="Type to search" value={text} onChangeText={setText} placeholder="Title, author or barcode" autoCapitalize="none" autoCorrect={false} />
         {!online ? (
           <Text variant="caption" tone="muted">
             {staleCopyMessage(cache.state.syncedAt, Date.now())}
