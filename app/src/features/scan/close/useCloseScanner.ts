@@ -13,12 +13,13 @@ import { closeStep, initialClose, type CloseEffect, type CloseEvent, type CloseS
 
 type Deps = { store?: StoreApi<TrayStore>; libraryId?: string; onLeave(): void; onReview(): void };
 
-/** How many scanned items have not been added yet: barcode copies, and the items read from pictures. */
-export const unreviewedCount = (store: StoreApi<TrayStore>) =>
+/** How many scanned items have not been added yet: barcode copies, and the items read from this library's pictures. */
+export const unreviewedCount = (store: StoreApi<TrayStore>, libraryId: string | undefined) =>
   store.getState().lines.reduce((sum, l) => sum + l.copies, 0) +
   getPipelineStore()
     .getState()
-    .snaps.reduce((sum, s) => sum + s.items.length, 0);
+    .snaps.filter((s) => libraryId === undefined || s.libraryId === libraryId)
+    .reduce((sum, s) => sum + s.items.length, 0);
 
 export function useCloseScanner({ store, libraryId, onLeave, onReview }: Deps) {
   // Without a tray (no library yet) there is nothing waiting: Close just leaves.
@@ -53,11 +54,11 @@ export function useCloseScanner({ store, libraryId, onLeave, onReview }: Deps) {
     }
     tray?.getState().clear();
     useCardsStore.getState().reset();
-    await clearPipelineData().catch(() => undefined); // no still, crop or box outlives a discarded scan
+    await clearPipelineData(libraryId).catch(() => undefined); // no still, crop or box of this library outlives a discarded scan
     dispatch({ type: 'discarded' });
   }
 
-  const unreviewed = tray ? unreviewedCount(tray) : 0;
+  const unreviewed = tray ? unreviewedCount(tray, libraryId) : 0;
   return {
     state,
     request: () => dispatch({ type: 'close', unreviewed }),
