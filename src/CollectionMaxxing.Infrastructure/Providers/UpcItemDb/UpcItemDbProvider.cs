@@ -94,7 +94,8 @@ public sealed class UpcItemDbProvider(
                 return Task.FromResult(request);
             },
             ct,
-            admit: token => quota.TryConsumeAsync(ProviderName, _options.DailyLimit, token));
+            admit: token => quota.TryConsumeAsync(ProviderName, _options.DailyLimit, token),
+            isEmpty: doc => !doc.RootElement.Items("items").Any());
 
         switch (result.Status)
         {
