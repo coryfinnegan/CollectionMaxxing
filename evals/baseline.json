@@ -1,4 +1,4 @@
 {
-  "note": "Aggregate numbers only, copied from the metrics of a result file (evals/results/<date>-<sha>.json). No titles, no photo names. A run must not be more than 2 points worse than these.",
+  "note": "No baseline yet: metrics is empty, so the regression check reports no_baseline. After the first run on real golden photos, copy the metrics object of its dated result file (evals/results/<date>-<sha>.json) here. Aggregate numbers only, no titles, no photo names. Once set, a run must not be more than 2 points worse than these.",
   "metrics": {}
 }

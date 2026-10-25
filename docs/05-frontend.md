@@ -20,7 +20,7 @@ What you give up: the front end isn't C#. The contract between C# and TypeScript
 | Navigation | Expo Router (file-based; universal links on iOS, real URLs on web) |
 | Server state | TanStack Query v5 (+ persisted cache for offline browsing) |
 | Client state | Zustand (scan tray, UI prefs), persisted with `react-native-mmkv` |
-| API client | **Generated** by orval from OpenAPI: typed fetchers + TanStack Query hooks + zod schemas |
+| API client | **Generated** by orval from OpenAPI: typed fetchers + TanStack Query hooks |
 | Styling | NativeWind (Tailwind classes compiled for RN + web) driven by a design-token file |
 | Camera / barcodes | `react-native-vision-camera` v5 (iOS) + a frame-processor plugin in `cm-vision` running Apple Vision `VNDetectBarcodesRequest`. **Web: none**; the web app has no camera features. |
 | On-device recognition | **`modules/cm-vision`**, a small Expo module in Swift and the only recognition code in the app. It wraps Apple **Vision** (`detectBarcodes` frame plugin, `recognizeText` at 0/90/270°, `detectRectangles`, `featurePrint` + `distance`) and Apple **Foundation Models**: `readItems(image)` (on-device, guided generation, streamed). |
@@ -30,7 +30,7 @@ What you give up: the front end isn't C#. The contract between C# and TypeScript
 | Feedback | `expo-haptics`, `expo-audio` (scan beep), `expo-keep-awake` while scanning |
 | SSE | `react-native-sse` (iOS); native `EventSource` (web) |
 | Lists | FlashList for the library grid (thousands of covers stay at 60 fps) |
-| Forms | react-hook-form + zod (shared schemas from the generated client) |
+| Forms | Controlled inputs (`useState` + the shared `TextField`), validated inline where they're used (no form library) |
 | i18n | English only in v1, but strings are centralised from day one |
 
 ## App structure

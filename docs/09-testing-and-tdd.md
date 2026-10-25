@@ -39,7 +39,7 @@
 | Snapshots | **Verify** (OpenAPI doc, prompt templates, provider mappings, CSV export format) | Jest snapshots (sparingly) |
 | Time | `Microsoft.Extensions.TimeProvider.Testing` | Jest fake timers |
 | Architecture rules | **ArchUnitNET** | eslint import boundaries |
-| Mutation testing | **Stryker.NET** on Domain + Application (nightly). *As of 2026-10, Stryker can't drive xUnit v3 here, so verifiers hand-mutate key rules until it can.* | — |
+| Mutation testing | The sampler (`scripts/mutate.ps1`) on Domain (nightly, report only). *Stryker still can't drive xUnit v3 here (`tests/mutation/README.md`), so verifiers hand-mutate key rules until it can.* | — |
 | Coverage | coverlet + ReportGenerator | Jest `--coverage` |
 | Components | — | React Native Testing Library |
 | E2E | — | **Maestro** (iOS simulator on a GitHub macOS runner, release tags only, because it's slow), **Playwright** (web) |
@@ -50,8 +50,8 @@
 |---|---|---|
 | Build | 0 warnings (`TreatWarningsAsErrors`), `dotnet format --verify-no-changes`, eslint + prettier, `tsc --noEmit` | every PR |
 | Unit + integration + acceptance | all green | every PR |
-| Line coverage | Domain ≥ 95%, Application ≥ 90%. Not enforced on Api/Infrastructure, where acceptance tests matter more than the number. | every PR |
-| **Mutation score** | Domain ≥ 80% | nightly; a drop fails the next PR |
+| Line coverage | Not gated: nothing measures coverage in CI or the check script. Domain ≥ 95% and Application ≥ 90% stay the aspiration. | — |
+| **Mutation score** | Not gated: the nightly sweep (`mutation.yml`) samples Domain mutants and reports the survivors; it never fails the build. | nightly, report only |
 | Authorization matrix + every-endpoint-has-policy | all green | every PR |
 | OpenAPI | snapshot approved; `oasdiff breaking` clean | every PR |
 | Generated TS client | committed and up to date | every PR |
