@@ -1,6 +1,10 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
+import type { DeletedItemDto } from '@/api/generated/models';
+import { useUndoStore } from '@/features/item/useItem';
+import { LibraryView } from '@/features/library/LibraryView';
 import { mockMe } from '@/mocks/data';
+import { itemsState, resetItems } from '@/mocks/items';
 import { mockAccount, resetMockAccount } from '@/mocks/me';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -9,8 +13,43 @@ import { RecentlyDeletedScreen, daysLeft } from './RecentlyDeletedScreen';
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
+const MATRIX = 'c0000000-0000-4000-8000-000000000001';
+
+const matrixBinRow = (): DeletedItemDto => ({
+  id: MATRIX,
+  releaseId: 'e0000000-0000-4000-8000-000000000001',
+  workId: 'd0000000-0000-4000-8000-000000000001',
+  title: 'The Matrix',
+  kind: 'film',
+  format: 'dvd',
+  platformName: null,
+  year: 1999,
+  coverUrl: null,
+  deletedAt: new Date().toISOString(),
+  purgesAt: new Date(Date.now() + 28 * 86_400_000).toISOString(),
+});
+
+// The real API puts the restored item back in the library; the bin and items mocks
+// don't share state, so this override links them for the restore round trip.
+const linkBinToLibrary = () =>
+  server.use(
+    http.post(/\/api\/v1\/libraries\/[^/]+\/items\/([^/]+):restore$/, ({ request }) => {
+      const id = new URL(request.url).pathname.split('/').pop()?.replace(':restore', '');
+      mockAccount.bin = mockAccount.bin.filter((d) => d.id !== id);
+      const entry = itemsState.entries.find((e) => e.item.id === id);
+      if (entry) {
+        entry.item.deletedAt = null;
+        entry.version += 1;
+        return HttpResponse.json(entry.item);
+      }
+      return HttpResponse.json({ id, deletedAt: null });
+    }),
+  );
+
 beforeEach(() => {
   resetMockAccount();
+  resetItems();
+  useUndoStore.setState({ deleted: null });
   mockRouter.back.mockClear();
 });
 
@@ -45,6 +84,29 @@ describe('RecentlyDeletedScreen', () => {
     await waitFor(() => expect(screen.queryByText('Aliens')).toBeNull());
     expect(screen.getByText('Aliens is back in your library.')).toBeTruthy();
     expect(mockAccount.bin).toHaveLength(1);
+  });
+
+  it('shows the restored item in the library without a refresh', async () => {
+    itemsState.entries.find((e) => e.item.id === MATRIX)!.item.deletedAt = new Date().toISOString();
+    mockAccount.bin = [matrixBinRow()];
+    linkBinToLibrary();
+
+    await renderWithProviders(
+      <>
+        <LibraryView title="Library" />
+        <RecentlyDeletedScreen />
+      </>,
+    );
+
+    // Both views have loaded: the bin holds The Matrix, the library does not.
+    await screen.findByLabelText('Restore The Matrix');
+    await screen.findByLabelText('Super Mario 64, Cartridge, Nintendo 64');
+    expect(screen.queryByLabelText('The Matrix, DVD')).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText('Restore The Matrix'));
+
+    expect(await screen.findByLabelText('The Matrix, DVD')).toBeTruthy();
+    expect(screen.getByText('The Matrix is back in your library.')).toBeTruthy();
   });
 
   it('shows the empty state when nothing is deleted', async () => {
