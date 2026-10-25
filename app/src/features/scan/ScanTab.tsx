@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStore } from 'zustand';
 import { useColors } from '@/theme/tokens';
 import { Button, Card, EmptyState, Screen, Text } from '@/ui';
+import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { summaryLine } from './cards/copy';
 import { getTrayStore } from './tray/storage';
 
@@ -25,17 +26,25 @@ export function ScanTab() {
 
 function PhoneScanTab() {
   const router = useRouter();
-  const items = useStore(getTrayStore(), (s) => s.lines.reduce((sum, l) => sum + l.copies, 0));
+  const { libraryId } = useActiveLibraryId();
   return (
     <Screen title="Scan" subtitle="Point the camera at barcodes. Each one is read as soon as it is in view.">
       <Button label="Open scanner" onPress={() => router.push('/scanner')} />
       <Button label="Add an item by hand" variant="secondary" onPress={() => router.push({ pathname: '/library', params: { add: '1' } })} />
-      {items > 0 ? (
-        <Card>
-          <Text variant="label">{`Waiting from your last scan: ${summaryLine(items, 0)}`}</Text>
-          <Button label="Review" variant="secondary" onPress={() => router.push('/review')} />
-        </Card>
-      ) : null}
+      {libraryId ? <WaitingCard libraryId={libraryId} /> : null}
     </Screen>
+  );
+}
+
+/** The nudge counts this library's tray only: another library's waiting scan is not yours to review here. */
+function WaitingCard({ libraryId }: { libraryId: string }) {
+  const router = useRouter();
+  const items = useStore(getTrayStore(libraryId), (s) => s.lines.reduce((sum, l) => sum + l.copies, 0));
+  if (items === 0) return null;
+  return (
+    <Card>
+      <Text variant="label">{`Waiting from your last scan: ${summaryLine(items, 0)}`}</Text>
+      <Button label="Review" variant="secondary" onPress={() => router.push('/review')} />
+    </Card>
   );
 }

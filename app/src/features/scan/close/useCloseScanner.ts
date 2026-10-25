@@ -11,7 +11,7 @@ import { getTrayStore } from '../tray/storage';
 import type { TrayStore } from '../tray/trayStore';
 import { closeStep, initialClose, type CloseEffect, type CloseEvent, type CloseState } from './closeMachine';
 
-type Deps = { store?: StoreApi<TrayStore>; onLeave(): void; onReview(): void };
+type Deps = { store?: StoreApi<TrayStore>; libraryId?: string; onLeave(): void; onReview(): void };
 
 /** How many scanned items have not been added yet: barcode copies, and the items read from pictures. */
 export const unreviewedCount = (store: StoreApi<TrayStore>) =>
@@ -20,7 +20,9 @@ export const unreviewedCount = (store: StoreApi<TrayStore>) =>
     .getState()
     .snaps.reduce((sum, s) => sum + s.items.length, 0);
 
-export function useCloseScanner({ store = getTrayStore(), onLeave, onReview }: Deps) {
+export function useCloseScanner({ store, libraryId, onLeave, onReview }: Deps) {
+  // Without a tray (no library yet) there is nothing waiting: Close just leaves.
+  const tray = store ?? (libraryId ? getTrayStore(libraryId) : undefined);
   const [state, setState] = useState<CloseState>(initialClose);
   // The machine's latest state, so two quick taps in one frame are judged against the real current phase.
   const current = useRef<CloseState>(initialClose);
@@ -39,7 +41,7 @@ export function useCloseScanner({ store = getTrayStore(), onLeave, onReview }: D
   }
 
   async function discard() {
-    const sessionId = store.getState().sessionId;
+    const sessionId = tray?.getState().sessionId;
     try {
       if (sessionId) await abandonScanSession(sessionId);
     } catch (error) {
@@ -49,17 +51,18 @@ export function useCloseScanner({ store = getTrayStore(), onLeave, onReview }: D
         return;
       }
     }
-    store.getState().clear();
+    tray?.getState().clear();
     useCardsStore.getState().reset();
     await clearPipelineData().catch(() => undefined); // no still, crop or box outlives a discarded scan
     dispatch({ type: 'discarded' });
   }
 
+  const unreviewed = tray ? unreviewedCount(tray) : 0;
   return {
     state,
-    request: () => dispatch({ type: 'close', unreviewed: unreviewedCount(store) }),
+    request: () => dispatch({ type: 'close', unreviewed }),
     choose: (choice: 'review' | 'keep' | 'discard') => dispatch({ type: 'choose', choice }),
     dismiss: () => dispatch({ type: 'dismiss' }),
-    unreviewed: unreviewedCount(store),
+    unreviewed,
   };
 }

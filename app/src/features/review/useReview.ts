@@ -25,7 +25,7 @@ const UNDO_REFUSED = "Couldn't undo. These items were added a while ago or have 
 export function useReview({
   libraryId,
   sessionId,
-  store = getTrayStore(),
+  store = getTrayStore(libraryId),
   undoMs = UNDO_MS,
 }: {
   libraryId: string;

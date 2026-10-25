@@ -42,7 +42,7 @@ export function FingerprintBridge({ vision, cover }: { vision?: PrintVision; cov
       vision: printVision,
       snaps: getSnapStore(),
       cards: useCardsStore,
-      sessionId: () => getTrayStore().getState().sessionId,
+      sessionId: () => (libraryId ? getTrayStore(libraryId).getState().sessionId : null),
       loadSession,
     });
     const stopRecording = recorder.start();

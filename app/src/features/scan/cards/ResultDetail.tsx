@@ -3,7 +3,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Image, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useStore } from 'zustand';
 import { formatLabels } from '@/features/library/labels';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { radius, spacing, useColors } from '@/theme/tokens';
@@ -11,7 +10,7 @@ import { Button, Card, Cover, EmptyState, FormatBadge, Screen, Text } from '@/ui
 import { useCardActions } from '../session/useCardActions';
 import { loadSession } from '../session/sessionApi';
 import { useLibraryRole } from '../session/useScanSession';
-import { getTrayStore } from '../tray/storage';
+import { getTrayStore, useTrayValue } from '../tray/storage';
 import { uploadCover, useCoverStore } from '../detail/coverPhoto';
 import { FixItPanel } from '../detail/FixItPanel';
 import { PhotoViewer } from '../detail/PhotoViewer';
@@ -29,7 +28,7 @@ export function ResultDetail({ id }: { id: string }) {
   const [fixing, setFixing] = useState(false);
   const [sending, setSending] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
-  const sessionId = useStore(getTrayStore(), (s) => s.sessionId);
+  const sessionId = useTrayValue(libraryId ? getTrayStore(libraryId) : undefined, (s) => s.sessionId, null);
   const { canAdd } = useLibraryRole(libraryId);
   const actions = useCardActions({ libraryId: libraryId ?? '', sessionId, canAdd });
 
