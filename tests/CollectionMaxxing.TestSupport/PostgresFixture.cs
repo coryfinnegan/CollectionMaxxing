@@ -83,7 +83,26 @@ public sealed class PostgresFixture : IAsyncLifetime
         var ready = Stopwatch.GetTimestamp();
         if (Environment.GetEnvironmentVariable("CM_PERF_LOG") is { Length: > 0 } path)
         {
-            File.AppendAllText(path, $"[cm-perf] postgres ready in {Seconds(started, ready)}s (container {Seconds(started, containerUp)}s, migrate {Seconds(containerUp, ready)}s){Environment.NewLine}");
+            // Parallel lanes append from several processes at once; concurrent appends can hit a
+            // sharing-violation IOException on Windows. Retry briefly, then give up: a lost perf
+            // line is cosmetic, a failed lane is not.
+            var line = $"[cm-perf] postgres ready in {Seconds(started, ready)}s (container {Seconds(started, containerUp)}s, migrate {Seconds(containerUp, ready)}s){Environment.NewLine}";
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    File.AppendAllText(path, line);
+                    break;
+                }
+                catch (IOException) when (attempt < 4)
+                {
+                    await Task.Delay(50);
+                }
+                catch (IOException)
+                {
+                    break;
+                }
+            }
         }
 
         static string Seconds(long from, long to) => ((to - from) / (double)Stopwatch.Frequency).ToString("F1");
