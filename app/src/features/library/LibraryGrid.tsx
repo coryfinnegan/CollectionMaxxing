@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
@@ -47,9 +47,13 @@ const emptyCopy: Record<string, { title: string; body: string }> = {
 
 export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
+  const { theme } = useUnistyles();
+  // Plain objects: SafeAreaView lives outside the babel-processed tree, so a
+  // themed sheet value would arrive unstyled on web (#305).
+  const loading = { padding: theme.spacing.lg, gap: theme.spacing.lg };
   if (loadingLibrary || !libraryId) {
     return (
-      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={styles.loading}>
+      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={loading}>
         {hideTitle ? null : (
           <Text variant="title" accessibilityRole="header">
             {title}
@@ -64,6 +68,8 @@ export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryG
 
 function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGridProps & { libraryId: string }) {
   const router = useRouter();
+  const { theme } = useUnistyles();
+  const safe = { flex: 1, backgroundColor: theme.colors.ground };
   const { width } = useWindowDimensions();
   const columns = width >= WIDE_BREAKPOINT ? 6 : 3;
   const tileWidth = Math.floor((width - spacing.lg * 2 - spacing.md * (columns - 1)) / columns);
@@ -248,7 +254,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
   // The tab layout's safe area and the tab bar already account for the top and bottom
   // insets; the sides keep landscape content clear of the notch.
   return (
-    <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={styles.safe}>
+    <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={safe}>
       <FlatList<ItemSummaryDto>
         key={columns}
         testID="library-grid"
@@ -304,8 +310,6 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
 }
 
 const styles = StyleSheet.create((theme) => ({
-  loading: { padding: theme.spacing.lg, gap: theme.spacing.lg },
-  safe: { flex: 1, backgroundColor: theme.colors.ground },
   listContent: { padding: theme.spacing.lg, gap: theme.spacing.lg },
   column: { gap: theme.spacing.md },
   header: { gap: theme.spacing.md, paddingBottom: theme.spacing.md },
