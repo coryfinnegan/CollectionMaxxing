@@ -6,7 +6,7 @@ import { spacing } from '@/theme/tokens';
 import { Button, Card, EmptyState, ListRow, LoadingState, Screen, Text, TextField } from '@/ui';
 import { BackButton } from '@/features/me/BackButton';
 import { flattenTree } from './tree';
-import { useActiveLibraryId, useLocationMutations, useLocationsList } from './useLocations';
+import { isPendingLocation, useActiveLibraryId, useLocationMutations, useLocationsList } from './useLocations';
 
 export function LocationsScreen() {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
@@ -105,8 +105,11 @@ function LocationsList({ libraryId }: { libraryId: string }) {
         <EmptyState title="No locations yet" body="Add a room or a shelf to say where things live." />
       ) : (
         <View>
-          {rows.map(({ location, depth }) =>
-            editingId === location.id ? (
+          {rows.map(({ location, depth }) => {
+            // The row is already visible from the optimistic update, but until the server
+            // answers there is nothing real to add inside, rename or delete.
+            const pending = isPendingLocation(location.id);
+            return editingId === location.id ? (
               <View key={location.id} style={{ gap: spacing.sm, paddingVertical: spacing.sm, paddingLeft: depth * spacing.xl }}>
                 <TextField label={`Rename ${location.name}`} value={editName} onChangeText={setEditName} autoFocus />
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -126,12 +129,14 @@ function LocationsList({ libraryId }: { libraryId: string }) {
                       label="Add inside"
                       accessibilityLabel={`Add inside ${location.name}`}
                       variant="secondary"
+                      disabled={pending}
                       onPress={() => setParentId(location.id)}
                     />
                     <Button
                       label="Rename"
                       accessibilityLabel={`Rename ${location.name}`}
                       variant="secondary"
+                      disabled={pending}
                       onPress={() => {
                         setEditingId(location.id);
                         setEditName(location.name);
@@ -141,13 +146,14 @@ function LocationsList({ libraryId }: { libraryId: string }) {
                       label="Delete"
                       accessibilityLabel={`Delete ${location.name}`}
                       variant="danger"
+                      disabled={pending}
                       onPress={() => deleteLocation(location.id)}
                     />
                   </View>
                 }
               />
-            ),
-          )}
+            );
+          })}
         </View>
       )}
     </Screen>
