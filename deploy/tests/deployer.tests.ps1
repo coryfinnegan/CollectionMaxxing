@@ -6,7 +6,7 @@ function Invoke-TestDeploy {
       the run; -Inspect gets it afterwards, before it is deleted, and its answer comes back as Inspected.
     #>
     param([hashtable]$Machine = @{}, [hashtable]$State = $null, [switch]$DryRun, [string]$RollbackTo = '', $StateText = $null, $EnvText = $null,
-        [scriptblock]$Setup = $null, [scriptblock]$Inspect = $null)
+        [scriptblock]$Setup = $null, [scriptblock]$Inspect = $null, [switch]$LockHeld, [double]$LockAgeMinutes = 0)
     $root = New-TestRoot
     try {
         if ($State) { Set-TestState -Root $root -State $State }
@@ -16,10 +16,23 @@ function Invoke-TestDeploy {
         }
         if ($null -ne $EnvText) { Set-Content -LiteralPath (Join-Path $root '.env') -Value $EnvText }
         if ($Setup) { & $Setup $root }
+        $heldLock = $null
+        if ($LockHeld) {
+            # Another run holding the lock: backdate the stamp, then hold the file open WITHOUT stamping,
+            # the way a stuck run (or one from before the stamp existed) looks to the run under test.
+            $lockPath = Join-Path $root 'state/deployer.lock'
+            New-Item -ItemType Directory -Force -Path (Join-Path $root 'state') | Out-Null
+            Set-Content -LiteralPath $lockPath -Value "pid=99999 started=$([DateTime]::UtcNow.AddMinutes(-$LockAgeMinutes).ToString('o'))" -NoNewline
+            [IO.File]::SetLastWriteTimeUtc($lockPath, [DateTime]::UtcNow.AddMinutes(-$LockAgeMinutes))
+            $heldLock = [System.IO.File]::Open($lockPath, 'Open', 'ReadWrite', 'None')
+        }
         New-FakeMachine $Machine | Out-Null
         Initialize-Cm -Apply (-not $DryRun)
         $ctx = New-TestContext -Root $root
-        $result = Invoke-CmDeploy -Ctx $ctx -RollbackTo $RollbackTo 6>$null
+        try {
+            $result = Invoke-CmDeploy -Ctx $ctx -RollbackTo $RollbackTo 6>$null
+        }
+        finally { if ($heldLock) { $heldLock.Dispose() } }
         $log = if (Test-Path -LiteralPath $ctx.LogFile) { Get-Content -LiteralPath $ctx.LogFile -Raw } else { '' }
         $inspected = if ($Inspect) { & $Inspect $root } else { $null }
         [pscustomobject]@{ Result = $result; State = (Get-TestState -Root $root); Log = $log; Root = $root; Inspected = $inspected }
@@ -133,6 +146,52 @@ Test-Case 'deployer: a failed smoke test pins the previous good tag and restarts
     Assert-Equal $script:Sha2 $r.State.failedSha
 }
 
+Test-Case 'deployer: every started service is checked after the smoke test passes' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState)
+    Assert-Equal 'deployed' $r.Result.Outcome
+    $smoke = Get-CallIndex 'curl*health/ready'
+    $ps = Get-CallIndex '*ps --format json*'
+    Assert-True ($ps -gt $smoke) "the service check runs after the smoke test (smoke=$smoke ps=$ps)"
+}
+
+Test-Case 'deployer: a crash-looping backup rolls the deploy back even though the API answers' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ BrokenServices = @{ $script:Sha2 = @('backup') } }
+    Assert-Equal 'rolled-back' $r.Result.Outcome
+    Assert-Equal 1 $r.Result.ExitCode
+    $ups = Get-Calls 'docker' '*up -d*'
+    Assert-Equal 2 $ups.Count
+    Assert-Equal $script:Sha1 $r.State.current.sha 'last good stays the old one'
+    Assert-Equal $script:Sha2 $r.State.failedSha
+    Assert-Match $r.Log 'backup'
+    Assert-Match $r.Log 'restarting'
+    Assert-Match $r.Result.Reason 'backup'
+    Assert-Equal 1 (Get-Calls 'curl' '*/fail*').Count
+}
+
+Test-Case 'deployer: a service with no container fails the deploy instead of declaring success' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ MissingServices = @{ $script:Sha2 = @('aspire-dashboard') } }
+    Assert-Equal 'rolled-back' $r.Result.Outcome
+    Assert-Equal 1 $r.Result.ExitCode
+    Assert-Equal $script:Sha1 $r.State.current.sha
+    Assert-Match $r.Log 'aspire-dashboard'
+    Assert-Match $r.Result.Reason 'aspire-dashboard'
+}
+
+Test-Case 'deployer: when the container list cannot be read the deploy fails closed' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ PsFails = $true }
+    Assert-Equal 'rolled-back' $r.Result.Outcome
+    Assert-Equal 1 $r.Result.ExitCode
+    Assert-Equal $script:Sha1 $r.State.current.sha
+    Assert-Match $r.Log 'could not list'
+}
+
+Test-Case 'deployer: the service check ignores postgres and the finished migrate container' {
+    # The fake `ps` always lists postgres (running) and migrate (exited 0) next to the three services.
+    $r = Invoke-TestDeploy -State (Get-OldGoodState)
+    Assert-Equal 'deployed' $r.Result.Outcome
+    Assert-True ((Get-Calls 'docker' '*ps --format json*').Count -ge 1) 'the service check ran'
+}
+
 Test-Case 'deployer: a known-bad image is not retried every two minutes' {
     $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2
     $r = Invoke-TestDeploy -State $state
@@ -200,6 +259,62 @@ Test-Case 'deployer: the lock is released after a run so the next one can start'
         Exit-CmLock $again
     }
     finally { Remove-TestRoot $root }
+}
+
+Test-Case 'deployer: a freshly held lock is still a quiet busy exit on both the deploy and rollback paths' {
+    foreach ($rb in '', $script:Sha1) {
+        $global:CmCalls.Clear()
+        $r = Invoke-TestDeploy -RollbackTo $rb -LockHeld
+        Assert-Equal 'busy' $r.Result.Outcome "(rollbackTo: '$rb')"
+        Assert-Equal 0 $r.Result.ExitCode "(rollbackTo: '$rb')"
+        Assert-Equal 0 $global:CmCalls.Count 'a busy run makes no calls at all'
+        Assert-Equal 0 (Get-Calls 'curl' '*/fail*').Count 'no alert'
+        Assert-False ($r.Log -match 'ALERT') 'no alert line'
+    }
+}
+
+Test-Case 'deployer: a lock held past the stale threshold alerts like a failure on both the deploy and rollback paths' {
+    foreach ($rb in '', $script:Sha1) {
+        $global:CmCalls.Clear()
+        $r = Invoke-TestDeploy -RollbackTo $rb -LockHeld -LockAgeMinutes 45
+        Assert-Equal 'stale-lock' $r.Result.Outcome "(rollbackTo: '$rb')"
+        Assert-Equal 1 $r.Result.ExitCode "(rollbackTo: '$rb')"
+        Assert-Match $r.Log 'ALERT deploy stale-lock'
+        Assert-Match $r.Log 'stuck'
+        Assert-Equal 1 (Get-Calls 'curl' '*/fail*').Count 'one alert ping'
+        Assert-Equal 0 (Get-Calls 'docker' '*').Count 'nothing is started or stopped'
+        Assert-Equal 0 (Get-Calls 'git' '*').Count 'nothing is read or moved'
+    }
+}
+
+Test-Case 'deployer: a lock held just under the stale threshold stays quiet' {
+    $r = Invoke-TestDeploy -LockHeld -LockAgeMinutes 29
+    Assert-Equal 'busy' $r.Result.Outcome
+    Assert-Equal 0 $r.Result.ExitCode
+    Assert-False ($r.Log -match 'ALERT')
+}
+
+Test-Case 'deployer: taking the lock stamps it with the holder, so a stuck run can be told from a live one' {
+    $root = New-TestRoot
+    try {
+        $ctx = New-TestContext -Root $root
+        $lock = Enter-CmLock -Path $ctx.LockFile
+        try {
+            Assert-True ($null -ne $lock) 'the lock was taken'
+            $age = Get-CmLockAgeMinutes -Path $ctx.LockFile
+            Assert-True ($age -lt 1) "a fresh stamp is seconds old, got [$age] minutes"
+        }
+        finally { Exit-CmLock $lock }
+        $stamp = Get-Content -LiteralPath $ctx.LockFile -Raw
+        Assert-Match $stamp "pid=$PID"
+        Assert-Match $stamp 'started='
+    }
+    finally { Remove-TestRoot $root }
+}
+
+Test-Case 'deployer: a lock file that is not there has no age, so it is never called stale' {
+    $missing = Join-Path ([IO.Path]::GetTempPath()) 'cm-ops1-test-no-such-dir/deployer.lock'
+    Assert-Equal '' (Get-CmLockAgeMinutes -Path $missing)
 }
 
 Test-Case 'deployer: the log never contains the database password or the heartbeat URL' {
