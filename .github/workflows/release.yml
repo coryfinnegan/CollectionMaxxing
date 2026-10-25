@@ -1,9 +1,11 @@
 # PROPOSED by OPS-1. The lead copies this file to .github/workflows/release.yml (a hot file; builders do not touch it).
 #
 # On every push to main it builds the api, migrate and backup images, pushes them to GHCR tagged with the commit SHA
-# (and a moving "main" tag) and signs a build attestation for each. The deployer on the owner's PC verifies that attestation
-# with `gh attestation verify --signer-workflow <owner>/<repo>/.github/workflows/release.yml` and requires the certificate
-# to say refs/heads/main, so the file name "release.yml" matters: do not rename it without changing the deployer.
+# only, and signs a build attestation for each. A second job (promote) then moves the moving "main" tag onto all three,
+# but only after every leg AND its attestation succeeded, so :main always names a complete, attested set. The deployer
+# on the owner's PC reads api:main for the newest commit and verifies each attestation with
+# `gh attestation verify --signer-workflow <owner>/<repo>/.github/workflows/release.yml`, requiring the certificate to
+# say refs/heads/main, so the file name "release.yml" matters: do not rename it without changing the deployer.
 #
 # After copying: make the three GHCR packages public (Package settings > Change visibility), once, so the PC can pull
 # without logging in. They contain no secrets or data.
@@ -30,6 +32,7 @@ jobs:
       id-token: write # keyless signing of the attestation
       attestations: write
     strategy:
+      # Legs push SHA tags only, which nothing reads until :main moves, so a failure cancels the rest quickly.
       fail-fast: true
       matrix:
         include:
@@ -85,9 +88,8 @@ jobs:
           push: true
           provenance: false # the signed attestation below replaces the default one
           build-args: ${{ matrix.image == 'api' && format('WEB_DIST={0}', steps.web.outputs.dist || 'deploy/docker/no-web') || '' }}
-          tags: |
-            ${{ steps.name.outputs.repo }}:${{ github.sha }}
-            ${{ steps.name.outputs.repo }}:main
+          # The SHA tag only: :main moves in the promote job below, after every leg AND its attestation succeeded.
+          tags: ${{ steps.name.outputs.repo }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -101,3 +103,32 @@ jobs:
           subject-name: ${{ steps.name.outputs.repo }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  promote:
+    # Moves :main onto this commit's images. needs: images means this runs only when every leg built, pushed AND
+    # attested, so :main always names a complete set and the deployer never chases a partial release.
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write # move the :main tags on GHCR
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move :main onto this commit's images
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          for image in api migrate backup; do
+            docker buildx imagetools create \
+              --tag "ghcr.io/$owner/collectionmaxxing-$image:main" \
+              "ghcr.io/$owner/collectionmaxxing-$image:${{ github.sha }}"
+          done
