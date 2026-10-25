@@ -11,7 +11,10 @@ async function expectShot(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready);
   // Scrollbar styling differs per OS; it is chrome, not the design under test.
   await page.addStyleTag({ content: '* { scrollbar-width: none !important; } *::-webkit-scrollbar { display: none !important; }' });
-  await expect(page).toHaveScreenshot(`${name}.png`, { animations: 'disabled', maxDiffPixelRatio: 0.005 });
+  // 0.015 absorbs measured Linux-vs-Windows rasterization (PR #329 CI: 0.01 on
+  // library-table/members, 0.03 on about before unhinted rendering) while a
+  // real regression still fails: a doubled title moved about by 0.03.
+  await expect(page).toHaveScreenshot(`${name}.png`, { animations: 'disabled', maxDiffPixelRatio: 0.015 });
 }
 
 test.describe('visual', () => {

@@ -23,8 +23,10 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   outputDir: './test-results',
   // One snapshot per screen for every OS (#307): CI runs Linux, dev runs
-  // Windows, and font rasterization differs. The spec's maxDiffPixelRatio
-  // absorbs anti-aliasing while layout, color, or title regressions still fail.
+  // Windows, and font rasterization differs. Hinting is the biggest OS delta,
+  // so it is off everywhere (functional tests are unaffected); the spec's
+  // maxDiffPixelRatio absorbs the remaining anti-aliasing while layout, color,
+  // or title regressions still fail.
   snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
@@ -32,6 +34,7 @@ export default defineConfig({
     serviceWorkers: 'allow',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    launchOptions: { args: ['--font-render-hinting=none'] },
   },
   projects: [
     { name: 'chromium', testIgnore: '**/mobile.spec.ts', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
