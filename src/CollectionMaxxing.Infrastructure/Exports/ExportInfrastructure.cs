@@ -127,6 +127,7 @@ public sealed class ExportJobs(AppDbContext db) : IExportJobs
             SELECT (payload -> 'data' ->> 'userId')::uuid AS user_id, status
             FROM jobs
             WHERE type = {type} AND payload -> 'data' ->> 'exportId' = {id}
+            ORDER BY created_at DESC
             LIMIT 1
             """).ToListAsync(cancellationToken))
             .Select(row => new ExportJobState(row.UserId, row.Status))
