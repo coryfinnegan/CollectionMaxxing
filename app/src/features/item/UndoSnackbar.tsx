@@ -29,7 +29,15 @@ export function UndoSnackbar() {
       onAction={() =>
         restore.mutate(
           { id: deleted.id },
-          { onSuccess: () => setDeleted(null), onError: (e) => setFailure({ at: deleted, message: friendlyError(e) }) },
+          {
+            // Each deletion is a new object, so only the Undo for the currently shown
+            // deletion may clear the snackbar; a late success for a superseded deletion
+            // must not clear a newer one.
+            onSuccess: () => {
+              if (useUndoStore.getState().deleted === deleted) setDeleted(null);
+            },
+            onError: (e) => setFailure({ at: deleted, message: friendlyError(e) }),
+          },
         )
       }
     />
