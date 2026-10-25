@@ -29,26 +29,58 @@ const noRawColors = {
 
 const styleProps = new Set(['style', 'contentContainerStyle']);
 
-function styleValueHasInlineObject(value) {
-  if (!value || value.type !== 'JSXExpressionContainer') return false;
-  const expr = value.expression;
-  if (expr.type === 'ObjectExpression') return true;
-  if (expr.type === 'ArrayExpression') return expr.elements.some((el) => el && el.type === 'ObjectExpression');
-  if ((expr.type === 'ArrowFunctionExpression' || expr.type === 'FunctionExpression') && expr.body) {
-    const body = expr.body.type === 'BlockStatement' ? null : expr.body;
-    if (body && body.type === 'ObjectExpression') return true;
-    if (body && body.type === 'ArrayExpression') return body.elements.some((el) => el && el.type === 'ObjectExpression');
+// A style value is static when it is a literal or a literal in disguise: an
+// expression-free template, a unary expression over a static value, an
+// array or object holding a static value, or a TS as/satisfies cast of one.
+// Anything else — an identifier, a member expression like colors.ground, a
+// call, a conditional — is dynamic: a module-scope StyleSheet cannot
+// express it (#331).
+function isStaticStyleValue(node) {
+  if (!node) return false;
+  if (node.type === 'Literal') return true;
+  if (node.type === 'TemplateLiteral') return node.expressions.length === 0;
+  if (node.type === 'UnaryExpression') return isStaticStyleValue(node.argument);
+  if (node.type === 'ArrayExpression') return node.elements.some(isStaticStyleValue);
+  if (node.type === 'ObjectExpression') return inlineObjectHasStaticProp(node);
+  if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSTypeAssertion') {
+    return isStaticStyleValue(node.expression);
   }
   return false;
 }
 
+/** True when the inline object holds anything a module-scope StyleSheet could hold. */
+function inlineObjectHasStaticProp(node) {
+  return node.properties.some((prop) => prop.type === 'Property' && isStaticStyleValue(prop.value));
+}
+
+function* inlineStyleObjects(value) {
+  if (!value || value.type !== 'JSXExpressionContainer') return;
+  const expr = value.expression;
+  if (expr.type === 'ObjectExpression') {
+    yield expr;
+  } else if (expr.type === 'ArrayExpression') {
+    for (const el of expr.elements) if (el && el.type === 'ObjectExpression') yield el;
+  } else if ((expr.type === 'ArrowFunctionExpression' || expr.type === 'FunctionExpression') && expr.body && expr.body.type !== 'BlockStatement') {
+    const body = expr.body;
+    if (body.type === 'ObjectExpression') {
+      yield body;
+    } else if (body.type === 'ArrayExpression') {
+      for (const el of body.elements) if (el && el.type === 'ObjectExpression') yield el;
+    }
+  }
+}
+
 const noInlineStyles = {
-  meta: { type: 'problem', docs: { description: 'disallow inline style objects in new files' } },
+  meta: { type: 'problem', docs: { description: 'disallow statically-valued inline style objects in new files' } },
   create(context) {
     return {
       JSXAttribute(node) {
-        if (node.name.type === 'JSXIdentifier' && styleProps.has(node.name.name) && styleValueHasInlineObject(node.value)) {
-          context.report({ node, message: 'Inline styles are banned in new files; use StyleSheet or a shared primitive.' });
+        if (node.name.type !== 'JSXIdentifier' || !styleProps.has(node.name.name)) return;
+        for (const obj of inlineStyleObjects(node.value)) {
+          if (inlineObjectHasStaticProp(obj)) {
+            context.report({ node, message: 'Inline styles with static values are banned in new files; move them to StyleSheet and keep only dynamic values inline.' });
+            return;
+          }
         }
       },
     };

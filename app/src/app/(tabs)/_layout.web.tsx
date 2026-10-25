@@ -4,7 +4,7 @@
 // headless tabs find them by element, so a wrapper component would hide them.
 import { Tabs, TabList, TabSlot, TabTrigger } from 'expo-router/ui';
 import { usePathname, type Href } from 'expo-router';
-import { useWindowDimensions } from 'react-native';
+import { StyleSheet, useWindowDimensions } from 'react-native';
 import { TabsFrame } from '@/components/TabsFrame';
 import { spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Text } from '@/ui';
@@ -23,18 +23,14 @@ export default function TabsLayout() {
     <TabsFrame>
       <Tabs>
         {/* flex:1 bounds the page to the viewport so long pages scroll above the pinned bar. */}
-        <TabSlot style={{ flex: 1 }} />
+        <TabSlot style={styles.slot} />
         {/* The list always renders with the same triggers: triggers define which
             routes exist, so hiding the bar only hides the container — the tabs
             stay declared on wide screens too. */}
         <TabList
           role="tablist"
           accessibilityLabel="Tabs"
-          style={
-            narrow
-              ? { flexDirection: 'row', backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.line }
-              : { display: 'none' }
-          }
+          style={narrow ? [styles.tabBar, { backgroundColor: colors.surface, borderTopColor: colors.line }] : styles.hidden}
         >
           {visibleTabs.map((tab) => {
             const active = pathname === tab.href;
@@ -46,7 +42,7 @@ export default function TabsLayout() {
                 accessibilityRole="tab"
                 accessibilityLabel={tab.label}
                 aria-selected={active}
-                style={{ flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm }}
+                style={styles.trigger}
               >
                 <Text variant="label" tone={active ? 'accent' : 'muted'}>
                   {tab.label}
@@ -54,9 +50,16 @@ export default function TabsLayout() {
               </TabTrigger>
             );
           })}
-          <TabTrigger name="scan" href="/scan" style={{ display: 'none' }} />
+          <TabTrigger name="scan" href="/scan" style={styles.hidden} />
         </TabList>
       </Tabs>
     </TabsFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  slot: { flex: 1 },
+  tabBar: { flexDirection: 'row', borderTopWidth: 1 },
+  trigger: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm },
+  hidden: { display: 'none' },
+});

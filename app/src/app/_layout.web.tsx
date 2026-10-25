@@ -4,7 +4,7 @@
 // bar on narrow screens; the pushed pages name themselves in their content.
 import { Stack, usePathname } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { RootFrame } from '@/components/RootFrame';
 import { Sidebar } from '@/components/Sidebar';
 import { isLoggedOutRoute } from '@/features/auth/navigation';
@@ -27,17 +27,7 @@ function SkipLink() {
       onPress={jumpToMain}
       // A div with role link does not get Enter from the browser.
       {...({ onKeyDown: (e: { key: string }) => e.key === 'Enter' && jumpToMain() } as object)}
-      style={{
-        position: 'absolute',
-        top: spacing.sm,
-        left: spacing.sm,
-        zIndex: 100,
-        paddingVertical: spacing.sm,
-        paddingHorizontal: spacing.lg,
-        borderRadius: radius.md,
-        backgroundColor: colors.accent,
-        transform: [{ translateY: shown ? 0 : -200 }],
-      }}
+      style={[styles.skipLink, { backgroundColor: colors.accent, transform: [{ translateY: shown ? 0 : -200 }] }]}
     >
       <Text variant="label" style={{ color: colors.onAccent }}>
         Skip to main content
@@ -55,10 +45,10 @@ export default function RootLayout() {
   const showSidebar = wide && !isLoggedOutRoute(pathname);
   return (
     <RootFrame>
-      <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
+      <View style={[styles.main, { flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }]}>
         <SkipLink />
         {showSidebar ? <Sidebar /> : null}
-        <View nativeID={MAIN_ID} role="main" tabIndex={-1} style={{ flex: 1 }}>
+        <View nativeID={MAIN_ID} role="main" tabIndex={-1} style={styles.mainInner}>
           <Stack
             screenOptions={{
               headerStyle: { backgroundColor: colors.surface },
@@ -85,3 +75,17 @@ export default function RootLayout() {
     </RootFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  skipLink: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    zIndex: 100,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+  },
+  main: { flex: 1 },
+  mainInner: { flex: 1 },
+});
