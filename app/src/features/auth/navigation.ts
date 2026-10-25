@@ -19,6 +19,17 @@ export function currentLocalUrl(): string {
   return `${location.pathname}${query ? `?${query}` : ''}`;
 }
 
+/** The routes reachable with no sign-in (login, welcome, join): the web layout shows no authenticated nav there (#328). */
+export function isLoggedOutRoute(pathname: string): boolean {
+  return (
+    pathname === '/login' ||
+    pathname === '/welcome' ||
+    pathname.startsWith('/welcome/') ||
+    pathname === '/join' ||
+    pathname.startsWith('/join/')
+  );
+}
+
 export type LoginOptions = { returnUrl?: string; reauth?: boolean; link?: boolean };
 
 export function loginUrl({ returnUrl, reauth, link }: LoginOptions = {}): string {

@@ -1,4 +1,4 @@
-import { loginUrl, safeReturnUrl, signInErrorMessage } from './navigation';
+import { isLoggedOutRoute, loginUrl, safeReturnUrl, signInErrorMessage } from './navigation';
 
 describe('loginUrl', () => {
   it('is the bare sign-in route with no options', () => {
@@ -24,6 +24,19 @@ describe('safeReturnUrl', () => {
     'falls back for %p',
     (value) => {
       expect(safeReturnUrl(value)).toBe('/library');
+    },
+  );
+});
+
+describe('isLoggedOutRoute', () => {
+  it.each(['/login', '/welcome', '/welcome/create', '/welcome/join', '/join/valid-invite'])('hides the sidebar on %s', (path) => {
+    expect(isLoggedOutRoute(path)).toBe(true);
+  });
+
+  it.each(['/', '/library', '/members', '/settings', '/me/devices', '/item/abc', '/wishlist', '/logins', '/joinery', '/welcomes'])(
+    'keeps the sidebar on %s',
+    (path) => {
+      expect(isLoggedOutRoute(path)).toBe(false);
     },
   );
 });
