@@ -14,19 +14,33 @@ public static class ExportErrors
 /// <summary>Use case: start an export of everything the caller can see. Asking again while one is running returns that one.</summary>
 public static class StartExport
 {
+    /// <summary>How often a start retries when the queue is contended. One retry always settles it; the rest is paranoia.</summary>
+    private const int MaxAttempts = 3;
+
     public sealed class Handler(IJobQueue queue, IExportJobs jobs, IIdGenerator ids)
     {
         public async Task<ExportDto> HandleAsync(Guid userId, CancellationToken cancellationToken)
         {
+            // A dedupe hit usually means "one is already running", but it may finish between the enqueue and the
+            // lookup; then the key is free again and the next pass queues this export for real. Without the retry the
+            // caller gets an id no job will ever build ("queued, then vanished").
             var exportId = ids.NewId();
-            var queued = await queue.EnqueueAsync(
-                BuildExport.JobType, new BuildExport.Payload(exportId, userId), new JobEnqueueOptions(DedupeKey: $"export:{userId:N}"), cancellationToken);
-            if (queued is null && await jobs.FindActiveAsync(userId, cancellationToken) is { } existing)
+            for (var attempt = 0; attempt < MaxAttempts; attempt++)
             {
-                return new ExportDto(existing, ExportStatus.Queued, null);
+                var queued = await queue.EnqueueAsync(
+                    BuildExport.JobType, new BuildExport.Payload(exportId, userId), new JobEnqueueOptions(DedupeKey: $"export:{userId:N}"), cancellationToken);
+                if (queued is not null)
+                {
+                    return new ExportDto(exportId, ExportStatus.Queued, null);
+                }
+
+                if (await jobs.FindActiveAsync(userId, cancellationToken) is { } existing)
+                {
+                    return new ExportDto(existing, ExportStatus.Queued, null);
+                }
             }
 
-            return new ExportDto(exportId, ExportStatus.Queued, null);
+            throw new InvalidOperationException("Could not start an export: the queue stayed contended.");
         }
     }
 }

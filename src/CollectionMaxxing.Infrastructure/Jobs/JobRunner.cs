@@ -10,7 +10,9 @@ namespace CollectionMaxxing.Infrastructure.Jobs;
 /// <summary>
 /// Picks up one due job and runs it. Safe to call from many workers at once: the pick is a single
 /// <c>UPDATE ... FOR UPDATE SKIP LOCKED</c>, so each job is handed to exactly one caller. A job whose lock has
-/// expired (its worker died) counts as due again.
+/// expired (its worker died) counts as due again. Every finish is fenced on the worker's lock, and a finish that
+/// finds its lock gone (another worker re-claimed the job mid-run) is logged as an error, so a double-run never
+/// passes silently.
 /// </summary>
 public sealed class JobRunner(
     IEnumerable<JobRegistration> registrations,
@@ -61,18 +63,29 @@ public sealed class JobRunner(
 
             using var data = JsonDocument.Parse(claimed.Data ?? "{}");
             await handler.Invoke(scope.ServiceProvider, data.RootElement.Clone(), cancellationToken);
-            await db.Database.ExecuteSqlInterpolatedAsync($"""
+            var finished = await db.Database.ExecuteSqlInterpolatedAsync($"""
                 UPDATE jobs SET status = 'succeeded', locked_by = NULL, locked_until = NULL, last_error = NULL
                 WHERE id = {claimed.Id} AND locked_by = {workerId}
                 """, CancellationToken.None);
+            if (finished == 0)
+            {
+                LockLost(claimed, workerId, "finished");
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Shutting down mid-job: hand it back untouched so the next start runs it, and do not count this try.
-            await db.Database.ExecuteSqlInterpolatedAsync($"""
+            var handedBack = await db.Database.ExecuteSqlInterpolatedAsync($"""
                 UPDATE jobs SET status = 'pending', attempts = attempts - 1, locked_by = NULL, locked_until = NULL
                 WHERE id = {claimed.Id} AND locked_by = {workerId}
                 """, CancellationToken.None);
+            if (handedBack == 0)
+            {
+                logger.LogWarning(
+                    "Job {JobId} ({JobType}) was handed back on shutdown, but another worker had already re-claimed it.",
+                    claimed.Id, claimed.Type);
+            }
+
             throw;
         }
         catch (Exception exception)
@@ -82,10 +95,14 @@ public sealed class JobRunner(
             if (settings.Retry.ShouldRetry(claimed.Attempts))
             {
                 var runAfter = time.GetUtcNow() + settings.Retry.DelayAfter(claimed.Attempts);
-                await db.Database.ExecuteSqlInterpolatedAsync($"""
+                var rescheduled = await db.Database.ExecuteSqlInterpolatedAsync($"""
                     UPDATE jobs SET status = 'pending', run_after = {runAfter}, last_error = {error}, locked_by = NULL, locked_until = NULL
                     WHERE id = {claimed.Id} AND locked_by = {workerId}
                     """, CancellationToken.None);
+                if (rescheduled == 0)
+                {
+                    LockLost(claimed, workerId, "failed and was due a retry");
+                }
             }
             else
             {
@@ -96,11 +113,23 @@ public sealed class JobRunner(
         return true;
     }
 
-    private static Task<int> FailAsync(AppDbContext db, Claimed job, string workerId, string error, CancellationToken cancellationToken) =>
-        db.Database.ExecuteSqlInterpolatedAsync($"""
+    private async Task FailAsync(AppDbContext db, Claimed job, string workerId, string error, CancellationToken cancellationToken)
+    {
+        var failed = await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE jobs SET status = 'failed', last_error = {error}, locked_by = NULL, locked_until = NULL
             WHERE id = {job.Id} AND locked_by = {workerId}
             """, cancellationToken);
+        if (failed == 0)
+        {
+            LockLost(job, workerId, "could not be marked failed");
+        }
+    }
+
+    /// <summary>Another worker re-claimed the job while this run was still going (its lock expired): say so loudly.</summary>
+    private void LockLost(Claimed job, string workerId, string outcome) =>
+        logger.LogError(
+            "Job {JobId} ({JobType}) {Outcome}, but its lock was already gone: worker {WorkerId} was still running it when another worker re-claimed it, so the job ran twice.",
+            job.Id, job.Type, outcome, workerId);
 
     private sealed record Claimed(Guid Id, string Type, string? Data, int Attempts);
 }
