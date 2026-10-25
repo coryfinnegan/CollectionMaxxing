@@ -315,7 +315,7 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 
 ### W2 · No scanning on the web
 
-The web app is for browsing and managing the library. **+ Add item** opens typed search, or a manual entry when the catalogue has nothing. Bulk adds come from CSV import. All camera and recognition features are iPhone-only.
+The web app is for browsing and managing the library. **+ Add item** opens typed search, or a manual entry when the catalog has nothing. Bulk adds come from CSV import. All camera and recognition features are iPhone-only.
 
 ### W3 · Members (owner only)
 
@@ -369,7 +369,7 @@ Scan → hold up the first cart → it snaps by itself → hold up the next cart
 
 Scan → hold up each sleeve (it snaps by itself) → films resolve by title and artwork; studio and edition are read from the sleeve → a bare tape with no sleeve gets "Got the sleeve? Snap that instead", or you accept the film-level match.
 
-### Catalogue a bookshelf
+### Catalog a bookshelf
 
 Scan → point at one shelf and hold steady → it snaps by itself → pins drop in over ~10–20 s → **Review 23** → pick from 2 ambiguous → search 1 not-found → **Add 22 items**.
 
@@ -381,5 +381,5 @@ Scan → point at a case → "You own this: VHS, Shelf B" (two short haptic taps
 
 - Sentence case everywhere. No ALL-CAPS except inside the receipt, where it's the receipt's own voice.
 - Buttons name the outcome with a count: **Add 11 items**, not "Submit" or "Done".
-- Errors say what happened and what to do next: "Couldn't reach the catalogue. Your scans are saved and will finish when you're back online."
+- Errors say what happened and what to do next: "Couldn't reach the catalog. Your scans are saved and will finish when you're back online."
 - No exclamation marks, no apologies, no "Oops".
