@@ -114,7 +114,7 @@ public static class ListItems
             {
                 ordered = Order(rows, sort, cursor);
             }
-            catch (FormatException)
+            catch (Exception e) when (e is FormatException or OverflowException) // an out-of-range year overflows int.Parse
             {
                 return ItemErrors.Invalid("items.cursor_invalid", "That cursor isn't valid.", "cursor");
             }
