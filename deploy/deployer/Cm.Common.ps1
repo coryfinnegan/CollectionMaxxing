@@ -231,11 +231,26 @@ function Write-CmState {
 }
 
 function Enter-CmLock {
-    <# Returns an open exclusive stream, or $null when another run already holds the lock. #>
+    <#
+      Opens the lock file exclusively and stamps it with the holder (pid and UTC start), so a later run that finds
+      the lock held can tell a live holder from a stuck one (see CmStaleLockMinutes in Cm.Deploy.ps1). Returns the
+      open stream, or $null when another run already holds the lock.
+    #>
     param([string]$Path)
     $dir = Split-Path -Parent $Path
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    try { [System.IO.File]::Open($Path, 'OpenOrCreate', 'ReadWrite', 'None') } catch [System.IO.IOException] { $null }
+    try { $lock = [System.IO.File]::Open($Path, 'OpenOrCreate', 'ReadWrite', 'None') }
+    catch [System.IO.IOException] { return $null }
+    try {
+        # Written through the open stream: the stamp (and with it the file's modified time) is what a later run
+        # judges the holder by, and no other handle can be opened while this one is held.
+        $stamp = [Text.Encoding]::UTF8.GetBytes("pid=$PID started=$([DateTime]::UtcNow.ToString('o'))")
+        $lock.SetLength(0)
+        $lock.Write($stamp, 0, $stamp.Length)
+        $lock.Flush()
+    }
+    catch { $lock.Dispose(); throw }
+    $lock
 }
 
 function Exit-CmLock {
