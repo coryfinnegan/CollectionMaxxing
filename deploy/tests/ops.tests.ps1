@@ -241,6 +241,15 @@ Test-Case 'compose: the config guard catches a forbidden port set through .env' 
     Assert-True (@(Test-CmConfig -EnvMap @{ CM_API_PORT = '8080' } -ComposeConfig $config).Count -ge 1)
 }
 
+Test-Case 'compose: every variable the compose file reads is documented in .env.example, except CM_TAG (the deployer passes it)' {
+    $compose = Get-Content (Join-Path $PSScriptRoot '../docker-compose.yml') -Raw
+    $example = Get-Content (Join-Path $PSScriptRoot '../.env.example') -Raw
+    $vars = [regex]::Matches($compose, '\$\{([A-Za-z_][A-Za-z0-9_]*)') |
+        ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique | Where-Object { $_ -ne 'CM_TAG' }
+    $missing = @($vars | Where-Object { $example -notmatch [regex]::Escape($_) })
+    Assert-True ($missing.Count -eq 0) ('missing from .env.example: ' + ($missing -join ' '))
+}
+
 Test-Case 'compose: the api listens where the code reads its settings (connection string name, covers folder)' {
     $config = Get-RealComposeConfig
     $envNames = @($config.services.api.environment.PSObject.Properties.Name)
