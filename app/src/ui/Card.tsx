@@ -1,24 +1,24 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import type { ReactNode } from 'react';
 import { View, type ViewStyle } from 'react-native';
-import { radius, spacing, useColors } from '@/theme/tokens';
+import { StyleSheet } from 'react-native-unistyles';
 
 export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) {
-  const colors = useColors();
   return (
-    <View
-      style={[
-        {
-          backgroundColor: colors.surface,
-          borderColor: colors.line,
-          borderWidth: 1,
-          borderRadius: radius.lg,
-          padding: spacing.lg,
-          gap: spacing.md,
-        },
-        style,
-      ]}
-    >
+    <View style={[styles.card, style]}>
       {children}
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.line,
+    borderWidth: 1,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+  },
+}));

@@ -1,12 +1,22 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { Text as RNText, type TextProps as RNTextProps } from 'react-native';
-import { type TextVariant, typeScale, useColors } from '@/theme/tokens';
+import { StyleSheet } from 'react-native-unistyles';
+import { typeScale, type TextVariant } from '@/theme/tokens';
 
 export type TextProps = RNTextProps & {
   variant?: TextVariant;
   tone?: 'ink' | 'muted' | 'danger' | 'accent';
 };
 
+type Tone = NonNullable<TextProps['tone']>;
+
 export function Text({ variant = 'body', tone = 'ink', style, ...rest }: TextProps) {
-  const colors = useColors();
-  return <RNText {...rest} style={[typeScale[variant], { color: colors[tone] }, style]} />;
+  // The type entry stays a static token lookup (Text.test.tsx asserts the array
+  // shape); only the themed tone moves into the sheet.
+  return <RNText {...rest} style={[typeScale[variant], styles.tone(tone), style]} />;
 }
+
+const styles = StyleSheet.create((theme) => ({
+  tone: (tone: Tone) => ({ color: theme.colors[tone] }),
+}));

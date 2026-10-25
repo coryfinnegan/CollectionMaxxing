@@ -1,10 +1,13 @@
 // The library as a grid of covers with search, filter chips, sort, pull to refresh and infinite scroll.
 // Wishlist and Lent out are the same view with a fixed status.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
@@ -12,7 +15,7 @@ import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLo
 import { flattenTree } from '@/features/locations/tree';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
-import { spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
+import { spacing, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
@@ -44,9 +47,13 @@ const emptyCopy: Record<string, { title: string; body: string }> = {
 
 export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
+  const { theme } = useUnistyles();
+  // Plain objects: SafeAreaView lives outside the babel-processed tree, so a
+  // themed sheet value would arrive unstyled on web (#305).
+  const loading = { padding: theme.spacing.lg, gap: theme.spacing.lg };
   if (loadingLibrary || !libraryId) {
     return (
-      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ padding: spacing.lg, gap: spacing.lg }}>
+      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={loading}>
         {hideTitle ? null : (
           <Text variant="title" accessibilityRole="header">
             {title}
@@ -61,7 +68,8 @@ export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryG
 
 function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGridProps & { libraryId: string }) {
   const router = useRouter();
-  const colors = useColors();
+  const { theme } = useUnistyles();
+  const safe = { flex: 1, backgroundColor: theme.colors.ground };
   const { width } = useWindowDimensions();
   const columns = width >= WIDE_BREAKPOINT ? 6 : 3;
   const tileWidth = Math.floor((width - spacing.lg * 2 - spacing.md * (columns - 1)) / columns);
@@ -88,10 +96,10 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
   };
 
   const header = (
-    <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.md }}>
+    <View style={styles.header}>
+      <View style={styles.headerRow}>
         {hideTitle ? null : (
-          <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
+          <Text variant="title" accessibilityRole="header" style={styles.title}>
             {title}
           </Text>
         )}
@@ -110,7 +118,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
         autoCorrect={false}
       />
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
         <Chip label="All" selected={!filters.kind} onPress={() => filter({ kind: undefined })} />
         {kinds.map((kind) => {
           const count = counts?.byKind[kind];
@@ -126,7 +134,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
         })}
       </ScrollView>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
         <Chip
           label={filters.format ? formatLabels[filters.format] : 'Any format'}
           accessibilityLabel="Filter by format"
@@ -150,7 +158,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
 
       {panel === 'format' ? (
         <Sheet title="Format" onClose={() => setPanel(null)}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+          <View style={styles.wrap}>
             <Chip label="Any format" selected={!filters.format} onPress={() => closeAnd({ format: undefined })} />
             {formats.map((format) => (
               <Chip
@@ -166,7 +174,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
 
       {panel === 'platform' ? (
         <Sheet title="Platform" onClose={() => setPanel(null)}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+          <View style={styles.wrap}>
             <Chip label="Any platform" selected={!filters.platform} onPress={() => closeAnd({ platform: undefined })} />
             {Object.keys(counts?.byPlatform ?? {}).map((platform) => (
               <Chip
@@ -196,7 +204,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
 
       {panel === 'sort' ? (
         <Sheet title="Sort" onClose={() => setPanel(null)}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+          <View style={styles.wrap}>
             {sortOptions.map((option) => (
               <Chip
                 key={option.value}
@@ -246,15 +254,15 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
   // The tab layout's safe area and the tab bar already account for the top and bottom
   // insets; the sides keep landscape content clear of the notch.
   return (
-    <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
+    <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={safe}>
       <FlatList<ItemSummaryDto>
         key={columns}
         testID="library-grid"
         data={list.items}
         numColumns={columns}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}
-        columnWrapperStyle={{ gap: spacing.md }}
+        contentContainerStyle={styles.listContent}
+        columnWrapperStyle={styles.column}
         ListHeaderComponent={header}
         ListEmptyComponent={empty}
         refreshing={list.isRefreshing}
@@ -268,7 +276,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
           <ItemTile item={item} width={tileWidth} index={index} onPress={() => router.push(`/item/${item.id}`)} />
         )}
       />
-      <View style={{ padding: spacing.lg }}>
+      <View style={styles.snackbarPad}>
         <UndoSnackbar />
       </View>
     </SafeAreaView>
@@ -282,14 +290,14 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
     <Animated.View
       entering={maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick).delay(staggerDelay(index)))}
       layout={maybeLayout(reduceMotion)}
-      style={{ width }}
+      style={styles.tile(width)}
     >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${item.title}, ${details}`}
         onPress={onPress}
         testID={`item-${item.id}`}
-        style={{ gap: spacing.xs }}
+        style={styles.tilePressable}
       >
         <Cover title={item.title} uri={item.coverUrl} width={width} sharedTag={sharedCoverTag(reduceMotion, item.id)} />
         <Text variant="label" numberOfLines={2}>
@@ -300,3 +308,16 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  listContent: { padding: theme.spacing.lg, gap: theme.spacing.lg },
+  column: { gap: theme.spacing.md },
+  header: { gap: theme.spacing.md, paddingBottom: theme.spacing.md },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: theme.spacing.md },
+  title: { flex: 1 },
+  chipRow: { gap: theme.spacing.sm },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  snackbarPad: { padding: theme.spacing.lg },
+  tilePressable: { gap: theme.spacing.xs },
+  tile: (width: number) => ({ width }),
+}));

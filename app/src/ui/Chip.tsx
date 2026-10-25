@@ -1,7 +1,10 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { Platform, Pressable, useWindowDimensions } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import { StyleSheet } from 'react-native-unistyles';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
-import { radius, spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
+import { WIDE_BREAKPOINT } from '@/theme/tokens';
 import { maybeEntering, maybeLayout, motionMs } from './motion';
 import { Text } from './Text';
 import { usePressFeedback } from './usePressFeedback';
@@ -16,7 +19,6 @@ type ChipProps = {
 
 /** A pill for filters and single-choice fields. Selected is shown by fill and by the accessibility state. */
 export function Chip({ label, selected = false, onPress, accessibilityLabel, testID }: ChipProps) {
-  const colors = useColors();
   const press = usePressFeedback('select');
   const reduceMotion = useReduceMotion();
   // A finger needs 44 pt: on a phone-width web screen the chip is that tall itself (react-native-web ignores hitSlop); a pointer gets the compact 36.
@@ -42,19 +44,9 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
           onPressOut={press.onPressOut}
           testID={testID}
           hitSlop={{ top: 4, bottom: 4 }} // native: 36 pt to look, 44 pt to touch
-          style={{
-            minHeight,
-            minWidth: minHeight === 44 ? 44 : undefined,
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingHorizontal: spacing.md,
-            borderRadius: radius.pill,
-            borderWidth: 1,
-            borderColor: selected ? colors.accent : colors.control,
-            backgroundColor: selected ? colors.accent : colors.surface,
-          }}
+          style={styles.chip({ minHeight, selected })}
         >
-          <Text variant="label" style={{ color: selected ? colors.onAccent : colors.ink }}>
+          <Text variant="label" style={styles.label(selected)}>
             {label}
           </Text>
         </Pressable>
@@ -62,3 +54,18 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  chip: ({ minHeight, selected }: { minHeight: number; selected: boolean }) => ({
+    minHeight,
+    minWidth: minHeight === 44 ? 44 : undefined,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: selected ? theme.colors.accent : theme.colors.control,
+    backgroundColor: selected ? theme.colors.accent : theme.colors.surface,
+  }),
+  label: (selected: boolean) => ({ color: selected ? theme.colors.onAccent : theme.colors.ink }),
+}));

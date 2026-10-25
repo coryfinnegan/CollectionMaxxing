@@ -1,8 +1,10 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
+import { StyleSheet } from 'react-native-unistyles';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
-import { spacing, useColors } from '@/theme/tokens';
 import { maybeEntering, maybeLayout, motionMs } from './motion';
 import { Text } from './Text';
 import { usePressFeedback } from './usePressFeedback';
@@ -18,28 +20,13 @@ type ListRowProps = {
 };
 
 export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID }: ListRowProps) {
-  const colors = useColors();
   const press = usePressFeedback('tap');
   const reduceMotion = useReduceMotion();
   const entering = maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick));
   const layout = maybeLayout(reduceMotion);
   const body = (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        // Crowded trailing controls drop under the text instead of squeezing it into a sliver.
-        flexWrap: 'wrap',
-        columnGap: spacing.md,
-        rowGap: spacing.sm,
-        minHeight: 48,
-        paddingVertical: spacing.sm,
-        paddingLeft: depth * spacing.xl,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.line,
-      }}
-    >
-      <View style={{ flex: 1, minWidth: 160 }}>
+    <View style={styles.row(depth)}>
+      <View style={styles.text}>
         <Text>{title}</Text>
         {subtitle ? (
           <Text variant="caption" tone="muted">
@@ -75,3 +62,20 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  row: (depth: number) => ({
+    flexDirection: 'row',
+    alignItems: 'center',
+    // Crowded trailing controls drop under the text instead of squeezing it into a sliver.
+    flexWrap: 'wrap',
+    columnGap: theme.spacing.md,
+    rowGap: theme.spacing.sm,
+    minHeight: 48,
+    paddingVertical: theme.spacing.sm,
+    paddingLeft: depth * theme.spacing.xl,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.line,
+  }),
+  text: { flex: 1, minWidth: 160 },
+}));

@@ -1,5 +1,7 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { TextInput, type TextInputProps, View } from 'react-native';
-import { radius, spacing, typeScale, useColors } from '@/theme/tokens';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from './Text';
 
 type TextFieldProps = TextInputProps & {
@@ -9,28 +11,15 @@ type TextFieldProps = TextInputProps & {
 };
 
 export function TextField({ label, error, style, ...rest }: TextFieldProps) {
-  const colors = useColors();
+  const { theme } = useUnistyles();
   return (
-    <View style={{ gap: spacing.xs }}>
+    <View style={styles.field}>
       <Text variant="label">{label}</Text>
       <TextInput
         accessibilityLabel={label}
-        placeholderTextColor={colors.muted}
+        placeholderTextColor={theme.colors.muted}
         {...rest}
-        style={[
-          {
-            minHeight: 44,
-            paddingHorizontal: spacing.md,
-            borderWidth: 1,
-            borderColor: error ? colors.danger : colors.control,
-            borderRadius: radius.md,
-            backgroundColor: colors.surface,
-            color: colors.ink,
-            fontSize: 16,
-            fontFamily: typeScale.body.fontFamily,
-          },
-          style,
-        ]}
+        style={[styles.input(!!error), style]}
       />
       {error ? (
         <Text variant="caption" tone="danger" accessibilityRole="alert">
@@ -40,3 +29,18 @@ export function TextField({ label, error, style, ...rest }: TextFieldProps) {
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  field: { gap: theme.spacing.xs },
+  input: (hasError: boolean) => ({
+    minHeight: 44,
+    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: hasError ? theme.colors.danger : theme.colors.control,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.ink,
+    fontSize: 16,
+    fontFamily: theme.type.body.fontFamily,
+  }),
+}));

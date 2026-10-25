@@ -2,18 +2,20 @@
 // Scan tab. It collapses to a barcode button when the bar minimizes. Stateless:
 // two instances render at once (one per placement) with unshared state, so the
 // hide-on-Scan-tab gate lives in NativeTabBar, outside the accessory.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { fixed, radius, spacing, useColors } from '@/theme/tokens';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text, usePressFeedback } from '@/ui';
 
 export const SCAN_LABEL = 'Scan a barcode';
 
 export function ScanPill() {
   const router = useRouter();
-  const colors = useColors();
+  const { theme } = useUnistyles();
   const press = usePressFeedback('select');
   const placement = NativeTabs.BottomAccessory.usePlacement();
   const openScan = () => {
@@ -29,9 +31,9 @@ export function ScanPill() {
           onPress={openScan}
           onPressIn={press.onPressIn}
           onPressOut={press.onPressOut}
-          style={[styles.collapsed, { backgroundColor: colors.accent }]}
+          style={styles.collapsed}
         >
-          <BarcodeGlyph color={colors.onAccent} />
+          <BarcodeGlyph color={theme.colors.onAccent} />
         </Pressable>
       </Animated.View>
     );
@@ -44,10 +46,10 @@ export function ScanPill() {
         onPress={openScan}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
-        style={[styles.pill, { backgroundColor: colors.accent }]}
+        style={styles.pill}
       >
-        <BarcodeGlyph color={colors.onAccent} />
-        <Text variant="label" style={{ color: colors.onAccent }}>
+        <BarcodeGlyph color={theme.colors.onAccent} />
+        <Text variant="label" style={styles.label}>
           {SCAN_LABEL}
         </Text>
       </Pressable>
@@ -62,27 +64,36 @@ function BarcodeGlyph({ color }: { color: string }) {
     <View aria-hidden style={styles.bars}>
       {barWidths.map((barWidth, index) => (
         // Static bars that never reorder: the index key is stable.
-        <View key={index} style={[styles.bar, { width: barWidth, backgroundColor: color }]} />
+        <View key={index} style={styles.bar({ width: barWidth, color })} />
       ))}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  collapsed: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+const styles = StyleSheet.create((theme) => ({
+  collapsed: {
+    width: 44,
+    height: 44,
+    borderRadius: theme.radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.accent,
+  },
   pill: {
     minHeight: 44,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.pill,
+    paddingHorizontal: theme.spacing.lg,
+    borderRadius: theme.radius.pill,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    shadowColor: fixed.black,
+    gap: theme.spacing.sm,
+    shadowColor: theme.fixed.black,
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
+    backgroundColor: theme.colors.accent,
   },
+  label: { color: theme.colors.onAccent },
   bars: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  bar: { height: 16, borderRadius: 1 },
-});
+  bar: ({ width, color }: { width: number; color: string }) => ({ height: 16, borderRadius: 1, width, backgroundColor: color }),
+}));

@@ -1,18 +1,23 @@
 // The Scan tab: one big way into the scanner, plus a nudge when a scan is waiting for Review.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useUnistyles } from 'react-native-unistyles';
 import { useStore } from 'zustand';
-import { useColors } from '@/theme/tokens';
 import { Button, Card, EmptyState, Screen, Text } from '@/ui';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { summaryLine } from './cards/copy';
 import { getTrayStore } from './tray/storage';
 
 export function ScanTab() {
-  const colors = useColors();
+  const { theme } = useUnistyles();
+  // Plain object: SafeAreaView lives outside the babel-processed tree, so a
+  // themed sheet value would arrive unstyled on web (#305).
+  const safe = { flex: 1, backgroundColor: theme.colors.ground };
   return (
-    <SafeAreaView testID="scan-tab-safe-area" edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
+    <SafeAreaView testID="scan-tab-safe-area" edges={['left', 'right']} style={safe}>
       {Platform.OS === 'web' ? (
         <Screen title="Scan">
           <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes." />

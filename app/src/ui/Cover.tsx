@@ -1,6 +1,8 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useState } from 'react';
 import Animated from 'react-native-reanimated';
-import { radius, spacing, useColors } from '@/theme/tokens';
+import { StyleSheet } from 'react-native-unistyles';
 import { Text } from './Text';
 
 type CoverProps = {
@@ -14,7 +16,6 @@ type CoverProps = {
 
 /** A cover image, or a plain tile with the title when there is no art or it fails to load. */
 export function Cover({ title, uri, width = 96, sharedTag }: CoverProps) {
-  const colors = useColors();
   const height = Math.round(width * 1.5);
   // Which address failed, so a new address gets a fresh attempt even after a failure.
   const [failedUri, setFailedUri] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export function Cover({ title, uri, width = 96, sharedTag }: CoverProps) {
         accessibilityLabel={`Cover of ${title}`}
         onError={() => setFailedUri(uri)}
         sharedTransitionTag={sharedTag}
-        style={{ width, height, borderRadius: radius.sm, backgroundColor: colors.line }}
+        style={styles.image({ width, height })}
       />
     );
   }
@@ -36,14 +37,7 @@ export function Cover({ title, uri, width = 96, sharedTag }: CoverProps) {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       sharedTransitionTag={sharedTag}
-      style={{
-        width,
-        height,
-        borderRadius: radius.sm,
-        backgroundColor: colors.line,
-        padding: spacing.sm,
-        justifyContent: 'flex-end',
-      }}
+      style={styles.tile({ width, height })}
     >
       <Text variant="caption" numberOfLines={3}>
         {title}
@@ -51,3 +45,20 @@ export function Cover({ title, uri, width = 96, sharedTag }: CoverProps) {
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  image: ({ width, height }: { width: number; height: number }) => ({
+    width,
+    height,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.line,
+  }),
+  tile: ({ width, height }: { width: number; height: number }) => ({
+    width,
+    height,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.line,
+    padding: theme.spacing.sm,
+    justifyContent: 'flex-end',
+  }),
+}));
