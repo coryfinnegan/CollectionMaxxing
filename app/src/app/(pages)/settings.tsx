@@ -4,7 +4,7 @@ import { BackButton } from '@/features/me/BackButton';
 import { SettingsScreen } from '@/features/me/SettingsScreen';
 import { spacing, useColors } from '@/theme/tokens';
 
-// A hidden tab reached from Me: the tab header has no back button, so the route renders its own above the screen.
+// A pushed page reached from Me: on the web there is no header, so the route renders its own way back above the screen.
 export default function Route() {
   const colors = useColors();
   return (
