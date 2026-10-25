@@ -3,7 +3,7 @@
 // renders: triggers define which routes exist, so the scan stand-in keeps a
 // hidden trigger even when the bar hides on wide screens.
 import { screen } from '@testing-library/react-native';
-import { Dimensions } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import TabsLayout from '@/app/(tabs)/_layout.web';
 import { renderWithProviders } from '@/test/render';
 import { lightColors } from '@/theme/tokens';
@@ -89,7 +89,7 @@ describe('web TabsLayout', () => {
   it('paints the bar with the theme and keeps every tab a finger wide', async () => {
     await renderWithProviders(<TabsLayout />);
 
-    expect(mockListProps.current?.style).toMatchObject({ backgroundColor: lightColors.surface });
+    expect(StyleSheet.flatten(mockListProps.current?.style)).toMatchObject({ backgroundColor: lightColors.surface });
     for (const trigger of mockTriggers.filter((t) => t.name !== 'scan')) {
       expect(trigger.style).toMatchObject({ minHeight: 44 });
     }
