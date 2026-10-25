@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries.Members;
+using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
@@ -40,7 +41,8 @@ public static class CreateItem
         AddedVia? AddedVia,
         IReadOnlyList<Guid>? TagIds);
 
-    public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock, IUserDirectory? users = null)
+    public sealed class Handler(
+        IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock, IUserDirectory? users = null, ReleaseCovers? covers = null)
     {
         public async Task<Result<Versioned<ItemDto>>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -145,7 +147,22 @@ public static class CreateItem
                 ExpiresAt = now + KeyLifetime,
             });
 
-            await db.SaveChangesAsync(cancellationToken);
+            // An add from the catalogue takes the same cover step as a scan commit, so a picked release shows its picture at once.
+            IReadOnlyList<string> coverFiles = covers is null ? [] : await covers.FetchMissingAsync([releaseId], cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                if (covers is not null)
+                {
+                    await covers.DeleteFilesAsync(coverFiles); // nothing points at the covers just downloaded
+                }
+
+                throw;
+            }
+
             return new Versioned<ItemDto>(await ItemProjection.ToDtoAsync(item, tagIds.Order().ToList(), users, cancellationToken), item.Version);
         }
 
