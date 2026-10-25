@@ -13,12 +13,14 @@ namespace CollectionMaxxing.Application.Catalog;
 /// Recurring job (every UTC night): gives covers to the shared releases that have none — books added before covers were
 /// fetched, or while fetching silently failed. A payload that names a cover is downloaded; a payload that names none is
 /// re-resolved against the book providers when its answer is missing or stale. Anything else keeps its outcome for the
-/// next night. The product lookup's daily quota is never touched: only books by ISBN are re-asked, through the same
-/// rate-limited providers as a scan, and only provider failures (never a person waiting) are retried the next night.
+/// next night. Only books by ISBN are re-asked, and only through the scan's own book-provider list — the backfill
+/// names no quota'd provider and never calls the product lookup, so a nightly run cannot spend its daily quota, however
+/// many releases it takes on. Only provider failures (never a person waiting) are retried the next night.
 /// Safe to repeat: a fetched release is no longer a candidate, and a stored address is reused, never downloaded twice.
 /// </summary>
 public sealed class BackfillCovers(
-    IAppDbContext db, ReleaseCovers covers, BookLookup books, CatalogOptions options, TimeProvider clock, ILogger<BackfillCovers> logger)
+    IAppDbContext db, ReleaseCovers covers, BookLookup books, CatalogOptions options, ScanningOptions scanning,
+    TimeProvider clock, ILogger<BackfillCovers> logger)
     : IJobHandler<BackfillCovers.Job>
 {
     public const string JobType = "catalog.backfill_covers";
@@ -98,9 +100,10 @@ public sealed class BackfillCovers(
     }
 
     /// <summary>
-    /// Asks the book providers again for a cover address. Only books by ISBN are re-asked (a product lookup would spend
-    /// the daily allowance); anything else is marked as having no cover. Stale kept answers are forgotten first, so the
-    /// providers are really asked; what they say is kept for good, as in a scan.
+    /// Asks the book providers again for a cover address, through the same provider list a scan uses. Only books by ISBN
+    /// are re-asked (a product lookup would spend the daily allowance); anything else is marked as having no cover.
+    /// Stale kept answers are forgotten first, so the providers are really asked; what they say is kept for good, as in
+    /// a scan.
     /// </summary>
     private async Task ReResolveAsync(Release release, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -114,7 +117,7 @@ public sealed class BackfillCovers(
         }
 
         await ForgetStaleAnswersAsync(isbn.Value, cancellationToken);
-        var book = await books.LookupAsync(isbn, null, options.ProviderTimeout, cancellationToken);
+        var book = await books.LookupAsync(isbn, scanning.BookProviders, options.ProviderTimeout, cancellationToken);
         if (book.Release is { CoverUrl: { } url })
         {
             release.ProviderPayloadsJson =
@@ -149,8 +152,9 @@ public sealed class BackfillCovers(
     }
 
     /// <summary>
-    /// Forgets the kept ISBN answers (the permanent copy and every provider's cached lookup) so the re-ask is fresh.
-    /// Only the permanent copy keys rows by the bare ISBN; every provider lookup prefixes its key.
+    /// Forgets the kept ISBN answers the re-ask could otherwise serve: the permanent copy and the book providers'
+    /// cached ISBN lookups. Only the permanent copy keys rows by the bare ISBN; the providers prefix theirs. The
+    /// product lookup is never asked, so its rows need no clearing.
     /// </summary>
     private async Task ForgetStaleAnswersAsync(string isbn13, CancellationToken cancellationToken)
     {

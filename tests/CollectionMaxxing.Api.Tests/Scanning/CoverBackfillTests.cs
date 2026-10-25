@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Tests.Catalog;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
@@ -199,6 +200,87 @@ public class CoverBackfillTests : ScanTest
         release.CoverAssetId.ShouldBeNull();
         CoverStatusOf(release.ProviderPayloadsJson).ShouldBe("no-cover");
     }
+
+    [Fact]
+    public async Task The_backfill_asks_only_the_scan_book_providers_for_an_isbn()
+    {
+        // A stand-in for UPCitemdb: it answers books, but the scan's book-provider list does not name it,
+        // so the backfill must never ask it (each ask would spend its 100-a-day product quota).
+        var quotaCalls = 0;
+        var quotaProvider = new FakeProvider("upcitemdb")
+        {
+            Behaviour = _ =>
+            {
+                quotaCalls++;
+                return Task.CompletedTask;
+            },
+        };
+        ConfigureServices += services => services.AddSingleton<ICatalogProvider>(quotaProvider);
+        var releaseId = await SeedReleaseAsync("Dune", WorkKind.Book, ScanData.Isbn, Payload(null));
+        Books.LookupResult = Book(ScanData.Isbn, CoverUrl);
+
+        await BackfillAsync();
+
+        quotaCalls.ShouldBe(0);
+        (await ReleaseAsync(releaseId)).CoverAssetId.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task The_backfill_forgets_the_book_providers_stale_answers_before_reasking()
+    {
+        var releaseId = await SeedReleaseAsync("Dune", WorkKind.Book, ScanData.Isbn, Payload(null));
+        var staleAt = DateTimeOffset.UtcNow.AddDays(-10);
+        await using (var context = Db.CreateContext())
+        {
+            context.ProviderCache.AddRange(
+                new ProviderCacheEntry
+                {
+                    Provider = "openlibrary",
+                    Key = $"lookup:isbn:{ScanData.Isbn}",
+                    PayloadJson = "{}",
+                    FetchedAt = staleAt,
+                    ExpiresAt = DateTimeOffset.UtcNow.AddDays(20),
+                },
+                new ProviderCacheEntry
+                {
+                    Provider = "googlebooks",
+                    Key = $"lookup:isbn:{ScanData.Isbn}",
+                    PayloadJson = "{}",
+                    FetchedAt = staleAt,
+                    ExpiresAt = DateTimeOffset.UtcNow.AddDays(20),
+                },
+                // The permanent coverless copy: served stale, it would win over the providers' new cover.
+                new ProviderCacheEntry
+                {
+                    Provider = "isbn",
+                    Key = ScanData.Isbn,
+                    PayloadJson = CoverlessStoredBook(ScanData.Isbn),
+                    FetchedAt = staleAt,
+                    ExpiresAt = DateTimeOffset.UtcNow.AddDays(20),
+                });
+            await context.SaveChangesAsync();
+        }
+
+        Books.LookupResult = Book(ScanData.Isbn, CoverUrl);
+
+        await BackfillAsync();
+
+        await using (var context = Db.CreateContext())
+        {
+            (await context.ProviderCache.CountAsync(c => c.Key == $"lookup:isbn:{ScanData.Isbn}")).ShouldBe(0);
+            var kept = await context.ProviderCache.SingleAsync(c => c.Provider == "isbn" && c.Key == ScanData.Isbn);
+            kept.FetchedAt.ShouldBeGreaterThan(staleAt);
+            kept.PayloadJson.ShouldContain("covers.openlibrary.org");
+        }
+
+        (await ReleaseAsync(releaseId)).CoverAssetId.ShouldNotBeNull();
+    }
+
+    /// <summary>The stored shape of a found book (see ProviderCacheIsbnStore), here without a cover.</summary>
+    private static string CoverlessStoredBook(string isbn) =>
+        "{\"provider\":\"openlibrary\",\"externalId\":\"OL1M\",\"title\":\"Dune\",\"kind\":\"Book\",\"format\":\"Paperback\","
+        + "\"platform\":null,\"year\":1965,\"creators\":[],\"edition\":null,\"publisher\":null,\"coverUrl\":null,"
+        + "\"synopsis\":null,\"identifiers\":[\"" + isbn + "\"]}";
 
     [Fact]
     public async Task A_failed_backfill_fetch_is_recorded_and_retried_next_time()
