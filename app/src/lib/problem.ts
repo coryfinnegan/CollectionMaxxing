@@ -1,5 +1,6 @@
 // Turns an API failure (Problem Details) into friendly copy: what happened and what to do next.
 import { ApiError } from './http';
+import { logger } from './auth/log';
 import { PasskeyCancelledError, PasskeyUnsupportedError, ReauthCancelledError } from './auth/errors';
 import { isWeb } from './auth/session';
 
@@ -30,5 +31,11 @@ export function friendlyError(error: unknown, fallback = "That didn't work. Try 
     return fallback;
   }
   // fetch itself failed: the server wasn't reachable
-  return "Couldn't reach your server. Check your connection and try again.";
+  if (error instanceof TypeError) {
+    return "Couldn't reach your server. Check your connection and try again.";
+  }
+  // Anything else is a bug, not a network failure: keep the copy generic and put the real error in the log.
+  const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  logger.error(`Unexpected error (not a network failure): ${detail}`);
+  return 'Something went wrong. Try again.';
 }
