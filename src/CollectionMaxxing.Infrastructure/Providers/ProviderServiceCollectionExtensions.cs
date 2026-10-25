@@ -26,6 +26,7 @@ public static class ProviderServiceCollectionExtensions
         services.AddSingleton<ProviderRateLimiters>();
         services.AddSingleton<ProviderResponseCache>();
         services.AddSingleton<ProviderQuotaStore>();
+        services.AddSingleton<ProviderRequestCoalescer>();
         services.AddSingleton<ProviderRuntime>();
         services.TryAddSingleton<IIsbnStore, ProviderCacheIsbnStore>();
 
@@ -36,11 +37,13 @@ public static class ProviderServiceCollectionExtensions
         services.AddOptions<TmdbOptions>().BindConfiguration(TmdbOptions.SectionName);
         services.AddOptions<IgdbOptions>().BindConfiguration(IgdbOptions.SectionName);
 
-        services.AddHttpClient<OpenLibraryProvider>(OpenLibraryProvider.ProviderName).AddProviderResilience();
-        services.AddHttpClient<GoogleBooksProvider>(GoogleBooksProvider.ProviderName).AddProviderResilience();
-        services.AddHttpClient<UpcItemDbProvider>(UpcItemDbProvider.ProviderName).AddProviderResilience();
-        services.AddHttpClient<TmdbProvider>(TmdbProvider.ProviderName).AddProviderResilience();
-        services.AddHttpClient<IgdbProvider>(IgdbProvider.ProviderName).AddProviderResilience();
+        // The retry admission runs inside the resilience pipeline (registered after it), once per upstream request.
+        services.AddTransient<ProviderRetryAdmissionHandler>();
+        services.AddHttpClient<OpenLibraryProvider>(OpenLibraryProvider.ProviderName).AddProviderResilience().AddHttpMessageHandler<ProviderRetryAdmissionHandler>();
+        services.AddHttpClient<GoogleBooksProvider>(GoogleBooksProvider.ProviderName).AddProviderResilience().AddHttpMessageHandler<ProviderRetryAdmissionHandler>();
+        services.AddHttpClient<UpcItemDbProvider>(UpcItemDbProvider.ProviderName).AddProviderResilience().AddHttpMessageHandler<ProviderRetryAdmissionHandler>();
+        services.AddHttpClient<TmdbProvider>(TmdbProvider.ProviderName).AddProviderResilience().AddHttpMessageHandler<ProviderRetryAdmissionHandler>();
+        services.AddHttpClient<IgdbProvider>(IgdbProvider.ProviderName).AddProviderResilience().AddHttpMessageHandler<ProviderRetryAdmissionHandler>();
 
         // The token source is a singleton so the token is shared; its client is created once from the factory.
         services.AddHttpClient(IgdbProvider.ProviderName + "-token").AddProviderResilience();
