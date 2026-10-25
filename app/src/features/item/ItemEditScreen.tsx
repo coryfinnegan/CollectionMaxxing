@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import type { ItemCompleteness, ItemCondition, ItemStatus } from '@/api/generated/models';
+import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import {
   completenesses,
@@ -85,7 +86,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
       return;
     }
     setDateError(null);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateString();
     update.mutate(
       { id, data: buildPatch({ ...form, acquiredOn: form.acquiredOn.trim() }, detail.item, today), etag },
       {

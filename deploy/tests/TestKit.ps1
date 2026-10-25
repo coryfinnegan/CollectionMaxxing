@@ -42,6 +42,26 @@ function Add-ExternalResults {
     foreach ($f in $Failed) { $script:Failures.Add($f) }
 }
 
+function Get-ShellSuiteResult {
+    <#
+      Turns one bash suite's printed lines plus its exit code into a result object with Passed and Failed.
+      A suite delivers its verdict as an exit code (each one ends ((fail == 0))), so a non-zero exit, or a
+      run that never printed its SUMMARY line, is failure however many PASS lines came before.
+    #>
+    param([Parameter(Mandatory)][string]$Suite, [string[]]$Lines = @(), [Parameter(Mandatory)][int]$ExitCode)
+    $passed = @($Lines | Where-Object { $_ -like 'PASS *' }).Count
+    $failed = @($Lines | Where-Object { $_ -like 'FAIL *' })
+    if ($passed -eq 0 -and $failed.Count -eq 0) { $failed = @("FAIL $Suite ran nothing:`n     $($Lines | Select-Object -Last 5 | Out-String)") }
+    if ($ExitCode -ne 0) {
+        $tail = ($Lines | Select-Object -Last 3) -join "`n     "
+        $failed = @($failed) + @("FAIL $Suite exited with code $ExitCode, so its $passed PASS lines prove nothing:`n     $tail")
+    }
+    elseif (@($Lines | Where-Object { $_ -like 'SUMMARY *' }).Count -eq 0) {
+        $failed = @($failed) + @("FAIL $Suite never printed its SUMMARY line (did not run to completion)")
+    }
+    [pscustomobject]@{ Passed = $passed; Failed = $failed }
+}
+
 # ---- recorder helpers -------------------------------------------------------------------------------------------
 
 function Get-Calls { param([string]$Command = '*', [string]$Like = '*') @($global:CmCalls | Where-Object { $_.Command -like $Command -and $_.Display -like $Like }) }
