@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { DeletedItemDto } from '@/api/generated/models';
 import { getListDeletedItemsQueryKey, useListDeletedItems } from '@/api/generated/trash/trash';
 import { useRestoreItem } from '@/api/generated/items/items';
+import { useInvalidateLibrary } from '@/features/item/useItem';
 import { friendlyError } from '@/lib/problem';
 import { Button, EmptyState, ListRow, Card, LoadingState, Screen, Text } from '@/ui';
 import { BackButton } from './BackButton';
@@ -40,6 +41,7 @@ export function RecentlyDeletedScreen() {
 
 function Bin({ libraryId }: { libraryId: string }) {
   const queryClient = useQueryClient();
+  const invalidateLibrary = useInvalidateLibrary();
   const list = useListDeletedItems(libraryId);
   const restore = useRestoreItem();
   const [message, setMessage] = useState<string | null>(null);
@@ -54,6 +56,8 @@ function Bin({ libraryId }: { libraryId: string }) {
         onSuccess: () => {
           setMessage(`${item.title} is back in your library.`);
           queryClient.invalidateQueries({ queryKey: getListDeletedItemsQueryKey(libraryId) });
+          // Same full invalidation as the Undo path, so the item reappears in the library views.
+          invalidateLibrary(libraryId);
         },
         onError: (e) => setMessage(friendlyError(e)),
       },

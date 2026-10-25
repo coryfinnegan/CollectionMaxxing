@@ -10,7 +10,9 @@ export function UndoSnackbar() {
   const deleted = useUndoStore((s) => s.deleted);
   const setDeleted = useUndoStore((s) => s.setDeleted);
   const { restore } = useItemMutations(deleted?.libraryId ?? '');
-  const [error, setError] = useState<string | null>(null);
+  // The failed restore and the deletion it belonged to. Each deletion is a new object,
+  // so the error only shows for that same deletion and can never poison a later Undo.
+  const [failure, setFailure] = useState<{ at: NonNullable<typeof deleted>; message: string } | null>(null);
 
   useEffect(() => {
     if (!deleted) return;
@@ -19,7 +21,7 @@ export function UndoSnackbar() {
   }, [deleted, setDeleted]);
 
   if (!deleted) return null;
-  if (error) return <Snackbar message={error} />;
+  if (failure && failure.at === deleted) return <Snackbar message={failure.message} />;
   return (
     <Snackbar
       message={`Deleted ${deleted.title}`}
@@ -27,7 +29,7 @@ export function UndoSnackbar() {
       onAction={() =>
         restore.mutate(
           { id: deleted.id },
-          { onSuccess: () => setDeleted(null), onError: (e) => setError(friendlyError(e)) },
+          { onSuccess: () => setDeleted(null), onError: (e) => setFailure({ at: deleted, message: friendlyError(e) }) },
         )
       }
     />
