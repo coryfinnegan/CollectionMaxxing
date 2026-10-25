@@ -83,9 +83,43 @@ fi
 
 # ---- format ----------------------------------------------------------------------------------------------------
 if want format; then
-run_step format dotnet format "$solution" --verify-no-changes --no-restore
-if [ "$code" -ne 0 ]; then
-  fail "format (fix with: dotnet format CollectionMaxxing.slnx)" "$(grep ': error ' "$log" | sed -E 's/[[:space:]]*\[[^]]*\][[:space:]]*$//' | awk '!seen[$0]++' | head -n "$max_lines")"
+# One project at a time, not solution-wide: `dotnet format` intermittently crashes inside Roslyn's analyzer-config
+# lookup (OneToOneUnicodeComparer.GetHashCode via AnalyzerFormatter.FilterAnalyzersAsync: NullReferenceException on
+# the .slnx, IndexOutOfRangeException per-project; see issue #308). Per-project runs crash less often, and a run that
+# does crash is retried below; only output with the CLR crash banner is retried, so genuine formatting violations
+# still fail immediately. Same coverage as the solution-wide run.
+log="$log_dir/format.log"
+: > "$log"
+start=$SECONDS
+failed=""
+max_attempts=3
+for proj in src/*/*.csproj tests/*/*.csproj; do
+  attempt=0
+  verified=false
+  while [ "$verified" = false ] && [ "$attempt" -lt "$max_attempts" ]; do
+    attempt=$((attempt + 1))
+    attempt_log="$log_dir/format-attempt.log"
+    dotnet format "$proj" --verify-no-changes --no-restore >"$attempt_log" 2>&1
+    code=$?
+    cat "$attempt_log" >>"$log"
+    if [ "$code" -eq 0 ]; then
+      verified=true
+    elif grep -q 'Unhandled exception' "$attempt_log"; then
+      if [ "$attempt" -lt "$max_attempts" ]; then
+        echo "     format: $(basename "$proj" .csproj) hit the Roslyn crash, retrying (attempt $((attempt + 1))/$max_attempts; see issue #308)"
+      fi
+    else
+      break
+    fi
+  done
+  [ "$verified" = true ] || failed="$failed${failed:+, }$(basename "$proj" .csproj)"
+done
+rm -f "$log_dir/format-attempt.log"
+seconds=$((SECONDS - start))
+if [ -n "$failed" ]; then
+  details="$(grep ': error ' "$log" | sed -E 's/[[:space:]]*\[[^]]*\][[:space:]]*$//' | awk '!seen[$0]++' | head -n "$max_lines")"
+  [ -n "$details" ] || details="$(grep -v '^[[:space:]]*$' "$log" | tail -n "$max_lines")"
+  fail "format ($failed; fix with: dotnet format <project>.csproj)" "$details"
 fi
 ok "format (${seconds}s)"
 fi
