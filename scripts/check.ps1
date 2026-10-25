@@ -88,13 +88,48 @@ Write-Ok "build, warnings as errors ($($step.Seconds)s)"
 
 # ---- format ---------------------------------------------------------------------------------------------------
 if (Test-Want 'format') {
-$step = Invoke-Step 'format' { dotnet format $solution --verify-no-changes --no-restore }
-if ($step.Code -ne 0) {
-  $files = $step.Lines | Where-Object { $_ -match ': error ' } | ForEach-Object { $_ -replace '\s*\[[^\]]*\]\s*$', '' } |
-    Select-Object -Unique -First $maxLines
-  Write-Failure 'format (fix with: dotnet format CollectionMaxxing.slnx)' $files $step.Log
+# One project at a time, not solution-wide: `dotnet format` intermittently crashes inside Roslyn's analyzer-config
+# lookup (OneToOneUnicodeComparer.GetHashCode via AnalyzerFormatter.FilterAnalyzersAsync: NullReferenceException on
+# the .slnx, IndexOutOfRangeException per-project; see issue #308). Per-project runs crash less often, and a run that
+# does crash is retried below; only output with the CLR crash banner is retried, so genuine formatting violations
+# still fail immediately. Same coverage as the solution-wide run.
+$formatLog = Join-Path $logDir 'format.log'
+Remove-Item -Force -ErrorAction SilentlyContinue $formatLog
+$formatTimer = [System.Diagnostics.Stopwatch]::StartNew()
+$formatFailed = @()
+$maxAttempts = 3
+foreach ($proj in @((Get-ChildItem 'src/*/*.csproj', 'tests/*/*.csproj' | Sort-Object FullName))) {
+  $attempt = 0
+  $verified = $false
+  while ((-not $verified) -and ($attempt -lt $maxAttempts)) {
+    $attempt++
+    $attemptLines = @(dotnet format $proj.FullName --verify-no-changes --no-restore 2>&1 | ForEach-Object { "$_" })
+    $code = $LASTEXITCODE
+    $attemptLines | Add-Content -Path $formatLog
+    if ($code -eq 0) {
+      $verified = $true
+    } elseif ($attemptLines -match 'Unhandled exception') {
+      if ($attempt -lt $maxAttempts) {
+        Write-Host "     format: $($proj.BaseName) hit the Roslyn crash, retrying (attempt $($attempt + 1)/$maxAttempts; see issue #308)"
+      }
+    } else {
+      break
+    }
+  }
+  if (-not $verified) { $formatFailed += $proj.BaseName }
 }
-Write-Ok "format ($($step.Seconds)s)"
+$formatTimer.Stop()
+if ($formatFailed.Count -gt 0) {
+  $formatLines = @((Get-Content -Path $formatLog -ErrorAction SilentlyContinue | ForEach-Object { "$_" }))
+  $files = $formatLines | Where-Object { $_ -match ': error ' } | ForEach-Object { $_ -replace '\s*\[[^\]]*\]\s*$', '' } |
+    Select-Object -Unique -First $maxLines
+  if (-not $files) {
+    # A crash (or any failure without file diagnostics): show the tail instead.
+    $files = @($formatLines | Where-Object { $_.Trim() -ne '' } | Select-Object -Last $maxLines)
+  }
+  Write-Failure "format ($($formatFailed -join ', '); fix with: dotnet format <project>.csproj)" $files $formatLog
+}
+Write-Ok "format ($([int][math]::Ceiling($formatTimer.Elapsed.TotalSeconds))s)"
 }
 
 # ---- test -----------------------------------------------------------------------------------------------------
