@@ -47,10 +47,23 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
 
         var results = await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Fantasy", Limit = 10 }, default);
 
-        results.Select(r => r.Kind).ShouldBe([WorkKind.Film, WorkKind.Film, WorkKind.Tv]);
-        results[2].ExternalId.ShouldBe("tv/1396");
-        results[2].Title.ShouldBe("Fantasy Show");
-        results[2].Year.ShouldBe(2008);
+        results.Select(r => r.Kind).ShouldBe([WorkKind.Film, WorkKind.Tv, WorkKind.Film]);
+        results[1].ExternalId.ShouldBe("tv/1396");
+        results[1].Title.ShouldBe("Fantasy Show");
+        results[1].Year.ShouldBe(2008);
+    }
+
+    [Fact]
+    public async Task Mixed_search_keeps_television_when_films_alone_would_fill_the_limit()
+    {
+        // Issue #292: films and television merge before the limit cuts, so a full film page starves nothing.
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/3/search/movie", "tmdb-movie-search.json");
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        var results = await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Fantasy", Limit = 2 }, default);
+
+        results.Select(r => r.Kind).ShouldBe([WorkKind.Film, WorkKind.Tv]);
     }
 
     [Fact]
