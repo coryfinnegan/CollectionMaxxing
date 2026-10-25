@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { DeletedItemDto } from '@/api/generated/models';
 import { useUndoStore } from '@/features/item/useItem';
@@ -14,6 +14,7 @@ const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
 const MATRIX = 'c0000000-0000-4000-8000-000000000001';
+const HOUR = 3_600_000;
 
 const matrixBinRow = (): DeletedItemDto => ({
   id: MATRIX,
@@ -123,6 +124,23 @@ describe('RecentlyDeletedScreen', () => {
 
     expect(await screen.findByText(/Only editors and the owner/)).toBeTruthy();
     expect(screen.queryByText('Aliens')).toBeNull();
+  });
+
+  it('refreshes the countdown while the screen stays open', async () => {
+    jest.useFakeTimers();
+    try {
+      mockAccount.bin = [{ ...mockAccount.bin[0]!, purgesAt: new Date(Date.now() + 26 * HOUR).toISOString() }];
+      await renderWithProviders(<RecentlyDeletedScreen />);
+      expect(await screen.findByText('2 days left')).toBeTruthy();
+
+      await act(async () => {
+        jest.advanceTimersByTime(3 * HOUR);
+      });
+
+      expect(await screen.findByText('1 day left')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('counts whole days, rounding up', () => {

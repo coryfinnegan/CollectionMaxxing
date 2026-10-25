@@ -10,6 +10,7 @@ import type { InviteDto, LibraryRole, MemberDto } from '@/api/generated/models';
 import { formatLastSeen } from '@/features/auth/DevicesScreen';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { friendlyError } from '@/lib/problem';
+import { useNow } from '@/lib/useNow';
 import { spacing } from '@/theme/tokens';
 import { Button, Card, Chip, ListRow, LoadingState, Screen, Text } from '@/ui';
 import { InviteDialog } from './InviteDialog';
@@ -46,7 +47,7 @@ function Members({ libraryId, myId, isOwner }: { libraryId: string; myId: string
   const members = useListMembers(libraryId);
   const invites = useListInvites(libraryId, { query: { enabled: isOwner } });
   const list: MemberDto[] = members.data?.status === 200 ? members.data.data.items : [];
-  const [now] = useState(() => Date.now());
+  const now = useNow();
   const pending: InviteDto[] =
     isOwner && invites.data?.status === 200
       ? invites.data.data.items.filter((i) => !i.acceptedAt && !i.revokedAt && new Date(i.expiresAt).getTime() > now)

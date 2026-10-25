@@ -14,6 +14,9 @@ type Cached = { data: { items: LocationDto[]; nextCursor?: string | null }; stat
 // Moved to the onboarding feature (it now reads GET /libraries, not GET /me); re-exported so existing imports keep working.
 export { useActiveLibraryId } from '@/features/onboarding/useLibraries';
 
+/** An optimistic row still waiting on the server: its id exists only on this device, so no mutation may target it. */
+export const isPendingLocation = (id: string): boolean => id.startsWith('pending-');
+
 export function useLocationsList(libraryId: string | undefined) {
   const query = useListLocations(libraryId ?? '', { query: { enabled: !!libraryId } });
   const locations: LocationDto[] = query.data?.status === 200 ? query.data.data.items : [];
