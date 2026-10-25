@@ -17,7 +17,7 @@ export function ItemDetailScreen({ id }: { id: string }) {
   const { libraryId, isLoading } = useActiveLibraryId();
   if (isLoading || !libraryId) {
     return (
-      <Screen title="Item">
+      <Screen>
         <LoadingState label="Loading this item…" />
       </Screen>
     );
@@ -36,14 +36,14 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
 
   if (isLoading) {
     return (
-      <Screen title="Item">
+      <Screen>
         <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
   if (isError || !detail || !etag) {
     return (
-      <Screen title="Item">
+      <Screen>
         <EmptyState
           title="Couldn't load this item"
           body={friendlyError(error)}

@@ -42,7 +42,7 @@ export function ResultDetail({ id }: { id: string }) {
 
   if (!candidate) {
     return (
-      <SafeScreen title="Result">
+      <SafeScreen>
         <EmptyState title="That result isn't here any more" body="Open the scanner to see this scan's results." />
       </SafeScreen>
     );
@@ -69,7 +69,7 @@ export function ResultDetail({ id }: { id: string }) {
   }
 
   return (
-    <SafeScreen title="Result">
+    <SafeScreen>
       {context ? (
         <PhotoViewer
           context={context}
@@ -158,11 +158,11 @@ export function ResultDetail({ id }: { id: string }) {
   );
 }
 
-function SafeScreen({ title, children }: { title: string; children: ReactNode }) {
+function SafeScreen({ children }: { children: ReactNode }) {
   const colors = useColors();
   return (
     <SafeAreaView testID="result-safe-area" edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title={title}>{children}</Screen>
+      <Screen>{children}</Screen>
     </SafeAreaView>
   );
 }

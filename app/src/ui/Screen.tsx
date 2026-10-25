@@ -26,8 +26,9 @@ export function Screen({
   scroll = true,
 }: ScreenProps) {
   const colors = useColors();
-  // One title per screen: on the phone the navigator header names it, so the section
-  // title only renders on the web. The subtitle is content, not a title, and always shows.
+  // One title per screen: on the phone the navigator header names it, so the section title
+  // only renders on the web. Pushed screens keep the nav-bar title on both platforms and pass
+  // no title at all. The subtitle is content, not a title, and always shows.
   const showTitle = !!title && (showTitleOnPhone || Platform.OS === 'web');
   const content = (
     <>

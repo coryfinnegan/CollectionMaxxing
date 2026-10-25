@@ -48,7 +48,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
-    <Screen title="Run evals" subtitle="Reads your PC's test photos on this iPhone and sends the readings back to be scored.">
+    <Screen subtitle="Reads your PC's test photos on this iPhone and sends the readings back to be scored.">
       {state.phase === 'idle' ? (
         <>
           <Text tone="muted">Keep the phone awake, plugged in and out of direct sun. The photos are not kept on the phone and are not sent back.</Text>

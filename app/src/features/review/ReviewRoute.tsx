@@ -15,7 +15,7 @@ export function ReviewRoute() {
   return (
     <SafeAreaView testID="review-safe-area" edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
       {isLoading || !libraryId ? (
-        <Screen title="Review">
+        <Screen>
           <LoadingState label="Loading…" />
         </Screen>
       ) : (

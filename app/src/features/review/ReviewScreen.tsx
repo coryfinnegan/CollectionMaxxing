@@ -45,7 +45,7 @@ export function ReviewScreen({ libraryId, sessionId, onBack, undoMs }: { library
   const addTo = breadcrumb(locations, review.draft.addTo);
 
   return (
-    <Screen title="Review" subtitle={review.canAdd ? undefined : 'You can look but not add. Ask an owner or editor to add these.'}>
+    <Screen subtitle={review.canAdd ? undefined : 'You can look but not add. Ask an owner or editor to add these.'}>
       {total > 0 ? <Text tone="muted">{`${total} ${total === 1 ? 'item' : 'items'} scanned`}</Text> : null}
       {onBack ? <Button label="Back" variant="secondary" onPress={onBack} /> : null}
       {review.loading ? <LoadingState label="Loading what you scanned…" /> : null}

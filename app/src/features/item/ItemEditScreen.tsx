@@ -27,7 +27,7 @@ export function ItemEditScreen({ id }: { id: string }) {
   const { libraryId, isLoading } = useActiveLibraryId();
   if (isLoading || !libraryId) {
     return (
-      <Screen title="Edit item">
+      <Screen>
         <LoadingState label="Loading this item…" />
       </Screen>
     );
@@ -39,14 +39,14 @@ function EditLoader({ libraryId, id }: { libraryId: string; id: string }) {
   const { detail, etag, isLoading, isError, error, refetch } = useItemDetail(libraryId, id);
   if (isLoading) {
     return (
-      <Screen title="Edit item">
+      <Screen>
         <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
   if (isError || !detail || !etag) {
     return (
-      <Screen title="Edit item">
+      <Screen>
         <EmptyState
           title="Couldn't load this item"
           body={friendlyError(error)}
@@ -107,7 +107,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
   };
 
   return (
-    <Screen title="Edit item" subtitle={detail.item.customTitle ?? detail.work.title}>
+    <Screen subtitle={detail.item.customTitle ?? detail.work.title}>
       {conflict ? (
         <Card>
           <Text tone="danger" accessibilityRole="alert">Someone changed this. Reload?</Text>

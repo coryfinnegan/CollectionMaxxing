@@ -16,7 +16,7 @@ import { FakeScannerSource, VisionCameraSource } from './ScannerSource';
 export function ScannerRoute({ onClose }: { onClose?: () => void }) {
   if (Platform.OS === 'web') {
     return (
-      <RouteFallback title="Scanner" onClose={onClose}>
+      <RouteFallback onClose={onClose}>
         <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes. You can still browse and edit your library here." />
       </RouteFallback>
     );
@@ -25,12 +25,12 @@ export function ScannerRoute({ onClose }: { onClose?: () => void }) {
 }
 
 /** The scanner's waiting room (web, or the library isn't ready): safe-area aware, with a way back out of the modal. */
-function RouteFallback({ title, onClose, children }: { title: string; onClose?: () => void; children: ReactNode }) {
+function RouteFallback({ onClose, children }: { onClose?: () => void; children: ReactNode }) {
   const router = useRouter();
   const colors = useColors();
   return (
     <SafeAreaView testID="scanner-fallback-safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title={title}>
+      <Screen>
         <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} />
         {children}
       </Screen>
@@ -46,7 +46,7 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
   const autoSnapConfig = useAutoSnapConfig();
   if (!libraryId) {
     return (
-      <RouteFallback title="Scanner" onClose={onClose}>
+      <RouteFallback onClose={onClose}>
         {isLoading ? (
           <LoadingState label="Getting your library ready…" />
         ) : (
