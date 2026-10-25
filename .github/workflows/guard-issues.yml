@@ -1,0 +1,26 @@
+# Closes issues opened by anyone other than the owner (#279). The repo is public, so anyone can open
+# an issue; the task queue is label-gated, so foreign issues can never become work, but they are noise.
+# Trigger is `opened` only: pre-existing issues are never touched, and edits/reopens/labels do nothing.
+# Owner issues (including muse-task issues) take the no-op path: the job's `if` skips them, so no
+# comment, label or close ever happens for coryfinnegan. No secrets needed.
+name: Guard issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  guard:
+    if: github.event.issue.user.login != 'coryfinnegan'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Close non-owner issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue close "${{ github.event.issue.number }}" --repo "$GITHUB_REPOSITORY" \
+            --comment "This repository doesn't accept public issues — issues here are created by the owner. Closing automatically."
