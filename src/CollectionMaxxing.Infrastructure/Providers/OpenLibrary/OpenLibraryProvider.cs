@@ -50,7 +50,8 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
             $"lookup:isbn:{id.Value}",
             _ => Task.FromResult(Get($"isbn/{id.Value}.json")),
             ct,
-            cacheNotFound: false); // a barcode Open Library does not know today may be known later
+            cacheNotFound: false, // a barcode Open Library does not know today may be known later
+            isEmpty: doc => doc.RootElement.Str("title") is null);
         if (result.Json is null)
         {
             return null;
@@ -105,7 +106,8 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
         var result = await FetchAsync(
             SearchKey("title", query.Title, query.Creator, query.Limit),
             _ => Task.FromResult(Get(url)),
-            ct);
+            ct,
+            isEmpty: doc => !doc.RootElement.Items("docs").Any());
         if (result.Json is null)
         {
             return [];

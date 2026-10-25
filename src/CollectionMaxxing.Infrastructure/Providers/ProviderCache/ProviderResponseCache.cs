@@ -14,6 +14,12 @@ public sealed class ProviderResponseCache(IServiceScopeFactory scopes, TimeProvi
 {
     public static readonly TimeSpan Lifetime = TimeSpan.FromDays(30);
 
+    /// <summary>
+    /// How long an empty ("no results") answer is remembered: long enough to protect quota, short enough that
+    /// something the provider catalogues tomorrow is found tomorrow.
+    /// </summary>
+    public static readonly TimeSpan NegativeLifetime = TimeSpan.FromDays(1);
+
     /// <summary>The stored payload for "the provider does not know this".</summary>
     public const string NotFoundPayload = "null";
 
@@ -29,11 +35,12 @@ public sealed class ProviderResponseCache(IServiceScopeFactory scopes, TimeProvi
             .FirstOrDefaultAsync(ct);
     }
 
-    public async Task SetAsync(string provider, string key, string payloadJson, CancellationToken ct)
+    public async Task SetAsync(string provider, string key, string payloadJson, CancellationToken ct, TimeSpan? lifetime = null)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var now = time.GetUtcNow();
+        var expiresAt = now + (lifetime ?? Lifetime);
 
         var entry = await db.ProviderCache.FirstOrDefaultAsync(c => c.Provider == provider && c.Key == key, ct);
         if (entry is null)
@@ -44,14 +51,14 @@ public sealed class ProviderResponseCache(IServiceScopeFactory scopes, TimeProvi
                 Key = key,
                 PayloadJson = payloadJson,
                 FetchedAt = now,
-                ExpiresAt = now + Lifetime,
+                ExpiresAt = expiresAt,
             });
         }
         else
         {
             entry.PayloadJson = payloadJson;
             entry.FetchedAt = now;
-            entry.ExpiresAt = now + Lifetime;
+            entry.ExpiresAt = expiresAt;
         }
 
         try

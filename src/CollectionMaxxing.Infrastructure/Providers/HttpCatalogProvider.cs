@@ -75,7 +75,8 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
     /// Gets JSON from the provider, through the cache. <paramref name="admit"/> runs just before a real call is sent (the
     /// quota check). <paramref name="refreshAuth"/> runs once on a 401, and returns true when the request is worth
     /// sending again with fresh credentials. With <paramref name="cacheNotFound"/> false a 404 (and an answer
-    /// <paramref name="isEmpty"/> calls empty) is not remembered, so the same code is asked again next time.
+    /// <paramref name="isEmpty"/> calls empty) is not remembered, so the same code is asked again next time. Otherwise
+    /// an empty answer is remembered for a day and a full answer for 30 days.
     /// </summary>
     protected async Task<FetchResult> FetchAsync(
         string cacheKey,
@@ -148,9 +149,10 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
                 }
 
                 var json = JsonDocument.Parse(body); // a malformed body throws JsonException, handled below
-                if (cacheNotFound || isEmpty?.Invoke(json) != true)
+                var empty = isEmpty?.Invoke(json) == true;
+                if (!empty || cacheNotFound)
                 {
-                    await Runtime.Cache.SetAsync(Name, cacheKey, body, ct);
+                    await Runtime.Cache.SetAsync(Name, cacheKey, body, ct, lifetime: empty ? ProviderResponseCache.NegativeLifetime : null);
                 }
 
                 return new FetchResult(FetchStatus.Found, json);

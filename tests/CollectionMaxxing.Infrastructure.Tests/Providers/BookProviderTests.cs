@@ -110,6 +110,22 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
         (await host.Get<OpenLibraryProvider>().LookupAsync(ProviderCase.Upc, default)).ShouldBeNull();
         host.Server.LogEntries.ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task An_empty_search_is_asked_again_the_next_day()
+    {
+        using var host = ProviderHost.Create(Db, fakeTime: true);
+        Stub(host, "/search.json", "openlibrary-search-empty.json");
+        var query = new CatalogQuery { Title = "A Book That Does Not Exist Anywhere", Kind = WorkKind.Book };
+
+        (await host.Get<OpenLibraryProvider>().SearchAsync(query, default)).ShouldBeEmpty();
+        (await host.Get<OpenLibraryProvider>().SearchAsync(query, default)).ShouldBeEmpty();
+        host.Requests("/search.json").ShouldBe(1); // remembered for a day, not a month
+
+        host.Fake.Advance(TimeSpan.FromHours(25));
+        (await host.Get<OpenLibraryProvider>().SearchAsync(query, default)).ShouldBeEmpty();
+        host.Requests("/search.json").ShouldBe(2);
+    }
 }
 
 public class GoogleBooksProviderTests(PostgresFixture db) : DatabaseTest(db)
@@ -173,5 +189,21 @@ public class GoogleBooksProviderTests(PostgresFixture db) : DatabaseTest(db)
         (await provider.LookupAsync(ProviderCase.Isbn, default)).ShouldBeNull();
         (await provider.SearchAsync(new CatalogQuery { Title = "Fox" }, default)).ShouldBeEmpty();
         host.Server.LogEntries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_empty_search_is_asked_again_the_next_day()
+    {
+        using var host = ProviderHost.Create(Db, fakeTime: true);
+        Stub(host, "googlebooks-empty.json");
+        var query = new CatalogQuery { Title = "A Book That Does Not Exist Anywhere", Kind = WorkKind.Book };
+
+        (await host.Get<GoogleBooksProvider>().SearchAsync(query, default)).ShouldBeEmpty();
+        (await host.Get<GoogleBooksProvider>().SearchAsync(query, default)).ShouldBeEmpty();
+        host.Requests("/books/v1/volumes").ShouldBe(1); // remembered for a day, not a month
+
+        host.Fake.Advance(TimeSpan.FromHours(25));
+        (await host.Get<GoogleBooksProvider>().SearchAsync(query, default)).ShouldBeEmpty();
+        host.Requests("/books/v1/volumes").ShouldBe(2);
     }
 }
