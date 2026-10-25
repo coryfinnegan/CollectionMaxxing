@@ -45,23 +45,28 @@ public sealed record CommitOptions(
 /// Picks the release each accepted candidate is added as. Usually the one it matched. A candidate the person edited (format,
 /// platform or edition) is added as the release of the same work that has those: one the catalogue already holds (or the
 /// library's own), else a new release the library keeps for itself. Saves nothing; the commit saves everything at once.
+/// <see cref="ResolvedReleases.Origins"/> are the matched releases an edit moved away from: the commit still fetches their
+/// covers, or the shared release the person saw would stay coverless.
 /// </summary>
+internal sealed record ResolvedReleases(Dictionary<Guid, Guid> ForCandidate, IReadOnlyList<Guid> Origins);
+
 internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
 {
-    public async Task<Dictionary<Guid, Guid>> ResolveAsync(
+    public async Task<ResolvedReleases> ResolveAsync(
         ScanSession session, IReadOnlyList<ScanCandidate> accepted, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var result = accepted.ToDictionary(c => c.Id, c => c.MatchedReleaseId!.Value);
         var edited = accepted.Where(c => c.EditedFormat is not null || c.EditedPlatform is not null || c.EditedEdition is not null).ToList();
         if (edited.Count == 0)
         {
-            return result;
+            return new ResolvedReleases(result, []);
         }
 
         var baseIds = edited.Select(c => c.MatchedReleaseId!.Value).Distinct().ToList();
         var bases = await db.Releases.AsNoTracking().Where(r => baseIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
         var platforms = await db.Platforms.AsNoTracking().ToListAsync(cancellationToken);
         var added = new Dictionary<(Guid Work, ReleaseFormat Format, Guid? Platform, string Edition), Guid>();
+        var origins = new HashSet<Guid>();
 
         foreach (var candidate in edited)
         {
@@ -82,9 +87,10 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
             }
 
             result[candidate.Id] = releaseId;
+            origins.Add(origin.Id);
         }
 
-        return result;
+        return new ResolvedReleases(result, [.. origins]);
     }
 
     private async Task<Guid> FindOrAddAsync(
@@ -107,9 +113,12 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
             Format = format,
             PlatformId = platformId,
             Edition = string.IsNullOrWhiteSpace(edition) ? null : edition.Trim(),
+            CoverAssetId = origin.CoverAssetId, // a corrected edition shows the same picture
             Source = ReleaseSource.User,
             OwnerLibraryId = session.LibraryId,
             CreatedBySessionId = session.Id, // so undoing this commit can remove it again
+            // The provider's cover address travels with it, so the commit's cover step fetches what the origin hasn't yet.
+            ProviderPayloadsJson = origin.CoverAssetId is null ? origin.ProviderPayloadsJson : null,
             CreatedAt = now,
         };
         db.Releases.Add(release);
