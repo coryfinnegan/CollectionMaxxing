@@ -160,8 +160,8 @@ describe('ItemEditScreen', () => {
 
     // 9:30pm Oct 24 in US Central, already Oct 25 in UTC. Only `new Date()` with no
     // arguments is fixed; dated constructions and every static pass straight through.
-    const previousTz = process.env.TZ;
-    process.env.TZ = 'America/Chicago';
+    // (Timezone comes from the gate's TZ=America/Chicago run; setting process.env.TZ
+    // here would be too late.)
     const RealDate = globalThis.Date;
     const evening = RealDate.parse('2026-10-25T02:30:00Z');
     globalThis.Date = new Proxy(RealDate, {
@@ -171,8 +171,6 @@ describe('ItemEditScreen', () => {
       await fireEvent.press(screen.getByLabelText('Save changes'));
     } finally {
       globalThis.Date = RealDate;
-      if (previousTz === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTz;
     }
 
     await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());

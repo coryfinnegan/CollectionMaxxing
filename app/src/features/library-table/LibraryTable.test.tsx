@@ -253,21 +253,16 @@ describe('LibraryTable', () => {
 
   it('shows the local day in the Added column for an evening addition', async () => {
     // 9:30pm Oct 24 in US Central, already Oct 25 in UTC.
+    // (Timezone comes from the gate's TZ=America/Chicago run; setting process.env.TZ
+    // here would be too late.)
     const matrix = itemsState.entries.find((e) => e.item.id === ID(1));
     if (!matrix) throw new Error('seed item missing');
     matrix.item.createdAt = '2026-10-25T02:30:00Z';
     store.set(STORAGE_KEY, JSON.stringify(['title', 'added']));
 
-    const previousTz = process.env.TZ;
-    process.env.TZ = 'America/Chicago';
-    try {
-      await renderWithProviders(<LibraryTable title="Library" />);
-      expect(await screen.findByText('2026-10-24')).toBeTruthy();
-      expect(screen.queryByText('2026-10-25')).toBeNull();
-    } finally {
-      if (previousTz === undefined) delete process.env.TZ;
-      else process.env.TZ = previousTz;
-    }
+    await renderWithProviders(<LibraryTable title="Library" />);
+    expect(await screen.findByText('2026-10-24')).toBeTruthy();
+    expect(screen.queryByText('2026-10-25')).toBeNull();
   });
 
   it('keeps the table in a box that scrolls sideways', async () => {
