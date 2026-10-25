@@ -7,6 +7,12 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace CollectionMaxxing.Infrastructure.Catalog;
 
+// Concurrency (#292): catalogue rows deliberately carry no xmin token. Works are written once at creation and never
+// updated afterwards; assets are immutable (init-only). A release's only post-creation write is cover assignment
+// (ReleaseCovers points a coverless release at its fetched cover), and concurrent writers each store a valid cover,
+// so last-write-wins is benign — a token would turn that race into a user-visible conflict on scan commit. Adding a
+// token later needs a lead-owned migration (the model snapshot must match) and a revisit of ConcurrencyTests.
+
 internal sealed class WorkConfiguration : IEntityTypeConfiguration<Work>
 {
     public void Configure(EntityTypeBuilder<Work> builder)

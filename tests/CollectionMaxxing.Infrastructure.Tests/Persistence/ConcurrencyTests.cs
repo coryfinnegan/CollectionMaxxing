@@ -1,3 +1,4 @@
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.TestSupport;
 using Microsoft.EntityFrameworkCore;
@@ -38,6 +39,46 @@ public class ConcurrencyTests(PostgresFixture db) : DatabaseTest(db)
         await context.SaveChangesAsync();
 
         item.Version.ShouldNotBe(before);
+    }
+
+    [Fact]
+    public async Task Concurrent_cover_assignment_on_a_release_resolves_by_last_write()
+    {
+        // Issue #292: releases deliberately carry no xmin token (see CatalogConfigurations): the only post-creation
+        // write is cover assignment, and concurrent writers each store a valid cover, so last-write-wins is benign.
+        var releaseId = await TestData.CreateReleaseAsync(Db);
+        var firstCover = await CreateCoverAsync("first.jpg");
+        var secondCover = await CreateCoverAsync("second.jpg");
+
+        await using var first = Db.CreateContext();
+        await using var second = Db.CreateContext();
+        var firstCopy = await first.Releases.SingleAsync(r => r.Id == releaseId);
+        var secondCopy = await second.Releases.SingleAsync(r => r.Id == releaseId);
+
+        firstCopy.CoverAssetId = firstCover;
+        await first.SaveChangesAsync();
+        secondCopy.CoverAssetId = secondCover;
+        await Should.NotThrowAsync(() => second.SaveChangesAsync());
+
+        await using var check = Db.CreateContext();
+        (await check.Releases.SingleAsync(r => r.Id == releaseId)).CoverAssetId.ShouldBe(secondCopy.CoverAssetId);
+    }
+
+    private async Task<Guid> CreateCoverAsync(string blobPath)
+    {
+        var asset = new Asset
+        {
+            Id = Guid.CreateVersion7(),
+            Kind = AssetKind.Cover,
+            BlobPath = blobPath,
+            ContentType = "image/jpeg",
+            Sha256 = Guid.CreateVersion7().ToString("N"),
+            CreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+        };
+        await using var context = Db.CreateContext();
+        context.Assets.Add(asset);
+        await context.SaveChangesAsync();
+        return asset.Id;
     }
 
     [Fact]
