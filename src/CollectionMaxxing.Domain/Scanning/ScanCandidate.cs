@@ -47,6 +47,12 @@ public sealed class ScanCandidate : ILibraryScoped, IConcurrencyVersioned
 
     public CandidateSource Source { get; init; }
 
+    /// <summary>What the phone's framing said the shot was. Copied from the snap for picture candidates.</summary>
+    public ShotKind ShotKind { get; init; } = ShotKind.Unknown;
+
+    /// <summary>The phone's own id for the segment this item belongs to, so the items of a multi-item snap stay linked.</summary>
+    public string? SegmentId { get; init; }
+
     public string? RawCode { get; init; }
 
     public string? Symbology { get; init; }

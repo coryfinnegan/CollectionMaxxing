@@ -89,6 +89,7 @@ public class ModelRulesTests(PostgresFixture db) : DatabaseTest(db)
         EnumText.ToText(CollectionMaxxing.Domain.Catalog.ReleaseFormat.UhdBluray).ShouldBe("uhd_bluray");
         EnumText.ToText(CollectionMaxxing.Domain.Catalog.ReleaseRegion.NtscU).ShouldBe("ntsc_u");
         EnumText.ToText(CollectionMaxxing.Domain.Scanning.CandidateSource.PictureAppleModel).ShouldBe("picture_apple_model");
+        EnumText.ToText(CollectionMaxxing.Domain.Scanning.ShotKind.SingleCover).ShouldBe("single_cover");
         EnumText.Parse<CollectionMaxxing.Domain.Items.ItemCompleteness>("n_a").ShouldBe(CollectionMaxxing.Domain.Items.ItemCompleteness.NotApplicable);
     }
 }

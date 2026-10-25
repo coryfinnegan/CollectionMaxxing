@@ -1403,6 +1403,11 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("score");
 
+                    b.Property<string>("SegmentId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("segment_id");
+
                     b.Property<int>("Seq")
                         .HasColumnType("integer")
                         .HasColumnName("seq");
@@ -1410,6 +1415,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid")
                         .HasColumnName("session_id");
+
+                    b.Property<string>("ShotKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("shot_kind");
 
                     b.Property<Guid?>("SnapId")
                         .HasColumnType("uuid")
@@ -1494,6 +1505,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_scan_candidates_resolution", "\"resolution\" in ('pending', 'matched', 'ambiguous', 'not_found', 'error')");
 
                             t.HasCheckConstraint("ck_scan_candidates_score", "score between 0 and 1");
+
+                            t.HasCheckConstraint("ck_scan_candidates_shot_kind", "\"shot_kind\" in ('barcode', 'single_cover', 'shelf_segment', 'loose_item', 'unknown')");
 
                             t.HasCheckConstraint("ck_scan_candidates_source", "\"source\" in ('barcode', 'picture_apple_model', 'picture_text', 'search')");
                         });
@@ -1614,6 +1627,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("session_id");
 
+                    b.Property<string>("ShotKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("shot_kind");
+
                     b.Property<string>("Trigger")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -1644,6 +1663,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_scan_snaps_fell_back_has_reason", "fell_back = (fallback_reason is not null)");
 
                             t.HasCheckConstraint("ck_scan_snaps_item_count", "item_count >= 0");
+
+                            t.HasCheckConstraint("ck_scan_snaps_shot_kind", "\"shot_kind\" in ('barcode', 'single_cover', 'shelf_segment', 'loose_item', 'unknown')");
 
                             t.HasCheckConstraint("ck_scan_snaps_trigger", "\"trigger\" in ('auto', 'shutter', 'import')");
                         });

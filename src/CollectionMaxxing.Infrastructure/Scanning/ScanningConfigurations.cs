@@ -47,6 +47,7 @@ internal sealed class ScanSnapConfiguration : IEntityTypeConfiguration<ScanSnap>
         builder.ToTable("scan_snaps", t =>
         {
             t.HasCheckConstraint("ck_scan_snaps_trigger", EnumColumns.CheckIn<SnapTrigger>("trigger"));
+            t.HasCheckConstraint("ck_scan_snaps_shot_kind", EnumColumns.CheckIn<ShotKind>("shot_kind"));
             t.HasCheckConstraint("ck_scan_snaps_engine", EnumColumns.CheckIn<ScanEngine>("engine"));
             t.HasCheckConstraint("ck_scan_snaps_fallback_reason", EnumColumns.CheckIn<FallbackReason>("fallback_reason"));
             t.HasCheckConstraint("ck_scan_snaps_fell_back_has_reason", "fell_back = (fallback_reason is not null)");
@@ -56,6 +57,7 @@ internal sealed class ScanSnapConfiguration : IEntityTypeConfiguration<ScanSnap>
         builder.Property(s => s.Id).ValueGeneratedNever();
         builder.HasAlternateKey(s => new { s.SessionId, s.Id }).HasName("ak_scan_snaps_session_id_id");
         builder.Property(s => s.Trigger).HasSnakeCaseEnum();
+        builder.Property(s => s.ShotKind).HasSnakeCaseEnum();
         builder.Property(s => s.Engine).HasSnakeCaseEnum();
         builder.Property(s => s.FallbackReason).HasSnakeCaseEnum();
 
@@ -77,6 +79,7 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
         builder.ToTable("scan_candidates", t =>
         {
             t.HasCheckConstraint("ck_scan_candidates_source", EnumColumns.CheckIn<CandidateSource>("source"));
+            t.HasCheckConstraint("ck_scan_candidates_shot_kind", EnumColumns.CheckIn<ShotKind>("shot_kind"));
             t.HasCheckConstraint("ck_scan_candidates_box_source", EnumColumns.CheckIn<BoxSource>("box_source"));
             t.HasCheckConstraint("ck_scan_candidates_resolution", EnumColumns.CheckIn<CandidateResolution>("resolution"));
             t.HasCheckConstraint("ck_scan_candidates_decision", EnumColumns.CheckIn<CandidateDecision>("decision"));
@@ -97,6 +100,8 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
         builder.Property(c => c.Id).ValueGeneratedNever();
         builder.HasAlternateKey(c => new { c.LibraryId, c.Id }).HasName("ak_scan_candidates_library_id_id");
         builder.Property(c => c.Source).HasSnakeCaseEnum();
+        builder.Property(c => c.ShotKind).HasSnakeCaseEnum();
+        builder.Property(c => c.SegmentId).HasMaxLength(100);
         builder.Property(c => c.BoxSource).HasSnakeCaseEnum();
         builder.Property(c => c.Resolution).HasSnakeCaseEnum();
         builder.Property(c => c.Decision).HasSnakeCaseEnum();
