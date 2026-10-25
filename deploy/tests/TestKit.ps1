@@ -83,6 +83,9 @@ function New-FakeMachine {
         AttestRef               branch the certificate claims (default refs/heads/main)
         MigrateExit             exit code of `compose run --rm migrate`
         UnhealthyTags           CM_TAG values whose api answers 503
+        BrokenServices          tag -> services `compose ps` reports as crash-looping (restarting) at that tag
+        MissingServices         tag -> services `compose ps` omits entirely at that tag
+        PsFails                 make `compose ps --format json` fail (the container list cannot be read)
         ComposeConfig           object returned by `docker compose config`
         PullFails               make `docker pull` fail (Docker not running)
         Graph                  commit graph: sha -> array of all its ancestors (default: Sha2 descends from Sha1)
@@ -98,7 +101,8 @@ function New-FakeMachine {
     param([hashtable]$Opt = @{})
     $m = @{
         Sha = $script:Sha2; Created = '2026-10-13T12:00:00.123456789Z'; Up = $script:Sha1; BadAttest = @(); AttestRef = 'refs/heads/main'
-        MigrateExit = 0; UnhealthyTags = @(); ComposeConfig = (New-GoodComposeConfig); PullFails = $false
+        MigrateExit = 0; UnhealthyTags = @(); BrokenServices = @{}; MissingServices = @{}; PsFails = $false
+        ComposeConfig = (New-GoodComposeConfig); PullFails = $false
         Digest = $script:Digest
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
@@ -135,6 +139,20 @@ function New-FakeMachine {
                     return & $ok @($json)
                 }
                 if ($line -match '^compose .* ps -q') { return & $ok @($m.RunningServices) }
+                if ($line -match '^compose .* ps --format json') {
+                    if ($m.PsFails) { return & $fail 1 }
+                    $broken = @(); if ($m.BrokenServices.ContainsKey($m.Up)) { $broken = @($m.BrokenServices[$m.Up]) }
+                    $missing = @(); if ($m.MissingServices.ContainsKey($m.Up)) { $missing = @($m.MissingServices[$m.Up]) }
+                    $rows = @()
+                    foreach ($svc in 'api', 'backup', 'aspire-dashboard') {
+                        if ($missing -contains $svc) { continue }
+                        $rows += [pscustomobject]@{ Service = $svc; Name = "collectionmaxxing-$svc-1"
+                            State = $(if ($broken -contains $svc) { 'restarting' } else { 'running' }); Health = '' }
+                    }
+                    $rows += [pscustomobject]@{ Service = 'postgres'; Name = 'collectionmaxxing-postgres-1'; State = 'running'; Health = 'healthy' }
+                    $rows += [pscustomobject]@{ Service = 'migrate'; Name = 'collectionmaxxing-migrate-1'; State = 'exited'; Health = ''; ExitCode = 0 }
+                    return & $ok @(($rows | ConvertTo-Json -Depth 4 -Compress))
+                }
                 if ($line -match '^compose .* config --format json') {
                     $cfg = if ($composeText -and $m.ComposeConfigFor.ContainsKey($composeText)) { $m.ComposeConfigFor[$composeText] } else { $m.ComposeConfig }
                     return & $ok @(($cfg | ConvertTo-Json -Depth 8 -Compress))
