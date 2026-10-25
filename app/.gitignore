@@ -50,3 +50,6 @@ public/mockServiceWorker.js
 # Playwright
 test-results/
 playwright-report/
+
+# Storybook static build output
+storybook-static/

@@ -36,6 +36,7 @@ const steps = [
   ['typecheck', 'npx', ['tsc', '--noEmit']],
   ['lint', 'npx', ['eslint', 'src', '--max-warnings', '0']],
   ['words', 'node', ['scripts/banned-words.mjs']],
+  ['design', 'node', ['scripts/design-gate.mjs']],
   ['test', 'npx', () => ['jest', '--silent', '--reporters=summary', '--ci', '--json', `--outputFile=${jestJson}`, '--testPathIgnorePatterns', ...getBaseIgnores(), ...tzTests]],
   ['test:tz', 'npx', ['jest', '--silent', '--reporters=summary', '--ci', '--json', `--outputFile=${jestTzJson}`, ...tzTests], { TZ: 'America/Chicago' }],
 ];
