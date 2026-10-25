@@ -1,19 +1,25 @@
 import type { ReactNode } from 'react';
 import { View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useDialogBehavior } from '@/lib/a11y/useDialogBehavior';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { radius, spacing, useColors } from '@/theme/tokens';
+import { maybeEntering, motionMs } from './motion';
 import { Button } from './Button';
 import { Text } from './Text';
 
-type SheetProps = { title: string; onClose: () => void; children?: ReactNode };
+type SheetProps = { title: string; onClose: () => void; children?: ReactNode; testID?: string };
 
 /** A panel that opens inline above the content, with a title and a Close button. */
-export function Sheet({ title, onClose, children }: SheetProps) {
+export function Sheet({ title, onClose, children, testID }: SheetProps) {
   const colors = useColors();
   const dialog = useDialogBehavior(onClose);
+  const reduceMotion = useReduceMotion();
   return (
-    <View
+    <Animated.View
       {...dialog}
+      testID={testID}
+      entering={maybeEntering(reduceMotion, FadeInDown.duration(motionMs.base))}
       style={{
         gap: spacing.md,
         padding: spacing.lg,
@@ -30,6 +36,6 @@ export function Sheet({ title, onClose, children }: SheetProps) {
         <Button label="Close" accessibilityLabel={`Close ${title}`} variant="secondary" onPress={onClose} />
       </View>
       {children}
-    </View>
+    </Animated.View>
   );
 }

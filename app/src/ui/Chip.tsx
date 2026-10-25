@@ -1,6 +1,8 @@
 import { Platform, Pressable, useWindowDimensions } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { radius, spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
+import { maybeEntering, maybeLayout, motionMs } from './motion';
 import { Text } from './Text';
 import { usePressFeedback } from './usePressFeedback';
 
@@ -16,11 +18,16 @@ type ChipProps = {
 export function Chip({ label, selected = false, onPress, accessibilityLabel, testID }: ChipProps) {
   const colors = useColors();
   const press = usePressFeedback('select');
+  const reduceMotion = useReduceMotion();
   // A finger needs 44 pt: on a phone-width web screen the chip is that tall itself (react-native-web ignores hitSlop); a pointer gets the compact 36.
   const { width } = useWindowDimensions();
   const minHeight = Platform.OS === 'web' && width < WIDE_BREAKPOINT ? 44 : 36;
   return (
-    <Animated.View style={press.style}>
+    <Animated.View
+      style={press.style}
+      entering={maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick))}
+      layout={maybeLayout(reduceMotion)}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel ?? label}
