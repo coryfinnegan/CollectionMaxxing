@@ -95,7 +95,7 @@ describe('no image leaves the phone', () => {
 describe('the snap store is wiped', () => {
   const snapOnce = async (kit: ReturnType<typeof makeKit>) => {
     kit.reader.script(readingOf([dune, mario]));
-    await new SnapPipeline(kit.deps).onSnap({ photo: PHOTO, trigger: 'shutter' });
+    await new SnapPipeline(kit.deps).onSnap({ photo: PHOTO, trigger: 'shutter', shotKind: 'shelf_segment' });
     await waitFor(() => expect(kit.snaps.list()[0]?.items.every((i) => i.cropUri)).toBe(true));
     expect(kit.snaps.list()).toHaveLength(1);
     expect(kit.files.files.size).toBeGreaterThan(2); // the still and the crops

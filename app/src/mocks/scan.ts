@@ -140,6 +140,8 @@ const newCandidate = (session: MockSession, code: string, symbology: string | nu
     id: newMockId(),
     seq: ++session.seq,
     source: 'barcode',
+    shotKind: 'barcode',
+    segmentId: null,
     rawCode: code,
     symbology,
     visibleText: null,

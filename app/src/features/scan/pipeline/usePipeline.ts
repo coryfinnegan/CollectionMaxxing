@@ -82,7 +82,7 @@ export function usePipeline({
     [pipeline],
   );
   const replayFixture = useCallback(
-    () => void pipeline?.onSnap({ photo: DEV_FIXTURE_PHOTO, trigger: 'shutter' }, { recognition: devFixtureReader() }),
+    () => void pipeline?.onSnap({ photo: DEV_FIXTURE_PHOTO, trigger: 'shutter', shotKind: 'shelf_segment' }, { recognition: devFixtureReader() }),
     [pipeline],
   );
 
