@@ -51,20 +51,23 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
     </View>
   );
   return onPress ? (
-    <Animated.View style={press.style} entering={entering} layout={layout}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
-        onPress={() => {
-          press.buzz();
-          onPress();
-        }}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        testID={testID}
-      >
-        {body}
-      </Pressable>
+    // The layout animation sits on a wrapper: the press feedback owns this view's opacity, and Reanimated warns when both share one view.
+    <Animated.View layout={layout}>
+      <Animated.View style={press.style} entering={entering}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+          onPress={() => {
+            press.buzz();
+            onPress();
+          }}
+          onPressIn={press.onPressIn}
+          onPressOut={press.onPressOut}
+          testID={testID}
+        >
+          {body}
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   ) : (
     <Animated.View entering={entering} layout={layout} testID={testID}>

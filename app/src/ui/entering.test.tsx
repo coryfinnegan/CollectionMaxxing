@@ -14,23 +14,25 @@ describe('entering animations', () => {
   it('settles a chip in with a layout animation', async () => {
     reduceMotion(false);
     await render(<Chip label="Games" testID="chip" onPress={jest.fn()} />);
-    const wrapper = screen.getByTestId('chip').parent!;
-    expect(wrapper.props.entering).toBeDefined();
-    expect(wrapper.props.layout).toBeDefined();
+    const pressable = screen.getByTestId('chip');
+    expect(pressable.parent!.props.entering).toBeDefined();
+    expect(pressable.parent!.parent!.props.layout).toBeDefined();
   });
 
   it('keeps a chip still when Reduce Motion is on', async () => {
     reduceMotion(true);
     await render(<Chip label="Games" testID="chip" onPress={jest.fn()} />);
-    const wrapper = screen.getByTestId('chip').parent!;
-    expect(wrapper.props.entering).toBeUndefined();
-    expect(wrapper.props.layout).toBeUndefined();
+    const pressable = screen.getByTestId('chip');
+    expect(pressable.parent!.props.entering).toBeUndefined();
+    expect(pressable.parent!.parent!.props.layout).toBeUndefined();
   });
 
   it('settles a list row in, pressed or plain', async () => {
     reduceMotion(false);
     await render(<ListRow title="Shelf 1" testID="row" onPress={jest.fn()} />);
-    expect(screen.getByTestId('row').parent!.props.entering).toBeDefined();
+    const pressable = screen.getByTestId('row');
+    expect(pressable.parent!.props.entering).toBeDefined();
+    expect(pressable.parent!.parent!.props.layout).toBeDefined();
 
     const plain = await render(<ListRow title="Shelf 2" testID="plain" />);
     expect(plain.getByTestId('plain').props.entering).toBeDefined();
@@ -39,9 +41,9 @@ describe('entering animations', () => {
   it('keeps list rows still when Reduce Motion is on', async () => {
     reduceMotion(true);
     await render(<ListRow title="Shelf 1" testID="row" onPress={jest.fn()} />);
-    const wrapper = screen.getByTestId('row').parent!;
-    expect(wrapper.props.entering).toBeUndefined();
-    expect(wrapper.props.layout).toBeUndefined();
+    const pressable = screen.getByTestId('row');
+    expect(pressable.parent!.props.entering).toBeUndefined();
+    expect(pressable.parent!.parent!.props.layout).toBeUndefined();
   });
 
   it('drops a sheet in from above, or shows it at once when Reduce Motion is on', async () => {

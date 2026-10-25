@@ -23,43 +23,42 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
   const { width } = useWindowDimensions();
   const minHeight = Platform.OS === 'web' && width < WIDE_BREAKPOINT ? 44 : 36;
   return (
-    <Animated.View
-      style={press.style}
-      entering={maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick))}
-      layout={maybeLayout(reduceMotion)}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel ?? label}
-        accessibilityState={{ selected }}
-        onPress={
-          onPress
-            ? () => {
-                press.buzz();
-                onPress();
-              }
-            : undefined
-        }
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        testID={testID}
-        hitSlop={{ top: 4, bottom: 4 }} // native: 36 pt to look, 44 pt to touch
-        style={{
-          minHeight,
-          minWidth: minHeight === 44 ? 44 : undefined,
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingHorizontal: spacing.md,
-          borderRadius: radius.pill,
-          borderWidth: 1,
-          borderColor: selected ? colors.accent : colors.control,
-          backgroundColor: selected ? colors.accent : colors.surface,
-        }}
-      >
-        <Text variant="label" style={{ color: selected ? colors.onAccent : colors.ink }}>
-          {label}
-        </Text>
-      </Pressable>
+    // The layout animation sits on a wrapper: the press feedback owns this view's opacity, and Reanimated warns when both share one view.
+    <Animated.View layout={maybeLayout(reduceMotion)}>
+      <Animated.View style={press.style} entering={maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick))}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel ?? label}
+          accessibilityState={{ selected }}
+          onPress={
+            onPress
+              ? () => {
+                  press.buzz();
+                  onPress();
+                }
+              : undefined
+          }
+          onPressIn={press.onPressIn}
+          onPressOut={press.onPressOut}
+          testID={testID}
+          hitSlop={{ top: 4, bottom: 4 }} // native: 36 pt to look, 44 pt to touch
+          style={{
+            minHeight,
+            minWidth: minHeight === 44 ? 44 : undefined,
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingHorizontal: spacing.md,
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderColor: selected ? colors.accent : colors.control,
+            backgroundColor: selected ? colors.accent : colors.surface,
+          }}
+        >
+          <Text variant="label" style={{ color: selected ? colors.onAccent : colors.ink }}>
+            {label}
+          </Text>
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 }
