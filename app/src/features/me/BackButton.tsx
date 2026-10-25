@@ -1,10 +1,12 @@
-// Pushed Me screens are tab screens without a stack header, so each one carries its own way back (#269).
+// Pushed pages carry their own way back on the web, where page stacks have no
+// header; on the phone the stack header already has one (#269, #303).
 import { useRouter } from 'expo-router';
-import { Pressable } from 'react-native';
+import { Platform, Pressable } from 'react-native';
 import { Text } from '@/ui';
 
 export function BackButton() {
   const router = useRouter();
+  if (Platform.OS !== 'web') return null;
   return (
     <Pressable
       accessibilityRole="button"

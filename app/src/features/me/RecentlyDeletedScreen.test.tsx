@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { HttpResponse, http } from 'msw';
 import type { DeletedItemDto } from '@/api/generated/models';
 import { useUndoStore } from '@/features/item/useItem';
@@ -12,6 +13,12 @@ import { RecentlyDeletedScreen, daysLeft } from './RecentlyDeletedScreen';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
+// The back button only shows on the web now (#303); the phone uses the stack header.
+const originalOs = Platform.OS;
+afterEach(() => {
+  Platform.OS = originalOs;
+});
 
 const MATRIX = 'c0000000-0000-4000-8000-000000000001';
 const HOUR = 3_600_000;
@@ -67,7 +74,8 @@ describe('RecentlyDeletedScreen', () => {
     expect(screen.getByText('1 day left')).toBeTruthy();
   });
 
-  it('offers a way back to Me', async () => {
+  it('offers a way back to Me on the web', async () => {
+    Platform.OS = 'web';
     await renderWithProviders(<RecentlyDeletedScreen />);
     await screen.findByText('Aliens');
 

@@ -2,7 +2,7 @@
 // Wishlist and Lent out are the same view with a fixed status.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
@@ -23,6 +23,8 @@ export type LibraryGridProps = {
   fixedStatus?: ItemStatus;
   /** Opens with the Add an item panel showing (the Scan tab's "Add it by hand"). */
   openAdd?: boolean;
+  /** Hides the content title: pushed pages on the phone already name themselves in the stack header (#303). */
+  hideTitle?: boolean;
 };
 
 type Panel = 'format' | 'platform' | 'location' | 'sort' | 'add' | null;
@@ -37,24 +39,24 @@ const emptyCopy: Record<string, { title: string; body: string }> = {
   lent: { title: 'Nothing is lent out.', body: 'Lend an item from its page and it shows up here.' },
 };
 
-export function LibraryGrid({ title, fixedStatus, openAdd }: LibraryGridProps) {
+export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
   if (loadingLibrary || !libraryId) {
     return (
       <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ padding: spacing.lg, gap: spacing.lg }}>
-        {Platform.OS === 'web' ? (
+        {hideTitle ? null : (
           <Text variant="title" accessibilityRole="header">
             {title}
           </Text>
-        ) : null}
+        )}
         <LoadingState label="Loading your library…" />
       </SafeAreaView>
     );
   }
-  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} />;
+  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} hideTitle={hideTitle} />;
 }
 
-function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { libraryId: string }) {
+function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGridProps & { libraryId: string }) {
   const router = useRouter();
   const colors = useColors();
   const { width } = useWindowDimensions();
@@ -85,11 +87,11 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
   const header = (
     <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.md }}>
-        {Platform.OS === 'web' ? (
+        {hideTitle ? null : (
           <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
             {title}
           </Text>
-        ) : null}
+        )}
         <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
       </View>
 
@@ -236,8 +238,8 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
     />
   );
 
-  // The header and the tab bar already account for the top and bottom insets; the sides keep
-  // landscape content clear of the notch.
+  // The tab layout's safe area and the tab bar already account for the top and bottom
+  // insets; the sides keep landscape content clear of the notch.
   return (
     <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
       <FlatList<ItemSummaryDto>

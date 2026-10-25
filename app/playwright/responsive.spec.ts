@@ -62,4 +62,23 @@ test.describe('phone width', () => {
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Wishlist' })).toHaveCount(0);
     await expect(page.getByRole('tab', { name: 'Library' })).toBeVisible();
   });
+
+  test('the tab bar switches between Library and Me, with no Scan tab', async ({ page, open }) => {
+    await open('/library');
+    const library = page.getByRole('tab', { name: 'Library' });
+    const me = page.getByRole('tab', { name: 'Me' });
+    await expect(library).toBeVisible();
+    // The grid overflows the phone: the bar stays pinned to the viewport, not pushed under the content.
+    await expect(library).toBeInViewport();
+    await expect(page.getByRole('tab', { name: 'Scan' })).toHaveCount(0);
+    await expect(library).toHaveAttribute('aria-selected', 'true');
+
+    await me.click();
+    await expect(page.getByRole('heading', { name: 'Me', exact: true })).toBeVisible();
+    await expect(me).toHaveAttribute('aria-selected', 'true');
+
+    await library.click();
+    await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
+    await expect(library).toHaveAttribute('aria-selected', 'true');
+  });
 });

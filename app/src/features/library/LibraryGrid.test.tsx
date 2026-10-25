@@ -165,6 +165,22 @@ describe('search placeholder', () => {
   });
 });
 
+describe('content title', () => {
+  it('shows the content title by default', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.getByText('Library')).toBeTruthy();
+  });
+
+  it('hides the content title when the stack header already names the page', async () => {
+    await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" hideTitle />);
+
+    expect(await screen.findByText('Blade Runner')).toBeTruthy();
+    expect(screen.queryByText('Wishlist')).toBeNull();
+  });
+});
+
 describe('Add item', () => {
   it('adds a catalog match straight from search', async () => {
     await renderWithProviders(<LibraryView title="Library" />);

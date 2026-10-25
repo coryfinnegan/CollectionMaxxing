@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { HttpResponse, http } from 'msw';
 import { mockData } from '@/mocks/data';
 import { server } from '@/mocks/server';
@@ -10,6 +11,12 @@ jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
 beforeEach(() => mockRouter.back.mockClear());
 
+// The back button only shows on the web now (#303); the phone uses the stack header.
+const originalOs = Platform.OS;
+afterEach(() => {
+  Platform.OS = originalOs;
+});
+
 describe('LocationsScreen', () => {
   it('lists locations as a tree, children after their parent', async () => {
     await renderWithProviders(<LocationsScreen />);
@@ -19,7 +26,8 @@ describe('LocationsScreen', () => {
     expect(screen.getByText('Living room')).toBeTruthy();
   });
 
-  it('offers a way back to Me', async () => {
+  it('offers a way back to Me on the web', async () => {
+    Platform.OS = 'web';
     await renderWithProviders(<LocationsScreen />);
     await screen.findByText('Game room');
 

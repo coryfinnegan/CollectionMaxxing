@@ -21,7 +21,7 @@ export function AboutScreen() {
   return (
     <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
     <Screen title="About" subtitle="Version, privacy and credits.">
-      {/* A hidden tab reached from Settings: the tab header has no back button, so the screen renders its own. */}
+      {/* A pushed page reached from Settings: on the web there is no header, so the screen renders its own way back. */}
       <BackButton />
       <Card>
         <Text variant="heading">CollectionMaxxing</Text>
