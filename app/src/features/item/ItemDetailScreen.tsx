@@ -89,7 +89,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   };
 
   return (
-    <Screen title={title} subtitle={facts}>
+    <Screen title={title} subtitle={facts} subtitleVariant="mono">
       <View style={{ alignItems: 'center', gap: spacing.sm }}>
         <Cover title={title} uri={release.coverUrl ?? work.coverUrl} width={160} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />

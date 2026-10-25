@@ -33,7 +33,7 @@ export function SignInScreen() {
 
   return (
     <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title="CollectionMaxxing" subtitle="Sign in to your library.">
+      <Screen title="CollectionMaxxing" titleVariant="display" subtitle="Sign in to your library.">
         <Card>
           {error ? (
             <Text tone="danger" accessibilityRole="alert">

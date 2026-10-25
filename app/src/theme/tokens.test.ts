@@ -1,6 +1,6 @@
 // The theme derives from tokens.json: both schemes resolve the same roles to real colours,
 // so a typo in a role reference fails here instead of painting `undefined`.
-import { darkColors, fixed, lightColors } from './tokens';
+import { darkColors, fixed, lightColors, typeScale } from './tokens';
 import source from './tokens.json';
 
 const hex = /^#[0-9a-fA-F]{6}$/;
@@ -29,5 +29,13 @@ describe('design tokens', () => {
     expect(fixed.black).toBe('#000000');
     expect(fixed.white).toBe('#FFFFFF');
     expect(fixed.scrim).toBe('rgba(0,0,0,0.5)');
+  });
+
+  it('offers the semantic type scale, UI faces plus mono metadata', () => {
+    for (const variant of ['display', 'title', 'heading', 'body', 'label', 'caption', 'mono']) {
+      expect(typeScale[variant].fontFamily).toMatch(/^(BricolageGrotesque|SpaceMono)_/);
+    }
+    expect(typeScale.mono.fontFamily).toMatch(/^SpaceMono_/);
+    expect(typeScale.display.fontSize).toBeGreaterThan(typeScale.title.fontSize);
   });
 });

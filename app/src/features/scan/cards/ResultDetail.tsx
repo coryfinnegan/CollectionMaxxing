@@ -90,7 +90,9 @@ export function ResultDetail({ id }: { id: string }) {
             </Text>
             {release ? <FormatBadge label={formatLabels[release.format]} /> : null}
             {release?.creators.length ? <Text tone="muted">{release.creators.join(', ')}</Text> : null}
-            <Text tone="muted">{[release?.platform?.name, release?.year].filter(Boolean).join(' · ')}</Text>
+            <Text variant="mono" tone="muted">
+              {[release?.platform?.name, release?.year].filter(Boolean).join(' · ')}
+            </Text>
           </View>
         </View>
       </Card>

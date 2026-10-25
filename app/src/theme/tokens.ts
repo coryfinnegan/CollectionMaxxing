@@ -1,6 +1,6 @@
 // The TS theme, derived from tokens.json (the single source of truth): Radix 12-step
 // Sand neutrals with an Amber accent, dark-first. Nothing here invents a colour.
-import { useColorScheme } from 'react-native';
+import { useColorScheme, type TextStyle } from 'react-native';
 import source from './tokens.json';
 
 type ScaleName = keyof typeof source.scales;
@@ -48,14 +48,21 @@ export const fixed = {
 export const spacing = source.spacing;
 export const radius = source.radius;
 
-// Bricolage Grotesque is not bundled yet; titles use the heaviest system weight as a stand-in.
-export const typeScale = {
-  title: { fontSize: 28, lineHeight: 32, fontWeight: '800' },
-  heading: { fontSize: 20, lineHeight: 26, fontWeight: '700' },
-  body: { fontSize: 16, lineHeight: 22, fontWeight: '400' },
-  label: { fontSize: 14, lineHeight: 18, fontWeight: '600' },
-  caption: { fontSize: 13, lineHeight: 17, fontWeight: '400' },
-} as const;
+// Bricolage Grotesque for display and UI, Space Mono for catalog metadata. Loaded by
+// fonts.ts before the first screen; the weights double as the fallback rendering.
+type TypeEntry = TextStyle & { fontFamily: string };
+
+type TypeScale = Record<string, TypeEntry> & {
+  display: TypeEntry;
+  title: TypeEntry;
+  heading: TypeEntry;
+  body: TypeEntry;
+  label: TypeEntry;
+  caption: TypeEntry;
+  mono: TypeEntry;
+};
+
+export const typeScale = source.type as TypeScale;
 
 export type TextVariant = keyof typeof typeScale;
 

@@ -17,7 +17,7 @@ export function FormatBadge({ label }: { label: string }) {
         backgroundColor: colors.surface,
       }}
     >
-      <Text variant="caption" tone="muted">
+      <Text variant="mono" tone="muted">
         {label}
       </Text>
     </View>

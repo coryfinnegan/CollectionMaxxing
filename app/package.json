@@ -3,6 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
+    "@expo-google-fonts/space-mono": "^0.4.2",
     "@shopify/flash-list": "2.0.2",
     "@tanstack/react-query": "^5.104.2",
     "expo": "~57.0.28",
