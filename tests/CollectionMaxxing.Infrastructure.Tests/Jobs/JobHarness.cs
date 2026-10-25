@@ -61,11 +61,18 @@ public sealed class JobHarness : IAsyncDisposable
 
     private readonly ServiceProvider _services;
 
-    public JobHarness(PostgresFixture db, FakeTimeProvider? time = null, Action<JobOptions>? tune = null, TimeSpan? tickEvery = null)
+    public JobHarness(PostgresFixture db, FakeTimeProvider? time = null, Action<JobOptions>? tune = null, TimeSpan? tickEvery = null, ILoggerProvider? logProvider = null)
     {
         Time = time ?? new FakeTimeProvider(new DateTimeOffset(2026, 10, 14, 12, 0, 0, TimeSpan.Zero));
         var services = new ServiceCollection();
-        services.AddLogging(b => b.SetMinimumLevel(LogLevel.None));
+        services.AddLogging(b =>
+        {
+            b.SetMinimumLevel(logProvider is null ? LogLevel.None : LogLevel.Trace);
+            if (logProvider is not null)
+            {
+                b.AddProvider(logProvider);
+            }
+        });
         services.AddSingleton<TimeProvider>(Time);
         services.AddSingleton<IIdGenerator, Uuid7IdGenerator>();
         services.AddScoped<ICurrentUser, CurrentUser>();
