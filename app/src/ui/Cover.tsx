@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Image, View } from 'react-native';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from './Text';
@@ -14,16 +14,15 @@ type CoverProps = {
 export function Cover({ title, uri, width = 96 }: CoverProps) {
   const colors = useColors();
   const height = Math.round(width * 1.5);
-  const [failed, setFailed] = useState(false);
-  // A new address deserves a fresh attempt, even if the last one failed.
-  useEffect(() => setFailed(false), [uri]);
-  if (uri && !failed) {
+  // Which address failed, so a new address gets a fresh attempt even after a failure.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  if (uri && failedUri !== uri) {
     return (
       <Image
         source={{ uri }}
         accessibilityIgnoresInvertColors
         accessibilityLabel={`Cover of ${title}`}
-        onError={() => setFailed(true)}
+        onError={() => setFailedUri(uri)}
         style={{ width, height, borderRadius: radius.sm, backgroundColor: colors.line }}
       />
     );
