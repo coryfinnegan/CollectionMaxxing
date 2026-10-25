@@ -248,6 +248,25 @@ Test-Case 'compose: every variable the compose file reads is documented in .env.
         ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique | Where-Object { $_ -ne 'CM_TAG' }
     $missing = @($vars | Where-Object { $example -notmatch [regex]::Escape($_) })
     Assert-True ($missing.Count -eq 0) ('missing from .env.example: ' + ($missing -join ' '))
+
+Test-Case 'compose: postgres is pinned to an exact patch and digest, never a floating tag' {
+    $config = Get-RealComposeConfig
+    Assert-Match "$($config.services.postgres.image)" '^postgres:17\.\d+@sha256:[0-9a-f]{64}$'
+}
+
+Test-Case 'compose: the dashboard is pinned to an exact version and digest, never a floating tag' {
+    $config = Get-RealComposeConfig
+    Assert-Match "$($config.services.'aspire-dashboard'.image)" '^mcr\.microsoft\.com/dotnet/aspire-dashboard:9\.\d+\.\d+@sha256:[0-9a-f]{64}$'
+}
+
+Test-Case 'compose: the api listens where the code reads its settings (connection string name, covers folder)' {
+    $config = Get-RealComposeConfig
+    $envNames = @($config.services.api.environment.PSObject.Properties.Name)
+    Assert-True ($envNames -contains 'ConnectionStrings__collectionmaxxing') 'the API reads ConnectionStrings:collectionmaxxing'
+    Assert-True ($envNames -contains 'Catalog__CoversRoot') 'the API reads Catalog:CoversRoot'
+    Assert-True (@($config.services.migrate.environment.PSObject.Properties.Name) -contains 'ConnectionStrings__collectionmaxxing')
+}
+
 }
 
 Test-Case 'compose: the api listens where the code reads its settings (connection string name, covers folder)' {
