@@ -1,6 +1,8 @@
 // The web twin of the Lottie spot (#304): lottie-react-native's web player needs a
 // peer dependency this app does not ship, so the web draws the same moments as
 // still illustrations. Same props, same testID, still nothing under Reduce Motion.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import { useUnistyles } from 'react-native-unistyles';

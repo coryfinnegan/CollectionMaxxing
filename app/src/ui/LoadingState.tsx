@@ -1,5 +1,7 @@
 // Shared loading treatment: a spinner with an optional label, laid out like EmptyState so
 // loading branches read as designed states rather than afterthoughts (#270).
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { ActivityIndicator, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from './Text';

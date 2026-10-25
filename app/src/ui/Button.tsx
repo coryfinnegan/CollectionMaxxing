@@ -1,3 +1,5 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { ActivityIndicator, Pressable, type PressableProps } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';

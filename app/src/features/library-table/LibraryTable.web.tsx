@@ -1,5 +1,7 @@
 // The web library table: sortable columns, row selection, bulk edit, column chooser and inline edit.
 // Web only. Wishlist and Lent out are the same table with a fixed status.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';

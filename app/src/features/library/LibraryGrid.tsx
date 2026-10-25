@@ -1,5 +1,7 @@
 // The library as a grid of covers with search, filter chips, sort, pull to refresh and infinite scroll.
 // Wishlist and Lent out are the same view with a fixed status.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';

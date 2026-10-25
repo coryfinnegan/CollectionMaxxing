@@ -1,4 +1,6 @@
 // Item detail: cover, facts, location breadcrumb, other copies, and Edit / Move / Delete (with Undo).
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';

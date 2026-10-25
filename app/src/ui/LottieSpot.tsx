@@ -1,6 +1,8 @@
 // A small Lottie moment (#304): the scan-success check and the empty-state spots.
 // Still under Reduce Motion (renders nothing; the words next to it carry it), and
 // decorative to screen readers (the title next to it says what matters).
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import LottieView from 'lottie-react-native';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';

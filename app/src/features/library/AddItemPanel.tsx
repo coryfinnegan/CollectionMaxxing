@@ -1,4 +1,6 @@
 // Add an item: search the catalog by typing, or "None of these? Add it yourself" for a manual entry.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';

@@ -2,6 +2,8 @@
 // Scan tab. It collapses to a barcode button when the bar minimizes. Stateless:
 // two instances render at once (one per placement) with unshared state, so the
 // hide-on-Scan-tab gate lives in NativeTabBar, outside the accessory.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';

@@ -1,4 +1,6 @@
 // The Scan tab: one big way into the scanner, plus a nudge when a scan is waiting for Review.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';

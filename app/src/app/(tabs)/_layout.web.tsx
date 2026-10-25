@@ -2,6 +2,8 @@
 // web layout owns the sidebar, skip link, and main landmark; this file only
 // switches tab pages and draws the narrow-screen bar. The triggers stay inline:
 // headless tabs find them by element, so a wrapper component would hide them.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { Tabs, TabList, TabSlot, TabTrigger } from 'expo-router/ui';
 import { usePathname, type Href } from 'expo-router';
 import { useWindowDimensions } from 'react-native';

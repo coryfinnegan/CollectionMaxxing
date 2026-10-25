@@ -1,3 +1,5 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';

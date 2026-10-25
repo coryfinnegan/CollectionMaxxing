@@ -1,4 +1,6 @@
 // The bar under the table: "N selected" with Move to, Set status, Add tag and Delete.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';

@@ -1,3 +1,5 @@
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useState } from 'react';
 import Animated from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';

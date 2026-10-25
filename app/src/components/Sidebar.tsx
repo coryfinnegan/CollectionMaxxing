@@ -1,4 +1,6 @@
 // Web layout at 768px and up: the sidebar from docs/06 "Navigation map".
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { type Href, Link, usePathname } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';

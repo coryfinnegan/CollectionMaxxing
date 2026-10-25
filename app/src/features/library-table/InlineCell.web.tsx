@@ -1,5 +1,7 @@
 // Inline edit of one cell (location or status). Opening the cell loads the item's ETag; choosing a value
 // sends PATCH with If-Match. A 412 reloads the row and says so.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';

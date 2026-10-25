@@ -1,4 +1,6 @@
 // Web: the table by default, with a toggle to the grid (APP-1's grid, unchanged).
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
