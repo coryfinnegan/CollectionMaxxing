@@ -11,6 +11,10 @@ module.exports = {
   preset: 'jest-expo',
   // CI restores this folder between runs, so the first test files don't pay for a cold Babel transform (#87).
   ...(process.env.JEST_CACHE_DIR ? { cacheDirectory: process.env.JEST_CACHE_DIR } : {}),
+  // Unistyles 3 (#305): the documented mocks first, then the app config, so themed
+  // StyleSheets resolve (to the first theme) in tests. The preset's own setup
+  // files stay first — overriding setupFiles would drop the RN/Expo setup.
+  setupFiles: [...(preset.setupFiles ?? []), 'react-native-unistyles/mocks', '<rootDir>/src/theme/unistyles.ts'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testPathIgnorePatterns: ['/node_modules/', '/dist/', '/playwright/'],
   transformIgnorePatterns,
