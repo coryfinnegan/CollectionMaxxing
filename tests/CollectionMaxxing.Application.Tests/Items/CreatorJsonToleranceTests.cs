@@ -10,22 +10,27 @@ namespace CollectionMaxxing.Application.Tests.Items;
 // Issue #286: a stored creator object whose name is not a string must not break reads.
 public class CreatorJsonToleranceTests(PostgresFixture db) : DatabaseTest(db)
 {
-    private async Task<Guid> CreateReleaseWithNumericCreatorNameAsync()
+    private async Task<Guid> CreateReleaseWithCreatorNameAsync(string nameJson)
     {
         var releaseId = await TestData.CreateReleaseAsync(Db);
         await using var context = Db.CreateContext();
         var release = await context.Releases.SingleAsync(r => r.Id == releaseId);
         var work = await context.Works.SingleAsync(w => w.Id == release.WorkId);
-        work.CreatorsJson = """[{"name": 123}]""";
+        work.CreatorsJson = "[{\"name\": " + nameJson + "}]";
         await context.SaveChangesAsync();
         return releaseId;
     }
 
-    [Fact]
-    public async Task Item_detail_renders_when_a_stored_creator_name_is_not_a_string()
+    [Theory]
+    [InlineData("123")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("{\"a\":1}")]
+    [InlineData("[1,2]")]
+    public async Task Item_detail_renders_when_a_stored_creator_name_is_not_a_string(string nameJson)
     {
         var library = await TestData.CreateLibraryAsync(Db);
-        var releaseId = await CreateReleaseWithNumericCreatorNameAsync();
+        var releaseId = await CreateReleaseWithCreatorNameAsync(nameJson);
         var item = await TestData.CreateItemAsync(Db, library, releaseId);
 
         var result = await new GetItem.Handler(Db.CreateContext(library.ActingAs(LibraryRole.Viewer)))
@@ -37,10 +42,15 @@ public class CreatorJsonToleranceTests(PostgresFixture db) : DatabaseTest(db)
         result.Value.Value.Release.Creators.ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task Release_renders_when_a_stored_creator_name_is_not_a_string()
+    [Theory]
+    [InlineData("123")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("{\"a\":1}")]
+    [InlineData("[1,2]")]
+    public async Task Release_renders_when_a_stored_creator_name_is_not_a_string(string nameJson)
     {
-        var releaseId = await CreateReleaseWithNumericCreatorNameAsync();
+        var releaseId = await CreateReleaseWithCreatorNameAsync(nameJson);
 
         var result = await new GetRelease.Handler(Db.CreateContext())
             .HandleAsync(new GetRelease.Query(releaseId), CancellationToken.None);
@@ -49,10 +59,15 @@ public class CreatorJsonToleranceTests(PostgresFixture db) : DatabaseTest(db)
         result.Value.Creators.ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task Search_renders_a_release_whose_stored_creator_name_is_not_a_string()
+    [Theory]
+    [InlineData("123")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("{\"a\":1}")]
+    [InlineData("[1,2]")]
+    public async Task Search_renders_a_release_whose_stored_creator_name_is_not_a_string(string nameJson)
     {
-        var releaseId = await CreateReleaseWithNumericCreatorNameAsync();
+        var releaseId = await CreateReleaseWithCreatorNameAsync(nameJson);
         await using var context = Db.CreateContext();
         var release = await context.Releases.AsNoTracking().SingleAsync(r => r.Id == releaseId);
         var work = await context.Works.AsNoTracking().SingleAsync(w => w.Id == release.WorkId);
@@ -72,6 +87,8 @@ public class CreatorJsonToleranceTests(PostgresFixture db) : DatabaseTest(db)
         hit.Releases.ShouldHaveSingleItem().Creators.ShouldBeEmpty();
     }
 
+    // Test double for trigram matching only: it returns real entities loaded from the malformed Postgres rows,
+    // so the search assertions still exercise the real ItemProjection.
     private sealed class FixedLocalSearch(IReadOnlyList<LocalHit> hits) : ILocalCatalogSearch
     {
         public Task<IReadOnlyList<LocalHit>> FindAsync(LocalSearch search, CancellationToken cancellationToken) =>
