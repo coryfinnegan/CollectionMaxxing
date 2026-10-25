@@ -23,6 +23,8 @@ export type LibraryGridProps = {
   fixedStatus?: ItemStatus;
   /** Opens with the Add an item panel showing (the Scan tab's "Add it by hand"). */
   openAdd?: boolean;
+  /** Hides the content title: pushed pages on the phone already name themselves in the stack header (#303). */
+  hideTitle?: boolean;
 };
 
 type Panel = 'format' | 'platform' | 'location' | 'sort' | 'add' | null;
@@ -37,22 +39,24 @@ const emptyCopy: Record<string, { title: string; body: string }> = {
   lent: { title: 'Nothing is lent out.', body: 'Lend an item from its page and it shows up here.' },
 };
 
-export function LibraryGrid({ title, fixedStatus, openAdd }: LibraryGridProps) {
+export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
   if (loadingLibrary || !libraryId) {
     return (
       <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ padding: spacing.lg, gap: spacing.lg }}>
-        <Text variant="title" accessibilityRole="header">
-          {title}
-        </Text>
+        {hideTitle ? null : (
+          <Text variant="title" accessibilityRole="header">
+            {title}
+          </Text>
+        )}
         <LoadingState label="Loading your library…" />
       </SafeAreaView>
     );
   }
-  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} />;
+  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} hideTitle={hideTitle} />;
 }
 
-function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { libraryId: string }) {
+function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGridProps & { libraryId: string }) {
   const router = useRouter();
   const colors = useColors();
   const { width } = useWindowDimensions();
@@ -83,9 +87,11 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
   const header = (
     <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.md }}>
-        <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
-          {title}
-        </Text>
+        {hideTitle ? null : (
+          <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
+            {title}
+          </Text>
+        )}
         <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
       </View>
 
