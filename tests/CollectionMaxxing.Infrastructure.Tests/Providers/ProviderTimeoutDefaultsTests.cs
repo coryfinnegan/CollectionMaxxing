@@ -20,6 +20,18 @@ public class ProviderTimeoutDefaultsTests
         new ProviderResilienceOptions().TotalTimeout.ShouldBeGreaterThan(new ProviderResilienceOptions().AttemptTimeout);
 
     [Fact]
+    public void The_total_timeout_covers_every_configured_retry()
+    {
+        // Issue #292: the first attempt plus every retry, each running to the attempt timeout with exponential
+        // backoff between them, must fit the total; otherwise a hanging provider's later retries can never run.
+        var options = new ProviderResilienceOptions();
+        var attempts = TimeSpan.FromTicks(options.AttemptTimeout.Ticks * (1 + options.MaxRetryAttempts));
+        var backoff = TimeSpan.FromTicks(options.RetryDelay.Ticks * ((1 << options.MaxRetryAttempts) - 1) * 2);
+
+        options.TotalTimeout.ShouldBeGreaterThanOrEqualTo(attempts + backoff);
+    }
+
+    [Fact]
     public void A_catalogue_request_waits_longer_than_a_slow_open_library_answer() =>
         new CatalogOptions().ProviderTimeout.ShouldBeGreaterThan(SlowDay);
 

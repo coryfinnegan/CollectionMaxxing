@@ -91,24 +91,49 @@ internal static class ItemProjection
         return found == tagIds.Count;
     }
 
-    public static async Task<LoadedRelease?> LoadReleaseAsync(IAppDbContext db, Guid releaseId, CancellationToken cancellationToken)
+    public static async Task<LoadedRelease?> LoadReleaseAsync(IAppDbContext db, Guid releaseId, CancellationToken cancellationToken) =>
+        (await LoadReleasesAsync(db, [releaseId], cancellationToken)).SingleOrDefault();
+
+    /// <summary>Loads releases with their works, platforms and identifiers as a set (one query per table), in id order. Unknown ids are skipped.</summary>
+    public static async Task<IReadOnlyList<LoadedRelease>> LoadReleasesAsync(
+        IAppDbContext db, IEnumerable<Guid> releaseIds, CancellationToken cancellationToken)
     {
-        var release = await db.Releases.AsNoTracking().FirstOrDefaultAsync(r => r.Id == releaseId, cancellationToken);
-        if (release is null)
+        var ordered = releaseIds.Order().ToList();
+        if (ordered.Count == 0)
         {
-            return null;
+            return [];
         }
 
-        var work = await db.Works.AsNoTracking().FirstAsync(w => w.Id == release.WorkId, cancellationToken);
-        var platform = release.PlatformId is { } platformId
-            ? await db.Platforms.AsNoTracking().FirstOrDefaultAsync(p => p.Id == platformId, cancellationToken)
-            : null;
+        var releases = await db.Releases.AsNoTracking().Where(r => ordered.Contains(r.Id)).ToListAsync(cancellationToken);
+        var workIds = releases.Select(r => r.WorkId).Distinct().ToList();
+        var works = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, cancellationToken);
+        var platformIds = releases.Select(r => r.PlatformId).OfType<Guid>().Distinct().ToList();
+        var platforms = platformIds.Count == 0
+            ? new Dictionary<Guid, Platform>()
+            : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
         var identifiers = await db.ReleaseIdentifiers.AsNoTracking()
-            .Where(i => i.ReleaseId == releaseId)
+            .Where(i => ordered.Contains(i.ReleaseId))
             .OrderBy(i => i.Type).ThenBy(i => i.Value)
-            .Select(i => new ReleaseIdentifierDto(i.Type, i.Value))
+            .Select(i => new { i.ReleaseId, Dto = new ReleaseIdentifierDto(i.Type, i.Value) })
             .ToListAsync(cancellationToken);
-        return new LoadedRelease(release, work, platform, identifiers);
+        var byRelease = identifiers.GroupBy(i => i.ReleaseId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<ReleaseIdentifierDto>)g.Select(i => i.Dto).ToList());
+
+        var byId = releases.ToDictionary(r => r.Id);
+        var loaded = new List<LoadedRelease>(ordered.Count);
+        foreach (var id in ordered)
+        {
+            if (byId.TryGetValue(id, out var release))
+            {
+                loaded.Add(new LoadedRelease(
+                    release,
+                    works[release.WorkId],
+                    release.PlatformId is { } platformId ? platforms.GetValueOrDefault(platformId) : null,
+                    byRelease.GetValueOrDefault(id) ?? []));
+            }
+        }
+
+        return loaded;
     }
 
     public static WorkDto ToWorkDto(Work work) => new(
