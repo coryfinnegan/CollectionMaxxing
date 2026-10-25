@@ -1,9 +1,9 @@
 // "Confirm it's you": explains why, then sends the browser through a fresh sign-in. Opened by the HTTP client when the server
 // answers 401 reauth_required (a sensitive change needs a sign-in from the last few minutes).
 import { useSyncExternalStore } from 'react';
-import { Modal, View } from 'react-native';
+import { Modal, StyleSheet, View } from 'react-native';
 import { ReauthCancelledError } from '@/lib/auth/errors';
-import { radius, spacing } from '@/theme/tokens';
+import { fixed, radius, spacing } from '@/theme/tokens';
 import { Button, Card, Text } from '@/ui';
 import { currentLocalUrl, loginUrl, navigateTo } from './navigation';
 
@@ -46,8 +46,8 @@ export function ReauthPrompt() {
   const open = useSyncExternalStore(subscribe, () => pending !== null);
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={cancel}>
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.lg, backgroundColor: 'rgba(0,0,0,0.4)' }}>
-        <View style={{ width: '100%', maxWidth: 420, borderRadius: radius.md }}>
+      <View style={styles.scrim}>
+        <View style={styles.card}>
           <Card>
             <Text variant="heading">Confirm it&apos;s you</Text>
             <Text>This change needs a fresh sign-in. You&apos;ll sign in again, then come straight back here to finish.</Text>
@@ -59,3 +59,8 @@ export function ReauthPrompt() {
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  scrim: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.lg, backgroundColor: fixed.scrim },
+  card: { width: '100%', maxWidth: 420, borderRadius: radius.md },
+});

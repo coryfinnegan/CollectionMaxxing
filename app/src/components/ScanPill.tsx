@@ -4,7 +4,7 @@
 // hide-on-Scan-tab gate lives in NativeTabBar, outside the accessory.
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useRouter } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { fixed, radius, spacing, useColors } from '@/theme/tokens';
 import { Text, usePressFeedback } from '@/ui';
@@ -29,14 +29,7 @@ export function ScanPill() {
           onPress={openScan}
           onPressIn={press.onPressIn}
           onPressOut={press.onPressOut}
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: radius.pill,
-            backgroundColor: colors.accent,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
+          style={[styles.collapsed, { backgroundColor: colors.accent }]}
         >
           <BarcodeGlyph color={colors.onAccent} />
         </Pressable>
@@ -51,20 +44,7 @@ export function ScanPill() {
         onPress={openScan}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
-        style={{
-          minHeight: 44,
-          paddingHorizontal: spacing.lg,
-          borderRadius: radius.pill,
-          backgroundColor: colors.accent,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: spacing.sm,
-          shadowColor: fixed.black,
-          shadowOpacity: 0.2,
-          shadowRadius: 8,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 4,
-        }}
+        style={[styles.pill, { backgroundColor: colors.accent }]}
       >
         <BarcodeGlyph color={colors.onAccent} />
         <Text variant="label" style={{ color: colors.onAccent }}>
@@ -79,11 +59,30 @@ const barWidths = [3, 1.5, 1, 2.5, 1.5, 3, 1];
 
 function BarcodeGlyph({ color }: { color: string }) {
   return (
-    <View aria-hidden style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+    <View aria-hidden style={styles.bars}>
       {barWidths.map((barWidth, index) => (
         // Static bars that never reorder: the index key is stable.
-        <View key={index} style={{ width: barWidth, height: 16, borderRadius: 1, backgroundColor: color }} />
+        <View key={index} style={[styles.bar, { width: barWidth, backgroundColor: color }]} />
       ))}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  collapsed: { width: 44, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  pill: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    shadowColor: fixed.black,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  bars: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  bar: { height: 16, borderRadius: 1 },
+});
