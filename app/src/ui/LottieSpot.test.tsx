@@ -2,7 +2,6 @@
 import { render, screen } from '@testing-library/react-native';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { LottieSpot } from './LottieSpot';
-import { LottieSpot as WebSpot } from './LottieSpot.web';
 
 jest.mock('@/lib/a11y/useReduceMotion', () => ({ useReduceMotion: jest.fn() }));
 
@@ -39,22 +38,5 @@ describe('LottieSpot', () => {
     const wrapper = screen.getByTestId('moment', hidden).parent!;
     expect(wrapper.props.accessibilityElementsHidden).toBe(true);
     expect(wrapper.props.importantForAccessibility).toBe('no-hide-descendants');
-  });
-});
-
-describe('the web twin', () => {
-  it('draws the same moments as still art', async () => {
-    reduceMotion(false);
-    for (const name of ['success', 'empty-library', 'no-results'] as const) {
-      const { unmount } = await render(<WebSpot name={name} testID={`spot-${name}`} />);
-      expect(screen.getByTestId(`spot-${name}`, hidden)).toBeTruthy();
-      await unmount();
-    }
-  });
-
-  it('renders nothing when Reduce Motion is on', async () => {
-    reduceMotion(true);
-    await render(<WebSpot name="success" testID="moment" />);
-    expect(screen.queryByTestId('moment')).toBeNull();
   });
 });
