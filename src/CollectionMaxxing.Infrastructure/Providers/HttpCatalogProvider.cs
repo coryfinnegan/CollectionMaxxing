@@ -15,6 +15,7 @@ public sealed class ProviderRuntime(
     TimeProvider time,
     ProviderResponseCache cache,
     ProviderRateLimiters limiters,
+    ProviderRequestCoalescer coalescer,
     ILoggerFactory loggers)
 {
     public TimeProvider Time { get; } = time;
@@ -22,6 +23,8 @@ public sealed class ProviderRuntime(
     public ProviderResponseCache Cache { get; } = cache;
 
     public ProviderRateLimiters Limiters { get; } = limiters;
+
+    public ProviderRequestCoalescer Coalescer { get; } = coalescer;
 
     public ILoggerFactory Loggers { get; } = loggers;
 }
@@ -78,7 +81,7 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
     /// <paramref name="isEmpty"/> calls empty) is not remembered, so the same code is asked again next time. Otherwise
     /// an empty answer is remembered for a day and a full answer for 30 days.
     /// </summary>
-    protected async Task<FetchResult> FetchAsync(
+    protected Task<FetchResult> FetchAsync(
         string cacheKey,
         Func<CancellationToken, Task<HttpRequestMessage>> buildRequest,
         CancellationToken ct,
@@ -86,6 +89,20 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
         Func<CancellationToken, Task<bool>>? refreshAuth = null,
         bool cacheNotFound = true,
         Func<JsonDocument, bool>? isEmpty = null)
+    {
+        // Concurrent identical lookups share one upstream call: the first runs the fetch, the rest see what it cached.
+        return Runtime.Coalescer.RunAsync($"{Name}:{cacheKey}", token =>
+            FetchUncoalescedAsync(cacheKey, buildRequest, admit, refreshAuth, cacheNotFound, isEmpty, token), ct);
+    }
+
+    private async Task<FetchResult> FetchUncoalescedAsync(
+        string cacheKey,
+        Func<CancellationToken, Task<HttpRequestMessage>> buildRequest,
+        Func<CancellationToken, Task<bool>>? admit,
+        Func<CancellationToken, Task<bool>>? refreshAuth,
+        bool cacheNotFound,
+        Func<JsonDocument, bool>? isEmpty,
+        CancellationToken ct)
     {
         var cached = await Runtime.Cache.TryGetAsync(Name, cacheKey, ct);
         if (cached is not null)
@@ -107,7 +124,10 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
             {
                 await Runtime.Limiters.For(Name, minInterval).WaitAsync(ct);
                 using var request = await buildRequest(ct);
-                using var response = await http.SendAsync(request, ct);
+                request.Options.Set(ProviderRetryAdmission.OptionKey, new ProviderRetryAdmission(Name, minInterval, admit));
+                // Headers first: with the whole body buffered up front, the size cap below would only fire after the
+                // damage was done, and a chunked answer (no Content-Length) would slip past the header check entirely.
+                using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized
                     && !refreshed
@@ -161,6 +181,11 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
+        }
+        catch (ProviderQuotaExhaustedException)
+        {
+            // A retry found the day's quota spent: the call ends the way a first attempt denied quota does.
+            return FetchResult.Denied;
         }
 #pragma warning disable CA1031 // A provider that cannot answer must never take the caller down: timeouts, open circuits and bad bodies all end here.
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException
