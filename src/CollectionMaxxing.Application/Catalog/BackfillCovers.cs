@@ -107,7 +107,8 @@ public sealed class BackfillCovers(
         var isbn = await IsbnAsync(release.Id, cancellationToken);
         if (isbn is null)
         {
-            release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null);
+            release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null)
+                ?? release.ProviderPayloadsJson;
             release.RefreshedAt = now;
             return;
         }
@@ -122,7 +123,8 @@ public sealed class BackfillCovers(
         }
 
         // Asked and answered: no provider names a cover. A provider failure answers nothing and is asked again next night.
-        release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null);
+        release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null)
+            ?? release.ProviderPayloadsJson;
         if (!book.Failed)
         {
             release.RefreshedAt = now;

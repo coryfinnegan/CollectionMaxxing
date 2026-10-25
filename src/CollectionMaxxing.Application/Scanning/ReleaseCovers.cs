@@ -40,7 +40,8 @@ public sealed class ReleaseCovers(
         {
             if (CoverOutcome.CoverUrlOf(release.ProviderPayloadsJson) is null)
             {
-                release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null);
+                release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null)
+                    ?? release.ProviderPayloadsJson;
             }
         }
 
