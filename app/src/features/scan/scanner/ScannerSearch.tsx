@@ -25,6 +25,7 @@ const ownedLine = (copies: OwnedCopy[]): string | null => {
 
 export function ScannerSearch({ libraryId, onClose }: { libraryId: string; onClose(): void }) {
   const [text, setText] = useState('');
+  const [now] = useState(() => Date.now()); // the stale line is computed once per opening, not per keystroke
   const q = useDebounced(text.trim());
   const online = useOnline();
   const cache = getOwnedCache(libraryId);
@@ -41,7 +42,7 @@ export function ScannerSearch({ libraryId, onClose }: { libraryId: string; onClo
         <TextField label="Type to search" value={text} onChangeText={setText} placeholder="Title, author or barcode" autoCapitalize="none" autoCorrect={false} />
         {!online ? (
           <Text variant="caption" tone="muted">
-            {staleCopyMessage(cache.state.syncedAt, Date.now())}
+            {staleCopyMessage(cache.state.syncedAt, now)}
           </Text>
         ) : null}
         {search.isError ? (

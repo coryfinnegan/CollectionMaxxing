@@ -77,15 +77,16 @@ export function ScannerScreen({
   const sources = useMemo(() => (devSource ? [source, devSource, importCodes] : [source, importCodes]), [source, devSource, importCodes]);
   // What this scan inherits: the library's remembered spot, changed in the sheet, sent when the session is created.
   const [context, setContext] = useState<SessionContext>(() => defaultSessionContext(libraryId));
+  const [contextLibraryId, setContextLibraryId] = useState(libraryId);
+  if (contextLibraryId !== libraryId) {
+    // A switched-to library starts from its own remembered spot. Adjusted during render (not in an effect) so the
+    // bar never shows one library's spot while scanning another.
+    setContextLibraryId(libraryId);
+    setContext(defaultSessionContext(libraryId));
+  }
   const [sheet, setSheet] = useState<'session' | 'search' | null>(null);
-  const contextRef = useRef(context);
-  useEffect(() => {
-    contextRef.current = context;
-  });
-  useEffect(() => {
-    setContext(defaultSessionContext(libraryId)); // a switched-to library starts from its own remembered spot
-  }, [libraryId]);
-  const session = useScanSession({ libraryId, sources, tuning, sessionBody: () => sessionCreateBody(contextRef.current) });
+  const body = useMemo(() => sessionCreateBody(context), [context]);
+  const session = useScanSession({ libraryId, sources, tuning, sessionBody: body });
   const { canAdd } = useLibraryRole(libraryId);
   const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
   const [fixing, setFixing] = useState<CandidateDto | null>(null);

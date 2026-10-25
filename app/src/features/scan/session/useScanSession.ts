@@ -35,15 +35,11 @@ export function useScanSession({
   sources: ScannerSource[];
   store?: StoreApi<TrayStore>;
   tuning?: SessionTuning;
-  /** The session context a new session is created with. Read when the session is made, not before. */
-  sessionBody?: () => CreateScanSessionRequest;
+  /** The session context a new session is created with. Keep it referentially stable unless the context changed. */
+  sessionBody?: CreateScanSessionRequest;
 }) {
   const { resendMs = 5000, flashMs = 1000 } = tuning;
-  const bodyRef = useRef(sessionBody);
-  useEffect(() => {
-    bodyRef.current = sessionBody;
-  });
-  const deps = useMemo(() => flushDeps(libraryId, () => bodyRef.current?.() ?? {}), [libraryId]);
+  const deps = useMemo(() => flushDeps(libraryId, () => sessionBody ?? {}), [libraryId, sessionBody]);
   const [niceScanAt, setNiceScanAt] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const tuningRef = useRef(tuning);
