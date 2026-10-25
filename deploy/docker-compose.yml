@@ -12,7 +12,9 @@ x-hardening: &hardening
 services:
   postgres:
     <<: *hardening
-    image: postgres:17
+    # Pinned to an exact patch AND digest: a floating tag would silently upgrade prod Postgres on the next
+    # fresh pull. Bump deliberately (read the release notes first), then update the digest to match.
+    image: postgres:17.11@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
     restart: unless-stopped
     environment:
       POSTGRES_DB: collectionmaxxing
@@ -102,7 +104,8 @@ services:
 
   aspire-dashboard:
     <<: *hardening
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    # Pinned like postgres above (9.0.0 is what :9.0 resolved to when this was frozen). Same rule: bump deliberately.
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0.0@sha256:d595645ca7f5c075174db998302d8fb09e040516b14dfcb06dd02996659e1c77
     restart: unless-stopped
     ports:
       - "127.0.0.1:${CM_DASHBOARD_PORT:-18888}:18888"

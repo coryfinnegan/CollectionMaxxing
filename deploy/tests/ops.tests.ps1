@@ -241,6 +241,16 @@ Test-Case 'compose: the config guard catches a forbidden port set through .env' 
     Assert-True (@(Test-CmConfig -EnvMap @{ CM_API_PORT = '8080' } -ComposeConfig $config).Count -ge 1)
 }
 
+Test-Case 'compose: postgres is pinned to an exact patch and digest, never a floating tag' {
+    $config = Get-RealComposeConfig
+    Assert-Match "$($config.services.postgres.image)" '^postgres:17\.\d+@sha256:[0-9a-f]{64}$'
+}
+
+Test-Case 'compose: the dashboard is pinned to an exact version and digest, never a floating tag' {
+    $config = Get-RealComposeConfig
+    Assert-Match "$($config.services.'aspire-dashboard'.image)" '^mcr\.microsoft\.com/dotnet/aspire-dashboard:9\.\d+\.\d+@sha256:[0-9a-f]{64}$'
+}
+
 Test-Case 'compose: the api listens where the code reads its settings (connection string name, covers folder)' {
     $config = Get-RealComposeConfig
     $envNames = @($config.services.api.environment.PSObject.Properties.Name)
