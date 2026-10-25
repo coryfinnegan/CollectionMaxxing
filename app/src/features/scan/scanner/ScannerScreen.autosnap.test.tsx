@@ -128,14 +128,14 @@ describe('scanner auto-snap', () => {
     expect(timing).toHaveBeenCalled();
   });
 
-  it('suggests the torch after a quiet spell, turns it on when tapped, and clears on a snap', async () => {
+  it('suggests the flash after a quiet spell, turns it on when tapped, and clears on a snap', async () => {
     const { source } = await setup();
-    expect(screen.queryByText('Try the torch or move closer')).toBeNull();
-    await waitFor(() => expect(screen.getByText('Try the torch or move closer')).toBeTruthy());
-    await fireEvent.press(screen.getByText('Try the torch or move closer'));
-    expect(source.torch).toBe(true);
+    expect(screen.queryByText('Try the flash or move closer')).toBeNull();
+    await waitFor(() => expect(screen.getByText('Try the flash or move closer')).toBeTruthy());
+    await fireEvent.press(screen.getByText('Try the flash or move closer'));
+    expect(source.flash).toBe(true);
     await fireEvent.press(screen.getByLabelText('Take picture'));
-    expect(screen.queryByText('Try the torch or move closer')).toBeNull();
+    expect(screen.queryByText('Try the flash or move closer')).toBeNull();
   });
 });
 

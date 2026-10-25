@@ -1,4 +1,4 @@
-// The close-scanner behaviour wired to the real tray and the mock API.
+// The close-scanner behavior wired to the real tray and the mock API.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';

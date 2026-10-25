@@ -23,7 +23,7 @@ export default function RootLayout() {
   // 401s send the iPhone and the browser to sign-in; reauth_required asks for a fresh sign-in on web.
   useEffect(() => installAuth(router), [router]);
   useEffect(installFocusRing, []);
-  // The browser paints the page behind the app (overscroll, address-bar gaps) with the document background: keep it on our ground colour.
+  // The browser paints the page behind the app (overscroll, address-bar gaps) with the document background: keep it on our ground color.
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     document.documentElement.style.backgroundColor = colors.ground;

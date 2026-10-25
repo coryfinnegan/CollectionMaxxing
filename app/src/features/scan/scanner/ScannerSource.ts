@@ -15,7 +15,7 @@ export type SeenCode = { value: string; symbology: string };
 export interface ScannerSource {
   /** Starts delivering the codes in each camera frame (every frame, so the stability filter can work). */
   start(onCodes: (codes: SeenCode[]) => void): Unsubscribe;
-  setTorch(on: boolean): void;
+  setFlash(on: boolean): void;
   /** A full-resolution still, taken by auto-snap or the shutter. It stays on the phone. */
   capturePhoto(): Promise<CapturedPhoto>;
   /** Motion, sharpness, text and rectangle presence, a view hash and barcodes in view, a few times a second. */
@@ -25,7 +25,7 @@ export interface ScannerSource {
 /** A camera that is not there. `emit` hands codes over as if one frame saw them; `inject` plays them as steady reads. */
 export class FakeScannerSource implements ScannerSource {
   private readonly listeners = new Set<(codes: SeenCode[]) => void>();
-  torch = false;
+  flash = false;
   /** How many pictures were taken. */
   captures = 0;
 
@@ -47,8 +47,8 @@ export class FakeScannerSource implements ScannerSource {
     };
   }
 
-  setTorch(on: boolean) {
-    this.torch = on;
+  setFlash(on: boolean) {
+    this.flash = on;
   }
 
   /** One camera frame. */
@@ -63,15 +63,15 @@ export class FakeScannerSource implements ScannerSource {
   }
 }
 
-/** The real camera's side of the seam. The preview component feeds frames in; the screen toggles the torch. */
+/** The real camera's side of the seam. The preview component feeds frames in; the screen toggles the flash. */
 export class VisionCameraSource implements ScannerSource {
   private readonly listeners = new Set<(codes: SeenCode[]) => void>();
-  private readonly torchListeners = new Set<(on: boolean) => void>();
+  private readonly flashListeners = new Set<(on: boolean) => void>();
   private camera: CameraHandle | undefined;
   private lastCodesAt = 0;
   private lastCodeCount = 0;
   private signals: FrameSignalsFeed | undefined;
-  torch = false;
+  flash = false;
 
   /** The preview hands over what it can do once the camera is running (and takes it back with `undefined`). */
   attachCamera(handle: CameraHandle | undefined) {
@@ -90,7 +90,7 @@ export class VisionCameraSource implements ScannerSource {
       vision: async () => (await import('@/native/cm-vision')).visionEngine,
       motion: startDeviceMotion,
       barcodesInView: () => (Date.now() - this.lastCodesAt < BARCODE_MEMORY_MS ? this.lastCodeCount : 0),
-      torchOn: () => this.torch,
+      flashOn: () => this.flash,
     });
     return this.signals.onFrameSignals(cb);
   }
@@ -102,9 +102,9 @@ export class VisionCameraSource implements ScannerSource {
     };
   }
 
-  setTorch(on: boolean) {
-    this.torch = on;
-    for (const listener of this.torchListeners) listener(on);
+  setFlash(on: boolean) {
+    this.flash = on;
+    for (const listener of this.flashListeners) listener(on);
   }
 
   /** Called by the camera preview for each frame's codes. */
@@ -114,10 +114,10 @@ export class VisionCameraSource implements ScannerSource {
     for (const listener of [...this.listeners]) listener(codes);
   }
 
-  onTorch(listener: (on: boolean) => void): Unsubscribe {
-    this.torchListeners.add(listener);
+  onFlash(listener: (on: boolean) => void): Unsubscribe {
+    this.flashListeners.add(listener);
     return () => {
-      this.torchListeners.delete(listener);
+      this.flashListeners.delete(listener);
     };
   }
 }

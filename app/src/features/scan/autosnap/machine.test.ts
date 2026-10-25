@@ -13,7 +13,7 @@ const view = (over: Partial<FrameSignals> = {}): FrameSignals => ({
   textBoxes: 5,
   rectangleCoverage: 0,
   viewHash: HASH_A,
-  torchOn: false,
+  flashOn: false,
   barcodesInView: 0,
   ...over,
 });

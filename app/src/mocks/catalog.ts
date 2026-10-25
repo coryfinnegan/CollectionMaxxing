@@ -1,4 +1,4 @@
-// Mock catalogue search: a handful of works, matched by title.
+// Mock catalog search: a handful of works, matched by title.
 import { HttpResponse, http } from 'msw';
 import type { CatalogSearchResultDto, ReleaseDto, WorkDto } from '@/api/generated/models';
 
@@ -33,7 +33,7 @@ const release = (n: number, w: WorkDto, format: ReleaseDto['format']): ReleaseDt
     identifiers: [],
   });
 
-/** Fresh seed data for the catalogue. */
+/** Fresh seed data for the catalog. */
 export const seed = (): CatalogSearchResultDto[] => {
   const alien = work(1, 'film', 'Alien', 1979);
   const arrival = work(2, 'film', 'Arrival', 2016);

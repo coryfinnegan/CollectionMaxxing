@@ -1,4 +1,4 @@
-// The theme derives from tokens.json: both schemes resolve the same roles to real colours,
+// The theme derives from tokens.json: both schemes resolve the same roles to real colors,
 // so a typo in a role reference fails here instead of painting `undefined`.
 import { darkColors, fixed, lightColors, typeScale } from './tokens';
 import source from './tokens.json';
@@ -10,11 +10,11 @@ describe('design tokens', () => {
     expect(Object.keys(lightColors).sort()).toEqual(Object.keys(darkColors).sort());
   });
 
-  it.each(Object.entries(lightColors))('resolves light %s to a hex colour', (_role, value) => {
+  it.each(Object.entries(lightColors))('resolves light %s to a hex color', (_role, value) => {
     expect(value).toMatch(hex);
   });
 
-  it.each(Object.entries(darkColors))('resolves dark %s to a hex colour', (_role, value) => {
+  it.each(Object.entries(darkColors))('resolves dark %s to a hex color', (_role, value) => {
     expect(value).toMatch(hex);
   });
 

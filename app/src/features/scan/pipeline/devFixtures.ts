@@ -18,7 +18,7 @@ const item = (n: number, id: string, title: string, extra: Partial<ReadItem> = {
   ...extra,
 });
 
-/** The recorded reading: an owned book, a new cart, a close call, a slow one, and something the catalogue does not know. */
+/** The recorded reading: an owned book, a new cart, a close call, a slow one, and something the catalog does not know. */
 export function devFixtureReading(replay: number): SnapReading {
   const id = `dev-${replay}`;
   const items = [

@@ -71,7 +71,7 @@ export async function loadSession(sessionId: string, since?: number): Promise<Ca
 // The event cursor is the candidate's changeSeq (it goes up on every insert and update), not seq (the creation order).
 const toMessage = (c: CandidateDto): SseMessage => ({ event: 'candidate.updated', id: String(c.changeSeq), data: JSON.stringify(c) });
 
-/** Where to carry on from for a session that already has candidates: the newest change seen, or none for an empty one. */
+/** Where to continue from for a session that already has candidates: the newest change seen, or none for an empty one. */
 export const resumeCursor = (candidates: CandidateDto[]): string | undefined => {
   const last = candidates.reduce((max, c) => Math.max(max, c.changeSeq), 0);
   return last > 0 ? String(last) : undefined;

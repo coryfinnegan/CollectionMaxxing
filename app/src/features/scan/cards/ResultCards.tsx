@@ -14,7 +14,7 @@ import { describeCandidate,isPictureCandidate, ownedCopy, slideDuration } from '
 export { useReduceMotion };
 
 /**
- * "Do I own this?" for a card the catalogue lookup has not resolved (offline, or it failed). The server answers when it
+ * "Do I own this?" for a card the catalog lookup has not resolved (offline, or it failed). The server answers when it
  * can; otherwise the local copy does, with how old it is.
  */
 function OwnedAnswerLine({ code }: { code: string | null }) {
@@ -45,7 +45,7 @@ export type CardActions = {
   onOpen(candidate: CandidateDto): void;
   onAdd(candidate: CandidateDto): void;
   onWishlist(candidate: CandidateDto): void;
-  /** Fix it on a picture's item the catalogue could not find: opens a search that starts from what was read. */
+  /** Fix it on a picture's item the catalog could not find: opens a search that starts from what was read. */
   onFixIt?(candidate: CandidateDto): void;
   /** Friendly message per candidate id when its last action failed. */
   errors?: Record<string, string>;

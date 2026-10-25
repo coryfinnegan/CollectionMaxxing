@@ -1,4 +1,4 @@
-// Add an item: search the catalogue by typing, or "None of these? Add it yourself" for a manual entry.
+// Add an item: search the catalog by typing, or "None of these? Add it yourself" for a manual entry.
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import { useSearchCatalog } from '@/api/generated/catalog/catalog';
@@ -68,7 +68,7 @@ function SearchStep({ onPick }: { onPick: (releaseId: string) => void }) {
   return (
     <View style={{ gap: spacing.md }}>
       <TextField
-        label="Search the catalogue"
+        label="Search the catalog"
         value={text}
         onChangeText={setText}
         placeholder="Title, author or barcode"
@@ -77,7 +77,7 @@ function SearchStep({ onPick }: { onPick: (releaseId: string) => void }) {
       />
       {search.isError ? (
         <Text tone="danger" accessibilityRole="alert">
-          {"Couldn't search the catalogue. Check your connection, or add it yourself below."}
+          {"Couldn't search the catalog. Check your connection, or add it yourself below."}
         </Text>
       ) : q.length >= 2 && !search.isLoading && results.length === 0 ? (
         <Text variant="caption" tone="muted">No matches yet.</Text>

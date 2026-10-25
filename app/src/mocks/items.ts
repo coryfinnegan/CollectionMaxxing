@@ -200,7 +200,7 @@ export const handlers = [
     let entry: MockItem;
     if (body.releaseId) {
       const found = catalogReleases().find((c) => c.release.id === body.releaseId);
-      if (!found) return problem(404, 'That release is not in the catalogue.');
+      if (!found) return problem(404, 'That release is not in the catalog.');
       entry = makeEntry(n, 0, [found.work.title, found.work.kind, found.release.format, found.release.platform?.name ?? null, found.release.year ?? 0, 'owned', null]);
       entry.work.id = found.work.id;
       entry.release = { ...found.release };

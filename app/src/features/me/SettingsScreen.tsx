@@ -23,7 +23,7 @@ const APPLE_INTELLIGENCE_LABEL: Record<RecognitionState['appleIntelligence'], st
   modelNotReady: 'Still getting ready',
   osTooOld: 'Needs a newer iOS',
   notSupported: 'Not on this iPhone',
-  unknown: 'Not known yet',
+  unknown: 'Checking…',
 };
 
 export function RecognitionSection() {

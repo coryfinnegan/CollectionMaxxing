@@ -41,7 +41,7 @@ export interface LocalTuning {
   halfOverlap: number;
   /** The cut is looked for within this distance of the middle. */
   cutSearchRadius: number;
-  /** Items from the two halves count as one when their centres are this close (share of the picture's width). */
+  /** Items from the two halves count as one when their centers are this close (share of the picture's width). */
   seamTolerance: number;
 }
 

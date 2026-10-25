@@ -49,7 +49,7 @@ const unsentSnap = (snapId: string, item: ReadItem, createdAt: number) => ({
 
 describe('a 429 from the server', () => {
   it.each([
-    ['honours Retry-After', { 'Retry-After': '7' }, 7_000],
+    ['honors Retry-After', { 'Retry-After': '7' }, 7_000],
     ['waits a few seconds when the server did not say how long', {}, 5_000],
   ])('%s: the snap is kept, nothing more is sent until then, and it is sent unchanged afterwards', async (_name, headers, waitMs) => {
     const kit = makeKit();
@@ -100,7 +100,7 @@ describe('a session that has gone', () => {
     expect(kit.tray.getState().problem).toBeNull();
   });
 
-  it('also takes a new snapId when the server says this one is in use, and carries on', async () => {
+  it('also takes a new snapId when the server says this one is in use, and keeps going', async () => {
     const kit = makeKit();
     const pipeline = new SnapPipeline(kit.deps);
     kit.reader.script(readingOf([dune]));

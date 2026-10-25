@@ -62,10 +62,10 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
             {state.phase === 'starting' ? 'Getting the photo list' : `Photo ${state.current} of ${state.total} · ${apple}`}
           </Text>
           <Text>{`Time: ${clock(elapsed)}`}</Text>
-          <Text>{`Phone temperature: ${state.thermal ? THERMAL_LABEL[state.thermal] : 'not known yet'}`}</Text>
+          <Text>{`Phone temperature: ${state.thermal ? THERMAL_LABEL[state.thermal] : 'checking…'}`}</Text>
           {state.keepCool ? (
             <Text tone="danger" accessibilityRole="alert">
-              The phone is hot. Move it out of the sun and take it off the charger if you can. The run carries on and records the heat.
+              The phone is hot. Move it out of the sun and take it off the charger if you can. The run keeps going and records the heat.
             </Text>
           ) : null}
           {state.phase === 'paused' ? <Text tone="muted">Paused.</Text> : null}
@@ -100,12 +100,12 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
           <Text>
             {state.message ??
               (state.partial
-                ? `Cancelled. Sent ${state.photosDone} of ${state.total} photos, marked partial.`
+                ? `Canceled. Sent ${state.photosDone} of ${state.total} photos; the rest never went up.`
                 : `Sent ${state.photosDone} photos to your PC.`)}
           </Text>
-          {state.skipped.length > 0 ? <Text tone="muted">{`${state.skipped.length} photos couldn't be downloaded and were skipped.`}</Text> : null}
+          {state.skipped.length > 0 ? <Text tone="muted">{`Skipped ${state.skipped.length} photos that wouldn't download.`}</Text> : null}
           <Summary state={state} />
-          {state.partial ? <Button label="Carry on with the rest" onPress={() => void runner.resume()} /> : null}
+          {state.partial ? <Button label="Continue with the rest" onPress={() => void runner.resume()} /> : null}
           <Button label="Run again" variant="secondary" onPress={() => void runner.start()} />
         </>
       ) : null}

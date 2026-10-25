@@ -27,7 +27,7 @@ describe('haptics', () => {
     expect(calls).toEqual(['tap']);
   });
 
-  it('gives one long tap for a code the catalogue does not know', async () => {
+  it('gives one long tap for a code the catalog does not know', async () => {
     const calls = fake();
     await haptics.notFound();
     expect(calls).toEqual(['long']);

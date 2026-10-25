@@ -21,11 +21,15 @@ export type LibraryGridProps = {
   title: string;
   /** Set for the Wishlist and Lent out views. */
   fixedStatus?: ItemStatus;
-  /** Opens with the Add an item panel showing (the Scan tab's "Add an item by hand"). */
+  /** Opens with the Add an item panel showing (the Scan tab's "Add it by hand"). */
   openAdd?: boolean;
 };
 
 type Panel = 'format' | 'platform' | 'location' | 'sort' | 'add' | null;
+
+/** The search box names the count, and reads naturally at any count ("Search your 1 item"). */
+export const searchPlaceholder = (total: number | undefined) =>
+  total === undefined ? 'Search your library' : total === 1 ? 'Search your 1 item' : `Search your ${total} items`;
 
 const emptyCopy: Record<string, { title: string; body: string }> = {
   library: { title: 'Nothing here yet.', body: 'Point your camera at a shelf or a stack of cases.' },
@@ -95,7 +99,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
         label="Search"
         value={search}
         onChangeText={setSearch}
-        placeholder={counts ? `Search ${counts.total} items` : 'Search your library'}
+        placeholder={searchPlaceholder(counts?.total)}
         returnKeyType="search"
         autoCapitalize="none"
         autoCorrect={false}

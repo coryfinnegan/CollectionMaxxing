@@ -4,7 +4,7 @@ import { compareArtwork, ownArtworkUrl } from './artStep';
 import { FakeArt } from './testKit';
 
 describe('ownArtworkUrl', () => {
-  it.each(['/media/covers/aaaaaaaa-0000-4000-8000-000000000001', '/media/covers/abc.jpg', '/media/x'])('accepts the normalised media path %s', (path) => {
+  it.each(['/media/covers/aaaaaaaa-0000-4000-8000-000000000001', '/media/covers/abc.jpg', '/media/x'])('accepts the normalized media path %s', (path) => {
     expect(ownArtworkUrl(path)).toBe(`http://api.test${path}`);
   });
 

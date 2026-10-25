@@ -1,5 +1,5 @@
-// Fix it, from a card the catalogue could not find: a search that starts from what the phone read. The search is a text query
-// to the catalogue (the same call Review uses); nothing is added, and the picture is not involved.
+// Fix it, from a card the catalog could not find: a search that starts from what the phone read. The search is a text query
+// to the catalog (the same call Review uses); nothing is added, and the picture is not involved.
 import { useState } from 'react';
 import { View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';

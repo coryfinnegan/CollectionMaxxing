@@ -1,5 +1,5 @@
 // The TS theme, derived from tokens.json (the single source of truth): Radix 12-step
-// Sand neutrals with an Amber accent, dark-first. Nothing here invents a colour.
+// Sand neutrals with an Amber accent, dark-first. Nothing here invents a color.
 import { useColorScheme, type TextStyle } from 'react-native';
 import source from './tokens.json';
 

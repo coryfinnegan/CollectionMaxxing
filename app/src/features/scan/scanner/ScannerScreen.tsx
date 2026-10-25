@@ -73,7 +73,7 @@ export function ScannerScreen({
   const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
   const [fixing, setFixing] = useState<CandidateDto | null>(null);
   const actions: CardActions = useMemo(() => ({ ...cardActions, onFixIt: setFixing }), [cardActions]);
-  const [torch, setTorch] = useState(false);
+  const [flash, setFlash] = useState(false);
   const reduceMotion = useReduceMotion();
   const [counter] = useState(() => createCountingSnapHandler());
   const reportOutcome = useRef<(found: boolean) => void>(() => undefined);
@@ -110,10 +110,10 @@ export function ScannerScreen({
     };
   }, [outcomeRef, autoSnap.reportOutcome]);
 
-  const toggleTorch = () => {
-    const next = !torch;
-    setTorch(next);
-    source.setTorch(next);
+  const toggleFlash = () => {
+    const next = !flash;
+    setFlash(next);
+    source.setFlash(next);
   };
 
   return (
@@ -130,11 +130,11 @@ export function ScannerScreen({
             <View style={{ flex: 1 }} />
           )}
           <Button
-            label={torch ? 'Torch on' : 'Torch'}
+            label={flash ? 'Flash on' : 'Flash'}
             variant="secondary"
-            accessibilityState={{ selected: torch }}
-            onPress={toggleTorch}
-            style={{ backgroundColor: torch ? colors.accent : fixed.scrim }}
+            accessibilityState={{ selected: flash }}
+            onPress={toggleFlash}
+            style={{ backgroundColor: flash ? colors.accent : fixed.scrim }}
           />
         </View>
 
@@ -169,9 +169,9 @@ export function ScannerScreen({
           {!photos.running && photos.message ? <Text style={{ color: fixed.white }}>{photos.message}</Text> : null}
           {autoSnap.hint ? (
             <Chip
-              label="Try the torch or move closer"
+              label="Try the flash or move closer"
               onPress={() => {
-                if (!torch) toggleTorch();
+                if (!flash) toggleFlash();
               }}
             />
           ) : null}

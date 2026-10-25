@@ -66,6 +66,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint src --max-warnings 0",
+    "words": "node scripts/banned-words.mjs",
     "generate": "orval && msw init public --no-save",
     "typecheck": "tsc --noEmit",
     "test": "jest",

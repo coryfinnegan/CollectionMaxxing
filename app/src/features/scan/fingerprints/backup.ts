@@ -1,4 +1,4 @@
-// Backup and restore (docs/04 "Catalogue", feature-prints): the prints go to the person's own PC, opaque to the server, so a new phone
+// Backup and restore (docs/04, feature-prints): the prints go to the person's own PC, opaque to the server, so a new phone
 // can pull them back. Backup is for editors; a viewer keeps prints local only. Nothing but the print, ids, revision and time is sent.
 import { listFeaturePrints, putFeaturePrints } from '@/api/generated/catalog/catalog';
 import { ApiError } from '@/lib/http';

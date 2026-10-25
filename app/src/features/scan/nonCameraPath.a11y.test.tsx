@@ -24,7 +24,7 @@ describe('using the app without the camera', () => {
 
   it('offers adding an item by hand from the Scan tab', async () => {
     await renderWithProviders(<ScanTab />);
-    fireEvent.press(screen.getByRole('button', { name: 'Add an item by hand' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Add it by hand' }));
     expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/library', params: { add: '1' } });
   });
 });

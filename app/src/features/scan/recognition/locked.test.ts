@@ -26,7 +26,7 @@ function scene() {
 const deps = (vision: RecordingVision) => ({ vision, settings: () => DEFAULT_RECOGNITION_SETTINGS, newId: testIds });
 
 describe('privacy: only text and fields ever leave the engines', () => {
-  it('serialised readings and IdentifyItems hold no image bytes, data URI or file URI', async () => {
+  it('serialized readings and IdentifyItems hold no image bytes, data URI or file URI', async () => {
     const vision = new RecordingVision(scene());
     const readings = [
       await new AppleModelEngine(deps(vision)).read(PHOTO, () => {}),

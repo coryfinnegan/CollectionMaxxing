@@ -60,6 +60,6 @@ export const haptics = {
     }),
   /** Found, and not in your library yet: one tap. */
   isNew: () => safely(() => driver.tap()),
-  /** The catalogue has nothing for this code: one long tap. */
+  /** The catalog has nothing for this code: one long tap. */
   notFound: () => safely(() => driver.longTap()),
 };

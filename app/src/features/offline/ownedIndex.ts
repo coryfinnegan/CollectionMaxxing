@@ -1,4 +1,4 @@
-// The phone's copy of "what this library owns", and the synchronous lookup over it (docs/05 "Offline behaviour").
+// The phone's copy of "what this library owns", and the synchronous lookup over it (docs/05 "Offline behavior").
 // It is built from the snapshot endpoint's entries. Nothing here touches the network or storage.
 import { normalizeCode } from './normalize';
 

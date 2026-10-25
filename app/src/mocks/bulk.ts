@@ -5,7 +5,7 @@ import type { BulkItemsRequest, TagDto } from '@/api/generated/models';
 import { itemsState } from './items';
 
 export const mockTags: TagDto[] = [
-  { id: 'f0000000-0000-4000-8000-000000000001', name: 'Favourites', itemCount: 0 },
+  { id: 'f0000000-0000-4000-8000-000000000001', name: 'Favorites', itemCount: 0 },
   { id: 'f0000000-0000-4000-8000-000000000002', name: 'To lend', itemCount: 0 },
 ];
 

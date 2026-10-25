@@ -21,7 +21,7 @@ export interface ReadItem {
   platform?: string;
   edition?: string;
   completeness?: ItemCompleteness;
-  /** Normalised 0..1 on the still, origin top-left. Absent when no Vision text matched. */
+  /** Normalized 0..1 on the still, origin top-left. Absent when no Vision text matched. */
   box?: Rect;
   order: number;
   confidence: ModelConfidence;
@@ -53,7 +53,7 @@ export interface RecognitionEngine {
   read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading>;
 }
 
-/** Cuts a region (normalised, origin top-left) out of a still and returns the new still. Only the halves of a wide shot use it. */
+/** Cuts a region (normalized, origin top-left) out of a still and returns the new still. Only the halves of a wide shot use it. */
 export interface StillCropper {
   crop(still: Still, region: Rect): Promise<Still>;
 }

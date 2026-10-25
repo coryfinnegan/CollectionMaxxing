@@ -1,5 +1,5 @@
 // Your own photo with the item boxed on it (docs/06 M4). The picture is the on-phone still; the box is drawn here, locally, from
-// the normalised box Vision found. When the snap has more than one item the counter and the pager appear and the box moves.
+// the normalized box Vision found. When the snap has more than one item the counter and the pager appear and the box moves.
 // Nothing here is animated, so Reduce Motion has nothing to turn off. Nothing here uploads anything.
 import { useState } from 'react';
 import { Image, PanResponder, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';

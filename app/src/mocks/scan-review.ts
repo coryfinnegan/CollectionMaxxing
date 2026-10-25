@@ -50,7 +50,7 @@ export const reviewMock = {
 };
 
 const resolve = (c: CandidateDto, release: ReleaseDto) => {
-  const owned = Object.values(scanMock.catalogue).filter((e) => e.release.id === release.id).flatMap((e) => e.owned);
+  const owned = Object.values(scanMock.catalog).filter((e) => e.release.id === release.id).flatMap((e) => e.owned);
   Object.assign(c, {
     resolution: 'matched',
     score: 1,
@@ -134,7 +134,7 @@ export const handlers = [
     if (!session || !candidate) return problem(404, 'Not found');
     const text = (((await request.json()) as { text?: string | null }).text ?? '').trim().toLowerCase();
     if (!text) return problem(400, 'Type a title to search for.');
-    const found = Object.values(scanMock.catalogue).find((e) => e.release.title.toLowerCase().includes(text));
+    const found = Object.values(scanMock.catalog).find((e) => e.release.title.toLowerCase().includes(text));
     if (found) resolve(candidate, found.release);
     candidate.seq = ++session.seq;
     return HttpResponse.json(candidate);

@@ -90,7 +90,7 @@ describe('SignInMethodsScreen', () => {
     await fireEvent.press(screen.getByLabelText('Remove Apple'));
     await fireEvent.press(screen.getByLabelText('Remove'));
 
-    expect(await screen.findByText('Okay, nothing was changed.')).toBeTruthy();
+    expect(await screen.findByText('Okay, nothing changed.')).toBeTruthy();
     expect(mockAuth.methods).toHaveLength(2);
   });
 

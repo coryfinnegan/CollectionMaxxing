@@ -113,7 +113,7 @@ describe('what the cards say', () => {
     await open(kit);
 
     await shutter();
-    expect(await screen.findByText('Not in the catalogue. Fix it to search by title.')).toBeTruthy();
+    expect(await screen.findByText('Not in the catalog. Fix it to search by title.')).toBeTruthy();
     await fireEvent.press(await screen.findByLabelText('Fix it: Space Mutiny'));
     expect(screen.getByDisplayValue('Space Mutiny')).toBeTruthy();
   });
