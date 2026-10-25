@@ -241,6 +241,12 @@ The verifier gets the brief, the diff and the linked doc sections, in a fresh co
 - **Docs:** it matches the plan, and the verifier flags any doc that now needs updating.
 - **Conventions:** the [01](01-architecture.md) dependency rules and the [09](09-testing-and-tdd.md) working agreement.
 
+For UI-touching PRs (any change under app/src, app/playwright, tokens, or DESIGN.md), the verifier must additionally:
+
+1. Confirm `npm run check` passes with the `words` and `design` steps, with no new design-baseline entries and no widened counts unless the PR justifies them.
+2. Confirm the Playwright visual spec passes; if snapshots changed, review each diff image and confirm the PR describes the intended visual change with before/after shots.
+3. Confirm new screens compose `app/src/ui` primitives, read color only from `tokens.json` roles, keep one title per screen, and follow the DESIGN.md voice rules (US English, verb-first buttons with counts).
+
 **Locked tests** cover the areas where a wrong-but-green change would hurt most:
 
 - auth (ID-1, ID-2, ID-3);
