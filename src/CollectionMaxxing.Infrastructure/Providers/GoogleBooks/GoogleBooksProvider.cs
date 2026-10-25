@@ -65,7 +65,8 @@ public sealed class GoogleBooksProvider(HttpClient http, IOptions<GoogleBooksOpt
         var result = await FetchAsync(
             SearchKey("title", query.Title, query.Creator, query.Limit),
             _ => Task.FromResult(Get(url)),
-            ct);
+            ct,
+            isEmpty: doc => !doc.RootElement.Items("items").Any());
         if (result.Json is null)
         {
             return [];

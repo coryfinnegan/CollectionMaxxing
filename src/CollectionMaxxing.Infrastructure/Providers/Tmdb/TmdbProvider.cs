@@ -79,7 +79,8 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
         var result = await FetchAsync(
             SearchKey(kind, query.Title, query.Year, query.Limit),
             _ => Task.FromResult(Get(url)),
-            ct);
+            ct,
+            isEmpty: doc => !doc.RootElement.Items("results").Any());
         if (result.Json is null)
         {
             return [];

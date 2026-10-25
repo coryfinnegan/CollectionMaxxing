@@ -152,6 +152,7 @@ public class ProviderBehaviourTests(PostgresFixture db) : DatabaseTest(db)
 
     [Theory]
     [InlineData("openlibrary", 404, null)]
+    [InlineData("openlibrary", 200, "openlibrary-isbn-notfound.json")]
     [InlineData("googlebooks", 200, "googlebooks-empty.json")]
     public async Task Does_not_remember_that_a_book_code_is_unknown_so_it_can_be_found_later(string name, int status, string? fixture)
     {
@@ -163,5 +164,56 @@ public class ProviderBehaviourTests(PostgresFixture db) : DatabaseTest(db)
         (await provider.Ask(host)).ShouldBe(0);
 
         host.Requests(provider.Path).ShouldBe(2); // asked again: a barcode that fails today is retryable
+    }
+
+    [Theory]
+    [MemberData(nameof(ProviderCase.Names), MemberType = typeof(ProviderCase))]
+    public async Task An_empty_answer_is_not_served_from_cache_25_hours_later(string name)
+    {
+        using var host = ProviderHost.Create(Db, fakeTime: true);
+        var provider = ProviderCase.Named(name);
+        provider.RespondWith(host, 200, provider.EmptyFixture);
+
+        (await provider.Ask(host)).ShouldBe(0);
+        host.Fake.Advance(TimeSpan.FromHours(25));
+        (await provider.Ask(host)).ShouldBe(0);
+
+        host.Requests(provider.Path).ShouldBe(2); // no 30-day negative entry: asked again the next day
+    }
+
+    [Theory]
+    [MemberData(nameof(ProviderCase.Names), MemberType = typeof(ProviderCase))]
+    public async Task A_later_non_empty_answer_wins_over_an_empty_answer(string name)
+    {
+        using var host = ProviderHost.Create(Db, fakeTime: true);
+        var provider = ProviderCase.Named(name);
+        provider.RespondWith(host, 200, provider.EmptyFixture);
+
+        (await provider.Ask(host)).ShouldBe(0);
+        host.Fake.Advance(TimeSpan.FromHours(25));
+        host.Server.ResetMappings();
+        provider.RespondWith(host, 200, provider.FoundFixture);
+
+        (await provider.Ask(host)).ShouldBeGreaterThan(0); // the catalogue grew: the fresh answer wins
+        host.Requests(provider.Path).ShouldBe(2);
+    }
+
+    [Theory]
+    [InlineData("upcitemdb")]
+    [InlineData("tmdb")]
+    [InlineData("igdb")]
+    public async Task Remembers_an_empty_answer_for_a_day_so_quota_is_not_spent_again(string name)
+    {
+        using var host = ProviderHost.Create(Db, fakeTime: true);
+        var provider = ProviderCase.Named(name);
+        provider.RespondWith(host, 200, provider.EmptyFixture);
+
+        (await provider.Ask(host)).ShouldBe(0);
+        (await provider.Ask(host)).ShouldBe(0);
+        host.Requests(provider.Path).ShouldBe(1); // served from the one-day negative cache
+
+        host.Fake.Advance(TimeSpan.FromHours(25));
+        (await provider.Ask(host)).ShouldBe(0);
+        host.Requests(provider.Path).ShouldBe(2);
     }
 }

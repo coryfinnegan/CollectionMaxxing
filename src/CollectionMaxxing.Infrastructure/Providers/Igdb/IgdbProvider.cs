@@ -157,7 +157,8 @@ public sealed class IgdbProvider(HttpClient http, IOptions<IgdbOptions> options,
                 return request;
             },
             ct,
-            refreshAuth: tokens.RefreshAsync);
+            refreshAuth: tokens.RefreshAsync,
+            isEmpty: doc => doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0);
         if (result.Json is null)
         {
             return [];
