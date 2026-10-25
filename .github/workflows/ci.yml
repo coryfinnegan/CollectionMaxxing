@@ -88,3 +88,6 @@ jobs:
       - name: Playwright
         working-directory: app
         run: npm run test:e2e
+      - name: Build Storybook
+        working-directory: app
+        run: npm run build-storybook
