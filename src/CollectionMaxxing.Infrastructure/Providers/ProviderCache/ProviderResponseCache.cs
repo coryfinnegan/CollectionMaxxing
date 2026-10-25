@@ -6,9 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace CollectionMaxxing.Infrastructure.Providers.Caching;
 
 /// <summary>
-/// The 30-day response cache in <c>provider_cache</c>. It stores what the provider said, so a repeat lookup makes no HTTP
-/// call. A provider that answered "not known" is cached too (payload <see cref="NotFoundPayload"/>), so a missing barcode
-/// does not spend quota again.
+/// The provider response cache in <c>provider_cache</c>: full answers live 30 days, empty ("no results") answers live a
+/// day. It stores what the provider said, so a repeat lookup makes no HTTP call. A provider that answered "not known"
+/// is cached too (payload <see cref="NotFoundPayload"/>), so a missing barcode does not spend quota again.
 /// </summary>
 public sealed class ProviderResponseCache(IServiceScopeFactory scopes, TimeProvider time)
 {
