@@ -65,9 +65,21 @@ public class CoverHostsTests
     public void Keeps_covers_on_allow_listed_hosts_over_https(string url, string expected) =>
         CoverHosts.Allow(url).ShouldBe(expected);
 
+    // covers.openlibrary.org answers /b/id/… with a 302 to archive.org, which 302s to one of its item servers.
+    [Theory]
+    [InlineData("https://archive.org/download/l_covers_0010/l_covers_0010_13.zip/0010131394-L.jpg")]
+    [InlineData("https://ia800404.us.archive.org/view_archive.php?archive=/33/items/l_covers_0010/l_covers_0010_13.zip&file=0010131394-L.jpg")]
+    public void Keeps_the_archive_org_hops_behind_an_open_library_cover(string url) =>
+        CoverHosts.Allow(url).ShouldBe(url);
+
     [Theory]
     [InlineData("https://evil.example.net/cover.jpg")]
     [InlineData("https://covers.openlibrary.org.evil.example.net/a.jpg")]
+    [InlineData("https://archive.org.evil.example.net/a.jpg")]
+    [InlineData("https://evilarchive.org/a.jpg")]
+    [InlineData("https://evilus.archive.org/a.jpg")]
+    [InlineData("https://us.archive.org.evil.example.net/a.jpg")]
+    [InlineData("https://user:pass@archive.org/a.jpg")]
     [InlineData("https://user:pass@covers.openlibrary.org/a.jpg")]
     [InlineData("ftp://covers.openlibrary.org/a.jpg")]
     [InlineData("//covers.openlibrary.org/a.jpg")]
