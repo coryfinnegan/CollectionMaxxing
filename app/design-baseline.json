@@ -3,21 +3,33 @@
   "followUp": "https://github.com/coryfinnegan/CollectionMaxxing/issues/307",
   "entries": [
     {
-      "file": "src/app/(tabs)/_layout.tsx",
+      "file": "src/app/_layout.web.tsx",
       "rule": "cm-design/no-inline-styles",
       "count": 4,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     },
     {
-      "file": "src/app/(tabs)/members.tsx",
+      "file": "src/app/(pages)/members.tsx",
       "rule": "cm-design/no-inline-styles",
       "count": 2,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     },
     {
-      "file": "src/app/(tabs)/settings.tsx",
+      "file": "src/app/(pages)/settings.tsx",
       "rule": "cm-design/no-inline-styles",
       "count": 2,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/app/(tabs)/_layout.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/app/(tabs)/_layout.web.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 3,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     },
     {
@@ -30,6 +42,12 @@
       "file": "src/app/item/[id]/index.tsx",
       "rule": "cm-design/no-inline-styles",
       "count": 1,
+      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
+    },
+    {
+      "file": "src/components/ScanPill.tsx",
+      "rule": "cm-design/no-inline-styles",
+      "count": 5,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     },
     {

@@ -58,13 +58,26 @@ const noInlineStyles = {
 function elementName(node) {
   if (!node || node.type !== 'JSXElement') return null;
   const opening = node.openingElement.name;
-  return opening.type === 'JSXIdentifier' ? opening.name : null;
+  if (opening.type === 'JSXIdentifier') return opening.name;
+  if (opening.type === 'JSXMemberExpression') {
+    const parts = [];
+    let current = opening;
+    while (current && current.type === 'JSXMemberExpression') {
+      parts.unshift(current.property.type === 'JSXIdentifier' ? current.property.name : null);
+      current = current.object;
+    }
+    if (current && current.type === 'JSXIdentifier') parts.unshift(current.name);
+    if (parts.every(Boolean)) return parts.join('.');
+  }
+  return null;
 }
 
 const noRawText = {
   meta: { type: 'problem', docs: { description: 'disallow raw text outside Text components' }, schema: [{ type: 'object', properties: { skip: { type: 'array', items: { type: 'string' } } }, additionalProperties: false }] },
   create(context) {
-    const skip = new Set(['Text', ...((context.options[0] && context.options[0].skip) || [])]);
+    // Text hosts are components designed to take text children: the Text
+    // primitive plus the native tab trigger label (a framework host like Text).
+    const skip = new Set(['Text', 'NativeTabs.Trigger.Label', ...((context.options[0] && context.options[0].skip) || [])]);
     return {
       ImportDeclaration(node) {
         for (const spec of node.specifiers) {

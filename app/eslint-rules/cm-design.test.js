@@ -55,9 +55,11 @@ describe('cm-design/no-raw-text', () => {
       "import { Text } from './Text'; const el = <Text>{label}</Text>;",
       "import { Text } from 'react-native'; const el = <View><Text>Hi</Text></View>;",
       "import { Text } from 'react-native'; const el = <View>{busy ? <Text>x</Text> : null}</View>;",
+      'const el = <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>;',
     ],
     invalid: [
       { code: "import { View } from 'react-native'; const el = <View>Hello</View>;", errors: 1 },
+      { code: 'const el = <Foo.Bar>Label</Foo.Bar>;', errors: 1 },
       { code: "import { View } from 'react-native'; const el = <View>{'Hello'}</View>;", errors: 1 },
       { code: 'const el = <Screen>Body copy</Screen>;', errors: 1 },
     ],
