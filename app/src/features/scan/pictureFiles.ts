@@ -88,6 +88,17 @@ export async function discardPicturesOf(snapId: string): Promise<void> {
   await Promise.all(own.map(([uri]) => discardPicture(uri)));
 }
 
+/**
+ * Discard of one library's scan: its snaps' files go, and whatever has no snap yet. A file with no snap (a capture still
+ * being scaled, a half being read, a download) can only come from the scanner that is open, so it is this library's; other
+ * libraries' snaps' files stay.
+ */
+export async function discardPicturesOfSnaps(snapIds: readonly string[]): Promise<void> {
+  const doomed = new Set(snapIds);
+  const own = Object.entries(load()).filter(([, owner]) => owner === '' || doomed.has(owner));
+  await Promise.all(own.map(([uri]) => discardPicture(uri)));
+}
+
 /** Discard, sign-out and unpair: every registered file goes. */
 export async function discardAllPictures(): Promise<void> {
   await Promise.all(Object.keys(load()).map((uri) => discardPicture(uri)));

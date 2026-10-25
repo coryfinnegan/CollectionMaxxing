@@ -24,6 +24,8 @@ export interface PicItem {
 
 export interface PicSnap {
   snapId: string;
+  /** The library whose scanner took the picture: one store holds every library's snaps, kept apart by this. */
+  libraryId: string;
   trigger: SnapTrigger;
   createdAt: number;
   /** The still, as a thumbnail for the first receipt line. */
@@ -65,7 +67,9 @@ export type PipelineStore = PipelineState & {
   removeItem(snapId: string, localId: string): void;
   dismissUnreadable(): void;
   /** Drops snaps that were sent to a session other than `sessionId`: that scan is over. */
-  sweep(sessionId: string | null): void;
+  sweep(sessionId: string | null, libraryId: string): void;
+  /** Drops one library's snaps and keeps the others': Discard. */
+  clearLibrary(libraryId: string): void;
   clear(): void;
 };
 
@@ -74,8 +78,10 @@ function load(storage: KeyValueStore): PipelineState {
     const raw = storage.getString(STORAGE_KEY);
     if (!raw) return { snaps: [], unreadableCount: 0 };
     const parsed = JSON.parse(raw) as Partial<PipelineState>;
+    const snaps = Array.isArray(parsed.snaps) ? parsed.snaps : [];
     return {
-      snaps: Array.isArray(parsed.snaps) ? parsed.snaps : [],
+      // Snaps saved before they were tagged with a library cannot be attributed to one, so they go rather than leak across.
+      snaps: snaps.filter((s): s is PicSnap => typeof (s as Partial<PicSnap>).libraryId === 'string'),
       unreadableCount: typeof parsed.unreadableCount === 'number' ? parsed.unreadableCount : 0,
     };
   } catch {
@@ -130,8 +136,12 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
             .filter((s) => s.items.length > 0 || s.phase === 'reading'),
         }),
       dismissUnreadable: () => set({ unreadableCount: 0 }),
-      sweep: (sessionId) => {
-        const snaps = get().snaps.filter((s) => !s.sent || s.sessionId === sessionId);
+      sweep: (sessionId, libraryId) => {
+        const snaps = get().snaps.filter((s) => s.libraryId !== libraryId || !s.sent || s.sessionId === sessionId);
+        if (snaps.length !== get().snaps.length) set({ snaps });
+      },
+      clearLibrary: (libraryId) => {
+        const snaps = get().snaps.filter((s) => s.libraryId !== libraryId);
         if (snaps.length !== get().snaps.length) set({ snaps });
       },
       clear: () => set({ snaps: [], unreadableCount: 0 }),

@@ -1,6 +1,7 @@
 // What happens to a read that the server does not accept: told to slow down (429), a session that has gone (404) and the
 // snapId the old session still holds (409), and a refusal that will not change (400, 413). A read is never lost silently.
 import { HttpResponse, http } from 'msw';
+import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { identifyMock } from '@/mocks/identify';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
@@ -35,6 +36,7 @@ const refuseOnce = (status: number, headers: Record<string, string> = {}, extra:
 
 const unsentSnap = (snapId: string, item: ReadItem, createdAt: number) => ({
   snapId,
+  libraryId: MOCK_LIBRARY_ID,
   trigger: 'shutter' as const,
   createdAt,
   thumbUri: 'file:///snaps/x.jpg',
