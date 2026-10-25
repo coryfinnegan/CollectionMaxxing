@@ -20,8 +20,14 @@ const jsonForStep = { test: jestJson, 'test:tz': jestTzJson };
 
 // CLI --testPathIgnorePatterns replaces jest.config.js, so re-read its list
 // instead of duplicating it (duplication once let playwright specs into jest).
+// Lazy: node_modules may not exist yet (the install step runs inside the loop),
+// and requiring the config would crash with MODULE_NOT_FOUND.
 const require = createRequire(import.meta.url);
-const baseIgnores = require('../jest.config.js').testPathIgnorePatterns ?? ['/node_modules/'];
+let baseIgnores;
+function getBaseIgnores() {
+  baseIgnores ??= require('../jest.config.js').testPathIgnorePatterns ?? ['/node_modules/'];
+  return baseIgnores;
+}
 
 // The root gate (scripts/check.*) runs this without installing first, so install when needed.
 const steps = [
@@ -29,7 +35,7 @@ const steps = [
   ['generate', 'npm', ['run', 'generate', '--silent']],
   ['typecheck', 'npx', ['tsc', '--noEmit']],
   ['lint', 'npx', ['eslint', 'src', '--max-warnings', '0']],
-  ['test', 'npx', ['jest', '--silent', '--reporters=summary', '--ci', '--json', `--outputFile=${jestJson}`, '--testPathIgnorePatterns', ...baseIgnores, ...tzTests]],
+  ['test', 'npx', () => ['jest', '--silent', '--reporters=summary', '--ci', '--json', `--outputFile=${jestJson}`, '--testPathIgnorePatterns', ...getBaseIgnores(), ...tzTests]],
   ['test:tz', 'npx', ['jest', '--silent', '--reporters=summary', '--ci', '--json', `--outputFile=${jestTzJson}`, ...tzTests], { TZ: 'America/Chicago' }],
 ];
 
@@ -48,7 +54,8 @@ function failedTestNames(reportFile) {
 }
 
 let failed = false;
-for (const [name, cmd, args, extraEnv] of steps) {
+for (const [name, cmd, argsOrFn, extraEnv] of steps) {
+  const args = typeof argsOrFn === 'function' ? argsOrFn() : argsOrFn;
   const started = Date.now();
   const result = spawnSync(cmd, args, { encoding: 'utf8', shell: true, env: { ...process.env, FORCE_COLOR: '0', ...extraEnv } });
   const seconds = Math.round((Date.now() - started) / 1000);
