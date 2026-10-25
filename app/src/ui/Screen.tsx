@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Platform, ScrollView, View } from 'react-native';
-import { spacing, useColors } from '@/theme/tokens';
+import { StyleSheet } from 'react-native-unistyles';
 import { Text } from './Text';
 
 type ScreenProps = {
@@ -25,7 +25,6 @@ export function Screen({
   children,
   scroll = true,
 }: ScreenProps) {
-  const colors = useColors();
   // One title per screen: on the phone the navigator header names it, so the section title
   // only renders on the web. Pushed screens keep the nav-bar title on both platforms and pass
   // no title at all. The subtitle is content, not a title, and always shows.
@@ -33,7 +32,7 @@ export function Screen({
   const content = (
     <>
       {showTitle || subtitle ? (
-        <View style={{ gap: spacing.xs }}>
+        <View style={styles.header}>
           {showTitle ? (
             <Text variant={titleVariant} accessibilityRole="header">
               {title}
@@ -49,12 +48,17 @@ export function Screen({
       {children}
     </>
   );
-  const padding = { padding: spacing.lg, gap: spacing.lg };
   return scroll ? (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.ground }} contentContainerStyle={padding}>
+    <ScrollView style={styles.fill} contentContainerStyle={styles.padding}>
       {content}
     </ScrollView>
   ) : (
-    <View style={[{ flex: 1, backgroundColor: colors.ground }, padding]}>{content}</View>
+    <View style={[styles.fill, styles.padding]}>{content}</View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  header: { gap: theme.spacing.xs },
+  fill: { flex: 1, backgroundColor: theme.colors.ground },
+  padding: { padding: theme.spacing.lg, gap: theme.spacing.lg },
+}));

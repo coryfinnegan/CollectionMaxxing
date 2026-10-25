@@ -3,6 +3,7 @@
 // decorative to screen readers (the title next to it says what matters).
 import LottieView from 'lottie-react-native';
 import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import emptyLibrary from '@/assets/lottie/empty-library.json';
 import noResults from '@/assets/lottie/no-results.json';
 import successCheck from '@/assets/lottie/success-check.json';
@@ -25,7 +26,11 @@ export function LottieSpot({ name, size = 96, loop = false, testID = 'lottie-spo
   if (reduceMotion) return null;
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <LottieView source={SOURCES[name]} autoPlay loop={loop} style={{ width: size, height: size }} testID={testID} />
+      <LottieView source={SOURCES[name]} autoPlay loop={loop} style={styles.art(size)} testID={testID} />
     </View>
   );
 }
+
+const styles = StyleSheet.create(() => ({
+  art: (size: number) => ({ width: size, height: size }),
+}));

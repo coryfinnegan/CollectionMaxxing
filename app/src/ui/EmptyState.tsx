@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import { spacing } from '@/theme/tokens';
+import { StyleSheet } from 'react-native-unistyles';
 import { Button } from './Button';
 import { LottieSpot, type LottieSpotName } from './LottieSpot';
 import { Text } from './Text';
@@ -15,13 +15,13 @@ type EmptyStateProps = {
 
 export function EmptyState({ title, body, actionLabel, onAction, animation }: EmptyStateProps) {
   return (
-    <View style={{ alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxl }}>
+    <View style={styles.root}>
       {animation ? <LottieSpot name={animation} loop testID="empty-spot" /> : null}
-      <Text variant="heading" accessibilityRole="header" aria-level={2} style={{ textAlign: 'center' }}>
+      <Text variant="heading" accessibilityRole="header" aria-level={2} style={styles.centered}>
         {title}
       </Text>
       {body ? (
-        <Text tone="muted" style={{ textAlign: 'center' }}>
+        <Text tone="muted" style={styles.centered}>
           {body}
         </Text>
       ) : null}
@@ -29,3 +29,8 @@ export function EmptyState({ title, body, actionLabel, onAction, animation }: Em
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  root: { alignItems: 'center', gap: theme.spacing.md, paddingVertical: theme.spacing.xxl },
+  centered: { textAlign: 'center' },
+}));
