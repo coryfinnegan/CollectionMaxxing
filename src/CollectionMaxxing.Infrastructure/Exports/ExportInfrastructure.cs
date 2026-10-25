@@ -43,7 +43,15 @@ public sealed class FileExportStore : IExportStore
         }
         catch
         {
-            File.Delete(temporary);
+            // Best effort: the write already failed, and a stuck temp file must not hide the real error.
+            try
+            {
+                File.Delete(temporary);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+            {
+            }
+
             throw;
         }
     }
