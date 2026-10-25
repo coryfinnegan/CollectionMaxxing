@@ -4,7 +4,7 @@ import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { ItemDetailDto } from '@/api/generated/models';
 import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLabels } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
@@ -14,7 +14,9 @@ import { friendlyError } from '@/lib/problem';
 import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
 import { sharedCoverTag } from '@/ui/motion';
 import { breadcrumb } from './breadcrumb';
+import { headerThemeFromCover } from './coverColor';
 import { UndoSnackbar } from './UndoSnackbar';
+import { useCoverAccent } from './useCoverAccent';
 import { useItemDetail, useItemMutations, useUndoStore } from './useItem';
 
 export function ItemDetailScreen({ id }: { id: string }) {
@@ -32,12 +34,18 @@ export function ItemDetailScreen({ id }: { id: string }) {
 function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   const router = useRouter();
   const reduceMotion = useReduceMotion();
+  const { theme } = useUnistyles();
   const { detail, etag, isLoading, isError, error, refetch } = useItemDetail(libraryId, id);
   const { locations } = useLocationsList(libraryId);
   const { update, remove } = useItemMutations(libraryId);
   const setDeleted = useUndoStore((s) => s.setDeleted);
   const [moving, setMoving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // The header band takes its color from the cover when it can; without a cover
+  // (or an unreadable one) it is the token surface, and either way the text on
+  // it was contrast-checked. Detail screens only: lists never derive color.
+  const accent = useCoverAccent(id, detail ? (detail.release.coverUrl ?? detail.work.coverUrl) : null);
+  const header = accent ? headerThemeFromCover(accent, theme.fixed.white, theme.colors.ink) : null;
 
   if (isLoading) {
     return (
@@ -64,6 +72,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   const facts = [formatLabels[release.format], release.platform?.name, release.year ?? work.originalYear, release.publisher]
     .filter(Boolean)
     .join(' · ');
+  const coverUri = release.coverUrl ?? work.coverUrl;
 
   const move = (locationId: string | null) => {
     setMessage(null);
@@ -95,10 +104,14 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
 
   return (
     <Screen title={title} showTitleOnPhone subtitle={facts} subtitleVariant="mono">
-      <View style={styles.hero}>
-        <Cover title={title} uri={release.coverUrl ?? work.coverUrl} width={160} sharedTag={sharedCoverTag(reduceMotion, id)} />
+      <View style={styles.heroBand(header?.background ?? theme.colors.surface)} testID="Detail header">
+        <Cover title={title} uri={coverUri} width={160} sharedTag={sharedCoverTag(reduceMotion, id)} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />
-        {work.creators.length ? <Text variant="caption" tone="muted">{work.creators.join(', ')}</Text> : null}
+        {work.creators.length ? (
+          <Text variant="caption" tone="muted" style={header ? { color: header.text } : undefined}>
+            {work.creators.join(', ')}
+          </Text>
+        ) : null}
       </View>
 
       <Card>
@@ -180,7 +193,14 @@ function OtherCopies({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  hero: { alignItems: 'center', gap: theme.spacing.sm },
+  // The derived band color arrives per item, so it is a dynamic value; the shape stays in the sheet.
+  heroBand: (backgroundColor: string) => ({
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    padding: theme.spacing.lg,
+    borderRadius: theme.radius.lg,
+    backgroundColor,
+  }),
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   fact: { flexDirection: 'row', gap: theme.spacing.md },
   factLabel: { width: 110 },

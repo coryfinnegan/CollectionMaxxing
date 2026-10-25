@@ -9,7 +9,7 @@ import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { Text, usePressFeedback } from '@/ui';
+import { GlassSurface, Text, usePressFeedback } from '@/ui';
 
 export const SCAN_LABEL = 'Scan a barcode';
 
@@ -22,36 +22,27 @@ export function ScanPill() {
     press.buzz();
     router.navigate('/scan');
   };
+  // Frosted accent glass on iOS 26+, the solid accent pill elsewhere (#306).
   if (placement === 'inline') {
     return (
       <Animated.View style={press.style}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={SCAN_LABEL}
-          onPress={openScan}
-          onPressIn={press.onPressIn}
-          onPressOut={press.onPressOut}
-          style={styles.collapsed}
-        >
-          <BarcodeGlyph color={theme.colors.onAccent} />
+        <Pressable accessibilityRole="button" accessibilityLabel={SCAN_LABEL} onPress={openScan} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
+          <GlassSurface style={styles.collapsed} fallbackStyle={styles.accentFallback} tint={theme.colors.accent}>
+            <BarcodeGlyph color={theme.colors.onAccent} />
+          </GlassSurface>
         </Pressable>
       </Animated.View>
     );
   }
   return (
     <Animated.View style={press.style}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={SCAN_LABEL}
-        onPress={openScan}
-        onPressIn={press.onPressIn}
-        onPressOut={press.onPressOut}
-        style={styles.pill}
-      >
-        <BarcodeGlyph color={theme.colors.onAccent} />
-        <Text variant="label" style={styles.label}>
-          {SCAN_LABEL}
-        </Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={SCAN_LABEL} onPress={openScan} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
+        <GlassSurface style={styles.pill} fallbackStyle={styles.accentFallback} tint={theme.colors.accent}>
+          <BarcodeGlyph color={theme.colors.onAccent} />
+          <Text variant="label" style={styles.label}>
+            {SCAN_LABEL}
+          </Text>
+        </GlassSurface>
       </Pressable>
     </Animated.View>
   );
@@ -77,7 +68,6 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.accent,
   },
   pill: {
     minHeight: 44,
@@ -91,8 +81,8 @@ const styles = StyleSheet.create((theme) => ({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
-    backgroundColor: theme.colors.accent,
   },
+  accentFallback: { backgroundColor: theme.colors.accent },
   label: { color: theme.colors.onAccent },
   bars: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   bar: ({ width, color }: { width: number; color: string }) => ({ height: 16, borderRadius: 1, width, backgroundColor: color }),

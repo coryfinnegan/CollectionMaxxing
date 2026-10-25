@@ -4,6 +4,7 @@ export { Chip } from './Chip';
 export { Cover } from './Cover';
 export { EmptyState } from './EmptyState';
 export { FormatBadge } from './FormatBadge';
+export { GlassSurface } from './GlassSurface';
 export { ListRow } from './ListRow';
 export { LoadingState } from './LoadingState';
 export { LottieSpot, type LottieSpotName } from './LottieSpot';

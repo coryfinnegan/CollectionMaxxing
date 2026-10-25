@@ -4,6 +4,7 @@ import { useListMembers } from '@/api/generated/libraries/libraries';
 import { useGetStats } from '@/api/generated/items/items';
 import { isWeb } from '@/lib/auth/session';
 import { Card, ListRow, Screen, Text } from '@/ui';
+import { CollectionStats } from './CollectionStats';
 import { useMyRole } from './useMyRole';
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
@@ -35,6 +36,7 @@ export function MeScreen() {
         <Text variant="heading">{isWeb() ? 'This browser' : 'Paired: this iPhone'}</Text>
         {counts ? <Text tone="muted">{counts}</Text> : <Text tone="muted">Loading…</Text>}
       </Card>
+      {libraryId ? <CollectionStats libraryId={libraryId} /> : null}
       <Card>
         {links.map((link) => (
           <ListRow key={link.title} title={link.title} subtitle={link.subtitle} onPress={() => router.push(link.href)} trailing={<Text tone="muted">›</Text>} />
