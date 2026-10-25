@@ -14,6 +14,7 @@ import {
 import { getCommitScanSessionMutationKey, getDecideCandidateMutationKey } from '@/api/generated/scanning/scanning';
 import { useGetOwnership } from '@/api/generated/ownership/ownership';
 import type { GetOwnershipParams } from '@/api/generated/models';
+import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { useLibraryStore } from '@/state/library';
 import { NOT_IN_LIBRARY, staleCopyMessage } from './copy';
 import { getOwnedCache } from './ownedCache';
@@ -72,7 +73,11 @@ const fromServer = (c: { itemId: string; releaseId: string; workId: string; titl
  * `staleMessage` says how old it is. Works for every role: it only reads.
  */
 export function useOwnedLookup(query: OwnedQuery | null, now: () => number = Date.now): OwnedAnswer {
-  const libraryId = useLibraryStore((s) => s.activeLibraryId);
+  // The resolved library the screens show; what this device remembers while the list cannot load (offline, or the
+  // server is down), so the local copy still answers. A stale stored id is dropped as soon as the list arrives.
+  const { libraryId: resolved } = useActiveLibraryId();
+  const stored = useLibraryStore((s) => s.activeLibraryId);
+  const libraryId = resolved ?? stored;
   const state = useCacheState(libraryId);
   const online = useOnline();
   const params = query ? toServerKey(query) : null;
@@ -123,7 +128,11 @@ const OWNERSHIP_MUTATIONS = new Set<string>([
  * failed sync keeps the old copy and tries again quietly, a little later each time. Mount it once, high in the tree.
  */
 export function useOwnedSync(): { syncNow: () => Promise<void> } {
-  const libraryId = useLibraryStore((s) => s.activeLibraryId);
+  // The resolved library the screens show, so the copy synced is the one the answers read; the stored id while the
+  // list cannot load, so a retry is still aimed at the remembered library.
+  const { libraryId: resolved } = useActiveLibraryId();
+  const stored = useLibraryStore((s) => s.activeLibraryId);
+  const libraryId = resolved ?? stored;
   const queryClient = useQueryClient();
 
   const syncNow = useCallback(async () => {

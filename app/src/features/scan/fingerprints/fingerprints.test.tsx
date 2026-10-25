@@ -457,4 +457,22 @@ describe('the bridge', () => {
     expect(pcs.puts).toEqual([]);
     view.unmount();
   });
+
+  it('on a fresh sign-in restores the first library’s prints, with nothing stored', async () => {
+    useLibraryStore.setState({ activeLibraryId: null });
+    server.use(http.get('*/api/v1/me', () => HttpResponse.json({ id: 'user-1', memberships: [{ libraryId: MOCK_LIBRARY_ID, role: 'editor' }] })));
+    const pcs = new FakePrintsServer().use();
+    const r = printRow(5);
+    pcs.rows = [{ itemId: r.itemId, releaseId: r.releaseId, revision: r.revision, data: r.print, createdAt: r.createdAt }];
+    const store = freshStore(LIB, 'user-1');
+    store.put(printRow(6));
+    const view = await render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <FingerprintBridge vision={noVision} cover={noCover} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(store.size).toBe(2));
+    view.unmount();
+  });
 });
