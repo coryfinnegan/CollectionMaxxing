@@ -1,11 +1,13 @@
-// The web root layout (#303): the sidebar beside every page on wide screens,
-// and the skip link ahead of it. The tab pages bring their own tab bar on
-// narrow screens; the pushed pages name themselves in their content.
-import { Stack } from 'expo-router';
+// The web root layout (#303): the sidebar beside every signed-in page on wide
+// screens, and the skip link ahead of it. Logged-out routes (login, welcome,
+// join) show no authenticated nav (#328). The tab pages bring their own tab
+// bar on narrow screens; the pushed pages name themselves in their content.
+import { Stack, usePathname } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View, useWindowDimensions } from 'react-native';
 import { RootFrame } from '@/components/RootFrame';
 import { Sidebar } from '@/components/Sidebar';
+import { isLoggedOutRoute } from '@/features/auth/navigation';
 import { WIDE_BREAKPOINT, radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
 
@@ -47,12 +49,15 @@ function SkipLink() {
 export default function RootLayout() {
   const colors = useColors();
   const { width } = useWindowDimensions();
+  const pathname = usePathname();
   const wide = width >= WIDE_BREAKPOINT;
+  // Route-based, so there is no loading state to flash: logged-out routes never render the sidebar, signed-in pages always do.
+  const showSidebar = wide && !isLoggedOutRoute(pathname);
   return (
     <RootFrame>
       <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
         <SkipLink />
-        {wide ? <Sidebar /> : null}
+        {showSidebar ? <Sidebar /> : null}
         <View nativeID={MAIN_ID} role="main" tabIndex={-1} style={{ flex: 1 }}>
           <Stack
             screenOptions={{

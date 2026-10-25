@@ -65,6 +65,13 @@ test.describe('library', () => {
     await expect(page.getByRole('button', { name: 'Change status of The Matrix, now Wishlist' })).toBeVisible();
   });
 
+  test('item detail keeps the sidebar', async ({ page, open }) => {
+    await open('/library');
+    await page.getByRole('link', { name: 'Open The Matrix' }).click();
+    await expect(page.getByRole('heading', { name: 'The Matrix' })).toBeVisible();
+    await expect(page.getByRole('navigation').getByRole('link', { name: 'Wishlist', exact: true })).toBeVisible();
+  });
+
   test('a stale ETag shows the reload message and keeps the edits', async ({ page, open }) => {
     await open('/library');
     await page.getByRole('link', { name: 'Open The Matrix' }).click();

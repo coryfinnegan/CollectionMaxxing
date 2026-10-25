@@ -17,6 +17,13 @@ test.describe('sign-in', () => {
     await expect(page.getByRole('link', { name: 'Open The Matrix' })).toBeVisible();
   });
 
+  test('logged out, the sign-in page shows no authenticated nav', async ({ page, open }) => {
+    await open('/login?account=signedout');
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Library', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Wishlist', exact: true })).toHaveCount(0);
+  });
+
   test('a failed sign-in comes back to the sign-in page with a message', async ({ page, open }) => {
     await open('/login?error=signin_failed');
     await expect(page.getByRole('alert')).toHaveText("Sign-in didn't finish. Try again.");
