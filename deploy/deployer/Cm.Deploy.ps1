@@ -1,6 +1,12 @@
 # The deploy flow. Dot-sourced by Deploy-CollectionMaxxing.ps1 (and by the tests). Needs Cm.Common.ps1.
 #Requires -Version 7.0
 
+# A lock stamped longer ago than this means the run holding it is stuck (see New-CmBusyResult): the next run alerts
+# instead of quietly exiting. Polls run every 2 minutes and a healthy run takes a few minutes at most (pulls, one
+# migration, up to a minute of smoke tests, a fast-forward), so 30 minutes is far beyond any live run, yet pages
+# within half an hour instead of silently halting deploys.
+$script:CmStaleLockMinutes = 30
+
 function New-CmContext {
     param(
         [string]$Root = 'C:\CollectionMaxxing',
@@ -93,6 +99,67 @@ function Invoke-CmSmokeTest {
     $false
 }
 
+function Get-CmUnhealthyServices {
+    <#
+      Parses `docker compose ps --format json` (an array, or one object per line on older compose) and names every
+      service in $Ctx.Services that is not verifiably up: no container, a state other than running (restarting,
+      exited, created, ...), or a health other than healthy where the service has a healthcheck. Services the
+      deployer does not start (postgres, the finished migrate) are ignored. Anything unreadable fails closed:
+      every service is reported unknown.
+    #>
+    param($Ctx, [string]$PsJson)
+    $names = @($Ctx.Services)
+    try {
+        $text = "$PsJson".Trim()
+        if (-not $text) { throw 'empty container list' }
+        $rows = if ($text.StartsWith('[')) { @($text | ConvertFrom-Json) }
+        else { @($text -split "`r?`n" | Where-Object { "$_".Trim() } | ForEach-Object { $_ | ConvertFrom-Json }) }
+    }
+    catch { return @($names | ForEach-Object { "$_ is unknown (could not read the container list)" }) }
+    $bad = [System.Collections.Generic.List[string]]::new()
+    foreach ($name in $names) {
+        $mine = @($rows | Where-Object { $_.Service -eq $name })
+        if ($mine.Count -eq 0) { $bad.Add("$name has no container"); continue }
+        foreach ($row in $mine) {
+            if ("$($row.State)" -ne 'running') { $bad.Add("$name is $($row.State)") }
+            elseif ($null -ne $row.Health -and "$($row.Health)" -notin @('', 'healthy')) { $bad.Add("$name health is $($row.Health)") }
+        }
+    }
+    $bad.ToArray()
+}
+
+function Test-CmServicesHealthy {
+    <#
+      True once every service in $Ctx.Services is actually up (see Get-CmUnhealthyServices). Polls
+      `docker compose ps --format json` with the same retries and delay as the smoke test: right after `up -d`
+      a container may still be starting. Returns @{ Ok; Problems } so the failure can name the service.
+    #>
+    param($Ctx)
+    $problems = @('could not list the running containers')
+    for ($i = 1; $i -le [math]::Max(1, $Ctx.SmokeRetries); $i++) {
+        $r = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = 'health-check' } -Arguments (Get-CmComposeArgs $Ctx @('ps', '--format', 'json'))
+        if ($r.ExitCode -eq 0) {
+            $problems = @(Get-CmUnhealthyServices -Ctx $Ctx -PsJson ($r.Output -join "`n"))
+            if ($problems.Count -eq 0) { return [pscustomobject]@{ Ok = $true; Problems = @() } }
+        }
+        if ($i -lt $Ctx.SmokeRetries) { Start-CmSleep -Seconds $Ctx.SmokeDelaySeconds }
+    }
+    [pscustomobject]@{ Ok = $false; Problems = $problems }
+}
+
+function Test-CmStackHealthy {
+    <#
+      The full "is this version good" check, in order: the API answers /health/ready, then every started service
+      is up. Returns @{ Ok; Note } where Note names what failed ('the smoke test failed', or 'the service check
+      failed (backup is restarting)').
+    #>
+    param($Ctx)
+    if (-not (Invoke-CmSmokeTest -Ctx $Ctx)) { return [pscustomobject]@{ Ok = $false; Note = 'the smoke test failed' } }
+    $services = Test-CmServicesHealthy -Ctx $Ctx
+    if (-not $services.Ok) { return [pscustomobject]@{ Ok = $false; Note = "the service check failed ($($services.Problems -join '; '))" } }
+    [pscustomobject]@{ Ok = $true; Note = '' }
+}
+
 function New-CmCtxAtCommit {
     <#
       A copy of Ctx whose compose file is the one AT commit Sha (git show), so a release starts with its own compose file
@@ -142,7 +209,8 @@ function Get-CmPlan {
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('run', '--rm', 'migrate')) @{ CM_TAG = $tag }
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services)) @{ CM_TAG = $tag }
     $plan += Format-CmCommand 'curl' @('-s', '-m', '5', '-w', '%{http_code}', $Ctx.SmokeUrl)
-    $plan += '(if the smoke test fails: the same up -d with CM_TAG=<previous good sha>)'
+    $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('ps', '--format', 'json')) @{ CM_TAG = 'health-check' }
+    $plan += '(if the smoke test or the service check fails: the same up -d with CM_TAG=<previous good sha>)'
     $plan += '(then, if the clone is clean and on main, it is fast-forwarded to the deployed commit so the deployer scripts on disk match the running build)'
     $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'merge', '--ff-only', $tag)
     $plan += '(then, once, on a server that still has the .ipa it served before the iPhone app moved to TestFlight, any run removes it)'
@@ -165,6 +233,7 @@ function Get-CmRollbackPlan {
     $plan += '(no migration: migrations are expand-only, so the older api runs on the newer schema)'
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services)) @{ CM_TAG = $sha }
     $plan += Format-CmCommand 'curl' @('-s', '-m', '5', '-w', '%{http_code}', $Ctx.SmokeUrl)
+    $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('ps', '--format', 'json')) @{ CM_TAG = 'health-check' }
     $plan += '(if the older version is not healthy: the same up -d with CM_TAG=<the version that was running>)'
     $plan += '(on success the commit rolled back from is remembered as bad, so the poller does not put it straight back)'
     $plan
@@ -396,7 +465,7 @@ function Invoke-CmDeploy {
       explicit rollback path (the only way to go back to an older commit).
       Outcomes and exit codes:
         0  dry-run, busy, up-to-date, known-bad, deployed, manual-rollback
-        1  migrate-failed, rolled-back, failed, rollback-failed, crashed
+        1  migrate-failed, rolled-back, failed, rollback-failed, crashed, stale-lock
         2  config-error
         3  no-docker
         4  refused, downgrade-refused, rollback-refused
@@ -415,6 +484,34 @@ function Invoke-CmDeploy {
     $result
 }
 
+function Get-CmLockAgeMinutes {
+    <# How long ago the holder stamped the lock file, in minutes. $null when there is nothing to judge (no file, or it cannot be read): never stale. Reads only metadata, so it works even while another run holds the file open exclusively. #>
+    param([string]$Path)
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return $null }
+        ([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($Path)).TotalMinutes
+    }
+    catch { $null }
+}
+
+function New-CmBusyResult {
+    <#
+      The lock is held by another run. Usually that is just overlapping polls: exit 0, quietly. But a run that
+      hangs (a stuck docker or gh call) while holding the lock would silence every later run the same way, with
+      exit 0 and no alert, so a lock stamped longer ago than CmStaleLockMinutes alerts like a failure instead.
+      The lock is never broken: two deployers must never run at once.
+    #>
+    param($Ctx)
+    $age = Get-CmLockAgeMinutes -Path $Ctx.LockFile
+    if (($null -ne $age) -and ($age -gt $script:CmStaleLockMinutes)) {
+        $message = "the deployer lock at $($Ctx.LockFile) has been held for $([math]::Floor($age)) minutes, so the run holding it looks stuck; not starting another one (the lock was not broken)"
+        Write-CmLog $message 'ERROR'
+        return New-CmResult 'stale-lock' 1 $message
+    }
+    Write-CmLog 'another deployer run is in progress; exiting' 'INFO'
+    New-CmResult 'busy' 0
+}
+
 function Invoke-CmDeployCore {
     param($Ctx)
     $envMap = Initialize-CmRun -Ctx $Ctx
@@ -429,10 +526,7 @@ function Invoke-CmDeployCore {
     }
 
     $lock = Enter-CmLock -Path $Ctx.LockFile
-    if (-not $lock) {
-        Write-CmLog 'another deployer run is in progress; exiting' 'INFO'
-        return New-CmResult 'busy' 0
-    }
+    if (-not $lock) { return New-CmBusyResult -Ctx $Ctx }
     try {
         $problems = @(Get-CmComposeGuard -Ctx $Ctx -EnvMap $envMap)
         if ($problems.Count -gt 0) {
@@ -532,9 +626,9 @@ function Invoke-CmDeployCore {
             return New-CmResult 'migrate-failed' 1 $message
         }
         $up = Invoke-CmUp -Ctx $newCtx -Tag $sha
-        $healthy = ($up.ExitCode -eq 0) -and (Invoke-CmSmokeTest -Ctx $Ctx)
+        $health = if ($up.ExitCode -eq 0) { Test-CmStackHealthy -Ctx $Ctx } else { [pscustomobject]@{ Ok = $false; Note = 'starting the containers failed' } }
 
-        if ($healthy) {
+        if ($health.Ok) {
             $state['current'] = @{
                 sha        = $sha
                 created    = $api.Created
@@ -554,14 +648,14 @@ function Invoke-CmDeployCore {
         $state['failedSha'] = $sha
         Write-CmState -Path $Ctx.StateFile -State $state
         if ($current) {
-            Write-CmLog "smoke test failed; pinning previous good $("$($current['sha'])".Substring(0, 12))" 'ERROR'
+            Write-CmLog "$($health.Note); pinning previous good $("$($current['sha'])".Substring(0, 12))" 'ERROR'
             # The previous release's own compose file; if it cannot be read, the clone's (still the previous release's).
             Invoke-CmUp -Ctx $(if ($oldCtx) { $oldCtx } else { $Ctx }) -Tag $current['sha'] | Out-Null
-            if (Invoke-CmSmokeTest -Ctx $Ctx) { Write-CmLog 'rolled back; the previous version is healthy' 'WARN'; $tail = 'the previous version is healthy again' }
+            if ((Test-CmStackHealthy -Ctx $Ctx).Ok) { Write-CmLog 'rolled back; the previous version is healthy' 'WARN'; $tail = 'the previous version is healthy again' }
             else { Write-CmLog 'rolled back but the previous version is not healthy either; check the stack' 'ERROR'; $tail = 'the previous version is NOT healthy either; check the stack' }
-            return New-CmResult 'rolled-back' 1 "the smoke test failed for $($sha.Substring(0, 12)); rolled back to $("$($current['sha'])".Substring(0, 12)); $tail"
+            return New-CmResult 'rolled-back' 1 "$($health.Note) for $($sha.Substring(0, 12)); rolled back to $("$($current['sha'])".Substring(0, 12)); $tail"
         }
-        $message = "smoke test failed for $($sha.Substring(0, 12)) and there is no previous good version to return to"
+        $message = "$($health.Note) for $($sha.Substring(0, 12)) and there is no previous good version to return to"
         Write-CmLog $message 'ERROR'
         New-CmResult 'failed' 1 $message
     }
@@ -594,10 +688,7 @@ function Invoke-CmRollbackCore {
     function Refuse($message) { Write-CmLog $message 'ERROR'; New-CmResult 'rollback-refused' 4 $message }
 
     $lock = Enter-CmLock -Path $Ctx.LockFile
-    if (-not $lock) {
-        Write-CmLog 'another deployer run is in progress; exiting' 'INFO'
-        return New-CmResult 'busy' 0
-    }
+    if (-not $lock) { return New-CmBusyResult -Ctx $Ctx }
     try {
         $problems = @(Get-CmComposeGuard -Ctx $Ctx -EnvMap $envMap)
         if ($problems.Count -gt 0) {
@@ -628,11 +719,11 @@ function Invoke-CmRollbackCore {
         $fromCtx = New-CmCtxAtCommit -Ctx $Ctx -Sha "$($current['sha'])"
 
         $up = Invoke-CmUp -Ctx $targetCtx -Tag $Target
-        $healthy = ($up.ExitCode -eq 0) -and (Invoke-CmSmokeTest -Ctx $Ctx)
-        if (-not $healthy) {
+        $health = if ($up.ExitCode -eq 0) { Test-CmStackHealthy -Ctx $Ctx } else { [pscustomobject]@{ Ok = $false; Note = 'starting the containers failed' } }
+        if (-not $health.Ok) {
             Invoke-CmUp -Ctx $(if ($fromCtx) { $fromCtx } else { $Ctx }) -Tag $current['sha'] | Out-Null
-            $back = if (Invoke-CmSmokeTest -Ctx $Ctx) { "$("$($current['sha'])".Substring(0, 12)) is running again" } else { 'the previous version is NOT healthy either; check the stack' }
-            $message = "the older version $($Target.Substring(0, 12)) did not pass the smoke test; $back"
+            $back = if ((Test-CmStackHealthy -Ctx $Ctx).Ok) { "$("$($current['sha'])".Substring(0, 12)) is running again" } else { 'the previous version is NOT healthy either; check the stack' }
+            $message = "the older version $($Target.Substring(0, 12)): $($health.Note); $back"
             Write-CmLog $message 'ERROR'
             return New-CmResult 'rollback-failed' 1 $message
         }

@@ -65,7 +65,7 @@ Sign-in is Auth0's (docs/07, docs/14). There are no token keys to make. Follow \
 ```powershell
 pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Deploy-CollectionMaxxing.ps1
 ```
-Expect: `DRY RUN: nothing will be changed`, no `config problem:` lines, then the list of commands a real run makes (`docker pull`, `gh attestation verify`, `compose run --rm migrate`, `compose up -d api backup aspire-dashboard`, a `curl` of `/health/ready`). If you see `config problem:` read it: a forbidden port, a non-loopback bind, or a missing `.env` value.
+Expect: `DRY RUN: nothing will be changed`, no `config problem:` lines, then the list of commands a real run makes (`docker pull`, `gh attestation verify`, `compose run --rm migrate`, `compose up -d api backup aspire-dashboard`, a `curl` of `/health/ready`, and a `compose ps` check that every started service is up). If you see `config problem:` read it: a forbidden port, a non-loopback bind, or a missing `.env` value.
 
 ### 5. First deploy, by hand
 
@@ -80,7 +80,7 @@ docker compose -p collectionmaxxing ps                     # postgres, api, aspi
 ```
 Open `http://127.0.0.1:18888` for logs, traces and metrics. There is no setup code: the first sign-in creates an account, and people create or join libraries in the app. Support commands (recovery code, developer-tools role) are in [docs/07](../docs/07-authentication-and-authorization.md).
 
-If a step fails, the log says why: no `gh` login or an image that is not attested = nothing deployed; a failed migration = the old api keeps running; a failed smoke test = the previous good version is pinned and restarted.
+If a step fails, the log says why: no `gh` login or an image that is not attested = nothing deployed; a failed migration = the old api keeps running; a failed smoke test or service check = the previous good version is pinned and restarted.
 **Undo:** `docker compose -p collectionmaxxing -f C:\CollectionMaxxing\repo\deploy\docker-compose.yml --env-file C:\CollectionMaxxing\.env stop` (stops without deleting data; **never** use `down -v`, it deletes the database volume).
 
 ### 6. Tailscale Serve (HTTPS from your phone)
@@ -100,7 +100,7 @@ pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Install-Deployer
 pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Install-Deployer.ps1 -Apply
 schtasks /Query /TN CollectionMaxxingDeployer
 ```
-The only thing it registers is `schtasks /Create /TN CollectionMaxxingDeployer /SC MINUTE /MO 2 /TR "conhost.exe --headless pwsh ... Deploy-CollectionMaxxing.ps1 -Root C:\CollectionMaxxing -Apply" /RL LIMITED`: a user-level task, no admin, no SYSTEM account. It runs while you are signed in, like Docker Desktop. `conhost --headless` keeps a console window from flashing up every 2 minutes. Runs never overlap (a second one exits at once). It refuses to replace an existing task of that name.
+The only thing it registers is `schtasks /Create /TN CollectionMaxxingDeployer /SC MINUTE /MO 2 /TR "conhost.exe --headless pwsh ... Deploy-CollectionMaxxing.ps1 -Root C:\CollectionMaxxing -Apply" /RL LIMITED`: a user-level task, no admin, no SYSTEM account. It runs while you are signed in, like Docker Desktop. `conhost --headless` keeps a console window from flashing up every 2 minutes. Runs never overlap (a second one exits at once; if the lock has been held for over 30 minutes the run instead exits 1 and alerts, since the holder looks stuck — the lock itself is never broken). It refuses to replace an existing task of that name.
 **Undo:** `pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\deployer\Uninstall-Deployer.ps1 -Apply` (or `schtasks /Delete /TN CollectionMaxxingDeployer /F`).
 
 ### 8. Check the first backup
@@ -134,7 +134,7 @@ Nothing here is set up. When you want it (docs/10): create a free Backblaze B2 b
 | 1 | `git clone` into `C:\CollectionMaxxing\repo` |
 | 2 | Copies `.env.example` to `.env` (you edit it) |
 | 3 | `Apply-Auth0.ps1 -Apply`: changes your Auth0 tenant, and writes the files in `secretsuth0\` |
-| 5, and every 2 minutes after | `git -C ...\repo fetch origin main` (only when a new image appeared) and read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify`; `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; after a good deploy, read-only `git status` / `git symbolic-ref` on the clone and `git merge --ff-only <deployed sha>`; writes `state\deployer-state.json` and `logs\deployer.log*`; once, on a server that still has the retired `.ipa`, `docker run --rm ... sh -c "rm -rf /data/files/ipa"` |
+| 5, and every 2 minutes after | `git -C ...\repo fetch origin main` (only when a new image appeared) and read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify`; `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; `docker compose ps` (every started service must be up); after a good deploy, read-only `git status` / `git symbolic-ref` on the clone and `git merge --ff-only <deployed sha>`; writes `state\deployer-state.json` and `logs\deployer.log*`; once, on a server that still has the retired `.ipa`, `docker run --rm ... sh -c "rm -rf /data/files/ipa"` |
 | 6 | `tailscale serve --bg --https=443 http://127.0.0.1:5480` |
 | 7 | `schtasks /Create ...` (one task) |
 | 8 | `backup.sh once` inside the backup container |
@@ -147,8 +147,8 @@ It never runs `docker system prune`, `docker volume prune`, `docker rm` on anyth
 2. Same SHA as the running one: stop. A SHA that already failed here: skip until a newer one appears. Then the **ancestry guard**: `git -C C:\CollectionMaxxing\repo fetch origin main`, then `git merge-base --is-ancestor <running sha> <new sha>`. The new commit must be a strict descendant of the running one. An older commit, a diverged branch, a commit the clone has never seen, a running commit the clone does not know (or a state file that cannot be read), or a failed fetch all **refuse the deploy** (exit 4). Build times and run numbers play no part. The first ever deploy has nothing to compare with.
 3. Pull `api`, `migrate` and `backup` at that SHA. For each, `gh attestation verify oci://...@sha256:<digest> --repo coryfinnegan/CollectionMaxxing --signer-workflow coryfinnegan/CollectionMaxxing/.github/workflows/release.yml`, **and** the certificate must say `refs/heads/main` (and the same commit). Any failure: log it, do nothing.
 4. `docker compose run --rm migrate` (expand-only migrations, so the running api stays compatible). Failure: the api is not touched.
-5. `docker compose up -d api backup aspire-dashboard` with `CM_TAG=<sha>`, then up to 12 smoke tests of `http://127.0.0.1:5480/health/ready` 5 seconds apart.
-6. Success: record the SHA as last good, fast-forward the deployer's clone to it (and, once, remove the retired `.ipa`). Failure: remember the SHA as bad, `up -d` with the previous good tag, and smoke test again.
+5. `docker compose up -d api backup aspire-dashboard` with `CM_TAG=<sha>`, then up to 12 smoke tests of `http://127.0.0.1:5480/health/ready` 5 seconds apart, then `docker compose ps --format json` until every started service (`api`, `backup`, `aspire-dashboard`) is running (and healthy where it has a healthcheck): a crash-looping service fails the deploy like a failed smoke test.
+6. Success: record the SHA as last good, fast-forward the deployer's clone to it (and, once, remove the retired `.ipa`). Failure: remember the SHA as bad, `up -d` with the previous good tag, and check the previous version is healthy again.
 
 State lives in `C:\CollectionMaxxing\state`, logs in `C:\CollectionMaxxing\logs` (1 MB each, 5 kept). The log never contains the database password or the heartbeat URL.
 
@@ -162,7 +162,7 @@ New-Item -ItemType Directory -Force C:\CollectionMaxxing\state | Out-Null
 ```
 The sha must be 40 lowercase hex characters. A true first deploy (no state, nothing running, no pinned tag) is unaffected.
 
-**Exit codes:** 0 fine or nothing to do (also "already up to date", "known bad, waiting for a newer one", and a dry run), 1 deploy failed or rolled back (migration failed, smoke test failed, crashed), 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state). (5 was the retired `.ipa` sync.)
+**Exit codes:** 0 fine or nothing to do (also "already up to date", "known bad, waiting for a newer one", and a dry run), 1 deploy failed or rolled back (migration failed, smoke test or service check failed, stale lock, crashed), 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state). (5 was the retired `.ipa` sync.)
 
 **Refusals are loud.** Every non-zero result of a real (`-Apply`) run writes a line starting `ALERT deploy <outcome>` to `deployer.log` and pings `<CM_HEARTBEAT_URL>/fail` with the reason as the body: the same free healthchecks.io check the nightly backup uses, so you get the same email. (A deploy alert also marks that check "down" until the next good backup ping; that is the price of using one channel.) With no heartbeat URL the log line is the only alert. A failed ping never changes the exit code. The poller repeats the ping every 2 minutes while the cause persists; healthchecks only emails on the change.
 

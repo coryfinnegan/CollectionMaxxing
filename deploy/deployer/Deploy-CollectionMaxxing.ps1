@@ -5,8 +5,10 @@
 .DESCRIPTION
   Finds the newest main image on GHCR, checks its build attestation (built by this repo's release workflow from
   refs/heads/main), refuses to go backwards (the new commit must descend from the deployed one: git merge-base
-  --is-ancestor; an unknown deployed commit is refused), migrates, restarts the api, smoke tests /health/ready and, if
-  that fails, pins the previous good tag and restarts. A second run while one is active exits at once.
+  --is-ancestor; an unknown deployed commit is refused), migrates, restarts the api, smoke tests /health/ready,
+  checks every started service is up, and, if any of that fails, pins the previous good tag and restarts. A second
+  run while one is active exits at once, unless the lock has been held for over 30 minutes, which alerts like a failure.
+  The lock itself is never broken: two deployers must never run at once.
 
   After a good deploy of commit X the deployer's own clone is fast-forwarded to X (git merge --ff-only; skipped with a
   WARN if the clone has local changes or is not on main), so its scripts follow the build. On a server that still has the
@@ -17,8 +19,8 @@
 
   Without -Apply this script changes nothing: it checks the config and prints the commands a real run would make.
   -WhatIf does the same.
-  Exit codes: 0 done or nothing to do, 1 deploy failed or rolled back, 2 config refused, 3 Docker or GHCR not reachable,
-  4 refused (not a descendant, not attested, unreadable state).
+  Exit codes: 0 done or nothing to do, 1 deploy failed or rolled back (a stale lock counts as failed), 2 config refused,
+  3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state).
 
 .PARAMETER Apply
   Really deploy. The scheduled task passes this; running by hand without it is safe.

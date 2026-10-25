@@ -178,6 +178,17 @@ Test-Case 'loud: every refused, failed or rolled-back outcome exits non-zero, lo
     }
 }
 
+Test-Case 'loud: a stale lock alerts like a failure' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -LockHeld -LockAgeMinutes 60
+    Assert-Equal 'stale-lock' $r.Result.Outcome
+    Assert-Equal 1 $r.Result.ExitCode
+    Assert-Match $r.Log 'ALERT'
+    $alerts = Get-AlertCalls
+    Assert-Equal 1 $alerts.Count 'one alert ping'
+    Assert-Match $alerts[0].Display 'https://hc\.example/test-uuid/fail'
+    Assert-Match $alerts[0].Display 'stale-lock'
+}
+
 Test-Case 'loud: a config refusal exits 2 and alerts' {
     $cfg = New-GoodComposeConfig; $cfg.services.api.ports[0].host_ip = '0.0.0.0'
     $r = Invoke-TestDeploy -Machine @{ ComposeConfig = $cfg }
@@ -313,6 +324,15 @@ Test-Case 'rollback: if the older version is not healthy the running one is pinn
     Assert-Equal 2 $ups.Count
     Assert-Equal $script:Sha2 $ups[1].Env['CM_TAG']
     Assert-Equal $script:Sha2 $r.State.current.sha
+    Assert-Equal 1 (Get-AlertCalls).Count
+}
+
+Test-Case 'rollback: if a service of the older version crash-loops the running one is pinned again and the run fails loudly' {
+    $r = Invoke-TestDeploy -RollbackTo $script:Sha1 -State (Get-StateAt $script:Sha2) -Machine @{ Sha = $script:Sha1; BrokenServices = @{ $script:Sha1 = @('backup') } }
+    Assert-Equal 'rollback-failed' $r.Result.Outcome
+    Assert-Equal 1 $r.Result.ExitCode
+    Assert-Equal $script:Sha2 $r.State.current.sha
+    Assert-Match $r.Result.Reason 'backup'
     Assert-Equal 1 (Get-AlertCalls).Count
 }
 
