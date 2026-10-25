@@ -22,7 +22,8 @@ export default function TabsLayout() {
   return (
     <TabsFrame>
       <Tabs>
-        <TabSlot />
+        {/* flex:1 bounds the page to the viewport so long pages scroll above the pinned bar. */}
+        <TabSlot style={{ flex: 1 }} />
         {/* The list always renders with the same triggers: triggers define which
             routes exist, so hiding the bar only hides the container — the tabs
             stay declared on wide screens too. */}

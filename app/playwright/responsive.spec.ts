@@ -68,6 +68,8 @@ test.describe('phone width', () => {
     const library = page.getByRole('tab', { name: 'Library' });
     const me = page.getByRole('tab', { name: 'Me' });
     await expect(library).toBeVisible();
+    // The grid overflows the phone: the bar stays pinned to the viewport, not pushed under the content.
+    await expect(library).toBeInViewport();
     await expect(page.getByRole('tab', { name: 'Scan' })).toHaveCount(0);
     await expect(library).toHaveAttribute('aria-selected', 'true');
 
