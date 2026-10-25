@@ -6,6 +6,7 @@ export { EmptyState } from './EmptyState';
 export { FormatBadge } from './FormatBadge';
 export { ListRow } from './ListRow';
 export { LoadingState } from './LoadingState';
+export { LottieSpot, type LottieSpotName } from './LottieSpot';
 export { Screen } from './Screen';
 export { Sheet } from './Sheet';
 export { Snackbar } from './Snackbar';

@@ -40,6 +40,9 @@ export const test = base.extend<Fixtures>({
 
   expectAccessible: async ({ page }, use) => {
     await use(async () => {
+      // Entrance animations (at most a 160ms stagger plus 150ms) settle before the scan: axe reads
+      // opacity into contrast, so a mid-fade chip would fail a check its settled state passes (#304).
+      await page.waitForTimeout(400);
       const result = await new AxeBuilder({ page }).analyze();
       const found = result.violations
         .filter((v) => v.impact === 'serious' || v.impact === 'critical')

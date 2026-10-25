@@ -11,6 +11,7 @@ export default function RootLayout() {
           headerStyle: { backgroundColor: colors.surface },
           headerTintColor: colors.ink,
           contentStyle: { backgroundColor: colors.ground },
+          animationDuration: 250, // screen pushes match the motion vocabulary (#304)
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

@@ -44,9 +44,13 @@ export function useReview({
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [celebration, setCelebration] = useState<{ key: number; message: string } | null>(null);
   const inFlight = useRef(false);
   const undoing = useRef(false);
   const attempt = useRef<{ signature: string; key: string } | null>(null);
+  const celebrationKey = useRef(0);
+
+  const dismissCelebration = useCallback(() => setCelebration(null), []);
 
   const list = useMemo(() => reviewable(Object.values(byId)), [byId]);
   const groups = useMemo(() => groupCandidates(list), [list]);
@@ -113,8 +117,11 @@ export function useReview({
       for (const c of chosen) useCardsStore.getState().remove(c.id);
       store.getState().clear();
       setDraft(emptyDraft());
+      const message = `Added ${result.created} ${result.created === 1 ? 'item' : 'items'}`;
+      celebrationKey.current += 1;
+      setCelebration({ key: celebrationKey.current, message });
       setToast({
-        message: `Added ${result.created} ${result.created === 1 ? 'item' : 'items'}`,
+        message,
         sessionId,
         undoKey: newIdempotencyKey(),
         canUndo: true,
@@ -131,6 +138,7 @@ export function useReview({
   const undo = async () => {
     if (!toast?.canUndo || undoing.current) return;
     undoing.current = true;
+    setCelebration(null); // undone is not a moment to celebrate
     try {
       await undoCommit(toast.sessionId, toast.undoKey);
       // The commit cleared the tray (and with it the session): Review has the session and its results back now.
@@ -160,6 +168,8 @@ export function useReview({
     committing,
     commitError,
     toast,
+    celebration,
+    dismissCelebration,
     rowErrors,
     rowBusy,
     isChecked: (c: CandidateDto) => isChecked(draft, c),

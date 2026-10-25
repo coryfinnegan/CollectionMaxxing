@@ -3,6 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "types": ["jest"],
+    "resolveJsonModule": true, // the Lottie spots import their animation JSON (#304)
     "paths": {
       "@/*": [
         "./src/*"

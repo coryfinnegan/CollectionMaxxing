@@ -27,4 +27,23 @@ describe('Cover', () => {
 
     expect(screen.getByText('Dune', { includeHiddenElements: true })).toBeTruthy();
   });
+
+  it('tags the image for the shared transition when asked', async () => {
+    await render(<Cover title="Dune" uri="https://example.invalid/cover.jpg" sharedTag="cover-1" />);
+
+    expect(screen.getByLabelText('Cover of Dune').props.sharedTransitionTag).toBe('cover-1');
+  });
+
+  it('tags the title tile for the shared transition when asked', async () => {
+    await render(<Cover title="Dune" sharedTag="cover-1" />);
+
+    const tile = screen.getByText('Dune', { includeHiddenElements: true }).parent!;
+    expect(tile.props.sharedTransitionTag).toBe('cover-1');
+  });
+
+  it('leaves the tag unset by default', async () => {
+    await render(<Cover title="Dune" uri="https://example.invalid/cover.jpg" />);
+
+    expect(screen.getByLabelText('Cover of Dune').props.sharedTransitionTag).toBeUndefined();
+  });
 });
