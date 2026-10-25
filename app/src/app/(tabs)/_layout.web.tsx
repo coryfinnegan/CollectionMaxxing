@@ -44,7 +44,7 @@ export default function TabsLayout() {
                 href={tab.href}
                 accessibilityRole="tab"
                 accessibilityLabel={tab.label}
-                accessibilityState={{ selected: active }}
+                aria-selected={active}
                 style={{ flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm }}
               >
                 <Text variant="label" tone={active ? 'accent' : 'muted'}>

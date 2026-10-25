@@ -68,22 +68,22 @@ describe('web TabsLayout', () => {
 
   it('marks only the open tab selected', async () => {
     await renderWithProviders(<TabsLayout />);
-    expect(screen.getByRole('tab', { name: 'Library' }).props.accessibilityState).toEqual({ selected: true });
-    expect(screen.getByRole('tab', { name: 'Me' }).props.accessibilityState).toEqual({ selected: false });
+    expect(screen.getByRole('tab', { name: 'Library', selected: true })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Me', selected: false })).toBeTruthy();
 
     mockPathname.current = '/me';
     mockTriggers.length = 0;
     await renderWithProviders(<TabsLayout />);
-    expect(screen.getByRole('tab', { name: 'Library' }).props.accessibilityState).toEqual({ selected: false });
-    expect(screen.getByRole('tab', { name: 'Me' }).props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByRole('tab', { name: 'Library', selected: false })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Me', selected: true })).toBeTruthy();
   });
 
   it('selects nothing on a page outside the tabs', async () => {
     mockPathname.current = '/scan';
     await renderWithProviders(<TabsLayout />);
 
-    expect(screen.getByRole('tab', { name: 'Library' }).props.accessibilityState).toEqual({ selected: false });
-    expect(screen.getByRole('tab', { name: 'Me' }).props.accessibilityState).toEqual({ selected: false });
+    expect(screen.getByRole('tab', { name: 'Library', selected: false })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Me', selected: false })).toBeTruthy();
   });
 
   it('paints the bar with the theme and keeps every tab a finger wide', async () => {
