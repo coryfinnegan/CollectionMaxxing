@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { Text } from 'react-native';
 import { PasskeyCancelledError } from '@/lib/auth/errors';
@@ -182,6 +182,26 @@ describe('MembersScreen', () => {
 
     await waitFor(() => expect(screen.queryByLabelText('Revoke invite for Alex')).toBeNull());
     expect(mockMembers.invites.map((i) => i.name)).toEqual(['Jo']);
+  });
+
+  it('drops an invite from pending once it expires while the screen stays open', async () => {
+    jest.useFakeTimers();
+    try {
+      const expiring = { ...mockMembers.invites[0]!, expiresAt: new Date(Date.now() + 61_000).toISOString() };
+      server.use(
+        http.get('*/api/v1/libraries/:libraryId/invites', () => HttpResponse.json({ items: [expiring], nextCursor: null })),
+      );
+      await renderWithProviders(<MembersScreen />);
+      expect(await screen.findByLabelText('Revoke invite for Alex')).toBeTruthy();
+
+      await act(async () => {
+        jest.advanceTimersByTime(121_000);
+      });
+
+      await waitFor(() => expect(screen.queryByLabelText('Revoke invite for Alex')).toBeNull());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('labels every control', async () => {
