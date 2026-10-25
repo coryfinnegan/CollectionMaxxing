@@ -14,6 +14,7 @@ import { changeFilter, defaultState, hasActiveFilter, type ListState } from '@/f
 import { useDebounced, useItems } from '@/features/library/useItems';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
@@ -175,7 +176,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           />
         );
       case 'added':
-        return <Text tone="muted">{item.createdAt.slice(0, 10)}</Text>;
+        return <Text tone="muted">{localDateString(item.createdAt)}</Text>;
     }
   };
 
