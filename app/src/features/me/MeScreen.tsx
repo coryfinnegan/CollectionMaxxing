@@ -30,7 +30,7 @@ export function MeScreen() {
   ];
 
   return (
-    <Screen title="Me">
+    <Screen title="Me" showTitleOnPhone>
       <Card>
         <Text variant="heading">{isWeb() ? 'This browser' : 'Paired: this iPhone'}</Text>
         {counts ? <Text tone="muted">{counts}</Text> : <Text tone="muted">Loading…</Text>}

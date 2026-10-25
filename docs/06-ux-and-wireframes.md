@@ -54,7 +54,7 @@ flowchart TD
   end
 ```
 
-**iOS tabs:** Library · **Scan** (centre, larger) · Me.
+**iOS tabs:** Library · Scan · Me (native tab bar with SF Symbol icons; a "Scan a barcode" glass pill above the bar promotes scanning).
 **Web sidebar:** Library · Wishlist · Lent out · Locations · Members · Import / export · Settings. There's no scanning on the web; it's an iPhone feature.
 
 ---

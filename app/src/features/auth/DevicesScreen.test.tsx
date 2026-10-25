@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
+import { Platform } from 'react-native';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { mockAuth, resetMockAuth } from '@/mocks/auth';
 import { server } from '@/mocks/server';
@@ -8,6 +9,12 @@ import { DevicesScreen } from './DevicesScreen';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
+// The back button only shows on the web now (#303); the phone uses the stack header.
+const originalOs = Platform.OS;
+afterEach(() => {
+  Platform.OS = originalOs;
+});
 
 const CURRENT = 'This browser (Edge on Windows)';
 const failing = () => HttpResponse.json({ title: 'Boom', status: 500 }, { status: 500 });
@@ -162,7 +169,8 @@ describe('DevicesScreen', () => {
     expect(mockRouter.replace).not.toHaveBeenCalled();
   });
 
-  it('offers a way back to the previous screen', async () => {
+  it('offers a way back to the previous screen on the web', async () => {
+    Platform.OS = 'web';
     mockRouter.back.mockClear();
     await renderWithProviders(<DevicesScreen />);
 

@@ -1,6 +1,6 @@
-// Render smoke test: every route in the navigation map renders. Tab screens show the
-// navigator header (the one title on the phone); pushed screens show their content,
-// because their native headers are not text in this environment.
+// Render smoke test: every route in the navigation map renders. Tab screens show
+// their content title (native tabs have no navigator header); pushed screens
+// show their content, because their native headers are not text in this environment.
 import { act, waitFor } from '@testing-library/react-native';
 import { renderRouter, screen } from 'expo-router/testing-library';
 import { HttpResponse, http } from 'msw';
@@ -21,15 +21,17 @@ const routes: [url: string, expected: string][] = [
   ['/library', 'Library'],
   ['/scan', 'Scan'],
   ['/me', 'Me'],
-  ['/me/locations', 'Locations'],
-  ['/me/export', 'Import and export'],
-  ['/me/devices', 'Devices and browsers'],
-  ['/me/delete', 'Delete account'],
-  ['/wishlist', 'Wishlist'],
-  ['/lent-out', 'Lent out'],
-  ['/members', 'Members'],
-  ['/settings', 'Settings'],
-  ['/about', 'About'],
+  ['/me/locations', 'Where things live: rooms, shelves, boxes.'],
+  ['/me/export', 'Download everything in your library as files you can keep.'],
+  ['/me/devices', 'Where you are signed in.'],
+  ['/me/sign-in-methods', 'The accounts you can use to sign in.'],
+  ['/me/deleted', 'Deleted items stay here for 30 days.'],
+  ['/me/delete', "Delete your library and photos. This can't be undone."],
+  ['/wishlist', 'Blade Runner'],
+  ['/lent-out', 'GoldenEye 007'],
+  ['/members', 'Cory (you)'],
+  ['/settings', 'Recognition and security on this iPhone.'],
+  ['/about', 'Version, privacy and credits.'],
   ['/item/42', "Couldn't load this item"],
   ['/item/42/edit', "Couldn't load this item"],
   ['/scanner', 'Close'],

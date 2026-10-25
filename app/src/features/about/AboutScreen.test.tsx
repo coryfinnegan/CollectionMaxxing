@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { Linking, View, type ViewProps } from 'react-native';
+import { Linking, Platform, View, type ViewProps } from 'react-native';
 import { AboutScreen } from './AboutScreen';
 import { ATTRIBUTIONS } from './attributions';
 import * as buildInfo from './buildInfo';
@@ -12,6 +12,12 @@ jest.mock('expo-constants', () => ({
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
+// The back button only shows on the web now (#303); the phone uses the stack header.
+const originalOs = Platform.OS;
+afterEach(() => {
+  Platform.OS = originalOs;
+});
 
 const mockSafeAreaView = ({ children }: ViewProps) => <View testID="safe-area">{children}</View>;
 jest.mock('react-native-safe-area-context', () => ({
@@ -40,7 +46,8 @@ describe('About', () => {
     expect(screen.getByTestId('safe-area')).toBeTruthy();
   });
 
-  it('shows a back button that returns to the previous screen', async () => {
+  it('shows a back button that returns to the previous screen on the web', async () => {
+    Platform.OS = 'web';
     mockRouter.back.mockClear();
     await render(<AboutScreen />);
     fireEvent.press(screen.getByRole('button', { name: 'Back' }));
