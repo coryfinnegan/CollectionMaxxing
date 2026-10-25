@@ -2,7 +2,7 @@
 // hooks and the tests can share them.
 import { createScanSession, decideCandidate, getScanSession, scanBarcodes } from '@/api/generated/scanning/scanning';
 import { createItem } from '@/api/generated/items/items';
-import type { CandidateDto } from '@/api/generated/models';
+import type { CandidateDto, CreateScanSessionRequest, ScanSessionDto } from '@/api/generated/models';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { haptics } from '@/lib/haptics';
@@ -26,12 +26,13 @@ const creating = new Map<string, Promise<string>>();
 /**
  * Makes the library's scan session. Barcodes and pictures can both ask at once; they share one request per library,
  * so there is one session. Each library has its own in-flight request: Library B never receives Library A's session.
+ * The context (location, status, media, channel) rides along so Review inherits it.
  */
-export function createSessionOnce(libraryId: string): Promise<string> {
+export function createSessionOnce(libraryId: string, body: CreateScanSessionRequest = {}): Promise<string> {
   const running = creating.get(libraryId);
   if (running) return running;
   const next = (async () => {
-    const response = await createScanSession(libraryId, {});
+    const response = await createScanSession(libraryId, body);
     if (response.status !== 201) throw new ApiError(response.status, {});
     return response.data.id;
   })().finally(() => {
@@ -41,9 +42,9 @@ export function createSessionOnce(libraryId: string): Promise<string> {
   return next;
 }
 
-export function flushDeps(libraryId: string): FlushDeps {
+export function flushDeps(libraryId: string, sessionBody: () => CreateScanSessionRequest = () => ({})): FlushDeps {
   return {
-    createSession: () => createSessionOnce(libraryId),
+    createSession: () => createSessionOnce(libraryId, sessionBody()),
     async sendBatch(sessionId, batch) {
       const response = await scanBarcodes(
         sessionId,
@@ -63,9 +64,14 @@ export function flushDeps(libraryId: string): FlushDeps {
 
 /** The snapshot of a session, used to resume after the app was killed. */
 export async function loadSession(sessionId: string, since?: number): Promise<CandidateDto[]> {
+  return (await loadSessionSnapshot(sessionId, since)).candidates;
+}
+
+/** The whole session: its candidates plus the context Review starts from (location, status, media, channel). */
+export async function loadSessionSnapshot(sessionId: string, since?: number): Promise<ScanSessionDto> {
   const response = await getScanSession(sessionId, since === undefined ? undefined : { since });
   if (response.status !== 200) throw new ApiError(response.status, {});
-  return response.data.candidates;
+  return response.data;
 }
 
 // The event cursor is the candidate's changeSeq (it goes up on every insert and update), not seq (the creation order).

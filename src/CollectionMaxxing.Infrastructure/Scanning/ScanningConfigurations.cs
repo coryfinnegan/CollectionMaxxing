@@ -18,12 +18,16 @@ internal sealed class ScanSessionConfiguration : IEntityTypeConfiguration<ScanSe
         {
             t.HasCheckConstraint("ck_scan_sessions_status", EnumColumns.CheckIn<ScanSessionStatus>("status"));
             t.HasCheckConstraint("ck_scan_sessions_default_status", EnumColumns.CheckIn<ItemStatus>("default_status"));
+            t.HasCheckConstraint("ck_scan_sessions_media_hint", EnumColumns.CheckIn<ScanMediaHint>("media_hint"));
+            t.HasCheckConstraint("ck_scan_sessions_channel", EnumColumns.CheckIn<ScanChannel>("channel"));
         });
         builder.HasKey(s => s.Id);
         builder.Property(s => s.Id).ValueGeneratedNever();
         builder.HasAlternateKey(s => new { s.LibraryId, s.Id }).HasName("ak_scan_sessions_library_id_id");
         builder.Property(s => s.Status).HasSnakeCaseEnum();
         builder.Property(s => s.DefaultStatus).HasSnakeCaseEnum();
+        builder.Property(s => s.MediaHint).HasSnakeCaseEnum();
+        builder.Property(s => s.Channel).HasSnakeCaseEnum();
         builder.Property(s => s.CommittedItemIds).HasColumnType("uuid[]");
 
         builder.HasOne<Library>().WithMany().HasForeignKey(s => s.LibraryId).OnDelete(DeleteBehavior.Cascade);

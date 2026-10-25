@@ -4,6 +4,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto, DecideCandidateRequest, ReleaseDto } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
+import { loadSessionMemory, resolveReviewDefaults } from '@/features/scan/session/sessionContext';
 import { useLibraryRole } from '@/features/scan/session/useScanSession';
 import { getTrayStore } from '@/features/scan/tray/storage';
 import type { TrayStore } from '@/features/scan/tray/trayStore';
@@ -45,6 +46,8 @@ export function useReview({
   const [commitError, setCommitError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [celebration, setCelebration] = useState<{ key: number; message: string } | null>(null);
+  const [inStore, setInStore] = useState(false);
+  const pristine = useRef(true); // a choice made before the session answers wins over its defaults
   const inFlight = useRef(false);
   const undoing = useRef(false);
   const attempt = useRef<{ signature: string; key: string } | null>(null);
@@ -64,12 +67,19 @@ export function useReview({
     let alive = true;
     setLoading(true);
     loadIntoCards(sessionId)
+      .then((session) => {
+        if (!alive) return;
+        setInStore(session.channel === 'in_store');
+        if (!pristine.current) return;
+        const defaults = resolveReviewDefaults(session, loadSessionMemory(libraryId));
+        setDraft((d) => ({ ...d, addTo: defaults.addTo, status: defaults.status }));
+      })
       .catch((e) => alive && setLoadError(`${friendlyError(e)} What you scanned is still saved.`))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
-  }, [sessionId]);
+  }, [sessionId, libraryId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -77,12 +87,18 @@ export function useReview({
     return () => clearTimeout(timer);
   }, [toast, undoMs]);
 
-  const update = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
-  const override = useCallback(
-    (id: string, change: LineOverride) => setDraft((d) => ({ ...d, overrides: { ...d.overrides, [id]: { ...d.overrides[id], ...change } } })),
-    [],
-  );
-  const setChecked = useCallback((id: string, checked: boolean) => setDraft((d) => ({ ...d, checked: { ...d.checked, [id]: checked } })), []);
+  const update = (patch: Partial<Draft>) => {
+    pristine.current = false;
+    setDraft((d) => ({ ...d, ...patch }));
+  };
+  const override = useCallback((id: string, change: LineOverride) => {
+    pristine.current = false;
+    setDraft((d) => ({ ...d, overrides: { ...d.overrides, [id]: { ...d.overrides[id], ...change } } }));
+  }, []);
+  const setChecked = useCallback((id: string, checked: boolean) => {
+    pristine.current = false;
+    setDraft((d) => ({ ...d, checked: { ...d.checked, [id]: checked } }));
+  }, []);
 
   /** Runs one row's server call with a busy flag and its own friendly error. */
   const onRow = useCallback(async (id: string, action: () => Promise<unknown>) => {
@@ -164,6 +180,7 @@ export function useReview({
     list,
     groups,
     draft,
+    inStore,
     count,
     committing,
     commitError,

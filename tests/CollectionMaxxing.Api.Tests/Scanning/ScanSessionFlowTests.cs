@@ -125,6 +125,41 @@ public class ScanSessionFlowTests(ApiFixture api) : ScanTest(api)
     }
 
     [Fact]
+    public async Task A_session_remembers_the_media_hint_and_channel_it_was_started_with()
+    {
+        var library = await CreateLibraryAsync();
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, new { mediaHint = "games", channel = "in_store" });
+
+        var session = await GetSessionAsync(editor, sessionId);
+
+        session.GetProperty("mediaHint").GetString().ShouldBe("games");
+        session.GetProperty("channel").GetString().ShouldBe("in_store");
+    }
+
+    [Fact]
+    public async Task A_session_started_without_a_hint_is_a_mixed_home_scan()
+    {
+        var library = await CreateLibraryAsync();
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+
+        var session = await GetSessionAsync(editor, sessionId);
+
+        session.GetProperty("mediaHint").GetString().ShouldBe("mixed");
+        session.GetProperty("channel").GetString().ShouldBe("home");
+    }
+
+    [Fact]
+    public async Task An_unknown_media_hint_is_refused()
+    {
+        var library = await CreateLibraryAsync();
+        using var editor = As(library, LibraryRole.Editor);
+
+        (await editor.PostAsync(SessionsUrl(library.Id), Json(new { mediaHint = "magazines" }))).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task A_default_location_from_another_library_is_refused()
     {
         var library = await CreateLibraryAsync();

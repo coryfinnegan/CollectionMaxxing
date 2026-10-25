@@ -23,7 +23,8 @@ import { syncLibrary } from './sync';
 
 const noopSubscribe = () => () => {};
 
-function useOnline(): boolean {
+/** Whether the app currently reaches the server. */
+export function useOnline(): boolean {
   return useSyncExternalStore(
     (listener) => onlineManager.subscribe(listener),
     () => onlineManager.isOnline(),

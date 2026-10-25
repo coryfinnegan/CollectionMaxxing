@@ -1,9 +1,12 @@
 // The scanner (docs/06 M3): camera behind everything, "Nice scan!" flash, result cards, the receipt bar.
 // It is given its sources, so tests and the dev menu drive it with a FakeScannerSource and no camera.
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
+import { StyleSheet as Unistyles } from 'react-native-unistyles';
 import { NiceScanFlash } from '../autosnap/NiceScanFlash';
 import { DEFAULT_AUTO_SNAP_CONFIG } from '../autosnap/defaults';
 import { createCountingSnapHandler, useAutoSnap, type AutoSnapTuning, type SnapEvent } from '../autosnap/useAutoSnap';
@@ -19,11 +22,15 @@ import type { PipelineDeps } from '../pipeline/SnapPipeline';
 import { usePipeline } from '../pipeline/usePipeline';
 import { useCardActions } from '../session/useCardActions';
 import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
+import { SessionSheet } from '../session/SessionSheet';
+import { defaultSessionContext, sessionCreateBody, type SessionContext } from '../session/sessionContext';
 import { ReceiptBar } from '../tray/ReceiptBar';
 import { fixed, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
 import { FakeScannerSource, type ScannerSource } from './ScannerSource';
+import { ScannerSearch } from './ScannerSearch';
+import { SessionBar } from './SessionBar';
 
 type Props = {
   libraryId: string;
@@ -68,7 +75,18 @@ export function ScannerScreen({
   // Barcodes found in imported pictures arrive here and take the same path as the camera's.
   const importCodes = useMemo(() => new FakeScannerSource(), []);
   const sources = useMemo(() => (devSource ? [source, devSource, importCodes] : [source, importCodes]), [source, devSource, importCodes]);
-  const session = useScanSession({ libraryId, sources, tuning });
+  // What this scan inherits: the library's remembered spot, changed in the sheet, sent when the session is created.
+  const [context, setContext] = useState<SessionContext>(() => defaultSessionContext(libraryId));
+  const [contextLibraryId, setContextLibraryId] = useState(libraryId);
+  if (contextLibraryId !== libraryId) {
+    // A switched-to library starts from its own remembered spot. Adjusted during render (not in an effect) so the
+    // bar never shows one library's spot while scanning another.
+    setContextLibraryId(libraryId);
+    setContext(defaultSessionContext(libraryId));
+  }
+  const [sheet, setSheet] = useState<'session' | 'search' | null>(null);
+  const body = useMemo(() => sessionCreateBody(context), [context]);
+  const session = useScanSession({ libraryId, sources, tuning, sessionBody: body });
   const { canAdd } = useLibraryRole(libraryId);
   const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
   const [fixing, setFixing] = useState<CandidateDto | null>(null);
@@ -137,6 +155,7 @@ export function ScannerScreen({
             style={{ backgroundColor: flash ? colors.accent : fixed.scrim }}
           />
         </View>
+        <SessionBar libraryId={libraryId} context={context} onOpenSession={() => setSheet('session')} onOpenSearch={() => setSheet('search')} />
 
         <View pointerEvents="none" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <NiceScanFlash visible={session.showNiceScan || autoSnap.flash} reduceMotion={reduceMotion} />
@@ -200,6 +219,24 @@ export function ScannerScreen({
             <FixItSheet candidate={fixing} sessionId={session.sessionId} onClose={() => setFixing(null)} />
           </View>
         ) : null}
+        {sheet === 'session' ? (
+          <View style={sheetStyles.wrap}>
+            <SessionSheet
+              libraryId={libraryId}
+              context={context}
+              onSave={(_, next) => {
+                setContext(next);
+                setSheet(null);
+              }}
+              onClose={() => setSheet(null)}
+            />
+          </View>
+        ) : null}
+        {sheet === 'search' ? (
+          <View style={sheetStyles.wrap}>
+            <ScannerSearch libraryId={libraryId} onClose={() => setSheet(null)} />
+          </View>
+        ) : null}
         <ResultCards cards={session.cards} actions={actions} />
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
@@ -221,3 +258,7 @@ export function ScannerScreen({
     </View>
   );
 }
+
+const sheetStyles = Unistyles.create((theme) => ({
+  wrap: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
+}));

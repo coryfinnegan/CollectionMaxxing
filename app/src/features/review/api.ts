@@ -1,9 +1,9 @@
 // Review's calls to the API, as plain functions over the generated client. Candidate answers are merged into the
 // shared cards store, so the scanner and Review always show the same candidate.
-import type { CandidateDto, CommitResultDto, DecideCandidateRequest, UndoResultDto } from '@/api/generated/models';
+import type { CandidateDto, CommitResultDto, DecideCandidateRequest, ScanSessionDto, UndoResultDto } from '@/api/generated/models';
 import { commitScanSession, decideCandidate, searchForCandidate, undoScanCommit } from '@/api/generated/scanning/scanning';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
-import { loadSession } from '@/features/scan/session/sessionApi';
+import { loadSessionSnapshot } from '@/features/scan/session/sessionApi';
 import { ApiError } from '@/lib/http';
 import { commitBody, committable, type Draft } from './plan';
 
@@ -29,9 +29,14 @@ export async function skipCandidate(sessionId: string, candidateId: string): Pro
   useCardsStore.getState().remove(rejected.id);
 }
 
-/** Loads the whole session into the cards store (a resumed scan, or Review opened first). */
-export async function loadIntoCards(sessionId: string): Promise<void> {
-  useCardsStore.getState().merge(await loadSession(sessionId), { announce: false });
+/** What Review starts from: the session's own location, status and channel. */
+export type SessionReviewContext = Pick<ScanSessionDto, 'defaultLocationId' | 'defaultStatus' | 'channel'>;
+
+/** Loads the whole session into the cards store (a resumed scan, or Review opened first) and returns its context. */
+export async function loadIntoCards(sessionId: string): Promise<SessionReviewContext> {
+  const session = await loadSessionSnapshot(sessionId);
+  useCardsStore.getState().merge(session.candidates, { announce: false });
+  return { defaultLocationId: session.defaultLocationId, defaultStatus: session.defaultStatus, channel: session.channel };
 }
 
 /**
