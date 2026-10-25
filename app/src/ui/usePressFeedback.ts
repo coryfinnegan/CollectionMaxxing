@@ -9,10 +9,12 @@ export type PressHaptic = 'tap' | 'select' | 'commit' | 'none';
 
 export function usePressFeedback(haptic: PressHaptic = 'tap') {
   const pressed = useSharedValue(0);
+  // Explicit deps (only the stable shared value is read): the Babel plugin
+  // infers this on native, but web bundlers without the plugin need it stated.
   const style = useAnimatedStyle(() => ({
     transform: [{ scale: 1 - pressed.value * 0.03 }],
     opacity: 1 - pressed.value * 0.15,
-  }));
+  }), []);
   const onPressIn = useCallback(() => {
     // Shared values are mutated by design; this is Reanimated's documented pattern.
     // eslint-disable-next-line react-hooks/immutability
