@@ -5,6 +5,7 @@ import { createOwnedIndex } from '@/features/offline/ownedIndex';
 import { entry } from '@/features/offline/testData';
 import { setTrayStore } from '@/features/scan/tray/storage';
 import { MemoryKeyValueStore, createTrayStore } from '@/features/scan/tray/trayStore';
+import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { setNavigator } from '@/features/auth/services';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryNativeAuth } from '@/lib/auth/native';
@@ -144,6 +145,24 @@ describe('Settings > Sign out', () => {
     expect(clearer).toHaveBeenCalledTimes(1);
     expect(queryClient.getQueryData(['anything'])).toBeUndefined();
     unregister();
+  });
+
+  it('clears the result cards', async () => {
+    useCardsStore.getState().reset();
+    useCardsStore.getState().merge([{ id: 'card-1', localId: 'local-dune' }], { announce: false });
+    expect(Object.keys(useCardsStore.getState().byId)).toHaveLength(1);
+    configureAuth({ platform: 'web' });
+    const queryClient = makeQueryClient();
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsScreen />
+      </QueryClientProvider>,
+    );
+
+    await fireEvent.press(screen.getByLabelText('Sign out'));
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/login'));
+    expect(useCardsStore.getState().byId).toEqual({});
   });
 
   it('empties the offline owned copy', async () => {
