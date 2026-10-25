@@ -13,30 +13,26 @@ export function clearCoverAccents(): void {
 }
 
 export function useCoverAccent(itemId: string, coverUri: string | null | undefined): string | null {
-  const [accent, setAccent] = useState<string | null>(() => (coverUri ? (accents.get(itemId) ?? null) : null));
+  // The uri joins the key so a new cover refetches instead of reusing the old tint.
+  const key = coverUri ? `${itemId} ${coverUri}` : null;
+  const [state, setState] = useState<{ key: string | null; accent: string | null }>(() => ({ key, accent: key ? (accents.get(key) ?? null) : null }));
+  // A new cover (or none) resets the accent during the render, not in an effect.
+  if (state.key !== key) setState({ key, accent: key ? (accents.get(key) ?? null) : null });
   useEffect(() => {
-    if (!coverUri) {
-      setAccent(null);
-      return;
-    }
-    const cached = accents.get(itemId);
-    if (cached !== undefined) {
-      setAccent(cached);
-      return;
-    }
+    if (!key || !coverUri || accents.has(key)) return;
     let live = true;
-    getColors(coverUri, { cache: true, key: itemId })
+    getColors(coverUri, { cache: true, key })
       .then((result) => pickSource(result))
       .catch(() => null)
       .then((source) => {
         // A superseded answer (the cover changed mid-flight) must not poison the cache.
         if (!live) return;
-        accents.set(itemId, source);
-        setAccent(source);
+        accents.set(key, source);
+        setState({ key, accent: source });
       });
     return () => {
       live = false;
     };
-  }, [itemId, coverUri]);
-  return accent;
+  }, [key, coverUri]);
+  return state.key === key ? state.accent : null;
 }

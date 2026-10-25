@@ -42,7 +42,7 @@ describe('useCoverAccent', () => {
     const first = await renderWithProviders(<Probe id="item-1" uri="https://covers.test/matrix.jpg" />);
     expect(await screen.findByText('#777777')).toBeTruthy();
     expect(mockGetColors).toHaveBeenCalledTimes(1);
-    expect(mockGetColors).toHaveBeenCalledWith('https://covers.test/matrix.jpg', { cache: true, key: 'item-1' });
+    expect(mockGetColors).toHaveBeenCalledWith('https://covers.test/matrix.jpg', { cache: true, key: 'item-1 https://covers.test/matrix.jpg' });
     await first.unmount();
 
     await renderWithProviders(<Probe id="item-1" uri="https://covers.test/matrix.jpg" />);
