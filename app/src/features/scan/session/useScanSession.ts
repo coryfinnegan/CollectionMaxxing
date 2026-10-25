@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { useGetMe } from '@/api/generated/account/account';
-import type { LibraryRole } from '@/api/generated/models';
+import type { CreateScanSessionRequest, LibraryRole } from '@/api/generated/models';
 import { haptics } from '@/lib/haptics';
 import { shownCards, sortedCards, useCardsStore } from '../cards/cardsStore';
 import type { ScannerSource } from '../scanner/ScannerSource';
@@ -29,14 +29,21 @@ export function useScanSession({
   sources,
   store = getTrayStore(libraryId),
   tuning = {},
+  sessionBody,
 }: {
   libraryId: string;
   sources: ScannerSource[];
   store?: StoreApi<TrayStore>;
   tuning?: SessionTuning;
+  /** The session context a new session is created with. Read when the session is made, not before. */
+  sessionBody?: () => CreateScanSessionRequest;
 }) {
   const { resendMs = 5000, flashMs = 1000 } = tuning;
-  const deps = useMemo(() => flushDeps(libraryId), [libraryId]);
+  const bodyRef = useRef(sessionBody);
+  useEffect(() => {
+    bodyRef.current = sessionBody;
+  });
+  const deps = useMemo(() => flushDeps(libraryId, () => bodyRef.current?.() ?? {}), [libraryId]);
   const [niceScanAt, setNiceScanAt] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const tuningRef = useRef(tuning);
