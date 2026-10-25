@@ -62,6 +62,28 @@ describe('OwnedIndex.lookup', () => {
   });
 });
 
+describe('OwnedIndex.searchTitles', () => {
+  const park = entry({ title: 'Jurassic Park', format: 'dvd' });
+  const park3 = entry({ title: 'Jurassic Park III', format: 'dvd' });
+  const matrix = entry({ title: 'The Matrix', format: 'dvd' });
+  const index = createOwnedIndex([park, park3, matrix]);
+
+  it('matches every word in any case and ranks the exact title first', () => {
+    expect(index.searchTitles('JURASSIC park').map((c) => c.title)).toEqual(['Jurassic Park', 'Jurassic Park III']);
+    expect(index.searchTitles('park jurassic').map((c) => c.title)).toEqual(['Jurassic Park', 'Jurassic Park III']);
+  });
+
+  it('needs every word and skips entries without a title', () => {
+    expect(index.searchTitles('jurassic matrix')).toEqual([]);
+    expect(createOwnedIndex([entry({ title: null })]).searchTitles('title')).toEqual([]);
+  });
+
+  it('answers nothing for a blank query and honors the limit', () => {
+    expect(index.searchTitles('  ')).toEqual([]);
+    expect(index.searchTitles('jurassic', 1).map((c) => c.title)).toEqual(['Jurassic Park']);
+  });
+});
+
 describe('OwnedIndex.apply', () => {
   it('adds, replaces and removes by item id without changing the original', () => {
     const a = entry({ identifiers: ['4006381333931'], title: 'A' });

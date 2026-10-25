@@ -13,17 +13,13 @@ import { useLibraries } from '@/features/onboarding/useLibraries';
 import { useLibraryStore } from '@/state/library';
 import { Button, Chip, ListRow, Sheet, Text } from '@/ui';
 import {
+  SESSION_CHANNEL_LABEL,
+  SESSION_MEDIA_LABEL,
+  SESSION_STATUS_LABEL,
   defaultSessionContext,
   rememberSessionContext,
-  type SessionChannel,
   type SessionContext,
-  type SessionItemStatus,
-  type SessionMediaHint,
 } from './sessionContext';
-
-const STATUS_LABEL: Record<SessionItemStatus, string> = { owned: 'Owned', wishlist: 'Wishlist' };
-const MEDIA_LABEL: Record<SessionMediaHint, string> = { books: 'Books', games: 'Games', movies: 'Movies', mixed: 'Mixed' };
-const CHANNEL_LABEL: Record<SessionChannel, string> = { home: 'Home', in_store: 'In-store' };
 
 type Props = {
   libraryId: string;
@@ -107,7 +103,7 @@ export function SessionSheet({ libraryId, context, onSave, onClose }: Props) {
         <Text variant="label">Status</Text>
         <View style={styles.chips}>
           {(['owned', 'wishlist'] as const).map((s) => (
-            <Chip key={s} label={STATUS_LABEL[s]} selected={draft.status === s} onPress={() => setDraft((d) => ({ ...d, status: s }))} />
+            <Chip key={s} label={SESSION_STATUS_LABEL[s]} selected={draft.status === s} onPress={() => setDraft((d) => ({ ...d, status: s }))} />
           ))}
         </View>
       </View>
@@ -116,7 +112,7 @@ export function SessionSheet({ libraryId, context, onSave, onClose }: Props) {
         <Text variant="label">Media</Text>
         <View style={styles.chips}>
           {(['books', 'games', 'movies', 'mixed'] as const).map((m) => (
-            <Chip key={m} label={MEDIA_LABEL[m]} selected={draft.mediaHint === m} onPress={() => setDraft((d) => ({ ...d, mediaHint: m }))} />
+            <Chip key={m} label={SESSION_MEDIA_LABEL[m]} selected={draft.mediaHint === m} onPress={() => setDraft((d) => ({ ...d, mediaHint: m }))} />
           ))}
         </View>
       </View>
@@ -125,7 +121,7 @@ export function SessionSheet({ libraryId, context, onSave, onClose }: Props) {
         <Text variant="label">Channel</Text>
         <View style={styles.chips}>
           {(['home', 'in_store'] as const).map((c) => (
-            <Chip key={c} label={CHANNEL_LABEL[c]} selected={draft.channel === c} onPress={() => setDraft((d) => ({ ...d, channel: c }))} />
+            <Chip key={c} label={SESSION_CHANNEL_LABEL[c]} selected={draft.channel === c} onPress={() => setDraft((d) => ({ ...d, channel: c }))} />
           ))}
         </View>
       </View>

@@ -19,6 +19,10 @@ export type SessionContext = {
 /** What is remembered per library: the last home location and status. Media and channel start fresh every session. */
 export type SessionMemory = { locationId: string | null; status: SessionItemStatus };
 
+export const SESSION_STATUS_LABEL: Record<SessionItemStatus, string> = { owned: 'Owned', wishlist: 'Wishlist' };
+export const SESSION_MEDIA_LABEL: Record<SessionMediaHint, string> = { books: 'Books', games: 'Games', movies: 'Movies', mixed: 'Mixed' };
+export const SESSION_CHANNEL_LABEL: Record<SessionChannel, string> = { home: 'Home', in_store: 'In-store' };
+
 const memoryKey = (libraryId: string) => `session-context-v1:${libraryId}`;
 const LIBRARIES_KEY = 'session-context-v1:libraries';
 
