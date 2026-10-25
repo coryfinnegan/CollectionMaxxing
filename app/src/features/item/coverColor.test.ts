@@ -34,7 +34,7 @@ describe('desaturate and darken', () => {
 
 describe('pickSource', () => {
   it('takes the muted tone on each platform', () => {
-    expect(pickSource({ background: '#111111', primary: '#222222', secondary: '#333333', detail: '#444444', platform: 'ios' })).toBe('#111111');
+    expect(pickSource({ background: '#111111', primary: '#222222', secondary: '#333333', detail: '#444444', platform: 'ios', quality: 'high' })).toBe('#111111');
     expect(
       pickSource({ dominant: '#111111', vibrant: '#222222', darkVibrant: '#333333', lightVibrant: '#444444', darkMuted: '#555555', lightMuted: '#666666', muted: '#777777', platform: 'web' }),
     ).toBe('#777777');
@@ -44,7 +44,7 @@ describe('pickSource', () => {
   });
 
   it('falls to the next tone when the first is missing', () => {
-    expect(pickSource({ background: '', primary: '#222222', secondary: '', detail: '', platform: 'ios' })).toBe('#222222');
+    expect(pickSource({ background: '', primary: '#222222', secondary: '', detail: '', platform: 'ios', quality: 'high' })).toBe('#222222');
     expect(
       pickSource({ dominant: '#111111', vibrant: '', darkVibrant: '', lightVibrant: '', darkMuted: '', lightMuted: '', muted: '', platform: 'web' }),
     ).toBe('#111111');
