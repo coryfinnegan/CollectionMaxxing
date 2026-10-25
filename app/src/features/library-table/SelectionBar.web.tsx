@@ -1,10 +1,10 @@
 // The bar under the table: "N selected" with Move to, Set status, Add tag and Delete.
 import { useState } from 'react';
 import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import type { ItemStatus, LocationDto, TagDto } from '@/api/generated/models';
 import { statuses, statusLabels } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
-import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, ListRow, Sheet, Text } from '@/ui';
 
 type Props = {
@@ -29,7 +29,6 @@ const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
 
 export function SelectionBar(props: Props) {
   const { count, selectedCount, capMessage, busy, locations, tags } = props;
-  const colors = useColors();
   const [panel, setPanel] = useState<Panel>(null);
   const run = (action: () => void) => {
     setPanel(null);
@@ -37,20 +36,9 @@ export function SelectionBar(props: Props) {
   };
 
   return (
-    <View
-      accessibilityRole="toolbar"
-      accessibilityLabel="Selected items"
-      style={{
-        gap: spacing.md,
-        padding: spacing.md,
-        borderRadius: radius.lg,
-        borderWidth: 1,
-        borderColor: colors.line,
-        backgroundColor: colors.surface,
-      }}
-    >
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm }}>
-        <Text variant="label" accessibilityRole="header" style={{ marginRight: spacing.sm }}>
+    <View accessibilityRole="toolbar" accessibilityLabel="Selected items" style={styles.bar}>
+      <View style={styles.actions}>
+        <Text variant="label" accessibilityRole="header" style={styles.count}>
           {selectedCount} selected
         </Text>
         <Button label="Move to" variant="secondary" disabled={busy} onPress={() => setPanel('move')} />
@@ -61,11 +49,11 @@ export function SelectionBar(props: Props) {
       </View>
 
       {capMessage ? (
-        <View style={{ gap: spacing.sm }}>
+        <View style={styles.cap}>
           <Text tone="muted" accessibilityRole="alert">
             {capMessage}
           </Text>
-          <View style={{ flexDirection: 'row' }}>
+          <View style={styles.row}>
             <Button label={`Select only the first ${count}`} variant="secondary" onPress={props.onKeepFirst} />
           </View>
         </View>
@@ -88,7 +76,7 @@ export function SelectionBar(props: Props) {
 
       {panel === 'status' ? (
         <Sheet title={`Set status of ${items(count)}`} onClose={() => setPanel(null)}>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+          <View style={styles.wrap}>
             {statuses.map((status) => (
               <Chip key={status} label={statusLabels[status]} accessibilityLabel={`Set status to ${statusLabels[status]}`} onPress={() => run(() => props.onStatus(status))} />
             ))}
@@ -99,7 +87,7 @@ export function SelectionBar(props: Props) {
       {panel === 'tag' ? (
         <Sheet title={`Add a tag to ${items(count)}`} onClose={() => setPanel(null)}>
           {tags.length === 0 ? <Text tone="muted">There are no tags yet.</Text> : null}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+          <View style={styles.wrap}>
             {tags.map((tag) => (
               <Chip key={tag.id} label={tag.name} accessibilityLabel={`Add tag ${tag.name}`} onPress={() => run(() => props.onTag(tag.id))} />
             ))}
@@ -110,7 +98,7 @@ export function SelectionBar(props: Props) {
       {panel === 'delete' ? (
         <Sheet title={`Delete ${items(count)}?`} onClose={() => setPanel(null)}>
           <Text tone="muted">They leave your library. You can restore one from its page for a while.</Text>
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <View style={styles.confirm}>
             <Button label={`Delete ${items(count)}`} variant="danger" onPress={() => run(props.onDelete)} />
             <Button label="Keep them" variant="secondary" onPress={() => setPanel(null)} />
           </View>
@@ -119,3 +107,20 @@ export function SelectionBar(props: Props) {
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  bar: {
+    gap: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.surface,
+  },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: theme.spacing.sm },
+  count: { marginRight: theme.spacing.sm },
+  cap: { gap: theme.spacing.sm },
+  row: { flexDirection: 'row' },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  confirm: { flexDirection: 'row', gap: theme.spacing.sm },
+}));

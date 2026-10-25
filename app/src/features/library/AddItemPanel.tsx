@@ -1,12 +1,12 @@
 // Add an item: search the catalog by typing, or "None of these? Add it yourself" for a manual entry.
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useSearchCatalog } from '@/api/generated/catalog/catalog';
 import type { CreateItemRequest, ReleaseFormat, WorkKind } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useItemMutations } from '@/features/item/useItem';
 import { friendlyError } from '@/lib/problem';
-import { spacing } from '@/theme/tokens';
 import { Button, Chip, ListRow, Sheet, Text, TextField } from '@/ui';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
 import { useDebounced } from './useItems';
@@ -66,7 +66,7 @@ function SearchStep({ onPick }: { onPick: (releaseId: string) => void }) {
   const search = useSearchCatalog({ q }, { query: { enabled: q.length >= 2 } });
   const results = search.data?.status === 200 ? search.data.data.items : [];
   return (
-    <View style={{ gap: spacing.md }}>
+    <View style={styles.step}>
       <TextField
         label="Search the catalog"
         value={text}
@@ -119,9 +119,9 @@ function ManualStep({ busy, onSubmit }: { busy: boolean; onSubmit: (data: Create
   };
 
   return (
-    <View style={{ gap: spacing.md }}>
+    <View style={styles.step}>
       <Text variant="label">Kind</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      <View style={styles.wrap}>
         {kinds.map((k) => (
           <Chip key={k} label={kindLabels[k]} accessibilityLabel={`Kind ${kindLabels[k]}`} selected={kind === k} onPress={() => setKind(k)} />
         ))}
@@ -129,7 +129,7 @@ function ManualStep({ busy, onSubmit }: { busy: boolean; onSubmit: (data: Create
       <TextField label="Title" value={title} onChangeText={setTitle} error={titleError} />
       <TextField label="Year" value={year} onChangeText={setYear} keyboardType="number-pad" maxLength={4} error={yearError} />
       <Text variant="label">Format</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      <View style={styles.wrap}>
         {formats.map((f) => (
           <Chip key={f} label={formatLabels[f]} accessibilityLabel={`Format ${formatLabels[f]}`} selected={format === f} onPress={() => setFormat(f)} />
         ))}
@@ -138,3 +138,8 @@ function ManualStep({ busy, onSubmit }: { busy: boolean; onSubmit: (data: Create
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  step: { gap: theme.spacing.md },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+}));

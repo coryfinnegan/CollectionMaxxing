@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { bulkItems, getStats } from '@/api/generated/items/items';
 import { listTags } from '@/api/generated/tags/tags';
 import type { BulkItemsRequest, ItemStatus, ItemSummaryDto } from '@/api/generated/models';
@@ -16,7 +17,6 @@ import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
-import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { capForBulk, resultMessage } from './bulk';
 import { ColumnChooser } from './ColumnChooser.web';
@@ -46,7 +46,7 @@ export function LibraryTable({ title, fixedStatus }: LibraryTableProps) {
   const { libraryId, isLoading } = useActiveLibraryId();
   if (isLoading || !libraryId) {
     return (
-      <View style={{ padding: spacing.lg, gap: spacing.lg }}>
+      <View style={styles.loading}>
         <Text variant="title" accessibilityRole="header">
           {title}
         </Text>
@@ -59,7 +59,6 @@ export function LibraryTable({ title, fixedStatus }: LibraryTableProps) {
 
 function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryId: string }) {
   const router = useRouter();
-  const colors = useColors();
   const invalidate = useInvalidateLibrary();
   const queryClient = useQueryClient();
 
@@ -140,7 +139,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
             accessibilityRole="link"
             accessibilityLabel={`Open ${item.title}`}
             onPress={() => router.push(`/item/${item.id}`)}
-            style={{ minHeight: 44, justifyContent: 'center' }}
+            style={styles.cellPress}
           >
             <Text variant="label" numberOfLines={2}>
               {item.title}
@@ -208,8 +207,8 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
   const someSelected = selectedIds.length > 0;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.ground }}>
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
+    <View style={styles.root}>
+      <ScrollView contentContainerStyle={styles.page}>
         <Text variant="title" accessibilityRole="header">
           {title}
         </Text>
@@ -224,7 +223,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           autoCorrect={false}
         />
 
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+        <View style={styles.chipWrap}>
           <Chip label="All kinds" selected={!filters.kind} onPress={() => filter({ kind: undefined })} />
           {kinds.map((kind) => (
             <Chip
@@ -259,7 +258,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
 
         {panel === 'format' ? (
           <Sheet title="Format" onClose={() => setPanel(null)}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+            <View style={styles.wrap}>
               <Chip label="Any format" selected={!filters.format} onPress={() => closeAnd({ format: undefined })} />
               {formats.map((format) => (
                 <Chip key={format} label={formatLabels[format]} selected={filters.format === format} onPress={() => closeAnd({ format })} />
@@ -292,10 +291,10 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           </Text>
         ) : null}
 
-        <ScrollView horizontal testID="library-table-scroll" style={{ borderRadius: radius.md, borderWidth: 1, borderColor: colors.line }}>
-          <View role="grid" accessibilityLabel={`${title} table`} {...gridKeys} style={{ width: tableWidth, backgroundColor: colors.surface }}>
-            <View role="row" style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: colors.line }}>
-              <View role="cell" style={{ width: CHECK_WIDTH, alignItems: 'center' }}>
+        <ScrollView horizontal testID="library-table-scroll" style={styles.tableScroll}>
+          <View role="grid" accessibilityLabel={`${title} table`} {...gridKeys} style={styles.grid(tableWidth)}>
+            <View role="row" style={styles.headerRow}>
+              <View role="cell" style={styles.checkCell}>
                 <Checkbox
                   label="Select all loaded items"
                   checked={allSelected}
@@ -307,12 +306,12 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                 const sort = sortForColumn(column.id);
                 const active = sort !== undefined && sort === filters.sort;
                 return (
-                  <View key={column.id} role="columnheader" style={{ width: column.width, paddingHorizontal: spacing.sm, justifyContent: 'center' }}>
+                  <View key={column.id} role="columnheader" style={styles.columnHeader(column.width)}>
                     {sort ? (
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={`Sort by ${column.label}`}
-                        style={{ minHeight: 44, justifyContent: 'center' }}
+                        style={styles.cellPress}
                         accessibilityState={{ selected: active }}
                         onPress={() => sortBy(column.id)}
                       >
@@ -342,15 +341,9 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                   // The checkbox is the keyboard stop for a row; the row itself is for mouse clicks.
                   focusable={false}
                   onPress={(event) => setSelection((s) => clickRow(s, rowIds, item.id, modifiers(event)))}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    borderBottomWidth: 1,
-                    borderColor: colors.line,
-                    backgroundColor: selected ? colors.ground : colors.surface,
-                  }}
+                  style={styles.row(selected)}
                 >
-                  <View role="cell" style={{ width: CHECK_WIDTH, alignItems: 'center' }}>
+                  <View role="cell" style={styles.checkCell}>
                     <Checkbox
                       label={`Select ${item.title}`}
                       checked={selected}
@@ -358,7 +351,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                     />
                   </View>
                   {visible.map((column) => (
-                    <View key={column.id} role="cell" style={{ width: column.width, padding: spacing.sm }}>
+                    <View key={column.id} role="cell" style={styles.cell(column.width)}>
                       {cell(item, column.id)}
                     </View>
                   ))}
@@ -369,10 +362,10 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         </ScrollView>
 
         {/* Empty, loading and error states sit outside the horizontal scroller, so they are centered on the visible width. */}
-        {list.items.length === 0 ? <View style={{ padding: spacing.lg, alignItems: 'center' }}>{empty}</View> : null}
+        {list.items.length === 0 ? <View style={styles.emptyWrap}>{empty}</View> : null}
 
         {list.hasNextPage ? (
-          <View style={{ flexDirection: 'row' }}>
+          <View style={styles.loadMore}>
             <Button
               label="Load more"
               variant="secondary"
@@ -399,7 +392,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           />
         ) : null}
       </ScrollView>
-      <View style={{ padding: spacing.lg }}>
+      <View style={styles.snackbarPad}>
         <UndoSnackbar />
       </View>
     </View>
@@ -417,7 +410,6 @@ function Checkbox({
   mixed?: boolean;
   onPress: (event: unknown) => void;
 }) {
-  const colors = useColors();
   return (
     <Pressable
       accessibilityRole="checkbox"
@@ -437,21 +429,10 @@ function Checkbox({
         onPress(event);
       }}
       // The pressable is the 44 px touch target; the box inside is what you see.
-      style={{ width: CHECK_WIDTH, height: CHECK_WIDTH, alignItems: 'center', justifyContent: 'center' }}
+      style={styles.checkboxPress}
     >
-      <View
-        style={{
-          width: 22,
-          height: 22,
-          borderRadius: radius.sm,
-          borderWidth: 2,
-          borderColor: checked || mixed ? colors.accent : colors.control,
-          backgroundColor: checked || mixed ? colors.accent : 'transparent',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Text variant="caption" style={{ color: colors.onAccent }}>
+      <View style={styles.checkboxBox(checked || !!mixed)}>
+        <Text variant="caption" style={styles.checkGlyph}>
           {checked ? '✓' : mixed ? '–' : ''}
         </Text>
       </View>
@@ -480,7 +461,7 @@ function PlatformSheet({
   });
   return (
     <Sheet title="Platform" onClose={onClose}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      <View style={styles.wrap}>
         <Chip label="Any platform" selected={!selected} onPress={() => onPick(undefined)} />
         {(stats.data ?? []).map((platform) => (
           <Chip key={platform} label={platform} selected={selected === platform} onPress={() => onPick(platform)} />
@@ -489,3 +470,40 @@ function PlatformSheet({
     </Sheet>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  loading: { padding: theme.spacing.lg, gap: theme.spacing.lg },
+  root: { flex: 1, backgroundColor: theme.colors.ground },
+  page: { padding: theme.spacing.lg, gap: theme.spacing.lg },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  cellPress: { minHeight: 44, justifyContent: 'center' },
+  tableScroll: { borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.line },
+  grid: (tableWidth: number) => ({ width: tableWidth, backgroundColor: theme.colors.surface }),
+  headerRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: theme.colors.line },
+  checkCell: { width: CHECK_WIDTH, alignItems: 'center' },
+  columnHeader: (width: number) => ({ width, paddingHorizontal: theme.spacing.sm, justifyContent: 'center' }),
+  row: (selected: boolean) => ({
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: selected ? theme.colors.ground : theme.colors.surface,
+  }),
+  cell: (width: number) => ({ width, padding: theme.spacing.sm }),
+  emptyWrap: { padding: theme.spacing.lg, alignItems: 'center' },
+  loadMore: { flexDirection: 'row' },
+  snackbarPad: { padding: theme.spacing.lg },
+  checkboxPress: { width: CHECK_WIDTH, height: CHECK_WIDTH, alignItems: 'center', justifyContent: 'center' },
+  checkboxBox: (filled: boolean) => ({
+    width: 22,
+    height: 22,
+    borderRadius: theme.radius.sm,
+    borderWidth: 2,
+    borderColor: filled ? theme.colors.accent : theme.colors.control,
+    backgroundColor: filled ? theme.colors.accent : 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  }),
+  checkGlyph: { color: theme.colors.onAccent },
+}));

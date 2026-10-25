@@ -2,13 +2,13 @@
 // sends PATCH with If-Match. A 412 reloads the row and says so.
 import { useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { getItem, updateItem } from '@/api/generated/items/items';
 import type { ItemSummaryDto, UpdateItemRequest } from '@/api/generated/models';
 import { ifMatchHeader } from '@/features/item/etag';
 import { useInvalidateLibrary } from '@/features/item/useItem';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
-import { radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
 
 export type CellOption = { value: string; label: string; depth?: number };
@@ -29,7 +29,6 @@ const patchFor = (field: Props['field'], value: string): UpdateItemRequest =>
     : { locationId: value === '' ? null : value };
 
 export function InlineCell({ libraryId, item, field, current, options, onNotice }: Props) {
-  const colors = useColors();
   const invalidate = useInvalidateLibrary();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -72,37 +71,28 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
   };
 
   return (
-    <View style={{ gap: spacing.xs }}>
+    <View style={styles.root}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Change ${noun} of ${item.title}, now ${current}`}
         accessibilityState={{ expanded: open, busy }}
         disabled={busy}
         onPress={toggle}
-        style={{ minHeight: 44, justifyContent: 'center' }}
+        style={styles.trigger}
       >
-        <Text variant="body" numberOfLines={1} style={{ color: colors.ink }}>
+        <Text variant="body" numberOfLines={1} style={styles.current}>
           {current}
         </Text>
       </Pressable>
       {open ? (
-        <View
-          style={{
-            gap: spacing.xs,
-            padding: spacing.xs,
-            borderRadius: radius.md,
-            borderWidth: 1,
-            borderColor: colors.line,
-            backgroundColor: colors.surface,
-          }}
-        >
+        <View style={styles.menu}>
           {options.map((option) => (
             <Pressable
               key={option.value}
               accessibilityRole="menuitem"
               accessibilityLabel={`Set ${noun} of ${item.title} to ${option.label}`}
               onPress={() => choose(option.value)}
-              style={{ paddingVertical: spacing.xs, paddingLeft: spacing.sm + (option.depth ?? 0) * spacing.md }}
+              style={styles.option(option.depth ?? 0)}
             >
               <Text variant="label">{option.label}</Text>
             </Pressable>
@@ -112,3 +102,18 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  root: { gap: theme.spacing.xs },
+  trigger: { minHeight: 44, justifyContent: 'center' },
+  current: { color: theme.colors.ink },
+  menu: {
+    gap: theme.spacing.xs,
+    padding: theme.spacing.xs,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.surface,
+  },
+  option: (depth: number) => ({ paddingVertical: theme.spacing.xs, paddingLeft: theme.spacing.sm + depth * theme.spacing.md }),
+}));
