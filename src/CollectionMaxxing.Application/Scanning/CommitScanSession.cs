@@ -136,7 +136,8 @@ public static class CommitScanSession
             var overrides = (options?.Overrides ?? []).ToDictionary(o => o.CandidateId!.Value);
             var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session, accepted, now, cancellationToken);
 
-            var coverFiles = await releaseCovers.FetchMissingAsync(releaseFor.Values.Distinct().ToList(), cancellationToken);
+            var coverFiles = await releaseCovers.FetchMissingAsync(
+                releaseFor.ForCandidate.Values.Concat(releaseFor.Origins).Distinct().ToList(), cancellationToken);
             var photos = await CandidatePhotos.AssetIdsAsync(db, accepted, cancellationToken);
             var created = new List<Guid>();
             foreach (var candidate in accepted)
@@ -151,7 +152,7 @@ public static class CommitScanSession
                     {
                         Id = ids.NewId(),
                         LibraryId = session.LibraryId,
-                        ReleaseId = releaseFor[candidate.Id],
+                        ReleaseId = releaseFor.ForCandidate[candidate.Id],
                         Status = over?.Status ?? options?.Status ?? session.DefaultStatus ?? ItemStatus.Owned,
                         Condition = over?.Condition ?? options?.Condition,
                         Completeness = CompletenessOf(candidate),

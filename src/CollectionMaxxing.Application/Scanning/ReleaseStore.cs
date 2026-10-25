@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
@@ -34,6 +35,7 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
                                   select (Guid?)r.Id).FirstOrDefaultAsync(cancellationToken);
             if (existing is { } found)
             {
+                await FillMissingCoverAsync(found, provider, cancellationToken);
                 return new EnsuredRelease(found, false);
             }
         }
@@ -44,6 +46,7 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
         var key = $"{normalized}|{provider.Kind}|{format}|{platformId}|{provider.Year}";
         if (_added.TryGetValue(key, out var already))
         {
+            await FillMissingCoverAsync(already.Id, provider, cancellationToken);
             return already;
         }
 
@@ -59,6 +62,7 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
                                select (Guid?)r.Id).FirstOrDefaultAsync(cancellationToken);
         if (sameShape is { } release)
         {
+            await FillMissingCoverAsync(release, provider, cancellationToken);
             return _added[key] = new EnsuredRelease(release, false);
         }
 
@@ -113,6 +117,26 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
         }
 
         return _added[key] = new EnsuredRelease(added.Id, true);
+    }
+
+    /// <summary>
+    /// A reused release keeps its cover address when it has one; when it has none and the fresh answer names one, the
+    /// address is filled in, so the commit's cover step can fetch it. A cover the release already stores is never touched.
+    /// </summary>
+    private async Task FillMissingCoverAsync(Guid releaseId, ProviderRelease provider, CancellationToken cancellationToken)
+    {
+        if (provider.CoverUrl is null)
+        {
+            return;
+        }
+
+        // Tracked: a release this request already added comes from the change tracker, with no query.
+        var release = await db.Releases.FindAsync([releaseId], cancellationToken);
+        if (release is { CoverAssetId: null } && CoverOutcome.CoverUrlOf(release.ProviderPayloadsJson) is null)
+        {
+            release.ProviderPayloadsJson =
+                CoverOutcome.WithCover(release.ProviderPayloadsJson, provider.Provider, provider.ExternalId, provider.CoverUrl);
+        }
     }
 
     private async Task<Guid?> PlatformIdAsync(string? name, CancellationToken cancellationToken)

@@ -2,6 +2,7 @@ using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.FeaturePrints;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Infrastructure.Catalog;
+using CollectionMaxxing.Infrastructure.Jobs;
 
 namespace CollectionMaxxing.Api.Catalog;
 
@@ -23,6 +24,8 @@ public static class CatalogServices
         services.AddScoped<GetCover.Handler>();
         services.AddScoped<ListFeaturePrints.Handler>(); // SCAN-2c
         services.AddScoped<PutFeaturePrints.Handler>();
+        services.AddJobHandler<BackfillCovers.Job, BackfillCovers>(BackfillCovers.JobType);
+        services.AddRecurringJob(BackfillCovers.JobType, TimeSpan.FromDays(1));
         return services;
     }
 }

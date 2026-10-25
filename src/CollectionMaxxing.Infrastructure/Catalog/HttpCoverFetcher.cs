@@ -5,29 +5,45 @@ namespace CollectionMaxxing.Infrastructure.Catalog;
 
 /// <summary>
 /// Downloads provider covers through <see cref="GuardedFetcher"/> (allow-listed hosts only). What comes back is trusted by its first bytes,
-/// not by the server's Content-Type: only a JPEG, PNG or WebP is kept.
+/// not by the server's Content-Type: only a JPEG, PNG or WebP is kept. Anything else comes back as a failure reason.
 /// </summary>
 public sealed class HttpCoverFetcher : ICoverFetcher, IDisposable
 {
-    private readonly GuardedFetcher _fetcher = new(FetchPolicy.Covers);
+    private readonly GuardedFetcher _fetcher;
 
-    public async Task<FetchedCover?> FetchAsync(string url, CancellationToken cancellationToken)
+    /// <param name="policy">The fetch policy; null keeps the production cover policy. Tests pass one that allows loopback fakes.</param>
+    public HttpCoverFetcher(FetchPolicy? policy = null)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        _fetcher = new GuardedFetcher(policy ?? FetchPolicy.Covers);
+    }
+
+    public async Task<CoverFetchResult> FetchAsync(string url, CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http"))
         {
-            return null;
+            return new CoverFetchResult(null, CoverFailure.InvalidUrl);
         }
 
         var result = await _fetcher.FetchAsync(uri, cancellationToken);
         if (result is not { Outcome: FetchOutcome.Ok, Bytes: { } bytes })
         {
-            return null;
+            return new CoverFetchResult(null, ReasonOf(result.Outcome));
         }
 
-        return SniffType(bytes) is { } type ? new FetchedCover(bytes, type) : null;
+        return SniffType(bytes) is { } type
+            ? new CoverFetchResult(new FetchedCover(bytes, type), null)
+            : new CoverFetchResult(null, CoverFailure.NotAnImage);
     }
 
     public void Dispose() => _fetcher.Dispose();
+
+    private static string ReasonOf(FetchOutcome outcome) => outcome switch
+    {
+        FetchOutcome.Refused => CoverFailure.Refused,
+        FetchOutcome.TooManyRedirects => CoverFailure.TooManyRedirects,
+        FetchOutcome.TooLarge => CoverFailure.TooLarge,
+        _ => CoverFailure.FetchFailed,
+    };
 
     private static string? SniffType(byte[] b) => b switch
     {

@@ -29,7 +29,8 @@ public interface IIsbnStore
 /// <summary>
 /// Looks a book up by ISBN: the local store first, then every book provider that is switched on at once, taking whichever
 /// answers first with a book. A slow Open Library does not hold up a quick Google Books answer, and one provider failing does
-/// not stop the other. A found book is saved for good; "not found" and failures are never saved.
+/// not stop the other — except that a first answer without a cover waits for the rest, so a slower provider's picture wins
+/// over a quicker one's none. A found book is saved for good; "not found" and failures are never saved.
 /// </summary>
 public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnStore store, ILogger<BookLookup> logger)
 {
@@ -76,6 +77,7 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
         using var race = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         var pending = asked.Select(p => AskAsync(p, id, race.Token)).ToList();
         var anyFailed = false;
+        Attempt? fallback = null; // the first found book, kept while the rest are waited out for a cover
         while (pending.Count > 0)
         {
             var done = await Task.WhenAny(pending);
@@ -88,6 +90,12 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
                 continue;
             }
 
+            if (book.CoverUrl is null)
+            {
+                fallback ??= attempt;
+                continue;
+            }
+
             await race.CancelAsync(); // the slower provider is no longer needed
             if (logger.IsEnabled(LogLevel.Information))
             {
@@ -96,6 +104,17 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
 
             await SaveAsync(id, book, cancellationToken);
             return new BookLookupResult(book, false, steps);
+        }
+
+        if (fallback?.Release is { } found)
+        {
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("Book lookup answered by provider {Provider}.", fallback.Step.Source);
+            }
+
+            await SaveAsync(id, found, cancellationToken);
+            return new BookLookupResult(found, false, steps);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
