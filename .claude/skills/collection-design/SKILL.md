@@ -42,3 +42,8 @@ primitives live in `app/src/ui/`.
 This app does not use Tailwind/NativeWind, `@expo/ui`, or gradients. Do not
 add them. Press feedback comes from `usePressFeedback` and haptics from
 `app/src/lib/haptics.ts`.
+
+Deliberately not installed from the skill upstreams (#307): the `expo-ui`
+skill (steers toward `@expo/ui` and away from Reanimated/react-native-web,
+against this stack) and `expo-tailwind-setup` (does not exist upstream;
+verified 2026-10-25, and the app uses StyleSheet).

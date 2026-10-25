@@ -37,6 +37,8 @@ test.describe('visual', () => {
     await expectShot(page, 'item-detail');
   });
 
+  // The snapshot records #303's persistent sidebar, including on this logged-out
+  // route — the authenticated nav here is bug #328, not intent. Re-bless when #328 lands.
   test('sign-in', async ({ page, open }) => {
     await open('/login');
     await expect(page.getByText('Sign in to your library.')).toBeVisible();
