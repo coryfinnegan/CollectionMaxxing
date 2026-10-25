@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useState, type ReactNode } from 'react';
+import { installForegroundRegistration } from '@/features/auth/appSignIn';
 import { installAuth } from '@/features/auth/bootstrap';
 import { installFocusRing } from '@/lib/a11y/webFocusRing';
 import { useAppFonts } from '@/theme/fonts';
@@ -25,6 +26,8 @@ export function RootFrame({ children }: { children: ReactNode }) {
   const router = useRouter();
   // 401s send the iPhone and the browser to sign-in; reauth_required asks for a fresh sign-in on web.
   useEffect(() => installAuth(router), [router]);
+  // iPhone: foreground returns re-register this install when the last registration is more than a day old.
+  useEffect(() => installForegroundRegistration(), []);
   useEffect(installFocusRing, []);
   // The browser paints the page behind the app (overscroll, address-bar gaps) with the document background: keep it on our ground color.
   useEffect(() => {
