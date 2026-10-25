@@ -16,7 +16,7 @@ export interface Placed {
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
-/** The rectangle the picture covers inside a frame, drawn contained and centred. */
+/** The rectangle the picture covers inside a frame, drawn contained and centered. */
 export function fitImage(frame: Size, image: Size): Placed {
   const scale = Math.min(frame.width / image.width, frame.height / image.height);
   const width = image.width * scale;

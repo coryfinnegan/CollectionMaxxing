@@ -11,7 +11,7 @@ export function capForBulk(ids: readonly string[]): { ids: string[]; message?: s
 
 const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
 
-/** `verb` is past tense and capitalised: "Moved", "Deleted", "Updated". */
+/** `verb` is past tense and capitalized: "Moved", "Deleted", "Updated". */
 export function resultMessage(verb: string, requested: number, affected: number): { ok: boolean; text: string } {
   const advice = "Reload the list to see what's there now.";
   if (affected >= requested) return { ok: true, text: `${verb} ${items(requested)}.` };

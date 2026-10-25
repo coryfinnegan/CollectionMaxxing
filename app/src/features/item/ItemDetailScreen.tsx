@@ -115,7 +115,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
         <Button label="Edit" onPress={() => router.push(`/item/${id}/edit`)} />
         <Button label="Move" variant="secondary" onPress={() => setMoving(!moving)} />
-        <Button label="Delete" variant="danger" onPress={del} busy={remove.isPending} />
+        <Button label="Delete" variant="danger" haptic="commit" onPress={del} busy={remove.isPending} />
       </View>
 
       {moving ? (

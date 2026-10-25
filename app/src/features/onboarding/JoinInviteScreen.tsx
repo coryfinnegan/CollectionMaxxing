@@ -53,7 +53,7 @@ export function JoinInviteScreen({ token }: { token: string }) {
             </Text>
           ) : null}
           {signedIn ? (
-            <Button label="Join" busy={accept.isPending} disabled={!invite} onPress={join} />
+            <Button label="Join" haptic="commit" busy={accept.isPending} disabled={!invite} onPress={join} />
           ) : (
             <Button
               label="Sign in to join"

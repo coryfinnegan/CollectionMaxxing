@@ -89,7 +89,7 @@ for (const scheme of ['light', 'dark'] as const) {
       expect(await overflow(page)).toBeLessThanOrEqual(0);
     });
 
-    test('the tab bar, the stack header and the page use the theme colours', async ({ page, open, shot }) => {
+    test('the tab bar, the stack header and the page use the theme colors', async ({ page, open, shot }) => {
       const dark = scheme === 'dark';
       const surface = dark ? 'rgb(25, 25, 24)' : 'rgb(253, 253, 252)';
       const ground = dark ? 'rgb(17, 17, 16)' : 'rgb(249, 249, 248)';

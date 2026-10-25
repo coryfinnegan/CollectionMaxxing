@@ -38,6 +38,8 @@ const words = [
   'centralise',
   'centre',
   'centres',
+  'centred',
+  'capitalised',
   'honour',
   'honours',
   'favour',

@@ -367,7 +367,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           </View>
         </ScrollView>
 
-        {/* Empty, loading and error states sit outside the horizontal scroller, so they are centred on the visible width. */}
+        {/* Empty, loading and error states sit outside the horizontal scroller, so they are centered on the visible width. */}
         {list.items.length === 0 ? <View style={{ padding: spacing.lg, alignItems: 'center' }}>{empty}</View> : null}
 
         {list.hasNextPage ? (
