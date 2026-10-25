@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Api.Tests.Items;
 
 /// <summary>Puts known catalogue rows, items and tags in the database for the items and libraries tests.</summary>
-internal static class ItemSeed
+public static class ItemSeed
 {
     private static readonly DateTimeOffset Start = new(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
 

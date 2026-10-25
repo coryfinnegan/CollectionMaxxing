@@ -38,7 +38,7 @@ A self-hosted collection tracker: a .NET 10 API and Postgres on the owner's Wind
 
 - Use Grep and Glob before you read; read the part of a file you need, not the whole file.
 - Never read `bin/`, `obj/`, `node_modules/`, generated code or lockfiles.
-- Run the quiet gate script (`scripts/check.ps1` or `scripts/check.sh`, created in Wave 0), not verbose test output.
+- Run the quiet gate script (`scripts/check.ps1` or `scripts/check.sh`, created in Wave 0), not verbose test output. It takes phases (`restore build format test app`); CI runs one phase per backend step, without the app phase.
 - Stop once your PR is open. Fix rounds are capped at 2; after that, report to the lead.
 
 ## Branches, commits, PRs

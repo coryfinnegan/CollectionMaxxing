@@ -6,8 +6,8 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
-  <!-- xUnit v3 test projects are executables. TestSupport is a plain library. -->
-  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'CollectionMaxxing.TestSupport'">
+  <!-- xUnit v3 test projects are executables. TestSupport and Api.TestKit are plain libraries. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'CollectionMaxxing.TestSupport' And '$(MSBuildProjectName)' != 'CollectionMaxxing.Api.TestKit'">
     <OutputType>Exe</OutputType>
   </PropertyGroup>
 

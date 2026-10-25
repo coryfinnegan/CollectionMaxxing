@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared by the Api.Tests lanes: the assembly fixture, the API host, sign-in fakes and data builders. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CollectionMaxxing.Api\CollectionMaxxing.Api.csproj" />
+    <ProjectReference Include="..\CollectionMaxxing.TestSupport\CollectionMaxxing.TestSupport.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.extensibility.core" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="WireMock.Net" />
+    <PackageReference Include="Shouldly" />
+    <Using Include="Xunit" />
+    <Using Include="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup Label="Security pins">
+    <!-- Direct references so the patched versions win over the 10.0.11 that test packages pull in (QA-1c, #193). -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+    <PackageReference Include="System.Security.Cryptography.Xml" />
+  </ItemGroup>
+
+</Project>

@@ -1,8 +1,8 @@
 <Project>
 
-  <!-- Every project under tests/ except TestSupport (a plain library) is an xUnit v3 test project.
+  <!-- Every project under tests/ except the two support libraries is an xUnit v3 test project.
        xUnit v3 is pinned to its VSTest flavour (mtp-off): `dotnet test` on the .NET 10 SDK can't talk to its Microsoft.Testing.Platform flavour here. -->
-  <ItemGroup Condition="'$(MSBuildProjectName)' != 'CollectionMaxxing.TestSupport'">
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'CollectionMaxxing.TestSupport' And '$(MSBuildProjectName)' != 'CollectionMaxxing.Api.TestKit'">
     <PackageReference Include="xunit.v3.mtp-off" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

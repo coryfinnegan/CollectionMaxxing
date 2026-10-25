@@ -76,7 +76,7 @@ public abstract class CatalogTest(ApiFixture api) : ApiTest(api)
 }
 
 /// <summary>A provider that answers from a list, or fails on purpose.</summary>
-internal sealed class FakeProvider(string name = "fake") : ICatalogProvider
+public sealed class FakeProvider(string name = "fake") : ICatalogProvider
 {
     public List<ProviderRelease> Results { get; } = [];
 

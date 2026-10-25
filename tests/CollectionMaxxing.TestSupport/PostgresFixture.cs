@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -59,7 +60,11 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
+        // One line for the quality gate's report: check.* sets CM_PERF_LOG, and the gate counts the containers a run
+        // starts and their cost. (Test output never reaches the gate's logs: the console logger swallows it.)
+        var started = Stopwatch.GetTimestamp();
         await _container.StartAsync();
+        var containerUp = Stopwatch.GetTimestamp();
 
         // Apply the real migrations, so every test run also proves they work.
         await using (var context = CreateContext())
@@ -75,6 +80,32 @@ public sealed class PostgresFixture : IAsyncLifetime
             SchemasToInclude = ["public"],
             TablesToIgnore = [new Respawn.Graph.Table("__EFMigrationsHistory")],
         });
+        var ready = Stopwatch.GetTimestamp();
+        if (Environment.GetEnvironmentVariable("CM_PERF_LOG") is { Length: > 0 } path)
+        {
+            // Parallel lanes append from several processes at once; concurrent appends can hit a
+            // sharing-violation IOException on Windows. Retry briefly, then give up: a lost perf
+            // line is cosmetic, a failed lane is not.
+            var line = $"[cm-perf] postgres ready in {Seconds(started, ready)}s (container {Seconds(started, containerUp)}s, migrate {Seconds(containerUp, ready)}s){Environment.NewLine}";
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    File.AppendAllText(path, line);
+                    break;
+                }
+                catch (IOException) when (attempt < 4)
+                {
+                    await Task.Delay(50);
+                }
+                catch (IOException)
+                {
+                    break;
+                }
+            }
+        }
+
+        static string Seconds(long from, long to) => ((to - from) / (double)Stopwatch.Frequency).ToString("F1");
     }
 
     /// <summary>Deletes all rows in every table (the schema stays).</summary>
