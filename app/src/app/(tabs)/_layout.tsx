@@ -2,13 +2,7 @@ import { Tabs } from 'expo-router';
 import { useState } from 'react';
 import { Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { Sidebar } from '@/components/Sidebar';
-import { ReauthPrompt } from '@/features/auth/reauth';
-import { LibraryGate } from '@/features/onboarding/LibraryGate';
-import { OwnedDataBridge } from '@/features/offline/OwnedDataBridge';
-import { AppLockGate } from '@/features/me/appLock';
-import { CardsBridge } from '@/features/scan/cards/CardsBridge';
-import { FingerprintBridge } from '@/features/scan/fingerprints/FingerprintBridge';
-import { SnapStoreBridge } from '@/features/scan/pipeline/SnapStoreBridge';
+import { TabsFrame } from '@/components/TabsFrame';
 import { WIDE_BREAKPOINT, radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
 
@@ -57,13 +51,7 @@ export default function TabsLayout() {
   const wide = Platform.OS === 'web' && width >= WIDE_BREAKPOINT;
 
   return (
-    <AppLockGate>
-    <LibraryGate />
-    <OwnedDataBridge />
-    <ReauthPrompt />
-    <SnapStoreBridge />
-    <FingerprintBridge />
-    <CardsBridge />
+    <TabsFrame>
     <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column', backgroundColor: colors.ground }}>
       <SkipLink />
       {wide ? <Sidebar /> : null}
@@ -95,7 +83,7 @@ export default function TabsLayout() {
         </Tabs>
       </View>
     </View>
-    </AppLockGate>
+    </TabsFrame>
   );
 }
 
