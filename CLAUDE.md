@@ -54,6 +54,12 @@ A self-hosted collection tracker: a .NET 10 API and Postgres on the owner's Wind
   - "Check at the next checkpoint", if anything.
 - End the PR body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
+## Releasing the iPhone app
+
+- Every merge to main that changes `app/**` builds and uploads to TestFlight automatically (`.github/workflows/ios-build.yml`). Routine app changes need nothing else.
+- Manual version bumps (`version` in `app/app.config.ts`) and `v*` tags only change the marketing version and cut a GitHub release. They are not a required step for routine changes.
+- A version bump that will be tagged right away should carry `[skip ios-build]` in the merge commit message, so the tag build is the only build. A version-bump PR meant to ship on merge must not carry the marker.
+
 ## Definition of done
 
 - Tests were written first and describe behaviour.
