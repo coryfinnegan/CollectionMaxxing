@@ -1,8 +1,8 @@
 // Web layout at 768px and up: the sidebar from docs/06 "Navigation map".
 import { type Href, Link, usePathname } from 'expo-router';
 import { Pressable, View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { LibrarySwitcher } from '@/features/onboarding/LibrarySwitcher';
-import { radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
 
 export const sidebarItems: { label: string; href: Href }[] = [
@@ -17,21 +17,10 @@ export const sidebarItems: { label: string; href: Href }[] = [
 ];
 
 export function Sidebar() {
-  const colors = useColors();
   const pathname = usePathname();
   return (
-    <View
-      role="navigation"
-      style={{
-        width: 220,
-        padding: spacing.lg,
-        gap: spacing.xs,
-        backgroundColor: colors.surface,
-        borderRightWidth: 1,
-        borderRightColor: colors.line,
-      }}
-    >
-      <Text variant="heading" style={{ marginBottom: spacing.lg }}>
+    <View role="navigation" style={styles.sidebar}>
+      <Text variant="heading" style={styles.brand}>
         CollectionMaxxing
       </Text>
       <LibrarySwitcher />
@@ -39,16 +28,7 @@ export function Sidebar() {
         const active = pathname === item.href;
         return (
           <Link key={item.label} href={item.href} asChild>
-            <Pressable
-              accessibilityRole="link"
-              {...(active ? { 'aria-current': 'page' as const } : {})}
-              style={{
-                paddingVertical: spacing.sm,
-                paddingHorizontal: spacing.md,
-                borderRadius: radius.md,
-                backgroundColor: active ? colors.ground : 'transparent',
-              }}
-            >
+            <Pressable accessibilityRole="link" {...(active ? { 'aria-current': 'page' as const } : {})} style={styles.item(active)}>
               <Text variant="label" tone={active ? 'accent' : 'ink'}>
                 {item.label}
               </Text>
@@ -59,3 +39,21 @@ export function Sidebar() {
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  sidebar: {
+    width: 220,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.surface,
+    borderRightWidth: 1,
+    borderRightColor: theme.colors.line,
+  },
+  brand: { marginBottom: theme.spacing.lg },
+  item: (active: boolean) => ({
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    backgroundColor: active ? theme.colors.ground : 'transparent',
+  }),
+}));

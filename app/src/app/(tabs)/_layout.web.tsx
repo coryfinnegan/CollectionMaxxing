@@ -4,9 +4,10 @@
 // headless tabs find them by element, so a wrapper component would hide them.
 import { Tabs, TabList, TabSlot, TabTrigger } from 'expo-router/ui';
 import { usePathname, type Href } from 'expo-router';
-import { StyleSheet, useWindowDimensions } from 'react-native';
+import { useWindowDimensions } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { TabsFrame } from '@/components/TabsFrame';
-import { spacing, useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
+import { WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Text } from '@/ui';
 
 const visibleTabs: { name: string; href: Href; label: string }[] = [
@@ -15,7 +16,6 @@ const visibleTabs: { name: string; href: Href; label: string }[] = [
 ];
 
 export default function TabsLayout() {
-  const colors = useColors();
   const pathname = usePathname();
   const { width } = useWindowDimensions();
   const narrow = width < WIDE_BREAKPOINT;
@@ -27,11 +27,7 @@ export default function TabsLayout() {
         {/* The list always renders with the same triggers: triggers define which
             routes exist, so hiding the bar only hides the container — the tabs
             stay declared on wide screens too. */}
-        <TabList
-          role="tablist"
-          accessibilityLabel="Tabs"
-          style={narrow ? [styles.tabBar, { backgroundColor: colors.surface, borderTopColor: colors.line }] : styles.hidden}
-        >
+        <TabList role="tablist" accessibilityLabel="Tabs" style={narrow ? styles.tabBar : styles.hidden}>
           {visibleTabs.map((tab) => {
             const active = pathname === tab.href;
             return (
@@ -57,9 +53,14 @@ export default function TabsLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create((theme) => ({
   slot: { flex: 1 },
-  tabBar: { flexDirection: 'row', borderTopWidth: 1 },
-  trigger: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.sm },
+  tabBar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    backgroundColor: theme.colors.surface,
+    borderTopColor: theme.colors.line,
+  },
+  trigger: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: theme.spacing.sm },
   hidden: { display: 'none' },
-});
+}));
