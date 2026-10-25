@@ -30,7 +30,7 @@ export function CreateLibraryScreen() {
 
   return (
     <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title="Create your library">
+      <Screen title="Create your library" showTitleOnPhone>
         <Card>
           <TextField label="Library name" value={text} onChangeText={setValue} maxLength={80} autoComplete="off" onSubmitEditing={submit} />
           {error ? (

@@ -26,7 +26,7 @@ export function JoinInviteScreen({ token }: { token: string }) {
   if (preview.isError) {
     return (
       <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-        <Screen title="Join a library">
+        <Screen title="Join a library" showTitleOnPhone>
           <Card>
             <Text accessibilityRole="alert" tone="danger">
               {invalidInviteCopy}
@@ -45,7 +45,7 @@ export function JoinInviteScreen({ token }: { token: string }) {
   const title = invite ? `Join ${invite.ownerName}'s library as ${roleLabel[invite.role]}` : 'Join a library';
   return (
     <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title={title} subtitle={signedOut ? 'Sign in with Google or Apple to join.' : undefined}>
+      <Screen title={title} showTitleOnPhone subtitle={signedOut ? 'Sign in with Google or Apple to join.' : undefined}>
         <Card>
           {error ? (
             <Text accessibilityRole="alert" tone="danger">

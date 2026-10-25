@@ -23,7 +23,7 @@ afterEach(() => setTrayStore(undefined));
 describe('scan layout', () => {
   it('keeps the Scan tab inside the safe area', async () => {
     await renderWithProviders(<ScanTab />);
-    expect(await screen.findByText('Scan')).toBeTruthy();
+    expect(await screen.findByText('Point the camera at barcodes. Each one is read as soon as it is in view.')).toBeTruthy();
     expect(screen.getByTestId('scan-tab-safe-area')).toBeTruthy();
   });
 

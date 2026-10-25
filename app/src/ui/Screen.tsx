@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ScrollView, View } from 'react-native';
+import { Platform, ScrollView, View } from 'react-native';
 import { spacing, useColors } from '@/theme/tokens';
 import { Text } from './Text';
 
@@ -7,6 +7,8 @@ type ScreenProps = {
   title?: string;
   /** Hero moments (sign-in, welcome) get the display cut; page titles use title. */
   titleVariant?: 'title' | 'display';
+  /** Content titles (an item's name) and screens with no navigator header show on the phone too. */
+  showTitleOnPhone?: boolean;
   subtitle?: string;
   /** Catalog facts (format, platform, year) set in mono. */
   subtitleVariant?: 'body' | 'mono';
@@ -14,15 +16,28 @@ type ScreenProps = {
   scroll?: boolean;
 };
 
-export function Screen({ title, titleVariant = 'title', subtitle, subtitleVariant = 'body', children, scroll = true }: ScreenProps) {
+export function Screen({
+  title,
+  titleVariant = 'title',
+  showTitleOnPhone = false,
+  subtitle,
+  subtitleVariant = 'body',
+  children,
+  scroll = true,
+}: ScreenProps) {
   const colors = useColors();
+  // One title per screen: on the phone the navigator header names it, so the section
+  // title only renders on the web. The subtitle is content, not a title, and always shows.
+  const showTitle = !!title && (showTitleOnPhone || Platform.OS === 'web');
   const content = (
     <>
-      {title ? (
+      {showTitle || subtitle ? (
         <View style={{ gap: spacing.xs }}>
-          <Text variant={titleVariant} accessibilityRole="header">
-            {title}
-          </Text>
+          {showTitle ? (
+            <Text variant={titleVariant} accessibilityRole="header">
+              {title}
+            </Text>
+          ) : null}
           {subtitle ? (
             <Text variant={subtitleVariant} tone="muted">
               {subtitle}

@@ -122,9 +122,13 @@ export function ScannerScreen({
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { paddingTop: insets.top + spacing.sm }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg }}>
           <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
-          <Text variant="heading" accessibilityRole="header" style={{ color: fixed.white }}>
-            Scanner
-          </Text>
+          {Platform.OS === 'web' ? (
+            <Text variant="heading" accessibilityRole="header" style={{ color: fixed.white }}>
+              Scanner
+            </Text>
+          ) : (
+            <View style={{ flex: 1 }} />
+          )}
           <Button
             label={torch ? 'Torch on' : 'Torch'}
             variant="secondary"

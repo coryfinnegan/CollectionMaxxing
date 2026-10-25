@@ -2,7 +2,7 @@
 // Wishlist and Lent out are the same view with a fixed status.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlatList, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
@@ -38,9 +38,11 @@ export function LibraryGrid({ title, fixedStatus, openAdd }: LibraryGridProps) {
   if (loadingLibrary || !libraryId) {
     return (
       <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ padding: spacing.lg, gap: spacing.lg }}>
-        <Text variant="title" accessibilityRole="header">
-          {title}
-        </Text>
+        {Platform.OS === 'web' ? (
+          <Text variant="title" accessibilityRole="header">
+            {title}
+          </Text>
+        ) : null}
         <LoadingState label="Loading your library…" />
       </SafeAreaView>
     );
@@ -78,10 +80,12 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
 
   const header = (
     <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-        <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
-          {title}
-        </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.md }}>
+        {Platform.OS === 'web' ? (
+          <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
+            {title}
+          </Text>
+        ) : null}
         <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
       </View>
 

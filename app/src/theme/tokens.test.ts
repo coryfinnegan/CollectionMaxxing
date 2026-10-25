@@ -36,6 +36,6 @@ describe('design tokens', () => {
       expect(typeScale[variant].fontFamily).toMatch(/^(BricolageGrotesque|SpaceMono)_/);
     }
     expect(typeScale.mono.fontFamily).toMatch(/^SpaceMono_/);
-    expect(typeScale.display.fontSize).toBeGreaterThan(typeScale.title.fontSize);
+    expect(typeScale.display.fontSize ?? 0).toBeGreaterThan(typeScale.title.fontSize ?? 0);
   });
 });
