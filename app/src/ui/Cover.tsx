@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Image, View } from 'react-native';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from './Text';
@@ -9,16 +10,19 @@ type CoverProps = {
   width?: number;
 };
 
-/** A cover image, or a plain tile with the title when there is no art. */
+/** A cover image, or a plain tile with the title when there is no art or it fails to load. */
 export function Cover({ title, uri, width = 96 }: CoverProps) {
   const colors = useColors();
   const height = Math.round(width * 1.5);
-  if (uri) {
+  // Which address failed, so a new address gets a fresh attempt even after a failure.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  if (uri && failedUri !== uri) {
     return (
       <Image
         source={{ uri }}
         accessibilityIgnoresInvertColors
         accessibilityLabel={`Cover of ${title}`}
+        onError={() => setFailedUri(uri)}
         style={{ width, height, borderRadius: radius.sm, backgroundColor: colors.line }}
       />
     );

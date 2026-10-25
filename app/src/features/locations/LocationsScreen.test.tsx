@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { mockData } from '@/mocks/data';
 import { server } from '@/mocks/server';
@@ -81,6 +81,36 @@ describe('LocationsScreen', () => {
 
     expect(await screen.findByText('This location still has locations inside it.')).toBeTruthy();
     expect(screen.getByText('Game room')).toBeTruthy();
+  });
+
+  it('disables actions on a new row until the server confirms it', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/locations', async () => {
+        await gate;
+        return HttpResponse.json({ id: 'new-location-id', parentId: null, name: 'TV stand', sortOrder: 4 }, { status: 201 });
+      }),
+    );
+    await renderWithProviders(<LocationsScreen />);
+    await screen.findByText('Game room');
+
+    await fireEvent.changeText(screen.getByLabelText('New location'), 'TV stand');
+    await fireEvent.press(screen.getByLabelText('Add location'));
+
+    // The row shows straight away from the optimistic update, but its id only exists on this device.
+    expect(await screen.findByText('TV stand')).toBeTruthy();
+    for (const label of ['Add inside TV stand', 'Rename TV stand', 'Delete TV stand']) {
+      expect(screen.getByLabelText(label).props.accessibilityState.disabled).toBe(true);
+    }
+    expect(screen.getByLabelText('Rename Game room').props.accessibilityState.disabled).not.toBe(true);
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(screen.queryByText('TV stand')).toBeNull());
   });
 
   it('offers a retry when the list cannot be loaded', async () => {

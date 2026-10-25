@@ -19,6 +19,7 @@ It is **self-hosted**: the API and database run on one Windows PC, and you reach
 |---|---|---|
 | API | `src/CollectionMaxxing.Api` (+ `Application`, `Domain`, `Infrastructure`) | .NET 10, ASP.NET Core Minimal APIs, EF Core, PostgreSQL 17 |
 | Dev host | `src/CollectionMaxxing.AppHost` | .NET Aspire host: starts Postgres and the API for local development |
+| Shared defaults | `src/CollectionMaxxing.ServiceDefaults` | OpenTelemetry, health checks and resilience defaults shared by the services |
 | App | `app/` | Expo (React Native) + TypeScript: one codebase for the iPhone app and the web app |
 | Deploy | `deploy/` | Docker Compose stack, deployer, backups, Tailscale Serve, runbooks |
 | Tests | `tests/`, `app/src`, `deploy/tests` | xUnit v3 + Testcontainers, Jest, Playwright, PowerShell |

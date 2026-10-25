@@ -6,6 +6,7 @@ import { getListDeletedItemsQueryKey, useListDeletedItems } from '@/api/generate
 import { useRestoreItem } from '@/api/generated/items/items';
 import { useInvalidateLibrary } from '@/features/item/useItem';
 import { friendlyError } from '@/lib/problem';
+import { useNow } from '@/lib/useNow';
 import { Button, EmptyState, ListRow, Card, LoadingState, Screen, Text } from '@/ui';
 import { BackButton } from './BackButton';
 import { useMyRole } from './useMyRole';
@@ -45,7 +46,7 @@ function Bin({ libraryId }: { libraryId: string }) {
   const list = useListDeletedItems(libraryId);
   const restore = useRestoreItem();
   const [message, setMessage] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
+  const now = useNow();
   const items: DeletedItemDto[] = list.data?.status === 200 ? list.data.data.items : [];
 
   const restoreOne = (item: DeletedItemDto) => {
