@@ -2,17 +2,16 @@
 import { useRouter } from 'expo-router';
 import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet } from 'react-native-unistyles';
 import { useStore } from 'zustand';
-import { useColors } from '@/theme/tokens';
 import { Button, Card, EmptyState, Screen, Text } from '@/ui';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { summaryLine } from './cards/copy';
 import { getTrayStore } from './tray/storage';
 
 export function ScanTab() {
-  const colors = useColors();
   return (
-    <SafeAreaView testID="scan-tab-safe-area" edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
+    <SafeAreaView testID="scan-tab-safe-area" edges={['left', 'right']} style={styles.safe}>
       {Platform.OS === 'web' ? (
         <Screen title="Scan">
           <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes." />
@@ -48,3 +47,7 @@ function WaitingCard({ libraryId }: { libraryId: string }) {
     </Card>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  safe: { flex: 1, backgroundColor: theme.colors.ground },
+}));

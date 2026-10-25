@@ -2,13 +2,13 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import type { ItemDetailDto } from '@/api/generated/models';
 import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLabels } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
-import { spacing } from '@/theme/tokens';
 import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
 import { sharedCoverTag } from '@/ui/motion';
 import { breadcrumb } from './breadcrumb';
@@ -93,7 +93,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
 
   return (
     <Screen title={title} showTitleOnPhone subtitle={facts} subtitleVariant="mono">
-      <View style={{ alignItems: 'center', gap: spacing.sm }}>
+      <View style={styles.hero}>
         <Cover title={title} uri={release.coverUrl ?? work.coverUrl} width={160} sharedTag={sharedCoverTag(reduceMotion, id)} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />
         {work.creators.length ? <Text variant="caption" tone="muted">{work.creators.join(', ')}</Text> : null}
@@ -115,7 +115,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         </Text>
       ) : null}
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      <View style={styles.actions}>
         <Button label="Edit" onPress={() => router.push(`/item/${id}/edit`)} />
         <Button label="Move" variant="secondary" onPress={() => setMoving(!moving)} />
         <Button label="Delete" variant="danger" haptic="commit" onPress={del} busy={remove.isPending} />
@@ -143,11 +143,11 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <View style={{ flexDirection: 'row', gap: spacing.md }}>
-      <Text tone="muted" style={{ width: 110 }}>
+    <View style={styles.fact}>
+      <Text tone="muted" style={styles.factLabel}>
         {label}
       </Text>
-      <Text style={{ flex: 1 }}>{value}</Text>
+      <Text style={styles.factValue}>{value}</Text>
     </View>
   );
 }
@@ -163,7 +163,7 @@ function OtherCopies({
 }) {
   if (copies.length === 0) return null;
   return (
-    <View style={{ gap: spacing.sm }}>
+    <View style={styles.copies}>
       <Text variant="heading">Also in your library</Text>
       {copies.map((copy) => (
         <ListRow
@@ -176,3 +176,12 @@ function OtherCopies({
     </View>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  hero: { alignItems: 'center', gap: theme.spacing.sm },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  fact: { flexDirection: 'row', gap: theme.spacing.md },
+  factLabel: { width: 110 },
+  factValue: { flex: 1 },
+  copies: { gap: theme.spacing.sm },
+}));
