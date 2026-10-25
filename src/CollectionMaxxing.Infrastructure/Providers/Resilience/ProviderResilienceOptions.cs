@@ -50,7 +50,15 @@ internal static class ProviderResilienceExtensions
                 // Someone is waiting on this answer (a scan or a search): retrying a failure means sleeping through back-off until
                 // their time budget runs out, so a failure ends the call at once. The background job keeps the retries.
                 var transient = options.Retry.ShouldHandle;
-                options.Retry.ShouldHandle = args => ProviderCalls.IsFailFast ? ValueTask.FromResult(false) : transient(args);
+                options.Retry.ShouldHandle = args =>
+                {
+                    if (args.Outcome.Exception is ProviderQuotaExhaustedException)
+                    {
+                        return ValueTask.FromResult(false); // the day's quota is spent: a retry would send a request that was already refused
+                    }
+
+                    return ProviderCalls.IsFailFast ? ValueTask.FromResult(false) : transient(args);
+                };
             });
         return builder;
     }
