@@ -228,6 +228,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       body="Try a different search or filter."
       actionLabel="Clear filters"
       onAction={clearFilters}
+      animation="no-results"
     />
   ) : (
     <EmptyState
@@ -235,6 +236,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       body={emptyCopy[view].body}
       actionLabel={view === 'library' ? 'Scan your first shelf' : undefined}
       onAction={view === 'library' ? () => router.push('/scan') : undefined}
+      animation="empty-library"
     />
   );
 

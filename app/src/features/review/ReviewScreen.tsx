@@ -54,7 +54,7 @@ export function ReviewScreen({ libraryId, sessionId, onBack, undoMs }: { library
           {review.loadError}
         </Text>
       ) : null}
-      {!review.loading && total === 0 ? <EmptyState title="Nothing to review." body="Scan something and it shows up here." /> : null}
+      {!review.loading && total === 0 ? <EmptyState title="Nothing to review." body="Scan something and it shows up here." animation="empty-library" /> : null}
 
       {review.canAdd && total > 0 ? (
         <View style={{ gap: spacing.sm }}>

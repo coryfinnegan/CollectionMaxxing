@@ -24,6 +24,8 @@ module.exports = {
     // expo-router's testing setup mocks reanimated with the shipped mock, which cannot load here
     // (it pulls the native worklets); point it at our stand-in instead (#302).
     '^react-native-reanimated/mock$': '<rootDir>/__mocks__/reanimated-impl.js',
+    // Mirrors the tsconfig paths: the Lottie spots live next to src, not in it (#304).
+    '^@/assets/(.*)$': '<rootDir>/assets/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
   },
 };
