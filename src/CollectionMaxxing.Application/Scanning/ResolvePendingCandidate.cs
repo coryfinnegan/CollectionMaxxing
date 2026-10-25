@@ -1,10 +1,11 @@
+using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Identifiers;
-using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Application.Scanning;
 
@@ -28,19 +29,29 @@ public enum ResolveOutcome
 public sealed class ResolvePendingCandidate(
     IAppDbContext db,
     CurrentUser currentUser,
+    IMembershipReader memberships,
     BarcodeResolver external,
     CandidateResolver resolver,
     ScanningOptions options,
     IJobQueue jobs,
-    TimeProvider clock) : IJobHandler<SubmitBarcodes.ResolveJob>
+    TimeProvider clock,
+    ILogger<ResolvePendingCandidate> logger) : IJobHandler<SubmitBarcodes.ResolveJob>
 {
     public async Task HandleAsync(SubmitBarcodes.ResolveJob job, CancellationToken cancellationToken) =>
         await RunAsync(job, cancellationToken);
 
     public async Task<ResolveOutcome> RunAsync(SubmitBarcodes.ResolveJob job, CancellationToken cancellationToken)
     {
-        // A job has no signed-in caller; it takes the identity of the scan's owner, with the least role that can see the session.
-        currentUser.Initialize(job.UserId, [new Membership(job.LibraryId, LibraryRole.Viewer)]);
+        // A job has no signed-in caller; it takes the identity of the scan's owner, with the libraries they belong to
+        // now. The payload may be days old, and someone removed from the library since must get nothing written into it.
+        var current = await memberships.GetMembershipsAsync(job.UserId, cancellationToken);
+        if (current.All(m => m.LibraryId != job.LibraryId))
+        {
+            logger.LogWarning("Dropping the resolve job for candidate {CandidateId}: the person no longer belongs to the library.", job.CandidateId);
+            return ResolveOutcome.Done;
+        }
+
+        currentUser.Initialize(job.UserId, current);
 
         var candidate = await db.ScanCandidates.FirstOrDefaultAsync(
             c => c.Id == job.CandidateId && c.SessionId == job.SessionId, cancellationToken);
