@@ -151,6 +151,34 @@ describe('ItemEditScreen', () => {
     expect(entry().item.lentTo).toBe('Sam');
   });
 
+  it('records the local day when an item is lent in the evening', async () => {
+    await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+
+    await fireEvent.press(screen.getByLabelText('Status Lent out'));
+    await fireEvent.changeText(screen.getByLabelText('Lent to'), 'Sam');
+
+    // 9:30pm Oct 24 in US Central, already Oct 25 in UTC. Only `new Date()` with no
+    // arguments is fixed; dated constructions and every static pass straight through.
+    const previousTz = process.env.TZ;
+    process.env.TZ = 'America/Chicago';
+    const RealDate = globalThis.Date;
+    const evening = RealDate.parse('2026-10-25T02:30:00Z');
+    globalThis.Date = new Proxy(RealDate, {
+      construct: (target, args) => (args.length === 0 ? new target(evening) : Reflect.construct(target, args)),
+    });
+    try {
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+    } finally {
+      globalThis.Date = RealDate;
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+    }
+
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(entry().item.lentOn).toBe('2026-10-24');
+  });
+
   it('gives every button an accessibility label', async () => {
     await renderWithProviders(<ItemEditScreen id={MATRIX} />);
     await screen.findByLabelText('Notes');
