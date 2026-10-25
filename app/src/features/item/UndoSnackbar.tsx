@@ -13,6 +13,8 @@ export function UndoSnackbar() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // A new deletion replaces whatever came before, including a failed restore's error.
+    setError(null);
     if (!deleted) return;
     const timer = setTimeout(() => setDeleted(null), VISIBLE_MS);
     return () => clearTimeout(timer);
