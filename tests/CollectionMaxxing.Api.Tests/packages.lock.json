@@ -1830,6 +1830,20 @@
           "Microsoft.AspNetCore.OpenApi": "[10.0.11, )"
         }
       },
+      "collectionmaxxing.api.testkit": {
+        "type": "Project",
+        "dependencies": {
+          "CollectionMaxxing.Api": "[1.0.0, )",
+          "CollectionMaxxing.TestSupport": "[1.0.0, )",
+          "Microsoft.AspNetCore.Mvc.Testing": "[10.0.11, )",
+          "Microsoft.Extensions.TimeProvider.Testing": "[10.9.0, )",
+          "Shouldly": "[4.3.0, )",
+          "System.Security.Cryptography.Pkcs": "[10.0.13, )",
+          "System.Security.Cryptography.Xml": "[10.0.13, )",
+          "WireMock.Net": "[2.19.0, )",
+          "xunit.v3.extensibility.core": "[4.0.2, )"
+        }
+      },
       "collectionmaxxing.application": {
         "type": "Project",
         "dependencies": {

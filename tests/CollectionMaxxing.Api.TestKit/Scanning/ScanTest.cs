@@ -23,7 +23,7 @@ using Microsoft.Extensions.Logging;
 namespace CollectionMaxxing.Api.Tests.Scanning;
 
 /// <summary>A product lookup that answers from a table, or does whatever a test tells it to.</summary>
-internal sealed class FakeProductLookup : IProductLookup
+public sealed class FakeProductLookup : IProductLookup
 {
     private readonly Dictionary<string, ProductLookupResult> _answers = [];
 
@@ -50,7 +50,7 @@ internal sealed class FakeProductLookup : IProductLookup
 }
 
 /// <summary>Codes and provider releases the scanning tests share.</summary>
-internal static class ScanData
+public static class ScanData
 {
     /// <summary>A valid UPC-A for any number (the leading digits are the number, then the check digit).</summary>
     public static string Upc(int n)
@@ -98,11 +98,11 @@ public abstract class ScanTest(ApiFixture api) : ApiTest(api)
 {
     private WebApplicationFactory<Program>? _factory;
 
-    internal FakeProductLookup Products { get; } = new();
+    public FakeProductLookup Products { get; } = new();
 
-    internal FakeProvider Games { get; } = new("igdb");
+    public FakeProvider Games { get; } = new("igdb");
 
-    internal FakeProvider Books { get; } = new("openlibrary");
+    public FakeProvider Books { get; } = new("openlibrary");
 
     // A budget that can't expire however busy the PC is (a slow lookup would otherwise leave a code pending). Tests about the budget expiring set a short one themselves.
     protected ScanningOptions Options { get; } = new() { ResolveBudget = TimeSpan.FromMinutes(2) };
@@ -254,7 +254,7 @@ public abstract class ScanTest(ApiFixture api) : ApiTest(api)
 }
 
 /// <summary>Reads a few of the items' fields the scanning tests care about.</summary>
-internal static class ScanReaders
+public static class ScanReaders
 {
     public static async Task<List<Item>> ItemsAsync(PostgresFixture db, Guid libraryId)
     {

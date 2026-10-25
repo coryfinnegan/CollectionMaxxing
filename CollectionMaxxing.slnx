@@ -9,6 +9,9 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CollectionMaxxing.Api.Tests/CollectionMaxxing.Api.Tests.csproj" />
+    <Project Path="tests/CollectionMaxxing.Api.Tests.Auth/CollectionMaxxing.Api.Tests.Auth.csproj" />
+    <Project Path="tests/CollectionMaxxing.Api.Tests.Library/CollectionMaxxing.Api.Tests.Library.csproj" />
+    <Project Path="tests/CollectionMaxxing.Api.TestKit/CollectionMaxxing.Api.TestKit.csproj" />
     <Project Path="tests/CollectionMaxxing.Application.Tests/CollectionMaxxing.Application.Tests.csproj" />
     <Project Path="tests/CollectionMaxxing.Architecture.Tests/CollectionMaxxing.Architecture.Tests.csproj" />
     <Project Path="tests/CollectionMaxxing.Domain.Tests/CollectionMaxxing.Domain.Tests.csproj" />

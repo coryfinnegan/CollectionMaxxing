@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -59,7 +60,11 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
+        // One line for the quality gate's report: check.* sets CM_PERF_LOG, and the gate counts the containers a run
+        // starts and their cost. (Test output never reaches the gate's logs: the console logger swallows it.)
+        var started = Stopwatch.GetTimestamp();
         await _container.StartAsync();
+        var containerUp = Stopwatch.GetTimestamp();
 
         // Apply the real migrations, so every test run also proves they work.
         await using (var context = CreateContext())
@@ -75,6 +80,13 @@ public sealed class PostgresFixture : IAsyncLifetime
             SchemasToInclude = ["public"],
             TablesToIgnore = [new Respawn.Graph.Table("__EFMigrationsHistory")],
         });
+        var ready = Stopwatch.GetTimestamp();
+        if (Environment.GetEnvironmentVariable("CM_PERF_LOG") is { Length: > 0 } path)
+        {
+            File.AppendAllText(path, $"[cm-perf] postgres ready in {Seconds(started, ready)}s (container {Seconds(started, containerUp)}s, migrate {Seconds(containerUp, ready)}s){Environment.NewLine}");
+        }
+
+        static string Seconds(long from, long to) => ((to - from) / (double)Stopwatch.Frequency).ToString("F1");
     }
 
     /// <summary>Deletes all rows in every table (the schema stays).</summary>

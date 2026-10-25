@@ -5,7 +5,7 @@ using CollectionMaxxing.TestSupport;
 namespace CollectionMaxxing.Api.Tests.Catalog;
 
 /// <summary>Puts known catalogue rows in the database for the catalogue tests.</summary>
-internal static class CatalogSeed
+public static class CatalogSeed
 {
     private static readonly DateTimeOffset Start = new(2026, 3, 1, 12, 0, 0, TimeSpan.Zero);
 

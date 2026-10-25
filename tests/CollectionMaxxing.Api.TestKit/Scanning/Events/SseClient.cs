@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace CollectionMaxxing.Api.Tests.Scanning.Events;
 
 /// <summary>One server-sent event as the client read it. A comment line (the heartbeat) has the name ":".</summary>
-internal sealed record SseEvent(string Name, string? Id, JsonElement? Data, string Raw)
+public sealed record SseEvent(string Name, string? Id, JsonElement? Data, string Raw)
 {
     public bool IsComment => Name == ":";
 
@@ -11,7 +11,7 @@ internal sealed record SseEvent(string Name, string? Id, JsonElement? Data, stri
 }
 
 /// <summary>A minimal SSE reader for tests: connects without waiting for the (endless) body, and reads one event at a time.</summary>
-internal sealed class SseClient : IAsyncDisposable
+public sealed class SseClient : IAsyncDisposable
 {
     private readonly HttpResponseMessage _response;
     private readonly StreamReader _reader;

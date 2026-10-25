@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CollectionMaxxing.Api\CollectionMaxxing.Api.csproj" />
     <ProjectReference Include="..\CollectionMaxxing.TestSupport\CollectionMaxxing.TestSupport.csproj" />
+    <ProjectReference Include="..\CollectionMaxxing.Api.TestKit\CollectionMaxxing.Api.TestKit.csproj" />
   </ItemGroup>
 
   <ItemGroup>
