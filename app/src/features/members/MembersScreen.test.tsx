@@ -119,7 +119,7 @@ describe('MembersScreen', () => {
     await renderWithProviders(<MembersScreen />);
     await openInvite('Jordan', 'Editor');
 
-    expect(await screen.findByText("Passkey cancelled. Try again when you're ready.")).toBeTruthy();
+    expect(await screen.findByText("Passkey canceled. Try again when you're ready.")).toBeTruthy();
     expect(screen.queryByText(/^https:\/\/pc\.tailnet\.ts\.net\/join\//)).toBeNull();
   });
 

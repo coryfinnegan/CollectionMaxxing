@@ -42,7 +42,7 @@ export function ResultDetail({ id }: { id: string }) {
 
   if (!candidate) {
     return (
-      <SafeScreen title="Result">
+      <SafeScreen>
         <EmptyState title="That result isn't here any more" body="Open the scanner to see this scan's results." />
       </SafeScreen>
     );
@@ -69,7 +69,7 @@ export function ResultDetail({ id }: { id: string }) {
   }
 
   return (
-    <SafeScreen title="Result">
+    <SafeScreen>
       {context ? (
         <PhotoViewer
           context={context}
@@ -90,7 +90,9 @@ export function ResultDetail({ id }: { id: string }) {
             </Text>
             {release ? <FormatBadge label={formatLabels[release.format]} /> : null}
             {release?.creators.length ? <Text tone="muted">{release.creators.join(', ')}</Text> : null}
-            <Text tone="muted">{[release?.platform?.name, release?.year].filter(Boolean).join(' · ')}</Text>
+            <Text variant="mono" tone="muted">
+              {[release?.platform?.name, release?.year].filter(Boolean).join(' · ')}
+            </Text>
           </View>
         </View>
       </Card>
@@ -122,7 +124,7 @@ export function ResultDetail({ id }: { id: string }) {
             <Button label="Wishlist" variant="secondary" disabled={busy} onPress={() => actions.onWishlist(candidate)} />
           </View>
         ) : null}
-        {addable && (accepted || wishlisted) ? <Text tone="scan">{wishlisted ? 'On your wishlist' : 'Added to this scan'}</Text> : null}
+        {addable && (accepted || wishlisted) ? <Text tone="accent">{wishlisted ? 'On your wishlist' : 'Added to this scan'}</Text> : null}
         {error ? (
           <Text tone="danger" accessibilityRole="alert">
             {error}
@@ -156,11 +158,11 @@ export function ResultDetail({ id }: { id: string }) {
   );
 }
 
-function SafeScreen({ title, children }: { title: string; children: ReactNode }) {
+function SafeScreen({ children }: { children: ReactNode }) {
   const colors = useColors();
   return (
     <SafeAreaView testID="result-safe-area" edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title={title}>{children}</Screen>
+      <Screen>{children}</Screen>
     </SafeAreaView>
   );
 }

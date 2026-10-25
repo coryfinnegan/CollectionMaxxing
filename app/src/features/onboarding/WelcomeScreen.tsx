@@ -52,7 +52,12 @@ export function WelcomeScreen() {
   const another = useUseAnotherAccount();
   return (
     <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title={account ? `Welcome, ${account.name}.` : 'Welcome.'} subtitle={account?.email ? `You're signed in as ${account.email}.` : undefined}>
+      <Screen
+        title={account ? `Welcome, ${account.name}.` : 'Welcome.'}
+        titleVariant="display"
+        showTitleOnPhone
+        subtitle={account?.email ? `You're signed in as ${account.email}.` : undefined}
+      >
         <Card>
           <Button label="Create your library" onPress={() => router.push('/welcome/create')} />
           <Button label="Join a library" variant="secondary" onPress={() => router.push('/welcome/join')} />

@@ -26,7 +26,7 @@ export interface EvalState {
   /** When the last photo was read (or the run was cancelled). */
   endedAt: number | null;
   thermal: ThermalState | undefined;
-  /** True once the phone reached serious heat; the run carries on and records it. */
+  /** True once the phone reached serious heat; the run keeps going and records it. */
   keepCool: boolean;
   /** The run was cancelled: what went up is the photos read so far. */
   partial: boolean;
@@ -185,7 +185,7 @@ export class EvalRunner {
         this.photos = [...listed].sort(byOrder);
         this.osVersion = (await this.deps.vision.deviceStatus().catch(() => undefined))?.osVersion ?? '';
       } catch {
-        this.set({ phase: 'error', message: 'Could not get the photo list from your PC.' });
+        this.set({ phase: 'error', message: "Couldn't get the photo list from your PC." });
         return;
       }
       this.set({ total: this.photos.length });
@@ -203,7 +203,7 @@ export class EvalRunner {
     const cancelled = this.cancelRequested;
     this.set({ partial: cancelled && this.next < this.photos.length, step: null, endedAt: this.now() });
     if (this.results.length === 0) {
-      this.set({ phase: 'done', message: cancelled ? 'Cancelled before anything was read.' : 'There were no photos to read.' });
+      this.set({ phase: 'done', message: cancelled ? 'Canceled before anything was read.' : 'There were no photos to read.' });
       return;
     }
     this.uploadedChunks = 0;
@@ -319,7 +319,7 @@ export class EvalRunner {
       }
       this.set({ phase: 'done', summary: last?.summary ?? this.state.summary });
     } catch {
-      this.set({ phase: 'upload_failed', message: 'Your PC did not take the results. They are kept here; try again.' });
+      this.set({ phase: 'upload_failed', message: "Your PC didn't take the results. They're still here; try again." });
     }
   }
 }

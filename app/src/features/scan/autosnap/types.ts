@@ -10,7 +10,7 @@ export interface FrameSignals {
   rectangleCoverage: number;
   /** A perceptual hash of the view, as hex. Two views of the same thing give hashes that are close. */
   viewHash: string;
-  torchOn: boolean;
+  flashOn: boolean;
   /** A barcode that can be read right now. */
   barcodesInView: number;
 }

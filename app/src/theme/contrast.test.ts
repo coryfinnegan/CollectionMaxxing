@@ -9,9 +9,9 @@ const text: Pair[] = [
   { fg: 'ink', bg: 'surface', use: 'body text on a card' },
   { fg: 'muted', bg: 'ground', use: 'secondary text on the page' },
   { fg: 'muted', bg: 'surface', use: 'secondary text on a card' },
-  { fg: 'scan', bg: 'ground', use: 'link text on the page' },
-  { fg: 'scan', bg: 'surface', use: 'link text on a card' },
-  { fg: 'onScan', bg: 'scan', use: 'primary button label' },
+  { fg: 'accent', bg: 'ground', use: 'link text on the page' },
+  { fg: 'accent', bg: 'surface', use: 'link text on a card' },
+  { fg: 'onAccent', bg: 'accent', use: 'primary button label' },
   { fg: 'danger', bg: 'ground', use: 'error text on the page' },
   { fg: 'danger', bg: 'surface', use: 'error text on a card' },
   { fg: 'stickerText', bg: 'ground', use: 'sticker text on the page' },
@@ -21,8 +21,8 @@ const text: Pair[] = [
 const controls: Pair[] = [
   { fg: 'control', bg: 'surface', use: 'field and button borders on a card' },
   { fg: 'control', bg: 'ground', use: 'field and button borders on the page' },
-  { fg: 'scan', bg: 'surface', use: 'selected chip and primary button edge' },
-  { fg: 'scan', bg: 'ground', use: 'primary button edge on the page' },
+  { fg: 'accent', bg: 'surface', use: 'selected chip and primary button edge' },
+  { fg: 'accent', bg: 'ground', use: 'primary button edge on the page' },
   { fg: 'danger', bg: 'surface', use: 'danger button edge' },
   { fg: 'danger', bg: 'ground', use: 'danger button edge on the page' },
 ];
@@ -42,9 +42,9 @@ describe.each([
 // The receipt is paper in both themes (receipt text is fixed ink on a light ground).
 describe('receipt paper contrast', () => {
   it.each([
-    ['#1A1C22', '#FBFBF7'],
-    ['#5E6472', '#FBFBF7'],
-    [lightColors.scan, lightColors.receipt],
+    [lightColors.receiptInk, lightColors.receipt],
+    [lightColors.receiptMuted, lightColors.receipt],
+    [lightColors.accent, lightColors.receipt],
   ])('%s on %s is at least 4.5:1', (fg, bg) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
   });

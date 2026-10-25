@@ -22,7 +22,7 @@ describe('privacy note', () => {
     expect(text).toMatch(/not the pictures/i);
   });
 
-  it('says catalogue services get only barcodes and titles, never photos or the account', () => {
+  it('says catalog services get only barcodes and titles, never photos or the account', () => {
     expect(text).toMatch(/only barcodes and titles/i);
     expect(text).toMatch(/never your photos or your account/i);
     expect(text).not.toMatch(/never who you are/i); // they do see the PC's network address

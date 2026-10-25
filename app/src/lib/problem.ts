@@ -18,8 +18,8 @@ function isTransportFailure(error: unknown): error is Error {
 }
 
 export function friendlyError(error: unknown, fallback = "That didn't work. Try again."): string {
-  if (error instanceof ReauthCancelledError) return "Okay, nothing was changed.";
-  if (error instanceof PasskeyCancelledError) return "Passkey cancelled. Try again when you're ready.";
+  if (error instanceof ReauthCancelledError) return 'Okay, nothing changed.';
+  if (error instanceof PasskeyCancelledError) return "Passkey canceled. Try again when you're ready.";
   if (error instanceof PasskeyUnsupportedError) {
     return "This browser can't use passkeys. Open CollectionMaxxing in a current version of Edge, Chrome, Safari or Firefox.";
   }

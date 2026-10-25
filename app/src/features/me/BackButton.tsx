@@ -12,7 +12,7 @@ export function BackButton() {
       onPress={() => router.back()}
       style={{ alignSelf: 'flex-start', minWidth: 44, minHeight: 44, justifyContent: 'center' }}
     >
-      <Text variant="label" tone="scan">
+      <Text variant="label" tone="accent">
         ‹ Back
       </Text>
     </Pressable>

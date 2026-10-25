@@ -25,8 +25,8 @@ export function onGridKeyDown(event: KeyEvent): void {
     next = stops[here + (key === 'ArrowRight' ? 1 : -1)];
   } else {
     const rows = Array.from(grid.querySelectorAll('[role="row"]'));
-    const neighbour = rows[rows.indexOf(row) + (key === 'ArrowDown' ? 1 : -1)];
-    const there = neighbour ? focusablesIn(neighbour) : [];
+    const neighbor = rows[rows.indexOf(row) + (key === 'ArrowDown' ? 1 : -1)];
+    const there = neighbor ? focusablesIn(neighbor) : [];
     next = there[Math.min(here, there.length - 1)];
   }
   if (!next) return;

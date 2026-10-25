@@ -1,4 +1,4 @@
-// Keyboard behaviour for the app's inline panels (Add an item, Columns, Invite, filter sheets) on the web:
+// Keyboard behavior for the app's inline panels (Add an item, Columns, Invite, filter sheets) on the web:
 // focus moves into the panel when it opens, Escape closes the top one, and focus goes back to the button that opened it.
 // The panels are not modal (the page behind stays usable), so focus is not trapped. On the phone this does nothing.
 import { useEffect, useRef, useState } from 'react';

@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { Pressable, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { spacing, useColors } from '@/theme/tokens';
 import { Text } from './Text';
+import { usePressFeedback } from './usePressFeedback';
 
 type ListRowProps = {
   title: string;
@@ -15,6 +17,7 @@ type ListRowProps = {
 
 export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID }: ListRowProps) {
   const colors = useColors();
+  const press = usePressFeedback('tap');
   const body = (
     <View
       style={{
@@ -43,9 +46,21 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
     </View>
   );
   return onPress ? (
-    <Pressable accessibilityRole="button" accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title} onPress={onPress} testID={testID}>
-      {body}
-    </Pressable>
+    <Animated.View style={press.style}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+        onPress={() => {
+          press.buzz();
+          onPress();
+        }}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        testID={testID}
+      >
+        {body}
+      </Pressable>
+    </Animated.View>
   ) : (
     <View testID={testID}>{body}</View>
   );

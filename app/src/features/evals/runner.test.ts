@@ -85,7 +85,7 @@ describe('the eval runner', () => {
     expect(kit.awake).toEqual({ on: 1, off: 1 });
   });
 
-  it('records a serious thermal state, tells the owner to keep the phone cool and carries on', async () => {
+  it('records a serious thermal state, tells the owner to keep the phone cool and keeps going', async () => {
     const kit = makeKit({ photos: 2 });
     jest.spyOn(kit.vision, 'deviceStatus').mockResolvedValue({ thermalState: 'serious', osVersion: '26.0' });
     await kit.runner.start();
@@ -120,7 +120,7 @@ describe('the eval runner', () => {
     expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-002', 'photo-003', 'photo-004']);
   });
 
-  it('pauses between steps and carries on when resumed', async () => {
+  it('pauses between steps and continues when resumed', async () => {
     let paused = false;
     const kit = makeKit({
       photos: 3,
@@ -192,7 +192,7 @@ describe('the eval runner', () => {
     expect(seen.some((deleted) => deleted.length === 1)).toBe(true);
   });
 
-  it('deletes the photo even when reading it throws, and carries on with the next one', async () => {
+  it('deletes the photo even when reading it throws, and continues with the next one', async () => {
     const kit = makeKit({ photos: 2, selectorThrows: true });
     await kit.runner.start();
     expect(kit.deleted).toEqual(kit.ids.map(uriOf));

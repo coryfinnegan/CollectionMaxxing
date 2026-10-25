@@ -44,7 +44,7 @@ export function JoinLibraryScreen() {
   const found = preview.data;
   return (
     <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title="Join a library" subtitle={joinPrompt}>
+      <Screen title="Join a library" showTitleOnPhone subtitle={joinPrompt}>
         <Card>
           <TextField
             label="Invite link or code"
@@ -62,7 +62,7 @@ export function JoinLibraryScreen() {
             </Text>
           ) : null}
           {found ? (
-            <Button label="Join" busy={accept.isPending} onPress={join} />
+            <Button label="Join" haptic="commit" busy={accept.isPending} onPress={join} />
           ) : (
             <Button label="Check invite" busy={preview.isPending} disabled={!text.trim()} onPress={check} />
           )}

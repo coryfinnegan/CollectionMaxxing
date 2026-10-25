@@ -15,7 +15,7 @@ export const STEADY_TEXT_VIEW: FrameSignals = {
   textBoxes: 6,
   rectangleCoverage: 0,
   viewHash: '0123456789abcdef',
-  torchOn: false,
+  flashOn: false,
   barcodesInView: 0,
 };
 

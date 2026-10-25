@@ -30,7 +30,7 @@ function PhoneScanTab() {
   return (
     <Screen title="Scan" subtitle="Point the camera at barcodes. Each one is read as soon as it is in view.">
       <Button label="Open scanner" onPress={() => router.push('/scanner')} />
-      <Button label="Add an item by hand" variant="secondary" onPress={() => router.push({ pathname: '/library', params: { add: '1' } })} />
+      <Button label="Add it by hand" variant="secondary" onPress={() => router.push({ pathname: '/library', params: { add: '1' } })} />
       {libraryId ? <WaitingCard libraryId={libraryId} /> : null}
     </Screen>
   );

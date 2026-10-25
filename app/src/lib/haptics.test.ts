@@ -4,8 +4,10 @@ const fake = () => {
   const calls: string[] = [];
   const driver: HapticDriver = {
     tap: () => void calls.push('tap'),
+    mediumTap: () => void calls.push('medium'),
     longTap: () => void calls.push('long'),
     tick: () => void calls.push('tick'),
+    success: () => void calls.push('success'),
     wait: async () => void calls.push('wait'),
   };
   setHapticDriver(driver);
@@ -27,7 +29,7 @@ describe('haptics', () => {
     expect(calls).toEqual(['tap']);
   });
 
-  it('gives one long tap for a code the catalogue does not know', async () => {
+  it('gives one long tap for a code the catalog does not know', async () => {
     const calls = fake();
     await haptics.notFound();
     expect(calls).toEqual(['long']);
@@ -42,10 +44,36 @@ describe('haptics', () => {
   it('keeps going when the device cannot vibrate', async () => {
     setHapticDriver({
       tap: () => Promise.reject(new Error('no motor')),
+      mediumTap: () => undefined,
       longTap: () => undefined,
       tick: () => undefined,
+      success: () => undefined,
       wait: async () => undefined,
     });
     await expect(haptics.owned()).resolves.toBeUndefined();
+  });
+
+  it('ticks on selection (tabs, filters)', async () => {
+    const calls = fake();
+    await haptics.select();
+    expect(calls).toEqual(['tick']);
+  });
+
+  it('taps lightly on ordinary presses', async () => {
+    const calls = fake();
+    await haptics.tap();
+    expect(calls).toEqual(['tap']);
+  });
+
+  it('taps with weight on commits', async () => {
+    const calls = fake();
+    await haptics.commit();
+    expect(calls).toEqual(['medium']);
+  });
+
+  it('plays success sparingly, for finished jobs', async () => {
+    const calls = fake();
+    await haptics.succeed();
+    expect(calls).toEqual(['success']);
   });
 });

@@ -1,15 +1,20 @@
-// Scan feedback in three patterns (docs/06): owned = two short taps, new = one tap, not found = one long tap.
-// The patterns talk to a small driver so tests can use a fake; the default driver uses expo-haptics and
-// does nothing on the web.
+// One haptics vocabulary (docs/06, #302): the scan patterns (owned = two short taps, new = one
+// tap, not found = one long tap) plus select/tap/commit/succeed for the rest of the app.
+// The patterns talk to a small driver so tests can use a fake; the default driver uses
+// expo-haptics and does nothing on the web.
 import { Platform } from 'react-native';
 
 export type HapticDriver = {
-  /** A short tap. */
+  /** A light tap. */
   tap(): Promise<void> | void;
+  /** A medium tap, for commits. */
+  mediumTap(): Promise<void> | void;
   /** One long, heavy tap. */
   longTap(): Promise<void> | void;
   /** The instant "Nice scan!" tick, before any lookup. */
   tick(): Promise<void> | void;
+  /** Success, used sparingly. */
+  success(): Promise<void> | void;
   wait(ms: number): Promise<void>;
 };
 
@@ -21,6 +26,11 @@ const expoDriver: HapticDriver = {
     const Haptics = await import('expo-haptics');
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   },
+  async mediumTap() {
+    if (Platform.OS === 'web') return;
+    const Haptics = await import('expo-haptics');
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  },
   async longTap() {
     if (Platform.OS === 'web') return;
     const Haptics = await import('expo-haptics');
@@ -30,6 +40,11 @@ const expoDriver: HapticDriver = {
     if (Platform.OS === 'web') return;
     const Haptics = await import('expo-haptics');
     await Haptics.selectionAsync();
+  },
+  async success() {
+    if (Platform.OS === 'web') return;
+    const Haptics = await import('expo-haptics');
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   },
   wait: sleep,
 };
@@ -60,6 +75,14 @@ export const haptics = {
     }),
   /** Found, and not in your library yet: one tap. */
   isNew: () => safely(() => driver.tap()),
-  /** The catalogue has nothing for this code: one long tap. */
+  /** The catalog has nothing for this code: one long tap. */
   notFound: () => safely(() => driver.longTap()),
+  /** Tab and filter changes: a selection tick. */
+  select: () => safely(() => driver.tick()),
+  /** Ordinary presses: a light tap. */
+  tap: () => safely(() => driver.tap()),
+  /** Commits (save, add, delete): a medium tap. */
+  commit: () => safely(() => driver.mediumTap()),
+  /** Finished jobs: success, used sparingly. */
+  succeed: () => safely(() => driver.success()),
 };

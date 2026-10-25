@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
+import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { QUOTA_COPY } from '@/features/scan/cards/copy';
 import { itemsState, resetItems } from '@/mocks/items';
@@ -84,6 +85,30 @@ describe('Review screen', () => {
     await screen.findByText(/Undone/);
     expect(itemsState.entries.find((e) => e.item.id === addedId)).toBeUndefined(); // gone for good, not in Recently deleted
     await screen.findByLabelText('Add 1 item'); // the results are back in Review, ready to fix and add again
+  });
+
+  it('buzzes with weight on the commit and plays success when the items land', async () => {
+    const calls: string[] = [];
+    const driver: HapticDriver = {
+      tap: () => void calls.push('tap'),
+      mediumTap: () => void calls.push('medium'),
+      longTap: () => void calls.push('long'),
+      tick: () => void calls.push('tick'),
+      success: () => void calls.push('success'),
+      wait: async () => undefined,
+    };
+    setHapticDriver(driver);
+    try {
+      seed([mario()]);
+      await open();
+      await act(async () => {
+        fireEvent.press(await screen.findByLabelText('Add 1 item'));
+      });
+      await screen.findByText('Added 1 item');
+      expect(calls).toEqual(['medium', 'success']);
+    } finally {
+      setHapticDriver(null);
+    }
   });
 
   it('takes the Undo away once its time is up', async () => {

@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 import { installAuth } from '@/features/auth/bootstrap';
 import { installFocusRing } from '@/lib/a11y/webFocusRing';
+import { useAppFonts } from '@/theme/fonts';
 import { useNavigationTheme } from '@/theme/navigationTheme';
 import { darkColors, useColors } from '@/theme/tokens';
 
@@ -22,7 +23,7 @@ export default function RootLayout() {
   // 401s send the iPhone and the browser to sign-in; reauth_required asks for a fresh sign-in on web.
   useEffect(() => installAuth(router), [router]);
   useEffect(installFocusRing, []);
-  // The browser paints the page behind the app (overscroll, address-bar gaps) with the document background: keep it on our ground colour.
+  // The browser paints the page behind the app (overscroll, address-bar gaps) with the document background: keep it on our ground color.
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     document.documentElement.style.backgroundColor = colors.ground;
@@ -35,13 +36,14 @@ export default function RootLayout() {
     if (!mockMode) return;
     import('@/mocks/start').then(({ startMocking }) => startMocking()).then(() => setReady(true));
   }, []);
+  const fontsLoaded = useAppFonts();
 
   // The page title, set directly: expo-router's <Head> nags for a handoff origin that this self-hosted app has no use for.
   useEffect(() => {
     if (Platform.OS === 'web') document.title = 'CollectionMaxxing';
   }, []);
 
-  if (!ready) return null;
+  if (!ready || !fontsLoaded) return null;
   return (
     <QueryClientProvider client={queryClient}>
     <SafeAreaProvider>

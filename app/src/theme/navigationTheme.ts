@@ -10,7 +10,7 @@ export function navigationThemeFor(dark: boolean, colors: Colors = dark ? darkCo
     dark,
     colors: {
       ...base.colors,
-      primary: colors.scan,
+      primary: colors.accent,
       background: colors.ground,
       card: colors.surface,
       text: colors.ink,

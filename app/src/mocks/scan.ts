@@ -67,7 +67,7 @@ const encoder = new TextEncoder();
 export const scanMock = {
   sessions: new Map<string, MockSession>(),
   streams: new Set<Stream>(),
-  catalogue: known(),
+  catalog: known(),
   /** Set to `'viewer'` to make PATCH answer 403, as the real API does for a viewer. */
   role: 'owner' as 'owner' | 'editor' | 'viewer',
   /** Every barcode request the server received, so tests can assert nothing was sent twice. */
@@ -83,7 +83,7 @@ export const scanMock = {
     }
     this.sessions.clear();
     this.streams.clear();
-    this.catalogue = known();
+    this.catalog = known();
     this.role = 'owner';
     this.barcodeRequests = [];
   },
@@ -93,7 +93,7 @@ export const scanMock = {
     for (const session of this.sessions.values()) {
       if (sessionId && session.id !== sessionId) continue;
       for (const c of session.candidates.filter((x) => x.resolution === 'pending')) {
-        const entry = this.catalogue[c.rawCode ?? ''];
+        const entry = this.catalog[c.rawCode ?? ''];
         if (!entry) continue;
         Object.assign(c, resolved(entry), { changeSeq: ++session.seq });
         emit(session, 'candidate.updated', c);
@@ -135,7 +135,7 @@ function emit(session: MockSession, event: string, candidate: CandidateDto) {
 }
 
 const newCandidate = (session: MockSession, code: string, symbology: string | null, copies: number): CandidateDto => {
-  const entry = scanMock.catalogue[code];
+  const entry = scanMock.catalog[code];
   const base: CandidateDto = {
     id: newMockId(),
     seq: ++session.seq,
@@ -171,7 +171,7 @@ const newCandidate = (session: MockSession, code: string, symbology: string | nu
 };
 
 const ownershipFor = (code: string): OwnershipDto => {
-  const entry = scanMock.catalogue[code];
+  const entry = scanMock.catalog[code];
   const owned = entry?.owned ?? [];
   return {
     owned: owned.length > 0,

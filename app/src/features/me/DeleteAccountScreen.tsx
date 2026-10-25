@@ -47,6 +47,7 @@ export function DeleteAccountScreen() {
           <Button
             label="Delete my account"
             variant="danger"
+            haptic="commit"
             busy={confirm.isPending}
             onPress={() => {
               setMessage(null);

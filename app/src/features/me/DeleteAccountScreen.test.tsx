@@ -48,7 +48,7 @@ describe('DeleteAccountScreen', () => {
 
     await fireEvent.press(screen.getByLabelText(CONFIRM));
 
-    expect(await screen.findByText('Okay, nothing was changed.')).toBeTruthy();
+    expect(await screen.findByText('Okay, nothing changed.')).toBeTruthy();
     expect(mockAccount.deleted).toBe(false);
     expect(mockRouter.replace).not.toHaveBeenCalled();
   });

@@ -16,7 +16,7 @@ export interface Placed {
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
-/** The rectangle the picture covers inside a frame, drawn contained and centred. */
+/** The rectangle the picture covers inside a frame, drawn contained and centered. */
 export function fitImage(frame: Size, image: Size): Placed {
   const scale = Math.min(frame.width / image.width, frame.height / image.height);
   const width = image.width * scale;
@@ -24,7 +24,7 @@ export function fitImage(frame: Size, image: Size): Placed {
   return { left: round((frame.width - width) / 2), top: round((frame.height - height) / 2), width: round(width), height: round(height) };
 }
 
-/** The box (normalised 0..1, origin top-left) in frame pixels, or nothing when there is no box to draw. */
+/** The box (normalized 0..1, origin top-left) in frame pixels, or nothing when there is no box to draw. */
 export function boxOverlay(box: Rect | undefined, frame: Size, image: Size): Placed | undefined {
   if (!box || frame.width <= 0 || frame.height <= 0 || image.width <= 0 || image.height <= 0) return undefined;
   const x0 = Math.max(0, box.x);

@@ -3,6 +3,7 @@ import { HttpResponse, http } from 'msw';
 import { resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
+import { searchPlaceholder } from './LibraryGrid';
 import { LibraryView } from './LibraryView';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
@@ -153,13 +154,24 @@ describe('LibraryView grid', () => {
   });
 });
 
+describe('search placeholder', () => {
+  it.each([
+    [undefined, 'Search your library'],
+    [0, 'Search your 0 items'],
+    [1, 'Search your 1 item'],
+    [42, 'Search your 42 items'],
+  ])('reads naturally with %s items', (total, expected) => {
+    expect(searchPlaceholder(total)).toBe(expected);
+  });
+});
+
 describe('Add item', () => {
-  it('adds a catalogue match straight from search', async () => {
+  it('adds a catalog match straight from search', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
     await fireEvent.press(screen.getByLabelText('Add item'));
-    await fireEvent.changeText(screen.getByLabelText('Search the catalogue'), 'alien');
+    await fireEvent.changeText(screen.getByLabelText('Search the catalog'), 'alien');
     // Alien has a DVD and a VHS release; pick the DVD.
     await fireEvent.press(await screen.findByTestId('result-f1000000-0000-4000-8000-000000000001'));
 

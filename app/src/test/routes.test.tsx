@@ -1,4 +1,6 @@
-// Render smoke test: every route in the navigation map renders its screen name.
+// Render smoke test: every route in the navigation map renders. Tab screens show the
+// navigator header (the one title on the phone); pushed screens show their content,
+// because their native headers are not text in this environment.
 import { renderRouter, screen } from 'expo-router/testing-library';
 import * as sdk from 'react-native-auth0';
 import { resetAuth } from '@/lib/auth/session';
@@ -11,7 +13,7 @@ const routes: [url: string, expected: string][] = [
   ['/scan', 'Scan'],
   ['/me', 'Me'],
   ['/me/locations', 'Locations'],
-  ['/me/export', 'Export my data'],
+  ['/me/export', 'Import and export'],
   ['/me/devices', 'Devices and browsers'],
   ['/me/delete', 'Delete account'],
   ['/wishlist', 'Wishlist'],
@@ -19,11 +21,11 @@ const routes: [url: string, expected: string][] = [
   ['/members', 'Members'],
   ['/settings', 'Settings'],
   ['/about', 'About'],
-  ['/item/42', 'Item'],
-  ['/item/42/edit', 'Edit item'],
-  ['/scanner', 'Scanner'],
-  ['/review', 'Review'],
-  ['/result/7', 'Result'],
+  ['/item/42', "Couldn't load this item"],
+  ['/item/42/edit', "Couldn't load this item"],
+  ['/scanner', 'Close'],
+  ['/review', 'Nothing to review.'],
+  ['/result/7', "That result isn't here any more"],
 ];
 
 describe('routes', () => {

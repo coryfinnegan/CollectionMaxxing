@@ -21,7 +21,7 @@ export interface RealSignalsDeps {
   /** Starts motion readings; returns a stop function. */
   motion(onSample: (s: MotionSample) => void): Promise<SignalsUnsubscribe>;
   barcodesInView(): number;
-  torchOn(): boolean;
+  flashOn(): boolean;
   now?(): number;
   intervalMs?: number;
 }
@@ -96,7 +96,7 @@ export class RealFrameSignals implements FrameSignalsFeed {
         textBoxes: lines.length,
         rectangleCoverage: rectangles.reduce((max, r) => Math.max(max, r.width * r.height), 0),
         viewHash,
-        torchOn: this.deps.torchOn(),
+        flashOn: this.deps.flashOn(),
         barcodesInView: this.deps.barcodesInView(),
       };
       for (const listener of [...this.listeners]) listener(signals);

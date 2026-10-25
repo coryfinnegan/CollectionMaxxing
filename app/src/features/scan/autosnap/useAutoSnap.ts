@@ -1,6 +1,6 @@
 // Wires the pure machine to a ScannerSource: signals in, snaps out. A snap shows "Nice scan!" and buzzes at once (no
 // network, no waiting for the picture), then takes the still, scales it and hands it to `onSnap`. The camera is free
-// for the next picture as soon as the still is taken; the scaling carries on behind it.
+// for the next picture as soon as the still is taken; the scaling continues behind it.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { haptics } from '@/lib/haptics';
 import type { ScannerSource } from '../scanner/ScannerSource';

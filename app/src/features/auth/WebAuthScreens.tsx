@@ -21,7 +21,7 @@ export function LoginScreen() {
   const returnUrl = safeReturnUrl(params.returnUrl);
   return (
     <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title="CollectionMaxxing" subtitle="Sign in to your library.">
+      <Screen title="CollectionMaxxing" titleVariant="display" showTitleOnPhone subtitle="Sign in to your library.">
         <Card>
           <ErrorText>{signInErrorMessage(params.error)}</ErrorText>
           <Button label="Sign in" onPress={() => navigateTo(loginUrl({ returnUrl }))} />

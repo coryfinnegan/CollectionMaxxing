@@ -11,7 +11,7 @@ export interface StoredItem {
   localId: string;
   /** What was read from the picture for this item. */
   text: string;
-  /** Normalised 0..1 on the still, origin top-left. */
+  /** Normalized 0..1 on the still, origin top-left. */
   box?: Rect;
   /** The crop, as a file in the store. */
   cropUri?: string;

@@ -1,4 +1,4 @@
-// The /scanner route with its close behaviour: Close asks Review / Keep for later / Discard when items are waiting.
+// The /scanner route with its close behavior: Close asks Review / Keep for later / Discard when items are waiting.
 import { useRouter } from 'expo-router';
 import { View } from 'react-native';
 import { useActiveLibraryId } from '@/features/locations/useLocations';

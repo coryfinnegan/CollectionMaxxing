@@ -58,7 +58,7 @@ export function SignInMethodsScreen() {
               ? "You're signed in with this account right now. You won't be able to use it to sign in again."
               : "You won't be able to sign in with it anymore."}
           </Text>
-          <Button label="Remove" variant="danger" busy={remove.isPending} onPress={() => remove.mutate(confirming)} />
+          <Button label="Remove" variant="danger" haptic="commit" busy={remove.isPending} onPress={() => remove.mutate(confirming)} />
           <Button label="Cancel" variant="secondary" onPress={() => setConfirming(null)} />
         </Card>
       ) : null}

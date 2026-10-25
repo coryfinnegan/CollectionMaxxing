@@ -18,9 +18,9 @@ export type CardCopy = {
 
 /** A code waiting for the daily lookup allowance: no times, no jargon (docs/06). */
 export const QUOTA_COPY = "We'll look this up tomorrow. Hold up the front cover to identify it now.";
-export const NOT_FOUND_COPY = 'Not in the catalogue. Try the front cover.';
-/** A picture's item the catalogue could not support. The read text is kept, so Fix it starts from it. */
-export const PICTURE_NOT_FOUND_COPY = 'Not in the catalogue. Fix it to search by title.';
+export const NOT_FOUND_COPY = 'Not in the catalog. Try the front cover.';
+/** A picture's item the catalog could not support. The read text is kept, so Fix it starts from it. */
+export const PICTURE_NOT_FOUND_COPY = 'Not in the catalog. Fix it to search by title.';
 const PICTURE_ERROR_COPY = "Couldn't look that one up. Fix it to search by title.";
 const UNREADABLE_COPY = "Couldn't read that barcode. Scan it again.";
 
@@ -32,7 +32,7 @@ export const ownedCopy = (count: number) => `You own ${count}`;
 /** A candidate from a picture, not a barcode: it has no code, only what the phone read. */
 export const isPictureCandidate = (c: Pick<CandidateDto, 'source'>) => c.source === 'picture_apple_model' || c.source === 'picture_text';
 
-/** A repeat the phone recognised on its own; the lookup is still waiting. */
+/** A repeat the phone recognized on its own; the lookup is still waiting. */
 export const LOCAL_MATCH_COPY = "Seen before. We'll check it when you're online.";
 
 function describePicture(c: CandidateDto): CardCopy {

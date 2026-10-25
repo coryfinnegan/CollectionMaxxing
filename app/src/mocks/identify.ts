@@ -100,7 +100,7 @@ const key = (text: string) => text.trim().toLowerCase();
 
 const lookup = (text: string) => {
   const wanted = key(text);
-  return Object.values(scanMock.catalogue).find((e) => key(e.release.title) === wanted);
+  return Object.values(scanMock.catalog).find((e) => key(e.release.title) === wanted);
 };
 
 const resolved = (entry: NonNullable<ReturnType<typeof lookup>>): Partial<CandidateDto> => ({

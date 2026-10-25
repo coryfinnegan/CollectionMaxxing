@@ -15,7 +15,7 @@ const deps = (over: Partial<RealSignalsDeps> = {}): RealSignalsDeps => ({
   }),
   motion: async () => () => undefined,
   barcodesInView: () => 0,
-  torchOn: () => false,
+  flashOn: () => false,
   intervalMs: 1_000_000,
   ...over,
 });
@@ -32,7 +32,7 @@ const read = async (d: RealSignalsDeps) => {
 describe('real frame signals', () => {
   it('turn a snapshot into text count, rectangle coverage, sharpness and a hash', async () => {
     const [s] = await read(deps());
-    expect(s).toMatchObject({ textBoxes: 2, rectangleCoverage: 0.2, torchOn: false, barcodesInView: 0 });
+    expect(s).toMatchObject({ textBoxes: 2, rectangleCoverage: 0.2, flashOn: false, barcodesInView: 0 });
     expect(s!.sharpness).toBeCloseTo(0.8);
     expect(s!.viewHash).toMatch(/^[0-9a-f]{16}$/);
   });

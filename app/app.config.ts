@@ -26,7 +26,7 @@ const config: ExpoConfig = {
     // PrivacyInfo.xcprivacy (OPS-2a, #172): no tracking, no collected data, and the required-reason APIs the libraries use.
     privacyManifests: privacyManifest,
     infoPlist: {
-      NSCameraUsageDescription: 'CollectionMaxxing uses the camera to read barcodes and recognise items. Pictures are processed on your phone.',
+      NSCameraUsageDescription: 'CollectionMaxxing uses the camera to read barcodes and recognize items. Pictures are processed on your phone.',
       // Only HTTPS, which is exempt: without this every TestFlight build stops at the export compliance question.
       ITSAppUsesNonExemptEncryption: false,
     },
@@ -49,7 +49,7 @@ const config: ExpoConfig = {
     [
       'expo-image-picker',
       {
-        photosPermission: 'CollectionMaxxing reads the photos you pick to recognise the items in them. Pictures are processed on your phone.',
+        photosPermission: 'CollectionMaxxing reads the photos you pick to recognize the items in them. Pictures are processed on your phone.',
         microphonePermission: false,
       },
     ],

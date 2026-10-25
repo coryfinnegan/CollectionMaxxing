@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { useBarcodeFrameProcessor } from '@/native/cm-vision';
-import { spacing } from '@/theme/tokens';
+import { fixed, spacing } from '@/theme/tokens';
 import { trackPicture } from '../pictureFiles';
 import { Button, Text } from '@/ui';
 import type { VisionCameraSource } from './ScannerSource';
@@ -13,8 +13,8 @@ import { createSilentSnapshot } from './silentSnapshot';
 export default function CameraPreview({ source }: { source: VisionCameraSource }) {
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
-  const [torch, setTorch] = useState(source.torch);
-  useEffect(() => source.onTorch(setTorch), [source]);
+  const [flash, setFlash] = useState(source.flash);
+  useEffect(() => source.onFlash(setFlash), [source]);
   const photoOutput = usePhotoOutput();
   // The shutter and auto-snap take their still here. The picture stays on the phone (docs/02 "Privacy").
   const capturing = useRef(0);
@@ -82,12 +82,12 @@ export default function CameraPreview({ source }: { source: VisionCameraSource }
       </View>
     );
   }
-  return <Camera style={StyleSheet.absoluteFill} device={device} isActive outputs={[output, photoOutput]} torchMode={torch ? 'on' : 'off'} />;
+  return <Camera style={StyleSheet.absoluteFill} device={device} isActive outputs={[output, photoOutput]} torchMode={flash ? 'on' : 'off'} />;
 }
 
 const toFileUri = (path: string) => (path.startsWith('file://') ? path : `file://${path}`);
 
 const styles = StyleSheet.create({
   message: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: spacing.md, padding: spacing.xl },
-  onCamera: { color: '#FFFFFF', textAlign: 'center' },
+  onCamera: { color: fixed.white, textAlign: 'center' },
 });

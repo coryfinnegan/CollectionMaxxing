@@ -1,7 +1,7 @@
 /** The person dismissed the passkey prompt. */
 export class PasskeyCancelledError extends Error {
   constructor() {
-    super('Passkey prompt cancelled');
+    super('Passkey prompt canceled');
     this.name = 'PasskeyCancelledError';
   }
 }
@@ -17,7 +17,7 @@ export class PasskeyUnsupportedError extends Error {
 /** The person chose "Not now" on the confirm-it's-you prompt. */
 export class ReauthCancelledError extends Error {
   constructor() {
-    super('Sign-in confirmation cancelled');
+    super('Sign-in confirmation canceled');
     this.name = 'ReauthCancelledError';
   }
 }

@@ -2,7 +2,7 @@
 // Wishlist and Lent out are the same view with a fixed status.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlatList, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
@@ -21,11 +21,15 @@ export type LibraryGridProps = {
   title: string;
   /** Set for the Wishlist and Lent out views. */
   fixedStatus?: ItemStatus;
-  /** Opens with the Add an item panel showing (the Scan tab's "Add an item by hand"). */
+  /** Opens with the Add an item panel showing (the Scan tab's "Add it by hand"). */
   openAdd?: boolean;
 };
 
 type Panel = 'format' | 'platform' | 'location' | 'sort' | 'add' | null;
+
+/** The search box names the count, and reads naturally at any count ("Search your 1 item"). */
+export const searchPlaceholder = (total: number | undefined) =>
+  total === undefined ? 'Search your library' : total === 1 ? 'Search your 1 item' : `Search your ${total} items`;
 
 const emptyCopy: Record<string, { title: string; body: string }> = {
   library: { title: 'Nothing here yet.', body: 'Point your camera at a shelf or a stack of cases.' },
@@ -38,9 +42,11 @@ export function LibraryGrid({ title, fixedStatus, openAdd }: LibraryGridProps) {
   if (loadingLibrary || !libraryId) {
     return (
       <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={{ padding: spacing.lg, gap: spacing.lg }}>
-        <Text variant="title" accessibilityRole="header">
-          {title}
-        </Text>
+        {Platform.OS === 'web' ? (
+          <Text variant="title" accessibilityRole="header">
+            {title}
+          </Text>
+        ) : null}
         <LoadingState label="Loading your library…" />
       </SafeAreaView>
     );
@@ -78,10 +84,12 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
 
   const header = (
     <View style={{ gap: spacing.md, paddingBottom: spacing.md }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-        <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
-          {title}
-        </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.md }}>
+        {Platform.OS === 'web' ? (
+          <Text variant="title" accessibilityRole="header" style={{ flex: 1 }}>
+            {title}
+          </Text>
+        ) : null}
         <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
       </View>
 
@@ -91,7 +99,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd }: LibraryGridProps & { l
         label="Search"
         value={search}
         onChangeText={setSearch}
-        placeholder={counts ? `Search ${counts.total} items` : 'Search your library'}
+        placeholder={searchPlaceholder(counts?.total)}
         returnKeyType="search"
         autoCapitalize="none"
         autoCorrect={false}

@@ -97,7 +97,7 @@ describe('importing from Photos', () => {
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
   });
 
-  it('reports a picture with nothing in it or that cannot be read, and carries on with the rest', async () => {
+  it('reports a picture with nothing in it or that cannot be read, and continues with the rest', async () => {
     const kit = makeKit();
     const { picker, open, pressPhotos } = importKit(kit);
     picker.images(4);

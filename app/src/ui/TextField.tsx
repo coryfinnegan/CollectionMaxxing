@@ -1,5 +1,5 @@
 import { TextInput, type TextInputProps, View } from 'react-native';
-import { radius, spacing, useColors } from '@/theme/tokens';
+import { radius, spacing, typeScale, useColors } from '@/theme/tokens';
 import { Text } from './Text';
 
 type TextFieldProps = TextInputProps & {
@@ -27,6 +27,7 @@ export function TextField({ label, error, style, ...rest }: TextFieldProps) {
             backgroundColor: colors.surface,
             color: colors.ink,
             fontSize: 16,
+            fontFamily: typeScale.body.fontFamily,
           },
           style,
         ]}

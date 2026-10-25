@@ -1,52 +1,68 @@
-// Design tokens from docs/06 "Visual direction". Dark values are derived: same hues, inverted ground.
-import { useColorScheme } from 'react-native';
+// The TS theme, derived from tokens.json (the single source of truth): Radix 12-step
+// Sand neutrals with an Amber accent, dark-first. Nothing here invents a color.
+import { useColorScheme, type TextStyle } from 'react-native';
+import source from './tokens.json';
 
-export const lightColors = {
-  ground: '#F3F4F6',
-  surface: '#FFFFFF',
-  ink: '#1A1C22',
-  muted: '#5E6472',
-  line: '#DADDE3',
-  /** Edges of fields, buttons and chips: 3:1 against the page and cards (WCAG 1.4.11). `line` is for dividers only. */
-  control: '#767C8A',
-  scan: '#2348D8',
-  onScan: '#FFFFFF',
-  sticker: '#F26B1D',
-  stickerText: '#B9480A',
-  laser: '#FF2D3A',
-  receipt: '#FBFBF7',
-  danger: '#B3261E',
+type ScaleName = keyof typeof source.scales;
+
+function at(scale: string, step: number): string {
+  return (source.scales[scale as ScaleName] as readonly string[])[step - 1];
+}
+
+export type Colors = {
+  ground: string;
+  surface: string;
+  ink: string;
+  muted: string;
+  line: string;
+  control: string;
+  accent: string;
+  onAccent: string;
+  sticker: string;
+  stickerText: string;
+  laser: string;
+  receipt: string;
+  receiptInk: string;
+  receiptMuted: string;
+  danger: string;
 };
 
-export type Colors = typeof lightColors;
+function resolve(roles: Record<string, unknown>): Colors {
+  return Object.fromEntries(
+    Object.entries(roles).map(([key, ref]) => [key, Array.isArray(ref) ? at(ref[0] as string, ref[1] as number) : (ref as string)]),
+  ) as Colors;
+}
 
-export const darkColors: Colors = {
-  ground: '#101218',
-  surface: '#1B1E26',
-  ink: '#F1F2F5',
-  muted: '#A3A9B7',
-  line: '#2E323D',
-  control: '#80879A',
-  scan: '#7C97FF',
-  onScan: '#0B1030',
-  sticker: '#F26B1D',
-  stickerText: '#FF9A5C',
-  laser: '#FF2D3A',
-  receipt: '#FBFBF7',
-  danger: '#FF8A80',
+const schemeFixed = { laser: source.fixed.laser, receipt: source.fixed.receipt };
+
+export const lightColors: Colors = { ...resolve(source.roles.light), ...schemeFixed };
+export const darkColors: Colors = { ...resolve(source.roles.dark), ...schemeFixed };
+
+/** Fixed values that never change with the scheme: pure black/white and the camera scrim. */
+export const fixed = {
+  black: source.fixed.black,
+  white: source.fixed.white,
+  scrim: source.fixed.scrim,
 };
 
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
-export const radius = { sm: 6, md: 10, lg: 16, pill: 999 } as const;
+export const spacing = source.spacing;
+export const radius = source.radius;
 
-// Archivo is not bundled yet; titles use the heaviest system weight as a stand-in for the condensed cut.
-export const typeScale = {
-  title: { fontSize: 28, lineHeight: 32, fontWeight: '800' },
-  heading: { fontSize: 20, lineHeight: 26, fontWeight: '700' },
-  body: { fontSize: 16, lineHeight: 22, fontWeight: '400' },
-  label: { fontSize: 14, lineHeight: 18, fontWeight: '600' },
-  caption: { fontSize: 13, lineHeight: 17, fontWeight: '400' },
-} as const;
+// Bricolage Grotesque for display and UI, Space Mono for catalog metadata. Loaded by
+// fonts.ts before the first screen; the weights double as the fallback rendering.
+type TypeEntry = TextStyle & { fontFamily: string };
+
+type TypeScale = Record<string, TypeEntry> & {
+  display: TypeEntry;
+  title: TypeEntry;
+  heading: TypeEntry;
+  body: TypeEntry;
+  label: TypeEntry;
+  caption: TypeEntry;
+  mono: TypeEntry;
+};
+
+export const typeScale = source.type as TypeScale;
 
 export type TextVariant = keyof typeof typeScale;
 

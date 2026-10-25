@@ -17,7 +17,7 @@ export function ItemDetailScreen({ id }: { id: string }) {
   const { libraryId, isLoading } = useActiveLibraryId();
   if (isLoading || !libraryId) {
     return (
-      <Screen title="Item">
+      <Screen>
         <LoadingState label="Loading this item…" />
       </Screen>
     );
@@ -36,14 +36,14 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
 
   if (isLoading) {
     return (
-      <Screen title="Item">
+      <Screen>
         <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
   if (isError || !detail || !etag) {
     return (
-      <Screen title="Item">
+      <Screen>
         <EmptyState
           title="Couldn't load this item"
           body={friendlyError(error)}
@@ -89,7 +89,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   };
 
   return (
-    <Screen title={title} subtitle={facts}>
+    <Screen title={title} showTitleOnPhone subtitle={facts} subtitleVariant="mono">
       <View style={{ alignItems: 'center', gap: spacing.sm }}>
         <Cover title={title} uri={release.coverUrl ?? work.coverUrl} width={160} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />
@@ -115,7 +115,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
         <Button label="Edit" onPress={() => router.push(`/item/${id}/edit`)} />
         <Button label="Move" variant="secondary" onPress={() => setMoving(!moving)} />
-        <Button label="Delete" variant="danger" onPress={del} busy={remove.isPending} />
+        <Button label="Delete" variant="danger" haptic="commit" onPress={del} busy={remove.isPending} />
       </View>
 
       {moving ? (

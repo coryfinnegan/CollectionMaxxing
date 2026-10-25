@@ -49,7 +49,7 @@ export function Sidebar() {
                 backgroundColor: active ? colors.ground : 'transparent',
               }}
             >
-              <Text variant="label" tone={active ? 'scan' : 'ink'}>
+              <Text variant="label" tone={active ? 'accent' : 'ink'}>
                 {item.label}
               </Text>
             </Pressable>

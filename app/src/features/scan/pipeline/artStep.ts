@@ -50,7 +50,7 @@ export function artworkOf(candidate: Pick<CandidateDto, 'alternatives'>): Altern
 const SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
 /**
- * Only this server's own artwork route is fetched, and only with this server's sign-in. The path must be a normalised one
+ * Only this server's own artwork route is fetched, and only with this server's sign-in. The path must be a normalized one
  * under `/media/`: no `..` or `.` segment, no escapes, no backslash, no query, nothing else. A full address, or any other route
  * on this server (such as `/api/...`), is never requested: the phone does not talk to third parties, and the token does not go
  * to them or to routes the server did not mean for artwork.

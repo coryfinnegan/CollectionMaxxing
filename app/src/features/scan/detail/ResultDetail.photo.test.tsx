@@ -128,7 +128,7 @@ describe('the bottom section', () => {
 describe('Wrong item? Fix it', () => {
   it('shows the alternatives and a search filled with what was read, and choosing one sends the existing PATCH', async () => {
     const { cards } = await seedSnap(TWO);
-    const alternative = scanMock.catalogue[DEV_CODES.ghostbustersNew]!.release;
+    const alternative = scanMock.catalog[DEV_CODES.ghostbustersNew]!.release;
     const session = [...scanMock.sessions.values()][0]!;
     session.candidates[0]!.alternatives = [alternative] as never;
     useCardsStore.getState().merge([{ ...cards[0]!, visibleText: 'SUPER MARIO', alternatives: [alternative] as never }], { announce: false });

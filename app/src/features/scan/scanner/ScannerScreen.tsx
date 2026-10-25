@@ -20,7 +20,7 @@ import { usePipeline } from '../pipeline/usePipeline';
 import { useCardActions } from '../session/useCardActions';
 import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
 import { ReceiptBar } from '../tray/ReceiptBar';
-import { spacing, useColors } from '@/theme/tokens';
+import { fixed, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
 import { FakeScannerSource, type ScannerSource } from './ScannerSource';
@@ -73,7 +73,7 @@ export function ScannerScreen({
   const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
   const [fixing, setFixing] = useState<CandidateDto | null>(null);
   const actions: CardActions = useMemo(() => ({ ...cardActions, onFixIt: setFixing }), [cardActions]);
-  const [torch, setTorch] = useState(false);
+  const [flash, setFlash] = useState(false);
   const reduceMotion = useReduceMotion();
   const [counter] = useState(() => createCountingSnapHandler());
   const reportOutcome = useRef<(found: boolean) => void>(() => undefined);
@@ -110,27 +110,31 @@ export function ScannerScreen({
     };
   }, [outcomeRef, autoSnap.reportOutcome]);
 
-  const toggleTorch = () => {
-    const next = !torch;
-    setTorch(next);
-    source.setTorch(next);
+  const toggleFlash = () => {
+    const next = !flash;
+    setFlash(next);
+    source.setFlash(next);
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#000000' }}>
+    <View style={{ flex: 1, backgroundColor: fixed.black }}>
       {preview}
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { paddingTop: insets.top + spacing.sm }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg }}>
-          <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
-          <Text variant="heading" accessibilityRole="header" style={{ color: '#FFFFFF' }}>
-            Scanner
-          </Text>
+          <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
+          {Platform.OS === 'web' ? (
+            <Text variant="heading" accessibilityRole="header" style={{ color: fixed.white }}>
+              Scanner
+            </Text>
+          ) : (
+            <View style={{ flex: 1 }} />
+          )}
           <Button
-            label={torch ? 'Torch on' : 'Torch'}
+            label={flash ? 'Flash on' : 'Flash'}
             variant="secondary"
-            accessibilityState={{ selected: torch }}
-            onPress={toggleTorch}
-            style={{ backgroundColor: torch ? colors.scan : 'rgba(0,0,0,0.5)' }}
+            accessibilityState={{ selected: flash }}
+            onPress={toggleFlash}
+            style={{ backgroundColor: flash ? colors.accent : fixed.scrim }}
           />
         </View>
 
@@ -144,10 +148,10 @@ export function ScannerScreen({
               label="Scan these 6 codes"
               variant="secondary"
               onPress={() => devSource.inject(DEV_SIX_CODES)}
-              style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+              style={{ backgroundColor: fixed.scrim }}
             />
             {pictures.enabled ? (
-              <Button label="Snap a fixture shelf" variant="secondary" onPress={pictures.replayFixture} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} />
+              <Button label="Snap a fixture shelf" variant="secondary" onPress={pictures.replayFixture} style={{ backgroundColor: fixed.scrim }} />
             ) : null}
           </View>
         ) : null}
@@ -158,16 +162,16 @@ export function ScannerScreen({
           ) : null}
           {photos.running && photos.progress ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Text style={{ color: '#FFFFFF' }}>{photos.progress}</Text>
+              <Text style={{ color: fixed.white }}>{photos.progress}</Text>
               <Chip label="Cancel the rest" onPress={photos.cancel} />
             </View>
           ) : null}
-          {!photos.running && photos.message ? <Text style={{ color: '#FFFFFF' }}>{photos.message}</Text> : null}
+          {!photos.running && photos.message ? <Text style={{ color: fixed.white }}>{photos.message}</Text> : null}
           {autoSnap.hint ? (
             <Chip
-              label="Try the torch or move closer"
+              label="Try the flash or move closer"
               onPress={() => {
-                if (!torch) toggleTorch();
+                if (!flash) toggleFlash();
               }}
             />
           ) : null}
@@ -178,16 +182,16 @@ export function ScannerScreen({
               accessibilityHint="Choose pictures from your library to read, with no camera needed"
               disabled={photos.running}
               onPress={photos.start}
-              style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+              style={{ backgroundColor: fixed.scrim }}
             />
           ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Take picture"
             onPress={autoSnap.takePicture}
-            style={{ width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: 72, height: 72, borderRadius: 36, borderWidth: 4, borderColor: fixed.white, alignItems: 'center', justifyContent: 'center' }}
           >
-            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFFFFF' }} />
+            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: fixed.white }} />
           </Pressable>
         </View>
 
