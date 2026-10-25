@@ -485,3 +485,16 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - Wave 7 removes the one-library assumptions ([15](15-onboarding.md)).
   - Moving to a cloud host is a later decision, with its own cost, because ADR-024's Apple Developer Program is still the only paid item.
   - Multi-tenant concerns (rate limits, per-account caps, account deletion) are reviewed as product features, not household extras.
+
+## ADR-028: Unistyles 3 as the app styling layer
+
+- **Status:** **Accepted** (styling spike, #305, 2026-10-25).
+- **Context:** the app's hand-rolled StyleSheet styling needs a theming layer that keeps `src/theme/tokens.json` the single source of truth, keeps the `cm-design` lint ratchet enforcing, and migrates mechanically. The spike prototyped the Library screen on Uniwind and Unistyles 3 (full comparison: `app/docs/styling-spike.md`).
+- **Decision:** the app migrates to `react-native-unistyles` 3.x, primitives first, then tab screens, then pushed screens as they are touched; un-migrated screens keep working throughout. Entry becomes `index.ts` (required so `StyleSheet.configure` runs before Expo Router loads routes).
+- **Alternatives:**
+  - **Uniwind** — rejected: tokens duplicated into CSS (or a new codegen step), class strings invisible to the design ratchet, no documented jest story, and its C++ engine is a paid tier the zero-cost rule forbids.
+  - **Component kits** — rejected per the issue's prior research.
+  - **`@expo/ui`** — rejected: experimental web support while web is first-class, and almost nothing to replace (one `Modal`, zero switches/pickers/sliders).
+- **Consequences:**
+  - One dependency (`react-native-unistyles`), setup files (`babel.config.js`, `index.ts`, `src/theme/unistyles.ts`, `src/app/+html.tsx`, jest `setupFiles`).
+  - Migration must stay pixel-identical (Playwright visual snapshots) plus a TestFlight smoke.

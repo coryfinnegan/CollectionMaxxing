@@ -1,6 +1,6 @@
 {
   "name": "collectionmaxxing-app",
-  "main": "expo-router/entry",
+  "main": "index.ts",
   "version": "1.0.0",
   "dependencies": {
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
@@ -37,6 +37,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-svg": "15.15.4",
+    "react-native-unistyles": "^3.6.0",
     "react-native-url-polyfill": "^4.0.0",
     "react-native-vision-camera": "^5.2.3",
     "react-native-web": "~0.21.0",
