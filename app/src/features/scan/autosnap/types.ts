@@ -8,6 +8,10 @@ export interface FrameSignals {
   textBoxes: number;
   /** 0..1, the share of the frame the largest rectangle covers. */
   rectangleCoverage: number;
+  /** Spine-like rectangles in view. Absent on feeds that only measure the largest one. */
+  rectangleCount?: number;
+  /** Width over height of the largest rectangle; null when no rectangle was measured. */
+  dominantAspect?: number | null;
   /** A perceptual hash of the view, as hex. Two views of the same thing give hashes that are close. */
   viewHash: string;
   flashOn: boolean;

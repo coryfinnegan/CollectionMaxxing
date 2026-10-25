@@ -89,12 +89,18 @@ export class RealFrameSignals implements FrameSignalsFeed {
       }
       const viewHash = hashFromFeaturePrint(print.data);
       if (!viewHash) return;
+      const largest = rectangles.reduce((best, r) => (r.width * r.height > best.width * best.height ? r : best), {
+        width: 0,
+        height: 0,
+      });
       const signals: FrameSignals = {
         steadyForMs: this.tracker.steadyForMs(this.now()),
         // Vision has no sharpness score; the average confidence of the text it read is a stand-in that drops with blur.
         sharpness: lines.length === 0 ? 0 : mean(lines.map((l) => l.confidence)),
         textBoxes: lines.length,
-        rectangleCoverage: rectangles.reduce((max, r) => Math.max(max, r.width * r.height), 0),
+        rectangleCoverage: largest.width * largest.height,
+        rectangleCount: rectangles.length,
+        dominantAspect: largest.height > 0 ? largest.width / largest.height : null,
         viewHash,
         flashOn: this.deps.flashOn(),
         barcodesInView: this.deps.barcodesInView(),

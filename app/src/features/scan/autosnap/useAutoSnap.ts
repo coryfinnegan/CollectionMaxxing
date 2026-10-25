@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { haptics } from '@/lib/haptics';
 import type { ScannerSource } from '../scanner/ScannerSource';
+import { classifyShot, shotSignalsFromFrame, type ShotKind } from '../shotkind/shotKind';
 import { DEFAULT_AUTO_SNAP_CONFIG } from './defaults';
 import { initialState, recordOutcome, shutter as machineShutter, step, type MachineState } from './machine';
 import { prepareSnapPhoto, type Resizer, type SnapPhoto } from './snapPhoto';
@@ -12,6 +13,8 @@ import type { AutoSnapConfig, FrameSignals, SnapTrigger } from './types';
 export interface SnapEvent {
   photo: SnapPhoto;
   trigger: SnapTrigger;
+  /** What the framing said this shot was, classified from the latest signals. */
+  shotKind: ShotKind;
 }
 
 export interface AutoSnapTuning {
@@ -48,6 +51,7 @@ export function useAutoSnap({
   const latest = useRef<FrameSignals | null>(null);
   const lastBarcodeAt = useRef(-Infinity);
   const lastBarcodeCount = useRef(0);
+  const framesWithoutBarcode = useRef(0);
   const lastUsefulAt = useRef(0);
   const capturing = useRef(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -65,6 +69,18 @@ export function useAutoSnap({
     (trigger: SnapTrigger) => {
       if (capturing.current) return;
       capturing.current = true;
+      // What the framing says this shot is, from the latest signals (an auto snap is a fired gate by definition).
+      const frame = latest.current;
+      const shotKind: ShotKind = frame
+        ? classifyShot(
+            shotSignalsFromFrame(frame, {
+              tappedCover: false, // no tap-to-focus yet; fallback (b) (#344) wires it
+              mediaHint: undefined, // session context (#336) wires it
+              framesWithoutBarcode: framesWithoutBarcode.current,
+              gateFired: trigger === 'auto',
+            }),
+          )
+        : 'unknown';
       // Feedback first, inside the 100 ms budget: nothing below waits on the camera or the network.
       setFlash(true);
       clearTimeout(flashTimer.current);
@@ -82,7 +98,7 @@ export function useAutoSnap({
         }
         try {
           const photo = await prepareSnapPhoto(still, live.current.resize);
-          live.current.onSnap({ photo, trigger });
+          live.current.onSnap({ photo, trigger, shotKind });
         } catch {
           // a picture that cannot be scaled is dropped, never a crash
         }
@@ -103,7 +119,12 @@ export function useAutoSnap({
       const recentCodes = now - lastBarcodeAt.current < BARCODE_MEMORY_MS ? lastBarcodeCount.current : 0;
       const seen = { ...signals, barcodesInView: Math.max(signals.barcodesInView, recentCodes) };
       latest.current = seen;
-      if (seen.barcodesInView > 0) useful();
+      if (seen.barcodesInView > 0) {
+        framesWithoutBarcode.current = 0;
+        useful();
+      } else {
+        framesWithoutBarcode.current += 1;
+      }
       const out = step(machine.current, seen, now, live.current.config);
       machine.current = out.state;
       if (out.state.phase === 'candidate') useful();
