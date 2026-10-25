@@ -3,6 +3,8 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
+import { rememberSessionContext, setSessionContextStorage } from '@/features/scan/session/sessionContext';
+import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { QUOTA_COPY } from '@/features/scan/cards/copy';
@@ -15,6 +17,8 @@ import { ReviewScreen } from './ReviewScreen';
 import { candidate, release } from './testData';
 
 const SESSION = 'a0000000-0000-4000-8000-000000000001';
+const SHELF_1 = 'a0000000-0000-4000-8000-000000000002';
+const SHELF_2 = 'a0000000-0000-4000-8000-000000000003';
 const alien = [release(11, 'Alien', { year: 1979 }), release(12, 'Aliens', { year: 1986 }), release(13, 'Alien 3', { year: 1992 })];
 
 const seed = (list: CandidateDto[]) => {
@@ -48,6 +52,11 @@ beforeEach(() => {
   reviewMock.reset();
   resetItems();
   useCardsStore.getState().reset();
+  setSessionContextStorage(new MemoryKeyValueStore());
+});
+
+afterEach(() => {
+  setSessionContextStorage(undefined);
 });
 
 describe('Review screen', () => {
@@ -318,5 +327,40 @@ describe('Review screen', () => {
     await open();
     await screen.findByText('Still looking up · 2');
     expect(screen.getAllByText(QUOTA_COPY)).toHaveLength(1);
+  });
+
+  it('starts Add to and Status from the session context, and the commit carries them', async () => {
+    seed([mario()]);
+    scanMock.sessions.get(SESSION)!.context = { defaultLocationId: SHELF_1, defaultStatus: 'wishlist', mediaHint: 'games', channel: 'home' };
+    await open();
+
+    expect(await screen.findByLabelText('Add to: Game room › Shelf 1. Change')).toBeTruthy();
+    expect(screen.getByLabelText('Status Wishlist').props.accessibilityState.selected).toBe(true);
+    fireEvent.press(await screen.findByLabelText('Add 1 item'));
+
+    await screen.findByText('Added 1 item');
+    expect(reviewMock.commits).toHaveLength(1);
+    expect(reviewMock.commits[0]!.body).toEqual({ addTo: SHELF_1, status: 'wishlist' });
+  });
+
+  it('an in-store session says the locations are decided later and starts at the last home spot', async () => {
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_2, status: 'owned', mediaHint: 'mixed', channel: 'home' });
+    seed([mario()]);
+    scanMock.sessions.get(SESSION)!.context = { defaultLocationId: null, defaultStatus: null, mediaHint: 'mixed', channel: 'in_store' };
+    await open();
+
+    expect(await screen.findByText('Decide each location later. New items start at Game room › Shelf 2.')).toBeTruthy();
+    expect(screen.getByLabelText('Add to: Game room › Shelf 2. Change')).toBeTruthy();
+  });
+
+  it('keeps a choice made before the session answers', async () => {
+    seed([mario()]);
+    scanMock.sessions.get(SESSION)!.context = { defaultLocationId: SHELF_1, defaultStatus: 'wishlist', mediaHint: 'mixed', channel: 'home' };
+    await open();
+
+    await press('Status Owned'); // tapped before the session context lands: the tap wins
+    await screen.findByLabelText('Add to: Game room › Shelf 1. Change');
+
+    expect(screen.getByLabelText('Status Owned').props.accessibilityState.selected).toBe(true);
   });
 });
