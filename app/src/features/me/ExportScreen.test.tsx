@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { mockAccount, resetMockAccount } from '@/mocks/me';
 import { renderWithProviders } from '@/test/render';
@@ -7,6 +8,12 @@ import { exportPoll, setSharer } from './services';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+
+// The back button only shows on the web now (#303); the phone uses the stack header.
+const originalOs = Platform.OS;
+afterEach(() => {
+  Platform.OS = originalOs;
+});
 
 const deliver = jest.fn(async () => {});
 
@@ -51,7 +58,8 @@ describe('ExportScreen', () => {
     expect(mockAccount.exportStarts).toBe(2);
   });
 
-  it('offers a way back to Me', async () => {
+  it('offers a way back to Me on the web', async () => {
+    Platform.OS = 'web';
     await renderWithProviders(<ExportScreen />);
 
     await fireEvent.press(screen.getByLabelText('Back'));

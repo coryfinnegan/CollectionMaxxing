@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { setNavigator } from '@/features/auth/services';
 import { ReauthCancelledError } from '@/lib/auth/errors';
@@ -9,6 +10,12 @@ import { SignInMethodsScreen } from './SignInMethodsScreen';
 let mockParams: Record<string, string> = {};
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter, useLocalSearchParams: () => mockParams }));
+
+// The back button only shows on the web now (#303); the phone uses the stack header.
+const originalOs = Platform.OS;
+afterEach(() => {
+  Platform.OS = originalOs;
+});
 
 const navigate = jest.fn();
 beforeEach(() => {
@@ -30,7 +37,8 @@ describe('SignInMethodsScreen', () => {
     expect(screen.getByText('Apple')).toBeTruthy();
   });
 
-  it('offers a way back to Me', async () => {
+  it('offers a way back to Me on the web', async () => {
+    Platform.OS = 'web';
     await renderWithProviders(<SignInMethodsScreen />);
     await screen.findByText('Apple');
 
