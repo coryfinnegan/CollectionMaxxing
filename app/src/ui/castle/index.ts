@@ -5,4 +5,4 @@ export { type CastleMode, type CastleThemeSetting, resolveCastleMode, useCastleM
 export { NineSlice, type CastleSurface } from './NineSlice';
 export { ParchmentCard } from './ParchmentCard';
 export { TabletHeader } from './TabletHeader';
-export { CASTLE_CORNER, CASTLE_EDGE, castleTextures } from './textures';
+export { CASTLE_CORNER, CASTLE_EDGE, castleTextures, nightTextures, useCastleArt } from './textures';

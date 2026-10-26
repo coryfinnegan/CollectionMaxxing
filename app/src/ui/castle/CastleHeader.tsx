@@ -7,7 +7,7 @@ import { Image, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { Text } from '../Text';
 import { type CastleMode, useCastleMode } from './mode';
-import { castleTextures } from './textures';
+import { useCastleArt } from './textures';
 
 type CastleHeaderProps = {
   title: string;
@@ -19,6 +19,7 @@ type CastleHeaderProps = {
 
 export function CastleHeader({ title, subtitle, mode, testID }: CastleHeaderProps) {
   const hooked = useCastleMode();
+  const art = useCastleArt();
   const resolved = mode ?? hooked;
   const heading = (
     <>
@@ -37,12 +38,12 @@ export function CastleHeader({ title, subtitle, mode, testID }: CastleHeaderProp
   }
   return (
     <View testID={testID}>
-      <Image source={castleTextures.crenel} resizeMode="repeat" style={styles.crenel} testID="castle-texture" />
+      <Image source={art.crenel} resizeMode="repeat" style={styles.crenel} testID="castle-texture" />
       <View style={styles.body}>
-        <Image source={castleTextures.stone.fill} resizeMode="repeat" style={styles.fill} testID="castle-texture" />
+        <Image source={art.stone.fill} resizeMode="repeat" style={styles.fill} testID="castle-texture" />
         {heading}
       </View>
-      <Image source={castleTextures.ledge} resizeMode="repeat" style={styles.ledge} testID="castle-texture" />
+      <Image source={art.ledge} resizeMode="repeat" style={styles.ledge} testID="castle-texture" />
     </View>
   );
 }

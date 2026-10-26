@@ -9,7 +9,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { Text } from '../Text';
 import { usePressFeedback } from '../usePressFeedback';
 import { type CastleMode, useCastleMode } from './mode';
-import { castleTextures } from './textures';
+import { useCastleArt } from './textures';
 
 type LedgeRowProps = {
   title: string;
@@ -22,6 +22,7 @@ type LedgeRowProps = {
 
 export function LedgeRow({ title, subtitle, onPress, mode, testID }: LedgeRowProps) {
   const hooked = useCastleMode();
+  const art = useCastleArt();
   const resolved = mode ?? hooked;
   const press = usePressFeedback('tap');
   const content = (
@@ -37,7 +38,7 @@ export function LedgeRow({ title, subtitle, onPress, mode, testID }: LedgeRowPro
         </View>
       </View>
       {resolved === 'full' ? (
-        <Image source={castleTextures.ledge} resizeMode="repeat" style={styles.ledge} testID="castle-texture" />
+        <Image source={art.ledge} resizeMode="repeat" style={styles.ledge} testID="castle-texture" />
       ) : (
         <View style={resolved === 'accessible' ? styles.dividerAccessible : styles.divider} />
       )}

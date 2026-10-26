@@ -6,6 +6,7 @@ import { View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import Svg from 'react-native-svg';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
+import { useDragonAppearance } from './appearances';
 import { DragonLayers } from './layers';
 import { poses, type MascotPose, type PoseMotion } from './poses';
 
@@ -44,7 +45,10 @@ type MascotProps = {
 
 export function Mascot({ pose, size = 160, accessibilityLabel, testID = 'mascot' }: MascotProps) {
   const reduceMotion = useReduceMotion();
+  const appearance = useDragonAppearance((s) => s.appearance);
   const config = poses[pose];
+  // Loops play on Full only: Reduce Motion holds every pose still, and Minimal holds them still too.
+  const loop = !reduceMotion && appearance === 'full' ? config.motion : undefined;
   const art = (
     <Svg width={size} height={size} viewBox="0 0 240 240">
       <DragonLayers config={config} />
@@ -55,8 +59,8 @@ export function Mascot({ pose, size = 160, accessibilityLabel, testID = 'mascot'
   const a11y = accessibilityLabel ? { accessibilityRole: 'image' as const, accessibilityLabel } : { accessible: false as const };
   return (
     <View testID={testID} {...a11y}>
-      {config.motion && !reduceMotion ? (
-        <Loop kind={config.motion} testID={`${testID}-motion`}>
+      {loop ? (
+        <Loop kind={loop} testID={`${testID}-motion`}>
           {art}
         </Loop>
       ) : (

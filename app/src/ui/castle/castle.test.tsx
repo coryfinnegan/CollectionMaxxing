@@ -3,6 +3,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo, Platform } from 'react-native';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
+import { setAppearanceStorage, useAppearanceChoice } from '@/theme/appearance';
 import { BannerMarker } from './BannerMarker';
 import { CastleHeader } from './CastleHeader';
 import { LedgeRow } from './LedgeRow';
@@ -10,6 +11,7 @@ import { type CastleMode } from './mode';
 import { setCastleStorage, useCastleThemeSetting } from './mode';
 import { ParchmentCard } from './ParchmentCard';
 import { TabletHeader } from './TabletHeader';
+import { castleTextures, nightTextures } from './textures';
 
 jest.mock('@/lib/a11y/useReduceMotion', () => ({ useReduceMotion: jest.fn() }));
 const reduceMotion = useReduceMotion as jest.Mock;
@@ -114,6 +116,45 @@ describe('LedgeRow', () => {
     await render(<LedgeRow title="Great hall" subtitle="Dinner at six" onPress={onPress} mode="flat" />);
     await fireEvent.press(screen.getByRole('button', { name: 'Great hall, Dinner at six' }));
     expect(onPress).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('torchlit night art', () => {
+  beforeEach(() => {
+    const map = new Map<string, string>();
+    setAppearanceStorage({ getString: (key: string) => map.get(key), set: (key: string, value: string) => void map.set(key, value) });
+    useAppearanceChoice.setState({ choice: 'system' });
+  });
+
+  function textureSources(): unknown[] {
+    return screen.queryAllByTestId('castle-texture', { includeHiddenElements: true }).map((node) => node.props.source);
+  }
+
+  it('shows the day battlement while the scheme is light', async () => {
+    useAppearanceChoice.setState({ choice: 'light' });
+    await render(<CastleHeader title="Gatehouse" mode="full" />);
+    expect(textureSources()).toContain(castleTextures.crenel);
+    expect(textureSources()).not.toContain(nightTextures.crenel);
+  });
+
+  it('shows the night battlement when the scheme is dark', async () => {
+    useAppearanceChoice.setState({ choice: 'dark' });
+    await render(<CastleHeader title="Gatehouse" mode="full" />);
+    expect(textureSources()).toContain(nightTextures.crenel);
+    expect(textureSources()).not.toContain(castleTextures.crenel);
+  });
+
+  it('frames stone tablets in night stone when the scheme is dark', async () => {
+    useAppearanceChoice.setState({ choice: 'dark' });
+    await render(<TabletHeader title="Armory" mode="full" />);
+    expect(textureSources()).toContain(nightTextures.stone.fill);
+    expect(textureSources()).not.toContain(castleTextures.stone.fill);
+  });
+
+  it('keeps parchment lit at night instead of inverting it', async () => {
+    useAppearanceChoice.setState({ choice: 'dark' });
+    await render(<ParchmentCard title="Supplies" body="Rope, torches, chalk." mode="full" />);
+    expect(textureSources()).toContain(castleTextures.parchment.fill);
   });
 });
 
