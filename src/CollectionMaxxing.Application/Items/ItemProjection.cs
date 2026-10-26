@@ -3,6 +3,7 @@ using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
 
@@ -137,12 +138,12 @@ internal static class ItemProjection
     }
 
     public static WorkDto ToWorkDto(Work work) => new(
-        work.Id, work.Kind, work.Title, work.OriginalYear, Creators(work.CreatorsJson), work.Genres, work.Synopsis, CoverUrl(work.CoverAssetId));
+        work.Id, work.Kind, TitleCaser.ToTitleCase(work.Title), work.OriginalYear, Creators(work.CreatorsJson), work.Genres, work.Synopsis, CoverUrl(work.CoverAssetId));
 
     public static ReleaseDto ToReleaseDto(LoadedRelease loaded) => new(
         loaded.Release.Id,
         loaded.Work.Id,
-        loaded.Work.Title,
+        TitleCaser.ToTitleCase(loaded.Work.Title),
         loaded.Release.Format,
         loaded.Platform is null
             ? null

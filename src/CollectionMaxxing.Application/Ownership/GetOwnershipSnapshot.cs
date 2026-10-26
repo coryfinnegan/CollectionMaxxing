@@ -1,6 +1,7 @@
 using System.Globalization;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
@@ -104,7 +105,7 @@ public static class GetOwnershipSnapshot
                 if (row.IsOwned && releases.TryGetValue(row.ReleaseId, out var release))
                 {
                     entries.Add(new OwnershipSnapshotEntryDto(
-                        row.Id, false, release.Id, release.WorkId, release.Title, release.Format, release.Platform,
+                        row.Id, false, release.Id, release.WorkId, TitleCaser.ToTitleCase(release.Title), release.Format, release.Platform,
                         identifiers.GetValueOrDefault(release.Id) ?? [],
                         row.LocationId is { } loc && paths.TryGetValue(loc, out var path) ? path : null));
                 }

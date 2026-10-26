@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
@@ -119,7 +120,7 @@ public sealed class OwnershipQuery(IAppDbContext db)
 
         return rows.Select(r => new CopyRow(
             new OwnedCopyDto(
-                r.Id, r.ReleaseId, r.WorkId, r.Title, r.Format, r.Platform, r.Status, r.LocationId,
+                r.Id, r.ReleaseId, r.WorkId, TitleCaser.ToTitleCase(r.Title), r.Format, r.Platform, r.Status, r.LocationId,
                 r.LocationId is { } loc && paths.TryGetValue(loc, out var path) ? path : null),
             r.PlatformId)).ToList();
     }

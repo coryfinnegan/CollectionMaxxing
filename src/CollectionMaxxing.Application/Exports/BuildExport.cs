@@ -10,6 +10,7 @@ using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
 
@@ -471,7 +472,7 @@ public static class BuildExport
                             library.Name,
                             row.ReleaseId,
                             row.WorkId,
-                            row.CustomTitle ?? row.WorkTitle,
+                            row.CustomTitle ?? TitleCaser.ToTitleCase(row.WorkTitle),
                             row.CustomTitle,
                             EnumText(row.Kind),
                             EnumText(row.Format),
