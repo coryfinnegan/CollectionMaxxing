@@ -59,6 +59,46 @@ describe('ItemDetailScreen', () => {
     expect(screen.getByText("That's no longer here. Refresh and try again.")).toBeTruthy();
   });
 
+  it('sets the notes on a parchment card', async () => {
+    entry().item.notes = 'Slipcover missing';
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.getByText('Notes')).toBeTruthy();
+    expect(screen.getByText('Slipcover missing')).toBeTruthy();
+  });
+
+  it('says none on the notes card when there are no notes', async () => {
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.getByText('Notes')).toBeTruthy();
+    expect(screen.getByText('None')).toBeTruthy();
+  });
+
+  it('shields a work owned more than once', async () => {
+    const matrix = entry();
+    itemsState.entries.push({ ...matrix, item: { ...matrix.item, id: 'c0000000-0000-4000-8000-999999999999' } });
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.getByTestId('series-shield')).toBeTruthy();
+    expect(screen.getByText('2 copies of this work')).toBeTruthy();
+  });
+
+  it('shows no shield for a single copy', async () => {
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.queryByTestId('series-shield')).toBeNull();
+  });
+
+  it('poses the oops dragon when the item is gone', async () => {
+    await renderWithProviders(<ItemDetailScreen id="missing" />);
+    expect(await screen.findByText("Couldn't load this item")).toBeTruthy();
+    expect(screen.getByTestId('castle-state-dragon')).toBeTruthy();
+  });
+
   it('deletes the item and goes back', async () => {
     await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
     await screen.findByText('The Matrix');

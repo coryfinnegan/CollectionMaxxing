@@ -1,11 +1,25 @@
 // The scan-success moment plays its check, then gets out of the way on its own or on a tap.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
+import { setMascotStorage, useDragonAppearance } from '@/ui/mascot/appearances';
 import { CELEBRATION_MS, CommitCelebration } from './CommitCelebration';
 
 jest.mock('@/lib/a11y/useReduceMotion', () => ({ useReduceMotion: jest.fn() }));
 
 const reduceMotion = (on: boolean) => jest.mocked(useReduceMotion).mockReturnValue(on);
+
+function memoryStore() {
+  const map = new Map<string, string>();
+  return {
+    getString: (key: string) => map.get(key),
+    set: (key: string, value: string) => void map.set(key, value),
+  };
+}
+
+beforeEach(() => {
+  setMascotStorage(memoryStore());
+  useDragonAppearance.setState({ appearance: 'full' });
+});
 
 describe('CommitCelebration', () => {
   it('plays the success check with the commit message for screen readers', async () => {
@@ -49,5 +63,22 @@ describe('CommitCelebration', () => {
     await render(<CommitCelebration message="Added 1 item" onDone={jest.fn()} />);
 
     expect(screen.queryByTestId('commit-celebration')).toBeNull();
+  });
+
+  it('celebrates with the dragon beside the check', async () => {
+    reduceMotion(false);
+    await render(<CommitCelebration message="Added 3 items" onDone={jest.fn()} />);
+
+    expect(screen.getByTestId('celebration-dragon')).toBeTruthy();
+    expect(screen.getByTestId('celebration-spot', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('keeps the check without the dragon when dragons are off', async () => {
+    reduceMotion(false);
+    useDragonAppearance.setState({ appearance: 'off' });
+    await render(<CommitCelebration message="Added 3 items" onDone={jest.fn()} />);
+
+    expect(screen.queryByTestId('celebration-dragon')).toBeNull();
+    expect(screen.getByTestId('celebration-spot', { includeHiddenElements: true })).toBeTruthy();
   });
 });
