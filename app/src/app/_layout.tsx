@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { RootFrame } from '@/components/RootFrame';
+import { StackBackButton } from '@/components/StackBackButton';
 import { useColors } from '@/theme/tokens';
 
 export default function RootLayout() {
@@ -12,6 +13,7 @@ export default function RootLayout() {
           headerTintColor: colors.ink,
           contentStyle: { backgroundColor: colors.ground },
           animationDuration: 250, // screen pushes match the motion vocabulary (#304)
+          headerLeft: () => <StackBackButton />,
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

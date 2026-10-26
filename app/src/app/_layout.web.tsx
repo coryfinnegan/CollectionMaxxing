@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { RootFrame } from '@/components/RootFrame';
 import { Sidebar } from '@/components/Sidebar';
+import { StackBackButton } from '@/components/StackBackButton';
 import { isLoggedOutRoute } from '@/features/auth/navigation';
 import { WIDE_BREAKPOINT, radius, spacing, useColors } from '@/theme/tokens';
 import { Text } from '@/ui';
@@ -54,6 +55,7 @@ export default function RootLayout() {
               headerStyle: { backgroundColor: colors.surface },
               headerTintColor: colors.ink,
               contentStyle: { backgroundColor: colors.ground },
+              headerLeft: () => <StackBackButton />,
             }}
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

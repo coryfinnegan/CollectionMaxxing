@@ -7,7 +7,6 @@ import type { SignInMethodDto } from '@/features/auth/contract';
 import { loginUrl, navigateTo, signInErrorMessage } from '@/features/auth/navigation';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, ListRow, LoadingState, Screen, Text } from '@/ui';
-import { BackButton } from './BackButton';
 
 const methodsKey = ['me', 'sign-in-methods'] as const;
 const PAGE = '/me/sign-in-methods';
@@ -43,7 +42,6 @@ export function SignInMethodsScreen() {
 
   return (
     <Screen title="Sign-in methods" subtitle="The accounts you can use to sign in.">
-      <BackButton />
       {message ? (
         <Text tone="danger" accessibilityRole="alert">
           {message}

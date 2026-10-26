@@ -4,7 +4,6 @@ import { View } from 'react-native';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
 import { Button, Card, EmptyState, ListRow, LoadingState, Screen, Text, TextField } from '@/ui';
-import { BackButton } from '@/features/me/BackButton';
 import { flattenTree } from './tree';
 import { isPendingLocation, useActiveLibraryId, useLocationMutations, useLocationsList } from './useLocations';
 
@@ -13,7 +12,6 @@ export function LocationsScreen() {
   if (loadingLibrary || !libraryId) {
     return (
       <Screen title="Locations">
-        <BackButton />
         <LoadingState label="Loading your locations…" />
       </Screen>
     );
@@ -67,7 +65,6 @@ function LocationsList({ libraryId }: { libraryId: string }) {
 
   return (
     <Screen title="Locations" subtitle="Where things live: rooms, shelves, boxes.">
-      <BackButton />
       <Card>
         {parent ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>

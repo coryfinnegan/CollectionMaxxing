@@ -1,5 +1,4 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
 import { ReauthCancelledError } from '@/lib/auth/errors';
 import { mockAuth, resetMockAuth } from '@/mocks/auth';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
@@ -12,18 +11,11 @@ import { registerLocalDataClearer } from './localData';
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
-// The back button only shows on the web now (#303); the phone uses the stack header.
-const originalOs = Platform.OS;
-afterEach(() => {
-  Platform.OS = originalOs;
-});
-
 const CONFIRM = 'Delete my account';
 let nativeAuth: MemoryNativeAuth;
 
 beforeEach(() => {
   resetMockAccount();
-  mockRouter.back.mockClear();
   mockRouter.replace.mockClear();
   resetMockAuth();
   nativeAuth = new MemoryNativeAuth();
@@ -38,15 +30,6 @@ describe('DeleteAccountScreen', () => {
     expect(screen.getByText('Your library and photos are deleted within 30 days.')).toBeTruthy();
     expect(screen.getAllByText(/can't be undone/).length).toBeGreaterThan(0);
     expect(mockAccount.deleted).toBe(false);
-  });
-
-  it('offers a way back to Me on the web', async () => {
-    Platform.OS = 'web';
-    await renderWithProviders(<DeleteAccountScreen />);
-
-    await fireEvent.press(screen.getByLabelText('Back'));
-
-    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('deletes nothing when the person declines the fresh sign-in', async () => {

@@ -1,5 +1,4 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
 import { HttpResponse, http } from 'msw';
 import type { DeletedItemDto } from '@/api/generated/models';
 import { useUndoStore } from '@/features/item/useItem';
@@ -10,15 +9,6 @@ import { mockAccount, resetMockAccount } from '@/mocks/me';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { RecentlyDeletedScreen, daysLeft } from './RecentlyDeletedScreen';
-
-const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
-
-// The back button only shows on the web now (#303); the phone uses the stack header.
-const originalOs = Platform.OS;
-afterEach(() => {
-  Platform.OS = originalOs;
-});
 
 const MATRIX = 'c0000000-0000-4000-8000-000000000001';
 const HOUR = 3_600_000;
@@ -58,7 +48,6 @@ beforeEach(() => {
   resetMockAccount();
   resetItems();
   useUndoStore.setState({ deleted: null });
-  mockRouter.back.mockClear();
 });
 
 const asRole = (role: 'owner' | 'editor' | 'viewer') =>
@@ -72,16 +61,6 @@ describe('RecentlyDeletedScreen', () => {
     expect(screen.getByText('28 days left')).toBeTruthy();
     expect(screen.getByText('Star Fox 64')).toBeTruthy();
     expect(screen.getByText('1 day left')).toBeTruthy();
-  });
-
-  it('offers a way back to Me on the web', async () => {
-    Platform.OS = 'web';
-    await renderWithProviders(<RecentlyDeletedScreen />);
-    await screen.findByText('Aliens');
-
-    await fireEvent.press(screen.getByLabelText('Back'));
-
-    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('restores an item and removes its row', async () => {

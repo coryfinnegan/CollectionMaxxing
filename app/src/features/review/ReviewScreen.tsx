@@ -40,13 +40,11 @@ const subtitleOf = (c: CandidateDto) => {
 export function ReviewScreen({
   libraryId,
   sessionId,
-  onBack,
   undoMs,
   onScanBarcode,
 }: {
   libraryId: string;
   sessionId: string | null;
-  onBack?: () => void;
   undoMs?: number;
   /** Review's "Scan barcode": opens the camera bound to this row. */
   onScanBarcode?: (c: CandidateDto) => void;
@@ -69,7 +67,6 @@ export function ReviewScreen({
           <Text>{review.draft.addTo ? `Decide each location later. New items start at ${addTo}.` : 'Decide each location later.'}</Text>
         </Card>
       ) : null}
-      {onBack ? <Button label="Back" variant="secondary" onPress={onBack} /> : null}
       {review.loading ? <LoadingState label="Loading what you scanned…" /> : null}
       {review.loadError ? (
         <Text tone="danger" accessibilityRole="alert">

@@ -8,7 +8,6 @@ import { useInvalidateLibrary } from '@/features/item/useItem';
 import { friendlyError } from '@/lib/problem';
 import { useNow } from '@/lib/useNow';
 import { Button, EmptyState, ListRow, Card, LoadingState, Screen, Text } from '@/ui';
-import { BackButton } from './BackButton';
 import { useMyRole } from './useMyRole';
 
 const DAY = 86_400_000;
@@ -24,7 +23,6 @@ export function RecentlyDeletedScreen() {
   if (isLoading || !libraryId) {
     return (
       <Screen title="Recently deleted">
-        <BackButton />
         <LoadingState label="Loading…" />
       </Screen>
     );
@@ -32,7 +30,6 @@ export function RecentlyDeletedScreen() {
   if (role === 'viewer' || !role) {
     return (
       <Screen title="Recently deleted">
-        <BackButton />
         <EmptyState title="Only editors and the owner can see and restore deleted items." />
       </Screen>
     );
@@ -67,7 +64,6 @@ function Bin({ libraryId }: { libraryId: string }) {
 
   return (
     <Screen title="Recently deleted" subtitle="Deleted items stay here for 30 days.">
-      <BackButton />
       {message ? <Text accessibilityRole="alert">{message}</Text> : null}
       {list.isLoading ? <LoadingState label="Loading…" /> : null}
       {list.isError ? <Text tone="danger" accessibilityRole="alert">{friendlyError(list.error)}</Text> : null}

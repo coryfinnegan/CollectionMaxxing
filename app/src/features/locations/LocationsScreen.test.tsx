@@ -1,21 +1,9 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
 import { HttpResponse, http } from 'msw';
 import { mockData } from '@/mocks/data';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { LocationsScreen } from './LocationsScreen';
-
-const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
-
-beforeEach(() => mockRouter.back.mockClear());
-
-// The back button only shows on the web now (#303); the phone uses the stack header.
-const originalOs = Platform.OS;
-afterEach(() => {
-  Platform.OS = originalOs;
-});
 
 describe('LocationsScreen', () => {
   it('lists locations as a tree, children after their parent', async () => {
@@ -24,16 +12,6 @@ describe('LocationsScreen', () => {
     expect(await screen.findByText('Game room')).toBeTruthy();
     expect(screen.getByText('Shelf 1')).toBeTruthy();
     expect(screen.getByText('Living room')).toBeTruthy();
-  });
-
-  it('offers a way back to Me on the web', async () => {
-    Platform.OS = 'web';
-    await renderWithProviders(<LocationsScreen />);
-    await screen.findByText('Game room');
-
-    await fireEvent.press(screen.getByLabelText('Back'));
-
-    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('adds a location inside another and shows it straight away', async () => {
