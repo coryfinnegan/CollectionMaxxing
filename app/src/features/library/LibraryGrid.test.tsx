@@ -140,8 +140,12 @@ describe('LibraryView grid', () => {
 
     await fireEvent.press(screen.getByLabelText('Edition unverified'));
     await waitFor(() => expect(listRequests().some((u) => u.searchParams.get('editionVerified') === 'false')).toBe(true));
-    await waitFor(() => expect(screen.queryByText('Super Mario 64')).toBeNull());
-    expect(screen.getByText('The Matrix')).toBeTruthy();
+    // One wait for the settled list: the refetch clears the old page first, so
+    // asserting absence alone can pass while both rows are still missing.
+    await waitFor(() => {
+      expect(screen.queryByText('Super Mario 64')).toBeNull();
+      expect(screen.getByText('The Matrix')).toBeTruthy();
+    });
   });
 
   it('loads the next page on scroll, and starts from the top when a filter changes', async () => {
