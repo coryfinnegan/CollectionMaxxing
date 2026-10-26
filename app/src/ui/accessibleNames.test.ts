@@ -38,7 +38,6 @@ const decorative: Record<string, string> = {
   'features/scan/session/SegmentStrip.tsx:Image': 'the strip cell is one accessible element with the snap state as its label; the thumbnail adds nothing',
   'ui/castle/NineSlice.tsx:Image': 'frame and fill texture; the panel content carries the meaning',
   'ui/castle/CastleHeader.tsx:Image': 'crenellation, stone and ledge texture; the title carries the meaning',
-  'ui/castle/BannerMarker.tsx:Image': 'iron texture; the label carries the meaning',
   'ui/castle/LedgeRow.tsx:Image': 'ledge divider texture; the row text carries the meaning',
 };
 
