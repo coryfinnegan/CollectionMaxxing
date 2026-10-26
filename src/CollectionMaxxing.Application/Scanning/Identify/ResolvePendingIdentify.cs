@@ -23,6 +23,7 @@ public sealed class ResolvePendingIdentify(
     CandidateResolver resolver,
     AutoCommit autoCommit,
     ScanningOptions options,
+    TimeProvider clock,
     ILogger<ResolvePendingIdentify> logger) : IJobHandler<IdentifyItems.ResolveJob>
 {
     public async Task HandleAsync(IdentifyItems.ResolveJob job, CancellationToken cancellationToken)
@@ -67,7 +68,21 @@ public sealed class ResolvePendingIdentify(
             }
 
             await resolver.ApplyAsync(job.LibraryId, row, answer, cancellationToken);
-            await autoCommit.TryAddAsync(session, row, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken);
+            if (job.ProofItemId is { } proofItemId)
+            {
+                // An edition proof finishes as its request would have: upgrade on a match of the item's own work, a
+                // T2 row otherwise, never an auto-add (docs/16 §11).
+                if (!await ProofUpgrade.TryApplyAsync(db, session, row, proofItemId, clock, cancellationToken)
+                    && row.Resolution != CandidateResolution.Pending)
+                {
+                    row.Tier = ScanTier.T2;
+                }
+            }
+            else
+            {
+                await autoCommit.TryAddAsync(session, row, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken);
+            }
+
             if (row.Resolution == CandidateResolution.Pending)
             {
                 row.Resolution = CandidateResolution.Error; // gave up; the person can search by hand

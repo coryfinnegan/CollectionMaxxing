@@ -59,4 +59,19 @@ public sealed class BarcodeLearner(IAppDbContext db)
             }
         }
     }
+
+    /// <summary>
+    /// A barcode the person confirmed outside a scan session (an edition upgrade, docs/16 §11) is saved on the release
+    /// they confirmed it for, with no session to undo it by. A link the release already has (from a provider, or an
+    /// earlier confirmation) is left as it is. Saves nothing; the caller saves.
+    /// </summary>
+    public async Task LearnAsync(Guid releaseId, Identifier identifier, CancellationToken cancellationToken)
+    {
+        var known = await db.ReleaseIdentifiers.AsNoTracking()
+            .AnyAsync(i => i.ReleaseId == releaseId && i.Value == identifier.Value, cancellationToken);
+        if (!known && !db.ReleaseIdentifiers.Local.Any(i => i.ReleaseId == releaseId && i.Value == identifier.Value))
+        {
+            db.ReleaseIdentifiers.Add(new ReleaseIdentifier { ReleaseId = releaseId, Type = identifier.Type, Value = identifier.Value });
+        }
+    }
 }

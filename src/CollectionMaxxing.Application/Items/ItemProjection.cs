@@ -95,6 +95,26 @@ internal static class ItemProjection
     public static async Task<LoadedRelease?> LoadReleaseAsync(IAppDbContext db, Guid releaseId, CancellationToken cancellationToken) =>
         (await LoadReleasesAsync(db, [releaseId], cancellationToken)).SingleOrDefault();
 
+    /// <summary>
+    /// A release with its work, through the change tracker first, so a release (or work) this same unit of work just
+    /// ensured is found before it is saved. Null when the release or its work is unknown.
+    /// </summary>
+    public static async Task<ReleaseWithWork?> LoadReleaseWithWorkAsync(
+        IAppDbContext db, Guid releaseId, CancellationToken cancellationToken)
+    {
+        if (await db.Releases.FindAsync([releaseId], cancellationToken) is not { } release)
+        {
+            return null;
+        }
+
+        if (await db.Works.FindAsync([release.WorkId], cancellationToken) is not { } work)
+        {
+            return null;
+        }
+
+        return new ReleaseWithWork(release, work);
+    }
+
     /// <summary>Loads releases with their works, platforms and identifiers as a set (one query per table), in id order. Unknown ids are skipped.</summary>
     public static async Task<IReadOnlyList<LoadedRelease>> LoadReleasesAsync(
         IAppDbContext db, IEnumerable<Guid> releaseIds, CancellationToken cancellationToken)
@@ -162,3 +182,5 @@ internal static class ItemProjection
 }
 
 internal sealed record LoadedRelease(Release Release, Work Work, Platform? Platform, IReadOnlyList<ReleaseIdentifierDto> Identifiers);
+
+internal sealed record ReleaseWithWork(Release Release, Work Work);
