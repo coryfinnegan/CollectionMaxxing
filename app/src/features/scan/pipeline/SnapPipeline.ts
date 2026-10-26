@@ -77,6 +77,8 @@ export class SnapPipeline {
   private unsubscribe: (() => void) | undefined;
   /** After a 429: nothing is sent before this time (ms since the epoch). */
   private holdUntil = 0;
+  /** Bound covers waiting for their answer, by snap: leaving the scanner is per screen, so it stays out of the store. */
+  private readonly boundDone = new Map<string, () => void>();
 
   constructor(private readonly deps: PipelineDeps) {}
 
@@ -105,9 +107,10 @@ export class SnapPipeline {
   }
 
   /** One picture from the shutter or auto-snap. Resolves once it is read and sent (or queued). */
-  async onSnap(event: SnapEvent, options: { recognition?: Reader } = {}): Promise<void> {
+  async onSnap(event: SnapEvent, options: { recognition?: Reader; bound?: { candidateId: string; onDone(): void } } = {}): Promise<void> {
     // A barcode in view wins: the barcode path reads it, no picture is sent. An imported picture is not what the camera sees.
-    if (event.trigger !== 'import' && this.barcodeInView()) return;
+    // A bound shutter capture is deliberate (one row waits for it), so it wins back.
+    if (event.trigger !== 'import' && !options.bound && this.barcodeInView()) return;
     const { store, snaps } = this.deps;
     const snapId = (this.deps.newId ?? randomId)();
     const photoUri = trackPicture(event.photo.uri, snapId); // the scaled snap: deleted once the store has its own copy
@@ -123,7 +126,9 @@ export class SnapPipeline {
       sent: false,
       items: [],
       unreadableCount: 0,
+      ...(options.bound ? { boundCandidateId: options.bound.candidateId } : {}),
     });
+    if (options.bound) this.boundDone.set(snapId, options.bound.onDone);
     reading.add(snapId);
     const stored = await snaps.saveStill(snapId, event.photo);
     if (stored) {
@@ -171,6 +176,7 @@ export class SnapPipeline {
 
   /** A snap that will not be used: off the receipt, out of the snap store, and none of its picture files left. */
   private async drop(snapId: string) {
+    this.boundDone.delete(snapId); // a dropped bound cover answers nothing; the binding stays for the next shutter
     this.deps.store.getState().removeSnap(snapId);
     useCardsStore.getState().dropLocal(snapId);
     await Promise.all([this.deps.snaps.forget(snapId), discardPicturesOf(snapId)]);
@@ -242,7 +248,7 @@ export class SnapPipeline {
     for (;;) {
       const next = store.getState().snaps.find((s) => s.libraryId === this.deps.libraryId && s.phase === 'read' && !s.sent);
       if (!next) return;
-      if (this.barcodeInView()) return; // held until the barcode is out of view
+      if (this.barcodeInView() && !next.boundCandidateId) return; // held until the barcode is out of view; a bound cover is deliberate
       try {
         await this.findLocalMatches(next);
         const snap = store.getState().snaps.find((s) => s.snapId === next.snapId);
@@ -258,6 +264,7 @@ export class SnapPipeline {
         store.getState().markSent(snap.snapId, sessionId, byLocalId);
         announce(useCardsStore.getState().merge(candidates));
         tray.getState().setOnline(true);
+        this.finishBound(snap.snapId); // the row is upgraded now; a bound screen leaves
       } catch (error) {
         const status = error instanceof ApiError ? error.status : undefined;
         if (error instanceof ApiError && status === 429) {
@@ -299,6 +306,14 @@ export class SnapPipeline {
         await this.drop(next.snapId);
       }
     }
+  }
+
+  /** A bound cover got its answer: the waiting screen leaves. Once only; a later flush finds nothing to finish. */
+  private finishBound(snapId: string) {
+    const done = this.boundDone.get(snapId);
+    if (!done) return;
+    this.boundDone.delete(snapId);
+    done();
   }
 
   /**

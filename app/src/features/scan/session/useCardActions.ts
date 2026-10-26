@@ -9,7 +9,7 @@ import type { CandidateDto } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { getOwnedCache } from '@/features/offline/ownedCache';
-import { skipCandidate } from '@/features/review/api';
+import { patchCandidate, skipCandidate } from '@/features/review/api';
 import { UNDO_MS } from '@/features/review/useReview';
 import { friendlyError } from '@/lib/problem';
 import { ApiError } from '@/lib/http';
@@ -147,6 +147,13 @@ export function useCardActions({
           await wishlistCandidate(libraryId, c);
           setWishlisted((w) => ({ ...w, [c.id]: true }));
         }),
+      onPick: (c, r) => {
+        if (sessionId) {
+          void run(c, async () => {
+            await patchCandidate(sessionId, c.id, { releaseId: r.id });
+          });
+        }
+      },
       onSkip: (c) => {
         if (sessionId) void run(c, () => skipCandidate(sessionId, c.id));
       },

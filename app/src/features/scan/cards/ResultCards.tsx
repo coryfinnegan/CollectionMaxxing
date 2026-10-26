@@ -2,15 +2,17 @@
 import { FlashList } from '@shopify/flash-list';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, useWindowDimensions, View } from 'react-native';
-import type { CandidateDto } from '@/api/generated/models';
+import type { CandidateDto, ReleaseDto } from '@/api/generated/models';
 import { announceForScreenReader } from '@/lib/a11y/announce';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Cover, Text } from '@/ui';
 import { useOwnedLookup } from '@/features/offline/hooks';
+import { alternativesOf } from '@/features/review/grouping';
 import { isLocalCard } from './cardsStore';
 import { alreadyOwnLine, alsoOwnLine, describeCandidate, formatName, isPictureCandidate, slideDuration } from './copy';
 import { OwnedCard } from './OwnedCard';
+import { PickAlternatives } from './PickAlternatives';
 
 export { useReduceMotion };
 
@@ -81,6 +83,8 @@ export type CardActions = {
   onWishlist(candidate: CandidateDto): void;
   /** Fix it on a picture's item the catalog could not find: opens a search that starts from what was read. */
   onFixIt?(candidate: CandidateDto): void;
+  /** Pick on a close call's card: binds the alternative, like choosing it in Review. */
+  onPick?(candidate: CandidateDto, release: ReleaseDto): void;
   /** Skip on an owned card: the owned default; the card goes away and nothing is added. */
   onSkip?(candidate: CandidateDto): void;
   /** Move it here on an owned card: the first exact copy moves to `moveTo`. */
@@ -125,6 +129,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
   const error = actions.errors?.[candidate.id];
   const busy = !!actions.busy?.[candidate.id];
   const canFix = actions.canAdd && !!actions.onFixIt && isPictureCandidate(candidate) && (copy.kind === 'not_found' || copy.kind === 'error');
+  const canPick = actions.canAdd && !!actions.onPick && copy.kind === 'pick' && alternativesOf(candidate).length > 0;
 
   return (
     <Animated.View
@@ -170,6 +175,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
             {canFix ? (
               <Button label="Fix it" variant="secondary" accessibilityLabel={`Fix it: ${copy.title}`} onPress={() => actions.onFixIt?.(candidate)} />
             ) : null}
+            {canPick && actions.onPick ? <PickAlternatives candidate={candidate} disabled={busy} onPick={actions.onPick} /> : null}
             {addable && (accepted || wishlisted) ? (
               <Text variant="label" tone="accent">
                 {wishlisted ? 'On your wishlist' : 'Added to this scan'}

@@ -225,3 +225,51 @@ describe('soft matches', () => {
     expect(screen.queryByText(/Based on your last sync/)).toBeNull();
   });
 });
+
+describe('close calls', () => {
+  const closeCall = {
+    id: 'c-pick',
+    seq: 1,
+    source: 'picture_apple_model',
+    rawCode: null,
+    visibleText: 'Pokemon Yellow',
+    resolution: 'ambiguous',
+    alreadyOwnedCount: 0,
+    ownedAt: [],
+    decision: 'undecided',
+    release: null,
+    alternatives: [
+      { id: 'r1', title: 'Pokemon Yellow', format: 'game_cartridge', year: 1999, platform: null, creators: [] },
+      { id: 'r2', title: "Pokemon Yellow (Player's Choice)", format: 'game_cartridge', year: 2000, platform: null, creators: [] },
+    ],
+  } as unknown as CandidateDto;
+
+  it('lists the alternatives and binds the tapped one', async () => {
+    const onPick = jest.fn();
+    await renderWithProviders(<ResultCards cards={[closeCall]} actions={{ ...actions, onPick }} />);
+    expect(await screen.findByText('Pick one')).toBeTruthy();
+    const target = screen.getByLabelText("Pick Pokemon Yellow (Player's Choice)");
+    await act(async () => {
+      fireEvent.press(target);
+    });
+    expect(onPick).toHaveBeenCalledWith(closeCall, (closeCall.alternatives as unknown[])[1]);
+  });
+
+  it('offers no pick without alternatives', async () => {
+    await renderWithProviders(<ResultCards cards={[{ ...closeCall, alternatives: null }]} actions={{ ...actions, onPick: jest.fn() }} />);
+    expect(await screen.findByText('Pick one')).toBeTruthy();
+    expect(screen.queryByLabelText(/Pick Pokemon/)).toBeNull();
+  });
+
+  it('offers no pick without the action', async () => {
+    await renderWithProviders(<ResultCards cards={[closeCall]} actions={actions} />);
+    expect(await screen.findByText('Pick one')).toBeTruthy();
+    expect(screen.queryByLabelText(/Pick Pokemon/)).toBeNull();
+  });
+
+  it('offers no pick read-only', async () => {
+    await renderWithProviders(<ResultCards cards={[closeCall]} actions={{ ...actions, canAdd: false, onPick: jest.fn() }} />);
+    expect(await screen.findByText('Pick one')).toBeTruthy();
+    expect(screen.queryByLabelText(/Pick Pokemon/)).toBeNull();
+  });
+});

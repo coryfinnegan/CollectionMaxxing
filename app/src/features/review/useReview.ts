@@ -13,6 +13,7 @@ import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { commitDraft, loadIntoCards, patchCandidate, searchCandidate, skipCandidate, undoCommit } from './api';
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
+import { contextWorkIdsFor } from './searchContext';
 import { addCount, commitBody, committable, emptyDraft, isChecked, type Draft, type LineOverride, type ReviewStatus } from './plan';
 
 /** How long the "Added 11 items" toast offers Undo (docs/06 M5). */
@@ -199,7 +200,7 @@ export function useReview({
     skip: (c: CandidateDto) => onRow(c.id, () => skipCandidate(requireSession(), c.id)),
     setCopies: (c: CandidateDto, copies: number) => onRow(c.id, () => patchCandidate(requireSession(), c.id, { copies: Math.max(1, copies) })),
     edit: (c: CandidateDto, edits: Pick<DecideCandidateRequest, 'format' | 'platform' | 'edition'>) => onRow(c.id, () => patchCandidate(requireSession(), c.id, edits)),
-    search: (c: CandidateDto, text: string) => onRow(c.id, () => searchCandidate(requireSession(), c.id, text)),
+    search: (c: CandidateDto, text: string) => onRow(c.id, () => searchCandidate(requireSession(), c.id, text, contextWorkIdsFor(c, list))),
     commit,
     undo,
     dismissToast: () => setToast(null),

@@ -22,6 +22,8 @@ const problem = (status: number, title: string) =>
 export const reviewMock = {
   /** Set to make the next commit fail as a whole (nothing is created), like a database rollback. */
   failNextCommit: false,
+  /** Every :search request the server received. */
+  searches: [] as { sessionId: string; candidateId: string; text: string; contextWorkIds: string[] }[],
   /** Every commit request the server received. */
   commits: [] as { sessionId: string; key: string | null; body: CommitBody | null }[],
   /** Every batch-restore request the server received. */
@@ -37,6 +39,7 @@ export const reviewMock = {
   made: new Map<string, string[]>(),
   undoReplays: new Map<string, UndoResultDto>(),
   reset() {
+    this.searches = [];
     this.failNextCommit = false;
     this.commits = [];
     this.restores = [];
@@ -58,6 +61,7 @@ const resolve = (c: CandidateDto, release: ReleaseDto) => {
     alternatives: null,
     alreadyOwnedCount: owned.length,
     ownedAt: owned.map((o) => o.locationPath),
+    guidanceCode: null,
   } satisfies Partial<CandidateDto>);
 };
 
@@ -132,8 +136,10 @@ export const handlers = [
     const session = scanMock.sessions.get(String(sessionId));
     const candidate = session?.candidates.find((c) => c.id === candidateId);
     if (!session || !candidate) return problem(404, 'Not found');
-    const text = (((await request.json()) as { text?: string | null }).text ?? '').trim().toLowerCase();
+    const body = (await request.json()) as { text?: string | null; contextWorkIds?: string[] | null };
+    const text = (body.text ?? '').trim().toLowerCase();
     if (!text) return problem(400, 'Type a title to search for.');
+    reviewMock.searches.push({ sessionId: session.id, candidateId: candidate.id, text, contextWorkIds: body.contextWorkIds ?? [] });
     const found = Object.values(scanMock.catalog).find((e) => e.release.title.toLowerCase().includes(text));
     if (found) resolve(candidate, found.release);
     candidate.seq = ++session.seq;

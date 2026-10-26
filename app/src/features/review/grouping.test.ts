@@ -1,5 +1,5 @@
 import type { CandidateDto, ReleaseDto } from '@/api/generated/models';
-import { alternativesOf, defaultChecked, groupCandidates, groupOf, isCollapsed, READY_COLLAPSE_THRESHOLD, reviewable } from './grouping';
+import { alternativesOf, defaultChecked, groupCandidates, groupOf, isAggregated, reviewable } from './grouping';
 import { candidate, release } from './testData';
 
 describe('grouping', () => {
@@ -40,10 +40,12 @@ describe('grouping', () => {
     expect(groups.ready.map((c) => c.id)).toEqual(['early', 'late']);
   });
 
-  it('collapses Ready only above the threshold', () => {
-    expect(READY_COLLAPSE_THRESHOLD).toBe(20);
-    expect(isCollapsed(20)).toBe(false);
-    expect(isCollapsed(21)).toBe(true);
+  it('aggregates the successes and lists the exceptions', () => {
+    expect(isAggregated('ready')).toBe(true);
+    expect(isAggregated('owned')).toBe(true);
+    expect(isAggregated('pick')).toBe(false);
+    expect(isAggregated('notFound')).toBe(false);
+    expect(isAggregated('pending')).toBe(false);
   });
 
   it('checks ready and accepted rows by default and nothing else', () => {

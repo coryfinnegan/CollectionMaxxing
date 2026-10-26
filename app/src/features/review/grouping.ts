@@ -7,10 +7,10 @@ export type ReviewGroup = 'pick' | 'notFound' | 'owned' | 'ready' | 'pending';
 /** Most attention first. Pending (still looking up) goes last and cannot be acted on yet. */
 export const GROUP_ORDER: readonly ReviewGroup[] = ['pick', 'notFound', 'owned', 'ready', 'pending'];
 
-export const READY_COLLAPSE_THRESHOLD = 20;
 export const MAX_ALTERNATIVES = 3;
 
-export const isCollapsed = (readyCount: number) => readyCount > READY_COLLAPSE_THRESHOLD;
+/** Successes aggregate: matched rows collapse to one line, expandable, every row's state kept. */
+export const isAggregated = (group: ReviewGroup): boolean => group === 'ready' || group === 'owned';
 
 /** Skipped candidates and ones already turned into items are not part of Review. */
 export const reviewable = (list: readonly CandidateDto[]): CandidateDto[] =>

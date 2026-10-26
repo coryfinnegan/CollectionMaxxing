@@ -36,6 +36,21 @@ describe('what a picture card says', () => {
     expect(describeCandidate(picture({ resolution: 'ambiguous', release: null }))).toMatchObject({ status: 'Pick one', kind: 'pick' });
   });
 
+  it('leads a poor read with the reshoot ask, not the catalog miss', () => {
+    expect(describeCandidate(picture({ resolution: 'not_found', release: null, guidanceCode: 'move_closer' }))).toMatchObject({
+      title: 'Space Mutiny',
+      status: 'Move closer — spines too small',
+      kind: 'not_found',
+    });
+  });
+
+  it('keeps its own words when the guidance only repeats the fallback', () => {
+    expect(describeCandidate(picture({ resolution: 'not_found', release: null, guidanceCode: 'shoot_cover' }))).toMatchObject({
+      status: PICTURE_NOT_FOUND_COPY,
+      kind: 'not_found',
+    });
+  });
+
   it('leads with "Already own" even when the match is a close call', () => {
     expect(describeCandidate(picture({ resolution: 'ambiguous', alreadyOwnedCount: 2 }))).toMatchObject({ status: 'Already own — VHS · 2 copies', kind: 'owned' });
     expect(describeCandidate(picture({ alreadyOwnedCount: 1 }))).toMatchObject({ title: 'Space Mutiny', subtitle: 'VHS · 1988', status: 'Already own — VHS', kind: 'owned' });

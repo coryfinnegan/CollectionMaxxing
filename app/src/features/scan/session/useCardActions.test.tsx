@@ -167,3 +167,39 @@ describe('the owned card actions', () => {
     expect(itemsState.entries.find((e) => e.item.id === DUNE_ITEM_ID)!.item.locationId).toBe(MOCK_LIBRARY_ID);
   });
 });
+
+describe('the close call pick', () => {
+  it('binds the tapped alternative and the card settles', async () => {
+    const closeCall = {
+      id: 'c-pick',
+      seq: 101,
+      source: 'picture_apple_model',
+      rawCode: null,
+      visibleText: 'Pokemon Yellow',
+      resolution: 'ambiguous',
+      alreadyOwnedCount: 0,
+      ownedAt: [],
+      decision: 'undecided',
+      release: null,
+      alternatives: [
+        { id: 'r1', title: 'Pokemon Yellow', format: 'game_cartridge', year: 1999, platform: null, creators: [] },
+        { id: 'r2', title: "Pokemon Yellow (Player's Choice)", format: 'game_cartridge', year: 2000, platform: null, creators: [] },
+      ],
+      guidanceCode: 'pick_match',
+    } as unknown as CandidateDto;
+    scanMock.sessions.get(SESSION)!.candidates.push(JSON.parse(JSON.stringify(closeCall)) as CandidateDto);
+    useCardsStore.getState().merge([closeCall], { announce: false });
+
+    await renderWithProviders(<Harness />);
+    await screen.findByText('Pick one');
+
+    await press("Pick Pokemon Yellow (Player's Choice)");
+
+    expect(await screen.findByText('Added to this scan')).toBeTruthy();
+    const upgraded = scanMock.sessions.get(SESSION)!.candidates.find((c) => c.id === 'c-pick')!;
+    expect(upgraded.resolution).toBe('matched');
+    expect(upgraded.release?.id).toBe('r2');
+    expect(upgraded.decision).toBe('accepted');
+    expect(upgraded.guidanceCode).toBeNull();
+  });
+});

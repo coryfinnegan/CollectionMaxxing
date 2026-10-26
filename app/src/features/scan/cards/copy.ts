@@ -2,6 +2,7 @@
 // sentence case, say what happened and what to do next, no exclamation marks).
 import type { CandidateDto, ReleaseFormat } from '@/api/generated/models';
 import { formatLabels } from '@/features/library/labels';
+import { reshootOf } from '@/features/review/guidance';
 import { ApiError } from '@/lib/http';
 import { isLocalCard } from './cardsStore';
 import { friendlyError } from '@/lib/problem';
@@ -60,18 +61,18 @@ function describePicture(c: CandidateDto): CardCopy {
   if (isLocalCard(c)) return { title: c.release?.title ?? read, subtitle: '', status: LOCAL_MATCH_COPY, kind: 'pick' };
   switch (c.resolution) {
     case 'pending':
-      return { title: read, subtitle: '', status: 'Identifying…', kind: 'pending' };
+      return { title: read, subtitle: '', status: reshootOf(c) ?? 'Identifying…', kind: 'pending' };
     case 'error':
-      return { title: read, subtitle: '', status: PICTURE_ERROR_COPY, kind: 'error' };
+      return { title: read, subtitle: '', status: reshootOf(c) ?? PICTURE_ERROR_COPY, kind: 'error' };
     case 'not_found':
-      return { title: read, subtitle: '', status: PICTURE_NOT_FOUND_COPY, kind: 'not_found' };
+      return { title: read, subtitle: '', status: reshootOf(c) ?? PICTURE_NOT_FOUND_COPY, kind: 'not_found' };
     default: {
       const release = c.release;
       const subtitle = [release?.platform?.name ?? (release ? formatLabels[release.format] : null), release?.year].filter(Boolean).join(' · ');
       // Owned leads: "Already own" is the answer the person is standing at the shelf for, even when the match is a close call.
       if (c.alreadyOwnedCount > 0)
         return { title: release?.title ?? read, subtitle, status: alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount), kind: 'owned' };
-      if (c.resolution === 'ambiguous') return { title: release?.title ?? read, subtitle, status: 'Pick one', kind: 'pick' };
+      if (c.resolution === 'ambiguous') return { title: release?.title ?? read, subtitle, status: reshootOf(c) ?? 'Pick one', kind: 'pick' };
       return { title: release?.title ?? read, subtitle, status: null, kind: 'new' };
     }
   }
@@ -84,9 +85,9 @@ export function describeCandidate(c: CandidateDto): CardCopy {
     case 'pending':
       return { title: code, subtitle: '', status: c.pendingReason === 'quota' ? QUOTA_COPY : 'Looking up…', kind: 'pending' };
     case 'error':
-      return { title: code, subtitle: '', status: unreadableCopy(), kind: 'error' };
+      return { title: code, subtitle: '', status: reshootOf(c) ?? unreadableCopy(), kind: 'error' };
     case 'not_found':
-      return { title: code, subtitle: '', status: NOT_FOUND_COPY, kind: 'not_found' };
+      return { title: code, subtitle: '', status: reshootOf(c) ?? NOT_FOUND_COPY, kind: 'not_found' };
     default: {
       const release = c.release;
       const subtitle = [release?.platform?.name ?? (release ? formatLabels[release.format] : null), release?.year]
