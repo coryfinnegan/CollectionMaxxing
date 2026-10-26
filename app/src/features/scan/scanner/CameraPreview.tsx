@@ -1,7 +1,7 @@
 // The live camera (iOS). Frames go to the Apple decoder through cm-vision; the codes it finds are handed to the
 // source. This file is only loaded on a phone: the web build uses CameraPreview.web.tsx, which has no camera.
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { useBarcodeFrameProcessor } from '@/native/cm-vision';
 import { fixed, spacing } from '@/theme/tokens';
@@ -11,7 +11,7 @@ import type { VisionCameraSource } from './ScannerSource';
 import { createSilentSnapshot } from './silentSnapshot';
 
 export default function CameraPreview({ source }: { source: VisionCameraSource }) {
-  const { hasPermission, requestPermission } = useCameraPermission();
+  const { hasPermission, canRequestPermission, requestPermission, status } = useCameraPermission();
   const device = useCameraDevice('back');
   const [flash, setFlash] = useState(source.flash);
   useEffect(() => source.onFlash(setFlash), [source]);
@@ -68,6 +68,18 @@ export default function CameraPreview({ source }: { source: VisionCameraSource }
   );
 
   if (!hasPermission) {
+    // Asked before and answered: the app cannot ask again, so it explains and links to Settings instead of dead-ending.
+    if (!canRequestPermission) {
+      const blocked = status === 'restricted';
+      return (
+        <View style={styles.message}>
+          <Text style={styles.onCamera}>
+            {blocked ? 'The camera is restricted on this iPhone. Allow it in Settings to scan.' : 'Camera access is off. Turn it on in Settings to scan.'}
+          </Text>
+          <Button label="Open Settings" onPress={() => void Linking.openSettings()} />
+        </View>
+      );
+    }
     return (
       <View style={styles.message}>
         <Text style={styles.onCamera}>CollectionMaxxing needs the camera to read barcodes.</Text>
