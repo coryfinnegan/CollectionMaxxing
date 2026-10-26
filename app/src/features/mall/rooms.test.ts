@@ -1,6 +1,6 @@
 // The Mall room registry (#381): presets load, anchors round-trip, and the
 // scene falls back to procedural geometry when the GLB is not bundled.
-import { anchorName, mallRooms, parseAnchorName, resolveRoomSource, roomAnchorSections, roomPresets } from './rooms';
+import { anchorName, mallRooms, parseAnchorName, resolveRoomSource, roomAnchorSections, roomAnchors, roomDims, roomPresets } from './rooms';
 
 describe('the Mall room presets', () => {
   it('covers every room with a hero angle first', () => {
@@ -38,6 +38,26 @@ describe('the anchor contract', () => {
       toy_store: ['wall', 'case', 'peg'],
       bookstore: ['stack', 'mezz', 'cafe', 'table'],
       mall_hub: ['store', 'kiosk'],
+    });
+  });
+
+  it('lists anchors that all belong to a furnished section', () => {
+    for (const room of mallRooms) {
+      expect(roomAnchors[room].length).toBeGreaterThan(0);
+      for (const name of roomAnchors[room]) {
+        const parsed = parseAnchorName(name);
+        expect(parsed).not.toBeNull();
+        expect(roomAnchorSections[room]).toContain(parsed?.section);
+      }
+    }
+  });
+
+  it('sizes every procedural shell to its Blender footprint', () => {
+    expect(roomDims).toEqual({
+      video_store: { width: 14, depth: 10, height: 3.2 },
+      toy_store: { width: 14, depth: 10, height: 3 },
+      bookstore: { width: 16, depth: 11, height: 4.6 },
+      mall_hub: { width: 18, depth: 14, height: 4.2 },
     });
   });
 });

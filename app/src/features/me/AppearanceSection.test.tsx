@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { setDesignStorage, useLibraryDesign } from '@/features/library/design';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { renderWithProviders } from '@/test/render';
@@ -32,6 +33,8 @@ function setup(initial: string | null = null, supported = true) {
   useDragonAppearance.setState({ appearance: 'full' });
   setAppearanceStorage(memoryStore());
   useAppearanceChoice.setState({ choice: 'system' });
+  setDesignStorage(memoryStore());
+  useLibraryDesign.setState({ choice: 'current' });
   return engine;
 }
 
@@ -122,6 +125,21 @@ describe('Settings > Appearance', () => {
     await fireEvent.press(screen.getByLabelText('Dragon Off'));
     expect(useDragonAppearance.getState().appearance).toBe('off');
     expect(screen.getByLabelText('Dragon Off').props.accessibilityState.selected).toBe(true);
+  });
+
+  it('switches the library design between Current, Castle and Mall', async () => {
+    setup(null, false);
+    await renderWithProviders(<AppearanceSection />);
+    await screen.findByText('Library design');
+
+    expect(screen.getByLabelText('Library design Current').props.accessibilityState.selected).toBe(true);
+
+    await fireEvent.press(screen.getByLabelText('Library design Castle'));
+    expect(useLibraryDesign.getState().choice).toBe('castle');
+
+    await fireEvent.press(screen.getByLabelText('Library design Mall'));
+    expect(useLibraryDesign.getState().choice).toBe('mall');
+    expect(screen.getByLabelText('Library design Mall').props.accessibilityState.selected).toBe(true);
   });
 
   it('switches light, dark and system, applying each to the styled layer', async () => {

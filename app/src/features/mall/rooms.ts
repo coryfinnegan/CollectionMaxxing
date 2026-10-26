@@ -47,6 +47,41 @@ export const roomAnchorSections: Record<MallRoomId, string[]> = {
   mall_hub: ['store', 'kiosk'],
 };
 
+/**
+ * Every anchor node each room furnishes, in the Blender script's placement
+ * order. The GLB seam test pins these against the shipped room files, so the
+ * scripts, the assets, and the scene graph cannot drift apart.
+ */
+export const roomAnchors: Record<MallRoomId, string[]> = {
+  video_store: [
+    'anchor_shelf_1',
+    'anchor_shelf_2',
+    'anchor_shelf_3',
+    'anchor_shelf_4',
+    'anchor_shelf_5',
+    'anchor_shelf_6',
+    'anchor_new_1',
+    'anchor_new_2',
+    'anchor_counter_1',
+  ],
+  toy_store: ['anchor_wall_1', 'anchor_wall_2', 'anchor_peg_1', 'anchor_peg_2', 'anchor_case_1'],
+  bookstore: ['anchor_stack_1', 'anchor_stack_2', 'anchor_mezz_1', 'anchor_cafe_1', 'anchor_table_1'],
+  mall_hub: ['anchor_store_1', 'anchor_store_2', 'anchor_store_3', 'anchor_kiosk_1', 'anchor_kiosk_2'],
+};
+
+export type RoomDims = { width: number; depth: number; height: number };
+
+/**
+ * The room footprints in meters, mirroring the Blender scripts' P dicts. The
+ * procedural shells build to these so the GLB anchors land inside them.
+ */
+export const roomDims: Record<MallRoomId, RoomDims> = {
+  video_store: { width: 14, depth: 10, height: 3.2 },
+  toy_store: { width: 14, depth: 10, height: 3 },
+  bookstore: { width: 16, depth: 11, height: 4.6 },
+  mall_hub: { width: 18, depth: 14, height: 4.2 },
+};
+
 /** The GLB node name a cover row attaches to: anchor_<section>_<n>. */
 export function anchorName(section: string, index: number): string {
   return `anchor_${section}_${index}`;
