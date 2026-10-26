@@ -30,6 +30,8 @@ public class PlatformNamesTests
     [InlineData("Game Boy Advance", "Game Boy Advance")]
     [InlineData("GBA", "Game Boy Advance")]
     [InlineData("Nintendo Switch", "Switch")]
+    [InlineData("Switch 2", "Switch 2")]
+    [InlineData("Nintendo Switch 2", "Switch 2")]
     [InlineData("Sega Genesis", "Genesis")]
     [InlineData("Mega Drive", "Genesis")]
     [InlineData("Sega Dreamcast", "Dreamcast")]
@@ -61,5 +63,6 @@ public class PlatformNamesTests
         PlatformNames.Canonicalize("PS2").ShouldNotBe(PlatformNames.Canonicalize("PS3"));
         PlatformNames.Canonicalize("Game Boy").ShouldNotBe(PlatformNames.Canonicalize("Game Boy Color"));
         PlatformNames.Canonicalize("Xbox").ShouldNotBe(PlatformNames.Canonicalize("Xbox 360"));
+        PlatformNames.Canonicalize("Switch").ShouldNotBe(PlatformNames.Canonicalize("Switch 2"));
     }
 }

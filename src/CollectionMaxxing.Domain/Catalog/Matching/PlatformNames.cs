@@ -17,6 +17,7 @@ public static class PlatformNames
         ("Wii", ["wii", "nintendo wii"]),
         ("Wii U", ["wii u", "nintendo wii u"]),
         ("Switch", ["switch", "nintendo switch"]),
+        ("Switch 2", ["switch 2", "nintendo switch 2"]),
         ("Game Boy", ["game boy", "gameboy", "nintendo game boy", "nintendo gameboy", "gb"]),
         ("Game Boy Color", ["game boy color", "gameboy color", "nintendo game boy color", "gbc"]),
         ("Game Boy Advance", ["game boy advance", "gameboy advance", "nintendo game boy advance", "gba"]),
