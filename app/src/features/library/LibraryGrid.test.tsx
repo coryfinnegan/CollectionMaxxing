@@ -350,4 +350,25 @@ describe('Library castle frame', () => {
     expect(screen.getAllByTestId('chip-swatch').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('cover-shelf').length).toBeGreaterThan(0);
   });
+
+  it('adds zero taps: the full frame offers the same buttons as quiet with dragons off', async () => {
+    const buttons = async () => {
+      const rendered = await renderWithProviders(<LibraryView title="Library" />);
+      await screen.findByText('The Matrix');
+      const labels = screen.getAllByRole('button').map((button) => button.props.accessibilityLabel as string);
+      await rendered.unmount();
+      return labels.sort();
+    };
+
+    useCastleThemeSetting.setState({ setting: 'full' });
+    useDragonAppearance.setState({ appearance: 'full' });
+    const themed = await buttons();
+
+    useCastleThemeSetting.setState({ setting: 'quiet' });
+    useDragonAppearance.setState({ appearance: 'off' });
+    const plain = await buttons();
+
+    expect(themed).toEqual(plain);
+    expect(themed.length).toBeGreaterThan(0);
+  });
 });
