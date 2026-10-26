@@ -35,7 +35,7 @@ function Cell({ id, caption, children }: { id: string; caption: string; children
 
 export function MascotSheet() {
   return (
-    <Screen title="Mascot contact sheet" subtitle="Every dragon pose, sharing one set of layers.">
+    <Screen title="Mascot contact sheet" subtitle="Every dragon pose, sharing one set of layers." scroll={false}>
       <View style={styles.grid}>
         {poseIds.map((pose) => (
           <Cell key={pose} id={`mascot-cell-${pose}`} caption={captions[pose]}>
