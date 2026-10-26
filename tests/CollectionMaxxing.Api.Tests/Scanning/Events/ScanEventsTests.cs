@@ -94,7 +94,8 @@ public class ScanEventsTests : ScanTest
 
         await using var second = await SseClient.ConnectAsync(editor, EventsUrl(sessionId), lastId);
         var replayed = await second.ReadUntilAsync("session.status");
-        replayed.Select(e => e.Name).ShouldBe(["candidate.added", "session.status"]);
+        // session.counters is state like session.status: the reconnected client hears the current counters, not a replay (#342).
+        replayed.Select(e => e.Name).ShouldBe(["candidate.added", "session.counters", "session.status"]);
         replayed[0].Seq.ShouldBe(3);
         int.Parse(replayed[0].Id!).ShouldBeGreaterThan(int.Parse(lastId));
         replayed[0].Id.ShouldBe(replayed[0].Data!.Value.GetProperty("changeSeq").GetInt32().ToString());

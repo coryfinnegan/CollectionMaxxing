@@ -39,8 +39,10 @@ public class SessionCountersEventTests : ScanTest
 
         var updated = (await events.ReadUntilAsync(
             "session.counters", e => e.Data!.Value.GetProperty("counters").GetProperty("captured").GetInt32() == 1)).Last();
-        updated.Id.ShouldBe("1");
-        updated.Data!.Value.GetProperty("changeSeq").GetInt32().ShouldBe(1);
+        // The event id and the carried change counter agree (the scan may commit once or twice before the stream looks).
+        var changeSeq = updated.Data!.Value.GetProperty("changeSeq").GetInt32();
+        changeSeq.ShouldBeGreaterThan(0);
+        updated.Id.ShouldBe(changeSeq.ToString());
         // Matched and auto-accepted, but not committed yet: still to review.
         updated.Data!.Value.GetProperty("counters").GetProperty("toReview").GetInt32().ShouldBe(1);
     }
