@@ -35,10 +35,14 @@ const roomAsset: Record<MallRoomId, number> = {
   mall_hub: mallHubGlb,
 };
 
-const COVER_W = 0.32;
-const COVER_H = 0.48;
-const COVER_GAP = 0.05;
+const COVER_W = 0.5;
+const COVER_H = 0.75;
+const COVER_GAP = 0.06;
 const ANCHOR_TIMEOUT_MS = 4000;
+/** The room opens this close to its first full anchor: covers, not wallpaper. */
+const OPENING_DIST = 4.5;
+/** The opening view never dips under the room. */
+const OPENING_MIN_Y = 1.1;
 
 /** The GLB anchor transforms, or null when the room file cannot be read. */
 async function loadAnchors(room: MallRoomId): Promise<GlbAnchor[] | null> {
@@ -164,13 +168,14 @@ function buildRoomScene(
   right.rotation.y = -Math.PI / 2;
   right.position.x = dims.width / 2;
   scene.add(right);
-  const fixture = new THREE.Mesh(new THREE.BoxGeometry(dims.width * 0.8, 1.1, 0.4), standard(palette.fixture, 0.8));
-  fixture.position.set(0, 0.55, -dims.depth / 2 + 0.45);
+  // The fixture sits flush to the back wall, behind the anchor rows it shelves.
+  const fixture = new THREE.Mesh(new THREE.BoxGeometry(dims.width * 0.8, 1.0, 0.4), standard(palette.fixture, 0.8));
+  fixture.position.set(0, 0.5, -dims.depth / 2 + 0.2);
   fixture.castShadow = true;
   fixture.receiveShadow = true;
   scene.add(fixture);
   const trim = new THREE.Mesh(new THREE.BoxGeometry(dims.width * 0.8, 0.06, 0.44), standard(palette.trim, 0.6));
-  trim.position.set(0, 1.13, -dims.depth / 2 + 0.45);
+  trim.position.set(0, 1.03, -dims.depth / 2 + 0.2);
   scene.add(trim);
 
   const covers: THREE.Mesh[] = [];
@@ -386,13 +391,32 @@ export function RoomCanvas({ room, presetIndex, slices, selectedId, onIdentify, 
     [anchors],
   );
 
+  const buildKey = `${room}:${slicesSig}:${anchorsSig}`;
+  const flownFor = useRef('');
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host || anchors === null) return;
-    const scene = buildRoomScene(host, room, slices, posesFor(room, anchors), onIdentify);
+    const poses = posesFor(room, anchors);
+    const scene = buildRoomScene(host, room, slices, poses, onIdentify);
     sceneRef.current = scene;
     const hero = presets[0];
-    scene.flyTo(blenderToThree(hero.location), blenderToThree(hero.target), lensToFov(hero.lens), true);
+    // The room opens facing its first full anchor down the aisle; the preset
+    // chips keep the exact Blender angles for deliberate moves.
+    let pos = blenderToThree(hero.location);
+    let tgt = blenderToThree(hero.target);
+    const firstFull = slices.find((slice) => slice.items.length > 0);
+    const pose = firstFull ? poses.get(firstFull.name) : undefined;
+    if (pose) {
+      const anchor = new THREE.Vector3(...pose.position);
+      const facing = new THREE.Vector3(Math.sin(pose.yaw), 0, Math.cos(pose.yaw));
+      const at = anchor.clone().add(facing.multiplyScalar(OPENING_DIST));
+      at.y = Math.max(anchor.y + 0.6, OPENING_MIN_Y);
+      pos = [at.x, at.y, at.z];
+      tgt = [anchor.x, anchor.y, anchor.z];
+    }
+    scene.flyTo(pos, tgt, lensToFov(hero.lens), true);
+    flownFor.current = `${buildKey}:${hero.name}`;
     return () => {
       sceneRef.current = null;
       scene.dispose();
@@ -402,8 +426,11 @@ export function RoomCanvas({ room, presetIndex, slices, selectedId, onIdentify, 
   }, [room, slicesSig, anchorsSig]);
 
   useEffect(() => {
+    const key = `${buildKey}:${preset.name}`;
+    if (flownFor.current === key) return;
+    flownFor.current = key;
     sceneRef.current?.flyTo(blenderToThree(preset.location), blenderToThree(preset.target), lensToFov(preset.lens), reduceMotion);
-  }, [preset, reduceMotion]);
+  }, [buildKey, preset, reduceMotion]);
 
   return (
     <View style={styles.room(palette.wall)} testID="mall-room">
