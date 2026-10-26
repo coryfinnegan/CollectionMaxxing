@@ -108,3 +108,15 @@ public sealed record SearchCandidateRequest(string? Text = null, IReadOnlyList<G
 /// standing auto-add of the session.
 /// </summary>
 public sealed record UndoAutoCommitRequest(Guid? CandidateId = null);
+
+/// <summary>
+/// Body of <c>POST …/provisionals</c> (#345): the T2 row to keep as unverified, and the uploaded segment crop to claim
+/// as its visual anchor (null when the phone had no crop to send).
+/// </summary>
+public sealed record CreateProvisionalRequest(Guid? CandidateId = null, Guid? CropAssetId = null);
+
+/// <summary>Body of <c>POST …/provisionals/{pid}:promote</c> (#345): keep the crop as the new item's cover (the default).</summary>
+public sealed record PromoteProvisionalRequest(bool? KeepCrop = null);
+
+/// <summary>Body of <c>POST …/provisionals/{pid}:resolve</c> (#345): the library item this kept row is.</summary>
+public sealed record ResolveProvisionalRequest(Guid? ItemId = null);

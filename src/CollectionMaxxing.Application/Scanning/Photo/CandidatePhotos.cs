@@ -67,6 +67,8 @@ internal static class CandidatePhotos
             candidate.SnapId = null;
         }
 
+        // Kept rows that cite a discarded photo stop citing it; the rows themselves stay (#345).
+        await Provisional.ProvisionalLinks.ClearSnapLinksAsync(db, snaps.Select(s => s.Id).ToList(), cancellationToken);
         db.ScanSnaps.RemoveRange(snaps);
         return assets.Select(a => new PhotoFile(a.Id, a.BlobPath)).ToList();
     }
@@ -98,14 +100,16 @@ internal static class CandidatePhotos
     }
 
     /// <summary>
-    /// Retries the files of photos nothing uses any more (no snap, no item cover): deletes each file, then its row. A photo that is still
-    /// stuck stays for tomorrow.
+    /// Retries the files of photos nothing uses any more (no snap, no provisional crop, no item cover): deletes each file, then its
+    /// row. A photo that is still stuck stays for tomorrow. Segment crops (#345) land here when the app is killed between the
+    /// upload and keeping the row.
     /// </summary>
     public static async Task SweepOrphansAsync(IAppDbContext db, IPhotoStore store, ILogger logger, CancellationToken cancellationToken)
     {
         var orphans = await db.Assets.IgnoreQueryFilters().AsNoTracking()
-            .Where(a => a.Kind == AssetKind.UserPhoto
+            .Where(a => (a.Kind == AssetKind.UserPhoto || a.Kind == AssetKind.ScanPhoto)
                 && !db.ScanSnaps.IgnoreQueryFilters().Any(s => s.AssetId == a.Id)
+                && !db.ProvisionalRecords.IgnoreQueryFilters().Any(p => p.CropAssetId == a.Id)
                 && !db.Items.IgnoreQueryFilters().Any(i => i.CustomCoverAssetId == a.Id)
                 && !db.Works.IgnoreQueryFilters().Any(w => w.CoverAssetId == a.Id)
                 && !db.Releases.IgnoreQueryFilters().Any(r => r.CoverAssetId == a.Id))

@@ -112,6 +112,25 @@ describe('LibraryView grid', () => {
     expect(listRequests().every((u) => u.searchParams.get('status') === 'lent')).toBe(true);
   });
 
+  it('switches to Needs attention from its chip, and back', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    expect(await screen.findByText('Nothing needs attention.')).toBeTruthy();
+    expect(screen.queryByText('The Matrix')).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    expect(await screen.findByText('The Matrix')).toBeTruthy();
+  });
+
+  it('shows no Needs attention chip in the Wishlist view', async () => {
+    await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" />);
+
+    expect(await screen.findByText('Blade Runner')).toBeTruthy();
+    expect(screen.queryByLabelText('Needs attention')).toBeNull();
+  });
+
   it('loads the next page on scroll, and starts from the top when a filter changes', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');

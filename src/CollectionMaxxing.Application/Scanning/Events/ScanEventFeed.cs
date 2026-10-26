@@ -24,6 +24,12 @@ public static class ScanEventNames
 
     /// <summary>The session's live counters changed: the four bar counters plus the change counter they were counted at.</summary>
     public const string SessionCounters = "session.counters";
+
+    /// <summary>A row was kept as a provisional record: its <c>ProvisionalDto</c>.</summary>
+    public const string ProvisionalCreated = "provisional.created";
+
+    /// <summary>A provisional record was acted on (promoted, resolved): its <c>ProvisionalDto</c>. A delete rides <c>session.counters</c>.</summary>
+    public const string ProvisionalUpdated = "provisional.updated";
 }
 
 /// <summary>The session's state, as sent with <c>session.status</c>.</summary>
@@ -70,7 +76,9 @@ public sealed class ScanEventCursor
     private readonly int _after;
     private readonly HashSet<Guid> _known = [];
     private readonly Dictionary<Guid, Guid> _photosShown = [];
+    private readonly Dictionary<Guid, DateTimeOffset?> _provisionalsShown = [];
     private bool _first = true;
+    private bool _firstLookDone;
     private int _highWater;
     private ScanSessionStatus? _statusShown;
     private SessionCountersDto? _countersShown;
@@ -153,12 +161,41 @@ public sealed class ScanEventCursor
             }
         }
 
+        // Kept rows: like photo.status, this is state, not a candidate change — it never moves the cursor. The first look
+        // only marks what the snapshot already carries; later looks announce new and resolved records. A delete has no row
+        // left to send, so it rides the counters below (the client that deleted already knows).
+        var provisionals = await _db.ProvisionalRecords.AsNoTracking()
+            .Where(p => p.SessionId == _sessionId).OrderBy(p => p.CreatedAt).ThenBy(p => p.Id).ToListAsync(cancellationToken);
+        foreach (var provisional in provisionals)
+        {
+            if (!_provisionalsShown.TryGetValue(provisional.Id, out var shown))
+            {
+                _provisionalsShown[provisional.Id] = provisional.ResolvedAt;
+                if (!_firstLookDone)
+                {
+                    continue;
+                }
+
+                events.Add(new ScanEvent(
+                    provisional.ResolvedAt is null ? ScanEventNames.ProvisionalCreated : ScanEventNames.ProvisionalUpdated,
+                    _highWater,
+                    Provisional.ProvisionalProjection.ToDto(provisional)));
+            }
+            else if (shown != provisional.ResolvedAt)
+            {
+                _provisionalsShown[provisional.Id] = provisional.ResolvedAt;
+                events.Add(new ScanEvent(ScanEventNames.ProvisionalUpdated, _highWater, Provisional.ProvisionalProjection.ToDto(provisional)));
+            }
+        }
+
+        _firstLookDone = true;
+
         // The live counters: sent once on (re)connect and again whenever a candidate change moves them, so background
         // tabs and the web stay consistent without re-reading the session. Like photo.status, this is state, not a
         // candidate change: it carries the current change counter but never moves the cursor. It goes out before
         // session.status, so a client that reads through the status has the whole session state and an idle stream
         // stays heartbeats only.
-        var counters = SessionCounters.Count(candidates);
+        var counters = SessionCounters.Count(candidates, provisionals.Count(p => p.ResolvedAt == null));
         if (_countersShown != counters)
         {
             _countersShown = counters;

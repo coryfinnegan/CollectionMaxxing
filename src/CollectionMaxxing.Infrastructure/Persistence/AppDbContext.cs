@@ -70,6 +70,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ICurren
 
     public DbSet<ScanCandidate> ScanCandidates => Set<ScanCandidate>();
 
+    public DbSet<ProvisionalRecord> ProvisionalRecords => Set<ProvisionalRecord>();
+
     public DbSet<Job> Jobs => Set<Job>();
 
     public DbSet<MatchFeedback> MatchFeedback => Set<MatchFeedback>();

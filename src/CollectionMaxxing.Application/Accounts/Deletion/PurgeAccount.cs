@@ -131,6 +131,10 @@ public static class PurgeAccount
             }
 
             // Scanning first (candidates point at snaps and items), then the items and what hangs from them.
+            // Kept rows cite candidates and candidates cite them back: the back-links clear first, then the rows go
+            // before the candidates they cite and the crop assets they restrict.
+            await Scanning.Provisional.ProvisionalLinks.ClearKeptLinksForLibraryAsync(db, libraryId, cancellationToken);
+            await db.ProvisionalRecords.IgnoreQueryFilters().Where(p => p.LibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
             await db.MatchFeedback.IgnoreQueryFilters().Where(f => f.LibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
             await db.ScanCandidates.IgnoreQueryFilters().Where(c => c.LibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
             await db.ScanSnaps.IgnoreQueryFilters().Where(s => s.LibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);

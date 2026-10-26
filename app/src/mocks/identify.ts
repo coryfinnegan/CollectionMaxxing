@@ -170,6 +170,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
     pendingReason: null,
     retryAfter: null,
     guidanceCode: null,
+    cropUrl: null,
   };
   const title = item.title ?? item.text ?? '';
   if (key(title) === key(CLOSE_CALL.title)) {

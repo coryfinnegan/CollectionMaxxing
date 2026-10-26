@@ -4,12 +4,12 @@
 // replays the same answer for it, and a viewer cannot change anything (403). Undo removes the items the commit made for good
 // (not into Recently deleted) and reopens the session with its candidates, like the real API (SCAN-1e).
 import { HttpResponse, http } from 'msw';
-import type { CandidateDto, CommitResultDto, ItemDto, PlatformDto, ReleaseDto, UndoResultDto } from '@/api/generated/models';
+import type { CandidateDto, CommitResultDto, ItemDto, PlatformDto, ProvisionalDto, ReleaseDto, UndoResultDto } from '@/api/generated/models';
 import { alternativesOf } from '@/features/review/grouping';
 import type { CommitBody } from '@/features/review/plan';
-import { newMockId } from './data';
+import { MOCK_LIBRARY_ID, newMockId } from './data';
 import { itemsState, type MockItem } from './items';
-import { scanMock } from './scan';
+import { scanMock, type MockSession } from './scan';
 
 export const mockPlatforms: PlatformDto[] = [
   { id: 'e0000000-0000-4000-8000-000000000001', name: 'Nintendo 64', shortName: 'N64', manufacturer: 'Nintendo' },
@@ -43,6 +43,13 @@ export const reviewMock = {
   /** Set to make the next auto-commit undo answer with this status (404: nothing stands; 409: it changed since). */
   failNextAutoUndo: null as number | null,
   autoUndoReplays: new Map<string, unknown>(),
+  /** Uploaded segment crops waiting to be claimed by a keep (asset id -> whose library they belong to). */
+  crops: new Map<string, string>(),
+  /** Every crop upload the server received, so tests can assert successes never upload. */
+  cropUploads: [] as { sessionId: string; candidateId: string }[],
+  /** Every keep the server received. */
+  keeps: [] as { sessionId: string; candidateId: string; cropAssetId: string | null }[],
+  promoteReplays: new Map<string, ProvisionalDto>(),
   reset() {
     this.searches = [];
     this.failNextCommit = false;
@@ -57,7 +64,31 @@ export const reviewMock = {
     this.autoUndos = [];
     this.failNextAutoUndo = null;
     this.autoUndoReplays = new Map();
+    this.crops = new Map();
+    this.cropUploads = [];
+    this.keeps = [];
+    this.promoteReplays = new Map();
   },
+};
+
+const keptOf = (session: MockSession): ProvisionalDto[] => (session.provisionals ??= []);
+
+const openProvisionals = (libraryId: string): ProvisionalDto[] => {
+  const open: ProvisionalDto[] = [];
+  for (const session of scanMock.sessions.values()) {
+    if (session.libraryId !== libraryId) continue;
+    open.push(...(session.provisionals ?? []).filter((p) => p.resolvedAt === null));
+  }
+  return open;
+};
+
+const findProvisional = (libraryId: string, id: string): { session: MockSession; provisional: ProvisionalDto } | undefined => {
+  for (const session of scanMock.sessions.values()) {
+    if (session.libraryId !== libraryId) continue;
+    const provisional = (session.provisionals ?? []).find((p) => p.id === id);
+    if (provisional) return { session, provisional };
+  }
+  return undefined;
 };
 
 const resolve = (c: CandidateDto, release: ReleaseDto) => {
@@ -296,6 +327,133 @@ export const handlers = [
     if (!session) return problem(404, 'Not found');
     if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
     session.status = 'abandoned';
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Segment crops (#345): kept rows may send theirs, successes never do. Like the real API: 1 MB max, sanitized ScanPhoto.
+  http.post('*/api/v1/scan-sessions/:id/candidates/:cid/crop', async ({ params, request }) => {
+    if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
+    const session = scanMock.sessions.get(String(params.id));
+    const candidate = session?.candidates.find((c) => c.id === params.cid);
+    if (!session || !candidate) return problem(404, 'Not found');
+    if (session.status !== 'open') return problem(409, 'This scan was already finished.');
+    if (candidate.decision === 'accepted' || candidate.createdItemId) return problem(409, 'That item is already on its way into the library.');
+    const form = (await request.formData().catch(() => null)) as unknown as { get(name: string): unknown } | null;
+    const file = form?.get('file');
+    if (!(file instanceof Blob) || file.size === 0) return problem(400, 'Send the crop as a multipart part named "file".');
+    if (file.size > 1024 * 1024) return problem(413, 'That crop is over 1 MB.');
+    const assetId = newMockId();
+    reviewMock.crops.set(assetId, session.libraryId);
+    reviewMock.cropUploads.push({ sessionId: session.id, candidateId: candidate.id });
+    return HttpResponse.json({ assetId, cropUrl: `/media/covers/${assetId}` });
+  }),
+
+  // "Keep as unverified" (#345): the T2 row retires and its provisional record is born.
+  http.post('*/api/v1/scan-sessions/:id/provisionals', async ({ params, request }) => {
+    if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
+    const session = scanMock.sessions.get(String(params.id));
+    const body = (await request.json()) as { candidateId?: string | null; cropAssetId?: string | null };
+    const candidate = session?.candidates.find((c) => c.id === body.candidateId);
+    if (!session || !candidate) return problem(404, 'Not found');
+    if (session.status !== 'open') return problem(409, 'This scan was already finished.');
+    if (candidate.decision === 'accepted' || candidate.createdItemId) return problem(409, 'That item is already on its way into the library.');
+    const kept = keptOf(session);
+    if (kept.some((p) => p.candidateId === candidate.id && p.resolvedAt === null)) return problem(409, 'That row was already kept as unverified.');
+    let cropUrl: string | null = null;
+    if (body.cropAssetId) {
+      if (reviewMock.crops.get(body.cropAssetId) !== session.libraryId) return problem(400, "That crop doesn't exist in this library.");
+      if (kept.some((p) => p.cropUrl === `/media/covers/${body.cropAssetId}`)) return problem(409, 'That crop already belongs to another kept row.');
+      cropUrl = `/media/covers/${body.cropAssetId}`;
+    }
+    reviewMock.keeps.push({ sessionId: session.id, candidateId: candidate.id, cropAssetId: body.cropAssetId ?? null });
+    const provisional: ProvisionalDto = {
+      id: newMockId(),
+      libraryId: session.libraryId,
+      sessionId: session.id,
+      snapId: null,
+      titleGuess: candidate.visibleText?.trim() || candidate.alternatives?.[0]?.title || (candidate.rawCode ? `Code ${candidate.rawCode}` : 'Unknown item'),
+      isGuess: true,
+      mediaHint: session.context?.mediaHint ?? 'mixed',
+      locationId: session.context?.defaultLocationId ?? null,
+      status: 'unverified',
+      candidateId: candidate.id,
+      cropUrl,
+      createdAt: new Date().toISOString(),
+      resolvedAt: null,
+      resolveAction: null,
+      createdItemId: null,
+    };
+    kept.push(provisional);
+    Object.assign(candidate, { decision: 'rejected', guidanceCode: null, cropUrl, seq: ++session.seq, changeSeq: session.seq } satisfies Partial<CandidateDto>);
+    return HttpResponse.json({ provisional, candidate }, { status: 201 });
+  }),
+
+  // "Needs attention" (#345): the library's open provisionals, stalest first.
+  http.get('*/api/v1/libraries/:libraryId/provisionals', ({ params }) => {
+    if (String(params.libraryId) !== MOCK_LIBRARY_ID) return problem(404, 'Not found');
+    return HttpResponse.json({ items: openProvisionals(MOCK_LIBRARY_ID) });
+  }),
+
+  // Promote (#345): the guess becomes a real item, the crop its cover; the same key replays the same answer.
+  http.post(/\/api\/v1\/libraries\/([^/]+)\/provisionals\/([^/]+):promote$/, async ({ request }) => {
+    if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
+    const parts = new URL(request.url).pathname.split('/');
+    const libraryId = String(parts[parts.indexOf('libraries') + 1]);
+    const id = String(parts[parts.length - 1]?.replace(':promote', ''));
+    const found = findProvisional(libraryId, id);
+    if (!found) return problem(404, 'Not found');
+    const key = request.headers.get('Idempotency-Key');
+    if (!key) return problem(400, 'An Idempotency-Key header is required.');
+    const replay = reviewMock.promoteReplays.get(`${id}:${key}`);
+    if (replay) return HttpResponse.json(replay);
+    const { session, provisional } = found;
+    if (provisional.resolvedAt !== null) return problem(409, 'That record was already acted on.');
+    const release: ReleaseDto = {
+      id: newMockId(), workId: newMockId(), title: provisional.titleGuess, format: 'other', platform: null, region: null,
+      edition: null, publisher: null, releaseDate: null, year: null, creators: [], pageCount: null, runtimeMinutes: null,
+      coverUrl: null, source: 'user', identifiers: [],
+    };
+    const entry = makeItem(release);
+    entry.item.locationId = provisional.locationId;
+    if (provisional.cropUrl) {
+      entry.item.coverChoice = 'my_photo';
+      entry.item.customCoverAssetId = provisional.cropUrl.split('/').pop() ?? null;
+    }
+    itemsState.entries.push(entry);
+    const candidate = session.candidates.find((c) => c.id === provisional.candidateId);
+    if (candidate) candidate.createdItemId = entry.item.id;
+    Object.assign(provisional, { resolvedAt: new Date().toISOString(), resolveAction: 'promoted', createdItemId: entry.item.id });
+    reviewMock.promoteReplays.set(`${id}:${key}`, provisional);
+    return HttpResponse.json(provisional);
+  }),
+
+  // Resolve to existing (#345): the row is that item; the crop is dropped.
+  http.post(/\/api\/v1\/libraries\/([^/]+)\/provisionals\/([^/]+):resolve$/, async ({ request }) => {
+    if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
+    const parts = new URL(request.url).pathname.split('/');
+    const libraryId = String(parts[parts.indexOf('libraries') + 1]);
+    const id = String(parts[parts.length - 1]?.replace(':resolve', ''));
+    const found = findProvisional(libraryId, id);
+    if (!found) return problem(404, 'Not found');
+    const body = (await request.json()) as { itemId?: string | null };
+    const entry = itemsState.entries.find((e) => e.item.id === body.itemId && !e.item.deletedAt);
+    if (!entry) return problem(404, "That item doesn't exist.");
+    const { session, provisional } = found;
+    if (provisional.resolvedAt !== null) return problem(409, 'That record was already acted on.');
+    const candidate = session.candidates.find((c) => c.id === provisional.candidateId);
+    if (candidate) {
+      resolve(candidate, entry.release);
+      candidate.decision = 'rejected';
+    }
+    Object.assign(provisional, { cropUrl: null, resolvedAt: new Date().toISOString(), resolveAction: 'resolved_to_existing', createdItemId: entry.item.id });
+    return HttpResponse.json(provisional);
+  }),
+
+  http.delete('*/api/v1/libraries/:libraryId/provisionals/:id', ({ params }) => {
+    if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
+    const found = findProvisional(String(params.libraryId), String(params.id));
+    if (!found) return problem(404, 'Not found');
+    found.session.provisionals = (found.session.provisionals ?? []).filter((p) => p.id !== found.provisional.id);
     return new HttpResponse(null, { status: 204 });
   }),
 ];

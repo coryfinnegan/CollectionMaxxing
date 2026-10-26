@@ -19,6 +19,9 @@ public static class JpegSanitizer
     /// <summary>The largest upload accepted, in bytes.</summary>
     public const int MaxBytes = 4 * 1024 * 1024;
 
+    /// <summary>The largest segment crop accepted, in bytes (ADR-030): crops are small evidence, not covers.</summary>
+    public const int CropMaxBytes = 1024 * 1024;
+
     /// <summary>The largest width or height accepted, in pixels. The app sends an already-resized crop.</summary>
     public const int MaxDimension = 4096;
 

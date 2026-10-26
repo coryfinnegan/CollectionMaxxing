@@ -32,4 +32,23 @@ public sealed class MatchFeedbackRecorder(IAppDbContext db, IIdGenerator ids, Ti
             CreatedAt = clock.GetUtcNow(),
         });
     }
+
+    /// <summary>
+    /// A confirmation where we ranked nothing usable (#345): the person made <paramref name="picked"/> from the guess, or
+    /// resolved to it. Recorded with no ranked-first, replacing any earlier row for the candidate. Saves nothing; the caller saves.
+    /// </summary>
+    public async Task RecordConfirmedAsync(ScanCandidate candidate, Guid picked, CancellationToken cancellationToken)
+    {
+        var previous = await db.MatchFeedback.Where(f => f.CandidateId == candidate.Id).ToListAsync(cancellationToken);
+        db.MatchFeedback.RemoveRange(previous);
+        db.MatchFeedback.Add(new MatchFeedback
+        {
+            Id = ids.NewId(),
+            LibraryId = candidate.LibraryId,
+            CandidateId = candidate.Id,
+            RankedFirstReleaseId = null,
+            PickedReleaseId = picked,
+            CreatedAt = clock.GetUtcNow(),
+        });
+    }
 }

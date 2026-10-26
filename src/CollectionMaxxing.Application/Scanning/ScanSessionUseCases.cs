@@ -103,6 +103,10 @@ public static class GetScanSession
             var snaps = await db.ScanSnaps.AsNoTracking()
                 .Where(s => s.SessionId == session.Id)
                 .ToListAsync(cancellationToken);
+            var provisionals = await db.ProvisionalRecords.AsNoTracking()
+                .Where(p => p.SessionId == session.Id && p.ResolvedAt == null)
+                .OrderBy(p => p.CreatedAt).ThenBy(p => p.Id)
+                .ToListAsync(cancellationToken);
 
             return new ScanSessionDto(
                 session.Id,
@@ -115,10 +119,11 @@ public static class GetScanSession
                 session.CreatedAt,
                 session.CommittedAt,
                 await CandidateProjection.ToDtosAsync(db, candidates.Where(c => c.ChangeSeq > since).ToList(), cancellationToken),
-                SessionCounters.Count(candidates),
+                SessionCounters.Count(candidates, provisionals.Count),
                 SessionCounters.Segments(snaps, candidates),
                 session.AutoCommitTiers.Select(EnumText.Parse<ScanTier>).ToList(),
-                session.AutoCommitCopies);
+                session.AutoCommitCopies,
+                provisionals.Select(Provisional.ProvisionalProjection.ToDto).ToList());
         }
 
         /// <summary>

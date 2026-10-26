@@ -53,5 +53,6 @@ export const candidate = (extra: Partial<CandidateDto> = {}): CandidateDto => ({
   shotKind: 'barcode',
   segmentId: null,
   guidanceCode: null,
+  cropUrl: null,
   ...extra,
 });

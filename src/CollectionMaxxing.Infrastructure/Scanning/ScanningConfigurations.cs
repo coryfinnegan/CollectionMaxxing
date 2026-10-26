@@ -62,6 +62,7 @@ internal sealed class ScanSnapConfiguration : IEntityTypeConfiguration<ScanSnap>
         builder.HasKey(s => s.Id);
         builder.Property(s => s.Id).ValueGeneratedNever();
         builder.HasAlternateKey(s => new { s.SessionId, s.Id }).HasName("ak_scan_snaps_session_id_id");
+        builder.HasAlternateKey(s => new { s.LibraryId, s.Id }).HasName("ak_scan_snaps_library_id_id"); // kept rows cite their snap library-scoped (#345)
         builder.Property(s => s.Trigger).HasSnakeCaseEnum();
         builder.Property(s => s.ShotKind).HasSnakeCaseEnum();
         builder.Property(s => s.Engine).HasSnakeCaseEnum();
@@ -147,6 +148,12 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
         builder.HasOne<Item>().WithMany()
             .HasForeignKey(c => new { c.LibraryId, c.CreatedItemId })
             .HasPrincipalKey(i => new { i.LibraryId, i.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // The provisional record this row was kept as (#345): deleting the record clears the link first (DeleteProvisional).
+        builder.HasOne<ProvisionalRecord>().WithMany()
+            .HasForeignKey(c => new { c.LibraryId, c.ProvisionalId })
+            .HasPrincipalKey(p => new { p.LibraryId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(c => new { c.SessionId, c.Seq }).IsUnique();

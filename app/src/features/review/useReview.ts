@@ -13,6 +13,7 @@ import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { commitDraft, loadIntoCards, patchCandidate, searchCandidate, skipCandidate, undoCommit } from './api';
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
+import { flushProvisionalOutbox, keepAsUnverified } from './provisionals';
 import { contextWorkIdsFor } from './searchContext';
 import { addCount, commitBody, committable, emptyDraft, isChecked, type Draft, type LineOverride, type ReviewStatus } from './plan';
 
@@ -43,6 +44,8 @@ export function useReview({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
+  /** Rows whose keep is queued offline: still visible T2 rows until the keep lands. */
+  const [queued, setQueued] = useState<Record<string, boolean>>({});
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -67,7 +70,10 @@ export function useReview({
     }
     let alive = true;
     setLoading(true);
-    loadIntoCards(sessionId)
+    // Queued keeps go first (a kill or a dead zone left them waiting), then the fresh snapshot.
+    flushProvisionalOutbox({ libraryId, onStale: () => alive && void loadIntoCards(sessionId).catch(() => {}) })
+      .catch(() => {})
+      .then(() => loadIntoCards(sessionId))
       .then((session) => {
         if (!alive) return;
         setInStore(session.channel === 'in_store');
@@ -118,6 +124,27 @@ export function useReview({
     if (!sessionId || !canAdd) throw new Error('read-only');
     return sessionId;
   };
+
+  /** "Keep as unverified": the row's crop goes up with the keep, and only with the keep. */
+  const keep = useCallback(
+    async (c: CandidateDto, cropUri?: string) => {
+      setRowBusy((b) => ({ ...b, [c.id]: true }));
+      setRowErrors(({ [c.id]: _cleared, ...rest }) => rest);
+      try {
+        const result = await keepAsUnverified({ libraryId, canEdit: canAdd, sessionId, candidate: c, cropUri });
+        if (result.ok && result.queued) {
+          setQueued((q) => ({ ...q, [c.id]: true }));
+        } else if (!result.ok && result.reason === 'stale') {
+          if (sessionId) await loadIntoCards(sessionId).catch(() => {}); // already kept: the fresh snapshot drops the row
+        } else if (!result.ok && result.reason === 'failed') {
+          setRowErrors((e) => ({ ...e, [c.id]: result.message ?? friendlyError(new Error('failed')) }));
+        }
+      } finally {
+        setRowBusy((b) => ({ ...b, [c.id]: false }));
+      }
+    },
+    [libraryId, canAdd, sessionId],
+  );
 
   const commit = async () => {
     if (inFlight.current || !canAdd || !sessionId || count === 0) return; // a second tap while the first is running is ignored
@@ -190,6 +217,8 @@ export function useReview({
     dismissCelebration,
     rowErrors,
     rowBusy,
+    queued,
+    keep,
     isChecked: (c: CandidateDto) => isChecked(draft, c),
     canCheck: (c: CandidateDto) => canAdd && canCommit(c, groupOf(c)),
     toggle: (c: CandidateDto) => setChecked(c.id, !isChecked(draft, c)),

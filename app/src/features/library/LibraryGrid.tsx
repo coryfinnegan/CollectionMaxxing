@@ -20,6 +20,7 @@ import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sh
 import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
+import { NeedsAttention, useProvisionals } from './NeedsAttention';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
 import { useDebounced, useItems } from './useItems';
 
@@ -77,6 +78,9 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
   const [chosen, setState] = useState<ListState>(defaultState());
   const [search, setSearch] = useState('');
   const [panel, setPanel] = useState<Panel>(openAdd ? 'add' : null);
+  /** "Needs attention" (#345): kept rows instead of the grid. Only the library view has it, not Wishlist or Lent out. */
+  const [attention, setAttention] = useState(false);
+  const { items: attentionItems } = useProvisionals(!fixedStatus ? libraryId : undefined);
   const debouncedSearch = useDebounced(search);
   // The search box applies a moment after typing stops; everything else applies at once.
   const state = changeFilter(chosen, { q: debouncedSearch });
@@ -154,6 +158,14 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
           onPress={() => setPanel('location')}
         />
         <Chip label={`Sort: ${sortLabel(filters.sort)}`} accessibilityLabel="Sort" onPress={() => setPanel('sort')} />
+        {!fixedStatus ? (
+          <Chip
+            label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
+            accessibilityLabel="Needs attention"
+            selected={attention}
+            onPress={() => setAttention((a) => !a)}
+          />
+        ) : null}
       </ScrollView>
 
       {panel === 'format' ? (
@@ -250,6 +262,36 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       animation="empty-library"
     />
   );
+
+  if (attention) {
+    return (
+      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={safe}>
+        <ScrollView testID="needs-attention" contentContainerStyle={styles.listContent}>
+          <View style={styles.header}>
+            <View style={styles.headerRow}>
+              {hideTitle ? null : (
+                <Text variant="title" accessibilityRole="header" style={styles.title}>
+                  {title}
+                </Text>
+              )}
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+              <Chip
+                label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
+                accessibilityLabel="Needs attention"
+                selected
+                onPress={() => setAttention(false)}
+              />
+            </ScrollView>
+          </View>
+          <NeedsAttention libraryId={libraryId} />
+        </ScrollView>
+        <View style={styles.snackbarPad}>
+          <UndoSnackbar />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // The tab layout's safe area and the tab bar already account for the top and bottom
   // insets; the sides keep landscape content clear of the notch.

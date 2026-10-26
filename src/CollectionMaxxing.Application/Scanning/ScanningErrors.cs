@@ -19,6 +19,9 @@ public static class ScanningErrors
     public static readonly DomainError CandidateNotFound =
         new(ErrorKind.NotFound, "scan.candidate_not_found", "That scanned item doesn't exist in this session.");
 
+    public static readonly DomainError ProvisionalNotFound =
+        new(ErrorKind.NotFound, "scan.provisional_not_found", "That kept row doesn't exist in this library.");
+
     public static readonly DomainError SessionClosed =
         new(ErrorKind.Conflict, "scan.session_closed", "This scan session is already finished. Start a new one to scan more.");
 

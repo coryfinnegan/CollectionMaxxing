@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
+import { useStore } from 'zustand';
 import type { CandidateDto, LocationDto } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
 import { listPlatforms } from '@/api/generated/catalog/catalog';
@@ -9,12 +10,14 @@ import { conditionLabels, conditions, formatLabels, formats } from '@/features/l
 import { flattenTree } from '@/features/locations/tree';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { NOT_FOUND_COPY, QUOTA_COPY } from '@/features/scan/cards/copy';
+import { getPipelineStore } from '@/features/scan/pipeline/pipelineStore';
 import { radius, spacing, useColors } from '@/theme/tokens';
-import { Button, Card, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
+import { Button, Card, Chip, Cover, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
 import { CommitCelebration } from './CommitCelebration';
 import { alternativesOf, isAggregated, type ReviewGroup } from './grouping';
 import { guidanceOf } from './guidance';
 import { addLabel, effective, type ReviewStatus } from './plan';
+import { keepable, pairCropUri, thumbForLocalId } from './provisionals';
 import { quotaPausedLine, quotaPending } from './quotaLine';
 import { useReview } from './useReview';
 
@@ -191,9 +194,15 @@ type RowProps = {
 function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, locations, pickingFor, setPickingFor }: RowProps) {
   const colors = useColors();
   const [text, setText] = useState(c.visibleText ?? '');
+  const snaps = useStore(getPipelineStore(), (s) => s.snaps);
   const checkable = review.canCheck(c);
   const checked = checkable && review.isChecked(c);
   const title = titleOf(c);
+  // The crop→entry pairing: what this row's crop shows, beside what the row says. The phone's own crop first,
+  // else the kept one from the server.
+  const t2 = group === 'pick' || group === 'notFound' || group === 'pending';
+  const thumb = t2 ? thumbForLocalId(snaps, c.localId) : undefined;
+  const crop = t2 ? pairCropUri(c, thumb) : null;
   const error = review.rowErrors[c.id];
   const busy = !!review.rowBusy[c.id];
   const alternatives = group === 'pick' ? alternativesOf(c) : [];
@@ -219,6 +228,7 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
             <Text>{checked ? '☑' : '☐'}</Text>
           </Pressable>
         ) : null}
+        {crop ? <Cover title={title} uri={crop} width={48} /> : null}
         <Pressable accessibilityRole="button" accessibilityLabel={`Details for ${title}`} onPress={onOpen} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
           <Text>{title}</Text>
           {detail ? (
@@ -228,6 +238,10 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
           ) : null}
         </Pressable>
       </View>
+      {t2 && review.canAdd && keepable(c) ? (
+        <Button label={`Keep ${title} as unverified`} variant="secondary" busy={busy} onPress={() => void review.keep(c, thumb)} />
+      ) : null}
+      {review.queued[c.id] ? <Text tone="muted">Kept. Sends when you are back online.</Text> : null}
 
       {group === 'pick' && guidance ? <Text tone="muted">{guidance}</Text> : null}
       {alternatives.map((r) => (

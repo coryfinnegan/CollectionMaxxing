@@ -67,6 +67,9 @@ public sealed class CleanUpScanSessions(IAppDbContext db, TimeProvider clock, IP
         var removable = expired.Where(id => !stuckSessions.Contains(id)).ToList();
         var removableAssets = photos.Where(p => removable.Contains(p.SessionId) && gone.Contains(p.AssetId)).Select(p => p.AssetId).ToList();
 
+        // Their kept rows stay (design §11) but stop citing them: the links clear first, then the rows go.
+        await Provisional.ProvisionalLinks.ClearSessionLinksAsync(db, removable, cancellationToken);
+
         // Candidates cite snaps (restrict), so they go first; sessions then take what is left with them.
         await db.ScanCandidates.IgnoreQueryFilters().Where(c => removable.Contains(c.SessionId)).ExecuteDeleteAsync(cancellationToken);
         await db.ScanSnaps.IgnoreQueryFilters().Where(s => removable.Contains(s.SessionId)).ExecuteDeleteAsync(cancellationToken);
