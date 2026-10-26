@@ -1,6 +1,7 @@
 // Local design-ratchet rules (#307): the eslint-plugin-react-native trio
 // (no-color-literals, no-inline-styles, no-raw-text) plus the Phase 0 banned
-// patterns (doubled titles, gradients), with zero new dependencies. Run by
+// patterns (doubled titles, gradients) and the Unistyles third-party style
+// boundary (#351), with zero new dependencies. Run by
 // eslint.design.config.js through scripts/design-gate.mjs.
 'use strict';
 
@@ -214,4 +215,94 @@ const noGradients = {
   },
 };
 
-module.exports = { rules: { 'no-raw-colors': noRawColors, 'no-inline-styles': noInlineStyles, 'no-raw-text': noRawText, 'no-doubled-title': noDoubledTitle, 'no-gradients': noGradients } };
+// Unistyles web styles only resolve in babel-processed JSX: sheet values
+// passed to third-party style props (expo-router/ui tabs, SafeAreaView)
+// arrive unstyled on web (#305). Those sites must use plain theme-valued
+// objects; this rule flags sheet references that cross the boundary (#351).
+// A null component set means every import from the module is a boundary.
+const thirdPartyStyleSources = new Map([
+  ['expo-router/ui', null],
+  ['react-native-safe-area-context', new Set(['SafeAreaView'])],
+]);
+
+function isUnistylesCreate(node, styleSheetName) {
+  return (
+    !!styleSheetName &&
+    !!node &&
+    node.type === 'CallExpression' &&
+    node.callee.type === 'MemberExpression' &&
+    !node.callee.computed &&
+    node.callee.object.type === 'Identifier' &&
+    node.callee.object.name === styleSheetName &&
+    node.callee.property.type === 'Identifier' &&
+    node.callee.property.name === 'create'
+  );
+}
+
+/** True when the expression carries a Unistyles sheet value: a sheet member or call, or a variable alias of one. */
+function containsSheetRef(node, sheetIds, declarators, seen) {
+  if (!node || typeof node.type !== 'string' || seen.has(node)) return false;
+  seen.add(node);
+  if (node.type === 'Identifier') {
+    if (sheetIds.has(node.name)) return true;
+    return containsSheetRef(declarators.get(node.name), sheetIds, declarators, seen);
+  }
+  for (const key of Object.keys(node)) {
+    if (key === 'parent') continue;
+    const child = node[key];
+    if (Array.isArray(child)) {
+      if (child.some((c) => containsSheetRef(c, sheetIds, declarators, seen))) return true;
+    } else if (containsSheetRef(child, sheetIds, declarators, seen)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const noUnistylesThirdPartyStyles = {
+  meta: { type: 'problem', docs: { description: 'disallow Unistyles sheet values in third-party style props' } },
+  create(context) {
+    let styleSheetName = null;
+    const boundaryNames = new Set();
+    const sheetIds = new Set();
+    const declarators = new Map();
+    const pending = [];
+    return {
+      ImportDeclaration(node) {
+        if (typeof node.source.value !== 'string') return;
+        for (const spec of node.specifiers) {
+          if (spec.type !== 'ImportSpecifier') continue;
+          if (node.source.value === 'react-native-unistyles' && spec.imported.name === 'StyleSheet') {
+            styleSheetName = spec.local.name;
+          }
+          const boundary = thirdPartyStyleSources.get(node.source.value);
+          if (boundary === null || (boundary && boundary.has(spec.imported.name))) boundaryNames.add(spec.local.name);
+        }
+      },
+      VariableDeclarator(node) {
+        if (node.id.type !== 'Identifier') return;
+        // Sheets are usually declared at the bottom of the file, so boundary
+        // attributes are collected now and checked at Program:exit instead.
+        if (node.init) declarators.set(node.id.name, node.init);
+        if (isUnistylesCreate(node.init, styleSheetName)) sheetIds.add(node.id.name);
+      },
+      JSXAttribute(node) {
+        if (node.name.type !== 'JSXIdentifier' || !styleProps.has(node.name.name)) return;
+        if (!node.value || node.value.type !== 'JSXExpressionContainer') return;
+        let element = node.parent;
+        while (element && element.type !== 'JSXElement') element = element.parent;
+        if (!element || !boundaryNames.has(elementName(element))) return;
+        pending.push({ node, expr: node.value.expression });
+      },
+      'Program:exit'() {
+        for (const { node, expr } of pending) {
+          if (containsSheetRef(expr, sheetIds, declarators, new Set())) {
+            context.report({ node, message: 'Unistyles sheet values do not resolve through third-party style props on web; pass a plain theme-valued object instead.' });
+          }
+        }
+      },
+    };
+  },
+};
+
+module.exports = { rules: { 'no-raw-colors': noRawColors, 'no-inline-styles': noInlineStyles, 'no-raw-text': noRawText, 'no-doubled-title': noDoubledTitle, 'no-gradients': noGradients, 'no-unistyles-third-party-styles': noUnistylesThirdPartyStyles } };
