@@ -13,7 +13,8 @@ import { createStabilityFilter } from '../tray/stability';
 import { getTrayStore } from '../tray/storage';
 import { flushTray, type TrayStore } from '../tray/trayStore';
 import { lineStatus } from '../tray/tray';
-import { flushDeps, followSession, loadSessionSnapshot, rejectCandidate, resumeCursor } from './sessionApi';
+import { flushDeps, followSession, loadSessionSnapshot, resumeCursor } from './sessionApi';
+import { flushDiscardOutbox, getDiscardOutbox } from './discards';
 import { seedFromSnapshot } from './sessionCounters';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -166,14 +167,16 @@ export function useScanSession({
       store.getState().plusOne(code);
       void flushTray(store, deps);
     },
-    /** Swipe to remove: gone from the tray and the cards, and rejected on the server so Review will not add it. */
+    /** Swipe to remove: gone from the tray and the cards, and queued for reject so Review will not add it — even after a restart. */
     remove: (code: string) => {
       store.getState().remove(code);
       const { byId: current, remove } = useCardsStore.getState();
+      const queue = getDiscardOutbox();
       for (const card of Object.values(current).filter((c) => c.rawCode === code)) {
         remove(card.id);
-        if (sessionId) void rejectCandidate(sessionId, card.id).catch(() => undefined);
+        if (sessionId) queue.enqueue({ libraryId, sessionId, candidateId: card.id });
       }
+      if (sessionId) void flushDiscardOutbox({ libraryId }).catch(() => undefined);
     },
   };
 }
