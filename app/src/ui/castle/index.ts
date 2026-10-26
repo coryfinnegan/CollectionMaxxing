@@ -1,6 +1,10 @@
 export { BannerMarker, type BannerMedium } from './BannerMarker';
 export { CastleHeader } from './CastleHeader';
+export { CastleState } from './CastleState';
+export { hoardPeak, useHoardPeak } from './hoard';
+export { HoardMeter, coinsForPeak } from './HoardMeter';
 export { LedgeRow } from './LedgeRow';
+export { SeriesShield } from './SeriesShield';
 export { type CastleMode, type CastleThemeSetting, resolveCastleMode, useCastleMode, useCastleThemeSetting, useIncreaseContrast } from './mode';
 export { NineSlice, type CastleSurface } from './NineSlice';
 export { ParchmentCard } from './ParchmentCard';
