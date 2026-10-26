@@ -49,7 +49,11 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 items[i].Read.Completeness is { } completeness ? EnumText.ToText(completeness) : null,
                 ResolvedByText.For(engine, items[i].ResolvedBy),
                 EnumText.ToText(answer.Verdict),
-                candidates));
+                candidates,
+                items[i].Tier is { } tier ? EnumText.ToText(tier) : null,
+                items[i].Provisional,
+                items[i].IsGuess,
+                cleaned[i].SegmentId));
         }
 
         return grounded;

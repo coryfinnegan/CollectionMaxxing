@@ -155,13 +155,20 @@ public static class EvalsEndpoints
                     r.Items?.Select(i => i is null
                         ? null!
                         : new EvalReadItemInput(
-                            new IdentifyItemInput(i.LocalId, null, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, null),
-                            i.ResolvedBy)).ToList(),
+                            new IdentifyItemInput(i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, null),
+                            i.ResolvedBy,
+                            i.Tier,
+                            i.Provisional == true,
+                            i.IsGuess)).ToList(),
                     r.UnreadableCount,
                     r.LatencyMs,
                     r.FirstItemMs,
-                    r.ThermalState)).ToList(),
-            parsed.Partial == true);
+                    r.ThermalState,
+                    r.CapturedCount,
+                    r.CapturedAt,
+                    r.DuplicateRescan is { } evidence ? new DuplicateRescanInput(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds) : null)).ToList(),
+            parsed.Partial == true,
+            parsed.BaselineNote);
 
         var result = await handler.HandleAsync(input, cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();

@@ -53,6 +53,9 @@ public interface IEvalResults
     /// <summary>The baseline metrics (<c>evals/baseline.json</c>), or null when there is no baseline.</summary>
     IReadOnlyDictionary<string, double>? LoadBaseline();
 
+    /// <summary>The baseline as a document: the metrics plus the threshold fingerprint they were measured under, or null when there is no baseline.</summary>
+    EvalBaselineDoc? LoadBaselineDoc();
+
     /// <summary>Writes a draft truth file under the results folder, for when the golden folder is read-only. False when it could not.</summary>
     bool TryWriteDraft(string id, string json);
 }

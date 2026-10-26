@@ -325,4 +325,137 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
     }
+
+    // ---- the honest fields (docs/16 §17) ------------------------------------------------------------------------------------
+
+    private static object TieredStarFoxRead() => new
+    {
+        title = "Star Fox 64",
+        text = "Star Fox 64",
+        kind = "game",
+        format = "game_cartridge",
+        platform = "Nintendo 64",
+        completeness = "cart_only",
+        resolvedBy = "model",
+        tier = "T1",
+        segmentId = "seg-1",
+    };
+
+    [Fact]
+    public async Task The_honest_fields_ride_through_grounding_into_the_summary_and_the_kept_run()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+        var body = new Dictionary<string, object?>
+        {
+            ["device"] = new { model = "iPhone18,1", osVersion = "26.0", appVersion = "0.3.0" },
+            ["configVersion"] = "cfg-test-1",
+            ["baselineNote"] = "acceptance re-run under the new T1 bar",
+            ["results"] = new[]
+            {
+                new
+                {
+                    photoId = "c1",
+                    engine = "apple_model",
+                    outcome = "ok",
+                    items = new[] { TieredStarFoxRead() },
+                    unreadableCount = 0,
+                    latencyMs = 1800L,
+                    firstItemMs = 800L,
+                    thermalState = "nominal",
+                    capturedCount = 1,
+                    capturedAt = "2026-10-24T09:00:00Z",
+                    duplicateRescan = new { ownedHits = 2, answeredOnCard = 2, unsolicitedAdds = 0 },
+                },
+            },
+        };
+
+        var response = await PostRunOkAsync(admin, body);
+
+        var summary = response.GetProperty("summary");
+        summary.GetProperty("baselineNote").GetString().ShouldBe("acceptance re-run under the new T1 bar");
+        summary.GetProperty("thresholdHash").GetString()!.Length.ShouldBe(16);
+        var single = summary.GetProperty("engines").GetProperty("apple_model").GetProperty("single");
+        single.GetProperty("t1Auto").GetInt32().ShouldBe(1);
+        single.GetProperty("autoAdds").GetInt32().ShouldBe(1);
+        single.GetProperty("correctAutoAdds").GetInt32().ShouldBe(1);
+        single.GetProperty("autoAddPrecisionPct").GetDouble().ShouldBe(100);
+        single.GetProperty("reviewRatePct").GetDouble().ShouldBe(0);
+        single.GetProperty("duplicateClean").GetBoolean().ShouldBeTrue();
+        single.GetProperty("timeToFirstResultsMs").GetInt64().ShouldBe(1800);
+        single.GetProperty("totalTimeToTrustworthyMs").GetInt64().ShouldBe(1800);
+        single.GetProperty("unreconciledPhotos").GetInt32().ShouldBe(0);
+        summary.GetProperty("metrics").GetProperty("apple_model.single.auto_add_precision").GetDouble().ShouldBe(100);
+
+        var grounded = (await LatestRunFileAsync()).GetProperty("photos")[0];
+        grounded.GetProperty("capturedCount").GetInt32().ShouldBe(1);
+        grounded.GetProperty("items")[0].GetProperty("tier").GetString().ShouldBe("T1");
+        grounded.GetProperty("items")[0].GetProperty("segmentId").GetString().ShouldBe("seg-1");
+    }
+
+    [Theory]
+    [InlineData("\"tier\":7", "evals.tier_invalid")]
+    [InlineData("\"tier\":\"T9\"", "evals.body_invalid")]
+    public async Task A_tier_that_is_not_T0_T1_or_T2_is_refused(string tierJson, string code)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        var body = $$"""{"device":{"model":"m","osVersion":"1","appVersion":"1"},"configVersion":"c","results":[{"photoId":"c1","engine":"apple_model","outcome":"ok","items":[{"title":"Star Fox 64","text":"Star Fox 64","kind":"game","format":"game_cartridge","platform":"Nintendo 64","completeness":"cart_only",{{tierJson}}}],"latencyMs":1,"thermalState":"nominal"}]}""";
+        using var admin = AdminClient();
+
+        using var response = await admin.PostAsync($"{Base}/runs", new StringContent(body, Encoding.UTF8, "application/json"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain(code);
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("capturedCount", "-1", "evals.captured_invalid")]
+    [InlineData("capturedCount", "1001", "evals.captured_invalid")]
+    public async Task A_captured_count_outside_0_to_1000_is_refused(string field, string value, string code)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        var body = $$"""{"device":{"model":"m","osVersion":"1","appVersion":"1"},"configVersion":"c","results":[{"photoId":"c1","engine":"apple_model","outcome":"ok","items":[],"{{field}}":{{value}},"latencyMs":1,"thermalState":"nominal"}]}""";
+        using var admin = AdminClient();
+
+        using var response = await admin.PostAsync($"{Base}/runs", new StringContent(body, Encoding.UTF8, "application/json"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain(code);
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(2, 3, 0)] // more answered than hit
+    [InlineData(-1, 0, 0)] // negative hits
+    [InlineData(2, 2, -1)] // negative adds
+    public async Task Duplicate_re_scan_evidence_that_cannot_be_true_is_refused(int owned, int answered, int unsolicited)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        var body = """{"device":{"model":"m","osVersion":"1","appVersion":"1"},"configVersion":"c","results":[{"photoId":"c1","engine":"apple_model","outcome":"ok","items":[],"latencyMs":1,"thermalState":"nominal","duplicateRescan":{"ownedHits":"""
+            + owned + ""","answeredOnCard":""" + answered + ""","unsolicitedAdds":""" + unsolicited + """}}]}""";
+        using var admin = AdminClient();
+
+        using var response = await admin.PostAsync($"{Base}/runs", new StringContent(body, Encoding.UTF8, "application/json"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("evals.duplicate_invalid");
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_baseline_note_over_500_characters_is_refused()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        using var admin = AdminClient();
+        var body = RunBody(PhotoResult("c1", "apple_model", []));
+        body["baselineNote"] = new string('n', 501);
+
+        using var response = await PostRunAsync(admin, body);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("evals.note_too_long");
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
 }

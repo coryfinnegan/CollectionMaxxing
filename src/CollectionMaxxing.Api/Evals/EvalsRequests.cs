@@ -14,6 +14,7 @@ public sealed record EvalDeviceRequest(string? Model = null, string? OsVersion =
 /// <summary>
 /// One item the phone read in a golden photo: the fields of an <c>/identify</c> item (every one a claim to check, never a verdict),
 /// plus <c>ResolvedBy</c>, the step that settled it (model, vision_text, artwork or fix_it). When it is left out, the engine's own step is assumed.
+/// <c>Tier</c> is the commit tier the pipeline assigned (T0, T1, T2); <c>Provisional</c> with <c>IsGuess</c> marks a kept guess (docs/16 §17).
 /// </summary>
 public sealed record EvalReadItem(
     string? LocalId = null,
@@ -26,7 +27,11 @@ public sealed record EvalReadItem(
     ReleaseFormat? Format = null,
     int? Year = null,
     string? Platform = null,
-    ResolvedStep? ResolvedBy = null);
+    ResolvedStep? ResolvedBy = null,
+    ScanTier? Tier = null,
+    bool? Provisional = null,
+    bool? IsGuess = null,
+    string? SegmentId = null);
 
 /// <summary>
 /// Reads an engine as its API name only (<c>apple_model</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number
@@ -55,7 +60,14 @@ public sealed class StrictScanEngineConverter : JsonConverter<ScanEngine>
         writer.WriteStringValue(EnumText.ToText(value));
 }
 
-/// <summary>One golden photo run through one engine on the phone.</summary>
+/// <summary>What a duplicate re-scan of the photo's shelf showed: owned hits, how many answered on-card, unsolicited new items.</summary>
+public sealed record EvalDuplicateRescan(int OwnedHits = 0, int AnsweredOnCard = 0, int UnsolicitedAdds = 0);
+
+/// <summary>
+/// One golden photo run through one engine on the phone. <c>CapturedCount</c> is how many segments the phone captured (reads plus
+/// unreadable must reconcile to it); <c>CapturedAt</c> stamps the capture for the wall-clock metrics; <c>DuplicateRescan</c> carries
+/// a duplicate re-scan's evidence, when the photo was one (docs/16 §17).
+/// </summary>
 public sealed record EvalPhotoResult(
     string? PhotoId = null,
     ScanEngine? Engine = null,
@@ -65,8 +77,15 @@ public sealed record EvalPhotoResult(
     int? UnreadableCount = null,
     long? LatencyMs = null,
     long? FirstItemMs = null,
-    ThermalState? ThermalState = null);
+    ThermalState? ThermalState = null,
+    int? CapturedCount = null,
+    DateTimeOffset? CapturedAt = null,
+    EvalDuplicateRescan? DuplicateRescan = null);
 
-/// <summary>Body of <c>POST /api/admin/evals/runs</c>: at most 2 MB. Nothing in it is an image. <c>Partial</c> is true when the phone cancelled the run part way.</summary>
+/// <summary>Body of <c>POST /api/admin/evals/runs</c>: at most 2 MB. Nothing in it is an image. <c>Partial</c> is true when the phone cancelled the run part way. <c>BaselineNote</c> explains a deliberate threshold move (docs/16 §17).</summary>
 public sealed record EvalRunRequest(
-    EvalDeviceRequest? Device = null, string? ConfigVersion = null, IReadOnlyList<EvalPhotoResult>? Results = null, bool? Partial = null);
+    EvalDeviceRequest? Device = null,
+    string? ConfigVersion = null,
+    IReadOnlyList<EvalPhotoResult>? Results = null,
+    bool? Partial = null,
+    string? BaselineNote = null);

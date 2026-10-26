@@ -7358,6 +7358,26 @@
           }
         }
       },
+      "EvalDuplicateRescan": {
+        "type": "object",
+        "properties": {
+          "ownedHits": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "answeredOnCard": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "unsolicitedAdds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          }
+        }
+      },
       "EvalOutcome": {
         "enum": [
           "ok",
@@ -7443,6 +7463,30 @@
               },
               {
                 "$ref": "#/components/schemas/ThermalState"
+              }
+            ]
+          },
+          "capturedCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "capturedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "duplicateRescan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalDuplicateRescan"
               }
             ]
           }
@@ -7533,6 +7577,34 @@
                 "$ref": "#/components/schemas/ResolvedStep"
               }
             ]
+          },
+          "tier": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanTier"
+              }
+            ]
+          },
+          "provisional": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "isGuess": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "segmentId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7568,6 +7640,12 @@
             "type": [
               "null",
               "boolean"
+            ]
+          },
+          "baselineNote": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }
@@ -7660,6 +7738,18 @@
             "type": "integer",
             "format": "int32",
             "default": 0
+          },
+          "thresholdHash": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "baselineNote": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -10477,6 +10567,80 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/KindMetrics"
             }
+          },
+          "t0Auto": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "t1Auto": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "t2Review": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "provisionalItems": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "autoAdds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "correctAutoAdds": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "reviewRatePct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "autoAddPrecisionPct": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "duplicateClean": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "timeToFirstResultsMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "totalTimeToTrustworthyMs": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "unreconciledPhotos": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "excessUnreadable": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
           }
         }
       },
