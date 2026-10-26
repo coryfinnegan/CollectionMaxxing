@@ -161,7 +161,9 @@ internal static class CandidateProjection
         edits,
         c.UserEdited,
         c.Resolution == CandidateResolution.Pending ? (waitingForQuota ? PendingReason.Quota : PendingReason.Lookup) : null,
-        waitingForQuota ? trace.RetryAfter : null);
+        waitingForQuota ? trace.RetryAfter : null,
+        c.ShotKind,
+        c.SegmentId);
 
     /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>
     public static async Task<Dictionary<Guid, ReleaseDto>> LoadReleasesAsync(

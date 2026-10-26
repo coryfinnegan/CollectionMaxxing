@@ -19,8 +19,8 @@ public sealed record ShelfTruth(IReadOnlyList<ShelfTruthItem> Items, int Unreada
 /// <summary>The truth of a single-item picture (docs/09). <c>Kind</c> is one of <see cref="EvalKinds"/>.</summary>
 public sealed record SingleTruth(string Title, string? Platform, string Format, string Completeness, string? Edition, string Kind);
 
-/// <summary>The truth for one picture: exactly one of <see cref="Shelf"/> and <see cref="Single"/> is set, matching <see cref="Set"/>.</summary>
-public sealed record TruthEntry(string PhotoId, string Set, ShelfTruth? Shelf, SingleTruth? Single);
+/// <summary>The truth for one picture: exactly one of <see cref="Shelf"/> and <see cref="Single"/> is set, matching <see cref="Set"/>. <see cref="ShotKind"/> is the optional label of what the shot is, for slicing; null when the truth file does not label it.</summary>
+public sealed record TruthEntry(string PhotoId, string Set, ShelfTruth? Shelf, SingleTruth? Single, string? ShotKind);
 
 /// <summary>The two sets of the golden folder (the names of its sub-folders).</summary>
 public static class GoldenSets
@@ -152,7 +152,7 @@ public static class TruthFiles
             }
         }
 
-        return new TruthEntry(photoId, GoldenSets.Shelf, new ShelfTruth(items, unreadable), null);
+        return new TruthEntry(photoId, GoldenSets.Shelf, new ShelfTruth(items, unreadable), null, ShotKindOf(root));
     }
 
     private static TruthEntry? ParseSingle(string photoId, JsonElement root)
@@ -169,7 +169,14 @@ public static class TruthFiles
             Text(root, "completeness") ?? "n_a",
             Text(root, "edition"),
             EvalKinds.Key(Text(root, "kind")));
-        return new TruthEntry(photoId, GoldenSets.Single, null, single);
+        return new TruthEntry(photoId, GoldenSets.Single, null, single, ShotKindOf(root));
+    }
+
+    /// <summary>The picture's labelled shot kind, safe to put in a result file; null when the truth file does not label it. Any other key in the file is ignored, so old truth files keep parsing.</summary>
+    private static string? ShotKindOf(JsonElement root)
+    {
+        var text = Text(root, "shotKind", "shot_kind");
+        return text is null ? null : EvalKinds.Key(text);
     }
 
     private static string? Text(JsonElement element, params string[] names)

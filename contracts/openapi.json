@@ -5700,7 +5700,9 @@
           "edits",
           "userEdited",
           "pendingReason",
-          "retryAfter"
+          "retryAfter",
+          "shotKind",
+          "segmentId"
         ],
         "type": "object",
         "properties": {
@@ -5865,6 +5867,15 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "shotKind": {
+            "$ref": "#/components/schemas/ShotKind"
+          },
+          "segmentId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7062,6 +7073,12 @@
               "string"
             ]
           },
+          "segmentId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "text": {
             "type": [
               "null",
@@ -7155,6 +7172,16 @@
               },
               {
                 "$ref": "#/components/schemas/SnapTrigger"
+              }
+            ]
+          },
+          "shotKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ShotKind"
               }
             ]
           },
@@ -9058,6 +9085,15 @@
           }
         }
       },
+      "ShotKind": {
+        "enum": [
+          "barcode",
+          "single_cover",
+          "shelf_segment",
+          "loose_item",
+          "unknown"
+        ]
+      },
       "SignInMethodDto": {
         "required": [
           "id",
@@ -9142,7 +9178,8 @@
           "firstItemP50Ms",
           "firstItemP95Ms",
           "byKind",
-          "resolvedBy"
+          "resolvedBy",
+          "byShotKind"
         ],
         "type": "object",
         "properties": {
@@ -9306,6 +9343,12 @@
             "additionalProperties": {
               "type": "integer",
               "format": "int32"
+            }
+          },
+          "byShotKind": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/KindMetrics"
             }
           }
         }

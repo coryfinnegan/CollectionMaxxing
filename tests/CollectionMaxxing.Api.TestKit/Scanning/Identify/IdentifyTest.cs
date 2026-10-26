@@ -14,9 +14,10 @@ public abstract class IdentifyTest(ApiFixture api) : ScanTest(api)
     protected static Dictionary<string, object?> Read(
         string? title = null, string? text = null, string? kind = null, string? format = null, string? platform = null,
         string? completeness = null, int? year = null, string? creator = null, string? edition = null,
-        Guid? localMatchReleaseId = null, string? localId = null) => new()
+        Guid? localMatchReleaseId = null, string? localId = null, string? segmentId = null) => new()
         {
             ["localId"] = localId ?? Guid.NewGuid().ToString("N")[..8],
+            ["segmentId"] = segmentId,
             ["text"] = text ?? title,
             ["title"] = title,
             ["kind"] = kind,

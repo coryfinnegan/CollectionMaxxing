@@ -179,9 +179,9 @@ export function makeKit(overrides: Partial<PipelineDeps> = {}) {
     width: target?.width ?? photo.width,
     height: target?.height ?? photo.height,
   });
-  const snapEvent = async (trigger: SnapEvent['trigger'] = 'shutter'): Promise<SnapEvent> => {
+  const snapEvent = async (trigger: SnapEvent['trigger'] = 'shutter', shotKind: SnapEvent['shotKind'] = 'unknown'): Promise<SnapEvent> => {
     const raw = fs.create(`file:///tmp/Camera/capture-${shots + 1}.jpg`);
-    return { photo: await prepareSnapPhoto({ uri: raw, width: PHOTO.width, height: PHOTO.height, orientation: 1 }, resize), trigger };
+    return { photo: await prepareSnapPhoto({ uri: raw, width: PHOTO.width, height: PHOTO.height, orientation: 1 }, resize), trigger, shotKind };
   };
   return { deps, tray, store, files, fs, snaps, reader, art, crops, snapEvent };
 }

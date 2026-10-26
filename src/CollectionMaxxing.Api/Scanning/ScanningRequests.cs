@@ -25,11 +25,13 @@ public sealed record BarcodeBatchRequest(IReadOnlyList<ScannedCode>? Codes = nul
 
 /// <summary>
 /// One item the phone read in a photo. At most 16 KB. No image is ever sent. <c>Format</c> and <c>Year</c> are deliberate
-/// additions to the original contract (SCAN-2a): without the format a VHS and a DVD of one film are indistinguishable. Every
-/// field is a claim to check against the catalogue, never a verdict: the server decides the match.
+/// additions to the original contract (SCAN-2a): without the format a VHS and a DVD of one film are indistinguishable.
+/// <c>SegmentId</c> is the phone's own id for the segment the item belongs to, so the items of a multi-item snap stay linked (#338).
+/// Every field is a claim to check against the catalogue, never a verdict: the server decides the match.
 /// </summary>
 public sealed record IdentifyItem(
     string? LocalId = null,
+    string? SegmentId = null,
     string? Text = null,
     string? Title = null,
     string? Creator = null,
@@ -43,11 +45,13 @@ public sealed record IdentifyItem(
 
 /// <summary>
 /// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 40 items, 256 KB). <c>FellBackFrom</c> says why
-/// the preferred engine wasn't used (a deliberate addition, SCAN-2a). Idempotent per <c>SnapId</c>.
+/// the preferred engine wasn't used (a deliberate addition, SCAN-2a); <c>ShotKind</c> says what the phone's framing said the shot
+/// was (#338). Idempotent per <c>SnapId</c>.
 /// </summary>
 public sealed record IdentifyRequest(
     Guid? SnapId = null,
     SnapTrigger? Trigger = null,
+    ShotKind? ShotKind = null,
     ScanEngine? Engine = null,
     FallbackReason? FellBackFrom = null,
     IReadOnlyList<IdentifyItem>? Items = null);

@@ -69,8 +69,9 @@ internal static class IdentifyEndpoint
             parsed.Items?.Select(i => i is null
                 ? null!
                 : new IdentifyItemInput(
-                    i.LocalId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, i.LocalMatchReleaseId))
-                .ToList());
+                    i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, i.LocalMatchReleaseId))
+                .ToList(),
+            parsed.ShotKind);
 
         var result = await handler.HandleAsync(new IdentifyItems.Command(id, input), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();

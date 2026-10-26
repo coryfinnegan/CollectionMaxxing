@@ -119,6 +119,7 @@ public static class SubmitBarcodes
                             SessionId = session.Id,
                             Seq = nextSeq++,
                             Source = CandidateSource.Barcode,
+                            ShotKind = ShotKind.Barcode,
                             RawCode = line.RawCode,
                             Symbology = line.Symbology,
                             Resolution = line.Identifier is null ? CandidateResolution.Error : CandidateResolution.Pending,

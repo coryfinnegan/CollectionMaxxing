@@ -97,11 +97,12 @@ describe('a snap read as three items', () => {
     await shutter();
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
     const { body } = identifyMock.requests[0]!;
-    expect(body).toMatchObject({ trigger: 'shutter', engine: 'apple_model' });
+    expect(body).toMatchObject({ trigger: 'shutter', engine: 'apple_model', shotKind: 'unknown' }); // no signals on this shutter
     expect(body.fellBackFrom).toBeUndefined();
+    const segmentId = kit.store.getState().snaps[0]!.segmentId;
     expect(body.items).toEqual([
-      { localId: dune.localId, text: 'Dune', title: 'Dune', kind: 'book' },
-      { localId: mutiny.localId, text: 'Space Mutiny', title: 'Space Mutiny', kind: 'film', format: 'vhs' },
+      { localId: dune.localId, segmentId, text: 'Dune', title: 'Dune', kind: 'book' },
+      { localId: mutiny.localId, segmentId, text: 'Space Mutiny', title: 'Space Mutiny', kind: 'film', format: 'vhs' },
     ]);
   });
 });
@@ -187,7 +188,7 @@ describe('offline and the PC being off', () => {
     const kit = makeKit({ store: createPipelineStore({ storage }) });
     kit.reader.script(readingOf([dune, mario]));
     server.use(http.post('*/api/v1/libraries/:libraryId/scan-sessions', () => HttpResponse.error()));
-    await new SnapPipeline(kit.deps).onSnap({ photo: PHOTO, trigger: 'auto' });
+    await new SnapPipeline(kit.deps).onSnap({ photo: PHOTO, trigger: 'auto', shotKind: 'shelf_segment' });
 
     const restarted = createPipelineStore({ storage }); // the app was killed; this is the next run
     const [snap] = restarted.getState().snaps;
@@ -286,7 +287,7 @@ describe('a snap the model declined', () => {
   ] as const)('sends engine vision_pipeline and fellBackFrom %s as %s', async (from, sent) => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune], { engine: 'vision_pipeline', fellBackFrom: from }));
-    await new SnapPipeline(kit.deps).onSnap({ photo: PHOTO, trigger: 'auto' });
+    await new SnapPipeline(kit.deps).onSnap({ photo: PHOTO, trigger: 'auto', shotKind: 'single_cover' });
     expect(identifyMock.requests[0]!.body).toMatchObject({ engine: 'vision_pipeline', fellBackFrom: sent, trigger: 'auto' });
   });
 
@@ -299,7 +300,7 @@ describe('a snap the model declined', () => {
         return readingOf([dune], { engine: 'vision_pipeline', fellBackFrom: 'declined' });
       },
     };
-    await new SnapPipeline({ ...kit.deps, recognition: reader }).onSnap({ photo: PHOTO, trigger: 'auto' });
+    await new SnapPipeline({ ...kit.deps, recognition: reader }).onSnap({ photo: PHOTO, trigger: 'auto', shotKind: 'single_cover' });
     expect(identifyMock.requests[0]!.body.items?.map((i) => i.title)).toEqual(['Dune']);
   });
 });
@@ -354,7 +355,7 @@ describe('the processing count and Get closer', () => {
     const outcomes: boolean[] = [];
     const pipeline = new SnapPipeline(kit.deps);
     pipeline.setOutcomeHandler((found) => outcomes.push(found));
-    await pipeline.onSnap({ photo: PHOTO, trigger: 'auto' });
+    await pipeline.onSnap({ photo: PHOTO, trigger: 'auto', shotKind: 'unknown' });
     expect(outcomes).toEqual([false]);
     expect(kit.store.getState().snaps).toEqual([]);
     expect(kit.snaps.list()).toEqual([]);
@@ -423,5 +424,23 @@ describe('the dev menu', () => {
     expect(screen.getAllByTestId(/^card-/).length).toBeGreaterThanOrEqual(4);
     expect(source.captures).toBe(0); // no camera
     expect(kit.reader.stills).toEqual([]); // and no model: the recording was played
+  });
+});
+
+describe('shot classification', () => {
+  it('sends the framing kind and one segment id shared by the snap\'s items, echoed on the cards', async () => {
+    const kit = makeKit();
+    kit.reader.script(readingOf([dune, mario]));
+    await new SnapPipeline(kit.deps).onSnap({ photo: PHOTO, trigger: 'auto', shotKind: 'shelf_segment' });
+
+    await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
+    const body = identifyMock.requests[0]!.body;
+    expect(body.shotKind).toBe('shelf_segment');
+    const segments = body.items?.map((i) => i.segmentId) ?? [];
+    expect(segments).toHaveLength(2);
+    expect(new Set(segments).size).toBe(1); // one segment links the snap's items
+    expect(segments[0]).toBe(kit.store.getState().snaps[0]!.segmentId);
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(2));
+    expect(Object.values(useCardsStore.getState().byId).map((c) => c.shotKind)).toEqual(['shelf_segment', 'shelf_segment']);
   });
 });

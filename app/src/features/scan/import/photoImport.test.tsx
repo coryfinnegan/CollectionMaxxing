@@ -47,6 +47,7 @@ describe('importing from Photos', () => {
 
     await waitFor(() => expect(identifyMock.requests).toHaveLength(3));
     expect(identifyMock.requests.map((r) => r.body.trigger)).toEqual(['import', 'import', 'import']);
+    expect(identifyMock.requests.map((r) => r.body.shotKind)).toEqual(['unknown', 'unknown', 'unknown']); // no live signals
     expect(identifyMock.requests.map((r) => r.body.items?.[0]?.title)).toEqual(['Dune', 'Space Mutiny', 'Ghostbusters']);
     await waitFor(() => expect(screen.queryByText(/^Reading \d of 3$/)).toBeNull());
   });
