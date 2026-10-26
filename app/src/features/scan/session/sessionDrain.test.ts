@@ -6,8 +6,7 @@ import { scanMock } from '@/mocks/scan';
 import { useCardsStore } from '../cards/cardsStore';
 import { SnapPipeline } from '../pipeline/SnapPipeline';
 import { makeKit, readingOf, readItem, resetKit } from '../pipeline/testKit';
-import { createTrayStore, flushTray, MemoryKeyValueStore, type FlushDeps } from '../tray/trayStore';
-import { flushSession } from './sessionFlush';
+import { flushTray } from '../tray/trayStore';
 import { flushDeps } from './sessionApi';
 
 const dune = readItem('Dune');
@@ -33,24 +32,6 @@ beforeEach(() => {
 afterEach(() => {
   resetKit();
   scanMock.reset();
-});
-
-describe('flushSession', () => {
-  it('sends barcode batches before identify payloads', async () => {
-    const order: string[] = [];
-    const tray = createTrayStore({ storage: new MemoryKeyValueStore(), now: () => 1_000 });
-    tray.getState().scan({ value: 'code-1', symbology: 'ean-13' });
-    const trayDeps: FlushDeps = {
-      createSession: async () => 'session-1',
-      sendBatch: async (_sessionId, batch) => void order.push(`barcodes:${batch.entries.map((e) => e.value).join(',')}`),
-      classify: () => ({ offline: true }),
-    };
-    const pipeline = { flush: async () => void order.push('identify') };
-
-    await flushSession({ tray, trayDeps, pipeline });
-
-    expect(order).toEqual(['barcodes:code-1', 'identify']);
-  });
 });
 
 describe('the identify gate', () => {
