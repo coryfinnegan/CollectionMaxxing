@@ -329,6 +329,57 @@ describe('Review screen', () => {
     expect(screen.getAllByText(QUOTA_COPY)).toHaveLength(1);
   });
 
+  it('counts the quota wait in one line', async () => {
+    seed([
+      candidate({ resolution: 'pending', release: null, rawCode: '111', pendingReason: 'quota' }),
+      candidate({ resolution: 'pending', release: null, rawCode: '222', pendingReason: 'quota' }),
+      candidate({ resolution: 'pending', release: null, rawCode: '333', pendingReason: 'lookup' }),
+    ]);
+    await open();
+    await screen.findByText('quota paused — 2 pending');
+  });
+
+  it('shows no quota line when nothing waits for the allowance', async () => {
+    seed([mario()]);
+    await open();
+    await screen.findByText('Ready · 1');
+    expect(screen.queryByText(/quota paused/)).toBeNull();
+  });
+
+  it('offers Scan barcode on every T2 row, and tapping opens the camera bound to that row', async () => {
+    const onScanBarcode = jest.fn();
+    seed([
+      pick(),
+      lost(),
+      candidate({ resolution: 'pending', release: null, rawCode: '111', pendingReason: 'quota' }),
+      mario(),
+      dune(),
+    ]);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onScanBarcode={onScanBarcode} />);
+    await screen.findByText('Pick one · 1');
+    expect(screen.getAllByText('Scan barcode')).toHaveLength(3);
+
+    await press('Scan barcode for Alien');
+    expect(onScanBarcode).toHaveBeenCalledTimes(1);
+    expect(onScanBarcode.mock.calls[0]?.[0].release.title).toBe('Alien');
+  });
+
+  it('offers no Scan barcode on rows that already name a release', async () => {
+    seed([mario(), dune()]);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onScanBarcode={jest.fn()} />);
+    await screen.findByText('Ready · 1');
+    expect(screen.queryByText('Scan barcode')).toBeNull();
+  });
+
+  it('offers no Scan barcode to a viewer', async () => {
+    asViewer();
+    seed([pick()]);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onScanBarcode={jest.fn()} />);
+    await screen.findByText('Pick one · 1');
+    await waitFor(() => expect(screen.getByText(/You can look but not add/)).toBeTruthy());
+    expect(screen.queryByText('Scan barcode')).toBeNull();
+  });
+
   it('starts Add to and Status from the session context, and the commit carries them', async () => {
     seed([mario()]);
     scanMock.sessions.get(SESSION)!.context = { defaultLocationId: SHELF_1, defaultStatus: 'wishlist', mediaHint: 'games', channel: 'home' };

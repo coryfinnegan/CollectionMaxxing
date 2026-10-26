@@ -4,6 +4,7 @@ import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { getTrayStore, useTrayValue } from '@/features/scan/tray/storage';
 import { useColors } from '@/theme/tokens';
 import { LoadingState, Screen } from '@/ui';
+import { boundScanStore, boundTitleOf } from './boundScan';
 import { ReviewScreen } from './ReviewScreen';
 
 export function ReviewRoute() {
@@ -19,7 +20,16 @@ export function ReviewRoute() {
           <LoadingState label="Loading…" />
         </Screen>
       ) : (
-        <ReviewScreen libraryId={libraryId} sessionId={sessionId} onBack={() => router.back()} />
+        <ReviewScreen
+          libraryId={libraryId}
+          sessionId={sessionId}
+          onBack={() => router.back()}
+          onScanBarcode={(c) => {
+            if (!sessionId) return;
+            boundScanStore.getState().bind({ sessionId, candidateId: c.id, title: boundTitleOf(c) });
+            router.push('/scanner');
+          }}
+        />
       )}
     </SafeAreaView>
   );

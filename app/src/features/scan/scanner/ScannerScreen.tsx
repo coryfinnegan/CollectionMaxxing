@@ -12,6 +12,8 @@ import { DEFAULT_AUTO_SNAP_CONFIG } from '../autosnap/defaults';
 import { createCountingSnapHandler, useAutoSnap, type AutoSnapTuning, type SnapEvent } from '../autosnap/useAutoSnap';
 import type { AutoSnapConfig } from '../autosnap/types';
 import type { CandidateDto } from '@/api/generated/models';
+import { submitBoundBarcode } from '@/features/review/api';
+import type { BoundScan } from '@/features/review/boundScan';
 import { ResultCards, useReduceMotion, type CardActions } from '../cards/ResultCards';
 import { deviceBarcodes, devicePicker } from '../import/devicePicker';
 import type { BarcodeDetector, ImportDeps, PhotoPicker } from '../import/photoImport';
@@ -42,6 +44,8 @@ type Props = {
   tuning?: SessionTuning;
   /** What Close does; defaults to going back. The route passes the close-scanner sheet here. */
   onClose?: () => void;
+  /** False when embedded in the Scan tab: the tab bar is the way out, so there is no Close. */
+  showClose?: boolean;
   /** Each picture, from the shutter or auto-snap. Without this and without a `pipeline`, pictures are only counted. */
   onSnap?: (event: SnapEvent) => void;
   /** The picture pipeline: read on the phone, identified from text, close calls compared by artwork. The route builds it. */
@@ -53,6 +57,8 @@ type Props = {
   outcomeRef?: MutableRefObject<((found: boolean) => void) | null>;
   /** Import from Photos. Tests pass a scripted picker; the phone uses the system one. */
   photoImport?: { picker?: PhotoPicker; vision?: () => BarcodeDetector | Promise<BarcodeDetector>; resize?: Resizer };
+  /** Review's "Scan barcode": the camera reads for this row, and leaves once the read is sent. */
+  boundScan?: BoundScan & { onDone(): void; onCancel(): void };
 };
 
 export function ScannerScreen({
@@ -62,12 +68,14 @@ export function ScannerScreen({
   devSource,
   tuning,
   onClose,
+  showClose = true,
   onSnap,
   pipeline,
   autoSnapConfig = DEFAULT_AUTO_SNAP_CONFIG,
   autoSnapTuning,
   outcomeRef,
   photoImport,
+  boundScan,
 }: Props) {
   const router = useRouter();
   const colors = useColors();
@@ -86,7 +94,19 @@ export function ScannerScreen({
   }
   const [sheet, setSheet] = useState<'session' | 'search' | null>(null);
   const body = useMemo(() => sessionCreateBody(context), [context]);
-  const session = useScanSession({ libraryId, sources, tuning, sessionBody: body });
+  const boundCapture = useMemo(
+    () =>
+      boundScan
+        ? {
+            submit: async (code: { value: string; symbology: string }) => {
+              await submitBoundBarcode(boundScan.sessionId, boundScan.candidateId, code);
+              boundScan.onDone();
+            },
+          }
+        : undefined,
+    [boundScan],
+  );
+  const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture });
   const { canAdd } = useLibraryRole(libraryId);
   // "Move it here" moves to the session spot; in-store defers the location, so the card hides Move there.
   const cardActions = useCardActions({
@@ -145,7 +165,9 @@ export function ScannerScreen({
       {preview}
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { paddingTop: insets.top + spacing.sm }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg }}>
-          <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
+          {showClose ? (
+            <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
+          ) : null}
           {Platform.OS === 'web' ? (
             <Text variant="heading" accessibilityRole="header" style={{ color: fixed.white }}>
               Scanner
@@ -161,7 +183,22 @@ export function ScannerScreen({
             style={{ backgroundColor: flash ? colors.accent : fixed.scrim }}
           />
         </View>
-        <SessionBar libraryId={libraryId} context={context} onOpenSession={() => setSheet('session')} onOpenSearch={() => setSheet('search')} />
+        <SessionBar
+          libraryId={libraryId}
+          context={context}
+          onOpenSession={() => setSheet('session')}
+          onOpenSearch={() => setSheet('search')}
+          onAddManually={() => router.push({ pathname: '/library', params: { add: '1' } })}
+          onOpenReview={() => router.push('/review')}
+        />
+        {boundScan ? (
+          <View style={boundStyles.wrap}>
+            <View style={boundStyles.banner}>
+              <Text style={boundStyles.title}>{`Scan the barcode for ${boundScan.title}`}</Text>
+              <Button label="Cancel" variant="secondary" onPress={boundScan.onCancel} />
+            </View>
+          </View>
+        ) : null}
 
         <View pointerEvents="none" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <NiceScanFlash visible={session.showNiceScan || autoSnap.flash} reduceMotion={reduceMotion} />
@@ -277,4 +314,17 @@ export function ScannerScreen({
 const sheetStyles = Unistyles.create((theme) => ({
   wrap: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
   snack: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
+}));
+
+const boundStyles = Unistyles.create((theme) => ({
+  wrap: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.sm },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+    backgroundColor: fixed.scrim,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+  },
+  title: { flex: 1, color: fixed.white },
 }));

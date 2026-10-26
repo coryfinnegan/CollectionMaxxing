@@ -73,7 +73,7 @@ export const scanMock = {
   /** Set to `'viewer'` to make PATCH answer 403, as the real API does for a viewer. */
   role: 'owner' as 'owner' | 'editor' | 'viewer',
   /** Every barcode request the server received, so tests can assert nothing was sent twice. */
-  barcodeRequests: [] as { sessionId: string; key: string | null; codes: string[] }[],
+  barcodeRequests: [] as { sessionId: string; key: string | null; codes: string[]; candidateId: string | null }[],
 
   reset() {
     for (const s of this.streams) {
@@ -255,10 +255,34 @@ export const handlers = [
   http.post('*/api/v1/scan-sessions/:id/barcodes', async ({ params, request }) => {
     const session = scanMock.sessions.get(String(params.id));
     if (!session) return problem(404, 'Not found');
-    const body = (await request.json()) as { codes?: { value?: string | null; symbology?: string | null; copies?: number | null }[] };
+    const body = (await request.json()) as {
+      codes?: { value?: string | null; symbology?: string | null; copies?: number | null }[];
+      candidateId?: string | null;
+    };
     const codes = body.codes ?? [];
     const key = request.headers.get('Idempotency-Key');
-    scanMock.barcodeRequests.push({ sessionId: session.id, key, codes: codes.map((c) => c.value ?? '') });
+    const boundId = body.candidateId ?? null;
+    scanMock.barcodeRequests.push({ sessionId: session.id, key, codes: codes.map((c) => c.value ?? ''), candidateId: boundId });
+    if (boundId) {
+      // A bound capture (Review's "Scan barcode"): the row upgrades in place, through the same answers as a fresh scan.
+      const bound = session.candidates.find((c) => c.id === boundId);
+      if (!bound) return problem(404, 'Not found');
+      const value = codes[0]?.value?.trim();
+      if (codes.length !== 1 || !value) return problem(400, 'A bound batch carries one code.');
+      bound.rawCode = value;
+      bound.symbology = codes[0].symbology ?? null;
+      bound.alternatives = null;
+      const entry = scanMock.catalog[value];
+      if (!entry) {
+        Object.assign(bound, { resolution: 'not_found', score: null, release: null, pendingReason: null, retryAfter: null, changeSeq: ++session.seq });
+      } else if (entry.slow) {
+        Object.assign(bound, { resolution: 'pending', score: null, release: null, pendingReason: null, retryAfter: null, changeSeq: ++session.seq });
+      } else {
+        Object.assign(bound, resolved(entry), { changeSeq: ++session.seq });
+      }
+      emit(session, 'candidate.updated', bound);
+      return HttpResponse.json({ candidates: [bound] });
+    }
     if (codes.length > 50) return problem(422, 'At most 50 codes per request.');
     const replay = key ? session.answers.get(key) : undefined;
     if (replay) return HttpResponse.json({ candidates: replay });

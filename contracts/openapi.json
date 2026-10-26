@@ -5460,6 +5460,13 @@
             "items": {
               "$ref": "#/components/schemas/ScannedCode"
             }
+          },
+          "candidateId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

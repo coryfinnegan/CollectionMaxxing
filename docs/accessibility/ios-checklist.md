@@ -18,8 +18,8 @@ One line per screen. "Reads" is what it should say when you land on it; the exac
 | Screen or flow | Do this | Expected |
 | --- | --- | --- |
 | [ ] Pair | Swipe through the screen | Heading "Pair with your server"; the code field is "…, text field"; Pair is "button" |
-| [ ] Scan tab | Swipe through | Heading "Scan"; "Open scanner, button"; "Add an item by hand, button" (this works with no camera) |
-| [ ] Add an item by hand | Double-tap "Add an item by hand" | Library opens with the "Add an item" panel showing; focus lands in it |
+| [ ] Scan tab | Swipe through | The camera viewfinder with the session bar: "Add it by hand, button" (and a "Waiting: …, button" badge when the tray is non-empty). First run shows the "Scan to add" coach once with a "Start scanning, button" |
+| [ ] Add it by hand | Double-tap "Add it by hand" | Library opens with the "Add an item" panel showing; focus lands in it |
 | [ ] Scanner: top bar | Swipe through | "Close, button"; heading "Scanner"; "Torch, button" and, after turning it on, "Torch on, button" |
 | [ ] Scanner: scan a barcode | Hold a barcode in view | Hears "Nice scan!", then "New result: <title>", then the answer, for example "<title>. You own 1" |
 | [ ] Scanner: a not-found code | Scan a barcode the catalogue lacks | "New result: Code …" then "… Not in the catalogue. Try the front cover." |
@@ -79,7 +79,7 @@ Settings > Accessibility > Motion > Reduce Motion on, then reopen the app.
 - [ ] Dark appearance: text is readable everywhere; the receipt stays light paper on purpose.
 - [ ] Increase Contrast on: borders and button edges are easy to see.
 - [ ] Button Shapes on: nothing looks broken.
-- [ ] Switch Control or Voice Control (optional): say "Tap Open scanner" and it works.
+- [ ] Switch Control or Voice Control (optional): say "Tap Add it by hand" and it works.
 
 ## Result
 
