@@ -25,7 +25,8 @@ public sealed class OpenLibraryOptions
 /// (<c>/search.json</c>). Primary provider for books.
 /// </summary>
 public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOptions> options, ProviderRuntime runtime)
-    : HttpCatalogProvider(http, runtime, ProviderName, Interval(options.Value))
+    : HttpCatalogProvider(http, runtime, ProviderName, Interval(options.Value)),
+    ISearchableCatalogProvider
 {
     public const string ProviderName = "openlibrary";
 

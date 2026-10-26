@@ -39,8 +39,10 @@ public sealed record BarcodeResolution(
 
 /// <summary>
 /// The outside half of resolving a barcode (docs/02 section 3, steps 2 and 3): books by ISBN at Open Library and Google
-/// Books; any other product by UPCitemdb, then its cleaned name searched at IGDB or TMDB and scored. It touches no database,
-/// so a batch of codes can run it in parallel. It never throws for a provider that fails or is slow: that code comes back
+/// Books; any other product by UPCitemdb, then its cleaned name searched at IGDB or TMDB and scored. When the product is
+/// classified but no searchable provider exists for its kind (no keys configured), the exact product answers directly
+/// instead of a search that could never run. It touches no database, so a batch of codes can run it in parallel. It
+/// never throws for a provider that fails or is slow: that code comes back
 /// Pending. Only the caller's own cancellation (the request's time budget) escapes, and the caller treats it as Pending too.
 /// </summary>
 public sealed class BarcodeResolver(
@@ -125,6 +127,16 @@ public sealed class BarcodeResolver(
             .ToList();
         if (candidates.Count == 0)
         {
+            // No title search could run (only lookup-only providers know this kind): the exact product answers
+            // directly, like an exact ISBN answer. A search that ran and found nothing stays NotFound, and an
+            // unclassified product never answers itself.
+            if (!anyFailed && product.Kind != WorkKind.Other && asked.All(p => p is not ISearchableCatalogProvider))
+            {
+                steps.Add(new TraceStep("product-lookup", "direct", 0, ProviderExactScore));
+                return new BarcodeResolution(
+                    ResolutionVerdict.Matched, [new ResolutionOption(null, product, ProviderExactScore)], product.Title, steps);
+            }
+
             return anyFailed
                 ? BarcodeResolution.Pending(steps, product.Title)
                 : new BarcodeResolution(ResolutionVerdict.NotFound, [], product.Title, steps);

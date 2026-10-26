@@ -21,7 +21,8 @@ public sealed class GoogleBooksOptions
 
 /// <summary>Google Books: ISBN fallback and title search. The key travels in a header, never in the URL.</summary>
 public sealed class GoogleBooksProvider(HttpClient http, IOptions<GoogleBooksOptions> options, ProviderRuntime runtime)
-    : HttpCatalogProvider(http, runtime, ProviderName, TokenBucketRateLimiter.IntervalFor(options.Value.RequestsPerSecond))
+    : HttpCatalogProvider(http, runtime, ProviderName, TokenBucketRateLimiter.IntervalFor(options.Value.RequestsPerSecond)),
+    ISearchableCatalogProvider
 {
     public const string ProviderName = "googlebooks";
 
