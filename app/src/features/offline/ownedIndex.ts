@@ -20,9 +20,9 @@ export type SnapshotEntry = OwnedCopy & {
 };
 
 export type OwnedLookup = {
-  /** Copies of the thing asked about. Empty means "Not in your library". */
+  /** Copies of the thing asked about, oldest first. Empty means "Not in your library". */
   owned: OwnedCopy[];
-  /** Copies of the same work in another format or on another platform. */
+  /** Copies of the same work in another format or on another platform, oldest first. */
   softMatches: OwnedCopy[];
 };
 
@@ -114,7 +114,16 @@ class MapOwnedIndex implements OwnedIndex {
     for (const work of works) for (const e of this.byWork.get(work) ?? []) if (!matched.has(e.itemId)) soft.set(e.itemId, e);
 
     if (matched.size === 0 && soft.size === 0) return EMPTY;
-    return { owned: [...matched.values()].map(toCopy), softMatches: [...soft.values()].map(toCopy) };
+    // Item ids are UUIDv7, so ascending id order is oldest-first: the server's order (OwnershipQuery sorts copies by
+    // created-at, then id). The index itself keeps sync order; only the answer is sorted, so the offline card and the
+    // Move fallback name the same copy the server's copies[0] names.
+    const byAge = (a: SnapshotEntry, b: SnapshotEntry) => {
+      if (a.itemId === b.itemId) return 0;
+      return a.itemId < b.itemId ? -1 : 1;
+    };
+    const owned = [...matched.values()].sort(byAge).map(toCopy);
+    const softMatches = [...soft.values()].sort(byAge).map(toCopy);
+    return { owned, softMatches };
   }
 
   searchTitles(query: string, limit = 20): OwnedCopy[] {

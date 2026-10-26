@@ -60,6 +60,23 @@ describe('OwnedIndex.lookup', () => {
     const result = createOwnedIndex([vhs, second]).lookup('042100005264');
     expect(result.owned.map((c) => c.locationPath).sort()).toEqual(['Basement', 'Living room › Shelf B']);
   });
+
+  it('lists exact copies oldest-first however they were added, like the server', () => {
+    const older = entry({ identifiers: ['0042100005264'], locationPath: 'Living room › Shelf B' });
+    const newer = entry({
+      identifiers: ['0042100005264'],
+      releaseId: older.releaseId,
+      workId: older.workId,
+      locationPath: 'Basement',
+    });
+    const index = createOwnedIndex([newer, older]);
+
+    expect(index.lookup('042100005264').owned.map((c) => c.locationPath)).toEqual(['Living room › Shelf B', 'Basement']);
+    expect(index.lookup({ releaseId: older.releaseId }).owned.map((c) => c.locationPath)).toEqual([
+      'Living room › Shelf B',
+      'Basement',
+    ]);
+  });
 });
 
 describe('OwnedIndex.searchTitles', () => {
