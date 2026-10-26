@@ -1,4 +1,4 @@
-// Settings: Recognition and Security. The iPhone shows both; the web shows Sign out only.
+// Settings: Recognition, Appearance and Security. The iPhone shows all three; the web shows Sign out only.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -11,6 +11,7 @@ import { friendlyError } from '@/lib/problem';
 import { Button, Card, ListRow, LoadingState, Screen, Text } from '@/ui';
 import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { EvalsRow } from '@/features/evals/EvalsRow';
+import { AppearanceSection } from './AppearanceSection';
 import { GetIphoneAppRow } from './GetIphoneAppRow';
 import { useLockSetting } from './appLock';
 import { clearLocalData } from './localData';
@@ -147,8 +148,9 @@ function LibrariesSection() {
 export function SettingsScreen() {
   const router = useRouter();
   return (
-    <Screen title="Settings" subtitle={isWeb() ? 'Preferences for this browser.' : 'Recognition and security on this iPhone.'}>
+    <Screen title="Settings" subtitle={isWeb() ? 'Preferences for this browser.' : 'Recognition, appearance and security on this iPhone.'}>
       {isWeb() ? null : <RecognitionSection />}
+      {isWeb() ? null : <AppearanceSection />}
       {isWeb() ? <Card><GetIphoneAppRow /></Card> : null}
       <Card><ListRow title="Devices and browsers" subtitle="Your browsers and iPhones" onPress={() => router.push('/me/devices')} trailing={<Text tone="muted">›</Text>} /></Card>
       {isWeb() ? <Card><ListRow title="Sign-in methods" subtitle="Google and Apple accounts" onPress={() => router.push('/me/sign-in-methods')} trailing={<Text tone="muted">›</Text>} /></Card> : null}
