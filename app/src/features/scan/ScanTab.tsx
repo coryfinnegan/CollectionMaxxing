@@ -27,7 +27,7 @@ function WebScanTab() {
   return (
     <SafeAreaView testID="scan-tab-safe-area" edges={['left', 'right']} style={safe}>
       <Screen title="Scan">
-        <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes." />
+        <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes and shelves." />
       </Screen>
     </SafeAreaView>
   );

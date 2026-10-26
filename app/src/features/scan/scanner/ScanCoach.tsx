@@ -14,7 +14,7 @@ export function ScanCoach({ onDone }: { onDone: () => void }) {
           <Text variant="heading" accessibilityRole="header">
             Scan to add
           </Text>
-          <Text>Point the camera at a barcode. It is read as soon as it is in view. Add anything else by hand from the bar at the top.</Text>
+          <Text>Point the camera at a barcode and it reads straight away. Point it at a shelf of spines and hold steady — check the matches before anything is added. Add anything else by hand from the bar at the top.</Text>
           <Button label="Start scanning" onPress={onDone} />
         </View>
       </Card>

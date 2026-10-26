@@ -49,6 +49,12 @@ describe('scan tab entry', () => {
     await renderWithProviders(<ScanTab />);
 
     expect(await screen.findByTestId('scan-coach')).toBeTruthy();
+    // The coach presents both capture paths as equals: barcodes read straight away, shelves wait for review (#371).
+    expect(
+      await screen.findByText(
+        'Point the camera at a barcode and it reads straight away. Point it at a shelf of spines and hold steady — check the matches before anything is added. Add anything else by hand from the bar at the top.',
+      ),
+    ).toBeTruthy();
     expect(await screen.findByLabelText('Take picture')).toBeTruthy();
     // The dismiss press needs its own act: the update lands after the sync flush.
     await act(async () => {
@@ -74,7 +80,7 @@ describe('scan tab entry', () => {
     await renderWithProviders(<ScanTab />);
 
     expect(await screen.findByText('Scanning is on the iPhone app')).toBeTruthy();
-    expect(screen.getByText('Open CollectionMaxxing on your iPhone to scan barcodes.')).toBeTruthy();
+    expect(screen.getByText('Open CollectionMaxxing on your iPhone to scan barcodes and shelves.')).toBeTruthy();
     expect(screen.getByTestId('scan-tab-safe-area')).toBeTruthy();
   });
 });

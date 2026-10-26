@@ -82,7 +82,7 @@ export default function CameraPreview({ source }: { source: VisionCameraSource }
     }
     return (
       <View style={styles.message}>
-        <Text style={styles.onCamera}>CollectionMaxxing needs the camera to read barcodes.</Text>
+        <Text style={styles.onCamera}>CollectionMaxxing needs the camera to scan barcodes and shelves.</Text>
         <Button label="Allow camera" onPress={() => void requestPermission()} />
       </View>
     );

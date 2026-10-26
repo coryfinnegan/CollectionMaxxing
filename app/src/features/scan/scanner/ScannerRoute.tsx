@@ -19,7 +19,7 @@ export function ScannerRoute({ onClose, showClose = true }: { onClose?: () => vo
   if (Platform.OS === 'web') {
     return (
       <RouteFallback onClose={onClose} showClose={showClose}>
-        <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes. You can still browse and edit your library here." />
+        <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes and shelves. You can still browse and edit your library here." />
       </RouteFallback>
     );
   }
