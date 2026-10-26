@@ -36,9 +36,9 @@ describe('what a picture card says', () => {
     expect(describeCandidate(picture({ resolution: 'ambiguous', release: null }))).toMatchObject({ status: 'Pick one', kind: 'pick' });
   });
 
-  it('leads with "You own" even when the match is a close call', () => {
-    expect(describeCandidate(picture({ resolution: 'ambiguous', alreadyOwnedCount: 2 }))).toMatchObject({ status: 'You own 2', kind: 'owned' });
-    expect(describeCandidate(picture({ alreadyOwnedCount: 1 }))).toMatchObject({ title: 'Space Mutiny', subtitle: 'VHS · 1988', status: 'You own 1', kind: 'owned' });
+  it('leads with "Already own" even when the match is a close call', () => {
+    expect(describeCandidate(picture({ resolution: 'ambiguous', alreadyOwnedCount: 2 }))).toMatchObject({ status: 'Already own — VHS · 2 copies', kind: 'owned' });
+    expect(describeCandidate(picture({ alreadyOwnedCount: 1 }))).toMatchObject({ title: 'Space Mutiny', subtitle: 'VHS · 1988', status: 'Already own — VHS', kind: 'owned' });
   });
 
   it('is a new item, ready to add, when it matched and the library does not have it', () => {
