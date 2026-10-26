@@ -1,7 +1,7 @@
 // The on-phone eval runner (EVAL-1b). It downloads the golden photos one at a time, reads each through the Apple model (the scanner's own
 // selector) and through the Vision text engine, and uploads the readings. It does no scoring and no grounding: the PC does. It never touches
 // the library: the only requests are the eval routes and the config fetch, and a photo file is deleted the moment it has been read.
-import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, GoldenPhotoDto } from '@/api/generated/models';
+import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, GoldenPhotoDto, ScanTier } from '@/api/generated/models';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
 import type { ReadItem, RecognitionEngine, SnapReading, Still } from '@/features/scan/recognition/types';
@@ -53,6 +53,13 @@ export interface EvalRunnerDeps {
   device: { model: string; appVersion: string };
   keepAwake: { on(): Promise<void>; off(): Promise<void> };
   now?: () => number;
+  /** Makes the segment id each read stamps its items with; a random one when left out. */
+  newId?: () => string;
+}
+
+/** `baselineNote` explains a deliberate threshold move (docs/16 §17); empty stays out of the upload. */
+export interface EvalStartOptions {
+  baselineNote?: string;
 }
 
 const initial = (): EvalState => ({
@@ -72,9 +79,15 @@ const initial = (): EvalState => ({
 
 const byOrder = (a: GoldenPhotoDto, b: GoldenPhotoDto) => (a.set === b.set ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.set < b.set ? -1 : 1);
 
+const defaultSegmentId = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+
 const FELL_BACK = { unavailable: 'unavailable', declined: 'declined', timeout: 'timeout', contextExceeded: 'context' } as const;
 
-const toItem = (item: ReadItem, engine: 'apple_model' | 'vision_pipeline'): EvalReadItem => ({
+const toItem = (item: ReadItem, engine: 'apple_model' | 'vision_pipeline', segmentId: string): EvalReadItem => ({
   localId: item.localId,
   text: item.text,
   title: item.title,
@@ -85,18 +98,26 @@ const toItem = (item: ReadItem, engine: 'apple_model' | 'vision_pipeline'): Eval
   format: item.format,
   platform: item.platform,
   resolvedBy: engine === 'apple_model' ? 'model' : 'vision_text',
+  segmentId,
+  // The phone cannot ground a read, so it claims the commit from confidence: a high-confidence read would
+  // auto-commit (T1) and the PC judges whether it was right; anything less is kept as a guess for a human.
+  ...(item.confidence === 'high'
+    ? { tier: 'T1' as ScanTier, provisional: false }
+    : { provisional: true, isGuess: true }),
 });
 
 export class EvalRunner {
   private state: EvalState = initial();
   private readonly listeners = new Set<() => void>();
   private readonly now: () => number;
+  private readonly newId: () => string;
 
   private photos: GoldenPhotoDto[] = [];
   private results: EvalPhotoResult[] = [];
   private next = 0;
   private configVersion = '';
   private osVersion = '';
+  private baselineNote?: string;
   private uploadedChunks = 0;
   private cancelRequested = false;
   private pauseRequested = false;
@@ -107,6 +128,7 @@ export class EvalRunner {
 
   constructor(private readonly deps: EvalRunnerDeps) {
     this.now = deps.now ?? Date.now;
+    this.newId = deps.newId ?? defaultSegmentId;
   }
 
   getState = (): EvalState => this.state;
@@ -122,13 +144,14 @@ export class EvalRunner {
   }
 
   /** Starts a new run. Resolves when it has been uploaded, failed, or been cancelled. One run at a time: a second call joins the first. */
-  start(): Promise<void> {
+  start(options: EvalStartOptions = {}): Promise<void> {
     if (this.active) return this.active;
     this.set(initial());
     this.photos = [];
     this.results = [];
     this.inFlight = [];
     this.next = 0;
+    this.baselineNote = options.baselineNote?.trim() ? options.baselineNote.trim() : undefined;
     this.uploadedChunks = 0;
     return this.launch(true);
   }
@@ -253,6 +276,8 @@ export class EvalRunner {
 
   private async readWith(engine: 'apple_model' | 'vision_pipeline', photoId: string, still: Still): Promise<EvalPhotoResult> {
     const started = this.now();
+    const segmentId = this.newId();
+    const capturedAt = new Date(started).toISOString();
     let firstItemMs: number | undefined;
     const onItem = () => {
       firstItemMs ??= this.now() - started;
@@ -271,7 +296,14 @@ export class EvalRunner {
             items: [], // what the fallback read is the Vision row's to report
             unreadableCount: 0,
           }
-        : { photoId, engine, outcome: 'ok', items: reading.items.map((i) => toItem(i, engine)), unreadableCount: reading.unreadableCount, firstItemMs };
+        : {
+            photoId,
+            engine,
+            outcome: 'ok',
+            items: reading.items.map((i) => toItem(i, engine, segmentId)),
+            unreadableCount: reading.unreadableCount,
+            firstItemMs,
+          };
     } catch {
       result = { photoId, engine, outcome: 'error', items: [], unreadableCount: 0 };
     }
@@ -279,7 +311,10 @@ export class EvalRunner {
     if (thermal) {
       this.set({ thermal, keepCool: this.state.keepCool || thermal === 'serious' || thermal === 'critical' });
     }
-    return { ...result, latencyMs: Math.round(this.now() - started), thermalState: thermal };
+    // One read is one captured segment, shared by its items; reads the engine refused or failed captured none.
+    // Duplicate evidence is never sent: the runner never touches the library, so it has none.
+    const capturedCount = (result.unreadableCount ?? 0) + (result.items?.length ? 1 : 0);
+    return { ...result, latencyMs: Math.round(this.now() - started), thermalState: thermal, capturedCount, capturedAt };
   }
 
   /** Photos stay together, and a body stays under the size limit. */
@@ -313,6 +348,7 @@ export class EvalRunner {
           configVersion: this.configVersion,
           results: chunks[i],
           ...(partial ? { partial: true } : {}),
+          ...(this.baselineNote ? { baselineNote: this.baselineNote } : {}),
         };
         last = await this.deps.api.submit(body);
         this.uploadedChunks = i + 1;

@@ -2,7 +2,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '@/theme/tokens';
-import { Button, Card, LoadingState, Screen, Text } from '@/ui';
+import { Button, Card, LoadingState, Screen, Text, TextField } from '@/ui';
 import { getEvalRunner } from './device';
 import type { EvalRunner, EvalState } from './runner';
 
@@ -43,6 +43,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
   const colors = useColors();
   const state = useSyncExternalStore(runner.subscribe, runner.getState);
   const elapsed = useElapsed(state);
+  const [note, setNote] = useState('');
   const working = state.phase === 'starting' || state.phase === 'running' || state.phase === 'paused';
   const apple = state.step === 'apple' ? 'Apple model' : 'Vision text';
 
@@ -52,7 +53,14 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
       {state.phase === 'idle' ? (
         <>
           <Text tone="muted">Keep the phone awake, plugged in and out of direct sun. The photos are not kept on the phone and are not sent back.</Text>
-          <Button label="Start the run" onPress={() => void runner.start()} />
+          <TextField
+            label="Baseline note"
+            value={note}
+            onChangeText={setNote}
+            placeholder="Leave empty unless the thresholds moved"
+            maxLength={500}
+          />
+          <Button label="Start the run" onPress={() => void runner.start({ baselineNote: note })} />
         </>
       ) : null}
 

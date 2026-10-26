@@ -66,6 +66,21 @@ describe('EvalsScreen', () => {
     expect(hot).toBe(true);
   });
 
+  it('sends the baseline note typed before the run, and none when left empty', async () => {
+    const kit = makeKit({ photos: 1 });
+    await renderWithProviders(<EvalsScreen runner={kit.runner} />);
+    await act(async () => {
+      fireEvent.changeText(screen.getByLabelText('Baseline note'), 'T1 bar moved for the re-run.');
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Start the run' }));
+    });
+    expect(await screen.findByText(/M3 gate: pass/)).toBeTruthy();
+    const runs = evalsMock.runs as { baselineNote?: string }[];
+    expect(runs).toHaveLength(1);
+    expect(runs[0].baselineNote).toBe('T1 bar moved for the re-run.');
+  });
+
   it('offers to send the results again when the upload fails', async () => {
     const kit = makeKit({ photos: 1 });
     evalsMock.failNextSubmit = 500;
