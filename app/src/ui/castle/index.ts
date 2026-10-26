@@ -8,6 +8,8 @@ export { SeriesShield } from './SeriesShield';
 export { type CastleMode, type CastleThemeSetting, resolveCastleMode, useCastleMode, useCastleThemeSetting, useIncreaseContrast } from './mode';
 export { NineSlice, type CastleSurface } from './NineSlice';
 export { ParchmentCard } from './ParchmentCard';
+export { QuestBoard, QUEST_CELEBRATION_MS } from './QuestBoard';
+export { freshQuests, questDefs, questsFor, useQuestBoard, type QuestDef, type QuestId, type QuestInput, type QuestState } from './quests';
 export { seasonCloth, seasonFor, seasonNames, useSeason, type Season } from './season';
 export { SeasonalBanner } from './SeasonalBanner';
 export { TabletHeader } from './TabletHeader';
