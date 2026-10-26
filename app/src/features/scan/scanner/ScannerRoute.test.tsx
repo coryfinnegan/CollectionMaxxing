@@ -25,4 +25,11 @@ describe('scanner route without a library', () => {
     expect(screen.getByText('No library found.')).toBeTruthy();
     expect(screen.getByText('Pair this iPhone again.')).toBeTruthy();
   });
+
+  it('hides Close when embedded in the Scan tab', async () => {
+    library.mockReturnValue({ libraryId: undefined, isLoading: false });
+    await renderWithProviders(<ScannerRoute showClose={false} />);
+    expect(screen.getByText('No library found.')).toBeTruthy();
+    expect(screen.queryByLabelText('Close')).toBeNull();
+  });
 });

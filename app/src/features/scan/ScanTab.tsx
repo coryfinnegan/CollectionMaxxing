@@ -1,55 +1,56 @@
-// The Scan tab: one big way into the scanner, plus a nudge when a scan is waiting for Review.
+// The Scan tab: the camera, immediately. The first run shows a one-time coach overlay over the viewfinder; after
+// that the scanner opens with no intermediate taps. Manual add and waiting review live in the session bar.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
-import { useRouter } from 'expo-router';
-import { Platform } from 'react-native';
+import { useState } from 'react';
+import { Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useUnistyles } from 'react-native-unistyles';
-import { useStore } from 'zustand';
-import { Button, Card, EmptyState, Screen, Text } from '@/ui';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
-import { summaryLine } from './cards/copy';
-import { getTrayStore } from './tray/storage';
+import { EmptyState, Screen } from '@/ui';
+import { ScanCoach } from './scanner/ScanCoach';
+import { dismissScanCoach, hasSeenScanCoach } from './scanner/scanEntry';
+import { ScannerRoute } from './scanner/ScannerRoute';
 
 export function ScanTab() {
+  if (Platform.OS === 'web') {
+    return <WebScanTab />;
+  }
+  return <PhoneScanTab />;
+}
+
+function WebScanTab() {
   const { theme } = useUnistyles();
   // Plain object: SafeAreaView lives outside the babel-processed tree, so a
   // themed sheet value would arrive unstyled on web (#305).
   const safe = { flex: 1, backgroundColor: theme.colors.ground };
   return (
     <SafeAreaView testID="scan-tab-safe-area" edges={['left', 'right']} style={safe}>
-      {Platform.OS === 'web' ? (
-        <Screen title="Scan">
-          <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes." />
-        </Screen>
-      ) : (
-        <PhoneScanTab />
-      )}
+      <Screen title="Scan">
+        <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes." />
+      </Screen>
     </SafeAreaView>
   );
 }
 
 function PhoneScanTab() {
-  const router = useRouter();
   const { libraryId } = useActiveLibraryId();
+  const [coached, setCoached] = useState(hasSeenScanCoach);
   return (
-    <Screen title="Scan" showTitleOnPhone subtitle="Point the camera at barcodes. Each one is read as soon as it is in view.">
-      <Button label="Open scanner" onPress={() => router.push('/scanner')} />
-      <Button label="Add it by hand" variant="secondary" onPress={() => router.push({ pathname: '/library', params: { add: '1' } })} />
-      {libraryId ? <WaitingCard libraryId={libraryId} /> : null}
-    </Screen>
+    <View style={styles.fill}>
+      <ScannerRoute showClose={false} />
+      {!coached && libraryId ? (
+        <ScanCoach
+          onDone={() => {
+            dismissScanCoach();
+            setCoached(true);
+          }}
+        />
+      ) : null}
+    </View>
   );
 }
 
-/** The nudge counts this library's tray only: another library's waiting scan is not yours to review here. */
-function WaitingCard({ libraryId }: { libraryId: string }) {
-  const router = useRouter();
-  const items = useStore(getTrayStore(libraryId), (s) => s.lines.reduce((sum, l) => sum + l.copies, 0));
-  if (items === 0) return null;
-  return (
-    <Card>
-      <Text variant="label">{`Waiting from your last scan: ${summaryLine(items, 0)}`}</Text>
-      <Button label="Review" variant="secondary" onPress={() => router.push('/review')} />
-    </Card>
-  );
-}
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+});

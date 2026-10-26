@@ -31,7 +31,7 @@ import { SessionSheet } from '../session/SessionSheet';
 import { defaultSessionContext, sessionCreateBody, type SessionContext } from '../session/sessionContext';
 import { ReceiptBar } from '../tray/ReceiptBar';
 import { fixed, spacing, useColors } from '@/theme/tokens';
-import { Button, Chip, Text } from '@/ui';
+import { Button, Chip, Snackbar, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
 import { FakeScannerSource, type ScannerSource } from './ScannerSource';
 import { ScannerSearch } from './ScannerSearch';
@@ -47,6 +47,8 @@ type Props = {
   tuning?: SessionTuning;
   /** What Close does; defaults to going back. The route passes the close-scanner sheet here. */
   onClose?: () => void;
+  /** False when embedded in the Scan tab: the tab bar is the way out, so there is no Close. */
+  showClose?: boolean;
   /** Each picture, from the shutter or auto-snap. Without this and without a `pipeline`, pictures are only counted. */
   onSnap?: (event: SnapEvent) => void;
   /** The picture pipeline: read on the phone, identified from text, close calls compared by artwork. The route builds it. */
@@ -69,6 +71,7 @@ export function ScannerScreen({
   devSource,
   tuning,
   onClose,
+  showClose = true,
   onSnap,
   pipeline,
   autoSnapConfig = DEFAULT_AUTO_SNAP_CONFIG,
@@ -108,7 +111,13 @@ export function ScannerScreen({
   );
   const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture });
   const { canAdd } = useLibraryRole(libraryId);
-  const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
+  // "Move it here" moves to the session spot; in-store defers the location, so the card hides Move there.
+  const cardActions = useCardActions({
+    libraryId,
+    sessionId: session.sessionId,
+    canAdd,
+    moveToLocationId: context.channel === 'home' ? context.locationId : null,
+  });
   const [fixing, setFixing] = useState<CandidateDto | null>(null);
   const [viewingSnap, setViewingSnap] = useState<string | null>(null);
   const actions: CardActions = useMemo(() => ({ ...cardActions, onFixIt: setFixing }), [cardActions]);
@@ -160,7 +169,9 @@ export function ScannerScreen({
       {preview}
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { paddingTop: insets.top + spacing.sm }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg }}>
-          <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
+          {showClose ? (
+            <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
+          ) : null}
           {Platform.OS === 'web' ? (
             <Text variant="heading" accessibilityRole="header" style={{ color: fixed.white }}>
               Scanner
@@ -176,7 +187,14 @@ export function ScannerScreen({
             style={{ backgroundColor: flash ? colors.accent : fixed.scrim }}
           />
         </View>
-        <SessionBar libraryId={libraryId} context={context} onOpenSession={() => setSheet('session')} onOpenSearch={() => setSheet('search')} />
+        <SessionBar
+          libraryId={libraryId}
+          context={context}
+          onOpenSession={() => setSheet('session')}
+          onOpenSearch={() => setSheet('search')}
+          onAddManually={() => router.push({ pathname: '/library', params: { add: '1' } })}
+          onOpenReview={() => router.push('/review')}
+        />
         {boundScan ? (
           <View style={boundStyles.wrap}>
             <View style={boundStyles.banner}>
@@ -276,6 +294,15 @@ export function ScannerScreen({
             <ScannerSearch libraryId={libraryId} onClose={() => setSheet(null)} />
           </View>
         ) : null}
+        {actions.moveToast ? (
+          <View style={sheetStyles.snack}>
+            <Snackbar
+              message={actions.moveToast.message}
+              actionLabel={actions.moveToast.canUndo ? 'Undo' : undefined}
+              onAction={actions.moveToast.canUndo ? actions.onUndoMove : undefined}
+            />
+          </View>
+        ) : null}
         <ResultCards cards={session.cards} actions={actions} />
         {viewingSnap ? (
           <View style={sheetStyles.wrap}>
@@ -307,6 +334,7 @@ export function ScannerScreen({
 
 const sheetStyles = Unistyles.create((theme) => ({
   wrap: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
+  snack: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
 }));
 
 const boundStyles = Unistyles.create((theme) => ({
