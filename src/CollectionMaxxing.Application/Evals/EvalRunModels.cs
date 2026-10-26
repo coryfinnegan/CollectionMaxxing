@@ -107,9 +107,9 @@ public sealed record GroundedItem(
 }
 
 /// <summary>
- /// What a duplicate re-scan of the photo's shelf showed: how many owned items it hit, how many of those were answered
- /// on the card, and how many new items appeared without an explicit Add-copy. Null when the photo was not a re-scan.
- /// </summary>
+/// What a duplicate re-scan of the photo's shelf showed: how many owned items it hit, how many of those were answered
+/// on the card, and how many new items appeared without an explicit Add-copy. Null when the photo was not a re-scan.
+/// </summary>
 public sealed record DuplicateRescan(int OwnedHits, int AnsweredOnCard, int UnsolicitedAdds);
 
 public sealed record GroundedPhoto(
