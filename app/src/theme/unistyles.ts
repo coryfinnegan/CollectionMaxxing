@@ -3,12 +3,13 @@
 // breakpoint matches WIDE_BREAKPOINT (768). adaptiveThemes keeps the app
 // following the system scheme, as useColorScheme does today.
 import { StyleSheet } from 'react-native-unistyles';
-import { castle, darkColors, fixed, lightColors, mascot, radius, spacing, typeScale } from './tokens';
+import { castle, castleDark, darkColors, fixed, lightColors, mascot, radius, spacing, typeScale } from './tokens';
 
-const shared = { spacing, radius, type: typeScale, fixed, castle, mascot };
+const shared = { spacing, radius, type: typeScale, fixed, mascot };
+// The castle frame is day stone in the light theme and the torchlit hall in the dark theme (#363).
 const appThemes = {
-  light: { colors: lightColors, ...shared },
-  dark: { colors: darkColors, ...shared },
+  light: { colors: lightColors, castle, ...shared },
+  dark: { colors: darkColors, castle: castleDark, ...shared },
 };
 const breakpoints = { phone: 0, wide: 768 };
 

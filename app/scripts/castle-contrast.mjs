@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const castle = JSON.parse(readFileSync(join(root, 'src/theme/tokens.json'), 'utf8')).castle;
+const tokens = JSON.parse(readFileSync(join(root, 'src/theme/tokens.json'), 'utf8'));
+const castle = tokens.castle;
+const night = tokens.castleDark;
 
 // Minimal PNG decode: 8-bit RGB/RGBA, non-interlaced, which is what castle-textures.py writes.
 function pixelsOf(file) {
@@ -78,26 +80,48 @@ const hex = (s) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
 const fills = {};
 const fillOf = (file) => (fills[file] ??= pixelsOf(file));
 
-// [label, foreground token, background (token or fill file), minimum]
+// [label, palette, foreground token, background (token or fill file), minimum]
 const pairs = [
-  ['parchmentInk on parchment fill (body text)', 'parchmentInk', 'parchment-fill.png', 4.5],
-  ['parchmentInk on parchment (flat)', 'parchmentInk', 'parchment', 4.5],
-  ['stoneInk on stone fill (titles)', 'stoneInk', 'stone-fill.png', 4.5],
-  ['stoneInk on stone (flat)', 'stoneInk', 'stone', 4.5],
-  ['ironInk on iron fill (marker text)', 'ironInk', 'iron-fill.png', 4.5],
-  ['ironInk on iron (flat)', 'ironInk', 'iron', 4.5],
-  ['brass on stone fill (graphics)', 'brass', 'stone-fill.png', 3],
-  ['brass on stone (flat graphics)', 'brass', 'stone', 3],
-  ['olive on parchment fill (graphics)', 'olive', 'parchment-fill.png', 3],
-  ['olive on parchment (flat graphics)', 'olive', 'parchment', 3],
-  ['iron on parchment (frames)', 'iron', 'parchment', 3],
+  ['parchmentInk on parchment fill (body text)', 'day', 'parchmentInk', 'parchment-fill.png', 4.5],
+  ['parchmentInk on parchment (flat)', 'day', 'parchmentInk', 'parchment', 4.5],
+  ['stoneInk on stone fill (titles)', 'day', 'stoneInk', 'stone-fill.png', 4.5],
+  ['stoneInk on stone (flat)', 'day', 'stoneInk', 'stone', 4.5],
+  ['night stoneInk on night fill (titles)', 'night', 'stoneInk', 'stone-night-fill.png', 4.5],
+  ['night stoneInk on night stone (flat)', 'night', 'stoneInk', 'stone', 4.5],
+  ['ironInk on iron fill (marker text)', 'day', 'ironInk', 'iron-fill.png', 4.5],
+  ['ironInk on iron (flat)', 'day', 'ironInk', 'iron', 4.5],
+  ['brass on stone fill (graphics)', 'day', 'brass', 'stone-fill.png', 3],
+  ['brass on stone (flat graphics)', 'day', 'brass', 'stone', 3],
+  ['night brass on night fill (graphics)', 'night', 'brass', 'stone-night-fill.png', 3],
+  ['night brass on night stone (flat)', 'night', 'brass', 'stone', 3],
+  ['olive on parchment fill (graphics)', 'day', 'olive', 'parchment-fill.png', 3],
+  ['olive on parchment (flat graphics)', 'day', 'olive', 'parchment', 3],
+  ['iron on parchment (frames)', 'day', 'iron', 'parchment', 3],
 ];
+
+const at = (scale, step) => tokens.scales[scale][step - 1];
+const groundOf = (scheme, role) => {
+  const [scale, step] = tokens.roles[scheme][role];
+  return at(scale, step);
+};
+// The heraldic banners sit on the page grounds, day on light and night on dark.
+for (const medium of ['bannerBook', 'bannerGame', 'bannerFilm']) {
+  for (const role of ['ground', 'surface']) {
+    pairs.push([`${medium} on light ${role} (graphics)`, 'day', medium, groundOf('light', role), 3]);
+    pairs.push([`night ${medium} on dark ${role} (graphics)`, 'night', medium, groundOf('dark', role), 3]);
+  }
+}
+
+const palettes = { day: castle, night };
 
 let failed = false;
 console.log('| Pair | Worst | Minimum |');
 console.log('| ---- | ----: | ------: |');
-for (const [label, fg, bg, min] of pairs) {
-  const worst = bg.endsWith('.png') ? Math.min(...fillOf(bg).map((px) => ratio(hex(castle[fg]), px))) : ratio(hex(castle[fg]), hex(castle[bg]));
+for (const [label, which, fg, bg, min] of pairs) {
+  const palette = palettes[which];
+  const worst = bg.endsWith('.png')
+    ? Math.min(...fillOf(bg).map((px) => ratio(hex(palette[fg]), px)))
+    : ratio(hex(palette[fg]), hex(bg.startsWith('#') ? bg : palette[bg]));
   if (worst < min) failed = true;
   console.log(`| ${label} | ${worst.toFixed(2)}:1 | ${min.toFixed(1)}:1 |`);
 }
