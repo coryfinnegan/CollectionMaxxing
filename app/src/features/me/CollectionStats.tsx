@@ -15,8 +15,11 @@ import { breadcrumb } from '@/features/item/breadcrumb';
 import { formatLabels, kindLabels } from '@/features/library/labels';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { Button, Card, EmptyState, ListRow, Text } from '@/ui';
-import { BannerMarker, CastleHeader, CastleState, HoardMeter, LedgeRow, SeriesShield, useHoardPeak } from '@/ui/castle';
+import { BannerMarker, CastleHeader, CastleState, HoardMeter, LedgeRow, QuestBoard, SeasonalBanner, SeriesShield, questsFor, useHoardPeak, type QuestInput } from '@/ui/castle';
+import { useDragonAppearance } from '@/ui/mascot/appearances';
+import { MilestoneCelebration } from './MilestoneCelebration';
 import { earnedMilestones, nextMilestone } from './milestones';
+import { useMilestoneCelebration } from './milestoneSeen';
 import { shareMilestone } from './shareMilestone';
 import { useCollectionStats } from './useCollectionStats';
 
@@ -44,6 +47,12 @@ export function CollectionStats({ libraryId }: { libraryId: string }) {
   const shelved = locationCounts.reduce((sum, shelf) => sum + shelf.count, 0);
   const fullest = locationCounts[0];
   const mostLivesOn = shelvesReady && fullest && stats.total >= 5 && fullest.count / Math.max(1, shelved) >= 0.5 ? breadcrumb(locations, fullest.locationId) : null;
+  // The quests wait for the shelf walk: seeding on half-loaded counts would fanfare what's already there.
+  const questInput: QuestInput = {
+    fullestShelf: locationCounts[0]?.count ?? 0,
+    shelvesUsed: locationCounts.length,
+    bestSet: multiCopy[0]?.copies ?? 0,
+  };
   return (
     <Hall
       libraryId={libraryId}
@@ -55,6 +64,8 @@ export function CollectionStats({ libraryId }: { libraryId: string }) {
       shelves={shelves.map(({ locationId, count }) => ({ name: breadcrumb(locations, locationId), count }))}
       mostLivesOn={mostLivesOn}
       multiCopy={multiCopy}
+      questInput={questInput}
+      questsReady={locationsReady}
       onOpenItem={(id) => router.push(`/item/${id}`)}
     />
   );
@@ -70,18 +81,23 @@ type HallProps = {
   shelves: { name: string; count: number }[];
   mostLivesOn: string | null;
   multiCopy: { workId: string; title: string; copies: number }[];
+  questInput: QuestInput;
+  questsReady: boolean;
   onOpenItem(id: string): void;
 };
 
-function Hall({ libraryId, total, byKind, byFormat, recent, recentReady, shelves, mostLivesOn, multiCopy, onOpenItem }: HallProps) {
+function Hall({ libraryId, total, byKind, byFormat, recent, recentReady, shelves, mostLivesOn, multiCopy, questInput, questsReady, onOpenItem }: HallProps) {
   const peak = useHoardPeak(libraryId, total);
   const earned = earnedMilestones(total);
   const next = nextMilestone(total);
+  const highest = earned.at(-1);
+  const milestone = useMilestoneCelebration(libraryId, highest);
+  // Dragon Off removes every delight in the hall: the banner card, the board and the celebrations.
+  const dragonOff = useDragonAppearance((s) => s.appearance === 'off');
   const mediaArms = top(byKind, 5)
     .map(([kind, count]) => ({ kind: kind as WorkKind, highest: earnedMilestones(count).at(-1) }))
     .filter((arm): arm is { kind: WorkKind; highest: number } => arm.highest !== undefined);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
-  const highest = earned.at(-1);
 
   const share = async () => {
     if (highest === undefined) return;
@@ -94,6 +110,13 @@ function Hall({ libraryId, total, byKind, byFormat, recent, recentReady, shelves
   return (
     <View style={styles.hall}>
       <CastleHeader title="Great hall" subtitle={next ? `${next.toGo} more to reach ${next.at}` : 'Every arm is raised'} />
+      {milestone.rung !== null ? <MilestoneCelebration rung={milestone.rung} onDone={milestone.dismiss} /> : null}
+      {dragonOff ? null : (
+        <Card>
+          <SeasonalBanner testID="seasonal-banner" />
+          <Text tone="muted">The banners change with the seasons.</Text>
+        </Card>
+      )}
       <Card>
         <HoardMeter peak={peak} total={total} />
       </Card>
@@ -107,6 +130,7 @@ function Hall({ libraryId, total, byKind, byFormat, recent, recentReady, shelves
         ))}
         {next ? <Text tone="muted">{`${next.toGo} more to reach ${next.at}.`}</Text> : <Text tone="muted">Every arm is raised.</Text>}
       </Card>
+      {questsReady ? <QuestBoard quests={questsFor(questInput)} /> : null}
       <Card>
         <BannerMarker label="Breakdown" />
         {top(byKind, 3).map(([kind, count]) => {
