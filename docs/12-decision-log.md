@@ -155,7 +155,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-014: One scanner, no modes
 
-- **Status:** Accepted (your direction, 2026-10-12)
+- **Status:** **Amended by ADR-029** (T0 auto-add permitted; lead decision 1, #341, 2026-10-26). Originally accepted (your direction, 2026-10-12)
 - **Context:** An earlier draft had Barcodes / Cover / Shelf / Check modes. You want to open the camera and scan, and have the app work out what it's looking at.
 - **Decision:** A single scanner screen.
   - Barcodes are read continuously on the device.
@@ -228,7 +228,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-017: iPhone-only recognition with Apple frameworks only
 
-- **Status:** Accepted; PCC hard-case tier removed and builds moved off EAS by **ADR-019**. Originally accepted (your direction, 2026-10-12: "no vision work in the web app… only the Apple vision libraries on the mobile app… for simplicity and cost")
+- **Status:** Accepted; PCC hard-case tier removed and builds moved off EAS by **ADR-019**. Narrow crop-storage exception granted by **ADR-030**. Originally accepted (your direction, 2026-10-12: "no vision work in the web app… only the Apple vision libraries on the mobile app… for simplicity and cost")
 - **Context:** The plan had grown a cross-platform recognition stack:
   - ML Kit barcodes
   - SigLIP 2 via ONNX on phone and server
@@ -498,3 +498,23 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 - **Consequences:**
   - One dependency (`react-native-unistyles`), setup files (`babel.config.js`, `index.ts`, `src/theme/unistyles.ts`, `src/app/+html.tsx`, jest `setupFiles`).
   - Migration must stay pixel-identical (Playwright visual snapshots) plus a TestFlight smoke.
+
+## ADR-029: T0 barcode auto-add amends ADR-014 (lead decision 1)
+
+- **Status:** **Accepted** (lead decision, #341, 2026-10-26; amends ADR-014).
+- **Context:** ADR-014 requires Review → Add for everything. The scan-overhaul design (docs/16, §6) and the owner's intent (#334) specify confidence-tiered commit: a barcode with exactly one database hit should add immediately with Undo, since an identifier pins the edition.
+- **Decision:** a T0 result (normalized identifier → exactly one release, not exact-owned unless the session opted into copies) auto-adds with beep/haptic, receipt row, 10 s Undo, SSE `candidate.auto_committed`, and session `autoCommitTiers` (default `["T0"]`). The series-volume veto stays a hard guardrail (ambiguous series cases always T2).
+- **Alternatives:** keep Review → Add for barcodes (rejected: contradicts the owner's stated turn-key intent; barcode identity is edition-proof); auto-add without Undo (rejected: no recovery from mis-scans).
+- **Consequences:**
+  - ADR-014's "Nothing is added without Review → Add" now reads "except T0 auto-add".
+  - Undo must remove exactly the auto-added rows and retract learned barcodes.
+
+## ADR-030: Narrow crop-storage exception to ADR-015/017 (lead decision 2)
+
+- **Status:** **Accepted** (lead decision, #345, 2026-10-26; narrows ADR-015/ADR-017).
+- **Context:** provisionals for unreadable spines need their segment crop retained and linked so review is visual ("this crop → this entry: correct?"); crops exist phone-only today.
+- **Decision:** segment-crop JPEGs (multipart, ≤ 1 MB, sanitized, `AssetKind.ScanPhoto`) may upload to the self-hosted household API, ONLY for kept T2/provisional rows — never for auto-resolved successes. Recognition itself stays on-device per ADR-017; no third-party services; cascade-delete with the provisional.
+- **Alternatives:** phone-only crops (rejected: provisionals reviewed on web or after reinstall would lose their visual anchor); upload all crops (rejected: pointless bytes for successes).
+- **Consequences:**
+  - ADR-017's "Photos never reach our servers for recognition" still holds — these bytes are stored evidence, never recognition input.
+  - The upload path needs a test proxy proving successes never upload.
