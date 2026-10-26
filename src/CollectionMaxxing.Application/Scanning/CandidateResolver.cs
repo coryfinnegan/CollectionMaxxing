@@ -63,6 +63,7 @@ public sealed class CandidateResolver(
         candidate.Score = null;
         candidate.AlternativesJson = null;
         candidate.AlreadyOwnedCount = 0;
+        candidate.GuidanceCode = Reguide(candidate, resolution);
         var undecided = candidate.Decision == CandidateDecision.Undecided; // a decision the person already made is theirs; the job never overwrites it
         var ownedAt = new List<string>();
         CandidateDecision? autoDecision = null;
@@ -126,6 +127,30 @@ public sealed class CandidateResolver(
         DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
         candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
             resolution.Steps, ownedAt, NeedsArt(candidate, resolution), autoDecision, retryAfter));
+    }
+
+    /// <summary>
+    /// The row's guidance after an answer (design §8(a)): a fresh answer recomputes it, except a reshoot signal from the
+    /// phone stays until the row is picked or resolved — a re-resolve must not trade "move closer" for a vaguer default.
+    /// </summary>
+    private static GuidanceCode? Reguide(ScanCandidate candidate, BarcodeResolution resolution)
+    {
+        if (candidate.Resolution == CandidateResolution.Matched)
+        {
+            return null;
+        }
+
+        if (candidate.Resolution == CandidateResolution.Ambiguous)
+        {
+            return GuidanceCode.PickMatch;
+        }
+
+        if (candidate.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep))
+        {
+            return keep;
+        }
+
+        return GuidanceCodes.For(null, candidate.Resolution, candidate.Source, candidate.RawCode, UpcQuotaWindow.IsSpent(resolution));
     }
 
     /// <summary>

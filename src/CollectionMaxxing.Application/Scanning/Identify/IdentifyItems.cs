@@ -57,8 +57,13 @@ public static class IdentifyItems
             }
 
             var input = command.Input;
+            if (input.BoundCandidateId is not null)
+            {
+                return await HandleBoundAsync(command, session, userId, cancellationToken);
+            }
+
             var snapId = input.SnapId!.Value;
-            var items = IdentifyCleaning.Clean(input.Items!);
+            var items = IdentifyCleaning.Clean(input.Items!, input.Kind);
             var now = clock.GetUtcNow();
 
             // Claim the snap and its rows under the session's lock, so a retry or a twin of this request finds them instead of racing them.
@@ -117,6 +122,7 @@ public static class IdentifyItems
                         LocalId = item.LocalId,
                         Resolution = CandidateResolution.Pending,
                         Decision = CandidateDecision.Undecided,
+                        GuidanceCode = GuidanceCodes.For(input.FellBackFrom, CandidateResolution.Pending, source, null, quotaSpent: false),
                         InferredJson = StoredRead.Serialize(item.Facts, item.Profile),
                         IdempotencyKey = $"snap:{snapId:N}:{i}",
                         CreatedAt = now,
@@ -135,6 +141,86 @@ public static class IdentifyItems
 
             await ResolveAsync(session, fresh, userId, cancellationToken);
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, candidates, cancellationToken));
+        }
+
+        /// <summary>
+        /// A bound cover (Review's "Snap cover", design §8(b)): the read is stamped onto the bound row, which is then
+        /// resolved through the same identify path as a fresh read — scored as a cover, answered with the top three and
+        /// their artwork for tap-to-pick. The row keeps its id, copies and decisions; only its read and answer change.
+        /// Safe to retry: the same <c>snapId</c> gets the same row back.
+        /// </summary>
+        private async Task<Result<CandidatesDto>> HandleBoundAsync(
+            Command command, ScanSession session, Guid userId, CancellationToken cancellationToken)
+        {
+            var input = command.Input;
+            var candidate = await db.ScanCandidates.FirstOrDefaultAsync(
+                c => c.SessionId == session.Id && c.Id == input.BoundCandidateId, cancellationToken);
+            if (candidate is null)
+            {
+                return ScanningErrors.CandidateNotFound;
+            }
+
+            var snapId = input.SnapId!.Value;
+            var item = IdentifyCleaning.Clean(input.Items!, input.Kind)[0]; // Validate kept exactly one item
+            var now = clock.GetUtcNow();
+
+            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
+            {
+                if (await db.ScanSnaps.AnyAsync(s => s.Id == snapId && s.SessionId == session.Id, cancellationToken))
+                {
+                    return await ReplayAsync(session, snapId, userId, cancellationToken);
+                }
+
+                // A snapId is unique everywhere; one taken by another session is refused without saying whose it is.
+                if (await db.ScanSnaps.IgnoreQueryFilters().AnyAsync(s => s.Id == snapId, cancellationToken))
+                {
+                    return IdentifyErrors.SnapInUse;
+                }
+
+                if (session.Status != ScanSessionStatus.Open)
+                {
+                    return ScanningErrors.SessionClosed;
+                }
+
+                db.ScanSnaps.Add(new ScanSnap
+                {
+                    Id = snapId,
+                    LibraryId = session.LibraryId,
+                    SessionId = session.Id,
+                    Trigger = input.Trigger!.Value,
+                    ShotKind = input.ShotKind ?? ShotKind.Unknown,
+                    Engine = input.Engine!.Value,
+                    FellBack = input.FellBackFrom is not null,
+                    FallbackReason = input.FellBackFrom,
+                    ItemCount = 1,
+                    AssetId = null,
+                    CreatedAt = now,
+                });
+
+                // ShotKind, SegmentId and LocalId are init-only (history, not state), so the bound read is written through EF.
+                var entry = db.ScanCandidates.Attach(candidate);
+                entry.Property(c => c.ShotKind).CurrentValue = input.ShotKind ?? ShotKind.Unknown;
+                entry.Property(c => c.SegmentId).CurrentValue = item.SegmentId;
+                entry.Property(c => c.LocalId).CurrentValue = item.LocalId;
+                candidate.SnapId = snapId;
+                candidate.Resolution = CandidateResolution.Pending;
+                candidate.InferredJson = StoredRead.Serialize(item.Facts, item.Profile);
+                candidate.GuidanceCode = GuidanceCodes.For(
+                    input.FellBackFrom, CandidateResolution.Pending, candidate.Source, candidate.RawCode, quotaSpent: false);
+                if ((item.Facts.Text ?? item.Facts.Title) is { } text)
+                {
+                    resolver.SetVisibleText(candidate, text);
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+
+                // A safety net queued before the slow lookups, due once this request's budget has long passed: if the request is cut
+                // off (a dropped connection, a crash) the row still gets resolved. It is a no-op for anything already resolved.
+                await EnqueueResolveJobsAsync(session, [candidate], userId, SafetyKey, options.ResolveBudget + SafetyMargin, cancellationToken);
+            }
+
+            await ResolveAsync(session, [(candidate, item)], userId, cancellationToken);
+            return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken));
         }
 
         private async Task ResolveAsync(

@@ -170,7 +170,7 @@ public static class ScanningEndpoints
     private static async Task<IResult> SearchForCandidate(
         Guid id, Guid cid, SearchCandidateRequest body, SearchForCandidate.Handler handler, CancellationToken cancellationToken)
     {
-        var result = await handler.HandleAsync(new SearchForCandidate.Command(id, cid, body.Text), cancellationToken);
+        var result = await handler.HandleAsync(new SearchForCandidate.Command(id, cid, body.Text, body.ContextWorkIds), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
     }
 

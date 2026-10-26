@@ -124,6 +124,9 @@ public static class SubmitBarcodes
                             Symbology = line.Symbology,
                             Resolution = line.Identifier is null ? CandidateResolution.Error : CandidateResolution.Pending,
                             Decision = CandidateDecision.Undecided,
+                            GuidanceCode = line.Identifier is null
+                                ? GuidanceCodes.For(null, CandidateResolution.Error, CandidateSource.Barcode, line.RawCode, quotaSpent: false)
+                                : null,
                             Copies = line.Copies,
                             IdempotencyKey = line.Key,
                             CreatedAt = now,

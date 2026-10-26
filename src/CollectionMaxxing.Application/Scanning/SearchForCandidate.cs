@@ -12,10 +12,14 @@ using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Application.Scanning;
 
-/// <summary>What the local catalogue has for a read, as scorer candidates, and the step that records the lookup (none when there was nothing to look up).</summary>
-public sealed record LocalPool(IReadOnlyList<(CandidateRelease Scoring, ResolutionOption Option)> Items, TraceStep? Step)
+/// <summary>
+/// What the local catalogue has for a read, as scorer candidates, and the step that records the lookup (none when there was
+/// nothing to look up). <c>WorkIdsByKey</c> maps each candidate's key to its work, so a neighbour bias can find its own.
+/// </summary>
+public sealed record LocalPool(
+    IReadOnlyList<(CandidateRelease Scoring, ResolutionOption Option)> Items, TraceStep? Step, IReadOnlyDictionary<string, Guid> WorkIdsByKey)
 {
-    public static LocalPool Empty { get; } = new([], null);
+    public static LocalPool Empty { get; } = new([], null, new Dictionary<string, Guid>());
 }
 
 /// <summary>What the providers said about a read: the releases, the steps taken, and whether any provider failed or ran out of time.</summary>
@@ -53,15 +57,28 @@ public sealed class TextSearchResolver(
     /// Like <see cref="SearchAsync(string, CancellationToken)"/>, with what the person corrected on the candidate: a format, a
     /// platform or an edition is one more signal for the scorer (and the providers), never a filter.
     /// </summary>
+    public Task<BarcodeResolution> SearchAsync(
+        string text, ReleaseFormat? format, string? platform, string? edition, CancellationToken cancellationToken) =>
+        SearchAsync(text, format, platform, edition, null, cancellationToken);
+
+    /// <summary>
+    /// Like the above, with the segment neighbours' works (design §8(d)): releases of those works sort higher, as a ranking
+    /// bias only — never a filter, and the globally-best match can never drop out of the top three.
+    /// </summary>
     public async Task<BarcodeResolution> SearchAsync(
-        string text, ReleaseFormat? format, string? platform, string? edition, CancellationToken cancellationToken)
+        string text,
+        ReleaseFormat? format,
+        string? platform,
+        string? edition,
+        IReadOnlyCollection<Guid>? contextWorkIds,
+        CancellationToken cancellationToken)
     {
         var read = new ReadItem { Title = text, Format = format, Platform = platform, Edition = edition };
         var found = await FindLocalAsync(text, cancellationToken);
         var query = new CatalogQuery { Title = text, Format = format, Platform = platform, Limit = Limit };
         using var failFast = ProviderCalls.FailFast(); // a person is waiting
         var answers = await AskProvidersAsync(query, options.ResolveBudget, cancellationToken);
-        return Score(read, CatalogProjection.Profile, found, answers, pendingWhenProvidersFailed: false);
+        return Score(read, CatalogProjection.Profile, found, answers, pendingWhenProvidersFailed: false, contextWorkIds, found.WorkIdsByKey);
     }
 
     /// <summary>The releases the local catalogue has for a title (trigram search), as scorer candidates. Uses the database: one call at a time.</summary>
@@ -81,6 +98,7 @@ public sealed class TextSearchResolver(
             ? []
             : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
         var pool = new List<(CandidateRelease Scoring, ResolutionOption Option)>();
+        var workIds = new Dictionary<string, Guid>(StringComparer.Ordinal);
         foreach (var hit in hits)
         {
             var platform = hit.Release.PlatformId is { } id && platforms.TryGetValue(id, out var found) ? found.Name : null;
@@ -97,9 +115,10 @@ public sealed class TextSearchResolver(
                     Edition = hit.Release.Edition,
                 },
                 new ResolutionOption(hit.Release.Id, null, 0)));
+            workIds.TryAdd(hit.Release.Id.ToString(), hit.Work.Id);
         }
 
-        return new LocalPool(pool, step);
+        return new LocalPool(pool, step, workIds);
     }
 
     /// <summary>Asks the providers that know the query's kind (all of them when it has none), within <paramref name="budget"/>.</summary>
@@ -126,9 +145,17 @@ public sealed class TextSearchResolver(
     /// <summary>
     /// Scores everything found against the read and decides. Pure. With <paramref name="pendingWhenProvidersFailed"/>, a read
     /// that found nothing good while a provider was down or slow is Pending (worth asking again) instead of NotFound.
+    /// <paramref name="contextWorkIds"/> biases the ranking toward the segment neighbours' works (design §8(d)): the verdict
+    /// and every score stay exactly as the scorer computed them.
     /// </summary>
     public static BarcodeResolution Score(
-        ReadItem read, ScoringProfile profile, LocalPool found, ProviderAnswers answers, bool pendingWhenProvidersFailed)
+        ReadItem read,
+        ScoringProfile profile,
+        LocalPool found,
+        ProviderAnswers answers,
+        bool pendingWhenProvidersFailed,
+        IReadOnlyCollection<Guid>? contextWorkIds = null,
+        IReadOnlyDictionary<string, Guid>? workIdsByKey = null)
     {
         var steps = new List<TraceStep>();
         if (found.Step is { } localStep)
@@ -164,9 +191,51 @@ public sealed class TextSearchResolver(
             return nothing;
         }
 
-        var ranked = result.Ranked.Take(Alternatives).Select(r => byKey[r.Release.Key] with { Score = r.Score }).ToList();
+        var ranked = BiasRanking(result.Ranked, contextWorkIds, workIdsByKey, out var boosted);
+        if (boosted > 0)
+        {
+            steps.Add(new TraceStep("context", "biased", 0));
+        }
+
+        var options = ranked.Take(Alternatives).Select(r => byKey[r.Release.Key] with { Score = r.Score }).ToList();
         return new BarcodeResolution(
-            result.Outcome == MatchOutcome.Matched ? ResolutionVerdict.Matched : ResolutionVerdict.Ambiguous, ranked, null, steps);
+            result.Outcome == MatchOutcome.Matched ? ResolutionVerdict.Matched : ResolutionVerdict.Ambiguous, options, null, steps);
+    }
+
+    /// <summary>How much higher a segment neighbour sorts, in score units. Small on purpose: it settles close calls, never landslides.</summary>
+    public const double ContextBias = 0.05;
+
+    /// <summary>
+    /// Reorders a scored ranking toward the neighbours' works. The scores are untouched — only the order changes — and the
+    /// unbiased best is pinned into the top three, so the bias reorders but can never hide the globally-best match.
+    /// <paramref name="boosted"/> counts the ranked releases that got the bonus. Pure.
+    /// </summary>
+    private static List<ScoredRelease> BiasRanking(
+        IReadOnlyList<ScoredRelease> ranked, IReadOnlyCollection<Guid>? contextWorkIds, IReadOnlyDictionary<string, Guid>? workIdsByKey, out int boosted)
+    {
+        boosted = 0;
+        if (ranked.Count == 0 || contextWorkIds is not { Count: > 0 } || workIdsByKey is null)
+        {
+            return ranked.ToList();
+        }
+
+        var context = contextWorkIds as IReadOnlySet<Guid> ?? contextWorkIds.ToHashSet();
+        var order = ranked
+            .Select(entry => (Entry: entry, Boosted: workIdsByKey.TryGetValue(entry.Release.Key, out var workId) && context.Contains(workId)))
+            .OrderByDescending(x => x.Entry.Score + (x.Boosted ? ContextBias : 0))
+            .Select(x => x.Entry)
+            .ToList();
+        boosted = order.Count(entry => workIdsByKey.TryGetValue(entry.Release.Key, out var workId) && context.Contains(workId));
+
+        // The unbiased best stays selectable whatever the neighbours say: at worst it slides to third.
+        var best = ranked[0].Release.Key;
+        if (order.FindIndex(entry => entry.Release.Key == best) > Alternatives - 1)
+        {
+            order.RemoveAll(entry => entry.Release.Key == best);
+            order.Insert(Alternatives - 1, ranked[0]);
+        }
+
+        return order;
     }
 
     private sealed record Attempt(IReadOnlyList<ProviderRelease> Found, bool Failed);
@@ -213,7 +282,10 @@ public static class SearchForCandidate
 {
     public const int MaxTextLength = 200;
 
-    public sealed record Command(Guid SessionId, Guid CandidateId, string? Text);
+    /// <summary>The most neighbour works a search may carry. A segment holds at most 40 items, so this never binds a real one.</summary>
+    public const int MaxContextWorkIds = 40;
+
+    public sealed record Command(Guid SessionId, Guid CandidateId, string? Text, IReadOnlyList<Guid>? ContextWorkIds = null);
 
     public sealed class Handler(IAppDbContext db, ICurrentUser currentUser, CandidateResolver resolver, TextSearchResolver search)
     {
@@ -228,6 +300,20 @@ public static class SearchForCandidate
             if (text.Length > MaxTextLength)
             {
                 return ScanningErrors.Invalid("scan.text_too_long", $"Search text can be at most {MaxTextLength} characters.", "text");
+            }
+
+            if (command.ContextWorkIds is { } context)
+            {
+                if (context.Any(id => id == Guid.Empty))
+                {
+                    return ScanningErrors.Invalid("scan.context_invalid", "Every context work id must be a real id.", "contextWorkIds");
+                }
+
+                if (context.Count > MaxContextWorkIds)
+                {
+                    return ScanningErrors.Invalid(
+                        "scan.context_too_many", $"A search carries at most {MaxContextWorkIds} context works.", "contextWorkIds");
+                }
             }
 
             if (await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken) is not { } session)
@@ -247,10 +333,24 @@ public static class SearchForCandidate
                 return ScanningErrors.SessionClosed;
             }
 
+            var started = Stopwatch.GetTimestamp();
             var found = await search.SearchAsync(
-                text, candidate.EditedFormat, candidate.EditedPlatform, candidate.EditedEdition, cancellationToken);
+                text, candidate.EditedFormat, candidate.EditedPlatform, candidate.EditedEdition, command.ContextWorkIds, cancellationToken);
             await resolver.ApplyAsync(session.LibraryId, candidate, found, cancellationToken);
             resolver.SetVisibleText(candidate, text);
+
+            // Fallback (d) fired: mark the trace, so evals can audit fallback usage per candidate. Unknown context ids simply
+            // match nothing — the bias degrades to a plain search, never an error, never a filter.
+            var trace = CandidateJson.ReadTrace(candidate.TraceJson);
+            candidate.TraceJson = CandidateJson.Serialize(trace with
+            {
+                Steps =
+                [
+                    .. trace.Steps,
+                    new TraceStep("search", command.ContextWorkIds is { Count: > 0 } ? "biased" : "plain", (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds),
+                ],
+            });
+
             await db.SaveChangesAsync(cancellationToken);
             return (await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken))[0];
         }

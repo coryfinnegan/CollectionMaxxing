@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Scanning;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 
@@ -71,7 +72,9 @@ internal static class IdentifyEndpoint
                 : new IdentifyItemInput(
                     i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, i.LocalMatchReleaseId))
                 .ToList(),
-            parsed.ShotKind);
+            parsed.ShotKind,
+            parsed.Kind ?? IdentifyKind.Shelf,
+            parsed.CandidateId);
 
         var result = await handler.HandleAsync(new IdentifyItems.Command(id, input), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();

@@ -15,7 +15,7 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// One thing the scanner saw, what we think it is, and what the user decided. <c>NeedsArt</c> says the top releases are a close
 /// call: the phone should compare the alternatives' <c>artworkUrl</c>s with the item and post the distances to
 /// <c>POST …/candidates/{id}:art</c>. <c>ShotKind</c> is what the phone's framing said the shot was; <c>SegmentId</c> links the
-/// items of a multi-item snap (#338).
+/// items of a multi-item snap (#338); <c>GuidanceCode</c> is what this unresolved row tells the person to do next (#344).
 /// </summary>
 public sealed record CandidateDto(
     Guid Id,
@@ -45,7 +45,8 @@ public sealed record CandidateDto(
     PendingReason? PendingReason,
     DateTimeOffset? RetryAfter,
     ShotKind ShotKind,
-    string? SegmentId);
+    string? SegmentId,
+    GuidanceCode? GuidanceCode);
 
 /// <summary>Why a candidate is still Pending: <c>Quota</c> (today's UPC allowance is spent, so it waits for the nightly drain) or <c>Lookup</c> (a provider was slow or down, so it is tried again shortly).</summary>
 public enum PendingReason
