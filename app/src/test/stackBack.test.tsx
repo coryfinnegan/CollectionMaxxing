@@ -2,7 +2,8 @@
 // control from its stack layout — the phone header on native, an in-flow row
 // on the web where pages have no header — with an accessible name and a 44pt
 // target, and nowhere to go back to lands on the parent hub instead of
-// stranding the page.
+// stranding the page. The shared layouts also pin the native back label to
+// Back (#372), so it never falls back to a route-group name like (tabs).
 import { fireEvent } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { Platform, StyleSheet } from 'react-native';
@@ -38,11 +39,18 @@ jest.mock('@/components/RootFrame', () => {
   const React = require('react') as typeof import('react');
   return { RootFrame: ({ children }: { children?: React.ReactNode }) => React.createElement(React.Fragment, null, children) };
 });
+jest.mock('@/components/Sidebar', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react') as typeof import('react');
+  return { Sidebar: () => React.createElement(React.Fragment, null) };
+});
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const PagesLayout = require('@/app/(pages)/_layout').default as () => ReactElement;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const RootLayout = require('@/app/_layout').default as () => ReactElement;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const WebRootLayout = require('@/app/_layout.web').default as () => ReactElement;
 
 const originalOs = Platform.OS;
 beforeEach(() => {
@@ -77,6 +85,12 @@ function headerLeftFor(captured: Captured, screenName: string): HeaderLeft {
   const resolved = (found?.options?.headerLeft ?? captured.screenOptions?.headerLeft) as HeaderLeft | undefined;
   expect(resolved).toBeDefined();
   return resolved as HeaderLeft;
+}
+
+/** The native back label a screen resolves: its own option, else the layout's shared one. */
+function backTitleFor(captured: Captured, screenName: string): unknown {
+  const found = captured.screens.find((s) => s.name === screenName);
+  return found?.options?.headerBackTitle ?? captured.screenOptions?.headerBackTitle;
 }
 
 async function expectBackButton(headerLeft: HeaderLeft) {
@@ -220,5 +234,44 @@ describe('the back button', () => {
     await pressBack(headerLeftFor(captured, screenName));
 
     expect(mockRouter.replace).toHaveBeenCalledWith(hub);
+  });
+});
+
+describe('the native back label (#372)', () => {
+  it.each([
+    ['root', RootLayout],
+    ['web root', WebRootLayout],
+    ['pages', PagesLayout],
+  ])('pins the label in the shared %s options, so it never falls back to a route name', async (_label, Layout) => {
+    const captured = await captureLayout(Layout);
+
+    expect(captured.screenOptions?.headerBackTitle).toBe('Back');
+  });
+
+  it('resolves every root screen to Back, never a route-group name', async () => {
+    const captured = await captureLayout(RootLayout);
+    expect(captured.screens.length).toBeGreaterThan(0);
+
+    for (const { name } of captured.screens) {
+      expect(backTitleFor(captured, name)).toBe('Back');
+    }
+  });
+
+  it('resolves every web root screen to Back, never a route-group name', async () => {
+    const captured = await captureLayout(WebRootLayout);
+    expect(captured.screens.length).toBeGreaterThan(0);
+
+    for (const { name } of captured.screens) {
+      expect(backTitleFor(captured, name)).toBe('Back');
+    }
+  });
+
+  it('resolves every page to Back, never a route-group name', async () => {
+    const captured = await captureLayout(PagesLayout);
+    expect(captured.screens.length).toBeGreaterThan(0);
+
+    for (const { name } of captured.screens) {
+      expect(backTitleFor(captured, name)).toBe('Back');
+    }
   });
 });
