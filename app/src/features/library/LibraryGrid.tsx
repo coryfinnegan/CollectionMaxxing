@@ -157,6 +157,11 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
           selected={!!filters.locationId}
           onPress={() => setPanel('location')}
         />
+        <Chip
+          label="Edition unverified"
+          selected={!!filters.unverifiedOnly}
+          onPress={() => filter({ unverifiedOnly: filters.unverifiedOnly ? undefined : true })}
+        />
         <Chip label={`Sort: ${sortLabel(filters.sort)}`} accessibilityLabel="Sort" onPress={() => setPanel('sort')} />
         {!fixedStatus ? (
           <Chip
@@ -336,7 +341,7 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${item.title}, ${details}`}
+        accessibilityLabel={item.editionVerified ? `${item.title}, ${details}` : `${item.title}, ${details}, edition unverified`}
         onPress={onPress}
         testID={`item-${item.id}`}
         style={styles.tilePressable}
@@ -345,7 +350,10 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
         <Text variant="label" numberOfLines={2}>
           {item.title}
         </Text>
-        <FormatBadge label={formatLabels[item.format]} />
+        <View style={styles.badges}>
+          <FormatBadge label={formatLabels[item.format]} />
+          {item.editionVerified ? null : <FormatBadge label="Edition unverified" />}
+        </View>
       </Pressable>
     </Animated.View>
   );
@@ -361,5 +369,6 @@ const styles = StyleSheet.create((theme) => ({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   snackbarPad: { padding: theme.spacing.lg },
   tilePressable: { gap: theme.spacing.xs },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs },
   tile: (width: number) => ({ width }),
 }));

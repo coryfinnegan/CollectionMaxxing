@@ -67,6 +67,19 @@ describe('LibraryTable', () => {
     expect(mockRouter.push).toHaveBeenCalledWith(`/item/${ID(1)}`);
   });
 
+  it('badges unverified editions and filters to just those', async () => {
+    itemsState.entries.find((e) => e.work.title === 'The Matrix')!.item.editionVerified = false;
+    await renderWithProviders(<LibraryTable title="Library" />);
+
+    expect(await screen.findByLabelText('Open The Matrix, edition unverified')).toBeTruthy();
+    expect(screen.getByLabelText('Open Super Mario 64')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Edition unverified'));
+    await waitFor(() => expect(listRequests().some((r) => r.url.searchParams.get('editionVerified') === 'false')).toBe(true));
+    await waitFor(() => expect(screen.queryByText('Super Mario 64')).toBeNull());
+    expect(screen.getByText('The Matrix')).toBeTruthy();
+  });
+
   it('hides and shows columns from the chooser and saves the choice', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
     await screen.findByText('The Matrix');

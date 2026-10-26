@@ -126,6 +126,18 @@ export function SessionSheet({ libraryId, context, onSave, onClose }: Props) {
         </View>
       </View>
 
+      <View style={styles.row}>
+        <Text variant="label">Auto-add</Text>
+        <View style={styles.chips}>
+          <Chip
+            label="Confident matches"
+            accessibilityLabel="Auto-add confident matches"
+            selected={draft.autoAddConfident}
+            onPress={() => setDraft((d) => ({ ...d, autoAddConfident: !d.autoAddConfident }))}
+          />
+        </View>
+      </View>
+
       <Button label="Save" onPress={save} />
     </Sheet>
   );

@@ -50,7 +50,7 @@ const press = async (label: string) => {
 
 describe('scanner session context', () => {
   it('shows the remembered spot in the bar', async () => {
-    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'wishlist', mediaHint: 'mixed', channel: 'home' });
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'wishlist', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
     await scanner();
 
     expect(await screen.findByLabelText('Session: Game room › Shelf 1, Wishlist, Mixed, Home. Change settings')).toBeTruthy();
@@ -66,7 +66,7 @@ describe('scanner session context', () => {
         return HttpResponse.json({ id }, { status: 201 });
       }),
     );
-    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'owned', mediaHint: 'mixed', channel: 'home' });
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
     const source = await scanner();
 
     await press('Session: Game room › Shelf 1, Owned, Mixed, Home. Change settings');
@@ -78,7 +78,7 @@ describe('scanner session context', () => {
     expect(await screen.findByLabelText('Session: Game room › Shelf 2, Owned, Games, Home. Change settings')).toBeTruthy();
     await act(async () => source.inject([{ value: DEV_CODES.duneOwned, symbology: 'ean-13' }]));
     await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0]).toEqual({ defaultLocationId: SHELF_2, defaultStatus: 'owned', mediaHint: 'games', channel: 'home' });
+    expect(bodies[0]).toEqual({ defaultLocationId: SHELF_2, defaultStatus: 'owned', mediaHint: 'games', channel: 'home', autoCommitTiers: ['T0'] });
   });
 
   it('searches the catalog one tap from the camera', async () => {
@@ -91,7 +91,7 @@ describe('scanner session context', () => {
   });
 
   it('offers Move it here at home and hides it in-store', async () => {
-    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'owned', mediaHint: 'mixed', channel: 'home' });
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
     const source = await scanner();
     await act(async () => source.inject([{ value: DEV_CODES.duneOwned, symbology: 'ean-13' }]));
 

@@ -14,6 +14,8 @@ export type SessionContext = {
   status: SessionItemStatus;
   mediaHint: SessionMediaHint;
   channel: SessionChannel;
+  /** Whether confident spine/cover matches auto-add (T1, flagged edition-unverified). Off unless opted in. */
+  autoAddConfident: boolean;
 };
 
 /** What is remembered per library: the last home location and status. Media and channel start fresh every session. */
@@ -83,13 +85,15 @@ export function sessionCreateBody(context: SessionContext): CreateScanSessionReq
     defaultStatus: context.status,
     mediaHint: context.mediaHint,
     channel: context.channel,
+    autoCommitTiers: context.autoAddConfident ? ['T0', 'T1'] : ['T0'],
   };
 }
 
 /** What a fresh session in this library starts from: the last home spot, or a blank home scan. */
 export function defaultSessionContext(libraryId: string): SessionContext {
   const memory = loadSessionMemory(libraryId);
-  return { locationId: memory?.locationId ?? null, status: memory?.status ?? 'owned', mediaHint: 'mixed', channel: 'home' };
+  // Like media and channel, the T1 opt-in starts fresh every session: it is never remembered.
+  return { locationId: memory?.locationId ?? null, status: memory?.status ?? 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false };
 }
 
 /** Sign-out, unpair and account deletion: forget every library's spot. */

@@ -446,7 +446,7 @@ describe('Review screen', () => {
   });
 
   it('an in-store session says the locations are decided later and starts at the last home spot', async () => {
-    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_2, status: 'owned', mediaHint: 'mixed', channel: 'home' });
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_2, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
     seed([mario()]);
     scanMock.sessions.get(SESSION)!.context = { defaultLocationId: null, defaultStatus: null, mediaHint: 'mixed', channel: 'in_store' };
     await open();

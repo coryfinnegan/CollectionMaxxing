@@ -20,6 +20,8 @@ export type LibraryFilters = {
   format?: ReleaseFormat;
   platform?: string;
   locationId?: string;
+  /** Show only items whose edition is still unproven (a T1 auto-add waiting to be verified). */
+  unverifiedOnly?: boolean;
   sort: SortValue;
 };
 
@@ -34,13 +36,14 @@ export function changeFilter(state: ListState, patch: Partial<LibraryFilters>): 
 
 /** Builds the GET /items query. `fixedStatus` is the Wishlist or Lent out view's status. */
 export function toListParams(state: ListState, fixedStatus?: ItemStatus): ListItemsParams {
-  const { q, kind, format, platform, locationId, sort } = state.filters;
+  const { q, kind, format, platform, locationId, unverifiedOnly, sort } = state.filters;
   const params: ListItemsParams = { sort, limit: PAGE_SIZE };
   if (q.trim()) params.q = q.trim();
   if (kind) params.kind = kind;
   if (format) params.format = format;
   if (platform) params.platform = platform;
   if (locationId) params.locationId = locationId;
+  if (unverifiedOnly) params.editionVerified = false;
   if (fixedStatus) params.status = fixedStatus;
   if (state.cursor) params.cursor = state.cursor;
   return params;
@@ -48,4 +51,4 @@ export function toListParams(state: ListState, fixedStatus?: ItemStatus): ListIt
 
 /** True when any filter narrows the list (used to choose between "nothing here" and "nothing matches"). */
 export const hasActiveFilter = (filters: LibraryFilters): boolean =>
-  !!(filters.q.trim() || filters.kind || filters.format || filters.platform || filters.locationId);
+  !!(filters.q.trim() || filters.kind || filters.format || filters.platform || filters.locationId || filters.unverifiedOnly);

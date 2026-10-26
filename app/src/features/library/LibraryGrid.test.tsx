@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
-import { resetItems } from '@/mocks/items';
+import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { searchPlaceholder } from './LibraryGrid';
@@ -129,6 +129,19 @@ describe('LibraryView grid', () => {
 
     expect(await screen.findByText('Blade Runner')).toBeTruthy();
     expect(screen.queryByLabelText('Needs attention')).toBeNull();
+  });
+
+  it('badges unverified editions and filters to just those', async () => {
+    itemsState.entries.find((e) => e.work.title === 'The Matrix')!.item.editionVerified = false;
+    await renderWithProviders(<LibraryView title="Library" />);
+
+    expect(await screen.findByLabelText('The Matrix, DVD, edition unverified')).toBeTruthy();
+    expect(screen.getByLabelText('Super Mario 64, Cartridge, Nintendo 64')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Edition unverified'));
+    await waitFor(() => expect(listRequests().some((u) => u.searchParams.get('editionVerified') === 'false')).toBe(true));
+    await waitFor(() => expect(screen.queryByText('Super Mario 64')).toBeNull());
+    expect(screen.getByText('The Matrix')).toBeTruthy();
   });
 
   it('loads the next page on scroll, and starts from the top when a filter changes', async () => {
