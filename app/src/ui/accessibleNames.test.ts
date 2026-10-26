@@ -35,6 +35,7 @@ function openingTags(source: string, names: string[]): { name: string; tag: stri
 /** Decorative elements that may go without a name, each with the reason. Key: `relative/path.tsx:Name`. */
 const decorative: Record<string, string> = {
   'features/scan/tray/ReceiptBar.tsx:Image': 'the receipt row is one accessible element with the item title as its label; the thumbnail adds nothing',
+  'features/scan/session/SegmentStrip.tsx:Image': 'the strip cell is one accessible element with the snap state as its label; the thumbnail adds nothing',
 };
 
 const hasRole = (tag: string) => /accessibilityRole|\brole=/.test(tag);
