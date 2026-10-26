@@ -30,7 +30,7 @@ const routes: [url: string, expected: string][] = [
   ['/wishlist', 'Blade Runner'],
   ['/lent-out', 'GoldenEye 007'],
   ['/members', 'Cory (you)'],
-  ['/settings', 'Recognition and security on this iPhone.'],
+  ['/settings', 'Recognition, appearance and security on this iPhone.'],
   ['/about', 'Version, privacy and credits.'],
   ['/item/42', "Couldn't load this item"],
   ['/item/42/edit', "Couldn't load this item"],
