@@ -14,8 +14,11 @@ export type CardCopy = {
   /** The line that matters: "Already own — …", "Looking up…", the not-found or error copy. */
   status: string | null;
   /** `pick` is a picture's close call the person has to settle; it has no Add yet. */
-  kind: 'pending' | 'owned' | 'new' | 'pick' | 'not_found' | 'error';
+  kind: 'pending' | 'owned' | 'new' | 'added' | 'pick' | 'not_found' | 'error';
 };
+
+/** An auto-add that still stands: it is already in the library, with Undo on offer. */
+export const ADDED_COPY = 'Added to your library';
 
 /** A code waiting for the daily lookup allowance: no times, no jargon (docs/06). */
 export const QUOTA_COPY = "We'll look this up tomorrow. Hold up the front cover to identify it now.";
@@ -69,6 +72,8 @@ function describePicture(c: CandidateDto): CardCopy {
     default: {
       const release = c.release;
       const subtitle = [release?.platform?.name ?? (release ? formatLabels[release.format] : null), release?.year].filter(Boolean).join(' · ');
+      // Added leads over owned: a second copy scanned in copies mode is in the library now, whatever was there before.
+      if (c.createdItemId != null) return { title: release?.title ?? read, subtitle, status: ADDED_COPY, kind: 'added' };
       // Owned leads: "Already own" is the answer the person is standing at the shelf for, even when the match is a close call.
       if (c.alreadyOwnedCount > 0)
         return { title: release?.title ?? read, subtitle, status: alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount), kind: 'owned' };
@@ -93,6 +98,7 @@ export function describeCandidate(c: CandidateDto): CardCopy {
       const subtitle = [release?.platform?.name ?? (release ? formatLabels[release.format] : null), release?.year]
         .filter(Boolean)
         .join(' · ');
+      if (c.createdItemId != null) return { title: release?.title ?? code, subtitle, status: ADDED_COPY, kind: 'added' };
       const owned = c.alreadyOwnedCount > 0;
       return {
         title: release?.title ?? code,

@@ -16,6 +16,7 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// call: the phone should compare the alternatives' <c>artworkUrl</c>s with the item and post the distances to
 /// <c>POST …/candidates/{id}:art</c>. <c>ShotKind</c> is what the phone's framing said the shot was; <c>SegmentId</c> links the
 /// items of a multi-item snap (#338); <c>GuidanceCode</c> is what this unresolved row tells the person to do next (#344).
+/// <c>Tier</c> is the commit tier (docs/16 §6): null until the candidate resolves.
 /// </summary>
 public sealed record CandidateDto(
     Guid Id,
@@ -28,6 +29,7 @@ public sealed record CandidateDto(
     BoxDto? Box,
     BoxSource? BoxSource,
     CandidateResolution Resolution,
+    ScanTier? Tier,
     double? Score,
     double? ArtDistance,
     bool NeedsArt,
@@ -77,6 +79,7 @@ public sealed record CandidateAlternativeDto(
 /// <summary>
 /// A scan session with all its candidates (or those after <c>?since=seq</c>). <c>Counters</c> and <c>Segments</c> always cover
 /// the whole session, never just the <c>?since=</c> window, so the phone's bar and strip stay complete while polling.
+/// <c>AutoCommitTiers</c> is which tiers auto-add (docs/16 §6); <c>AutoCommitCopies</c> whether an exact-owned hit still adds another copy.
 /// </summary>
 public sealed record ScanSessionDto(
     Guid Id,
@@ -90,7 +93,9 @@ public sealed record ScanSessionDto(
     DateTimeOffset? CommittedAt,
     IReadOnlyList<CandidateDto> Candidates,
     SessionCountersDto Counters,
-    IReadOnlyList<SessionSegmentDto> Segments);
+    IReadOnlyList<SessionSegmentDto> Segments,
+    IReadOnlyList<ScanTier> AutoCommitTiers,
+    bool AutoCommitCopies);
 
 public sealed record CreatedScanSessionDto(Guid Id);
 
@@ -99,3 +104,6 @@ public sealed record CandidatesDto(IReadOnlyList<CandidateDto> Candidates);
 
 /// <summary>What committing a session did.</summary>
 public sealed record CommitResultDto(int Created, int Skipped, IReadOnlyList<Guid> ItemIds);
+
+/// <summary>What undoing one auto-add did: how many items it removed, and the candidate with its evidence back.</summary>
+public sealed record UndoAutoCommitResultDto(int Removed, CandidateDto Candidate);

@@ -148,27 +148,19 @@ public static class CommitScanSession
                 candidate.Copies = copies;
                 for (var copy = 0; copy < copies; copy++)
                 {
-                    var item = new Item
-                    {
-                        Id = ids.NewId(),
-                        LibraryId = session.LibraryId,
-                        ReleaseId = releaseFor.ForCandidate[candidate.Id],
-                        Status = over?.Status ?? options?.Status ?? session.DefaultStatus ?? ItemStatus.Owned,
-                        Condition = over?.Condition ?? options?.Condition,
-                        Completeness = CompletenessOf(candidate),
-                        LocationId = over?.LocationId ?? options?.AddTo ?? session.DefaultLocationId,
-                        CoverChoice = photoId is null ? CoverChoice.Release : CoverChoice.MyPhoto,
-                        CustomCoverAssetId = photoId,
-                        AddedVia = candidate.Source switch
-                        {
-                            CandidateSource.Barcode => AddedVia.Barcode,
-                            CandidateSource.Search => AddedVia.Search,
-                            _ => AddedVia.Picture,
-                        },
-                        CreatedAt = now,
-                        CreatedBy = userId, // always the caller
-                        UpdatedAt = now,
-                    };
+                    var item = ScanCommitItems.Build(
+                        ids.NewId(),
+                        session.LibraryId,
+                        releaseFor.ForCandidate[candidate.Id],
+                        over?.Status ?? options?.Status ?? session.DefaultStatus ?? ItemStatus.Owned,
+                        over?.Condition ?? options?.Condition,
+                        ScanCommitItems.CompletenessOf(candidate),
+                        over?.LocationId ?? options?.AddTo ?? session.DefaultLocationId,
+                        photoId is null ? CoverChoice.Release : CoverChoice.MyPhoto,
+                        photoId,
+                        ScanCommitItems.ViaOf(candidate.Source),
+                        userId,
+                        now);
                     db.Items.Add(item);
                     created.Add(item.Id);
                     if (copy == 0)
@@ -264,25 +256,5 @@ public static class CommitScanSession
             return null;
         }
 
-        /// <summary>The completeness the phone read from a picture (loose cartridge, disc only...), if it said.</summary>
-        private static ItemCompleteness? CompletenessOf(ScanCandidate candidate)
-        {
-            if (CandidateJson.ReadElement(candidate.InferredJson) is not { ValueKind: JsonValueKind.Object } inferred
-                || !inferred.TryGetProperty("completeness", out var text)
-                || text.ValueKind != JsonValueKind.String)
-            {
-                return null;
-            }
-
-            foreach (var value in Enum.GetValues<ItemCompleteness>())
-            {
-                if (EnumText.ToText(value) == text.GetString())
-                {
-                    return value;
-                }
-            }
-
-            return null;
-        }
     }
 }

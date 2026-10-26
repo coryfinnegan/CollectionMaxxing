@@ -51,7 +51,8 @@ export function ResultDetail({ id }: { id: string }) {
   const copy = describeCandidate(candidate);
   const release = candidate.release;
   const owned = candidate.alreadyOwnedCount > 0;
-  const addable = canAdd && !!release && !owned;
+  const added = copy.kind === 'added';
+  const addable = canAdd && !!release && !owned && !added;
   const busy = !!actions.busy?.[candidate.id];
   const error = actions.errors?.[candidate.id];
   const accepted = candidate.decision === 'accepted';
@@ -115,6 +116,8 @@ export function ResultDetail({ id }: { id: string }) {
           </>
         ) : copy.kind === 'new' ? (
           <Text variant="heading">Not in your library</Text>
+        ) : copy.kind === 'added' ? (
+          <Text variant="heading">{copy.status}</Text>
         ) : (
           <Text>{copy.status}</Text>
         )}
@@ -125,6 +128,9 @@ export function ResultDetail({ id }: { id: string }) {
           </View>
         ) : null}
         {addable && (accepted || wishlisted) ? <Text tone="accent">{wishlisted ? 'On your wishlist' : 'Added to this scan'}</Text> : null}
+        {added && actions.onUndoAutoCommit ? (
+          <Button label="Undo" variant="secondary" accessibilityLabel={`Undo adding ${copy.title}`} busy={busy} onPress={() => actions.onUndoAutoCommit?.(candidate)} />
+        ) : null}
         {error ? (
           <Text tone="danger" accessibilityRole="alert">
             {error}

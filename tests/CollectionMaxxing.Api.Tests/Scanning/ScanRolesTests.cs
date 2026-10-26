@@ -44,7 +44,7 @@ public class ScanRolesTests(ApiFixture api) : ScanTest(api)
         await CatalogAsync("Super Mario 64", code);
         using var editor = As(library, LibraryRole.Editor);
 
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidates = await ScanAsync(editor, sessionId, code);
         var candidateId = Id(candidates[0]);
 

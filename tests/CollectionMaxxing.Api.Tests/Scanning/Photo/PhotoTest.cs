@@ -59,7 +59,7 @@ public abstract class PhotoTest : ScanTest
         var code = ScanData.Upc(7000 + number);
         var releaseId = await CatalogAsync($"Photo test {number}", code);
         using var client = As(library, role);
-        var sessionId = await StartSessionAsync(client, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id); // these tests pin photos/covers, not auto-add (#341)
         var candidates = await ScanAsync(client, sessionId, code);
         return (sessionId, Id(candidates[0]), releaseId);
     }

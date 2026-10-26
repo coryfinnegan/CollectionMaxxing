@@ -75,7 +75,7 @@ public class ScanEventsTests : ScanTest
         }
 
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         await ScanAsync(editor, sessionId, codes[0], codes[1]);
 
         string lastId;
@@ -108,7 +108,7 @@ public class ScanEventsTests : ScanTest
         var code = ScanData.Upc(5121);
         await CatalogAsync("Pilotwings 64", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         await ScanAsync(editor, sessionId, code);
         await using var events = await SseClient.ConnectAsync(editor, EventsUrl(sessionId));
         var first = await events.ReadUntilAsync("session.status");

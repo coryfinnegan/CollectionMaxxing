@@ -179,7 +179,7 @@ public class ScanSessionFlowTests(ApiFixture api) : ScanTest(api)
         await CatalogAsync("Game A", first);
         await CatalogAsync("Game B", second);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidates = await ScanAsync(editor, sessionId, first, second);
 
         (await DecideAsync(editor, sessionId, Id(candidates[0]), new { decision = "rejected" })).StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -198,7 +198,7 @@ public class ScanSessionFlowTests(ApiFixture api) : ScanTest(api)
         var code = ScanData.Upc(9040);
         await CatalogAsync("Game C", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidates = await ScanAsync(editor, sessionId, code);
         var id = Id(candidates[0]);
 
@@ -252,7 +252,7 @@ public class ScanSessionFlowTests(ApiFixture api) : ScanTest(api)
         var code = ScanData.Upc(9070);
         await CatalogAsync("Game D", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         await ScanAsync(editor, sessionId, code);
 
         (await editor.DeleteAsync(SessionUrl(sessionId))).StatusCode.ShouldBe(HttpStatusCode.NoContent);
@@ -271,7 +271,7 @@ public class ScanSessionFlowTests(ApiFixture api) : ScanTest(api)
         using var editor = As(library, LibraryRole.Editor);
         var code = ScanData.Upc(9091);
         await CatalogAsync("Kirby 64", code);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         await ScanAsync(editor, sessionId, code);
         (await CommitAsync(editor, sessionId)).StatusCode.ShouldBe(HttpStatusCode.OK);
 

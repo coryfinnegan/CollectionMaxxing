@@ -21,7 +21,7 @@ public class ScanCommitTests(ApiFixture api) : ScanTest(api)
         await CatalogAsync("Pilotwings 64", first);
         var secondRelease = await CatalogAsync("Blast Corps", second);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // commit mechanics, not auto-add (#341)
         var candidates = await ScanAsync(editor, sessionId, first, second);
         candidates.ShouldAllBe(c => Decision(c) == "accepted");
 
@@ -59,7 +59,7 @@ public class ScanCommitTests(ApiFixture api) : ScanTest(api)
         var code = ScanData.Upc(3010);
         await CatalogAsync("Banjo-Kazooie", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // commit mechanics, not auto-add (#341)
         await ScanAsync(editor, sessionId, code);
 
         var first = await CommitAsync(editor, sessionId, "commit-key-1");
@@ -87,7 +87,7 @@ public class ScanCommitTests(ApiFixture api) : ScanTest(api)
         var code = ScanData.Upc(3020);
         await OwnAsync(library, "GoldenEye 007", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // commit mechanics, not auto-add (#341)
 
         var candidates = await ScanAsync(editor, sessionId, code);
 
@@ -109,7 +109,7 @@ public class ScanCommitTests(ApiFixture api) : ScanTest(api)
         var code = ScanData.Upc(3021);
         await OwnAsync(library, "Diddy Kong Racing", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // commit mechanics, not auto-add (#341)
         var candidates = await ScanAsync(editor, sessionId, code);
         Decision(candidates[0]).ShouldBe("rejected");
 
@@ -129,7 +129,7 @@ public class ScanCommitTests(ApiFixture api) : ScanTest(api)
         var dvdCode = ScanData.Upc(3030);
         await AddReleaseToWorkOfAsync(vhsRelease, ReleaseFormat.Dvd, dvdCode);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // commit mechanics, not auto-add (#341)
 
         var candidates = await ScanAsync(editor, sessionId, dvdCode);
 
@@ -155,7 +155,7 @@ public class ScanCommitTests(ApiFixture api) : ScanTest(api)
             ScanData.Game("Madden NFL 2007", "PlayStation 2", 2006, "m7"),
         ]);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // commit mechanics, not auto-add (#341)
 
         var candidates = await ScanAsync(editor, sessionId, code);
 
@@ -183,7 +183,7 @@ public class ScanCommitTests(ApiFixture api) : ScanTest(api)
     {
         var library = await CreateLibraryAsync();
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // commit mechanics, not auto-add (#341)
 
         var candidates = await ScanAsync(editor, sessionId, ScanData.Upc(3050));
 

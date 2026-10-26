@@ -30,8 +30,10 @@ public sealed class ResolvePendingCandidate(
     IAppDbContext db,
     CurrentUser currentUser,
     IMembershipReader memberships,
+    ISessionLock sessionLock,
     BarcodeResolver external,
     CandidateResolver resolver,
+    AutoCommitT0 autoCommit,
     ScanningOptions options,
     IJobQueue jobs,
     TimeProvider clock,
@@ -53,15 +55,11 @@ public sealed class ResolvePendingCandidate(
 
         currentUser.Initialize(job.UserId, current);
 
-        var candidate = await db.ScanCandidates.FirstOrDefaultAsync(
-            c => c.Id == job.CandidateId && c.SessionId == job.SessionId, cancellationToken);
-        if (candidate is null || candidate.Resolution != CandidateResolution.Pending)
-        {
-            return ResolveOutcome.Done;
-        }
-
-        var open = await db.ScanSessions.AnyAsync(s => s.Id == job.SessionId && s.Status == ScanSessionStatus.Open, cancellationToken);
-        if (!open || !Identifier.TryParse(candidate.RawCode, out var identifier))
+        var peek = await db.ScanCandidates.AsNoTracking()
+            .Where(c => c.Id == job.CandidateId && c.SessionId == job.SessionId)
+            .Select(c => new { c.RawCode, c.Resolution })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (peek is null || peek.Resolution != CandidateResolution.Pending || !Identifier.TryParse(peek.RawCode, out var identifier))
         {
             return ResolveOutcome.Done;
         }
@@ -86,25 +84,43 @@ public sealed class ResolvePendingCandidate(
             }
         }
 
-        await resolver.ApplyAsync(job.LibraryId, candidate, answer, cancellationToken);
-        var quotaSpent = candidate.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(answer);
-        if (candidate.Resolution == CandidateResolution.Pending && !quotaSpent)
+        // The answer lands under the session's lock, on rows read fresh inside it: a request that resolved the same
+        // candidate while the providers were being asked wins, and this run becomes the no-op it should be.
+        ResolveOutcome outcome;
+        await using (await sessionLock.AcquireAsync(job.SessionId, cancellationToken))
         {
-            candidate.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
-            candidate.GuidanceCode = candidate.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep)
-                ? keep
-                : GuidanceCodes.For(null, CandidateResolution.Error, candidate.Source, candidate.RawCode, quotaSpent: false);
+            var session = await ScanSessions.FindMineAsync(db, currentUser, job.SessionId, cancellationToken);
+            var candidate = await db.ScanCandidates.FirstOrDefaultAsync(
+                c => c.Id == job.CandidateId && c.SessionId == job.SessionId, cancellationToken);
+            if (session is null || session.Status != ScanSessionStatus.Open || candidate is null || candidate.Resolution != CandidateResolution.Pending)
+            {
+                return ResolveOutcome.Done;
+            }
+
+            await resolver.ApplyAsync(job.LibraryId, candidate, answer, cancellationToken, fromIdentifier: true, copiesMode: session.AutoCommitCopies);
+            await autoCommit.TryAddAsync(session, candidate, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken);
+            var quotaSpent = candidate.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(answer);
+            if (candidate.Resolution == CandidateResolution.Pending && !quotaSpent)
+            {
+                candidate.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
+                candidate.Tier = ScanTier.T2;
+                candidate.GuidanceCode = candidate.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep)
+                    ? keep
+                    : GuidanceCodes.For(null, CandidateResolution.Error, candidate.Source, candidate.RawCode, quotaSpent: false);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            if (!quotaSpent)
+            {
+                return ResolveOutcome.Done;
+            }
+
+            var runAfter = UpcQuotaWindow.NextResetAfter(clock.GetUtcNow());
+            await jobs.EnqueueAsync(
+                SubmitBarcodes.ResolveJobType, job, new JobEnqueueOptions(runAfter, UpcQuotaWindow.DedupeKey(candidate.Id, runAfter)), cancellationToken);
+            outcome = ResolveOutcome.QuotaSpent;
         }
 
-        await db.SaveChangesAsync(cancellationToken);
-        if (!quotaSpent)
-        {
-            return ResolveOutcome.Done;
-        }
-
-        var runAfter = UpcQuotaWindow.NextResetAfter(clock.GetUtcNow());
-        await jobs.EnqueueAsync(
-            SubmitBarcodes.ResolveJobType, job, new JobEnqueueOptions(runAfter, UpcQuotaWindow.DedupeKey(candidate.Id, runAfter)), cancellationToken);
-        return ResolveOutcome.QuotaSpent;
+        return outcome;
     }
 }

@@ -27,7 +27,7 @@ public class SessionCountersEventTests : ScanTest
         var code = ScanData.Upc(9221);
         await CatalogAsync("Counted Game", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         await using var events = await SseClient.ConnectAsync(editor, EventsUrl(sessionId));
         events.StatusCode.ShouldBe(HttpStatusCode.OK);
 

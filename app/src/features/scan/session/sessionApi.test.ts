@@ -3,8 +3,10 @@
 import { http, HttpResponse } from 'msw';
 import { server } from '@/mocks/server';
 import { candidate } from '@/features/review/testData';
+import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
 import { useCardsStore } from '../cards/cardsStore';
-import { createSessionOnce, followSession, resumeCursor } from './sessionApi';
+import { useAutoCommitUndoStore } from './autoCommitUndo';
+import { announce, createSessionOnce, followSession, resumeCursor, routeSessionMessage } from './sessionApi';
 
 const SESSION = 'b1000000-0000-4000-8000-000000000001';
 
@@ -111,5 +113,55 @@ describe('per-library session creation', () => {
     expect(a).toBe('session-1');
     expect(b).toBe('session-1');
     expect(calls).toBe(1);
+  });
+});
+
+describe('auto-add announcements', () => {
+  const hapticCalls: string[] = [];
+  const fakeDriver: HapticDriver = {
+    tap: () => void hapticCalls.push('tap'),
+    mediumTap: () => void hapticCalls.push('mediumTap'),
+    longTap: () => void hapticCalls.push('longTap'),
+    tick: () => void hapticCalls.push('tick'),
+    success: () => void hapticCalls.push('success'),
+    wait: () => Promise.resolve(),
+  };
+
+  beforeEach(() => {
+    useCardsStore.getState().reset();
+    useAutoCommitUndoStore.setState({ last: null });
+    hapticCalls.length = 0;
+    setHapticDriver(fakeDriver);
+  });
+  afterEach(() => setHapticDriver(null));
+
+  it('routes candidate.auto_committed into the cards with the success haptic and Undo armed', async () => {
+    const addedCandidate = candidate({ createdItemId: 'item-1' });
+    routeSessionMessage(SESSION, { event: 'candidate.auto_committed', id: '0', data: JSON.stringify(addedCandidate) });
+
+    expect(useCardsStore.getState().byId[addedCandidate.id]?.createdItemId).toBe('item-1');
+    expect(useAutoCommitUndoStore.getState().last).toEqual({ sessionId: SESSION, candidateId: addedCandidate.id });
+    await until(() => hapticCalls.includes('success'));
+  });
+
+  it('stays quiet when the same auto-add arrives twice', async () => {
+    const addedCandidate = candidate({ createdItemId: 'item-1' });
+    const message = { event: 'candidate.auto_committed', id: '0', data: JSON.stringify(addedCandidate) };
+    routeSessionMessage(SESSION, message);
+    await until(() => hapticCalls.includes('success'));
+
+    routeSessionMessage(SESSION, message);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(hapticCalls).toEqual(['success']);
+  });
+
+  it('arms Undo for an added event only when the session is known', async () => {
+    announce([{ id: 'c-x', event: 'added' }]);
+    expect(useAutoCommitUndoStore.getState().last).toBeNull();
+    await until(() => hapticCalls.includes('success'));
+
+    announce([{ id: 'c-y', event: 'added' }], SESSION);
+    expect(useAutoCommitUndoStore.getState().last).toEqual({ sessionId: SESSION, candidateId: 'c-y' });
   });
 });

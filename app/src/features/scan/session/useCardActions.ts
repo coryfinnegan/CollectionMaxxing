@@ -9,12 +9,13 @@ import type { CandidateDto } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { getOwnedCache } from '@/features/offline/ownedCache';
-import { patchCandidate, skipCandidate } from '@/features/review/api';
+import { patchCandidate, skipCandidate, undoAutoCommit } from '@/features/review/api';
 import { UNDO_MS } from '@/features/review/useReview';
 import { friendlyError } from '@/lib/problem';
 import { ApiError } from '@/lib/http';
 import type { CardActions, MoveTarget, MoveToast } from '../cards/ResultCards';
 import { moveCopyTo, refreshAfterMove, resolveOwnedItemId } from '../cards/ownedMove';
+import { useAutoCommitUndoStore } from './autoCommitUndo';
 import { acceptCandidate, wishlistCandidate } from './sessionApi';
 
 /** Undo was refused: the copy changed or left since the move. It stays where it is. */
@@ -159,6 +160,15 @@ export function useCardActions({
       },
       onMove: move,
       onUndoMove: undoMove,
+      onUndoAutoCommit: (c) => {
+        if (sessionId)
+          void run(c, () =>
+            undoAutoCommit(sessionId, c.id).then((undone) => {
+              // The snackbar may still be showing this add: it goes away with it.
+              if (useAutoCommitUndoStore.getState().last?.candidateId === undone.id) useAutoCommitUndoStore.getState().setLast(null);
+            }),
+          );
+      },
     }),
     [canAdd, errors, busy, wishlisted, moveTo, moveToast, router, sessionId, run, libraryId, move, undoMove],
   );

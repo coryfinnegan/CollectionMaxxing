@@ -33,6 +33,7 @@ export const candidate = (extra: Partial<CandidateDto> = {}): CandidateDto => ({
   box: null,
   boxSource: null,
   resolution: 'matched',
+  tier: null,
   score: 1,
   artDistance: null,
   needsArt: false,

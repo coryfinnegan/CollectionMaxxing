@@ -65,7 +65,7 @@ public abstract class ArtworkTest(ApiFixture api) : IdentifyTest(api)
         var platformId = await PlatformAsync();
         var releases = await seed(platformId);
         var client = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(client, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id); // these tests pin artwork, not auto-add (#341)
         var candidates = await IdentifyOkAsync(client, sessionId, Read(title: title, kind: "game", platform: platform, year: year, edition: edition));
         candidates.Count.ShouldBe(1);
         return new CloseCall(client, library, sessionId, candidates[0], releases);

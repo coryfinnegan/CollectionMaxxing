@@ -29,6 +29,8 @@ internal sealed class ScanSessionConfiguration : IEntityTypeConfiguration<ScanSe
         builder.Property(s => s.MediaHint).HasSnakeCaseEnum();
         builder.Property(s => s.Channel).HasSnakeCaseEnum();
         builder.Property(s => s.CommittedItemIds).HasColumnType("uuid[]");
+        builder.Property(s => s.AutoCommitTiers).HasColumnType("text[]");
+        builder.Property(s => s.AutoCommittedItemIds).HasColumnType("uuid[]");
 
         builder.HasOne<Library>().WithMany().HasForeignKey(s => s.LibraryId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<AppUser>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Restrict);
@@ -87,6 +89,7 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
             t.HasCheckConstraint("ck_scan_candidates_guidance_code", EnumColumns.CheckIn<GuidanceCode>("guidance_code"));
             t.HasCheckConstraint("ck_scan_candidates_box_source", EnumColumns.CheckIn<BoxSource>("box_source"));
             t.HasCheckConstraint("ck_scan_candidates_resolution", EnumColumns.CheckIn<CandidateResolution>("resolution"));
+            t.HasCheckConstraint("ck_scan_candidates_tier", EnumColumns.CheckIn<ScanTier>("tier"));
             t.HasCheckConstraint("ck_scan_candidates_decision", EnumColumns.CheckIn<CandidateDecision>("decision"));
             t.HasCheckConstraint("ck_scan_candidates_edited_format", EnumColumns.CheckIn<ReleaseFormat>("edited_format"));
             t.HasCheckConstraint("ck_scan_candidates_copies", "copies >= 1");
@@ -110,6 +113,8 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
         builder.Property(c => c.SegmentId).HasMaxLength(100);
         builder.Property(c => c.BoxSource).HasSnakeCaseEnum();
         builder.Property(c => c.Resolution).HasSnakeCaseEnum();
+        builder.Property(c => c.Tier).HasSnakeCaseEnum();
+        builder.Property(c => c.AutoCommittedItemIds).HasColumnType("uuid[]");
         builder.Property(c => c.Decision).HasSnakeCaseEnum();
         builder.Property(c => c.EditedFormat).HasSnakeCaseEnum();
         builder.Property(c => c.EditedPlatform).HasMaxLength(100);

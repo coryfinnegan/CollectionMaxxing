@@ -102,6 +102,7 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | GET | `/api/v1/recognition/config` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | prompt and thresholds (no secrets) |
 | DELETE | `/api/v1/scan-sessions/{id:guid}` | scan-session role | editor and above (in the session's library) | Y | Y | none (204, no body) |
 | GET | `/api/v1/scan-sessions/{id:guid}` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
+| POST | `/api/v1/scan-sessions/{id:guid}/auto-commit:undo` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/barcodes` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | PATCH | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}/photo` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |

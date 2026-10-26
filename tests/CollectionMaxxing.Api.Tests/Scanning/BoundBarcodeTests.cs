@@ -193,7 +193,7 @@ public class BoundBarcodeTests(ApiFixture api) : ScanTest(api)
         Products.Know(code, ScanData.Product("Mario Golf", code));
         Games.Results.Add(ScanData.Game("Mario Golf"));
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var row = (await ScanAsync(editor, sessionId, code))[0];
         (await CommitAsync(editor, sessionId)).StatusCode.ShouldBe(HttpStatusCode.OK);
 

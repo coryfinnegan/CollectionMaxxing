@@ -58,6 +58,21 @@ describe('card copy', () => {
     expect(describeCandidate(candidate({}))).toMatchObject({ status: null, kind: 'new' });
   });
 
+  it('says an auto-added candidate is in the library, not how to add it', () => {
+    expect(describeCandidate(candidate({ createdItemId: 'item-1' }))).toMatchObject({
+      title: 'Dune',
+      status: 'Added to your library',
+      kind: 'added',
+    });
+  });
+
+  it('says added even for another copy of an owned item', () => {
+    expect(describeCandidate(candidate({ alreadyOwnedCount: 1, ownedAt: ['Living room › Shelf 2'], createdItemId: 'item-1' }))).toMatchObject({
+      status: 'Added to your library',
+      kind: 'added',
+    });
+  });
+
   it('uses the not-found copy, without apologies or exclamation marks', () => {
     const copy = describeCandidate(candidate({ resolution: 'not_found', release: null }));
     expect(copy.status).toBe(NOT_FOUND_COPY);
@@ -91,11 +106,16 @@ describe('cards store', () => {
   beforeEach(() => useCardsStore.getState().reset());
 
   it('maps resolutions to haptic events', () => {
-    expect(announcementFor({ resolution: 'matched', alreadyOwnedCount: 2 })).toBe('owned');
-    expect(announcementFor({ resolution: 'matched', alreadyOwnedCount: 0 })).toBe('new');
-    expect(announcementFor({ resolution: 'not_found', alreadyOwnedCount: 0 })).toBe('not_found');
-    expect(announcementFor({ resolution: 'pending', alreadyOwnedCount: 0 })).toBeUndefined();
-    expect(announcementFor({ resolution: 'error', alreadyOwnedCount: 0 })).toBeUndefined();
+    expect(announcementFor({ resolution: 'matched', alreadyOwnedCount: 2, createdItemId: null })).toBe('owned');
+    expect(announcementFor({ resolution: 'matched', alreadyOwnedCount: 0, createdItemId: null })).toBe('new');
+    expect(announcementFor({ resolution: 'not_found', alreadyOwnedCount: 0, createdItemId: null })).toBe('not_found');
+    expect(announcementFor({ resolution: 'pending', alreadyOwnedCount: 0, createdItemId: null })).toBeUndefined();
+    expect(announcementFor({ resolution: 'error', alreadyOwnedCount: 0, createdItemId: null })).toBeUndefined();
+  });
+
+  it('announces an auto-added candidate as added, even when it is also owned', () => {
+    expect(announcementFor({ resolution: 'matched', alreadyOwnedCount: 0, createdItemId: 'item-1' })).toBe('added');
+    expect(announcementFor({ resolution: 'matched', alreadyOwnedCount: 2, createdItemId: 'item-1' })).toBe('added');
   });
 
   it('announces a candidate once, even when it arrives twice', () => {

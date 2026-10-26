@@ -251,6 +251,7 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no text: the handler is reached
         InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, allowed: Ok, headers: Idempotent),
         InLibrary("POST", $"{Sessions}/commit:undo", LibraryRole.Editor, allowed: Conflict, headers: Idempotent), // SCAN-1e: the seeded session was never committed, so the handler is reached and says 409
+        InLibrary("POST", $"{Sessions}/auto-commit:undo", LibraryRole.Editor, allowed: Conflict, headers: Idempotent), // #341: the seeded session never auto-added, so the handler is reached and says 409
         InLibrary("DELETE", Sessions, LibraryRole.Editor, allowed: NoContent),
 
         // ---- Recognition config (SCAN-2d): the phone fetches its prompt and thresholds; any signed-in member, not library-scoped ----

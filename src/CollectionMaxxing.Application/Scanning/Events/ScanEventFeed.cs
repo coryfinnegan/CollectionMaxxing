@@ -11,6 +11,13 @@ public static class ScanEventNames
     public const string CandidateAdded = "candidate.added";
     public const string CandidateUpdated = "candidate.updated";
 
+    /// <summary>
+    /// A candidate's T0 auto-add landed. It companions the <c>candidate.added</c>/<c>candidate.updated</c> of the same
+    /// change and carries the same <c>CandidateDto</c>; it carries no event id, so it never moves the resume cursor.
+    /// Clients detect auto-adds from the candidate payload (a set <c>createdItemId</c>), which also covers polling.
+    /// </summary>
+    public const string CandidateAutoCommitted = "candidate.auto_committed";
+
     /// <summary>A candidate's uploaded photo ("Use my photo") is stored and ready.</summary>
     public const string PhotoStatus = "photo.status";
     public const string SessionStatus = "session.status";
@@ -34,8 +41,9 @@ public sealed record PhotoStatusDto(Guid CandidateId, string Status)
 /// <summary>
 /// One event for the wire. <see cref="Id"/> is the highest candidate <c>changeSeq</c> the stream has shown so far (0 when
 /// none): the session's change counter, which goes up with every insert and update of a candidate, so it never goes backwards
-/// and <c>Last-Event-ID</c> says exactly how far a reconnecting client got. <see cref="Data"/> is a <see cref="CandidateDto"/>
-/// or a <see cref="SessionStatusDto"/>.
+/// and <c>Last-Event-ID</c> says exactly how far a reconnecting client got. A companion event (no cursor of its own) uses 0
+/// and is written without an <c>id:</c> line. <see cref="Data"/> is a <see cref="CandidateDto"/>, a
+/// <see cref="SessionStatusDto"/>, or one of the other payloads above.
 /// </summary>
 public sealed record ScanEvent(string Name, int Id, object Data);
 
@@ -120,6 +128,10 @@ public sealed class ScanEventCursor
                 _highWater = Math.Max(_highWater, candidate.ChangeSeq);
                 var name = _known.Add(candidate.Id) ? ScanEventNames.CandidateAdded : ScanEventNames.CandidateUpdated;
                 events.Add(new ScanEvent(name, candidate.ChangeSeq, dtos[candidate.Id]));
+                if (candidate.AutoCommittedItemIds is { Length: > 0 })
+                {
+                    events.Add(new ScanEvent(ScanEventNames.CandidateAutoCommitted, 0, dtos[candidate.Id]));
+                }
             }
         }
 

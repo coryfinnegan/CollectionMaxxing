@@ -1307,6 +1307,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("art_distance");
 
+                    b.PrimitiveCollection<Guid[]>("AutoCommittedItemIds")
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("auto_committed_item_ids");
+
                     b.Property<double?>("BoxH")
                         .HasColumnType("double precision")
                         .HasColumnName("box_h");
@@ -1442,6 +1446,11 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("symbology");
 
+                    b.Property<string>("Tier")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("tier");
+
                     b.Property<string>("TraceJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("trace");
@@ -1516,6 +1525,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_scan_candidates_shot_kind", "\"shot_kind\" in ('barcode', 'single_cover', 'shelf_segment', 'loose_item', 'unknown')");
 
                             t.HasCheckConstraint("ck_scan_candidates_source", "\"source\" in ('barcode', 'picture_apple_model', 'picture_text', 'search')");
+
+                            t.HasCheckConstraint("ck_scan_candidates_tier", "\"tier\" in ('T0', 'T1', 'T2')");
                         });
                 });
 
@@ -1524,6 +1535,19 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<bool>("AutoCommitCopies")
+                        .HasColumnType("boolean")
+                        .HasColumnName("auto_commit_copies");
+
+                    b.PrimitiveCollection<string[]>("AutoCommitTiers")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("auto_commit_tiers");
+
+                    b.PrimitiveCollection<Guid[]>("AutoCommittedItemIds")
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("auto_committed_item_ids");
 
                     b.Property<string>("Channel")
                         .IsRequired()

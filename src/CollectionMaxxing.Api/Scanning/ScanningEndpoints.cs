@@ -35,7 +35,7 @@ public static class ScanningEndpoints
             .ProducesValidationProblem()
             .RequireScanSessionRole(LibraryRole.Viewer);
 
-        // Server-sent events: candidate.added, candidate.updated, photo.status, session.status. Resume with Last-Event-ID.
+        // Server-sent events: candidate.added, candidate.updated, candidate.auto_committed, photo.status, session.counters, session.status. Resume with Last-Event-ID.
         sessions.MapGet("/{id:guid}/events", Events.ScanEventsEndpoint.StreamAsync)
             .WithName("StreamScanSessionEvents").WithTags("Scanning")
             .Produces(StatusCodes.Status200OK, contentType: "text/event-stream")
@@ -121,6 +121,16 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireScanSessionRole(LibraryRole.Editor);
 
+        // Takes back one T0 auto-add: exactly its items go, the candidate gets its evidence back, and the session stays open.
+        sessions.MapPost("/{id:guid}/auto-commit:undo", UndoAutoCommit)
+            .WithName("UndoAutoCommit").WithTags("Scanning")
+            .Accepts<UndoAutoCommitRequest>(isOptional: true, "application/json")
+            .Produces<UndoAutoCommitResultDto>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireScanSessionRole(LibraryRole.Editor);
+
         // Abandon.
         sessions.MapDelete("/{id:guid}", Abandon)
             .WithName("AbandonScanSession").WithTags("Scanning")
@@ -135,7 +145,9 @@ public static class ScanningEndpoints
         Guid libraryId, CreateScanSessionRequest body, CreateScanSession.Handler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(
-            new CreateScanSession.Command(libraryId, body.DefaultLocationId, body.DefaultStatus, body.MediaHint, body.Channel), cancellationToken);
+            new CreateScanSession.Command(
+                libraryId, body.DefaultLocationId, body.DefaultStatus, body.MediaHint, body.Channel, body.AutoCommitTiers, body.AutoCommitCopies),
+            cancellationToken);
         return result.IsSuccess
             ? TypedResults.Created($"{ScanSessionRoutes.Prefix}/{result.Value.Id}", result.Value)
             : result.Error!.ToScanProblem();
@@ -197,6 +209,17 @@ public static class ScanningEndpoints
         CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(new UndoScanCommit.Command(id, idempotencyKey), cancellationToken);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
+    }
+
+    private static async Task<IResult> UndoAutoCommit(
+        Guid id,
+        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        UndoAutoCommit.Handler handler,
+        CancellationToken cancellationToken,
+        UndoAutoCommitRequest? body = null)
+    {
+        var result = await handler.HandleAsync(new UndoAutoCommit.Command(id, body?.CandidateId, idempotencyKey), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
     }
 

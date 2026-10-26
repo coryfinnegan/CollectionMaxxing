@@ -93,6 +93,11 @@ public static class ScoreCandidateArtwork
                     return ScanningErrors.SessionClosed;
                 }
 
+                if (candidate.AutoCommittedItemIds is { Length: > 0 })
+                {
+                    return ScanningErrors.AutoCommitted;
+                }
+
                 var alternatives = CandidateJson.ReadAlternatives(candidate.AlternativesJson);
                 var trace = CandidateJson.ReadTrace(candidate.TraceJson);
                 if (ArtworkLinks.IsDecidedByPerson(candidate, alternatives, trace))

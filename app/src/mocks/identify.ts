@@ -153,6 +153,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
     box: null,
     boxSource: null,
     resolution: 'not_found',
+    tier: null,
     score: null,
     artDistance: null,
     needsArt: false,

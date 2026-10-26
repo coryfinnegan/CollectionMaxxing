@@ -19,7 +19,7 @@ public class ScanCandidateEditTests(ApiFixture api) : ScanTest(api)
         var code = ScanData.Upc(seed);
         var releaseId = await CatalogAsync($"Edit game {seed}", code);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // edit mechanics, not auto-add (#341)
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
         Resolution(candidate).ShouldBe("matched");
         return (library, editor, sessionId, candidate, releaseId);
@@ -121,7 +121,7 @@ public class ScanCandidateEditTests(ApiFixture api) : ScanTest(api)
         var (_, onN64) = await CatalogSeed.AddAsync(Db, "Mario Party", WorkKind.Game, 1999, n64, format: ReleaseFormat.GameCartridge);
         var (_, onWii) = await CatalogSeed.AddAsync(Db, "Mario Party", WorkKind.Game, 1999, wii, format: ReleaseFormat.GameDisc);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // edit mechanics, not auto-add (#341)
         var candidate = (await ScanAsync(editor, sessionId, ScanData.Upc(7551)))[0]; // a code nobody knows: something to fix
 
         async Task<System.Text.Json.JsonElement> SearchAsync()

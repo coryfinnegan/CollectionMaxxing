@@ -48,10 +48,20 @@ public sealed class CandidateResolver(
         null,
         [LocalHit]);
 
-    /// <summary>Writes an answer onto the candidate. Saves nothing; the caller saves.</summary>
-    public async Task ApplyAsync(Guid libraryId, ScanCandidate candidate, BarcodeResolution resolution, CancellationToken cancellationToken)
+    /// <summary>
+    /// Writes an answer onto the candidate: the resolution, the commit tier (docs/16 §6), the matched release, the top
+    /// three, who already owns it, and what to do by default. Saves nothing; the caller saves.
+    /// <paramref name="fromIdentifier"/> is true when the answer comes from a barcode (a normalized identifier), the only
+    /// path that can reach T0. <paramref name="copiesMode"/> is true when the session opted into copies: an exact-owned
+    /// hit is accepted (and T0) instead of skipped.
+    /// </summary>
+    public async Task ApplyAsync(
+        Guid libraryId, ScanCandidate candidate, BarcodeResolution resolution, CancellationToken cancellationToken,
+        bool fromIdentifier = false, bool copiesMode = false)
     {
-        candidate.Resolution = resolution.Verdict switch
+        // The series-volume veto lands first: a vetoed match is Ambiguous however high it scored, so the person picks.
+        var verdict = fromIdentifier && VetoApplies(resolution) ? ResolutionVerdict.Ambiguous : resolution.Verdict;
+        candidate.Resolution = verdict switch
         {
             ResolutionVerdict.Matched => CandidateResolution.Matched,
             ResolutionVerdict.Ambiguous => CandidateResolution.Ambiguous,
@@ -67,8 +77,9 @@ public sealed class CandidateResolver(
         var undecided = candidate.Decision == CandidateDecision.Undecided; // a decision the person already made is theirs; the job never overwrites it
         var ownedAt = new List<string>();
         CandidateDecision? autoDecision = null;
+        var firstOwned = 0;
 
-        if (resolution.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
+        if (verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
         {
             var alternatives = new List<StoredAlternative>();
             var ensured = new List<EnsuredRelease>();
@@ -85,22 +96,23 @@ public sealed class CandidateResolver(
             {
                 var option = resolution.Options[i];
                 var owned = await OwnedAsync(libraryId, ensured[i], cancellationToken);
-                if (i == 0 && resolution.Verdict == ResolutionVerdict.Matched)
+                if (i == 0 && verdict == ResolutionVerdict.Matched)
                 {
                     candidate.MatchedReleaseId = ensured[i].Id;
                     candidate.Score = option.Score;
                     candidate.AlreadyOwnedCount = owned.Count;
                     ownedAt = OwnedAt(owned);
+                    firstOwned = owned.Count;
 
-                    // An exactly owned release is skipped unless the user adds another copy; anything else is added.
+                    // An exactly owned release is skipped unless the session opted into copies; anything else is added.
                     if (undecided)
                     {
-                        autoDecision = owned.Count > 0 ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                        autoDecision = owned.Count > 0 && !copiesMode ? CandidateDecision.Rejected : CandidateDecision.Accepted;
                         candidate.Decision = autoDecision.Value;
                     }
                 }
 
-                if (i == 0 && resolution.Verdict == ResolutionVerdict.Ambiguous)
+                if (i == 0 && verdict == ResolutionVerdict.Ambiguous)
                 {
                     candidate.Score = option.Score;
                 }
@@ -110,6 +122,8 @@ public sealed class CandidateResolver(
 
             candidate.AlternativesJson = CandidateJson.Serialize(alternatives);
         }
+
+        candidate.Tier = EvaluateTier(verdict, resolution.Options.Count, firstOwned, fromIdentifier, copiesMode);
 
         if (resolution.ProductTitle is { } productTitle && candidate.VisibleText is null)
         {
@@ -154,6 +168,53 @@ public sealed class CandidateResolver(
     }
 
     /// <summary>
+    /// The commit tier of an answer (docs/16 §6): T0 is a barcode-proof hit, a normalized identifier resolving to exactly
+    /// one release that the library does not already own (unless the session opted into copies). Anything else is T2,
+    /// reviewed by the person. Pending has no tier yet. (T1 lands with the spine/cover path in issue #343.)
+    /// </summary>
+    private static ScanTier? EvaluateTier(ResolutionVerdict verdict, int options, int firstOwned, bool fromIdentifier, bool copiesMode)
+    {
+        if (verdict == ResolutionVerdict.Pending)
+        {
+            return null;
+        }
+
+        return fromIdentifier && verdict == ResolutionVerdict.Matched && options == 1 && (firstOwned == 0 || copiesMode)
+            ? ScanTier.T0
+            : ScanTier.T2;
+    }
+
+    /// <summary>
+    /// The series-volume veto (docs/16 §6): two same-series options with different volumes inside the Ambiguous band force
+    /// the person to pick, however high the winner scored. No threshold tuning overrides it; pinned by a locked test.
+    /// </summary>
+    private bool VetoApplies(BarcodeResolution resolution)
+    {
+        if (resolution.Verdict != ResolutionVerdict.Matched || resolution.Options.Count < 2)
+        {
+            return false;
+        }
+
+        var band = scoring.CurrentValue.Thresholds.AmbiguousScore;
+        var titles = resolution.Options
+            .Where(o => o.Provider?.Title is not null && o.Score >= band)
+            .Select(o => o.Provider!.Title!)
+            .ToList();
+        for (var i = 0; i < titles.Count; i++)
+        {
+            for (var j = i + 1; j < titles.Count; j++)
+            {
+                if (SeriesVolumes.Vetoes(titles[i], titles[j]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Whether the answer is a close call the phone should settle with artwork (<see cref="CloseCall"/>). A barcode never is:
     /// an exact code is not settled by a picture. Judged with the profile the item was scored with and the live options.
     /// </summary>
@@ -184,9 +245,9 @@ public sealed class CandidateResolver(
     /// <summary>What a barcode-only provisional reads until the quota drain looks it up.</summary>
     public static string QuotaProvisionalText(string digits) => $"UPC {digits} — lookup pending";
 
-    /// <summary>Stores what the person typed or the product was called, so Fix it can start from it. The property is write-once, so this goes through EF.</summary>
+    /// <summary>Stores what the person typed or the product was called, so Fix it can start from it. The property is write-once, so this goes through EF's entry, never <c>Attach</c> (which would demote a candidate this request just added from Added to Modified, and its insert to an update).</summary>
     public void SetVisibleText(ScanCandidate candidate, string text) =>
-        db.ScanCandidates.Attach(candidate).Property(c => c.VisibleText).CurrentValue = text.Length > 2000 ? text[..2000] : text;
+        db.ScanCandidates.Entry(candidate).Property(c => c.VisibleText).CurrentValue = text.Length > 2000 ? text[..2000] : text;
 
     private static StoredAlternative AlternativeOf(
         ResolutionOption option, Guid releaseId, Dictionary<Guid, Catalog.ReleaseDto> known, int ownedCount)

@@ -7,9 +7,16 @@ namespace CollectionMaxxing.Api.Scanning;
 /// <summary>
 /// Body of <c>POST …/scan-sessions</c>. There are no modes: defaults only save typing at Review. <c>MediaHint</c> says what
 /// is being scanned (mixed when missing) and <c>Channel</c> says where (home when missing; in a store, Review asks for each location later).
+/// <c>AutoCommitTiers</c> says which tiers auto-add (T0 when missing; empty turns auto-add off); <c>AutoCommitCopies</c> whether
+/// an exact-owned hit still adds another copy.
 /// </summary>
 public sealed record CreateScanSessionRequest(
-    Guid? DefaultLocationId = null, ItemStatus? DefaultStatus = null, ScanMediaHint? MediaHint = null, ScanChannel? Channel = null);
+    Guid? DefaultLocationId = null,
+    ItemStatus? DefaultStatus = null,
+    ScanMediaHint? MediaHint = null,
+    ScanChannel? Channel = null,
+    IReadOnlyList<ScanTier>? AutoCommitTiers = null,
+    bool AutoCommitCopies = false);
 
 /// <summary>Query of <c>GET /api/v1/scan-sessions/{id}</c>: with <c>since</c>, only candidates after that sequence number.</summary>
 public sealed record ScanSessionQuery([FromQuery(Name = "since")] int? Since = null);
@@ -95,3 +102,9 @@ public sealed record CommitScanRequest(
 /// segment neighbours' works (#344): a ranking bias toward them, never a filter.
 /// </summary>
 public sealed record SearchCandidateRequest(string? Text = null, IReadOnlyList<Guid>? ContextWorkIds = null);
+
+/// <summary>
+/// Optional body of <c>POST …/auto-commit:undo</c>: which auto-add to take back. Missing undoes the most recent
+/// standing auto-add of the session.
+/// </summary>
+public sealed record UndoAutoCommitRequest(Guid? CandidateId = null);
