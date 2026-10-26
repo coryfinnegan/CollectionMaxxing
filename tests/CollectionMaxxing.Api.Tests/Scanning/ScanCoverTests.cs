@@ -113,7 +113,7 @@ public class ScanCoverTests : ScanTest
             Identifiers = [Identifier.TryParse(ScanData.Isbn, out var isbn) ? isbn! : throw new InvalidOperationException()],
         };
         var client = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(client, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id); // these tests pin covers at commit, not auto-add (#341)
         await ScanAsync(client, sessionId, ScanData.Isbn);
         return (client, library, sessionId);
     }

@@ -29,7 +29,7 @@ public class ScanCommitOptionsTests(ApiFixture api) : ScanTest(api)
         await CatalogAsync($"Game {a}", a);
         await CatalogAsync($"Game {b}", b);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id, sessionBody);
+        var sessionId = await StartSessionAsync(editor, library.Id, sessionBody ?? new { autoCommitTiers = Array.Empty<string>() }); // commit mechanics, not auto-add (#341)
         var candidates = await ScanAsync(editor, sessionId, a, b);
         candidates.ShouldAllBe(c => Decision(c) == "accepted");
         return (library, editor, sessionId, candidates[0], candidates[1]);
@@ -84,8 +84,8 @@ public class ScanCommitOptionsTests(ApiFixture api) : ScanTest(api)
         await CatalogAsync("Game A", a);
         await CatalogAsync("Game B", b);
         using var editor = As(library, LibraryRole.Editor);
-        var withBody = await StartSessionAsync(editor, library.Id, new { defaultLocationId = shelf, defaultStatus = "wishlist" });
-        var withoutBody = await StartSessionAsync(editor, library.Id);
+        var withBody = await StartSessionAsync(editor, library.Id, new { defaultLocationId = shelf, defaultStatus = "wishlist", autoCommitTiers = Array.Empty<string>() });
+        var withoutBody = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         await ScanAsync(editor, withBody, a);
         await ScanAsync(editor, withoutBody, b);
 

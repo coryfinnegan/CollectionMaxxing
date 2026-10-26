@@ -54,7 +54,7 @@ public class ScanUndoCommitTests : PhotoTest
         }
 
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // these tests pin commit/undo, not auto-add (#341)
         var candidates = await ScanAsync(editor, sessionId, codes);
         candidates.ShouldAllBe(c => Decision(c) == "accepted");
         return (library, editor, sessionId, candidates);

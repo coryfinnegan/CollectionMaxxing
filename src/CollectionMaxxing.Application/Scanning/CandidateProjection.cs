@@ -147,6 +147,7 @@ internal static class CandidateProjection
         c.BoxX is { } x && c.BoxY is { } y && c.BoxW is { } w && c.BoxH is { } h ? new BoxDto(x, y, w, h) : null,
         c.BoxSource,
         c.Resolution,
+        c.Tier,
         c.Score,
         c.ArtDistance,
         needsArt,

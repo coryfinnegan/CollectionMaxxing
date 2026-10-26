@@ -57,5 +57,28 @@ public sealed class ScanSession : ILibraryScoped, IConcurrencyVersioned
     /// </summary>
     public Guid[]? CommittedItemIds { get; set; }
 
+    /// <summary>
+    /// Which tiers auto-add in this session (docs/16 §6), spelled as <see cref="EnumText"/> spells them: T0 unless the
+    /// session says otherwise. T1 needs an explicit opt-in until the eval gate passes on real data; an empty list turns
+    /// auto-add off entirely. Use <see cref="AutoCommits"/> to ask.
+    /// </summary>
+    public string[] AutoCommitTiers { get; set; } = [EnumText.ToText(ScanTier.T0)];
+
+    /// <summary>Whether <paramref name="tier"/> auto-adds in this session.</summary>
+    public bool AutoCommits(ScanTier tier) => AutoCommitTiers.Contains(EnumText.ToText(tier));
+
+    /// <summary>
+    /// Whether an exact-owned release still auto-adds (as another copy). Off by default: re-scanning an owned shelf
+    /// answers each hit on its card and adds nothing.
+    /// </summary>
+    public bool AutoCommitCopies { get; set; }
+
+    /// <summary>
+    /// The items a barcode auto-add currently owns in this session (docs/16 §6): appended when one fires, shortened when
+    /// one is undone. Undoing an auto-add removes exactly the event's own ids (see <see cref="ScanCandidate.AutoCommittedItemIds"/>);
+    /// the full-commit undo leaves these alone.
+    /// </summary>
+    public Guid[]? AutoCommittedItemIds { get; set; }
+
     public uint Version { get; private set; }
 }

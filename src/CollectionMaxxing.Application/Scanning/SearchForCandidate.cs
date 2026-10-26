@@ -333,6 +333,11 @@ public static class SearchForCandidate
                 return ScanningErrors.SessionClosed;
             }
 
+            if (candidate.AutoCommittedItemIds is { Length: > 0 })
+            {
+                return ScanningErrors.AutoCommitted;
+            }
+
             var started = Stopwatch.GetTimestamp();
             var found = await search.SearchAsync(
                 text, candidate.EditedFormat, candidate.EditedPlatform, candidate.EditedEdition, command.ContextWorkIds, cancellationToken);

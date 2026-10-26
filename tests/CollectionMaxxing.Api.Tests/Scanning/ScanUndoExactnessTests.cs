@@ -46,7 +46,7 @@ public class ScanUndoExactnessTests : PhotoTest
         }
 
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // these tests pin commit/undo, not auto-add (#341)
         var candidates = await ScanAsync(editor, sessionId, codes);
         return (library, editor, sessionId, candidates, codes);
     }
@@ -188,7 +188,7 @@ public class ScanUndoExactnessTests : PhotoTest
         var right = await CatalogAsync("Right release", code);
         var wrong = await CatalogAsync("Wrong release", ScanData.Upc(30069));
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidate = Id((await ScanAsync(editor, sessionId, code))[0]);
         await RepickAsync(candidate, wrong);
         await CommitOkAsync(editor, sessionId);
@@ -200,7 +200,7 @@ public class ScanUndoExactnessTests : PhotoTest
         (await HasCodeAsync(right, code)).ShouldBeTrue("the catalogue's own link stays");
         await RepickAsync(candidate, right);
         await CommitOkAsync(editor, sessionId);
-        var next = await StartSessionAsync(editor, library.Id);
+        var next = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var again = (await ScanAsync(editor, next, code))[0];
         Resolution(again).ShouldBe("matched");
         again.GetProperty("release").GetProperty("id").GetGuid().ShouldBe(right);
@@ -215,12 +215,12 @@ public class ScanUndoExactnessTests : PhotoTest
         var taught = await CatalogAsync("Taught release", ScanData.Upc(30079));
         var editor = As(library, LibraryRole.Editor);
 
-        var first = await StartSessionAsync(editor, library.Id);
+        var first = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         await RepickAsync(Id((await ScanAsync(editor, first, code))[0]), taught);
         await CommitOkAsync(editor, first);
         (await HasCodeAsync(taught, code)).ShouldBeTrue();
 
-        var second = await StartSessionAsync(editor, library.Id);
+        var second = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidate = (await ScanAsync(editor, second, code)).Select(Id).First(); // two releases carry the code now: the person picks
         (await DecideAsync(editor, second, candidate, new { decision = "accepted", releaseId = taught })).StatusCode.ShouldBe(HttpStatusCode.OK);
         await CommitOkAsync(editor, second);
@@ -244,13 +244,13 @@ public class ScanUndoExactnessTests : PhotoTest
         (await PrivateReleasesAsync(library.Id)).ShouldBeEmpty();
 
         // The same edit committed by two sessions shares one private release: undoing one leaves it for the other.
-        var firstSession = await StartSessionAsync(editor, library.Id);
+        var firstSession = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var firstCandidate = (await ScanAsync(editor, firstSession, codes[0]))[0];
         (await DecideAsync(editor, firstSession, Id(firstCandidate), new { decision = "accepted", edition = "Collector Box" })).StatusCode.ShouldBe(HttpStatusCode.OK);
         await CommitOkAsync(editor, firstSession);
         var shared = (await PrivateReleasesAsync(library.Id)).Single();
         _clock.Advance(TimeSpan.FromSeconds(1));
-        var secondSession = await StartSessionAsync(editor, library.Id);
+        var secondSession = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var secondCandidate = (await ScanAsync(editor, secondSession, codes[0]))[0];
         (await DecideAsync(editor, secondSession, Id(secondCandidate), new { decision = "accepted", edition = "Collector Box" })).StatusCode.ShouldBe(HttpStatusCode.OK);
         await CommitOkAsync(editor, secondSession);

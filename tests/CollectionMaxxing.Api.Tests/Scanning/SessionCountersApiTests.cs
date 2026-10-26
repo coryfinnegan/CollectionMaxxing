@@ -41,7 +41,7 @@ public class SessionCountersApiTests(ApiFixture api) : IdentifyTest(api)
         Products.Know(review, ScanData.Product("Obscure Game", review));
         await CatalogAsync("Skipped Game", skipped);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidates = await ScanAsync(editor, sessionId, added, owned, review, skipped);
         var byCode = candidates.ToDictionary(c => c.GetProperty("rawCode").GetString()!);
         Resolution(byCode[ScanData.Gtin13(added)]).ShouldBe("matched");

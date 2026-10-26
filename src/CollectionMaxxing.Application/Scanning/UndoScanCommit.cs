@@ -93,7 +93,9 @@ public static class UndoScanCommit
             }
 
             var candidates = await db.ScanCandidates.Where(c => c.SessionId == session.Id).ToListAsync(cancellationToken);
-            var made = candidates.Where(c => c.CreatedItemId is not null).ToList();
+
+            // Standing auto-adds are not this commit's: each is undone on its own, and this undo leaves them (and their items) alone.
+            var made = candidates.Where(c => c.CreatedItemId is not null && c.AutoCommittedItemIds is null).ToList();
 
             // Everything this commit created, and only that: the ids it recorded. All of them must be here, in this library, untouched.
             var expected = session.CommittedItemIds;
@@ -119,7 +121,7 @@ public static class UndoScanCommit
 
             db.Items.RemoveRange(items); // the DELETE checks each row's version: an edit that lands after the check above wins and nothing is deleted
             db.ItemTombstones.AddRange(items.Select(i => new ItemTombstone { ItemId = i.Id, LibraryId = i.LibraryId, DeletedAt = now }));
-            await TakeBackWhatTheCommitTaughtAsync(session.Id, wanted, cancellationToken);
+            await TakeBackWhatTheCommitTaughtAsync(session.Id, wanted, candidates, cancellationToken);
             session.Status = ScanSessionStatus.Open;
             session.CommittedAt = null;
             session.CommittedItemIds = null;
@@ -151,12 +153,19 @@ public static class UndoScanCommit
         }
 
         /// <summary>
-        /// Removes the barcode links this session's commit learned, and the private releases it made that nothing else uses (no other item,
-        /// feature print or scanned candidate). Marks the rows; the caller saves everything in one transaction.
+        /// Removes the barcode links this session's commit learned (but never one a standing auto-add still uses), and the
+        /// private releases it made that nothing else uses (no other item, feature print or scanned candidate). Marks the
+        /// rows; the caller saves everything in one transaction.
         /// </summary>
-        private async Task TakeBackWhatTheCommitTaughtAsync(Guid sessionId, HashSet<Guid> removedItemIds, CancellationToken cancellationToken)
+        private async Task TakeBackWhatTheCommitTaughtAsync(
+            Guid sessionId, HashSet<Guid> removedItemIds, List<ScanCandidate> candidates, CancellationToken cancellationToken)
         {
-            db.ReleaseIdentifiers.RemoveRange(await db.ReleaseIdentifiers.Where(i => i.LearnedBySessionId == sessionId).ToListAsync(cancellationToken));
+            var standing = candidates
+                .Where(c => c.AutoCommittedItemIds is { Length: > 0 } && c.MatchedReleaseId is not null && c.RawCode is not null)
+                .Select(c => (c.MatchedReleaseId!.Value, c.RawCode!))
+                .ToHashSet();
+            var links = await db.ReleaseIdentifiers.Where(i => i.LearnedBySessionId == sessionId).ToListAsync(cancellationToken);
+            db.ReleaseIdentifiers.RemoveRange(links.Where(i => !standing.Contains((i.ReleaseId, i.Value))));
 
             var made = await db.Releases.IgnoreQueryFilters().Where(r => r.CreatedBySessionId == sessionId).ToListAsync(cancellationToken);
             foreach (var release in made)

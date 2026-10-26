@@ -69,6 +69,11 @@ public static class DecideCandidate
                 return ScanningErrors.SessionClosed;
             }
 
+            if (candidate.AutoCommittedItemIds is { Length: > 0 })
+            {
+                return ScanningErrors.AutoCommitted;
+            }
+
             if (command.ReleaseId is { } releaseId)
             {
                 var picked = await PickAsync(session.LibraryId, candidate, releaseId, command.Decision is not null, cancellationToken);

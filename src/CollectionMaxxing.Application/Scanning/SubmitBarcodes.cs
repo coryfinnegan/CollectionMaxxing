@@ -47,6 +47,7 @@ public static class SubmitBarcodes
         ISessionLock sessionLock,
         BarcodeResolver external,
         CandidateResolver resolver,
+        AutoCommitT0 autoCommit,
         IJobQueue jobs,
         ScanningOptions options,
         ILogger<Handler> logger)
@@ -67,22 +68,24 @@ public static class SubmitBarcodes
                 return await HandleBoundAsync(command, userId, cancellationToken);
             }
 
-            var session = await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken);
-            if (session is null)
-            {
-                return ScanningErrors.SessionNotFound;
-            }
-
-            var key = ScanSessions.IdempotencyKeyFor("barcodes", session.Id, command.IdempotencyKey!.Trim());
+            var key = ScanSessions.IdempotencyKeyFor("barcodes", command.SessionId, command.IdempotencyKey!.Trim());
             var lines = Normalise(command.Codes!);
-            var hash = RequestHash(session.Id, lines);
-            var now = clock.GetUtcNow();
+            var hash = RequestHash(command.SessionId, lines);
 
-            // Claim the rows under the session's lock, so a retry or a twin of this request finds them instead of racing them.
+            // Phase 1: claim the rows under the session's lock, so a retry or a twin of this request finds them instead of
+            // racing them, and a request cut off mid-lookup still leaves rows the safety net finishes. The session is read
+            // untracked, so the second phase reads it fresh instead of inheriting this phase's instance.
             List<ScanCandidate> candidates;
             List<ScanCandidate> fresh;
-            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
+            await using (await sessionLock.AcquireAsync(command.SessionId, cancellationToken))
             {
+                var session = await ScanSessions.FindMineUntrackedAsync(db, currentUser, command.SessionId, cancellationToken);
+                if (session is null)
+                {
+                    return ScanningErrors.SessionNotFound;
+                }
+
+                var now = clock.GetUtcNow();
                 var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == key, cancellationToken);
                 if (previous is not null)
                 {
@@ -123,6 +126,7 @@ public static class SubmitBarcodes
                             RawCode = line.RawCode,
                             Symbology = line.Symbology,
                             Resolution = line.Identifier is null ? CandidateResolution.Error : CandidateResolution.Pending,
+                            Tier = line.Identifier is null ? ScanTier.T2 : null,
                             Decision = CandidateDecision.Undecided,
                             GuidanceCode = line.Identifier is null
                                 ? GuidanceCodes.For(null, CandidateResolution.Error, CandidateSource.Barcode, line.RawCode, quotaSpent: false)
@@ -161,7 +165,41 @@ public static class SubmitBarcodes
                     clock.GetUtcNow() + options.ResolveBudget + SafetyMargin, cancellationToken);
             }
 
-            await ResolveAsync(session, fresh, userId, cancellationToken);
+            var answers = await AnswersAsync(lines, options.ResolveBudget, cancellationToken);
+
+            // Phase 2: apply the answers and auto-add under the lock, on rows read fresh inside it: these candidates are brand
+            // new (no twin can have resolved them), and the session is read here for the first time, so two auto-adds landing
+            // together both append instead of one overwriting the other.
+            await using (await sessionLock.AcquireAsync(command.SessionId, cancellationToken))
+            {
+                var session = await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken);
+                if (session is null)
+                {
+                    return ScanningErrors.SessionNotFound;
+                }
+
+                foreach (var candidate in fresh.Where(c => c.Resolution == CandidateResolution.Pending))
+                {
+                    await ApplyLineAsync(session, candidate, answers, userId, cancellationToken);
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+
+                foreach (var candidate in fresh.Where(c => c.Resolution == CandidateResolution.Pending))
+                {
+                    // A code that found the UPC allowance spent waits for the next reset instead of being tried (and given up on) now.
+                    var spent = candidate.IdempotencyKey is not null
+                        && answers.TryGetValue(candidate.IdempotencyKey, out var answer)
+                        && UpcQuotaWindow.IsSpent(answer);
+                    var runAfter = spent ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : (DateTimeOffset?)null;
+                    await jobs.EnqueueAsync(
+                        ResolveJobType,
+                        new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId),
+                        new JobEnqueueOptions(runAfter, spent ? UpcQuotaWindow.DedupeKey(candidate.Id, runAfter!.Value) : $"{ResolveJobType}:{candidate.Id}"),
+                        cancellationToken);
+                }
+            }
+
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, candidates.DistinctBy(c => c.Id).ToList(), cancellationToken));
         }
 
@@ -173,26 +211,28 @@ public static class SubmitBarcodes
         /// </summary>
         private async Task<Result<CandidatesDto>> HandleBoundAsync(Command command, Guid userId, CancellationToken cancellationToken)
         {
-            var session = await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken);
-            if (session is null)
-            {
-                return ScanningErrors.SessionNotFound;
-            }
-
-            var candidate = await db.ScanCandidates.FirstOrDefaultAsync(
-                c => c.SessionId == session.Id && c.Id == command.CandidateId, cancellationToken);
-            if (candidate is null)
-            {
-                return ScanningErrors.CandidateNotFound;
-            }
-
-            var key = ScanSessions.IdempotencyKeyFor("barcodes", session.Id, command.IdempotencyKey!.Trim());
+            var key = ScanSessions.IdempotencyKeyFor("barcodes", command.SessionId, command.IdempotencyKey!.Trim());
             var line = Normalise(command.Codes!)[0]; // Validate kept exactly one readable line
-            var hash = RequestHash(session.Id, [line], command.CandidateId);
-            var now = clock.GetUtcNow();
+            var hash = RequestHash(command.SessionId, [line], command.CandidateId);
+            var answers = await AnswersAsync([line], options.ResolveBudget, cancellationToken);
 
-            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
+            ScanCandidate candidate;
+            await using (await sessionLock.AcquireAsync(command.SessionId, cancellationToken))
             {
+                var session = await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken);
+                if (session is null)
+                {
+                    return ScanningErrors.SessionNotFound;
+                }
+
+                var bound = await db.ScanCandidates.FirstOrDefaultAsync(
+                    c => c.SessionId == session.Id && c.Id == command.CandidateId, cancellationToken);
+                if (bound is null)
+                {
+                    return ScanningErrors.CandidateNotFound;
+                }
+
+                var now = clock.GetUtcNow();
                 var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == key, cancellationToken);
                 if (previous is not null)
                 {
@@ -210,11 +250,19 @@ public static class SubmitBarcodes
                     return ScanningErrors.SessionClosed;
                 }
 
+                if (bound.AutoCommittedItemIds is { Length: > 0 })
+                {
+                    return ScanningErrors.AutoCommitted;
+                }
+
                 // RawCode/Symbology are init-only (history, not state), so the bound read is written through EF.
-                var entry = db.ScanCandidates.Attach(candidate);
+                var entry = db.ScanCandidates.Attach(bound);
                 entry.Property(c => c.RawCode).CurrentValue = line.RawCode;
                 entry.Property(c => c.Symbology).CurrentValue = line.Symbology;
-                candidate.Resolution = CandidateResolution.Pending;
+                bound.Resolution = CandidateResolution.Pending;
+                await resolver.ApplyAsync(session.LibraryId, bound, answers[line.Key], cancellationToken, fromIdentifier: true, copiesMode: session.AutoCommitCopies);
+                await autoCommit.TryAddAsync(session, bound, userId, currentUser.RoleIn(session.LibraryId), cancellationToken);
+                candidate = bound;
 
                 db.IdempotencyKeys.Add(new IdempotencyKey
                 {
@@ -229,70 +277,72 @@ public static class SubmitBarcodes
                 await db.SaveChangesAsync(cancellationToken);
 
                 await EnqueueAsync(
-                    session, [candidate], userId, ":safety",
+                    session, bound.Resolution == CandidateResolution.Pending ? [bound] : [], userId, ":safety",
                     clock.GetUtcNow() + options.ResolveBudget + SafetyMargin, cancellationToken);
+
+                if (bound.Resolution == CandidateResolution.Pending)
+                {
+                    var waitForQuota = UpcQuotaWindow.IsSpent(answers[line.Key]);
+                    var runAfter = waitForQuota ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : (DateTimeOffset?)null;
+                    await jobs.EnqueueAsync(
+                        ResolveJobType,
+                        new ResolveJob(session.LibraryId, session.Id, bound.Id, userId),
+                        new JobEnqueueOptions(runAfter, waitForQuota ? UpcQuotaWindow.DedupeKey(bound.Id, runAfter!.Value) : $"{ResolveJobType}:{bound.Id}"),
+                        cancellationToken);
+                }
             }
 
-            await ResolveAsync(session, [candidate], userId, cancellationToken);
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken));
         }
 
-        private async Task ResolveAsync(ScanSession session, List<ScanCandidate> fresh, Guid userId, CancellationToken cancellationToken)
+        /// <summary>Answers every readable line, by line key: the catalogue first, then the providers within the budget. Runs before the lock.</summary>
+        private async Task<Dictionary<string, BarcodeResolution>> AnswersAsync(
+            List<Line> lines, TimeSpan budget, CancellationToken cancellationToken)
         {
-            var toResolve = fresh.Where(c => c.Resolution == CandidateResolution.Pending).ToList();
-            if (toResolve.Count == 0)
-            {
-                return;
-            }
+            var readable = lines.Where(l => l.Identifier is not null).ToList();
+            var local = await resolver.FindLocalAsync(readable.Select(l => l.Identifier!).ToList(), cancellationToken);
 
-            var identifiers = toResolve.ToDictionary(c => c.Id, c => Identifier.TryParse(c.RawCode, out var id) ? id : null);
-            var local = await resolver.FindLocalAsync(identifiers.Values.OfType<Identifier>().ToList(), cancellationToken);
-
-            var answers = new Dictionary<Guid, BarcodeResolution>();
-            var outside = new List<ScanCandidate>();
-            foreach (var candidate in toResolve)
+            var answers = new Dictionary<string, BarcodeResolution>();
+            var outside = new List<Line>();
+            foreach (var line in readable)
             {
-                if (local.TryGetValue(identifiers[candidate.Id]!.Value, out var releaseIds))
+                if (local.TryGetValue(line.Identifier!.Value, out var releaseIds))
                 {
-                    answers[candidate.Id] = CandidateResolver.LocalResolution(releaseIds);
+                    answers[line.Key] = CandidateResolver.LocalResolution(releaseIds);
                 }
                 else
                 {
-                    outside.Add(candidate);
+                    outside.Add(line);
                 }
             }
 
-            foreach (var (id, answer) in await ResolveOutsideAsync(outside, identifiers, options.ResolveBudget, cancellationToken))
+            foreach (var (key, answer) in await ResolveOutsideAsync(outside, budget, cancellationToken))
             {
-                answers[id] = answer;
+                answers[key] = answer;
             }
 
-            foreach (var candidate in toResolve)
+            return answers;
+        }
+
+        /// <summary>Writes one line's answer onto its fresh candidate and auto-adds when it is T0. Runs under the session's lock.</summary>
+        private async Task ApplyLineAsync(
+            ScanSession session, ScanCandidate candidate, Dictionary<string, BarcodeResolution> answers, Guid userId, CancellationToken cancellationToken)
+        {
+            if (candidate.IdempotencyKey is null || !answers.TryGetValue(candidate.IdempotencyKey, out var answer))
             {
-                await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken);
+                return; // unreadable lines were already filed as errors when claimed; the jobs below finish anything still pending
             }
 
-            await db.SaveChangesAsync(cancellationToken);
-
-            foreach (var candidate in toResolve.Where(c => c.Resolution == CandidateResolution.Pending))
-            {
-                // A code that found the UPC allowance spent waits for the next reset instead of being tried (and given up on) now.
-                var waitForQuota = UpcQuotaWindow.IsSpent(answers[candidate.Id]);
-                var runAfter = waitForQuota ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : (DateTimeOffset?)null;
-                await jobs.EnqueueAsync(
-                    ResolveJobType,
-                    new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId),
-                    new JobEnqueueOptions(runAfter, waitForQuota ? UpcQuotaWindow.DedupeKey(candidate.Id, runAfter!.Value) : $"{ResolveJobType}:{candidate.Id}"),
-                    cancellationToken);
-            }
+            await resolver.ApplyAsync(session.LibraryId, candidate, answer, cancellationToken, fromIdentifier: true, copiesMode: session.AutoCommitCopies);
+            await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken);
         }
 
         /// <summary>Asks the providers for several codes at once, within the budget. A code the budget runs out on comes back Pending.</summary>
-        private async Task<Dictionary<Guid, BarcodeResolution>> ResolveOutsideAsync(
-            List<ScanCandidate> candidates, Dictionary<Guid, Identifier?> identifiers, TimeSpan budget, CancellationToken cancellationToken)
+        private async Task<Dictionary<string, BarcodeResolution>> ResolveOutsideAsync(
+            List<Line> lines, TimeSpan budget, CancellationToken cancellationToken)
         {
-            var results = new Dictionary<Guid, BarcodeResolution>();
-            if (candidates.Count == 0)
+            var results = new Dictionary<string, BarcodeResolution>();
+            if (lines.Count == 0)
             {
                 return results;
             }
@@ -302,14 +352,14 @@ public static class SubmitBarcodes
             timeout.CancelAfter(budget);
             using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
 
-            var tasks = candidates.Select(async candidate =>
+            var tasks = lines.Select(async line =>
             {
                 try
                 {
                     await gate.WaitAsync(timeout.Token);
                     try
                     {
-                        return (candidate.Id, Answer: await external.ResolveAsync(identifiers[candidate.Id]!, timeout.Token));
+                        return (line.Key, Answer: await external.ResolveAsync(line.Identifier!, timeout.Token));
                     }
                     finally
                     {
@@ -318,20 +368,20 @@ public static class SubmitBarcodes
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
-                    return (candidate.Id, Answer: BarcodeResolution.Pending([new TraceStep("budget", "timeout", (long)budget.TotalMilliseconds)]));
+                    return (line.Key, Answer: BarcodeResolution.Pending([new TraceStep("budget", "timeout", (long)budget.TotalMilliseconds)]));
                 }
 #pragma warning disable CA1031 // Whatever goes wrong with one code must not fail the batch.
                 catch (Exception exception) when (exception is not OperationCanceledException)
 #pragma warning restore CA1031
                 {
                     logger.LogWarning("Resolving a code failed ({Failure}); leaving it pending.", exception.GetType().Name);
-                    return (candidate.Id, Answer: BarcodeResolution.Pending([new TraceStep("resolver", "failed", 0)]));
+                    return (line.Key, Answer: BarcodeResolution.Pending([new TraceStep("resolver", "failed", 0)]));
                 }
             }).ToList();
 
-            foreach (var (id, answer) in await Task.WhenAll(tasks))
+            foreach (var (key, answer) in await Task.WhenAll(tasks))
             {
-                results[id] = answer;
+                results[key] = answer;
             }
 
             return results;

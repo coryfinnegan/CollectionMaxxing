@@ -49,9 +49,13 @@ public sealed class BarcodeLearner(IAppDbContext db)
 
         foreach (var (releaseId, id) in wanted)
         {
-            if (!known.Contains((releaseId, id.Value)))
+            // A link the release already has is left as it is, whoever taught it: one already saved, or one ensured in
+            // this unit of work and not saved yet (an auto-add learns right after resolving).
+            if (!known.Contains((releaseId, id.Value))
+                && !db.ReleaseIdentifiers.Local.Any(i => i.ReleaseId == releaseId && i.Value == id.Value))
             {
                 db.ReleaseIdentifiers.Add(new ReleaseIdentifier { ReleaseId = releaseId, Type = id.Type, Value = id.Value, LearnedBySessionId = sessionId });
+                known.Add((releaseId, id.Value));
             }
         }
     }

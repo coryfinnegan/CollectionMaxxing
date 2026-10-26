@@ -17,7 +17,14 @@ namespace CollectionMaxxing.Application.Scanning;
 /// </summary>
 public static class CreateScanSession
 {
-    public sealed record Command(Guid LibraryId, Guid? DefaultLocationId, ItemStatus? DefaultStatus, ScanMediaHint? MediaHint = null, ScanChannel? Channel = null);
+    public sealed record Command(
+        Guid LibraryId,
+        Guid? DefaultLocationId,
+        ItemStatus? DefaultStatus,
+        ScanMediaHint? MediaHint = null,
+        ScanChannel? Channel = null,
+        IReadOnlyList<ScanTier>? AutoCommitTiers = null,
+        bool AutoCommitCopies = false);
 
     public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock)
     {
@@ -37,6 +44,12 @@ public static class CreateScanSession
                 return ItemErrors.LocationNotFound;
             }
 
+            // T2 is reviewed, never auto-added: naming it is a client bug, refused rather than silently ignored.
+            if (command.AutoCommitTiers is { } tiers && tiers.Any(t => t is not (ScanTier.T0 or ScanTier.T1)))
+            {
+                return ScanningErrors.Invalid("scan.autocommit_tiers_invalid", "Auto-commit tiers can only be T0 and T1.", "autoCommitTiers");
+            }
+
             var session = new ScanSession
             {
                 Id = ids.NewId(),
@@ -47,6 +60,8 @@ public static class CreateScanSession
                 DefaultStatus = command.DefaultStatus,
                 MediaHint = command.MediaHint ?? ScanMediaHint.Mixed,
                 Channel = command.Channel ?? ScanChannel.Home,
+                AutoCommitTiers = command.AutoCommitTiers?.Distinct().Select(EnumText.ToText).ToArray() ?? [EnumText.ToText(ScanTier.T0)],
+                AutoCommitCopies = command.AutoCommitCopies,
                 CreatedAt = clock.GetUtcNow(),
             };
             db.ScanSessions.Add(session);
@@ -101,7 +116,9 @@ public static class GetScanSession
                 session.CommittedAt,
                 await CandidateProjection.ToDtosAsync(db, candidates.Where(c => c.ChangeSeq > since).ToList(), cancellationToken),
                 SessionCounters.Count(candidates),
-                SessionCounters.Segments(snaps, candidates));
+                SessionCounters.Segments(snaps, candidates),
+                session.AutoCommitTiers.Select(EnumText.Parse<ScanTier>).ToList(),
+                session.AutoCommitCopies);
         }
 
         /// <summary>

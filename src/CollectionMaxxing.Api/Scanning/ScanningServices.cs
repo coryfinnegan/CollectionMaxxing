@@ -28,6 +28,7 @@ public static class ScanningServices
         services.AddScoped<FindSessionLibrary.Handler>();
         services.AddScoped<IsMySession.Handler>();
         services.AddScoped<ReleaseStore>();
+        services.AddScoped<AutoCommitT0>();
         services.AddScoped<BarcodeResolver>();
         services.AddScoped<TextSearchResolver>();
         services.AddScoped<CandidateResolver>();
@@ -39,6 +40,7 @@ public static class ScanningServices
         services.AddScoped<ReleaseCovers>();
         services.AddScoped<CommitScanSession.Handler>();
         services.AddScoped<UndoScanCommit.Handler>(); // SCAN-1e
+        services.AddScoped<UndoAutoCommit.Handler>();
         services.AddScoped<AbandonScanSession.Handler>();
         services.AddScoped<UploadCandidatePhoto.Handler>(); // SCAN-2c
         services.AddJobHandler<SubmitBarcodes.ResolveJob, ResolvePendingCandidate>(SubmitBarcodes.ResolveJobType);

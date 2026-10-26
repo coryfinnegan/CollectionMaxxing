@@ -180,6 +180,10 @@ public abstract class ScanTest(ApiFixture api) : ApiTest(api)
         return (await ReadJsonAsync(response)).GetProperty("id").GetGuid();
     }
 
+    /// <summary>Starts a session with auto-add off, for tests about commit/decide/review mechanics rather than auto-add (#341).</summary>
+    protected static Task<Guid> StartSessionWithoutAutoCommitAsync(HttpClient client, Guid libraryId) =>
+        StartSessionAsync(client, libraryId, new { autoCommitTiers = Array.Empty<string>() });
+
     protected static object Code(string value, int? copies = null) => new { value, symbology = "ean_13", copies };
 
     protected static Task<HttpResponseMessage> SubmitAsync(HttpClient client, Guid sessionId, string key, params object[] codes)

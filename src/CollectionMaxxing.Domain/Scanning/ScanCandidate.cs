@@ -82,6 +82,9 @@ public sealed class ScanCandidate : ILibraryScoped, IConcurrencyVersioned
 
     public CandidateResolution Resolution { get; set; }
 
+    /// <summary>The commit tier the resolver gave this candidate (docs/16 §6). Null until it resolves.</summary>
+    public ScanTier? Tier { get; set; }
+
     public Guid? MatchedReleaseId { get; set; }
 
     public double? Score { get; set; }
@@ -103,6 +106,12 @@ public sealed class ScanCandidate : ILibraryScoped, IConcurrencyVersioned
     public int AlreadyOwnedCount { get; set; }
 
     public Guid? CreatedItemId { get; set; }
+
+    /// <summary>
+    /// The items this candidate's auto-add created, in creation order. Set only by an auto-add that still stands:
+    /// undoing it removes exactly these and clears this. A full commit never sets it (see <see cref="ScanSession.CommittedItemIds"/>).
+    /// </summary>
+    public Guid[]? AutoCommittedItemIds { get; set; }
 
     /// <summary>The format the person chose over what was matched (SCAN-1d); commit uses the matching release of the same work.</summary>
     public ReleaseFormat? EditedFormat { get; set; }

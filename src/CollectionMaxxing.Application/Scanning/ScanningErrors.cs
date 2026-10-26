@@ -45,6 +45,17 @@ public static class ScanningErrors
         "scan.undo_items_changed",
         "Some of the new items have changed since they were added, so they were left as they are.");
 
+    /// <summary>The candidate was added to the library by an auto-add that still stands: undo that add before changing it.</summary>
+    public static readonly DomainError AutoCommitted = new(
+        ErrorKind.Conflict,
+        "scan.auto_committed",
+        "This item was added automatically. Undo that add before changing it.");
+
+    public static readonly DomainError NothingToUndo = new(
+        ErrorKind.Conflict,
+        "scan.nothing_to_undo",
+        "There is no automatic add to undo.");
+
     public static DomainError Invalid(string code, string message, string field) => new(ErrorKind.Validation, code, message, field);
 }
 
@@ -67,5 +78,19 @@ internal static class ScanSessions
         }
 
         return await db.ScanSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// The session, untracked, for a first phase that must not shadow a later fresh read: a tracked read here would serve
+    /// the same instance (and its stale state) to a second phase in this request.
+    /// </summary>
+    public static async Task<ScanSession?> FindMineUntrackedAsync(IAppDbContext db, ICurrentUser currentUser, Guid sessionId, CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is not { } userId)
+        {
+            return null;
+        }
+
+        return await db.ScanSessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId, cancellationToken);
     }
 }

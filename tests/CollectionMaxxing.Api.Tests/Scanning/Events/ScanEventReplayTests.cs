@@ -33,7 +33,7 @@ public class ScanEventReplayTests : ScanTest
         await CatalogAsync("Game one", first);
         await CatalogAsync("Game two", second);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidates = await ScanAsync(editor, sessionId, first, second);
 
         string lastId;
@@ -65,7 +65,7 @@ public class ScanEventReplayTests : ScanTest
         await CatalogAsync("Game one", first);
         await CatalogAsync("Game two", second);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidates = await ScanAsync(editor, sessionId, first, second);
         var all = (await GetSessionAsync(editor, sessionId)).GetProperty("candidates").EnumerateArray().ToList();
         var seenUpTo = all.Max(ChangeSeq);
@@ -86,7 +86,7 @@ public class ScanEventReplayTests : ScanTest
         var code = ScanData.Upc(7321);
         await CatalogAsync("Game one", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
         var counters = new List<int> { ChangeSeq(candidate) };
 

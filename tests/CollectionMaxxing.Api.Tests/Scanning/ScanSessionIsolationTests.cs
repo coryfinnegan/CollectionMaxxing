@@ -21,6 +21,7 @@ public class ScanSessionIsolationTests(ApiFixture api) : ScanTest(api)
         new("POST", "/candidates/{cid}:art", false),
         new("POST", "/candidates/{cid}/photo", false),
         new("POST", "/commit", true),
+        new("POST", "/auto-commit:undo", true),
         new("DELETE", "", false),
     ];
 
@@ -47,7 +48,7 @@ public class ScanSessionIsolationTests(ApiFixture api) : ScanTest(api)
         var code = ScanData.Upc(2001);
         await CatalogAsync("Star Fox 64", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id); // these tests pin isolation, not auto-add (#341)
         var candidates = await ScanAsync(editor, sessionId, code);
         return (library, sessionId, Id(candidates[0]));
     }
