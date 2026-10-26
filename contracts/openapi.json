@@ -5702,7 +5702,8 @@
           "pendingReason",
           "retryAfter",
           "shotKind",
-          "segmentId"
+          "segmentId",
+          "guidanceCode"
         ],
         "type": "object",
         "properties": {
@@ -5875,6 +5876,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "guidanceCode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GuidanceCode"
+              }
             ]
           }
         }
@@ -6894,6 +6905,10 @@
           "declined",
           "context",
           "timeout",
+          "move_closer",
+          "split_segment",
+          "hold_steady",
+          "kill_glare",
           null
         ]
       },
@@ -7003,6 +7018,18 @@
             "format": "int64"
           }
         }
+      },
+      "GuidanceCode": {
+        "enum": [
+          "move_closer",
+          "split_segment",
+          "hold_steady",
+          "kill_glare",
+          "shoot_cover",
+          "pick_match",
+          "scan_barcode",
+          null
+        ]
       },
       "HttpValidationProblemDetails": {
         "type": "object",
@@ -7155,6 +7182,13 @@
           }
         }
       },
+      "IdentifyKind": {
+        "enum": [
+          "shelf",
+          "cover",
+          null
+        ]
+      },
       "IdentifyRequest": {
         "type": "object",
         "properties": {
@@ -7213,6 +7247,23 @@
             "items": {
               "$ref": "#/components/schemas/IdentifyItem"
             }
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IdentifyKind"
+              }
+            ]
+          },
+          "candidateId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -9041,6 +9092,16 @@
               "null",
               "string"
             ]
+          },
+          "contextWorkIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },

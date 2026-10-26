@@ -202,14 +202,15 @@ public static class IdentifyItems
                 entry.Property(c => c.ShotKind).CurrentValue = input.ShotKind ?? ShotKind.Unknown;
                 entry.Property(c => c.SegmentId).CurrentValue = item.SegmentId;
                 entry.Property(c => c.LocalId).CurrentValue = item.LocalId;
-                candidate.SnapId = snapId;
-                candidate.Resolution = CandidateResolution.Pending;
-                candidate.InferredJson = StoredRead.Serialize(item.Facts, item.Profile);
-                candidate.GuidanceCode = GuidanceCodes.For(
+                entry.Property(c => c.SnapId).CurrentValue = snapId;
+                entry.Property(c => c.Resolution).CurrentValue = CandidateResolution.Pending;
+                entry.Property(c => c.InferredJson).CurrentValue = StoredRead.Serialize(item.Facts, item.Profile);
+                entry.Property(c => c.GuidanceCode).CurrentValue = GuidanceCodes.For(
                     input.FellBackFrom, CandidateResolution.Pending, candidate.Source, candidate.RawCode, quotaSpent: false);
                 if ((item.Facts.Text ?? item.Facts.Title) is { } text)
                 {
-                    resolver.SetVisibleText(candidate, text);
+                    // Through this same entry, not SetVisibleText: attaching the row a second time would drop the marks above.
+                    entry.Property(c => c.VisibleText).CurrentValue = text.Length > 2000 ? text[..2000] : text;
                 }
 
                 await db.SaveChangesAsync(cancellationToken);
