@@ -105,10 +105,34 @@ internal static class CandidateProjection
         var releaseIds = candidates.Select(c => c.MatchedReleaseId).OfType<Guid>().Distinct().ToList();
         var releases = await LoadReleasesAsync(db, releaseIds, cancellationToken);
         var art = await ArtworkLinks.ForCloseCallsAsync(db, candidates, cancellationToken);
-        return candidates.Select(c => ToDto(c, c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null, art)).ToList();
+        var crops = await CropUrlsAsync(db, candidates, cancellationToken);
+        return candidates.Select(c => ToDto(
+            c,
+            c.MatchedReleaseId is { } id && releases.TryGetValue(id, out var release) ? release : null,
+            art,
+            crops.GetValueOrDefault(c.Id))).ToList();
     }
 
-    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, IReadOnlyDictionary<Guid, string>? artwork = null)
+    /// <summary>The kept segment crop of each candidate that has one, by candidate id. A resolved crop the item kept as its cover still shows: it is the same pair.</summary>
+    private static async Task<Dictionary<Guid, string>> CropUrlsAsync(
+        IAppDbContext db, IReadOnlyList<ScanCandidate> candidates, CancellationToken cancellationToken)
+    {
+        var ids = candidates.Select(c => c.Id).ToList();
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var crops = await db.ProvisionalRecords.AsNoTracking()
+            .Where(p => p.CandidateId != null && ids.Contains(p.CandidateId.Value) && p.CropAssetId != null)
+            .Select(p => new { CandidateId = p.CandidateId!.Value, CropAssetId = p.CropAssetId!.Value })
+            .ToListAsync(cancellationToken);
+        return crops
+            .GroupBy(c => c.CandidateId)
+            .ToDictionary(g => g.Key, g => ItemProjection.CoverUrl(g.First().CropAssetId)!);
+    }
+
+    public static CandidateDto ToDto(ScanCandidate c, ReleaseDto? release, IReadOnlyDictionary<Guid, string>? artwork = null, string? cropUrl = null)
     {
         var trace = CandidateJson.ReadTrace(c.TraceJson);
         var needsArt = ArtworkLinks.AsksForArt(c, trace);
@@ -117,7 +141,7 @@ internal static class CandidateProjection
             ? null
             : new CandidateEditsDto(c.EditedFormat, c.EditedPlatform, c.EditedEdition);
         var alternatives = AlternativesOf(c.AlternativesJson, needsArt ? artwork : null);
-        return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives);
+        return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives, cropUrl);
     }
 
     /// <summary>The stored alternatives as the response lists them; null when the candidate has none stored. A close call gets the artwork link of each.</summary>
@@ -136,7 +160,7 @@ internal static class CandidateProjection
     }
 
     private static CandidateDto ToDto(
-        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, IReadOnlyList<CandidateAlternativeDto>? alternatives) => new(
+        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, IReadOnlyList<CandidateAlternativeDto>? alternatives, string? cropUrl) => new(
         c.Id,
         c.Seq,
         c.Source,
@@ -166,7 +190,8 @@ internal static class CandidateProjection
         waitingForQuota ? trace.RetryAfter : null,
         c.ShotKind,
         c.SegmentId,
-        c.GuidanceCode);
+        c.GuidanceCode,
+        cropUrl);
 
     /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>
     public static async Task<Dictionary<Guid, ReleaseDto>> LoadReleasesAsync(

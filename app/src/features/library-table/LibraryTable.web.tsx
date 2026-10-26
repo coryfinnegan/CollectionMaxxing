@@ -17,6 +17,7 @@ import { changeFilter, defaultState, hasActiveFilter, type ListState } from '@/f
 import { useDebounced, useItems } from '@/features/library/useItems';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { NeedsAttention, useProvisionals } from '@/features/library/NeedsAttention';
 import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
 import { Button, Chip, Cover, EmptyState, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
@@ -71,6 +72,9 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
   const [selection, setSelection] = useState<Selection>(emptySelection());
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  /** "Needs attention" (#345): kept rows instead of the table. Only the library view has it, not Wishlist or Lent out. */
+  const [attention, setAttention] = useState(false);
+  const { items: attentionItems } = useProvisionals(!fixedStatus ? libraryId : undefined);
   const debouncedSearch = useDebounced(search);
   const state = changeFilter(chosen, { q: debouncedSearch });
   const { filters } = state;
@@ -254,6 +258,14 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
             onPress={() => setPanel('location')}
           />
           <Chip label="Columns" accessibilityLabel="Choose columns" onPress={() => setPanel(panel === 'columns' ? null : 'columns')} />
+          {!fixedStatus ? (
+            <Chip
+              label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
+              accessibilityLabel="Needs attention"
+              selected={attention}
+              onPress={() => setAttention((a) => !a)}
+            />
+          ) : null}
         </View>
 
         {panel === 'columns' ? <ColumnChooser columns={columns} onChange={updateColumns} onClose={() => setPanel(null)} /> : null}
@@ -293,6 +305,10 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           </Text>
         ) : null}
 
+        {attention ? (
+          <NeedsAttention libraryId={libraryId} />
+        ) : (
+          <>
         <ScrollView horizontal testID="library-table-scroll" style={styles.tableScroll}>
           <View role="grid" accessibilityLabel={`${title} table`} {...gridKeys} style={styles.grid(tableWidth)}>
             <View role="row" style={styles.headerRow}>
@@ -393,6 +409,8 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
             onClear={() => setSelection(clearSelection())}
           />
         ) : null}
+          </>
+        )}
       </ScrollView>
       <View style={styles.snackbarPad}>
         <UndoSnackbar />

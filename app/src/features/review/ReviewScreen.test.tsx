@@ -13,6 +13,7 @@ import { scanMock } from '@/mocks/scan';
 import { reviewMock } from '@/mocks/scan-review';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
+import { createProvisionalOutbox, setProvisionalOutbox } from './provisionals';
 import { ReviewScreen } from './ReviewScreen';
 import { candidate, release } from './testData';
 
@@ -22,7 +23,7 @@ const SHELF_2 = 'a0000000-0000-4000-8000-000000000003';
 const alien = [release(11, 'Alien', { year: 1979 }), release(12, 'Aliens', { year: 1986 }), release(13, 'Alien 3', { year: 1992 })];
 
 const seed = (list: CandidateDto[]) => {
-  scanMock.sessions.set(SESSION, { id: SESSION, libraryId: MOCK_LIBRARY_ID, seq: 100, candidates: list, answers: new Map(), status: 'open' });
+  scanMock.sessions.set(SESSION, { id: SESSION, libraryId: MOCK_LIBRARY_ID, seq: 100, candidates: list, answers: new Map(), status: 'open', provisionals: [] });
 };
 
 const mario = () => candidate({ release: release(2, 'Super Mario 64', { format: 'game_cartridge' }) });
@@ -53,10 +54,12 @@ beforeEach(() => {
   resetItems();
   useCardsStore.getState().reset();
   setSessionContextStorage(new MemoryKeyValueStore());
+  setProvisionalOutbox(createProvisionalOutbox({ storage: new MemoryKeyValueStore() }));
 });
 
 afterEach(() => {
   setSessionContextStorage(undefined);
+  setProvisionalOutbox(undefined);
 });
 
 describe('Review screen', () => {
@@ -73,6 +76,32 @@ describe('Review screen', () => {
     await open();
     expect(await screen.findByText('Nothing to review.')).toBeTruthy();
     expect(screen.getByText('Scan something and it shows up here.')).toBeTruthy();
+  });
+
+  it('keeps a T2 row as unverified: the row leaves Review and the keep is sent', async () => {
+    const row = lost();
+    seed([row]);
+    await open();
+    await press(`Keep ${`Code ${row.rawCode}`} as unverified`);
+    await waitFor(() => expect(reviewMock.keeps).toHaveLength(1));
+    expect(reviewMock.keeps[0]).toEqual({ sessionId: SESSION, candidateId: row.id, cropAssetId: null });
+    await screen.findByText('Nothing to review.');
+  });
+
+  it('offers no keep to a viewer', async () => {
+    asViewer();
+    seed([lost()]);
+    await open();
+    await screen.findByText('Not found · 1');
+    expect(screen.queryByLabelText(/Keep .* as unverified/)).toBeNull();
+  });
+
+  it('shows the kept crop beside a T2 row', async () => {
+    const row = lost();
+    row.cropUrl = '/media/covers/crop-1';
+    seed([row]);
+    await open();
+    expect(await screen.findByLabelText(`Cover of Code ${row.rawCode}`)).toBeTruthy();
   });
 
   it('counts only checked rows and adds them with one commit, then offers Undo', async () => {

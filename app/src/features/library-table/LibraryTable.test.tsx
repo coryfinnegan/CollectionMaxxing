@@ -46,6 +46,18 @@ afterAll(() => install(undefined));
 const ID = (n: number) => `c0000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 describe('LibraryTable', () => {
+  it('switches to Needs attention from its chip, and back', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    expect(await screen.findByText('Super Mario 64')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    expect(await screen.findByText('Nothing needs attention.')).toBeTruthy();
+    expect(screen.queryByText('Super Mario 64')).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    expect(await screen.findByText('Super Mario 64')).toBeTruthy();
+  });
+
   it('shows each item with its format, platform and year', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
     expect(await screen.findByText('Super Mario 64')).toBeTruthy();

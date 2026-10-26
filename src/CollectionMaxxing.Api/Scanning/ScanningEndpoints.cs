@@ -19,6 +19,8 @@ public static class ScanningEndpoints
 {
     public static IEndpointRouteBuilder MapScanningEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapProvisionalEndpoints(); // #345: kept rows and their crops, session- and library-scoped
+
         app.MapLibraryGroup()
             .MapPost("/scan-sessions", CreateSession)
             .WithName("CreateScanSession").WithTags("Scanning")

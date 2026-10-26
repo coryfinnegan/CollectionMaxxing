@@ -105,6 +105,17 @@ public class SessionCountersTests
     }
 
     [Fact]
+    public void Open_provisionals_count_as_captured_and_to_review()
+    {
+        var counters = SessionCounters.Count([Candidate(decision: CandidateDecision.Rejected)], openProvisionals: 2);
+
+        counters.Captured.ShouldBe(3);
+        counters.ToReview.ShouldBe(2);
+        counters.Skipped.ShouldBe(1);
+        (counters.Added + counters.ToReview + counters.Owned + counters.Skipped).ShouldBe(counters.Captured);
+    }
+
+    [Fact]
     public void Segments_follow_the_snaps_in_shoot_order_with_their_candidates()
     {
         var first = Guid.NewGuid();

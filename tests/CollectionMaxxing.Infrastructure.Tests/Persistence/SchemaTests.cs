@@ -22,7 +22,7 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
         "items", "locations", "tags", "item_tags", "item_feature_prints", "item_tombstones",
 
         // Scanning and operations
-        "scan_sessions", "scan_snaps", "scan_candidates", "scan_session_change_counters", "jobs", "match_feedback", "audit_events", "idempotency_keys",
+        "scan_sessions", "scan_snaps", "scan_candidates", "scan_session_change_counters", "provisional_records", "jobs", "match_feedback", "audit_events", "idempotency_keys",
     ];
 
     private async Task<List<string>> QueryStringsAsync(string sql)

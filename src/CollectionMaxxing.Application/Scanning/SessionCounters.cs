@@ -3,9 +3,9 @@ using CollectionMaxxing.Domain.Scanning;
 namespace CollectionMaxxing.Application.Scanning;
 
 /// <summary>
-/// The session's live counters (docs/16 §5). Every candidate lands in exactly one bucket, so at rest
-/// <c>Captured == Added + ToReview + Owned + Skipped</c>. <c>Skipped</c> is not shown on the phone's bar,
-/// but the reconciliation needs it named.
+/// The session's live counters (docs/16 §5). Every candidate lands in exactly one bucket, and every open provisional
+/// counts as captured and to review, so at rest <c>Captured == Added + ToReview + Owned + Skipped</c>.
+/// <c>Skipped</c> is not shown on the phone's bar, but the reconciliation needs it named.
 /// </summary>
 public sealed record SessionCountersDto(int Captured, int Added, int ToReview, int Owned, int Skipped);
 
@@ -38,7 +38,8 @@ public sealed record SessionSegmentDto(
 /// <summary>Counts the session's candidates into the live counters and per-snap segments (docs/16 §5).</summary>
 public static class SessionCounters
 {
-    public static SessionCountersDto Count(IEnumerable<ScanCandidate> candidates)
+    /// <param name="openProvisionals">How many of the session's provisional records still need attention: each counts as one captured segment waiting for review.</param>
+    public static SessionCountersDto Count(IEnumerable<ScanCandidate> candidates, int openProvisionals = 0)
     {
         var captured = 0;
         var added = 0;
@@ -66,6 +67,9 @@ public static class SessionCounters
                 toReview++;
             }
         }
+
+        captured += openProvisionals;
+        toReview += openProvisionals;
 
         return new SessionCountersDto(captured, added, toReview, owned, skipped);
     }

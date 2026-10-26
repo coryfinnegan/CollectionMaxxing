@@ -229,6 +229,12 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Libraries}/items:restore", LibraryRole.Editor, Json, BadRequest), // SCAN-1d: {} has no ids, so the handler is reached
         InLibrary("GET", $"{Libraries}/stats", LibraryRole.Viewer, allowed: Ok),
 
+        // ---- Provisionals (#345): kept rows outlive their session, so the lifecycle is library-scoped ----
+        InLibrary("GET", $"{Libraries}/provisionals", LibraryRole.Viewer, allowed: Ok),
+        InLibrary("POST", $"{Libraries}/provisionals/{{id:guid}}:promote", LibraryRole.Editor, Json, allowed: NotFound, headers: Idempotent), // the seeded id is no provisional
+        InLibrary("POST", $"{Libraries}/provisionals/{{id:guid}}:resolve", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no itemId: the handler is reached
+        InLibrary("DELETE", $"{Libraries}/provisionals/{{id:guid}}", LibraryRole.Editor, allowed: NotFound), // the seeded id is no provisional
+
         // ---- Tags (LIB): built ----------------------------------------------------------------------------
         InLibrary("GET", $"{Libraries}/tags", LibraryRole.Viewer, allowed: Ok),
         InLibrary("POST", $"{Libraries}/tags", LibraryRole.Editor, """{ "name": "New tag" }""", Created),
@@ -247,6 +253,8 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Sessions}/identify", LibraryRole.Viewer, Json, allowed: BadRequest),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:art", LibraryRole.Viewer, Json, allowed: BadRequest),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/photo", LibraryRole.Editor, allowed: UnsupportedMediaType),
+        InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/crop", LibraryRole.Editor, allowed: UnsupportedMediaType), // #345: no multipart body is sent here, so the handler answers 415
+        InLibrary("POST", $"{Sessions}/provisionals", LibraryRole.Editor, Json, allowed: BadRequest), // #345: {} has no candidateId: the handler is reached
         InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, "{\"copies\":2}", allowed: Ok),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no text: the handler is reached
         InLibrary("POST", $"{Sessions}/commit", LibraryRole.Editor, allowed: Ok, headers: Idempotent),

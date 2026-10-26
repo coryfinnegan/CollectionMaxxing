@@ -81,6 +81,10 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | GET | `/api/v1/libraries/{libraryId:guid}/ownership` | library role | viewer and above | Y | Y | OwnershipDto: titles, formats, locations of the library's own copies |
 | GET | `/api/v1/libraries/{libraryId:guid}/ownership/snapshot` | library role | viewer and above | Y | Y | OwnershipDto: titles, formats, locations of the library's own copies |
 | POST | `/api/v1/libraries/{libraryId:guid}/scan-sessions` | library role | viewer and above | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
+| GET | `/api/v1/libraries/{libraryId:guid}/provisionals` | library role | viewer and above | Y | Y | ProvisionalsDto: the library's own kept rows (guessed titles marked as guesses) |
+| POST | `/api/v1/libraries/{libraryId:guid}/provisionals/{id:guid}:promote` | library role | editor and above | Y | Y | ProvisionalDto: the library's own kept row |
+| POST | `/api/v1/libraries/{libraryId:guid}/provisionals/{id:guid}:resolve` | library role | editor and above | Y | Y | ProvisionalDto: the library's own kept row |
+| DELETE | `/api/v1/libraries/{libraryId:guid}/provisionals/{id:guid}` | library role | editor and above | Y | Y | none (204, no body) |
 | GET | `/api/v1/libraries/{libraryId:guid}/stats` | library role | viewer and above | Y | Y | ItemDto / ItemSummaryDto: library data and `createdBy` (a user id inside the same library) |
 | GET | `/api/v1/libraries/{libraryId:guid}/tags` | library role | viewer and above | Y | Y | library data of the caller's own library |
 | POST | `/api/v1/libraries/{libraryId:guid}/tags` | library role | editor and above | Y | Y | library data of the caller's own library |
@@ -106,6 +110,8 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | POST | `/api/v1/scan-sessions/{id:guid}/barcodes` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | PATCH | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}/photo` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
+| POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}/crop` | scan-session role | editor and above (in the session's library) | Y | Y | CropUploadDto: the asset id and its cover URL (library-private bytes) |
+| POST | `/api/v1/scan-sessions/{id:guid}/provisionals` | scan-session role | editor and above (in the session's library) | Y | Y | ProvisionalDto + CandidateDto: the session's own kept row |
 | POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}:art` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}:search` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/commit` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |

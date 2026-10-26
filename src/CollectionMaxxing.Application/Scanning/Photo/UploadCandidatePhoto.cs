@@ -66,6 +66,8 @@ public static class UploadCandidatePhoto
                     replacedPhoto = new PhotoFile(replaced.Id, replaced.BlobPath); // its row stays until the file is gone
                 }
 
+                // A kept row that cites the replaced snap stops citing it; the row itself stays (#345).
+                await Provisional.ProvisionalLinks.ClearSnapLinksAsync(db, [previous.Id], cancellationToken);
                 db.ScanSnaps.Remove(previous);
             }
 

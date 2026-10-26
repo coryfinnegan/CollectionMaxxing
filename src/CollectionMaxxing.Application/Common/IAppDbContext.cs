@@ -67,6 +67,8 @@ public interface IAppDbContext
 
     DbSet<ScanCandidate> ScanCandidates { get; }
 
+    DbSet<ProvisionalRecord> ProvisionalRecords { get; }
+
     // Operations
     DbSet<Job> Jobs { get; }
 

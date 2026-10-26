@@ -17,6 +17,7 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// <c>POST …/candidates/{id}:art</c>. <c>ShotKind</c> is what the phone's framing said the shot was; <c>SegmentId</c> links the
 /// items of a multi-item snap (#338); <c>GuidanceCode</c> is what this unresolved row tells the person to do next (#344).
 /// <c>Tier</c> is the commit tier (docs/16 §6): null until the candidate resolves.
+/// <c>CropUrl</c> is its kept segment crop, when it has one (#345).
 /// </summary>
 public sealed record CandidateDto(
     Guid Id,
@@ -48,7 +49,8 @@ public sealed record CandidateDto(
     DateTimeOffset? RetryAfter,
     ShotKind ShotKind,
     string? SegmentId,
-    GuidanceCode? GuidanceCode);
+    GuidanceCode? GuidanceCode,
+    string? CropUrl);
 
 /// <summary>Why a candidate is still Pending: <c>Quota</c> (today's UPC allowance is spent, so it waits for the nightly drain) or <c>Lookup</c> (a provider was slow or down, so it is tried again shortly).</summary>
 public enum PendingReason
@@ -80,6 +82,7 @@ public sealed record CandidateAlternativeDto(
 /// A scan session with all its candidates (or those after <c>?since=seq</c>). <c>Counters</c> and <c>Segments</c> always cover
 /// the whole session, never just the <c>?since=</c> window, so the phone's bar and strip stay complete while polling.
 /// <c>AutoCommitTiers</c> is which tiers auto-add (docs/16 §6); <c>AutoCommitCopies</c> whether an exact-owned hit still adds another copy.
+/// <c>Provisionals</c> are the session's records that still need attention (#345).
 /// </summary>
 public sealed record ScanSessionDto(
     Guid Id,
@@ -95,7 +98,8 @@ public sealed record ScanSessionDto(
     SessionCountersDto Counters,
     IReadOnlyList<SessionSegmentDto> Segments,
     IReadOnlyList<ScanTier> AutoCommitTiers,
-    bool AutoCommitCopies);
+    bool AutoCommitCopies,
+    IReadOnlyList<ProvisionalDto> Provisionals);
 
 public sealed record CreatedScanSessionDto(Guid Id);
 
@@ -107,3 +111,33 @@ public sealed record CommitResultDto(int Created, int Skipped, IReadOnlyList<Gui
 
 /// <summary>What undoing one auto-add did: how many items it removed, and the candidate with its evidence back.</summary>
 public sealed record UndoAutoCommitResultDto(int Removed, CandidateDto Candidate);
+
+/// <summary>
+/// An unreadable spine the person kept (design §11). <c>IsGuess</c> is always true: the title is what the phone read,
+/// never an assertion. <c>CropUrl</c> is the kept segment crop, when the phone had one to send.
+/// </summary>
+public sealed record ProvisionalDto(
+    Guid Id,
+    Guid LibraryId,
+    Guid? SessionId,
+    Guid? SnapId,
+    string TitleGuess,
+    bool IsGuess,
+    ScanMediaHint MediaHint,
+    Guid? LocationId,
+    ProvisionalStatus Status,
+    Guid? CandidateId,
+    string? CropUrl,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ResolvedAt,
+    ProvisionalResolveAction? ResolveAction,
+    Guid? CreatedItemId);
+
+/// <summary>The library's "Needs attention" list: its provisional records that still need acting on, stalest first.</summary>
+public sealed record ProvisionalsDto(IReadOnlyList<ProvisionalDto> Items);
+
+/// <summary>What keeping a row did: the provisional record, and the retired row (rejected, linked to it).</summary>
+public sealed record CreateProvisionalResultDto(ProvisionalDto Provisional, CandidateDto Candidate);
+
+/// <summary>What a segment-crop upload stored: the asset, and where to see it.</summary>
+public sealed record CropUploadDto(Guid AssetId, string CropUrl);
