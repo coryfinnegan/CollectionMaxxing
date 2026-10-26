@@ -37,13 +37,13 @@ public sealed class GateAndRegressionTests : IDisposable
     {
         var title = right ? s.Title : "Something Else Entirely";
         GroundedItem[] items = outcome == "ok"
-            ? [new GroundedItem(title, "complete", engine == Apple ? "model" : "vision_text", "matched", [Release(title, s.Platform, s.Media, s.Format)])]
+            ? [T1(new GroundedItem(title, "complete", engine == Apple ? "model" : "vision_text", "matched", [Release(title, s.Platform, s.Media, s.Format)]))]
             : [];
         return Photo(s.Id, engine, items, latencyMs, firstItemMs: null, outcome: outcome, thermal: thermal);
     }
 
     private static GroundedPhoto ShelfPhoto(string engine, bool right = true, long latencyMs = 6000, long firstItemMs = 1500, string thermal = "nominal") =>
-        Photo("s1", engine, right ? [Matched("Star Fox 64"), Matched("Mario Kart 64")] : [Matched("Star Fox 64")], latencyMs, firstItemMs, thermal: thermal);
+        Photo("s1", engine, right ? [T1(Matched("Star Fox 64")), T1(Matched("Mario Kart 64"))] : [T1(Matched("Star Fox 64"))], latencyMs, firstItemMs, thermal: thermal);
 
     /// <summary>Apple meets every bar; Vision text gets half of the singles right.</summary>
     private static List<GroundedPhoto> MeetingEveryBar(Func<GroundedPhoto, GroundedPhoto>? changeApple = null)
@@ -88,7 +88,7 @@ public sealed class GateAndRegressionTests : IDisposable
             "top1.book_spine", "top1.game_box", "top1.disc_cover", "top1.vhs_sleeve", "top1.loose_cartridge", "top1.bare_label",
             "top3.book_spine", "top3.game_box", "top3.disc_cover", "top3.vhs_sleeve", "top3.loose_cartridge", "top3.bare_label",
             "top1.beats_vision_text", "speed.single_p50", "speed.shelf_first_item_p50", "speed.shelf_total_p50",
-            "invented_titles", "guardrail_refusals", "model_timeouts", "thermals",
+            "invented_titles", "auto_add_precision", "guardrail_refusals", "model_timeouts", "thermals",
         ]);
     }
 

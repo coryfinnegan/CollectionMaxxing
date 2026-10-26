@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Evals;
 
@@ -18,10 +19,14 @@ public static class EvalReport
         IReadOnlyDictionary<string, double>? baseline,
         string buildSha,
         IReadOnlyList<SkippedPhoto> skipped,
-        int photosInSet = 0)
+        int photosInSet = 0,
+        ScoringThresholds? scoring = null,
+        string? baselineThresholdHash = null)
     {
         var scored = EvalScorer.Score(run.Photos, truths);
         var metrics = EvalRegression.Flatten(scored.Engines);
+        var thresholdHash = EvalThresholds.Fingerprint(scoring ?? new ScoringThresholds());
+        var note = string.IsNullOrWhiteSpace(run.BaselineNote) ? null : run.BaselineNote.Trim();
         var summary = new EvalSummary(
             run.RunId,
             run.At.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
@@ -32,11 +37,13 @@ public static class EvalReport
             skipped,
             scored.Engines,
             M3Gate.Evaluate(scored.Engines, run.Partial),
-            EvalRegression.Check(run.Partial ? null : baseline, metrics, run.Partial),
+            EvalRegression.Check(run.Partial ? null : baseline, metrics, run.Partial, new ThresholdAttestation(thresholdHash, baselineThresholdHash, note)),
             metrics,
             run.Partial,
             run.Photos.Where(p => truths.ContainsKey(p.PhotoId)).Select(p => p.PhotoId).Distinct(StringComparer.Ordinal).Count(),
-            photosInSet);
+            photosInSet,
+            thresholdHash,
+            note);
         return new EvaluatedRun(summary, scored.Misses, Markdown(summary, scored.Misses));
     }
 
@@ -69,6 +76,11 @@ public static class EvalReport
             .Append(comparison.VisionTop1Pct?.ToString("0.##", CultureInfo.InvariantCulture) ?? "n/a").AppendLine("%.").AppendLine();
 
         text.Append("## Regression check: ").AppendLine(summary.Regression.Status).AppendLine();
+        if (summary.Regression.Status == EvalRegression.Incomplete)
+        {
+            text.AppendLine("The run's thresholds moved from the baseline's and no baseline note was sent: re-run acceptance with a note, or update the baseline.").AppendLine();
+        }
+
         foreach (var item in summary.Regression.Regressions)
         {
             text.Append("- ").Append(item.Metric).Append(": ").Append(Number(item.Baseline)).Append(" -> ").Append(Number(item.Actual))
@@ -98,6 +110,7 @@ public static class EvalReport
     private static int Severity(string kind) => kind switch
     {
         "invented" => 0,
+        "unreconciled" => 0,
         "refused" => 1,
         "timeout" => 2,
         "error" => 2,
@@ -118,7 +131,15 @@ public static class EvalReport
             .Append(", top-3 ").Append(Percent(slice.Top3Pct)).Append(", invented ").Append(slice.InventedTitles)
             .Append(", refusals ").Append(slice.Refusals).Append(", timeouts ").Append(slice.Timeouts).Append(" (").Append(Percent(slice.TimeoutPct)).Append("), p50 ").Append(slice.LatencyP50Ms?.ToString(CultureInfo.InvariantCulture) ?? "n/a")
             .Append(" ms, p95 ").Append(slice.LatencyP95Ms?.ToString(CultureInfo.InvariantCulture) ?? "n/a").AppendLine(" ms");
+        text.Append("  review ").Append(Percent(slice.ReviewRatePct)).Append(", auto-add precision ").Append(Percent(slice.AutoAddPrecisionPct))
+            .Append(" (").Append(slice.CorrectAutoAdds).Append(" of ").Append(slice.AutoAdds).Append("), tiers T0 ").Append(slice.T0Auto)
+            .Append(" / T1 ").Append(slice.T1Auto).Append(" / T2 ").Append(slice.T2Review).Append(" / provisional ").Append(slice.ProvisionalItems)
+            .Append(", duplicates ").Append(slice.DuplicateClean is { } clean ? clean ? "clean" : "dirty" : "n/a")
+            .Append(", first results ").Append(Millis(slice.TimeToFirstResultsMs)).Append(", trustworthy ").Append(Millis(slice.TotalTimeToTrustworthyMs))
+            .Append(", unreconciled ").Append(slice.UnreconciledPhotos).Append(", excess unreadable ").AppendLine(slice.ExcessUnreadable.ToString(CultureInfo.InvariantCulture));
     }
+
+    private static string Millis(long? value) => value is { } v ? v.ToString(CultureInfo.InvariantCulture) + " ms" : "n/a";
 
     private static string Percent(double? value) => value is { } v ? Number(v) + "%" : "n/a";
 }

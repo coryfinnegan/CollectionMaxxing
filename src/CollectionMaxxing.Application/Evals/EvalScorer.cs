@@ -1,4 +1,6 @@
 using CollectionMaxxing.Domain.Catalog.Matching;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Scanning;
 
 namespace CollectionMaxxing.Application.Evals;
 
@@ -25,6 +27,10 @@ public static class EvalScorer
     private const string Refused = "refused";
     private const string Error = "error";
     private const string Timeout = "timeout";
+
+    private static readonly string Tier0 = EnumText.ToText(ScanTier.T0);
+    private static readonly string Tier1 = EnumText.ToText(ScanTier.T1);
+    private static readonly string Tier2 = EnumText.ToText(ScanTier.T2);
 
     /// <summary>
     /// The model's time budget in milliseconds (the default of <c>engine.modelTimeoutMs</c>). A timed-out photo counts in the latency
@@ -53,6 +59,22 @@ public static class EvalScorer
         public int Failures;
         public int Timeouts;
         public int Fallbacks;
+        public int T0Auto;
+        public int T1Auto;
+        public int T2Review;
+        public int ProvisionalItems;
+        public int AutoAdds;
+        public int CorrectAutoAdds;
+        public int TouchTruth;
+        public int UnreconciledPhotos;
+        public int ExcessUnreadable;
+        public int DuplicateOwned;
+        public int DuplicateAnswered;
+        public int DuplicateUnsolicited;
+        public bool HasDuplicateEvidence;
+        public DateTimeOffset? FirstCapture;
+        public DateTimeOffset? FirstReady;
+        public DateTimeOffset? LastReady;
         public List<long> Latency { get; } = [];
         public List<long> FirstItem { get; } = [];
         public Dictionary<string, (int Items, int Top1, int Top3)> Kinds { get; } = new(StringComparer.Ordinal);
@@ -126,6 +148,8 @@ public static class EvalScorer
             k => k.Key, k => new KindMetrics(k.Value.Items, k.Value.Top1, k.Value.Top3, Pct(k.Value.Top1, k.Value.Items), Pct(k.Value.Top3, k.Value.Items)));
         var shots = tally.Shots.OrderBy(k => k.Key, StringComparer.Ordinal).ToDictionary(
             k => k.Key, k => new KindMetrics(k.Value.Items, k.Value.Top1, k.Value.Top3, Pct(k.Value.Top1, k.Value.Items), Pct(k.Value.Top3, k.Value.Items)));
+        // Unreadable hidden beyond what the truth allows are missed readable items: the per-truth rates divide by truth plus them.
+        var readable = tally.TruthItems + tally.ExcessUnreadable;
         return new SliceMetrics(
             tally.Photos,
             tally.TruthItems,
@@ -133,11 +157,11 @@ public static class EvalScorer
             tally.Correct,
             tally.Top1Hits,
             tally.Top3Hits,
-            RecallPct: Pct(tally.Top1Hits, tally.TruthItems),
+            RecallPct: Pct(tally.Top1Hits, readable),
             PrecisionPct: Pct(tally.Correct, tally.Predicted),
-            Top1Pct: Pct(tally.Top1Hits, tally.TruthItems),
-            Top3Pct: Pct(tally.Top3Hits, tally.TruthItems),
-            TitleAccuracyPct: Pct(tally.TitleHits, tally.TruthItems),
+            Top1Pct: Pct(tally.Top1Hits, readable),
+            Top3Pct: Pct(tally.Top3Hits, readable),
+            TitleAccuracyPct: Pct(tally.TitleHits, readable),
             PlatformAccuracyPct: Pct(tally.PlatformHits, tally.PlatformChecks),
             TypeAccuracyPct: Pct(tally.TypeHits, tally.TitleHits),
             CompletenessAccuracyPct: Pct(tally.CompletenessHits, tally.CompletenessChecks),
@@ -155,8 +179,30 @@ public static class EvalScorer
             Percentile(tally.FirstItem, 95),
             kinds,
             tally.ResolvedBy,
-            shots);
+            shots,
+            tally.T0Auto,
+            tally.T1Auto,
+            tally.T2Review,
+            tally.ProvisionalItems,
+            tally.AutoAdds,
+            tally.CorrectAutoAdds,
+            ReviewRatePct: Pct(tally.TouchTruth, tally.TruthItems),
+            AutoAddPrecisionPct: Pct(tally.CorrectAutoAdds, tally.AutoAdds),
+            DuplicateClean: tally.HasDuplicateEvidence
+                ? tally.DuplicateUnsolicited == 0 && tally.DuplicateOwned > 0 && tally.DuplicateAnswered == tally.DuplicateOwned
+                : null,
+            TimeToFirstResultsMs: SpanMs(tally.FirstCapture, tally.FirstReady),
+            TotalTimeToTrustworthyMs: SpanMs(tally.FirstCapture, tally.LastReady),
+            tally.UnreconciledPhotos,
+            tally.ExcessUnreadable);
     }
+
+    private static long? SpanMs(DateTimeOffset? from, DateTimeOffset? to) =>
+        from is { } start && to is { } end ? (long)Math.Round((end - start).TotalMilliseconds, MidpointRounding.AwayFromZero) : null;
+
+    /// <summary>An auto-commit: tiered T0 or T1 by the pipeline. A provisional is kept for a human, never auto-added, whatever else it claims.</summary>
+    private static bool IsAutoAdd(GroundedItem item) =>
+        !item.Provisional && (item.Tier == Tier0 || item.Tier == Tier1);
 
     private static List<TruthItem> TruthItemsOf(TruthEntry truth) => truth.Set == GoldenSets.Shelf
         ? [.. truth.Shelf!.Items.Select(i => new TruthItem(i.Title, i.Platform, i.MediaType.ToLowerInvariant(), null, EvalKinds.Key(i.MediaType)))]
@@ -188,13 +234,70 @@ public static class EvalScorer
             }
         }
 
+        foreach (var item in items)
+        {
+            if (item.Provisional)
+            {
+                tally.ProvisionalItems++;
+            }
+            else if (item.Tier == Tier0)
+            {
+                tally.T0Auto++;
+            }
+            else if (item.Tier == Tier1)
+            {
+                tally.T1Auto++;
+            }
+            else if (item.Tier == Tier2)
+            {
+                tally.T2Review++;
+            }
+
+            tally.AutoAdds += IsAutoAdd(item) ? 1 : 0;
+        }
+
+        if (photo.CapturedAt is { } captured)
+        {
+            tally.FirstCapture = tally.FirstCapture is { } seen && seen <= captured ? seen : captured;
+        }
+
+        if (photo.DuplicateRescan is { } rescan)
+        {
+            tally.HasDuplicateEvidence = true;
+            tally.DuplicateOwned += rescan.OwnedHits;
+            tally.DuplicateAnswered += rescan.AnsweredOnCard;
+            tally.DuplicateUnsolicited += rescan.UnsolicitedAdds;
+        }
+
+        // Unreadable past what the truth allows hides readable items (a single picture allows none).
+        var allowed = truth.Set == GoldenSets.Shelf ? truth.Shelf!.Unreadable : 0;
+        tally.ExcessUnreadable += Math.Max(0, photo.UnreadableCount - allowed);
+
+        if (photo.Outcome == Ok && photo.CapturedCount > 0)
+        {
+            // Reported unreadable + resolved + provisional must equal what was captured; reads sharing a segment count once.
+            var segments = photo.UnreadableCount
+                + items.Count(i => i.SegmentId is null)
+                + items.Where(i => i.SegmentId is not null).Select(i => i.SegmentId!).Distinct(StringComparer.Ordinal).Count();
+            var gap = Math.Abs(photo.CapturedCount - segments);
+            if (gap > 0)
+            {
+                tally.UnreconciledPhotos++;
+                tally.Invented += gap;
+                tally.Predicted += gap;
+                misses.Add(new EvalMiss(
+                    photo.PhotoId, truth.Set, photo.Engine, "unreconciled", null,
+                    $"{gap} of {photo.CapturedCount} captured segments unaccounted for"));
+            }
+        }
+
         // The items that may claim a truth item: all of them on a shelf, the first one on a single picture.
         var claimers = truth.Set == GoldenSets.Single ? items.Take(1).ToList() : items.ToList();
         var claimed = new bool[truthItems.Count];
         var pairOfItem = new Dictionary<int, (int Truth, bool Full)>();
         for (var i = 0; i < claimers.Count; i++)
         {
-            if (claimers[i].Best is not { } best)
+            if (claimers[i].Best is not { } best || IsUnguessedProvisional(claimers[i]))
             {
                 continue;
             }
@@ -226,6 +329,7 @@ public static class EvalScorer
                 top1[truthIndex] = true;
                 top3[truthIndex] = true;
                 tally.Correct++;
+                tally.CorrectAutoAdds += IsAutoAdd(claimers[itemIndex]) ? 1 : 0;
                 tally.ResolvedBy[claimers[itemIndex].ResolvedBy] = tally.ResolvedBy.GetValueOrDefault(claimers[itemIndex].ResolvedBy) + 1;
             }
         }
@@ -233,6 +337,11 @@ public static class EvalScorer
         // Top-3: what the top-1 pass settled, plus truth items that one of the other two releases of an unsettled item names.
         for (var i = 0; i < claimers.Count; i++)
         {
+            if (IsUnguessedProvisional(claimers[i]))
+            {
+                continue;
+            }
+
             if (pairOfItem.TryGetValue(i, out var pair) && pair.Full)
             {
                 continue;
@@ -255,6 +364,16 @@ public static class EvalScorer
         }
 
         var shot = truth.ShotKind ?? "unknown";
+        // A truth item needs no touch only when a correct auto-add claimed it; everything else (a miss, a T2 row, a provisional, a wrong auto-add) is a touch.
+        var clean = new HashSet<int>();
+        foreach (var (itemIndex, (truthIndex, full)) in pairOfItem)
+        {
+            if (full && IsAutoAdd(claimers[itemIndex]))
+            {
+                clean.Add(truthIndex);
+            }
+        }
+
         for (var t = 0; t < truthItems.Count; t++)
         {
             var kind = truthItems[t].Kind;
@@ -264,6 +383,7 @@ public static class EvalScorer
             tally.Shots[shot] = (shotCurrent.Items + 1, shotCurrent.Top1 + (top1[t] ? 1 : 0), shotCurrent.Top3 + (top3[t] ? 1 : 0));
             tally.Top1Hits += top1[t] ? 1 : 0;
             tally.Top3Hits += top3[t] ? 1 : 0;
+            tally.TouchTruth += clean.Contains(t) ? 0 : 1;
             if (!top1[t])
             {
                 misses.Add(new EvalMiss(
@@ -271,15 +391,30 @@ public static class EvalScorer
             }
         }
 
+        if (photo.Outcome == Ok && photo.CapturedAt is { } stamped && top1.Any(t => t))
+        {
+            var ready = stamped.AddMilliseconds(photo.LatencyMs);
+            tally.FirstReady = tally.FirstReady is { } first && first <= ready ? first : ready;
+            tally.LastReady = tally.LastReady is { } last && last >= ready ? last : ready;
+        }
+
         foreach (var item in items)
         {
-            if (item.Verdict == "matched" && item.Best is { } best && !truthItems.Any(t => TitleMatch(t, best)))
+            if (IsUnguessedProvisional(item))
+            {
+                tally.Invented++;
+                misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, item.Best?.Title ?? item.ReadTitle));
+            }
+            else if (item.Verdict == "matched" && item.Best is { } best && !truthItems.Any(t => TitleMatch(t, best)))
             {
                 tally.Invented++;
                 misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, best.Title));
             }
         }
     }
+
+    /// <summary>A provisional with a guessed title must carry <c>IsGuess</c>; without it the guess scores as invented.</summary>
+    private static bool IsUnguessedProvisional(GroundedItem item) => item.Provisional && item.IsGuess != true;
 
     private static string ReadSummary(GroundedPhoto photo, IReadOnlyList<GroundedItem> items)
     {

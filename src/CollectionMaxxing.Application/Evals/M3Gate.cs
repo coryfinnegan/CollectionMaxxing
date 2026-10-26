@@ -32,6 +32,9 @@ public static class M3Gate
     /// <summary>Guardrail refusals must be under this share of golden photos (percent).</summary>
     public const double MaxRefusalPct = 2.0;
 
+    /// <summary>Auto-added items (T0 + T1, which no human saw) must be right at least this often (percent). Stricter than precision overall.</summary>
+    public const double MinAutoAddPrecisionPct = 99.0;
+
     /// <param name="partial">The run was cancelled part way: the verdict is <c>incomplete</c> whatever the measures say.</param>
     public static GateTable Evaluate(IReadOnlyDictionary<string, EngineSummary> engines, bool partial = false)
     {
@@ -67,6 +70,15 @@ public static class M3Gate
         var invented = (apple?.Shelf?.InventedTitles ?? 0) + (apple?.Single?.InventedTitles ?? 0);
         var inventedPct = EvalScorer.Pct(invented, predicted);
         measures.Add(Measure("invented_titles", $"< {MaxInventedPct:0.#}% of items", inventedPct is null ? null : $"{inventedPct:0.##}%", inventedPct is { } ip ? ip < MaxInventedPct : null));
+
+        var autoAdds = (apple?.Shelf?.AutoAdds ?? 0) + (apple?.Single?.AutoAdds ?? 0);
+        var correctAutoAdds = (apple?.Shelf?.CorrectAutoAdds ?? 0) + (apple?.Single?.CorrectAutoAdds ?? 0);
+        var autoAddPct = EvalScorer.Pct(correctAutoAdds, autoAdds);
+        measures.Add(Measure(
+            "auto_add_precision",
+            $">= {MinAutoAddPrecisionPct:0.#}% of auto-adds right",
+            autoAddPct is null ? null : $"{autoAddPct:0.##}%",
+            autoAddPct is { } ap ? ap >= MinAutoAddPrecisionPct : null));
 
         var photos = (apple?.Shelf?.Photos ?? 0) + (apple?.Single?.Photos ?? 0);
         var refusals = (apple?.Shelf?.Refusals ?? 0) + (apple?.Single?.Refusals ?? 0);

@@ -16,12 +16,25 @@ public static class EvalRegression
     /// <summary>The baseline has numbers but the run shares none of them, so nothing was compared. That is not a pass.</summary>
     public const string NoOverlap = "no_overlap";
 
+    /// <summary>
+    /// The run's thresholds moved from the baseline's without a baseline note (docs/16 §17): nothing was compared, and that is not a pass.
+    /// Re-run acceptance with a note, or update the baseline.
+    /// </summary>
+    public const string Incomplete = "incomplete";
+
     /// <summary>A metric may move this many points the wrong way; more than this is flagged.</summary>
     public const double AllowedPoints = 2.0;
 
-    private static readonly string[] LowerIsBetter = ["invented_pct", "refusal_pct", "timeout_pct"];
+    private static readonly string[] LowerIsBetter =
+    [
+        "invented_pct", "refusal_pct", "timeout_pct", "review_rate", "t2_review", "provisional",
+        "time_to_first_results", "total_time_to_trustworthy", "unreconciled_photos", "excess_unreadable",
+    ];
 
-    /// <summary>Every percentage in the engines' numbers, by a stable name such as <c>apple_model.single.top1</c>.</summary>
+    /// <summary>
+    /// Every comparable number in the engines' numbers, by a stable name such as <c>apple_model.single.top1</c>: percentages,
+    /// per-tier counts, times in seconds and <c>duplicate_clean</c> as 100 or 0. "Points" on a count or a time are its own units.
+    /// </summary>
     public static IReadOnlyDictionary<string, double> Flatten(IReadOnlyDictionary<string, EngineSummary> engines)
     {
         var metrics = new SortedDictionary<string, double>(StringComparer.Ordinal);
@@ -60,6 +73,17 @@ public static class EvalRegression
         Add("invented_pct", slice.InventedPct);
         Add("refusal_pct", slice.RefusalPct);
         Add("timeout_pct", slice.TimeoutPct);
+        Add("review_rate", slice.ReviewRatePct);
+        Add("auto_add_precision", slice.AutoAddPrecisionPct);
+        Add("t0_auto", slice.T0Auto);
+        Add("t1_auto", slice.T1Auto);
+        Add("t2_review", slice.T2Review);
+        Add("provisional", slice.ProvisionalItems);
+        Add("duplicate_clean", slice.DuplicateClean is { } clean ? clean ? 100 : 0 : null);
+        Add("time_to_first_results", slice.TimeToFirstResultsMs is { } first ? first / 1000.0 : null);
+        Add("total_time_to_trustworthy", slice.TotalTimeToTrustworthyMs is { } total ? total / 1000.0 : null);
+        Add("unreconciled_photos", slice.UnreconciledPhotos);
+        Add("excess_unreadable", slice.ExcessUnreadable);
         foreach (var (kind, numbers) in slice.ByKind)
         {
             Add($"kind.{kind}.top1", numbers.Top1Pct);
@@ -74,7 +98,11 @@ public static class EvalRegression
     }
 
     /// <summary>Compares <paramref name="actual"/> with <paramref name="baseline"/> (null when there is none). A metric the baseline does not have is new, not a regression.</summary>
-    public static RegressionCheck Check(IReadOnlyDictionary<string, double>? baseline, IReadOnlyDictionary<string, double> actual, bool partial = false)
+    public static RegressionCheck Check(
+        IReadOnlyDictionary<string, double>? baseline,
+        IReadOnlyDictionary<string, double> actual,
+        bool partial = false,
+        ThresholdAttestation? thresholds = null)
     {
         if (partial)
         {
@@ -84,6 +112,13 @@ public static class EvalRegression
         if (baseline is null || baseline.Count == 0)
         {
             return new RegressionCheck(NoBaseline, 0, []);
+        }
+
+        if (thresholds is { BaselineHash: { } want, RunHash: var have, BaselineNote: var note }
+            && want != have
+            && string.IsNullOrWhiteSpace(note))
+        {
+            return new RegressionCheck(Incomplete, 0, []);
         }
 
         var regressions = new List<RegressionItem>();
