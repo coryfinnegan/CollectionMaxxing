@@ -1,5 +1,5 @@
 // The Scan action above the native tab bar (#303): a glass pill that opens the
-// Scan tab. It collapses to a barcode button when the bar minimizes. Stateless:
+// Scan tab. It collapses to an icon button when the bar minimizes. Stateless:
 // two instances render at once (one per placement) with unshared state, so the
 // hide-on-Scan-tab gate lives in NativeTabBar, outside the accessory.
 // First: this module needs Unistyles configured before it runs (#305).
@@ -11,7 +11,7 @@ import Animated from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { GlassSurface, Text, usePressFeedback } from '@/ui';
 
-export const SCAN_LABEL = 'Scan a barcode';
+export const SCAN_LABEL = 'Scan';
 
 export function ScanPill() {
   const router = useRouter();

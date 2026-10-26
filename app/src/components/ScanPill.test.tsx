@@ -1,5 +1,5 @@
 // Scan primacy (#303): a glass pill above the native tab bar takes you to the
-// Scan tab, and collapses to a barcode button when the bar minimizes. Stateless:
+// Scan tab, and collapses to an icon button when the bar minimizes. Stateless:
 // two instances render at once (one per placement) with unshared state.
 import { fireEvent, screen } from '@testing-library/react-native';
 import { View } from 'react-native';
@@ -48,17 +48,17 @@ beforeEach(() => {
 afterEach(() => setHapticDriver(null));
 
 describe('ScanPill', () => {
-  it('offers a Scan a barcode pill', async () => {
+  it('offers a Scan pill', async () => {
     await renderWithProviders(<ScanPill />);
 
-    expect(screen.getByText('Scan a barcode')).toBeTruthy();
+    expect(screen.getByText('Scan')).toBeTruthy();
   });
 
   it('opens the Scan tab with a selection tick when pressed', async () => {
     const calls = fakeHaptics();
     await renderWithProviders(<ScanPill />);
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Scan a barcode' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Scan' }));
 
     expect(mockRouter.navigate).toHaveBeenCalledWith('/scan');
     expect(calls).toEqual(['tick']);
@@ -69,8 +69,8 @@ describe('ScanPill', () => {
     await renderWithProviders(<ScanPill />);
 
     // The full label does not fit beside a minimized bar, but the button keeps its name.
-    expect(screen.queryByText('Scan a barcode')).toBeNull();
-    await fireEvent.press(screen.getByRole('button', { name: 'Scan a barcode' }));
+    expect(screen.queryByText('Scan')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Scan' }));
     expect(mockRouter.navigate).toHaveBeenCalledWith('/scan');
   });
 
@@ -91,7 +91,7 @@ describe('ScanPill', () => {
       </View>,
     );
 
-    const pills = screen.getAllByRole('button', { name: 'Scan a barcode' });
+    const pills = screen.getAllByRole('button', { name: 'Scan' });
     expect(pills).toHaveLength(2);
     await fireEvent.press(pills[1]);
     expect(mockRouter.navigate).toHaveBeenCalledWith('/scan');

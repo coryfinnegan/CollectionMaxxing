@@ -92,7 +92,7 @@ describe('NativeTabBar', () => {
 
   it('floats the Scan pill above every tab but Scan itself', async () => {
     await renderWithProviders(<NativeTabBar />);
-    expect(screen.getByText('Scan a barcode')).toBeTruthy();
+    expect(screen.getByText('Scan')).toBeTruthy();
     const pill = mockAccessoryChildren.current as ReactElement;
     expect(pill.type).toBe(ScanPill);
 
@@ -100,6 +100,6 @@ describe('NativeTabBar', () => {
     mockTriggers.length = 0;
     await renderWithProviders(<NativeTabBar />);
     expect(mockAccessoryChildren.current).toBeNull();
-    expect(screen.queryByText('Scan a barcode')).toBeNull();
+    expect(screen.queryByText('Scan')).toBeNull();
   });
 });
