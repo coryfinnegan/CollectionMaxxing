@@ -14,7 +14,7 @@ import { getTrayStore } from '../tray/storage';
 import { flushTray, type TrayStore } from '../tray/trayStore';
 import { lineStatus } from '../tray/tray';
 import { flushDeps, followSession, loadSessionSnapshot, resumeCursor } from './sessionApi';
-import { flushDiscardOutbox, getDiscardOutbox } from './discards';
+import { flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from './discards';
 import { seedFromSnapshot } from './sessionCounters';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -117,16 +117,23 @@ export function useScanSession({
     return () => clearInterval(timer);
   }, [store, deps, resendMs]);
 
-  // Follow the session: load what is there (a resumed session), then stream updates.
+  // Follow the session: queued discards from before the app was killed land first, then load what is there
+  // (a resumed session), then stream updates. Discarded and rejected candidates never merge back into cards.
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
     let follower: { close(): void } | undefined;
     void (async () => {
       let cursor: string | undefined;
+      await flushDiscardOutbox({ libraryId }).catch(() => 0);
       try {
         const snapshot = await loadSessionSnapshot(sessionId);
-        useCardsStore.getState().merge(snapshot.candidates, { announce: false });
+        pruneDiscarded(snapshot.candidates);
+        // Discarded and rejected candidates have no card: the snapshot confirms them, it never brings them back.
+        useCardsStore.getState().merge(
+          withoutDiscarded(snapshot.candidates).filter((c) => c.decision !== 'rejected'),
+          { announce: false },
+        );
         seedFromSnapshot(sessionId, snapshot);
         cursor = resumeCursor(snapshot.candidates);
       } catch {
@@ -138,7 +145,7 @@ export function useScanSession({
       cancelled = true;
       follower?.close();
     };
-  }, [sessionId]);
+  }, [libraryId, sessionId]);
 
   // The "Nice scan!" flash goes away by itself.
   useEffect(() => {
