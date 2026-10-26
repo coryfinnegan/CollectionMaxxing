@@ -13,32 +13,32 @@ import { LazyCameraPreview } from './LazyCameraPreview';
 import { ScannerScreen } from './ScannerScreen';
 import { FakeScannerSource, VisionCameraSource } from './ScannerSource';
 
-export function ScannerRoute({ onClose }: { onClose?: () => void }) {
+export function ScannerRoute({ onClose, showClose = true }: { onClose?: () => void; showClose?: boolean }) {
   if (Platform.OS === 'web') {
     return (
-      <RouteFallback onClose={onClose}>
+      <RouteFallback onClose={onClose} showClose={showClose}>
         <EmptyState title="Scanning is on the iPhone app" body="Open CollectionMaxxing on your iPhone to scan barcodes. You can still browse and edit your library here." />
       </RouteFallback>
     );
   }
-  return <PhoneScanner onClose={onClose} />;
+  return <PhoneScanner onClose={onClose} showClose={showClose} />;
 }
 
 /** The scanner's waiting room (web, or the library isn't ready): safe-area aware, with a way back out of the modal. */
-function RouteFallback({ onClose, children }: { onClose?: () => void; children: ReactNode }) {
+function RouteFallback({ onClose, showClose, children }: { onClose?: () => void; showClose: boolean; children: ReactNode }) {
   const router = useRouter();
   const colors = useColors();
   return (
     <SafeAreaView testID="scanner-fallback-safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
       <Screen>
-        <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} />
+        {showClose ? <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} /> : null}
         {children}
       </Screen>
     </SafeAreaView>
   );
 }
 
-function PhoneScanner({ onClose }: { onClose?: () => void }) {
+function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose: boolean }) {
   const { libraryId, isLoading } = useActiveLibraryId();
   const camera = useMemo(() => new VisionCameraSource(), []);
   const devSource = useMemo(() => (__DEV__ ? new FakeScannerSource() : undefined), []);
@@ -46,7 +46,7 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
   const autoSnapConfig = useAutoSnapConfig();
   if (!libraryId) {
     return (
-      <RouteFallback onClose={onClose}>
+      <RouteFallback onClose={onClose} showClose={showClose}>
         {isLoading ? (
           <LoadingState label="Getting your library ready…" />
         ) : (
@@ -62,6 +62,7 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
       preview={<LazyCameraPreview source={camera} />}
       devSource={devSource}
       onClose={onClose}
+      showClose={showClose}
       pipeline={pipeline}
       autoSnapConfig={autoSnapConfig}
     />

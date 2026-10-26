@@ -42,6 +42,8 @@ type Props = {
   tuning?: SessionTuning;
   /** What Close does; defaults to going back. The route passes the close-scanner sheet here. */
   onClose?: () => void;
+  /** False when embedded in the Scan tab: the tab bar is the way out, so there is no Close. */
+  showClose?: boolean;
   /** Each picture, from the shutter or auto-snap. Without this and without a `pipeline`, pictures are only counted. */
   onSnap?: (event: SnapEvent) => void;
   /** The picture pipeline: read on the phone, identified from text, close calls compared by artwork. The route builds it. */
@@ -62,6 +64,7 @@ export function ScannerScreen({
   devSource,
   tuning,
   onClose,
+  showClose = true,
   onSnap,
   pipeline,
   autoSnapConfig = DEFAULT_AUTO_SNAP_CONFIG,
@@ -139,7 +142,9 @@ export function ScannerScreen({
       {preview}
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { paddingTop: insets.top + spacing.sm }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg }}>
-          <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
+          {showClose ? (
+            <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
+          ) : null}
           {Platform.OS === 'web' ? (
             <Text variant="heading" accessibilityRole="header" style={{ color: fixed.white }}>
               Scanner

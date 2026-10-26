@@ -90,6 +90,13 @@ describe('scanner session context', () => {
     expect(await screen.findByText('DVD · 1979')).toBeTruthy();
   });
 
+  it('hides Close when embedded in the Scan tab', async () => {
+    await renderWithProviders(<ScannerScreen libraryId={MOCK_LIBRARY_ID} source={new FakeScannerSource()} tuning={tuning} showClose={false} />);
+
+    await screen.findByLabelText('Take picture');
+    expect(screen.queryByLabelText('Close')).toBeNull();
+  });
+
   it('adds by hand and opens waiting review from the session bar', async () => {
     await scanner();
     mockRouter.push.mockClear();
