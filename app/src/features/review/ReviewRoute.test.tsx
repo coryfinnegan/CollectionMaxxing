@@ -3,10 +3,12 @@ import { screen } from '@testing-library/react-native';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { getTrayStore, setTrayStore } from '@/features/scan/tray/storage';
 import { renderWithProviders } from '@/test/render';
+import { boundScanStore } from './boundScan';
 import { ReviewScreen } from './ReviewScreen';
 import { ReviewRoute } from './ReviewRoute';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
+const mockRouter = { push: jest.fn(), back: jest.fn() };
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/features/locations/useLocations', () => ({ useActiveLibraryId: jest.fn() }));
 // The pairing tests only need which session the route hands the screen; stub the screen and read its props.
 jest.mock('./ReviewScreen', () => ({ ReviewScreen: jest.fn(() => null) }));
@@ -48,5 +50,32 @@ describe('review route library pairing', () => {
     await renderWithProviders(<ReviewRoute />);
 
     expect(rendered.mock.calls[0]?.[0]).toMatchObject({ libraryId: B, sessionId: null });
+  });
+});
+
+describe('review route scan barcode', () => {
+  const A = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  beforeEach(() => {
+    setTrayStore(undefined);
+    rendered.mockClear();
+    mockRouter.push.mockClear();
+    boundScanStore.getState().clear();
+    library.mockReturnValue({ libraryId: A, isLoading: false });
+  });
+  afterEach(() => {
+    setTrayStore(undefined);
+    boundScanStore.getState().clear();
+  });
+
+  it('binds the row and opens the scanner for it', async () => {
+    getTrayStore(A).getState().setSessionId('session-A');
+    await renderWithProviders(<ReviewRoute />);
+    const onScanBarcode = rendered.mock.calls[0]?.[0].onScanBarcode;
+
+    onScanBarcode({ id: 'row-1', release: { title: 'Dune' }, visibleText: null, rawCode: null });
+
+    expect(boundScanStore.getState().binding).toEqual({ sessionId: 'session-A', candidateId: 'row-1', title: 'Dune' });
+    expect(mockRouter.push).toHaveBeenCalledWith('/scanner');
   });
 });

@@ -56,6 +56,7 @@ public static class EvalScorer
         public List<long> Latency { get; } = [];
         public List<long> FirstItem { get; } = [];
         public Dictionary<string, (int Items, int Top1, int Top3)> Kinds { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, (int Items, int Top1, int Top3)> Shots { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, int> ResolvedBy { get; } = new(StringComparer.Ordinal)
         {
             [ResolvedByText.Model] = 0,
@@ -123,6 +124,8 @@ public static class EvalScorer
 
         var kinds = tally.Kinds.OrderBy(k => k.Key, StringComparer.Ordinal).ToDictionary(
             k => k.Key, k => new KindMetrics(k.Value.Items, k.Value.Top1, k.Value.Top3, Pct(k.Value.Top1, k.Value.Items), Pct(k.Value.Top3, k.Value.Items)));
+        var shots = tally.Shots.OrderBy(k => k.Key, StringComparer.Ordinal).ToDictionary(
+            k => k.Key, k => new KindMetrics(k.Value.Items, k.Value.Top1, k.Value.Top3, Pct(k.Value.Top1, k.Value.Items), Pct(k.Value.Top3, k.Value.Items)));
         return new SliceMetrics(
             tally.Photos,
             tally.TruthItems,
@@ -151,7 +154,8 @@ public static class EvalScorer
             Percentile(tally.FirstItem, 50),
             Percentile(tally.FirstItem, 95),
             kinds,
-            tally.ResolvedBy);
+            tally.ResolvedBy,
+            shots);
     }
 
     private static List<TruthItem> TruthItemsOf(TruthEntry truth) => truth.Set == GoldenSets.Shelf
@@ -250,11 +254,14 @@ public static class EvalScorer
             tally.CompletenessHits += string.Equals(claimers[0].ReadCompleteness, truth.Single!.Completeness, StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         }
 
+        var shot = truth.ShotKind ?? "unknown";
         for (var t = 0; t < truthItems.Count; t++)
         {
             var kind = truthItems[t].Kind;
             var current = tally.Kinds.GetValueOrDefault(kind);
             tally.Kinds[kind] = (current.Items + 1, current.Top1 + (top1[t] ? 1 : 0), current.Top3 + (top3[t] ? 1 : 0));
+            var shotCurrent = tally.Shots.GetValueOrDefault(shot);
+            tally.Shots[shot] = (shotCurrent.Items + 1, shotCurrent.Top1 + (top1[t] ? 1 : 0), shotCurrent.Top3 + (top3[t] ? 1 : 0));
             tally.Top1Hits += top1[t] ? 1 : 0;
             tally.Top3Hits += top3[t] ? 1 : 0;
             if (!top1[t])

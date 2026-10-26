@@ -115,6 +115,8 @@ export class SnapPipeline {
       snapId,
       libraryId: this.deps.libraryId,
       trigger: event.trigger,
+      shotKind: event.shotKind,
+      segmentId: (this.deps.newId ?? randomId)(),
       createdAt: this.now(),
       thumbUri: event.photo.uri,
       phase: 'reading',

@@ -156,7 +156,7 @@ public static class ScanningEndpoints
         CancellationToken cancellationToken)
     {
         var codes = body.Codes?.Select(c => new SubmittedCode(c?.Value, c?.Symbology, c?.Copies)).ToList();
-        var result = await handler.HandleAsync(new SubmitBarcodes.Command(id, idempotencyKey, codes), cancellationToken);
+        var result = await handler.HandleAsync(new SubmitBarcodes.Command(id, idempotencyKey, codes, body.CandidateId), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
     }
 

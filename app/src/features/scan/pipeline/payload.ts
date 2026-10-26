@@ -24,8 +24,13 @@ export function identifyRequestOf(snap: PicSnap): IdentifyRequest {
   return {
     snapId: snap.sendId ?? snap.snapId,
     trigger: snap.trigger,
+    shotKind: snap.shotKind ?? 'unknown',
     engine: snap.engine ?? 'vision_pipeline',
     ...(snap.fellBackFrom ? { fellBackFrom: toFallbackReason(snap.fellBackFrom) } : {}),
-    items: snap.items.map((i) => i.payload),
+    items: snap.items.map((i) => {
+      // The snap's segment links a multi-item snap; an item stamped with its own keeps it.
+      const segmentId = i.payload.segmentId ?? snap.segmentId;
+      return segmentId === undefined ? i.payload : { ...i.payload, segmentId };
+    }),
   };
 }

@@ -49,5 +49,7 @@ export const candidate = (extra: Partial<CandidateDto> = {}): CandidateDto => ({
   userEdited: false,
   pendingReason: null,
   retryAfter: null,
+  shotKind: 'barcode',
+  segmentId: null,
   ...extra,
 });
