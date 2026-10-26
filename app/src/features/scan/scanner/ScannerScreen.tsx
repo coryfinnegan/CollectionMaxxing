@@ -23,6 +23,9 @@ import { FixItSheet } from '../pipeline/FixItSheet';
 import type { PipelineDeps } from '../pipeline/SnapPipeline';
 import { usePipeline } from '../pipeline/usePipeline';
 import { useCardActions } from '../session/useCardActions';
+import { SegmentStrip } from '../session/SegmentStrip';
+import { SegmentViewer } from '../session/SegmentViewer';
+import { SessionCountersBar } from '../session/SessionCountersBar';
 import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
 import { SessionSheet } from '../session/SessionSheet';
 import { defaultSessionContext, sessionCreateBody, type SessionContext } from '../session/sessionContext';
@@ -116,6 +119,7 @@ export function ScannerScreen({
     moveToLocationId: context.channel === 'home' ? context.locationId : null,
   });
   const [fixing, setFixing] = useState<CandidateDto | null>(null);
+  const [viewingSnap, setViewingSnap] = useState<string | null>(null);
   const actions: CardActions = useMemo(() => ({ ...cardActions, onFixIt: setFixing }), [cardActions]);
   const [flash, setFlash] = useState(false);
   const reduceMotion = useReduceMotion();
@@ -222,6 +226,16 @@ export function ScannerScreen({
           {pictures.enabled && pictures.unreadableCount > 0 ? (
             <Chip label={`Get closer for these ${pictures.unreadableCount}`} onPress={pictures.dismissUnreadable} />
           ) : null}
+          {pictures.enabled && pictures.orphanedCount > 0 ? (
+            <Chip
+              label={
+                pictures.orphanedCount === 1
+                  ? '1 picture was lost when the app closed'
+                  : `${pictures.orphanedCount} pictures were lost when the app closed`
+              }
+              onPress={pictures.dismissOrphaned}
+            />
+          ) : null}
           {photos.running && photos.progress ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
               <Text style={{ color: fixed.white }}>{photos.progress}</Text>
@@ -290,6 +304,13 @@ export function ScannerScreen({
           </View>
         ) : null}
         <ResultCards cards={session.cards} actions={actions} />
+        {viewingSnap ? (
+          <View style={sheetStyles.wrap}>
+            <SegmentViewer libraryId={libraryId} initialSnapId={viewingSnap} onClose={() => setViewingSnap(null)} />
+          </View>
+        ) : null}
+        <SessionCountersBar libraryId={libraryId} sessionId={session.sessionId} />
+        {pictures.enabled ? <SegmentStrip libraryId={libraryId} onSelect={setViewingSnap} /> : null}
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
             lines={session.lines}

@@ -56,6 +56,8 @@ export interface PipelineState {
   snaps: PicSnap[];
   /** How many items the last finished read could not read, for "Get closer for these N". Cleared by the chip or the next snap. */
   unreadableCount: number;
+  /** Snaps a killed app left half-read whose still is gone too: counted, never silently completed. Cleared by its chip. */
+  orphanedCount: number;
 }
 
 export type PipelineStore = PipelineState & {
@@ -71,6 +73,8 @@ export type PipelineStore = PipelineState & {
   removeSnap(snapId: string): void;
   removeItem(snapId: string, localId: string): void;
   dismissUnreadable(): void;
+  noteOrphaned(): void;
+  dismissOrphaned(): void;
   /** Drops snaps that were sent to a session other than `sessionId`: that scan is over. */
   sweep(sessionId: string | null, libraryId: string): void;
   /** Drops one library's snaps and keeps the others': Discard. */
@@ -81,16 +85,17 @@ export type PipelineStore = PipelineState & {
 function load(storage: KeyValueStore): PipelineState {
   try {
     const raw = storage.getString(STORAGE_KEY);
-    if (!raw) return { snaps: [], unreadableCount: 0 };
+    if (!raw) return { snaps: [], unreadableCount: 0, orphanedCount: 0 };
     const parsed = JSON.parse(raw) as Partial<PipelineState>;
     const snaps = Array.isArray(parsed.snaps) ? parsed.snaps : [];
     return {
       // Snaps saved before they were tagged with a library cannot be attributed to one, so they go rather than leak across.
       snaps: snaps.filter((s): s is PicSnap => typeof (s as Partial<PicSnap>).libraryId === 'string'),
       unreadableCount: typeof parsed.unreadableCount === 'number' ? parsed.unreadableCount : 0,
+      orphanedCount: typeof parsed.orphanedCount === 'number' ? parsed.orphanedCount : 0,
     };
   } catch {
-    return { snaps: [], unreadableCount: 0 }; // a damaged file must not stop the scanner opening
+    return { snaps: [], unreadableCount: 0, orphanedCount: 0 }; // a damaged file must not stop the scanner opening
   }
 }
 
@@ -141,6 +146,8 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
             .filter((s) => s.items.length > 0 || s.phase === 'reading'),
         }),
       dismissUnreadable: () => set({ unreadableCount: 0 }),
+      noteOrphaned: () => set({ orphanedCount: get().orphanedCount + 1 }),
+      dismissOrphaned: () => set({ orphanedCount: 0 }),
       sweep: (sessionId, libraryId) => {
         const snaps = get().snaps.filter((s) => s.libraryId !== libraryId || !s.sent || s.sessionId === sessionId);
         if (snaps.length !== get().snaps.length) set({ snaps });
@@ -149,12 +156,12 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
         const snaps = get().snaps.filter((s) => s.libraryId !== libraryId);
         if (snaps.length !== get().snaps.length) set({ snaps });
       },
-      clear: () => set({ snaps: [], unreadableCount: 0 }),
+      clear: () => set({ snaps: [], unreadableCount: 0, orphanedCount: 0 }),
     };
   });
   store.subscribe((state) => {
     try {
-      storage.set(STORAGE_KEY, JSON.stringify({ snaps: state.snaps, unreadableCount: state.unreadableCount }));
+      storage.set(STORAGE_KEY, JSON.stringify({ snaps: state.snaps, unreadableCount: state.unreadableCount, orphanedCount: state.orphanedCount }));
     } catch {
       // Storage full or unavailable: the pipeline still works for this run.
     }

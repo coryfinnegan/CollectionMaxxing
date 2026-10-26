@@ -11,6 +11,7 @@ import type { SseMessage } from '@/lib/sse';
 import { connectSse } from '@/lib/sse';
 import { useCardsStore, type CardEvent } from '../cards/cardsStore';
 import type { FlushDeps } from '../tray/trayStore';
+import { seedFromSnapshot, seedSessionCounters } from './sessionCounters';
 
 let chain: Promise<unknown> = Promise.resolve();
 
@@ -83,6 +84,28 @@ export const resumeCursor = (candidates: CandidateDto[]): string | undefined => 
   return last > 0 ? String(last) : undefined;
 };
 
+/** Routes one session event: candidates merge into the cards, `session.counters` seeds the counters bar. */
+export function routeSessionMessage(sessionId: string, message: SseMessage) {
+  if (message.event === 'session.counters') {
+    try {
+      const body = JSON.parse(message.data) as { counters?: unknown; changeSeq?: unknown };
+      // The change counter rides in the body; the event id says the same when the body does not.
+      const changeSeq = typeof body.changeSeq === 'number' ? body.changeSeq : message.id === undefined ? 0 : Number(message.id);
+      seedSessionCounters(sessionId, { counters: body.counters, changeSeq });
+    } catch {
+      // a malformed event is skipped; the next one or the next poll fills the gap
+    }
+    return;
+  }
+  if (message.event !== 'candidate.added' && message.event !== 'candidate.updated') return;
+  try {
+    const candidate = JSON.parse(message.data) as Partial<CandidateDto>;
+    announce(useCardsStore.getState().merge([candidate]));
+  } catch {
+    // a malformed event is skipped; the next one or the next poll fills the gap
+  }
+}
+
 /** Follows the session's events; falls back to polling `?since=` when the stream keeps failing. */
 export function followSession(sessionId: string, lastEventId: string | undefined, tuning: { retryMs?: number; pollMs?: number } = {}) {
   return connectSse({
@@ -90,16 +113,13 @@ export function followSession(sessionId: string, lastEventId: string | undefined
     headers: () => authHeaders('GET'),
     lastEventId,
     ...tuning,
-    onMessage(message) {
-      if (message.event !== 'candidate.added' && message.event !== 'candidate.updated') return;
-      try {
-        const candidate = JSON.parse(message.data) as Partial<CandidateDto>;
-        announce(useCardsStore.getState().merge([candidate]));
-      } catch {
-        // a malformed event is skipped; the next one or the next poll fills the gap
-      }
+    onMessage: (message) => routeSessionMessage(sessionId, message),
+    poll: async (last) => {
+      // The snapshot carries the whole session's counters even when it carries only the changed candidates.
+      const snapshot = await loadSessionSnapshot(sessionId, last === undefined ? 0 : Number(last));
+      seedFromSnapshot(sessionId, snapshot);
+      return snapshot.candidates.map(toMessage);
     },
-    poll: async (last) => (await loadSession(sessionId, last === undefined ? 0 : Number(last))).map(toMessage),
   });
 }
 
