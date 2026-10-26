@@ -2,7 +2,6 @@
 import Constants from 'expo-constants';
 import { Linking, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BackButton } from '@/features/me/BackButton';
 import { useColors } from '@/theme/tokens';
 import { Card, Screen, Text } from '@/ui';
 import { ATTRIBUTIONS } from './attributions';
@@ -21,8 +20,6 @@ export function AboutScreen() {
   return (
     <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
     <Screen title="About" subtitle="Version, privacy and credits.">
-      {/* A pushed page reached from Settings: on the web there is no header, so the screen renders its own way back. */}
-      <BackButton />
       <Card>
         <Text variant="heading">CollectionMaxxing</Text>
         <Text>{versionLine()}</Text>

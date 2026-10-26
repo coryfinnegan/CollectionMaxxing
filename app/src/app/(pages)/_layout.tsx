@@ -2,21 +2,31 @@
 // so pushed pages (locations, members, settings, ...) live in this group —
 // URL-identical to before — inside a stack with headers on the phone. The web
 // names every page in its own content, so these headers hide there.
+// The layout owns the way back (#356): the shared header back on the phone,
+// an in-flow row above the content on the web. Screens inherit it; none adds
+// its own.
 import { Stack } from 'expo-router';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { StackBackButton } from '@/components/StackBackButton';
 import { TabsFrame } from '@/components/TabsFrame';
-import { useColors } from '@/theme/tokens';
+import { spacing, useColors } from '@/theme/tokens';
 
 export default function PagesLayout() {
   const colors = useColors();
   return (
     <TabsFrame>
+      {Platform.OS === 'web' ? (
+        <View style={styles.backRow}>
+          <StackBackButton />
+        </View>
+      ) : null}
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.surface },
           headerTintColor: colors.ink,
           contentStyle: { backgroundColor: colors.ground },
           headerShown: Platform.OS !== 'web',
+          headerLeft: () => <StackBackButton />,
           animationDuration: 250, // screen pushes match the motion vocabulary (#304)
         }}
       >
@@ -35,3 +45,7 @@ export default function PagesLayout() {
     </TabsFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  backRow: { paddingHorizontal: spacing.lg },
+});

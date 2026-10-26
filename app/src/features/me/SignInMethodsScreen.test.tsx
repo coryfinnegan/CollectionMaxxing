@@ -1,5 +1,4 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { setNavigator } from '@/features/auth/services';
 import { ReauthCancelledError } from '@/lib/auth/errors';
@@ -11,18 +10,11 @@ let mockParams: Record<string, string> = {};
 const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter, useLocalSearchParams: () => mockParams }));
 
-// The back button only shows on the web now (#303); the phone uses the stack header.
-const originalOs = Platform.OS;
-afterEach(() => {
-  Platform.OS = originalOs;
-});
-
 const navigate = jest.fn();
 beforeEach(() => {
   resetMockAuth();
   mockParams = {};
   navigate.mockClear();
-  mockRouter.back.mockClear();
   setNavigator(navigate);
   configureAuth({ platform: 'web' });
 });
@@ -35,16 +27,6 @@ describe('SignInMethodsScreen', () => {
     expect(await screen.findByText('Google (this sign-in)')).toBeTruthy();
     expect(screen.getByText(/cory@example.com/)).toBeTruthy();
     expect(screen.getByText('Apple')).toBeTruthy();
-  });
-
-  it('offers a way back to Me on the web', async () => {
-    Platform.OS = 'web';
-    await renderWithProviders(<SignInMethodsScreen />);
-    await screen.findByText('Apple');
-
-    await fireEvent.press(screen.getByLabelText('Back'));
-
-    expect(mockRouter.back).toHaveBeenCalled();
   });
 
   it('Add goes to the sign-in in link mode and returns to this page', async () => {
