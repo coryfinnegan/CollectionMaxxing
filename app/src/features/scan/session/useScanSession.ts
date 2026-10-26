@@ -30,6 +30,7 @@ export function useScanSession({
   store = getTrayStore(libraryId),
   tuning = {},
   sessionBody,
+  boundCapture,
 }: {
   libraryId: string;
   sources: ScannerSource[];
@@ -37,6 +38,8 @@ export function useScanSession({
   tuning?: SessionTuning;
   /** The session context a new session is created with. Keep it referentially stable unless the context changed. */
   sessionBody?: CreateScanSessionRequest;
+  /** Review's "Scan barcode": stable reads go to this row instead of the tray, one read only. */
+  boundCapture?: { submit(code: { value: string; symbology: string }): Promise<void> };
 }) {
   const { resendMs = 5000, flashMs = 1000 } = tuning;
   const deps = useMemo(() => flushDeps(libraryId, () => sessionBody ?? {}), [libraryId, sessionBody]);
@@ -56,14 +59,28 @@ export function useScanSession({
   const local = useCardsStore((s) => s.local);
   const cards = useMemo(() => sortedCards(shownCards({ byId, local }), order), [byId, local, order]);
 
-  // Camera -> tray. The "Nice scan!" tick happens here, before any network call.
+  // Camera -> tray, or to the bound Review row. The "Nice scan!" tick happens here, before any network call.
+  const boundSending = useRef(false);
   useEffect(() => {
+    boundSending.current = false;
     const filter = createStabilityFilter();
     const flush = () => void flushTray(store, deps);
     const unsubscribes = sources.map((source) =>
       source.start((seen) => {
         for (const value of filter.observe(seen.map((c) => c.value))) {
           const symbology = seen.find((c) => c.value === value)?.symbology ?? 'ean-13';
+          if (boundCapture) {
+            if (boundSending.current) continue; // one read only; the screen leaves on success
+            boundSending.current = true;
+            void haptics.scanned();
+            setNiceScanAt(Date.now());
+            setNotice(null);
+            boundCapture.submit({ value, symbology }).catch(() => {
+              boundSending.current = false;
+              setNotice("Couldn't send that scan. Try again.");
+            });
+            continue;
+          }
           const result = store.getState().scan({ value, symbology });
           if (result === 'added') {
             void haptics.scanned();
@@ -77,7 +94,7 @@ export function useScanSession({
       }),
     );
     return () => unsubscribes.forEach((off) => off());
-  }, [sources, store, deps]);
+  }, [sources, store, deps, boundCapture]);
 
   // Anything waiting (including from before the app was killed) is sent now and retried until it gets through.
   useEffect(() => {
