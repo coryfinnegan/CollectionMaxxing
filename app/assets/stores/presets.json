@@ -1,0 +1,178 @@
+{
+  "bookstore": [
+    {
+      "lens": 28,
+      "location": [
+        1.5,
+        -4.6,
+        1.9
+      ],
+      "name": "hero",
+      "target": [
+        -1.5,
+        3.0,
+        1.8
+      ]
+    },
+    {
+      "lens": 30,
+      "location": [
+        -5.5,
+        1.5,
+        3.9
+      ],
+      "name": "mezz",
+      "target": [
+        2.0,
+        3.5,
+        2.9
+      ]
+    },
+    {
+      "lens": 35,
+      "location": [
+        -3.4,
+        -0.6,
+        1.6
+      ],
+      "name": "cafe",
+      "target": [
+        -5.8,
+        -3.4,
+        1.0
+      ]
+    }
+  ],
+  "mall_hub": [
+    {
+      "lens": 26,
+      "location": [
+        0,
+        -5.6,
+        2.3
+      ],
+      "name": "hero",
+      "target": [
+        0,
+        3.0,
+        1.6
+      ]
+    },
+    {
+      "lens": 32,
+      "location": [
+        0,
+        -2.6,
+        1.7
+      ],
+      "name": "directory",
+      "target": [
+        0,
+        0.5,
+        1.6
+      ]
+    },
+    {
+      "lens": 32,
+      "location": [
+        -5.4,
+        1.5,
+        1.7
+      ],
+      "name": "storefront",
+      "target": [
+        -5.4,
+        7.0,
+        1.8
+      ]
+    }
+  ],
+  "toy_store": [
+    {
+      "lens": 30,
+      "location": [
+        0,
+        -4.2,
+        1.8
+      ],
+      "name": "hero",
+      "target": [
+        0,
+        2.5,
+        1.3
+      ]
+    },
+    {
+      "lens": 32,
+      "location": [
+        0,
+        0.5,
+        1.7
+      ],
+      "name": "tickets",
+      "target": [
+        0,
+        5.0,
+        1.6
+      ]
+    },
+    {
+      "lens": 35,
+      "location": [
+        -2.2,
+        -1.2,
+        1.5
+      ],
+      "name": "case",
+      "target": [
+        -4.4,
+        -3.0,
+        1.0
+      ]
+    }
+  ],
+  "video_store": [
+    {
+      "lens": 30,
+      "location": [
+        -1.8,
+        -4.2,
+        1.8
+      ],
+      "name": "hero",
+      "target": [
+        0.6,
+        2.5,
+        1.0
+      ]
+    },
+    {
+      "lens": 32,
+      "location": [
+        -1.8,
+        -2.6,
+        1.5
+      ],
+      "name": "aisle",
+      "target": [
+        -1.8,
+        3.0,
+        1.0
+      ]
+    },
+    {
+      "lens": 35,
+      "location": [
+        2.4,
+        -1.6,
+        1.6
+      ],
+      "name": "counter",
+      "target": [
+        4.8,
+        -3.4,
+        1.0
+      ]
+    }
+  ]
+}
