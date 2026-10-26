@@ -1,6 +1,6 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore, announcementFor } from './cardsStore';
-import { alreadyOwnLine, alsoOwnLine, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, slideDuration, summaryLine } from './copy';
+import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, slideDuration, summaryLine } from './copy';
 
 const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   ({
@@ -89,6 +89,21 @@ describe('card copy', () => {
     expect(copy.status).toBe(QUOTA_COPY);
     expect(copy.status).not.toMatch(/quota|UTC|\d{2}:\d{2}|[!]/i);
     expect(describeCandidate(candidate({ resolution: 'pending', release: null, pendingReason: 'lookup' })).status).toBe('Looking up…');
+  });
+
+  it("says couldn't-read only for a code that never decoded", () => {
+    const copy = describeCandidate(candidate({ resolution: 'error', release: null, guidanceCode: 'scan_barcode' }));
+    expect(copy.status).toBe("Couldn't read that barcode. Scan it again.");
+    expect(copy.kind).toBe('error');
+  });
+
+  it('says a decoded code the lookup gave up on could not be looked up, and points at the cover', () => {
+    for (const guidanceCode of ['shoot_cover', null] as const) {
+      const copy = describeCandidate(candidate({ resolution: 'error', release: null, guidanceCode }));
+      expect(copy.status).toBe(BARCODE_LOOKUP_FAILED_COPY);
+      expect(copy.status).toBe("Couldn't look that one up. Try the front cover.");
+      expect(copy.status).not.toMatch(/[!]|sorry|oops/i);
+    }
   });
 
   it('reads the summary line', () => {

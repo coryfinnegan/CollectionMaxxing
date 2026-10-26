@@ -138,13 +138,24 @@ describe('scanner screen', () => {
     expect(screen.getAllByTestId(/^card-/)).toHaveLength(1);
   });
 
-  it('shows friendly copy for one unreadable code and keeps the other cards', async () => {
+  it('rejects an unreadable decode at capture with a rescan prompt and keeps the other cards', async () => {
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.duneOwned), code(DEV_CODES.unreadable)]));
 
     expect(await screen.findByText("Couldn't read that barcode. Scan it again.")).toBeTruthy();
     expect(await screen.findByText('Dune')).toBeTruthy();
     expect(screen.getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
+    // Never queued: no error card for the decode that could never resolve.
+    expect(screen.queryByText(`Code ${DEV_CODES.unreadable}`)).toBeNull();
+    expect(screen.getAllByTestId(/^card-/)).toHaveLength(1);
+  });
+
+  it('rejects a partial-length code at capture without queuing it', async () => {
+    const source = await scanner();
+    await act(async () => source.inject([code('04549690593')]));
+
+    expect(await screen.findByText("Couldn't read that barcode. Scan it again.")).toBeTruthy();
+    expect(screen.queryByTestId(/^card-/)).toBeNull();
   });
 
   it('offers + Add to an editor and adds only that item', async () => {
