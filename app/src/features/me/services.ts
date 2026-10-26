@@ -36,6 +36,33 @@ class DeviceBiometrics implements Biometrics {
   }
 }
 
+export interface AppIconSwitcher {
+  /** False where alternates don't exist (the web, an iPhone that declines them). */
+  supportsAlternateIcons(): Promise<boolean>;
+  /** The active alternate's plist name, or null for the default icon. */
+  currentIconName(): Promise<string | null>;
+  /** Applies the alternate, or null for the default icon. */
+  setIconName(name: string | null): Promise<void>;
+}
+
+/** cm-app-icon, loaded on first use so web and tests never need the native module. */
+class DeviceAppIconSwitcher implements AppIconSwitcher {
+  private engine() {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { appIcon } = require('@/native/cm-app-icon') as typeof import('@/native/cm-app-icon');
+    return appIcon;
+  }
+  supportsAlternateIcons() {
+    return this.engine().supportsAlternateIcons();
+  }
+  currentIconName() {
+    return this.engine().currentIconName();
+  }
+  setIconName(name: string | null) {
+    return this.engine().setIconName(name);
+  }
+}
+
 export interface RecognitionStatus {
   /** The engine the next snap will try first, and the Apple Intelligence state behind that choice. */
   state(): Promise<RecognitionState>;
@@ -86,11 +113,16 @@ function openSettingsStorage(): KeyValueStore {
 let biometrics: Biometrics = new DeviceBiometrics();
 let vision: RecognitionStatus = deviceVision;
 let sharer: ExportSharer = deviceSharer;
+let appIcon: AppIconSwitcher = new DeviceAppIconSwitcher();
 let storage: KeyValueStore | undefined;
 
 export const getBiometrics = () => biometrics;
 export const setBiometrics = (next: Biometrics) => {
   biometrics = next;
+};
+export const getAppIcon = () => appIcon;
+export const setAppIcon = (next: AppIconSwitcher) => {
+  appIcon = next;
 };
 export const getVision = () => vision;
 export const setVision = (next: RecognitionStatus) => {

@@ -26,7 +26,7 @@ export function MeScreen() {
     { title: 'Devices and browsers', href: '/me/devices' },
     ...(isWeb() ? [{ title: 'Sign-in methods', href: '/me/sign-in-methods' as Href }] : []),
     ...(role === 'owner' || role === 'editor' ? [{ title: 'Recently deleted', href: '/me/deleted' as Href }] : []),
-    { title: 'Settings', subtitle: isWeb() ? undefined : 'Recognition and security', href: '/settings' },
+    { title: 'Settings', subtitle: isWeb() ? undefined : 'Recognition, appearance and security', href: '/settings' },
     { title: 'Members', subtitle: 'Managed on the web', href: '/members' },
   ];
 

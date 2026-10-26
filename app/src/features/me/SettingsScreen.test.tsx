@@ -18,7 +18,9 @@ import { RecognitionConfigStore } from '@/features/scan/recognition/config';
 import { setRecognition } from '@/features/scan/recognition/device';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import { RecordingVision } from '@/features/scan/recognition/fakes';
-import { type Biometrics, setBiometrics, setSettingsStorage } from './services';
+import { type Biometrics, setAppIcon, setBiometrics, setSettingsStorage } from './services';
+import { FakeAppIconEngine } from '../../../modules/cm-app-icon/src/FakeAppIconEngine';
+import { useAppIconSetting } from './appIcon';
 import { SettingsScreen } from './SettingsScreen';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
@@ -48,6 +50,8 @@ beforeEach(() => {
   configureAuth({ platform: 'native', native: nativeAuth });
   setBiometrics(bio);
   setSettingsStorage(new MemoryKeyValueStore());
+  setAppIcon(new FakeAppIconEngine());
+  useAppIconSetting.setState({ choice: 'default', supported: false, ready: false, problem: null });
   useLockSetting.getState().reload();
   recognitionWith(ready);
 });
@@ -92,6 +96,25 @@ describe('Settings > Recognition', () => {
     expect(screen.queryByLabelText('Unpair this iPhone')).toBeNull();
     expect(screen.getByLabelText('Sign out')).toBeTruthy();
     expect(screen.getByText('Sign-in methods')).toBeTruthy();
+  });
+});
+
+describe('Settings > Appearance', () => {
+  it('shows the icon switcher on the iPhone and switches live', async () => {
+    const engine = new FakeAppIconEngine();
+    setAppIcon(engine);
+    await renderWithProviders(<SettingsScreen />);
+
+    expect(await screen.findByText('App icon')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Game Boy'));
+    expect(engine.applied).toEqual(['gameboy']);
+  });
+
+  it('hides Appearance on the web, which has no home screen icon', async () => {
+    configureAuth({ platform: 'web' });
+    await renderWithProviders(<SettingsScreen />);
+    expect(screen.queryByText('Appearance')).toBeNull();
+    expect(screen.queryByText('App icon')).toBeNull();
   });
 });
 

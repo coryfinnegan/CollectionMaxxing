@@ -31,6 +31,13 @@ const config: ExpoConfig = {
       ITSAppUsesNonExemptEncryption: false,
     },
   },
+  android: {
+    adaptiveIcon: {
+      foregroundImage: './assets/images/android-icon-foreground.png',
+      backgroundImage: './assets/images/android-icon-background.png',
+      monochromeImage: './assets/images/android-icon-monochrome.png',
+    },
+  },
   web: {
     output: 'static',
     favicon: './assets/images/favicon.png',
@@ -62,6 +69,8 @@ const config: ExpoConfig = {
     ],
     // Manual signing of the Release build with the App Store profile, only when CI passes both (ADR-024).
     ['./plugins/withReleaseSigning', { teamId: process.env.IOS_SIGNING_TEAM_ID, profile: process.env.IOS_SIGNING_PROFILE }],
+    // Alternate home screen icons (#364): the Game Boy dragon, switched in Settings Appearance.
+    ['./plugins/withAlternateAppIcons', { icons: [{ name: 'gameboy', source2x: './assets/icons/icon-gameboy@2x.png', source3x: './assets/icons/icon-gameboy@3x.png' }] }],
   ],
   experiments: {
     typedRoutes: true,

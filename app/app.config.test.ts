@@ -39,6 +39,16 @@ describe('app config', () => {
   it('keeps the bundle identifier the App Store Connect app and the provisioning profile are registered for', () => {
     expect(config.ios?.bundleIdentifier).toBe('io.github.coryfinnegan.collectionmaxxing');
   });
+
+  it('registers the Game Boy alternate icon and the Android adaptive set (#364)', () => {
+    const plugin = config.plugins?.find((p) => Array.isArray(p) && p[0] === './plugins/withAlternateAppIcons');
+    expect(plugin).toEqual(['./plugins/withAlternateAppIcons', { icons: [{ name: 'gameboy', source2x: './assets/icons/icon-gameboy@2x.png', source3x: './assets/icons/icon-gameboy@3x.png' }] }]);
+    expect(config.android?.adaptiveIcon).toEqual({
+      foregroundImage: './assets/images/android-icon-foreground.png',
+      backgroundImage: './assets/images/android-icon-background.png',
+      monochromeImage: './assets/images/android-icon-monochrome.png',
+    });
+  });
 });
 
 describe('app config in the TestFlight build', () => {
