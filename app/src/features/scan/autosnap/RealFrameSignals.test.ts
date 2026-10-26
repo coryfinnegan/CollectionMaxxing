@@ -37,6 +37,14 @@ describe('real frame signals', () => {
     expect(s!.viewHash).toMatch(/^[0-9a-f]{16}$/);
   });
 
+  it('report how many rectangles there are and the largest one\'s shape', async () => {
+    const [s] = await read(deps());
+    expect(s).toMatchObject({ rectangleCount: 1, dominantAspect: 1.25 });
+
+    const [empty] = await read(deps({ vision: async () => ({ recognizeText: async () => [], detectRectangles: async () => [], featurePrint: async () => print }) }));
+    expect(empty).toMatchObject({ rectangleCount: 0, rectangleCoverage: 0, dominantAspect: null });
+  });
+
   it('say nothing when there is no snapshot or Vision fails', async () => {
     expect(await read(deps({ snapshot: async () => null }))).toEqual([]);
     expect(await read(deps({ vision: async () => Promise.reject(new Error('no vision')) }))).toEqual([]);

@@ -138,12 +138,14 @@ const alternative = (r: ReleaseDto, score: number, artworkPath: string) => ({
   artworkUrl: artworkPath,
 });
 
-function candidateFor(seq: number, item: IdentifyItem): CandidateDto {
+function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['shotKind']): CandidateDto {
   const base: CandidateDto = {
     id: newMockId(),
     seq,
     changeSeq: seq,
     source: 'picture_apple_model',
+    shotKind,
+    segmentId: item.segmentId ?? null,
     rawCode: null,
     symbology: null,
     visibleText: item.text ?? item.title ?? null,
@@ -201,7 +203,7 @@ export const handlers = [
     const replay = identifyMock.answers.get(body.snapId);
     let candidates = replay;
     if (!candidates) {
-      candidates = body.items.map((item) => candidateFor(++session.seq, item));
+      candidates = body.items.map((item) => candidateFor(++session.seq, item, body.shotKind ?? 'unknown'));
       session.candidates.push(...candidates);
       identifyMock.answers.set(body.snapId, candidates);
       identifyMock.answerSessions.set(body.snapId, session.id);

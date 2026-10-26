@@ -76,6 +76,7 @@ describe('scanner auto-snap', () => {
     expect(source.captures).toBe(1);
     expect(snaps).toHaveLength(1);
     expect(snaps[0]!.trigger).toBe('auto');
+    expect(snaps[0]!.shotKind).toBe('shelf_segment'); // six text rows
     expect(snaps[0]!.photo.uri).toContain('#resized');
     expect(Math.max(snaps[0]!.photo.width, snaps[0]!.photo.height)).toBeLessThanOrEqual(2576);
   });
@@ -96,6 +97,7 @@ describe('scanner auto-snap', () => {
     await flush();
     await flush();
     expect(snaps.map((s) => s.trigger)).toEqual(['shutter']);
+    expect(snaps.map((s) => s.shotKind)).toEqual(['barcode']); // in view wins, even on the shutter
   });
 
   it('shows "Nice scan!" and buzzes at once on the shutter, before the picture arrives', async () => {

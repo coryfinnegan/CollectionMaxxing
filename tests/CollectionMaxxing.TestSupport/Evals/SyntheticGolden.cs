@@ -35,14 +35,14 @@ public sealed class SyntheticGolden : IDisposable
     public static byte[] PictureBytes { get; } = JpegFixtures.Plain();
 
     /// <summary>A shelf picture. <paramref name="truth"/> is the list of items on it; null writes no truth file.</summary>
-    public string AddShelf(string id, IEnumerable<ShelfItem>? truth, int unreadable = 0, string extension = ".jpg")
+    public string AddShelf(string id, IEnumerable<ShelfItem>? truth, int unreadable = 0, string extension = ".jpg", string? shotKind = null)
     {
         var photo = WritePicture("shelf", id, extension);
         if (truth is not null)
         {
             File.WriteAllText(
                 Path.Combine(Golden, "shelf", id + ".truth.json"),
-                JsonSerializer.Serialize(new { items = truth.ToList(), unreadable }, Options));
+                JsonSerializer.Serialize(new { items = truth.ToList(), unreadable, shotKind }, Options));
         }
 
         return photo;
@@ -102,5 +102,5 @@ public sealed class SyntheticGolden : IDisposable
 
     /// <summary>The truth of a single-item picture, as the truth file spells it.</summary>
     public sealed record SingleItem(
-        string Title, string Format, string Completeness, string Kind, string? Platform = null, string? Edition = null);
+        string Title, string Format, string Completeness, string Kind, string? Platform = null, string? Edition = null, string? ShotKind = null);
 }

@@ -159,7 +159,9 @@ export class PhotoImport {
     }
     const photo = await prepareSnapPhoto({ ...image, orientation: 1 }, this.deps.resize); // deletes its input once scaled
     const { reader, seen } = watched(this.deps.recognition);
-    await this.deps.snap({ photo, trigger: 'import' }, { recognition: reader });
+    // An import carries no live framing signals, so its kind stays unknown (a picture with a readable barcode took the
+    // barcode path above and never becomes a snap).
+    await this.deps.snap({ photo, trigger: 'import', shotKind: 'unknown' }, { recognition: reader });
     if (seen.failed) return 'failed';
     return seen.items === 0 ? 'empty' : 'read';
   }

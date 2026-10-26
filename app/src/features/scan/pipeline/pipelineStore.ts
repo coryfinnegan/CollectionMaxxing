@@ -3,6 +3,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { IdentifyItem } from '@/api/generated/models';
 import { MemoryKeyValueStore, type KeyValueStore } from '@/features/scan/tray/trayStore';
+import type { ShotKind } from '../shotkind/shotKind';
 import type { SnapTrigger } from '../autosnap/types';
 import type { EngineName, FellBackFrom } from '../recognition/types';
 
@@ -27,6 +28,10 @@ export interface PicSnap {
   /** The library whose scanner took the picture: one store holds every library's snaps, kept apart by this. */
   libraryId: string;
   trigger: SnapTrigger;
+  /** What the framing said this shot was; absent on snaps stored before classification. */
+  shotKind?: ShotKind;
+  /** The phone's own id for this snap's segment, shared by every item sent from it. */
+  segmentId?: string;
   createdAt: number;
   /** The still, as a thumbnail for the first receipt line. */
   thumbUri: string;

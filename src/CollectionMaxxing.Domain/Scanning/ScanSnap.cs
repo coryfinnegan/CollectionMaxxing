@@ -36,6 +36,9 @@ public sealed class ScanSnap : ILibraryScoped
 
     public SnapTrigger Trigger { get; init; }
 
+    /// <summary>What the phone's framing said this shot was. A phone that does not send one leaves it unknown.</summary>
+    public ShotKind ShotKind { get; init; } = ShotKind.Unknown;
+
     public ScanEngine Engine { get; init; }
 
     /// <summary>True when the preferred engine wasn't used; <see cref="FallbackReason"/> says why.</summary>

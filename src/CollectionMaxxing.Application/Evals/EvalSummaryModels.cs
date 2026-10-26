@@ -36,7 +36,8 @@ public sealed record SliceMetrics(
     long? FirstItemP50Ms,
     long? FirstItemP95Ms,
     IReadOnlyDictionary<string, KindMetrics> ByKind,
-    IReadOnlyDictionary<string, int> ResolvedBy);
+    IReadOnlyDictionary<string, int> ResolvedBy,
+    IReadOnlyDictionary<string, KindMetrics> ByShotKind);
 
 public sealed record EngineSummary(
     SliceMetrics? Shelf,
