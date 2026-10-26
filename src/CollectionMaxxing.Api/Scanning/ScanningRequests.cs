@@ -45,8 +45,10 @@ public sealed record IdentifyItem(
 
 /// <summary>
 /// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 40 items, 256 KB). <c>FellBackFrom</c> says why
-/// the preferred engine wasn't used (a deliberate addition, SCAN-2a); <c>ShotKind</c> says what the phone's framing said the shot
-/// was (#338). Idempotent per <c>SnapId</c>.
+/// the preferred engine wasn't used (a deliberate addition, SCAN-2a), or carries the classifier's reshoot signal (#344);
+/// <c>ShotKind</c> says what the phone's framing said the shot was (#338); <c>Kind</c> is a shelf read unless the phone says
+/// cover; <c>CandidateId</c> ties a cover read to the T2 row it was shot for, upgrading it in place (#344). Idempotent per
+/// <c>SnapId</c>.
 /// </summary>
 public sealed record IdentifyRequest(
     Guid? SnapId = null,
@@ -54,7 +56,9 @@ public sealed record IdentifyRequest(
     ShotKind? ShotKind = null,
     ScanEngine? Engine = null,
     FallbackReason? FellBackFrom = null,
-    IReadOnlyList<IdentifyItem>? Items = null);
+    IReadOnlyList<IdentifyItem>? Items = null,
+    IdentifyKind? Kind = null,
+    Guid? CandidateId = null);
 
 /// <summary>A feature-print distance the phone computed between the item and a release's artwork.</summary>
 public sealed record ReleaseDistance(Guid? ReleaseId = null, double? Distance = null);
@@ -86,5 +90,8 @@ public sealed record CommitOverrideRequest(
 public sealed record CommitScanRequest(
     Guid? AddTo = null, ItemStatus? Status = null, ItemCondition? Condition = null, IReadOnlyList<CommitOverrideRequest>? Overrides = null);
 
-/// <summary>Body of <c>POST …/candidates/{cid}:search</c>: re-search with the user's own words.</summary>
-public sealed record SearchCandidateRequest(string? Text = null);
+/// <summary>
+/// Body of <c>POST …/candidates/{cid}:search</c>: re-search with the user's own words. <c>ContextWorkIds</c> carries the
+/// segment neighbours' works (#344): a ranking bias toward them, never a filter.
+/// </summary>
+public sealed record SearchCandidateRequest(string? Text = null, IReadOnlyList<Guid>? ContextWorkIds = null);

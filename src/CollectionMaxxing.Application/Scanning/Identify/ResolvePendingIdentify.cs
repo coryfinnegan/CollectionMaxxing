@@ -55,6 +55,9 @@ public sealed class ResolvePendingIdentify(
         if (candidate.Resolution == CandidateResolution.Pending)
         {
             candidate.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
+            candidate.GuidanceCode = candidate.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep)
+                ? keep
+                : GuidanceCodes.For(null, CandidateResolution.Error, candidate.Source, candidate.RawCode, quotaSpent: false);
         }
 
         await db.SaveChangesAsync(cancellationToken);

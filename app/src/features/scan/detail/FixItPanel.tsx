@@ -6,6 +6,8 @@ import type { CandidateDto, ReleaseDto } from '@/api/generated/models';
 import { formatLabels } from '@/features/library/labels';
 import { patchCandidate, searchCandidate } from '@/features/review/api';
 import { alternativesOf } from '@/features/review/grouping';
+import { contextWorkIdsFor } from '@/features/review/searchContext';
+import { useCardsStore } from '../cards/cardsStore';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
 import { Button, Sheet, Text, TextField } from '@/ui';
@@ -28,6 +30,9 @@ export function FixItPanel({ candidate, sessionId, onClose }: { candidate: Candi
       setBusy(false);
     }
   }
+
+  const search = (session: string) =>
+    searchCandidate(session, candidate.id, text.trim(), contextWorkIdsFor(candidate, Object.values(useCardsStore.getState().byId)));
 
   return (
     <Sheet title="Fix it" onClose={onClose}>
@@ -53,7 +58,7 @@ export function FixItPanel({ candidate, sessionId, onClose }: { candidate: Candi
             {error}
           </Text>
         ) : null}
-        <Button label="Search" busy={busy} disabled={!text.trim() || !sessionId} onPress={() => void run((session) => searchCandidate(session, candidate.id, text.trim()))} />
+        <Button label="Search" busy={busy} disabled={!text.trim() || !sessionId} onPress={() => void run(search)} />
       </View>
     </Sheet>
   );

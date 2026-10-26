@@ -1,10 +1,11 @@
-// Review's "Scan barcode" binding (issue #339, design §8(c)): the row the next stable read belongs to.
-// The scanner posts the read bound to this candidate, and the row upgrades in place. Held outside React so
-// Review can set it while navigating and the scanner route can read it on mount.
+// Review's bound capture (design §8(b)(c)): the row the next read belongs to. A barcode binding takes the
+// next stable read; a cover binding takes the next shutter picture as a cover read. Either way the row
+// upgrades in place. Held outside React so Review can set it while navigating and the scanner route can
+// read it on mount.
 import { createStore } from 'zustand/vanilla';
 import type { CandidateDto } from '@/api/generated/models';
 
-export type BoundScan = { sessionId: string; candidateId: string; title: string };
+export type BoundScan = { sessionId: string; candidateId: string; title: string; kind: 'barcode' | 'cover' };
 
 type BoundScanState = {
   binding: BoundScan | null;

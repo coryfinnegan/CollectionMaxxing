@@ -167,9 +167,10 @@ const newCandidate = (session: MockSession, code: string, symbology: string | nu
     userEdited: false,
     pendingReason: null,
     retryAfter: null,
+    guidanceCode: null,
   };
-  if (code === DEV_CODES.unreadable) return { ...base, resolution: 'error' };
-  if (!entry) return base;
+  if (code === DEV_CODES.unreadable) return { ...base, resolution: 'error', guidanceCode: 'scan_barcode' };
+  if (!entry) return { ...base, guidanceCode: 'shoot_cover' };
   if (entry.slow) return { ...base, resolution: 'pending', alreadyOwnedCount: entry.owned.length };
   return { ...base, ...resolved(entry) };
 };
@@ -274,11 +275,11 @@ export const handlers = [
       bound.alternatives = null;
       const entry = scanMock.catalog[value];
       if (!entry) {
-        Object.assign(bound, { resolution: 'not_found', score: null, release: null, pendingReason: null, retryAfter: null, changeSeq: ++session.seq });
+        Object.assign(bound, { resolution: 'not_found', score: null, release: null, pendingReason: null, retryAfter: null, guidanceCode: 'shoot_cover', changeSeq: ++session.seq });
       } else if (entry.slow) {
-        Object.assign(bound, { resolution: 'pending', score: null, release: null, pendingReason: null, retryAfter: null, changeSeq: ++session.seq });
+        Object.assign(bound, { resolution: 'pending', score: null, release: null, pendingReason: null, retryAfter: null, guidanceCode: null, changeSeq: ++session.seq });
       } else {
-        Object.assign(bound, resolved(entry), { changeSeq: ++session.seq });
+        Object.assign(bound, resolved(entry), { guidanceCode: null, changeSeq: ++session.seq });
       }
       emit(session, 'candidate.updated', bound);
       return HttpResponse.json({ candidates: [bound] });

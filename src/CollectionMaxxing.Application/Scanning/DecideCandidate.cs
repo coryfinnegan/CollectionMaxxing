@@ -145,6 +145,7 @@ public static class DecideCandidate
             var trace = CandidateJson.ReadTrace(candidate.TraceJson);
             candidate.MatchedReleaseId = releaseId;
             candidate.Resolution = CandidateResolution.Matched;
+            candidate.GuidanceCode = null; // picked: a resolved row carries no guidance
             candidate.Score = chosen?.Score ?? candidate.Score;
             candidate.AlreadyOwnedCount = owned.Count;
             candidate.TraceJson = CandidateJson.Serialize(trace with { OwnedAt = CandidateResolver.OwnedAt(owned) });

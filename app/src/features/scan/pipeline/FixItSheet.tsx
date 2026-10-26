@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { searchForCandidate } from '@/api/generated/scanning/scanning';
+import { contextWorkIdsFor } from '@/features/review/searchContext';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
@@ -12,8 +13,8 @@ import { useCardsStore } from '../cards/cardsStore';
 import { announce } from '../session/sessionApi';
 
 /** Searches again with this text; the card updates from the answer. */
-export async function searchAgain(sessionId: string, candidate: CandidateDto, text: string): Promise<void> {
-  const response = await searchForCandidate(sessionId, candidate.id, { text });
+export async function searchAgain(sessionId: string, candidate: CandidateDto, text: string, contextWorkIds?: string[]): Promise<void> {
+  const response = await searchForCandidate(sessionId, candidate.id, { text, contextWorkIds });
   if (response.status !== 200) throw new ApiError(response.status, {});
   announce(useCardsStore.getState().merge([response.data]));
 }
@@ -28,7 +29,8 @@ export function FixItSheet({ candidate, sessionId, onClose }: { candidate: Candi
     setBusy(true);
     setError(null);
     try {
-      await searchAgain(sessionId, candidate, text.trim());
+      const neighbors = contextWorkIdsFor(candidate, Object.values(useCardsStore.getState().byId));
+      await searchAgain(sessionId, candidate, text.trim(), neighbors);
       onClose();
     } catch (e) {
       setError(friendlyError(e));

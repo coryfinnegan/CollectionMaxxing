@@ -99,14 +99,20 @@ export function ScannerScreen({
   const body = useMemo(() => sessionCreateBody(context), [context]);
   const boundCapture = useMemo(
     () =>
-      boundScan
-        ? {
-            submit: async (code: { value: string; symbology: string }) => {
-              await submitBoundBarcode(boundScan.sessionId, boundScan.candidateId, code);
-              boundScan.onDone();
+      !boundScan
+        ? undefined
+        : boundScan.kind === 'cover'
+          ? { submit: async () => undefined } // a cover binding waits for the shutter; stray codes are not its row
+          : {
+              submit: async (code: { value: string; symbology: string }) => {
+                await submitBoundBarcode(boundScan.sessionId, boundScan.candidateId, code);
+                boundScan.onDone();
+              },
             },
-          }
-        : undefined,
+    [boundScan],
+  );
+  const boundCover = useMemo(
+    () => (boundScan?.kind === 'cover' ? { candidateId: boundScan.candidateId, onDone: boundScan.onDone } : undefined),
     [boundScan],
   );
   const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture });
@@ -125,7 +131,13 @@ export function ScannerScreen({
   const reduceMotion = useReduceMotion();
   const [counter] = useState(() => createCountingSnapHandler());
   const reportOutcome = useRef<(found: boolean) => void>(() => undefined);
-  const pictures = usePipeline({ deps: pipeline, source, resendMs: tuning?.resendMs, onOutcome: (found) => reportOutcome.current(found) });
+  const pictures = usePipeline({
+    deps: pipeline,
+    source,
+    resendMs: tuning?.resendMs,
+    onOutcome: (found) => reportOutcome.current(found),
+    boundCover,
+  });
   const importDeps = useMemo<ImportDeps | undefined>(
     () =>
       pictures.enabled && Platform.OS !== 'web' && pictures.recognition
@@ -143,7 +155,12 @@ export function ScannerScreen({
   const photos = usePhotoImport(importDeps);
   const autoSnap = useAutoSnap({
     source,
-    onSnap: onSnap ?? (pictures.enabled ? pictures.onSnap : counter),
+    // A bound cover is one deliberate framing: the shutter takes it, auto-snap sits out.
+    onSnap: boundCover
+      ? (event) => {
+          if (event.trigger === 'shutter') pictures.onSnap(event);
+        }
+      : (onSnap ?? (pictures.enabled ? pictures.onSnap : counter)),
     config: autoSnapConfig,
     tuning: { flashMs: tuning?.flashMs, ...autoSnapTuning },
   });
@@ -198,7 +215,7 @@ export function ScannerScreen({
         {boundScan ? (
           <View style={boundStyles.wrap}>
             <View style={boundStyles.banner}>
-              <Text style={boundStyles.title}>{`Scan the barcode for ${boundScan.title}`}</Text>
+              <Text style={boundStyles.title}>{boundScan.kind === 'cover' ? `Snap the cover for ${boundScan.title}` : `Scan the barcode for ${boundScan.title}`}</Text>
               <Button label="Cancel" variant="secondary" onPress={boundScan.onCancel} />
             </View>
           </View>

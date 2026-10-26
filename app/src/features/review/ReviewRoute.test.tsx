@@ -75,7 +75,18 @@ describe('review route scan barcode', () => {
 
     onScanBarcode({ id: 'row-1', release: { title: 'Dune' }, visibleText: null, rawCode: null });
 
-    expect(boundScanStore.getState().binding).toEqual({ sessionId: 'session-A', candidateId: 'row-1', title: 'Dune' });
+    expect(boundScanStore.getState().binding).toEqual({ sessionId: 'session-A', candidateId: 'row-1', title: 'Dune', kind: 'barcode' });
+    expect(mockRouter.push).toHaveBeenCalledWith('/scanner');
+  });
+
+  it('binds the row for a cover and opens the scanner for it', async () => {
+    getTrayStore(A).getState().setSessionId('session-A');
+    await renderWithProviders(<ReviewRoute />);
+    const onSnapCover = rendered.mock.calls[0]?.[0].onSnapCover;
+
+    onSnapCover({ id: 'row-1', release: { title: 'Dune' }, visibleText: null, rawCode: null });
+
+    expect(boundScanStore.getState().binding).toEqual({ sessionId: 'session-A', candidateId: 'row-1', title: 'Dune', kind: 'cover' });
     expect(mockRouter.push).toHaveBeenCalledWith('/scanner');
   });
 });

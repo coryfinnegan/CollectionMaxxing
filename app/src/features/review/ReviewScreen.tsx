@@ -12,7 +12,8 @@ import { NOT_FOUND_COPY, QUOTA_COPY } from '@/features/scan/cards/copy';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
 import { CommitCelebration } from './CommitCelebration';
-import { alternativesOf, isCollapsed, type ReviewGroup } from './grouping';
+import { alternativesOf, isAggregated, type ReviewGroup } from './grouping';
+import { guidanceOf } from './guidance';
 import { addLabel, effective, type ReviewStatus } from './plan';
 import { quotaPausedLine, quotaPending } from './quotaLine';
 import { useReview } from './useReview';
@@ -30,6 +31,13 @@ const ORDER: readonly ReviewGroup[] = ['pick', 'notFound', 'owned', 'ready', 'pe
 const STATUS_LABEL: Record<ReviewStatus, string> = { owned: 'Owned', wishlist: 'Wishlist' };
 
 const titleOf = (c: CandidateDto) => c.release?.title ?? (c.visibleText ? `"${c.visibleText}"` : c.rawCode ? `Code ${c.rawCode}` : 'Unknown item');
+
+/** One line for a whole success group: "21 items ready. Show them", "1 item you own. Show it". */
+const aggregateLabel = (group: ReviewGroup, count: number): string => {
+  const noun = count === 1 ? 'item' : 'items';
+  const show = count === 1 ? 'Show it' : 'Show them';
+  return group === 'owned' ? `${count} ${noun} you own. ${show}` : `${count} ${noun} ready. ${show}`;
+};
 const subtitleOf = (c: CandidateDto) => {
   const r = c.release;
   if (!r) return '';
@@ -43,6 +51,7 @@ export function ReviewScreen({
   onBack,
   undoMs,
   onScanBarcode,
+  onSnapCover,
 }: {
   libraryId: string;
   sessionId: string | null;
@@ -50,12 +59,14 @@ export function ReviewScreen({
   undoMs?: number;
   /** Review's "Scan barcode": opens the camera bound to this row. */
   onScanBarcode?: (c: CandidateDto) => void;
+  /** Review's "Snap cover": opens the camera to shoot this row's cover. */
+  onSnapCover?: (c: CandidateDto) => void;
 }) {
   const review = useReview({ libraryId, sessionId, undoMs });
   const { locations } = useLocationsList(libraryId);
   const [pickingFor, setPickingFor] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const total = review.list.length;
   const addTo = breadcrumb(locations, review.draft.addTo);
   const quotaLine = quotaPausedLine(quotaPending(review.list).length);
@@ -109,27 +120,33 @@ export function ReviewScreen({
       {ORDER.map((group) => {
         const rows = review.groups[group];
         if (rows.length === 0) return null;
-        const collapsed = group === 'ready' && isCollapsed(rows.length) && !expanded;
+        const collapsed = isAggregated(group) && !expanded[group];
         return (
           <View key={group} style={{ gap: spacing.sm }}>
             <Text variant="heading" accessibilityRole="header">{`${TITLES[group]} · ${rows.length}`}</Text>
             {collapsed ? (
-              <Button label={`${rows.length} items ready. Show them`} variant="secondary" onPress={() => setExpanded(true)} />
+              <Button label={aggregateLabel(group, rows.length)} variant="secondary" onPress={() => setExpanded((e) => ({ ...e, [group]: true }))} />
             ) : (
-              rows.map((c) => (
-                <Row
-                  key={c.id}
-                  c={c}
-                  group={group}
-                  review={review}
-                  isOpen={open === c.id}
-                  onOpen={() => setOpen(open === c.id ? null : c.id)}
-                  onScanBarcode={onScanBarcode}
-                  locations={locations}
-                  pickingFor={pickingFor}
-                  setPickingFor={setPickingFor}
-                />
-              ))
+              <>
+                {rows.map((c) => (
+                  <Row
+                    key={c.id}
+                    c={c}
+                    group={group}
+                    review={review}
+                    isOpen={open === c.id}
+                    onOpen={() => setOpen(open === c.id ? null : c.id)}
+                    onScanBarcode={onScanBarcode}
+                    onSnapCover={onSnapCover}
+                    locations={locations}
+                    pickingFor={pickingFor}
+                    setPickingFor={setPickingFor}
+                  />
+                ))}
+                {isAggregated(group) ? (
+                  <Button label="Hide these items" variant="secondary" onPress={() => setExpanded((e) => ({ ...e, [group]: false }))} />
+                ) : null}
+              </>
             )}
           </View>
         );
@@ -168,20 +185,22 @@ type RowProps = {
   isOpen: boolean;
   onOpen(): void;
   onScanBarcode?: (c: CandidateDto) => void;
+  onSnapCover?: (c: CandidateDto) => void;
   locations: LocationDto[];
   pickingFor: string | null;
   setPickingFor(id: string | null): void;
 };
 
-function Row({ c, group, review, isOpen, onOpen, onScanBarcode, locations, pickingFor, setPickingFor }: RowProps) {
+function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, locations, pickingFor, setPickingFor }: RowProps) {
   const colors = useColors();
-  const [text, setText] = useState('');
+  const [text, setText] = useState(c.visibleText ?? '');
   const checkable = review.canCheck(c);
   const checked = checkable && review.isChecked(c);
   const title = titleOf(c);
   const error = review.rowErrors[c.id];
   const busy = !!review.rowBusy[c.id];
   const alternatives = group === 'pick' ? alternativesOf(c) : [];
+  const guidance = group === 'ready' || group === 'owned' ? null : guidanceOf(c);
   const detail = [
     subtitleOf(c),
     c.copies > 1 ? `${c.copies} copies` : '',
@@ -213,6 +232,7 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, locations, picki
         </Pressable>
       </View>
 
+      {group === 'pick' && guidance ? <Text tone="muted">{guidance}</Text> : null}
       {alternatives.map((r) => (
         <Button
           key={r.id}
@@ -226,29 +246,33 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, locations, picki
       {group === 'pick' && review.canAdd && onScanBarcode ? (
         <ScanBarcodeButton title={title} onPress={() => onScanBarcode(c)} />
       ) : null}
+      {group === 'pick' && review.canAdd && onSnapCover ? (
+        <SnapCoverButton title={title} onPress={() => onSnapCover(c)} />
+      ) : null}
 
       {group === 'notFound' ? (
         <>
-          <Text tone="muted">{NOT_FOUND_COPY}</Text>
+          <Text tone="muted">{guidance ?? NOT_FOUND_COPY}</Text>
           {review.canAdd ? (
             <>
               <TextField label="Title" value={text} onChangeText={setText} placeholder="Space Mutiny" />
               <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                 <Button label="Search" busy={busy} disabled={!text.trim()} onPress={() => void review.search(c, text.trim())} />
-                <Button label="Snap cover" accessibilityLabel="Snap cover, coming soon" variant="secondary" disabled />
+                {onSnapCover ? <SnapCoverButton title={title} onPress={() => onSnapCover(c)} /> : null}
               </View>
               {onScanBarcode ? <ScanBarcodeButton title={title} onPress={() => onScanBarcode(c)} /> : null}
-              <Text variant="caption" tone="muted">
-                Snap cover is coming soon.
-              </Text>
             </>
           ) : null}
         </>
       ) : null}
 
       {group === 'pending' && c.pendingReason === 'quota' ? <Text tone="muted">{QUOTA_COPY}</Text> : null}
+      {group === 'pending' && c.pendingReason !== 'quota' && guidance ? <Text tone="muted">{guidance}</Text> : null}
       {group === 'pending' && review.canAdd && onScanBarcode ? (
         <ScanBarcodeButton title={title} onPress={() => onScanBarcode(c)} />
+      ) : null}
+      {group === 'pending' && review.canAdd && onSnapCover ? (
+        <SnapCoverButton title={title} onPress={() => onSnapCover(c)} />
       ) : null}
 
       {group === 'owned' && review.canAdd ? (
@@ -272,6 +296,11 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, locations, picki
 /** Every T2 row's per-item barcode queue (design §8(c)): the next stable read upgrades this row in place. */
 function ScanBarcodeButton({ title, onPress }: { title: string; onPress(): void }) {
   return <Button label="Scan barcode" accessibilityLabel={`Scan barcode for ${title}`} variant="secondary" onPress={onPress} />;
+}
+
+/** A T2 row's cover fallback (design §8(b)): the next cover read upgrades this row in place. */
+function SnapCoverButton({ title, onPress }: { title: string; onPress(): void }) {
+  return <Button label="Snap cover" accessibilityLabel={`Snap cover for ${title}`} variant="secondary" onPress={onPress} />;
 }
 
 type SheetProps = Pick<RowProps, 'c' | 'review' | 'locations' | 'pickingFor' | 'setPickingFor'> & { onClose(): void };

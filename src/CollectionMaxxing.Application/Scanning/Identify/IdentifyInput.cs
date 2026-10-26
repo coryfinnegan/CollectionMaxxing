@@ -26,14 +26,19 @@ public sealed record IdentifyItemInput(
     string? Platform,
     Guid? LocalMatchReleaseId);
 
-/// <summary>What the phone read from one photo.</summary>
+/// <summary>
+/// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
+/// a cover read to the T2 row it was shot for (design §8(b)), which is then upgraded in place instead of adding candidates.
+/// </summary>
 public sealed record IdentifyInput(
     Guid? SnapId,
     SnapTrigger? Trigger,
     ScanEngine? Engine,
     FallbackReason? FellBackFrom,
     IReadOnlyList<IdentifyItemInput>? Items,
-    ShotKind? ShotKind = null);
+    ShotKind? ShotKind = null,
+    IdentifyKind Kind = IdentifyKind.Shelf,
+    Guid? BoundCandidateId = null);
 
 public static class IdentifyErrors
 {
@@ -84,6 +89,21 @@ internal static class IdentifyCleaning
             return ScanningErrors.Invalid("scan.too_many_items", $"Send at most {MaxItems} items at a time.", "items");
         }
 
+        if (input.BoundCandidateId is not null)
+        {
+            if (input.Kind != IdentifyKind.Cover)
+            {
+                return ScanningErrors.Invalid(
+                    "scan.bound_cover_kind", "A read bound to a scanned item is a cover read: send kind cover.", "kind");
+            }
+
+            if (input.Items.Count != 1)
+            {
+                return ScanningErrors.Invalid(
+                    "scan.bound_single_item", "A cover bound to a scanned item carries exactly one item.", "items");
+            }
+        }
+
         for (var i = 0; i < input.Items.Count; i++)
         {
             if (input.Items[i] is not { } item)
@@ -104,7 +124,7 @@ internal static class IdentifyCleaning
         new[] { item.LocalId, item.SegmentId, item.Text, item.Title, item.Creator, item.Edition, item.Platform }
             .Sum(value => value is null ? 0 : Encoding.UTF8.GetByteCount(value));
 
-    public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items) =>
+    public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind = IdentifyKind.Shelf) =>
         items.Select(item =>
         {
             var facts = new ReadFacts(
@@ -117,7 +137,7 @@ internal static class IdentifyCleaning
                 item.Format,
                 item.Year is >= MinYear and <= MaxYear ? item.Year : null,
                 Text(item.Platform, MaxPlatformLength));
-            var profile = ScoringProfileSelector.Choose(item.Completeness, item.Kind, item.Format, items.Count);
+            var profile = ScoringProfileSelector.Choose(item.Completeness, item.Kind, item.Format, items.Count, kind == IdentifyKind.Cover);
             return new CleanItem(Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile);
         }).ToList();
 

@@ -15,32 +15,36 @@ public static class ScoringProfileSelector
     /// <summary>From this many items in one picture, items read as spines on a shelf (a few books on a table are covers).</summary>
     public const int ShelfMinimum = 4;
 
-    private sealed record Rule(string Name, Func<ItemCompleteness?, WorkKind?, ReleaseFormat?, int, bool> Applies, ScoringProfileKind Profile);
+    private sealed record Rule(string Name, Func<ItemCompleteness?, WorkKind?, ReleaseFormat?, int, bool, bool> Applies, ScoringProfileKind Profile);
 
     // Order matters: what the item physically is beats how many items share the picture (a pile of 8 loose carts is not a shelf).
     private static readonly Rule[] Rules =
     [
         new("a bare tape: its label is all there is",
-            (completeness, _, format, _) => IsTape(format) && completeness is ItemCompleteness.CartOnly or ItemCompleteness.DiscOnly,
+            (completeness, _, format, _, _) => IsTape(format) && completeness is ItemCompleteness.CartOnly or ItemCompleteness.DiscOnly,
             ScoringProfileKind.BareLabel),
         new("a bare disc: its label is all there is",
-            (completeness, _, _, _) => completeness is ItemCompleteness.DiscOnly,
+            (completeness, _, _, _, _) => completeness is ItemCompleteness.DiscOnly,
             ScoringProfileKind.BareLabel),
         new("a loose cartridge: the shell says the platform",
-            (completeness, _, format, _) => completeness is ItemCompleteness.CartOnly
+            (completeness, _, format, _, _) => completeness is ItemCompleteness.CartOnly
                 || (IsCartridge(format) && completeness is null or ItemCompleteness.NotApplicable),
             ScoringProfileKind.LooseCartridge),
         new("one of many in a picture: a spine on a shelf",
-            (_, _, _, itemsInSnap) => itemsInSnap >= ShelfMinimum,
+            (_, _, _, itemsInSnap, coverRead) => !coverRead && itemsInSnap >= ShelfMinimum,
             ScoringProfileKind.ShelfSpine),
     ];
 
-    /// <summary>The profile for an item, given what the phone said it is and how many items were in the same picture.</summary>
-    public static ScoringProfileKind Choose(ItemCompleteness? completeness, WorkKind? kind, ReleaseFormat? format, int itemsInSnap)
+    /// <summary>
+    /// The profile for an item, given what the phone said it is and how many items were in the same picture. A cover read
+    /// (design §8(b)) is scored as a cover whatever the count: only what the item physically is still wins over that.
+    /// </summary>
+    public static ScoringProfileKind Choose(
+        ItemCompleteness? completeness, WorkKind? kind, ReleaseFormat? format, int itemsInSnap, bool coverRead = false)
     {
         foreach (var rule in Rules)
         {
-            if (rule.Applies(completeness, kind, format, itemsInSnap))
+            if (rule.Applies(completeness, kind, format, itemsInSnap, coverRead))
             {
                 return rule.Profile;
             }

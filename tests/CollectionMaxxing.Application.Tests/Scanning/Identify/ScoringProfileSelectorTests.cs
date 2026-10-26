@@ -73,4 +73,17 @@ public class ScoringProfileSelectorTests
         ScoringProfileSelector.Choose(null, WorkKind.Book, null, 3).ShouldBe(ScoringProfileKind.Cover);
         ScoringProfileSelector.Choose(null, WorkKind.Book, null, 4).ShouldBe(ScoringProfileKind.ShelfSpine);
     }
+
+    [Fact]
+    public void A_cover_read_is_never_a_shelf_no_matter_how_many_items_it_holds()
+    {
+        ScoringProfileSelector.Choose(null, WorkKind.Book, null, 12, coverRead: true).ShouldBe(ScoringProfileKind.Cover);
+    }
+
+    [Fact]
+    public void A_cover_read_of_a_loose_cart_keeps_the_loose_cartridge_profile()
+    {
+        ScoringProfileSelector.Choose(ItemCompleteness.CartOnly, WorkKind.Game, ReleaseFormat.GameCartridge, 1, coverRead: true)
+            .ShouldBe(ScoringProfileKind.LooseCartridge);
+    }
 }

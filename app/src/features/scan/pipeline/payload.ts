@@ -27,6 +27,7 @@ export function identifyRequestOf(snap: PicSnap): IdentifyRequest {
     shotKind: snap.shotKind ?? 'unknown',
     engine: snap.engine ?? 'vision_pipeline',
     ...(snap.fellBackFrom ? { fellBackFrom: toFallbackReason(snap.fellBackFrom) } : {}),
+    ...(snap.boundCandidateId ? { kind: 'cover' as const, candidateId: snap.boundCandidateId } : {}),
     items: snap.items.map((i) => {
       // The snap's segment links a multi-item snap; an item stamped with its own keeps it.
       const segmentId = i.payload.segmentId ?? snap.segmentId;

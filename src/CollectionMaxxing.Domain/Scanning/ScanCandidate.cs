@@ -50,6 +50,9 @@ public sealed class ScanCandidate : ILibraryScoped, IConcurrencyVersioned
     /// <summary>What the phone's framing said the shot was. Copied from the snap for picture candidates.</summary>
     public ShotKind ShotKind { get; init; } = ShotKind.Unknown;
 
+    /// <summary>What this unresolved row tells the person to do next (design §8(a)); null once it is resolved.</summary>
+    public GuidanceCode? GuidanceCode { get; set; }
+
     /// <summary>The phone's own id for the segment this item belongs to, so the items of a multi-item snap stay linked.</summary>
     public string? SegmentId { get; init; }
 

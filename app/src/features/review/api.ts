@@ -17,8 +17,13 @@ export async function patchCandidate(sessionId: string, candidateId: string, bod
   return response.data;
 }
 
-export async function searchCandidate(sessionId: string, candidateId: string, text: string): Promise<CandidateDto> {
-  const response = await searchForCandidate(sessionId, candidateId, { text });
+export async function searchCandidate(
+  sessionId: string,
+  candidateId: string,
+  text: string,
+  contextWorkIds?: string[],
+): Promise<CandidateDto> {
+  const response = await searchForCandidate(sessionId, candidateId, { text, contextWorkIds });
   if (response.status !== 200) throw new ApiError(response.status, {});
   keep(response.data);
   return response.data;

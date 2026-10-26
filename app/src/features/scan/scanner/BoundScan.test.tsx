@@ -51,7 +51,7 @@ describe('bound scan', () => {
         libraryId={MOCK_LIBRARY_ID}
         source={source}
         tuning={tuning}
-        boundScan={{ sessionId: SESSION, candidateId: row.id, title: 'Code 000111', onDone, onCancel: jest.fn() }}
+        boundScan={{ sessionId: SESSION, candidateId: row.id, title: 'Code 000111', kind: 'barcode', onDone, onCancel: jest.fn() }}
       />,
     );
     expect(await screen.findByText('Scan the barcode for Code 000111')).toBeTruthy();
@@ -91,7 +91,7 @@ describe('bound scan', () => {
         libraryId={MOCK_LIBRARY_ID}
         source={new FakeScannerSource()}
         tuning={tuning}
-        boundScan={{ sessionId: SESSION, candidateId: row.id, title: 'Code 000111', onDone: jest.fn(), onCancel }}
+        boundScan={{ sessionId: SESSION, candidateId: row.id, title: 'Code 000111', kind: 'barcode', onDone: jest.fn(), onCancel }}
       />,
     );
 

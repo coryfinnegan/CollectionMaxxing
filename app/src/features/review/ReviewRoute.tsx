@@ -26,7 +26,12 @@ export function ReviewRoute() {
           onBack={() => router.back()}
           onScanBarcode={(c) => {
             if (!sessionId) return;
-            boundScanStore.getState().bind({ sessionId, candidateId: c.id, title: boundTitleOf(c) });
+            boundScanStore.getState().bind({ sessionId, candidateId: c.id, title: boundTitleOf(c), kind: 'barcode' });
+            router.push('/scanner');
+          }}
+          onSnapCover={(c) => {
+            if (!sessionId) return;
+            boundScanStore.getState().bind({ sessionId, candidateId: c.id, title: boundTitleOf(c), kind: 'cover' });
             router.push('/scanner');
           }}
         />

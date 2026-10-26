@@ -168,6 +168,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
     userEdited: false,
     pendingReason: null,
     retryAfter: null,
+    guidanceCode: null,
   };
   const title = item.title ?? item.text ?? '';
   if (key(title) === key(CLOSE_CALL.title)) {
@@ -176,6 +177,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
       resolution: 'ambiguous',
       score: 0.7,
       needsArt: true,
+      guidanceCode: 'pick_match',
       alternatives: [
         alternative(CLOSE_CALL.original, 0.7, '/media/covers/aaaaaaaa-0000-4000-8000-000000000001'),
         alternative(CLOSE_CALL.rerelease, 0.68, '/media/covers/aaaaaaaa-0000-4000-8000-000000000002'),
@@ -183,7 +185,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
     };
   }
   const entry = lookup(title);
-  if (!entry) return base;
+  if (!entry) return { ...base, guidanceCode: 'shoot_cover' };
   if (entry.slow) return { ...base, resolution: 'pending' };
   return { ...base, ...resolved(entry) };
 }
@@ -198,6 +200,33 @@ export const handlers = [
     if (identifyMock.failWith) return problem(identifyMock.failWith, 'Server problem');
     if (!body.snapId || !body.trigger || !body.engine) return problem(400, 'Send a snapId, a trigger and an engine.');
     if (!body.items || body.items.length === 0) return problem(400, 'Send at least one item.');
+    if (body.candidateId) {
+      // A bound cover (Review's "Snap cover"): the row upgrades in place, keeping its id, copies and decisions.
+      const bound = session.candidates.find((c) => c.id === body.candidateId);
+      if (!bound) return problem(404, 'Not found');
+      const replayed = identifyMock.answers.get(body.snapId);
+      if (replayed) return HttpResponse.json({ candidates: replayed });
+      const item = body.items[0];
+      if (body.items.length !== 1 || !item) return problem(400, 'A cover bound to a scanned item carries exactly one item.');
+      const fresh = candidateFor(++session.seq, item, body.shotKind ?? 'unknown');
+      Object.assign(bound, {
+        visibleText: fresh.visibleText,
+        localId: fresh.localId,
+        segmentId: fresh.segmentId,
+        shotKind: fresh.shotKind,
+        resolution: fresh.resolution,
+        score: fresh.score,
+        release: fresh.release,
+        alternatives: fresh.alternatives,
+        needsArt: fresh.needsArt,
+        guidanceCode: fresh.guidanceCode,
+        changeSeq: ++session.seq,
+      } satisfies Partial<CandidateDto>);
+      const upgraded = [bound];
+      identifyMock.answers.set(body.snapId, upgraded);
+      identifyMock.answerSessions.set(body.snapId, session.id);
+      return HttpResponse.json({ candidates: upgraded });
+    }
     const firstSession = identifyMock.answerSessions.get(body.snapId);
     if (firstSession && firstSession !== session.id) return problem(409, 'That snapId was already used. Send a new snapId for a new picture.', 'scan.snap_in_use');
     const replay = identifyMock.answers.get(body.snapId);

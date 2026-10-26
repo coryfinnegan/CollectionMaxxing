@@ -50,6 +50,8 @@ export interface PicSnap {
   unreadableCount: number;
   engine?: EngineName;
   fellBackFrom?: FellBackFrom;
+  /** Review's "Snap cover": this picture was shot for one T2 row, which it upgrades in place. Absent on older snaps. */
+  boundCandidateId?: string;
 }
 
 export interface PipelineState {

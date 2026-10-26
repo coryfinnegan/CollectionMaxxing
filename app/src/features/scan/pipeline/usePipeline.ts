@@ -21,12 +21,15 @@ export function usePipeline({
   source,
   resendMs = 5000,
   onOutcome,
+  boundCover,
 }: {
   deps: PipelineDeps | undefined;
   source: ScannerSource;
   resendMs?: number;
   /** Whether the last picture found anything. */
   onOutcome?: (found: boolean) => void;
+  /** Review's "Snap cover": every picture from this screen upgrades this row in place. */
+  boundCover?: { candidateId: string; onDone(): void };
 }) {
   const pipeline = useMemo(() => (deps ? new SnapPipeline(deps) : undefined), [deps]);
   const store = deps?.store ?? getPipelineStore();
@@ -77,7 +80,10 @@ export function usePipeline({
   const lines = useMemo(() => pictureLines(mine, cards, online), [mine, cards, online]);
   const counts = useMemo(() => pictureCounts(lines), [lines]);
 
-  const onSnap = useCallback((event: SnapEvent) => void pipeline?.onSnap(event), [pipeline]);
+  const onSnap = useCallback(
+    (event: SnapEvent) => void pipeline?.onSnap(event, boundCover ? { bound: boundCover } : undefined),
+    [pipeline, boundCover],
+  );
   /** One picture with a reader of the caller's choosing (Import from Photos watches what the read gave). */
   const snapWith = useCallback(
     (event: SnapEvent, options: { recognition: Reader }) => pipeline?.onSnap(event, options) ?? Promise.resolve(),

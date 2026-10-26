@@ -1366,6 +1366,11 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("edited_platform");
 
+                    b.Property<string>("GuidanceCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("guidance_code");
+
                     b.Property<string>("IdempotencyKey")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -1501,6 +1506,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_scan_candidates_decision", "\"decision\" in ('undecided', 'accepted', 'rejected')");
 
                             t.HasCheckConstraint("ck_scan_candidates_edited_format", "\"edited_format\" in ('hardcover', 'paperback', 'mass_market', 'vhs', 'betamax', 'laserdisc', 'dvd', 'bluray', 'uhd_bluray', 'game_cartridge', 'game_disc', 'game_card', 'other')");
+
+                            t.HasCheckConstraint("ck_scan_candidates_guidance_code", "\"guidance_code\" in ('move_closer', 'split_segment', 'hold_steady', 'kill_glare', 'shoot_cover', 'pick_match', 'scan_barcode')");
 
                             t.HasCheckConstraint("ck_scan_candidates_resolution", "\"resolution\" in ('pending', 'matched', 'ambiguous', 'not_found', 'error')");
 
@@ -1674,7 +1681,7 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("ck_scan_snaps_engine", "\"engine\" in ('apple_model', 'vision_pipeline')");
 
-                            t.HasCheckConstraint("ck_scan_snaps_fallback_reason", "\"fallback_reason\" in ('unavailable', 'declined', 'context', 'timeout')");
+                            t.HasCheckConstraint("ck_scan_snaps_fallback_reason", "\"fallback_reason\" in ('unavailable', 'declined', 'context', 'timeout', 'move_closer', 'split_segment', 'hold_steady', 'kill_glare')");
 
                             t.HasCheckConstraint("ck_scan_snaps_fell_back_has_reason", "fell_back = (fallback_reason is not null)");
 
