@@ -84,6 +84,7 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
         {
             t.HasCheckConstraint("ck_scan_candidates_source", EnumColumns.CheckIn<CandidateSource>("source"));
             t.HasCheckConstraint("ck_scan_candidates_shot_kind", EnumColumns.CheckIn<ShotKind>("shot_kind"));
+            t.HasCheckConstraint("ck_scan_candidates_guidance_code", EnumColumns.CheckIn<GuidanceCode>("guidance_code"));
             t.HasCheckConstraint("ck_scan_candidates_box_source", EnumColumns.CheckIn<BoxSource>("box_source"));
             t.HasCheckConstraint("ck_scan_candidates_resolution", EnumColumns.CheckIn<CandidateResolution>("resolution"));
             t.HasCheckConstraint("ck_scan_candidates_decision", EnumColumns.CheckIn<CandidateDecision>("decision"));
@@ -105,6 +106,7 @@ internal sealed class ScanCandidateConfiguration : IEntityTypeConfiguration<Scan
         builder.HasAlternateKey(c => new { c.LibraryId, c.Id }).HasName("ak_scan_candidates_library_id_id");
         builder.Property(c => c.Source).HasSnakeCaseEnum();
         builder.Property(c => c.ShotKind).HasSnakeCaseEnum();
+        builder.Property(c => c.GuidanceCode).HasSnakeCaseEnum();
         builder.Property(c => c.SegmentId).HasMaxLength(100);
         builder.Property(c => c.BoxSource).HasSnakeCaseEnum();
         builder.Property(c => c.Resolution).HasSnakeCaseEnum();
