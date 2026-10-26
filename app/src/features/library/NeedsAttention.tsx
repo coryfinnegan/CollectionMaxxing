@@ -4,6 +4,7 @@
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
@@ -13,6 +14,7 @@ import type { ProvisionalDto, ScanMediaHint } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useLocationsList } from '@/features/locations/useLocations';
+import { boundScanStore } from '@/features/review/boundScan';
 import { deleteKept, promoteKept, resolveKept } from '@/features/review/provisionals';
 import { useLibraryRole } from '@/features/scan/session/useScanSession';
 import { ownArtworkUrl } from '@/features/scan/pipeline/artStep';
@@ -66,12 +68,16 @@ export function NeedsAttention({ libraryId }: { libraryId: string }) {
 }
 
 function KeptRow({ libraryId, provisional: p, location, canAct }: { libraryId: string; provisional: ProvisionalDto; location: string | null; canAct: boolean }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<'promote' | 'delete' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [linking, setLinking] = useState(false);
   const title = `"${p.titleGuess}"`;
+  // The row the kept guess came from, while its session still exists: a barcode scanned for it resolves the row,
+  // and adding it to the library then uses that edition, verified.
+  const boundRow = p.sessionId && p.candidateId ? { sessionId: p.sessionId, candidateId: p.candidateId } : null;
   const crop = p.cropUrl ? (ownArtworkUrl(p.cropUrl) ?? null) : null;
   const caption = [MEDIA_LABEL[p.mediaHint], location].filter(Boolean).join(' · ') || 'Guessed from a scan';
   const refresh = () =>
@@ -124,6 +130,18 @@ function KeptRow({ libraryId, provisional: p, location, canAct }: { libraryId: s
       </View>
       {canAct ? (
         <View style={styles.actions}>
+          {boundRow ? (
+            <Button
+              label="Scan barcode"
+              accessibilityLabel={`Scan barcode for ${title}`}
+              variant="secondary"
+              disabled={busy !== null}
+              onPress={() => {
+                boundScanStore.getState().bind({ ...boundRow, title: p.titleGuess, kind: 'barcode' });
+                router.push('/scanner');
+              }}
+            />
+          ) : null}
           <Button label="Add to library" accessibilityLabel={`Add ${title} to your library`} busy={busy === 'promote'} disabled={busy !== null} haptic="commit" onPress={() => void promote()} />
           <Button label="Link to item" accessibilityLabel={`Link ${title} to an item`} variant="secondary" disabled={busy !== null} onPress={() => setLinking(true)} />
           <Button

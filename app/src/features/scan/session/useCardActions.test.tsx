@@ -4,6 +4,7 @@ import { onlineManager } from '@tanstack/react-query';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { MemoryOwnedStorage, setOwnedStorage } from '@/features/offline/ownedCache';
+import { boundScanStore } from '@/features/review/boundScan';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { ResultCards } from '@/features/scan/cards/ResultCards';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
@@ -67,6 +68,8 @@ beforeEach(() => {
   scanMock.reset();
   reviewMock.reset();
   resetItems();
+  boundScanStore.getState().clear();
+  mockRouter.push.mockClear();
   resetOwnershipMock();
   setOwnedStorage(new MemoryOwnedStorage());
   useCardsStore.getState().reset();
@@ -209,8 +212,8 @@ describe('the close call pick', () => {
 describe('the auto-added card', () => {
   const AUTO_ITEM_ID = 'c0000000-0000-4000-8000-0000000000a1';
 
-  const seedAdded = () => {
-    const added = { ...dune, id: 'c-added', alreadyOwnedCount: 0, ownedAt: [], createdItemId: AUTO_ITEM_ID } as CandidateDto;
+  const seedAdded = (tier: 'T0' | 'T1' | null = null) => {
+    const added = { ...dune, id: 'c-added', alreadyOwnedCount: 0, ownedAt: [], createdItemId: AUTO_ITEM_ID, tier } as CandidateDto;
     scanMock.sessions.get(SESSION)!.candidates = [JSON.parse(JSON.stringify(added)) as CandidateDto];
     useCardsStore.getState().reset();
     useCardsStore.getState().merge([added], { announce: false });
@@ -245,5 +248,29 @@ describe('the auto-added card', () => {
     expect(await screen.findByText('It changed since, so it stays in your library.')).toBeTruthy();
     expect(screen.getByText('Added to your library')).toBeTruthy();
     expect(itemsState.entries.some((e) => e.item.id === AUTO_ITEM_ID)).toBe(true);
+  });
+
+  it('verifies the edition from a T1 auto-add: the camera opens bound to its item', async () => {
+    seedAdded('T1');
+    await renderWithProviders(<Harness />);
+    await screen.findByText('Added to your library');
+
+    await press('Verify edition for Dune');
+
+    expect(boundScanStore.getState().binding).toEqual({
+      libraryId: MOCK_LIBRARY_ID,
+      itemId: AUTO_ITEM_ID,
+      title: 'Dune',
+      kind: 'itemBarcode',
+    });
+    expect(mockRouter.push).toHaveBeenCalledWith('/scanner');
+  });
+
+  it('offers no verify on a barcode-proof auto-add', async () => {
+    seedAdded('T0');
+    await renderWithProviders(<Harness />);
+    await screen.findByText('Added to your library');
+
+    expect(screen.queryByLabelText('Verify edition for Dune')).toBeNull();
   });
 });

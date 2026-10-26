@@ -10,6 +10,7 @@ import { breadcrumb } from '@/features/item/breadcrumb';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { getOwnedCache } from '@/features/offline/ownedCache';
 import { patchCandidate, skipCandidate, undoAutoCommit } from '@/features/review/api';
+import { boundScanStore, boundTitleOf } from '@/features/review/boundScan';
 import { UNDO_MS } from '@/features/review/useReview';
 import { friendlyError } from '@/lib/problem';
 import { ApiError } from '@/lib/http';
@@ -168,6 +169,11 @@ export function useCardActions({
               if (useAutoCommitUndoStore.getState().last?.candidateId === undone.id) useAutoCommitUndoStore.getState().setLast(null);
             }),
           );
+      },
+      onVerifyEdition: (c) => {
+        if (!canAdd || !c.createdItemId) return;
+        boundScanStore.getState().bind({ libraryId, itemId: c.createdItemId, title: boundTitleOf(c), kind: 'itemBarcode' });
+        router.push('/scanner');
       },
     }),
     [canAdd, errors, busy, wishlisted, moveTo, moveToast, router, sessionId, run, libraryId, move, undoMove],

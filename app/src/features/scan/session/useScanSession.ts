@@ -5,6 +5,8 @@ import { useStore } from 'zustand';
 import { useGetMe } from '@/api/generated/account/account';
 import type { CreateScanSessionRequest, LibraryRole } from '@/api/generated/models';
 import { haptics } from '@/lib/haptics';
+import { ApiError } from '@/lib/http';
+import { friendlyError } from '@/lib/problem';
 import { shownCards, sortedCards, useCardsStore } from '../cards/cardsStore';
 import type { ScannerSource } from '../scanner/ScannerSource';
 import { createStabilityFilter } from '../tray/stability';
@@ -16,6 +18,16 @@ import { seedFromSnapshot } from './sessionCounters';
 import type { StoreApi } from 'zustand/vanilla';
 
 export type SessionTuning = { retryMs?: number; pollMs?: number; resendMs?: number; flashMs?: number };
+
+/**
+ * What a failed bound read says: a refusal names its reason (a barcode of another work, or no permission to
+ * change the library); anything else stays generic so the camera waits for another read.
+ */
+const boundRefusal = (error: unknown): string => {
+  if (error instanceof ApiError && error.status === 409 && error.problem.detail) return error.problem.detail;
+  if (error instanceof ApiError && error.status === 403) return friendlyError(error);
+  return "Couldn't send that scan. Try again.";
+};
 
 /** What the signed-in member may do in this library. Unknown until `GET /me` answers, so Add stays hidden until then. */
 export function useLibraryRole(libraryId: string | undefined): { role: LibraryRole | undefined; canAdd: boolean } {
@@ -76,9 +88,9 @@ export function useScanSession({
             void haptics.scanned();
             setNiceScanAt(Date.now());
             setNotice(null);
-            boundCapture.submit({ value, symbology }).catch(() => {
+            boundCapture.submit({ value, symbology }).catch((error: unknown) => {
               boundSending.current = false;
-              setNotice("Couldn't send that scan. Try again.");
+              setNotice(boundRefusal(error));
             });
             continue;
           }

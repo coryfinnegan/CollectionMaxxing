@@ -2,6 +2,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { ProvisionalDto } from '@/api/generated/models';
+import { boundScanStore } from '@/features/review/boundScan';
 import { itemsState, resetItems } from '@/mocks/items';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';
@@ -9,6 +10,9 @@ import { reviewMock } from '@/mocks/scan-review';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { NeedsAttention } from './NeedsAttention';
+
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
 const SESSION = 'b0000000-0000-4000-8000-000000000001';
 
@@ -39,6 +43,8 @@ beforeEach(() => {
   scanMock.reset();
   reviewMock.reset();
   resetItems();
+  boundScanStore.getState().clear();
+  mockRouter.push.mockClear();
 });
 
 describe('Needs attention', () => {
@@ -101,5 +107,29 @@ describe('Needs attention', () => {
     expect(screen.queryByLabelText(/to your library/)).toBeNull();
     expect(screen.queryByLabelText(/Link "/)).toBeNull();
     expect(screen.queryByLabelText(/Delete "/)).toBeNull();
+    expect(screen.queryByLabelText(/Scan barcode/)).toBeNull();
+  });
+
+  it('scans a barcode for the row it was kept from', async () => {
+    seed([kept(1)]);
+    await renderWithProviders(<NeedsAttention libraryId={MOCK_LIBRARY_ID} />);
+
+    await fireEvent.press(await screen.findByLabelText('Scan barcode for "Unreadable spine 1"'));
+
+    expect(boundScanStore.getState().binding).toEqual({
+      sessionId: SESSION,
+      candidateId: 'b2000000-0000-4000-8000-000000000001',
+      title: 'Unreadable spine 1',
+      kind: 'barcode',
+    });
+    expect(mockRouter.push).toHaveBeenCalledWith('/scanner');
+  });
+
+  it('offers no barcode scan once the session is gone', async () => {
+    seed([kept(1, { sessionId: null, candidateId: null })]);
+    await renderWithProviders(<NeedsAttention libraryId={MOCK_LIBRARY_ID} />);
+
+    expect(await screen.findByText('"Unreadable spine 1"')).toBeTruthy();
+    expect(screen.queryByLabelText(/Scan barcode/)).toBeNull();
   });
 });
