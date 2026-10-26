@@ -56,6 +56,7 @@ export default function RootLayout() {
               headerTintColor: colors.ink,
               contentStyle: { backgroundColor: colors.ground },
               headerLeft: () => <StackBackButton />,
+              headerBackTitle: 'Back', // the native label never falls back to a route-group name (#372)
             }}
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

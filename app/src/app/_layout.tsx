@@ -14,6 +14,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.ground },
           animationDuration: 250, // screen pushes match the motion vocabulary (#304)
           headerLeft: () => <StackBackButton />,
+          headerBackTitle: 'Back', // the native label never falls back to a route-group name (#372)
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

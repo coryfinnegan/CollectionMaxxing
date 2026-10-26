@@ -27,6 +27,7 @@ export default function PagesLayout() {
           contentStyle: { backgroundColor: colors.ground },
           headerShown: Platform.OS !== 'web',
           headerLeft: () => <StackBackButton />,
+          headerBackTitle: 'Back', // the native label never falls back to a route-group name (#372)
           animationDuration: 250, // screen pushes match the motion vocabulary (#304)
         }}
       >

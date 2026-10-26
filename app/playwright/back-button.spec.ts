@@ -34,6 +34,8 @@ async function expectWayBack(page: Page, name: string) {
   const box = (await back.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(44);
   expect(box.height).toBeGreaterThanOrEqual(44);
+  // No route-group name leaks into a visible header (#372).
+  await expect(page.getByText(/\(tabs\)|\(pages\)/)).toHaveCount(0);
 }
 
 test.describe('way back', () => {
