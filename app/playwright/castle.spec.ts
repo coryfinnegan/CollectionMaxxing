@@ -1,6 +1,6 @@
-// The castle contact sheet (#361): all five primitives in Full, Flat and
-// Accessible, screenshotted against a committed snapshot. Regenerate
-// deliberately with `npx playwright test castle --update-snapshots`.
+// The castle contact sheet (#361, #363, #362): the primitives in Full, Flat and
+// Accessible plus the compositions, screenshotted against a committed snapshot.
+// Regenerate deliberately with `npx playwright test castle --update-snapshots`.
 import { type Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 
@@ -27,6 +27,11 @@ const cells = [
   'castle-cell-parchment-full',
   'castle-cell-parchment-flat',
   'castle-cell-parchment-accessible',
+  'castle-cell-seasonal-spring',
+  'castle-cell-seasonal-summer',
+  'castle-cell-seasonal-autumn',
+  'castle-cell-seasonal-winter',
+  'castle-cell-quests',
 ];
 
 async function expectSheet(page: Page, name: string) {

@@ -13,6 +13,14 @@ import { motionMs } from '@/ui/motion';
 /** How long the check stays up before it goes away by itself. */
 export const CELEBRATION_MS = 2200;
 
+/**
+ * The check plays 1.5x: 72 frames at 60fps land in 800ms, under the one-second
+ * budget (#362). The overlay itself never blocks input (tap to dismiss, and the
+ * toast below carries the words), so the next scan and the post-batch summary
+ * never wait for it.
+ */
+export const CELEBRATION_SPEED = 1.5;
+
 export function CommitCelebration({ message, onDone }: { message: string; onDone: () => void }) {
   const colors = useColors();
   const reduceMotion = useReduceMotion();
@@ -39,7 +47,7 @@ export function CommitCelebration({ message, onDone }: { message: string; onDone
           backgroundColor: colors.surface,
         }}
       >
-        <LottieSpot name="success" size={120} testID="celebration-spot" />
+        <LottieSpot name="success" size={120} speed={CELEBRATION_SPEED} testID="celebration-spot" />
         <PlacedMascot pose="celebrating" placement="state" size={96} testID="celebration-dragon" />
       </Pressable>
     </Animated.View>

@@ -8,7 +8,11 @@ import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { typeScale } from '@/theme/tokens';
+import { seasonFor, seasonNames } from '@/ui/castle';
+import { setQuestBoardStorage, setQuestSeenStorage, useQuestBoard } from '@/ui/castle/quests';
+import { setMascotStorage, useDragonAppearance } from '@/ui/mascot/appearances';
 import { CollectionStats } from './CollectionStats';
+import { setMilestoneSeenStorage } from './milestoneSeen';
 import { shareMilestone } from './shareMilestone';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
@@ -118,5 +122,82 @@ describe('GreatHall milestones', () => {
     } finally {
       resetItems();
     }
+  });
+});
+
+describe('GreatHall delights', () => {
+  function memoryStore() {
+    const map = new Map<string, string>();
+    return {
+      getString: (key: string) => map.get(key),
+      set: (key: string, value: string) => void map.set(key, value),
+    };
+  }
+
+  beforeEach(() => {
+    setMascotStorage(memoryStore());
+    useDragonAppearance.setState({ appearance: 'full' });
+    setMilestoneSeenStorage(memoryStore());
+    setQuestBoardStorage(memoryStore());
+    setQuestSeenStorage(memoryStore());
+    useQuestBoard.setState({ pinned: false });
+  });
+
+  afterEach(() => {
+    useDragonAppearance.setState({ appearance: 'full' });
+    useQuestBoard.setState({ pinned: false });
+  });
+
+  it('hangs the seasonal banner with the season outside', async () => {
+    await stats();
+
+    expect(screen.getByTestId('seasonal-banner')).toBeTruthy();
+    expect(screen.getByText(seasonNames[seasonFor(new Date())])).toBeTruthy();
+    expect(screen.getByText('The banners change with the seasons.')).toBeTruthy();
+  });
+
+  it('invites pinning the quest board, then shows the quests', async () => {
+    await stats();
+
+    await screen.findByTestId('quest-board');
+    await fireEvent.press(screen.getByLabelText('Pin the quest board'));
+
+    expect(await screen.findByText('Catalog one full shelf')).toBeTruthy();
+    expect(screen.getByText('Spread across three shelves')).toBeTruthy();
+    expect(screen.getByText('Complete a series')).toBeTruthy();
+    expect(screen.getByText('Quests wait as long as you like.')).toBeTruthy();
+  });
+
+  it('celebrates a climbed milestone rung once, then lets it rest', async () => {
+    const seen = memoryStore();
+    seen.set(`milestone-seen:${MOCK_LIBRARY_ID}`, '10');
+    setMilestoneSeenStorage(seen);
+    server.use(http.get('*/api/v1/libraries/:libraryId/stats', () => HttpResponse.json({ total: 55, byKind: { book: 55 }, byFormat: {}, byPlatform: {}, byDecade: {} })));
+
+    await stats();
+
+    expect(await screen.findByTestId('milestone-celebration')).toBeTruthy();
+    expect(screen.getByLabelText('A new milestone. 50 items shelved. Dismiss.')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('milestone-celebration'));
+    expect(screen.queryByTestId('milestone-celebration')).toBeNull();
+  });
+
+  it('removes every delight when dragons are off', async () => {
+    useDragonAppearance.setState({ appearance: 'off' });
+    const seen = memoryStore();
+    seen.set(`milestone-seen:${MOCK_LIBRARY_ID}`, '10');
+    setMilestoneSeenStorage(seen);
+    server.use(http.get('*/api/v1/libraries/:libraryId/stats', () => HttpResponse.json({ total: 55, byKind: { book: 55 }, byFormat: {}, byPlatform: {}, byDecade: {} })));
+
+    await stats();
+
+    expect(screen.queryByTestId('seasonal-banner')).toBeNull();
+    expect(screen.queryByText('The banners change with the seasons.')).toBeNull();
+    expect(screen.queryByTestId('quest-board')).toBeNull();
+    expect(screen.queryByText('Quest board')).toBeNull();
+    expect(screen.queryByTestId('milestone-celebration')).toBeNull();
+    // The hall itself stands: only the delights go.
+    expect(screen.getByText('Great hall')).toBeTruthy();
+    expect(screen.getByText('Milestones')).toBeTruthy();
   });
 });
