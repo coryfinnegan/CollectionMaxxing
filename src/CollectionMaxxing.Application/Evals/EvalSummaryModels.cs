@@ -37,7 +37,20 @@ public sealed record SliceMetrics(
     long? FirstItemP95Ms,
     IReadOnlyDictionary<string, KindMetrics> ByKind,
     IReadOnlyDictionary<string, int> ResolvedBy,
-    IReadOnlyDictionary<string, KindMetrics> ByShotKind);
+    IReadOnlyDictionary<string, KindMetrics> ByShotKind,
+    int T0Auto = 0,
+    int T1Auto = 0,
+    int T2Review = 0,
+    int ProvisionalItems = 0,
+    int AutoAdds = 0,
+    int CorrectAutoAdds = 0,
+    double? ReviewRatePct = null,
+    double? AutoAddPrecisionPct = null,
+    bool? DuplicateClean = null,
+    long? TimeToFirstResultsMs = null,
+    long? TotalTimeToTrustworthyMs = null,
+    int UnreconciledPhotos = 0,
+    int ExcessUnreadable = 0);
 
 public sealed record EngineSummary(
     SliceMetrics? Shelf,
@@ -79,7 +92,15 @@ public sealed record EvalSummary(
     IReadOnlyDictionary<string, double> Metrics,
     bool Partial = false,
     int PhotosRun = 0,
-    int PhotosInSet = 0);
+    int PhotosInSet = 0,
+    string? ThresholdHash = null,
+    string? BaselineNote = null);
+
+/// <summary>
+/// The baseline the regression check compares to: the metrics, and the threshold fingerprint they were measured under
+/// (null for baselines written before §17; those skip the threshold check).
+/// </summary>
+public sealed record EvalBaselineDoc(IReadOnlyDictionary<string, double> Metrics, string? ThresholdHash);
 
 /// <summary>The response to <c>POST /api/admin/evals/runs</c>.</summary>
 public sealed record EvalRunResult(string RunId, EvalSummary Summary);

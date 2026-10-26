@@ -2,6 +2,7 @@ using System.Reflection;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Scanning;
@@ -20,6 +21,8 @@ public static class SubmitEvalRun
 {
     public const int MaxPhotos = 400;
     private const int MaxText = 100;
+    private const int MaxNote = 500;
+    private const int MaxCounted = 1000;
     private const long MaxMillis = 3_600_000;
 
     public sealed class Handler(
@@ -29,6 +32,7 @@ public static class SubmitEvalRun
         IIdGenerator ids,
         TimeProvider clock,
         IOptions<EvalsOptions> options,
+        IOptionsMonitor<ScoringOptions> scoring,
         ILogger<Handler> logger)
     {
         public async Task<Result<EvalRunResult>> HandleAsync(EvalRunInput input, CancellationToken cancellationToken)
@@ -88,7 +92,12 @@ public static class SubmitEvalRun
                     result.UnreadableCount ?? 0,
                     result.LatencyMs!.Value,
                     result.FirstItemMs,
-                    EnumText.ToText(result.Thermal!.Value)));
+                    EnumText.ToText(result.Thermal!.Value),
+                    result.CapturedCount ?? 0,
+                    result.CapturedAt,
+                    result.DuplicateRescan is { } evidence
+                        ? new DuplicateRescan(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds)
+                        : null));
             }
 
             var run = new GroundedRun(
@@ -97,8 +106,12 @@ public static class SubmitEvalRun
                 new EvalDevice(input.Device!.Model!.Trim(), input.Device.OsVersion!.Trim(), input.Device.AppVersion!.Trim()),
                 input.ConfigVersion!.Trim(),
                 photos,
-                input.Partial);
-            var evaluated = EvalReport.Evaluate(run, truths, results.LoadBaseline(), BuildSha.Resolve(options.Value), skipped, listing.Count);
+                input.Partial,
+                string.IsNullOrWhiteSpace(input.BaselineNote) ? null : input.BaselineNote.Trim());
+            var baseline = results.LoadBaselineDoc();
+            var evaluated = EvalReport.Evaluate(
+                run, truths, baseline?.Metrics, BuildSha.Resolve(options.Value), skipped, listing.Count,
+                scoring.CurrentValue.Thresholds, baseline?.ThresholdHash);
 
             try
             {
@@ -213,6 +226,11 @@ public static class SubmitEvalRun
                 return EvalErrors.Invalid("evals.too_many_results", $"Send at most {MaxPhotos} photo results in one run.", "results");
             }
 
+            if (input.BaselineNote is not null && input.BaselineNote.Trim().Length > MaxNote)
+            {
+                return EvalErrors.Invalid("evals.note_too_long", $"A baseline note is at most {MaxNote} characters.", "baselineNote");
+            }
+
             var seen = new HashSet<(string, ScanEngine)>();
             for (var i = 0; i < input.Results.Count; i++)
             {
@@ -258,9 +276,26 @@ public static class SubmitEvalRun
                 return EvalErrors.Invalid("evals.latency_invalid", "latencyMs and firstItemMs are milliseconds, 0 or more.", $"{at}.latencyMs");
             }
 
-            if (photo.UnreadableCount is < 0 or > 1000)
+            if (photo.UnreadableCount is < 0 or > MaxCounted)
             {
                 return EvalErrors.Invalid("evals.unreadable_invalid", "unreadableCount is 0 or more.", $"{at}.unreadableCount");
+            }
+
+            if (photo.CapturedCount is < 0 or > MaxCounted)
+            {
+                return EvalErrors.Invalid("evals.captured_invalid", "capturedCount is 0 or more.", $"{at}.capturedCount");
+            }
+
+            if (photo.DuplicateRescan is { } evidence
+                && (evidence.OwnedHits is < 0 or > MaxCounted
+                    || evidence.AnsweredOnCard is < 0
+                    || evidence.AnsweredOnCard > evidence.OwnedHits
+                    || evidence.UnsolicitedAdds is < 0 or > MaxCounted))
+            {
+                return EvalErrors.Invalid(
+                    "evals.duplicate_invalid",
+                    "A duplicate re-scan reports owned hits, how many were answered on-card (at most the hits), and unsolicited adds.",
+                    $"{at}.duplicateRescan");
             }
 
             if (photo.Items is not { Count: > 0 })
@@ -271,6 +306,14 @@ public static class SubmitEvalRun
             if (photo.Items.Any(item => item?.Read is null))
             {
                 return EvalErrors.Invalid("evals.item_invalid", "An item was empty.", $"{at}.items");
+            }
+
+            for (var j = 0; j < photo.Items.Count; j++)
+            {
+                if (photo.Items[j]!.Tier is { } tier && !Enum.IsDefined(tier))
+                {
+                    return EvalErrors.Invalid("evals.tier_invalid", "A tier is T0, T1 or T2.", $"{at}.items[{j}].tier");
+                }
             }
 
             // The same limits as /identify: at most 40 items, and 16 KB of text each.

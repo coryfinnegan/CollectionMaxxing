@@ -1,4 +1,6 @@
 using CollectionMaxxing.Application.Evals;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.Infrastructure.Evals;
 using CollectionMaxxing.TestSupport.Evals;
 using Microsoft.Extensions.Options;
@@ -42,10 +44,26 @@ internal static class EvalFixtures
 
     public static GroundedItem NotFound(string readAs = "unknown words") => new(readAs, null, "model", "not_found", []);
 
+    /// <summary>The item as the pipeline tiered it: T0/T1 auto-add, T2 reviewed by the person.</summary>
+    public static GroundedItem Tiered(GroundedItem item, ScanTier tier) => item with { Tier = EnumText.ToText(tier) };
+
+    public static GroundedItem T0(GroundedItem item) => Tiered(item, ScanTier.T0);
+
+    public static GroundedItem T1(GroundedItem item) => Tiered(item, ScanTier.T1);
+
+    public static GroundedItem T2(GroundedItem item) => Tiered(item, ScanTier.T2);
+
+    /// <summary>A kept provisional guess (docs/16 §17): it must carry <c>IsGuess</c>, else it scores as invented.</summary>
+    public static GroundedItem Kept(GroundedItem item, bool? isGuess = true) => item with { Provisional = true, IsGuess = isGuess };
+
     public static GroundedPhoto Photo(
         string id, string engine, IEnumerable<GroundedItem> items, long latencyMs = 1000, long? firstItemMs = 500,
-        string outcome = "ok", string thermal = "nominal", string? fellBackFrom = null) =>
-        new(id, engine, fellBackFrom, outcome, [.. items], 0, latencyMs, firstItemMs, thermal);
+        string outcome = "ok", string thermal = "nominal", string? fellBackFrom = null, int unreadable = 0,
+        int capturedCount = 0, DateTimeOffset? capturedAt = null, DuplicateRescan? duplicateRescan = null) =>
+        new(id, engine, fellBackFrom, outcome, [.. items], unreadable, latencyMs, firstItemMs, thermal, capturedCount, capturedAt, duplicateRescan);
+
+    /// <summary>Duplicate re-scan evidence: owned hits, how many answered on-card, and unsolicited new items.</summary>
+    public static DuplicateRescan Rescan(int owned, int answered, int unsolicited) => new(owned, answered, unsolicited);
 
     public static GroundedRun RunOf(params GroundedPhoto[] photos) =>
         new("run1", new DateTimeOffset(2026, 10, 17, 9, 0, 0, TimeSpan.Zero), new EvalDevice("iPhone18,1", "26.0", "0.3.0"), "cfg-1", photos);

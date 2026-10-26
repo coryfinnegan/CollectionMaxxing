@@ -44,7 +44,18 @@ public sealed record EvalDevice(string Model, string OsVersion, string AppVersio
 public sealed record EvalDeviceInput(string? Model, string? OsVersion, string? AppVersion);
 
 /// <summary>One item as the phone read it (the same fields as an <c>/identify</c> item) and the step that settled it.</summary>
-public sealed record EvalReadItemInput(Scanning.Identify.IdentifyItemInput Read, ResolvedStep? ResolvedBy);
+public sealed record EvalReadItemInput(
+    Scanning.Identify.IdentifyItemInput Read,
+    ResolvedStep? ResolvedBy,
+    ScanTier? Tier = null,
+    bool Provisional = false,
+    bool? IsGuess = null);
+
+/// <summary>
+/// What a duplicate re-scan of the photo's shelf showed (docs/16 §17): how many owned items it hit, how many of those
+/// were answered on the card, and how many new items appeared without an explicit Add-copy.
+/// </summary>
+public sealed record DuplicateRescanInput(int OwnedHits, int AnsweredOnCard, int UnsolicitedAdds);
 
 public sealed record EvalPhotoInput(
     string? PhotoId,
@@ -55,10 +66,19 @@ public sealed record EvalPhotoInput(
     int? UnreadableCount,
     long? LatencyMs,
     long? FirstItemMs,
-    ThermalState? Thermal);
+    ThermalState? Thermal,
+    int? CapturedCount = null,
+    DateTimeOffset? CapturedAt = null,
+    DuplicateRescanInput? DuplicateRescan = null);
 
 /// <param name="Partial">The phone cancelled the run part way. It is kept and shown, but never counts as a pass or a baseline.</param>
-public sealed record EvalRunInput(EvalDeviceInput? Device, string? ConfigVersion, IReadOnlyList<EvalPhotoInput>? Results, bool Partial = false);
+/// <param name="BaselineNote">Why this run's thresholds may differ from the baseline's (docs/16 §17). Null most runs.</param>
+public sealed record EvalRunInput(
+    EvalDeviceInput? Device,
+    string? ConfigVersion,
+    IReadOnlyList<EvalPhotoInput>? Results,
+    bool Partial = false,
+    string? BaselineNote = null);
 
 // ---- What the server keeps of a run, after grounding ----------------------------------------------------------------------
 
@@ -67,19 +87,30 @@ public sealed record GroundedCandidate(string Title, string? Kind, string? Forma
 
 /// <summary>
 /// One read item after grounding: what the phone read, the verdict the live scorer gave and the top three releases (best first).
-/// Kept on the PC only: it has titles.
+/// Kept on the PC only: it has titles. <c>Tier</c> is the commit tier the pipeline assigned (<c>T0</c>, <c>T1</c> or <c>T2</c>),
+/// null when the run predates tiers; <c>Provisional</c> marks a kept guess, which must carry <c>IsGuess</c> (docs/16 §17).
 /// </summary>
 public sealed record GroundedItem(
     string? ReadTitle,
     string? ReadCompleteness,
     string ResolvedBy,
     string Verdict,
-    IReadOnlyList<GroundedCandidate> Candidates)
+    IReadOnlyList<GroundedCandidate> Candidates,
+    string? Tier = null,
+    bool Provisional = false,
+    bool? IsGuess = null,
+    string? SegmentId = null)
 {
     /// <summary>The best release, or null when there is none.</summary>
     [JsonIgnore]
     public GroundedCandidate? Best => Candidates.Count > 0 ? Candidates[0] : null;
 }
+
+/// <summary>
+/// What a duplicate re-scan of the photo's shelf showed: how many owned items it hit, how many of those were answered
+/// on the card, and how many new items appeared without an explicit Add-copy. Null when the photo was not a re-scan.
+/// </summary>
+public sealed record DuplicateRescan(int OwnedHits, int AnsweredOnCard, int UnsolicitedAdds);
 
 public sealed record GroundedPhoto(
     string PhotoId,
@@ -90,7 +121,10 @@ public sealed record GroundedPhoto(
     int UnreadableCount,
     long LatencyMs,
     long? FirstItemMs,
-    string ThermalState);
+    string ThermalState,
+    int CapturedCount = 0,
+    DateTimeOffset? CapturedAt = null,
+    DuplicateRescan? DuplicateRescan = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>
 public sealed record GroundedRun(
@@ -99,7 +133,8 @@ public sealed record GroundedRun(
     EvalDevice Device,
     string ConfigVersion,
     IReadOnlyList<GroundedPhoto> Photos,
-    bool Partial = false);
+    bool Partial = false,
+    string? BaselineNote = null);
 
 public static class ResolvedByText
 {

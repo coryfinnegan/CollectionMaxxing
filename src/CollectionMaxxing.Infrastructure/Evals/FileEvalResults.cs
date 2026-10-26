@@ -43,7 +43,9 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
 
     public GroundedRun? LoadLatestRun() => Read<GroundedRun>(LatestRun);
 
-    public IReadOnlyDictionary<string, double>? LoadBaseline()
+    public IReadOnlyDictionary<string, double>? LoadBaseline() => LoadBaselineDoc()?.Metrics;
+
+    public EvalBaselineDoc? LoadBaselineDoc()
     {
         var path = options.Value.BaselinePath;
         if (string.IsNullOrWhiteSpace(path))
@@ -80,7 +82,15 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
                 }
             }
 
-            return baseline;
+            string? thresholdHash = null;
+            if (document.RootElement.TryGetProperty("thresholdHash", out var hash)
+                && hash.ValueKind == JsonValueKind.String
+                && hash.GetString() is { Length: > 0 and <= 64 } text)
+            {
+                thresholdHash = text;
+            }
+
+            return new EvalBaselineDoc(baseline, thresholdHash);
         }
         catch (IOException)
         {

@@ -47,10 +47,14 @@ public sealed class RescoreLatestRunTests
             }
         }
 
-        var evaluated = EvalReport.Evaluate(run, truths, results.LoadBaseline(), BuildSha.Resolve(options), skipped);
+        var baseline = results.LoadBaselineDoc();
+        var evaluated = EvalReport.Evaluate(run, truths, baseline?.Metrics, BuildSha.Resolve(options), skipped, baselineThresholdHash: baseline?.ThresholdHash);
         await results.SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None);
 
         evaluated.Summary.ScoredPhotos.ShouldBeGreaterThan(0, "None of the uploaded photos has a truth file.");
+        evaluated.Summary.Regression.Status.ShouldBe(
+            EvalRegression.Ok,
+            $"The rescore must compare cleanly against the baseline; {evaluated.Summary.Regression.Status} is a loud failure, not a silent skip.");
         evaluated.Summary.Regression.Regressions.Select(r => $"{r.Metric}: {r.Baseline} -> {r.Actual}").ShouldBeEmpty();
     }
 
