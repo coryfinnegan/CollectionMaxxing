@@ -1,6 +1,6 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore, announcementFor } from './cardsStore';
-import { describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, slideDuration, summaryLine } from './copy';
+import { alreadyOwnLine, alsoOwnLine, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, slideDuration, summaryLine } from './copy';
 
 const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   ({
@@ -16,8 +16,37 @@ const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   }) as CandidateDto;
 
 describe('card copy', () => {
-  it('says "You own 1" for an owned item', () => {
-    expect(describeCandidate(candidate({ alreadyOwnedCount: 1 }))).toMatchObject({ title: 'Dune', subtitle: 'Paperback · 1990', status: 'You own 1', kind: 'owned' });
+  it('says what is owned and where for an owned item', () => {
+    expect(describeCandidate(candidate({ alreadyOwnedCount: 1, ownedAt: ['Living room › Shelf 2'] }))).toMatchObject({
+      title: 'Dune',
+      subtitle: 'Paperback · 1990',
+      status: 'Already own — Paperback, Living room › Shelf 2',
+      kind: 'owned',
+    });
+  });
+
+  it('names the platform for an owned game, and counts past the first copy', () => {
+    const game = candidate({
+      alreadyOwnedCount: 2,
+      ownedAt: ['Game room › Shelf 1'],
+      release: { id: 'r', title: 'Super Mario 64', format: 'game_cartridge', year: 1996, platform: { name: 'Nintendo 64' }, creators: [] },
+    });
+    expect(describeCandidate(game).status).toBe('Already own — Nintendo 64, Game room › Shelf 1 · 2 copies');
+  });
+
+  it('says what is owned when no location is known', () => {
+    expect(describeCandidate(candidate({ alreadyOwnedCount: 1, ownedAt: [] })).status).toBe('Already own — Paperback');
+  });
+
+  it('reads the owned line from a looked-up copy', () => {
+    expect(alreadyOwnLine('Hardcover', 'Living room › Shelf B', 1)).toBe('Already own — Hardcover, Living room › Shelf B');
+    expect(alreadyOwnLine('DVD', null, 1)).toBe('Already own — DVD');
+    expect(alreadyOwnLine('VHS', 'Bedroom', 3)).toBe('Already own — VHS, Bedroom · 3 copies');
+  });
+
+  it('reads the soft-match line', () => {
+    expect(alsoOwnLine('VHS', 'Living room › Shelf B')).toBe('Also own — VHS, Living room › Shelf B');
+    expect(alsoOwnLine('DVD', null)).toBe('Also own — DVD');
   });
 
   it('says nothing extra for a new item, so + Add is the next step', () => {

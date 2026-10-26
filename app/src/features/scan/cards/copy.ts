@@ -1,6 +1,6 @@
 // What a result card says, as plain data so it can be tested without rendering (docs/06 copy rules:
 // sentence case, say what happened and what to do next, no exclamation marks).
-import type { CandidateDto } from '@/api/generated/models';
+import type { CandidateDto, ReleaseFormat } from '@/api/generated/models';
 import { formatLabels } from '@/features/library/labels';
 import { ApiError } from '@/lib/http';
 import { isLocalCard } from './cardsStore';
@@ -29,6 +29,27 @@ export const unreadableCopy = () => friendlyError(new ApiError(422, { code: 'unr
 
 export const ownedCopy = (count: number) => `You own ${count}`;
 
+/** "Hardcover" for a format value; a platform name or anything else passes through. */
+export const formatName = (format: string | null): string | null =>
+  format && format in formatLabels ? formatLabels[format as ReleaseFormat] : format;
+
+/** "Already own — Hardcover, Living room › Shelf B" (design §7); past the first copy it says how many. */
+export function alreadyOwnLine(what: string | null, where: string | null, count: number): string {
+  const head = [what, where].filter(Boolean).join(', ');
+  const line = head ? `Already own — ${head}` : 'Already own';
+  return count > 1 ? `${line} · ${count} copies` : line;
+}
+
+/** "Also own — VHS, Bedroom" for a soft match: the same work in another shape (docs/02 §7). */
+export function alsoOwnLine(what: string | null, where: string | null): string {
+  const head = [what, where].filter(Boolean).join(', ');
+  return head ? `Also own — ${head}` : 'Also own';
+}
+
+/** What the owned line calls the candidate: the platform for games, else the format. */
+const ownedWhat = (c: CandidateDto): string | null =>
+  c.release?.platform?.name ?? (c.release ? (formatLabels[c.release.format] ?? null) : null);
+
 /** A candidate from a picture, not a barcode: it has no code, only what the phone read. */
 export const isPictureCandidate = (c: Pick<CandidateDto, 'source'>) => c.source === 'picture_apple_model' || c.source === 'picture_text';
 
@@ -49,8 +70,9 @@ function describePicture(c: CandidateDto): CardCopy {
     default: {
       const release = c.release;
       const subtitle = [release?.platform?.name ?? (release ? formatLabels[release.format] : null), release?.year].filter(Boolean).join(' · ');
-      // Owned leads: "You own 1" is the answer the person is standing at the shelf for, even when the match is a close call.
-      if (c.alreadyOwnedCount > 0) return { title: release?.title ?? read, subtitle, status: ownedCopy(c.alreadyOwnedCount), kind: 'owned' };
+      // Owned leads: "Already own" is the answer the person is standing at the shelf for, even when the match is a close call.
+      if (c.alreadyOwnedCount > 0)
+        return { title: release?.title ?? read, subtitle, status: alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount), kind: 'owned' };
       if (c.resolution === 'ambiguous') return { title: release?.title ?? read, subtitle, status: 'Pick one', kind: 'pick' };
       return { title: release?.title ?? read, subtitle, status: null, kind: 'new' };
     }
@@ -76,7 +98,7 @@ export function describeCandidate(c: CandidateDto): CardCopy {
       return {
         title: release?.title ?? code,
         subtitle,
-        status: owned ? ownedCopy(c.alreadyOwnedCount) : c.resolution === 'ambiguous' ? 'Closest match' : null,
+        status: owned ? alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount) : c.resolution === 'ambiguous' ? 'Closest match' : null,
         kind: owned ? 'owned' : 'new',
       };
     }
