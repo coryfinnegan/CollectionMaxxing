@@ -28,7 +28,7 @@ export function SessionBar({ libraryId, context, onOpenSession, onOpenSearch, on
   const place = context.channel === 'in_store' ? 'Decide later' : breadcrumb(locations, context.locationId);
   const summary = `${place} · ${SESSION_STATUS_LABEL[context.status]} · ${SESSION_MEDIA_LABEL[context.mediaHint]} · ${SESSION_CHANNEL_LABEL[context.channel]}`;
   return (
-    <View style={styles.bar}>
+    <View testID="session-bar" style={styles.bar}>
       <View style={styles.row}>
         <Pressable
           accessibilityRole="button"
@@ -59,7 +59,8 @@ export function SessionBar({ libraryId, context, onOpenSession, onOpenSearch, on
 }
 
 const styles = StyleSheet.create((theme) => ({
-  bar: { gap: theme.spacing.sm },
+  // Flash sits directly above Search, so the bar starts below the header row instead of touching it (#373).
+  bar: { gap: theme.spacing.sm, paddingTop: theme.spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.lg },
   summary: {
     flex: 1,

@@ -84,4 +84,11 @@ describe('session bar', () => {
     await screen.findByLabelText('Add it by hand');
     expect(screen.queryByText(/waiting/)).toBeNull();
   });
+
+  it('leaves breathing room between the header buttons and the session rows', async () => {
+    await bar({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
+
+    // Flash sits directly above Search, so the bar starts below the header row instead of touching it (#373).
+    expect(screen.getByTestId('session-bar').props.style).toEqual(expect.objectContaining({ paddingTop: 8 }));
+  });
 });

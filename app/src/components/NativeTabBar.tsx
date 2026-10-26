@@ -14,8 +14,14 @@ export function NativeTabBar() {
   return (
     <NativeTabs tintColor={colors.accent}>
       {/* The gate lives outside the accessory: two pill instances render at once
-          (one per placement) with unshared state. */}
-      <NativeTabs.BottomAccessory>{pathname === '/scan' ? null : <ScanPill />}</NativeTabs.BottomAccessory>
+          (one per placement) with unshared state. The whole accessory unmounts
+          on the Scan tab: an accessory with no child still renders its (empty)
+          container above the tab bar (#373). */}
+      {pathname === '/scan' ? null : (
+        <NativeTabs.BottomAccessory>
+          <ScanPill />
+        </NativeTabs.BottomAccessory>
+      )}
       <NativeTabs.Trigger name="library">
         <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={{ default: 'books.vertical', selected: 'books.vertical.fill' }} md="library_books" />
