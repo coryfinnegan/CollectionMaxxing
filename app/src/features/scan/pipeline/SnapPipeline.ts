@@ -11,7 +11,8 @@ import { ApiError } from '@/lib/http';
 import { LOCAL_PREFIX, useCardsStore } from '../cards/cardsStore';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { discardPicture, discardPicturesOf, trackPicture } from '../pictureFiles';
-import { announce, flushDeps, rejectCandidate } from '../session/sessionApi';
+import { announce, flushDeps } from '../session/sessionApi';
+import { flushDiscardOutbox, getDiscardOutbox } from '../session/discards';
 import type { TrayStore } from '../tray/trayStore';
 import type { ReadItem, SnapReading, Still } from '../recognition/types';
 import { compareArtwork, type ArtDeps, type ItemPicture } from './artStep';
@@ -403,7 +404,7 @@ export class SnapPipeline {
     } // the snap store keeps its own copies for its retention
   }
 
-  /** Swipe to remove a picture item: gone from the receipt and the cards, and rejected on the server so Review will not add it. */
+  /** Swipe to remove a picture item: gone from the receipt and the cards, and queued for reject so Review will not add it — even after a restart. */
   removeItem(snapId: string, localId: string) {
     const { store, tray } = this.deps;
     const item = store.getState().snaps.find((s) => s.snapId === snapId)?.items.find((i) => i.localId === localId);
@@ -411,10 +412,13 @@ export class SnapPipeline {
     if (!store.getState().snaps.some((s) => s.snapId === snapId)) this.deps.snaps.unpin(snapId);
     useCardsStore.getState().dropLocal(snapId, localId);
     const card = item && this.cardOf(item);
-    if (card) {
+    const sessionId = tray.getState().sessionId;
+    if (card && sessionId) {
       useCardsStore.getState().remove(card.id);
-      const sessionId = tray.getState().sessionId;
-      if (sessionId) void rejectCandidate(sessionId, card.id).catch(() => undefined);
+      getDiscardOutbox().enqueue({ libraryId: this.deps.libraryId, sessionId, candidateId: card.id });
+      void flushDiscardOutbox({ libraryId: this.deps.libraryId }).catch(() => undefined);
+    } else if (card) {
+      useCardsStore.getState().remove(card.id);
     }
   }
 

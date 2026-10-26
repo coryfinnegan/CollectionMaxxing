@@ -16,9 +16,13 @@ import {
   undoAutoCommit as undoAutoCommitRequest,
   undoScanCommit,
 } from '@/api/generated/scanning/scanning';
+import type { StoreApi } from 'zustand/vanilla';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
+import { dropCandidateLocally, flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from '@/features/scan/session/discards';
 import { loadSessionSnapshot } from '@/features/scan/session/sessionApi';
+import { seedFromSnapshot } from '@/features/scan/session/sessionCounters';
+import type { TrayStore } from '@/features/scan/tray/trayStore';
 import { ApiError } from '@/lib/http';
 import { commitBody, committable, type Draft } from './plan';
 
@@ -47,6 +51,37 @@ export async function searchCandidate(
 export async function skipCandidate(sessionId: string, candidateId: string): Promise<void> {
   const rejected = await patchCandidate(sessionId, candidateId, { decision: 'rejected' });
   useCardsStore.getState().remove(rejected.id);
+}
+
+/**
+ * Discard: the rows leave Review at once — their cards, tray lines and snap items go with them — and the rejects
+ * are queued so they land even when the app is killed first. Never throws: a discard that cannot reach the server
+ * stays queued, and the rows stay gone. The counters reseed from the fresh snapshot, so the bar agrees at once.
+ */
+export async function discardCandidates({
+  libraryId,
+  sessionId,
+  candidates,
+  tray,
+}: {
+  libraryId: string;
+  sessionId: string;
+  candidates: readonly CandidateDto[];
+  tray: StoreApi<TrayStore>;
+}): Promise<void> {
+  const queue = getDiscardOutbox();
+  for (const c of candidates) {
+    queue.enqueue({ libraryId, sessionId, candidateId: c.id });
+    dropCandidateLocally({ tray, libraryId, candidate: c });
+  }
+  await flushDiscardOutbox({ libraryId });
+  try {
+    const snapshot = await loadSessionSnapshot(sessionId);
+    pruneDiscarded(snapshot.candidates);
+    seedFromSnapshot(sessionId, snapshot);
+  } catch {
+    // The rows are gone and the rejects are queued; the stream reseeds the counters when it can.
+  }
 }
 
 /**
@@ -97,7 +132,12 @@ export type SessionReviewContext = Pick<ScanSessionDto, 'defaultLocationId' | 'd
 /** Loads the whole session into the cards store (a resumed scan, or Review opened first) and returns its context. */
 export async function loadIntoCards(sessionId: string): Promise<SessionReviewContext> {
   const session = await loadSessionSnapshot(sessionId);
-  useCardsStore.getState().merge(session.candidates, { announce: false });
+  pruneDiscarded(session.candidates);
+  // Discarded and rejected candidates have no card: the snapshot confirms them, it never brings them back.
+  useCardsStore.getState().merge(
+    withoutDiscarded(session.candidates).filter((c) => c.decision !== 'rejected'),
+    { announce: false },
+  );
   return { defaultLocationId: session.defaultLocationId, defaultStatus: session.defaultStatus, channel: session.channel };
 }
 

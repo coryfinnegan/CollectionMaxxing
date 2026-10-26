@@ -4,6 +4,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto, DecideCandidateRequest, ReleaseDto } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
+import { flushDiscardOutbox } from '@/features/scan/session/discards';
 import { loadSessionMemory, resolveReviewDefaults } from '@/features/scan/session/sessionContext';
 import { useLibraryRole } from '@/features/scan/session/useScanSession';
 import { getTrayStore } from '@/features/scan/tray/storage';
@@ -11,7 +12,7 @@ import type { TrayStore } from '@/features/scan/tray/trayStore';
 import { haptics } from '@/lib/haptics';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
-import { commitDraft, loadIntoCards, patchCandidate, searchCandidate, skipCandidate, undoCommit } from './api';
+import { commitDraft, discardCandidates, loadIntoCards, patchCandidate, searchCandidate, skipCandidate, undoCommit } from './api';
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
 import { flushProvisionalOutbox, keepAsUnverified } from './provisionals';
 import { contextWorkIdsFor } from './searchContext';
@@ -44,6 +45,7 @@ export function useReview({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
+  const [discardingAll, setDiscardingAll] = useState(false);
   /** Rows whose keep is queued offline: still visible T2 rows until the keep lands. */
   const [queued, setQueued] = useState<Record<string, boolean>>({});
   const [committing, setCommitting] = useState(false);
@@ -70,9 +72,10 @@ export function useReview({
     }
     let alive = true;
     setLoading(true);
-    // Queued keeps go first (a kill or a dead zone left them waiting), then the fresh snapshot.
+    // Queued keeps and queued discards go first (a kill or a dead zone left them waiting), then the fresh snapshot.
     flushProvisionalOutbox({ libraryId, onStale: () => alive && void loadIntoCards(sessionId).catch(() => {}) })
       .catch(() => {})
+      .then(() => flushDiscardOutbox({ libraryId }).catch(() => 0))
       .then(() => loadIntoCards(sessionId))
       .then((session) => {
         if (!alive) return;
@@ -124,6 +127,20 @@ export function useReview({
     if (!sessionId || !canAdd) throw new Error('read-only');
     return sessionId;
   };
+
+  /** Discards the whole Not found group at once: one queueing, one flush, one reseed of the counters. */
+  const discardAll = useCallback(
+    async (rows: readonly CandidateDto[]) => {
+      if (!sessionId || !canAdd || rows.length === 0) return;
+      setDiscardingAll(true);
+      try {
+        await discardCandidates({ libraryId, sessionId, candidates: rows, tray: store });
+      } finally {
+        setDiscardingAll(false);
+      }
+    },
+    [libraryId, sessionId, canAdd, store],
+  );
 
   /** "Keep as unverified": the row's crop goes up with the keep, and only with the keep. */
   const keep = useCallback(
@@ -217,8 +234,10 @@ export function useReview({
     dismissCelebration,
     rowErrors,
     rowBusy,
+    discardingAll,
     queued,
     keep,
+    discardAll,
     isChecked: (c: CandidateDto) => isChecked(draft, c),
     canCheck: (c: CandidateDto) => canAdd && canCommit(c, groupOf(c)),
     toggle: (c: CandidateDto) => setChecked(c.id, !isChecked(draft, c)),
@@ -227,6 +246,7 @@ export function useReview({
     override,
     choose: (c: CandidateDto, release: ReleaseDto) => onRow(c.id, () => patchCandidate(requireSession(), c.id, { releaseId: release.id })),
     skip: (c: CandidateDto) => onRow(c.id, () => skipCandidate(requireSession(), c.id)),
+    discard: (c: CandidateDto) => onRow(c.id, () => discardCandidates({ libraryId, sessionId: requireSession(), candidates: [c], tray: store })),
     setCopies: (c: CandidateDto, copies: number) => onRow(c.id, () => patchCandidate(requireSession(), c.id, { copies: Math.max(1, copies) })),
     edit: (c: CandidateDto, edits: Pick<DecideCandidateRequest, 'format' | 'platform' | 'edition'>) => onRow(c.id, () => patchCandidate(requireSession(), c.id, edits)),
     search: (c: CandidateDto, text: string) => onRow(c.id, () => searchCandidate(requireSession(), c.id, text, contextWorkIdsFor(c, list))),

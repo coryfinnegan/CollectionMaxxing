@@ -124,6 +124,15 @@ export function ReviewScreen({
         return (
           <View key={group} style={{ gap: spacing.sm }}>
             <Text variant="heading" accessibilityRole="header">{`${TITLES[group]} · ${rows.length}`}</Text>
+            {group === 'notFound' && review.canAdd ? (
+              <Button
+                label={`Discard all ${rows.length} ${rows.length === 1 ? 'item' : 'items'}`}
+                accessibilityLabel={`Discard all ${rows.length} not found ${rows.length === 1 ? 'item' : 'items'}`}
+                variant="secondary"
+                busy={review.discardingAll}
+                onPress={() => void review.discardAll(rows)}
+              />
+            ) : null}
             {collapsed ? (
               <Button label={aggregateLabel(group, rows.length)} variant="secondary" onPress={() => setExpanded((e) => ({ ...e, [group]: true }))} />
             ) : (
@@ -272,6 +281,7 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
                 {onSnapCover ? <SnapCoverButton title={title} onPress={() => onSnapCover(c)} /> : null}
               </View>
               {onScanBarcode ? <ScanBarcodeButton title={title} onPress={() => onScanBarcode(c)} /> : null}
+              <Button label={`Discard ${title}`} variant="secondary" busy={busy} onPress={() => void review.discard(c)} />
             </>
           ) : null}
         </>
@@ -284,6 +294,9 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
       ) : null}
       {group === 'pending' && review.canAdd && onSnapCover ? (
         <SnapCoverButton title={title} onPress={() => onSnapCover(c)} />
+      ) : null}
+      {group === 'pending' && review.canAdd ? (
+        <Button label={`Discard ${title}`} variant="secondary" busy={busy} onPress={() => void review.discard(c)} />
       ) : null}
 
       {group === 'owned' && review.canAdd ? (

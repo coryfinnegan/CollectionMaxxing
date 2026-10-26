@@ -11,6 +11,7 @@ import type { SseMessage } from '@/lib/sse';
 import { connectSse } from '@/lib/sse';
 import { useCardsStore, type CardEvent } from '../cards/cardsStore';
 import type { FlushDeps } from '../tray/trayStore';
+import { isDiscarded } from './discards';
 import { useAutoCommitUndoStore } from './autoCommitUndo';
 import { seedFromSnapshot, seedSessionCounters } from './sessionCounters';
 
@@ -114,6 +115,9 @@ export function routeSessionMessage(sessionId: string, message: SseMessage) {
     return;
   try {
     const candidate = JSON.parse(message.data) as Partial<CandidateDto>;
+    // A discarded candidate never comes back: not while its reject is queued, not after it landed (a rejected
+    // candidate has no card — Review filters it, and the scanner never drew one for it).
+    if ((candidate.id && isDiscarded(candidate.id)) || candidate.decision === 'rejected') return;
     announce(useCardsStore.getState().merge([candidate]), sessionId);
   } catch {
     // a malformed event is skipped; the next one or the next poll fills the gap
@@ -155,7 +159,3 @@ export async function wishlistCandidate(libraryId: string, candidate: CandidateD
   if (response.status !== 201) throw new ApiError(response.status, {});
 }
 
-/** A removed scan must not be added at Review. A viewer cannot reject (403); that is fine, they cannot commit either. */
-export async function rejectCandidate(sessionId: string, candidateId: string): Promise<void> {
-  await decideCandidate(sessionId, candidateId, { decision: 'rejected' });
-}

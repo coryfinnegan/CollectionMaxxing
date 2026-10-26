@@ -66,3 +66,44 @@ describe('ReceiptBar auto-add', () => {
     expect(screen.getByLabelText('Dune, 1 copy')).toBeTruthy();
   });
 });
+
+describe('ReceiptBar remove', () => {
+  const line: TrayLine = { code: '9780441172719', symbology: 'ean-13', copies: 1, sentCopies: 1, addedAt: 1, lastSeenAt: 1 };
+
+  it('removes a barcode line with its Remove button', async () => {
+    const onRemove = jest.fn();
+    mockGlassState.available = false;
+    await render(<ReceiptBar lines={[line]} cards={[]} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={onRemove} onReview={noop} />);
+    fireEvent.press(screen.getByLabelText('1 item. Show the receipt'));
+
+    fireEvent.press(await screen.findByLabelText('Remove 9780441172719 from this scan'));
+
+    expect(onRemove).toHaveBeenCalledWith('9780441172719');
+  });
+
+  it('removes a picture line with its Remove button', async () => {
+    const onRemovePicture = jest.fn();
+    mockGlassState.available = false;
+    await render(
+      <ReceiptBar
+        lines={[]}
+        pictureLines={[{ key: 'snap-1:item-1', snapId: 'snap-1', localId: 'item-1', thumbUri: undefined, title: 'Dune', status: 'identifying', createdAt: 1 }]}
+        onRemovePicture={onRemovePicture}
+        cards={[]}
+        online
+        items={1}
+        processing={1}
+        problem={null}
+        notice={null}
+        onPlusOne={noop}
+        onRemove={noop}
+        onReview={noop}
+      />,
+    );
+    fireEvent.press(screen.getByLabelText('1 item · 1 processing. Show the receipt'));
+
+    fireEvent.press(await screen.findByLabelText('Remove Dune from this scan'));
+
+    expect(onRemovePicture).toHaveBeenCalledWith('snap-1', 'item-1');
+  });
+});

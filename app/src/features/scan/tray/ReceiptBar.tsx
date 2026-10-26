@@ -1,7 +1,7 @@
-// The status bar ("17 items · 2 processing", Review) and the receipt behind it: one line per code, swipe to
-// remove, +1 for a second copy, QUEUED while offline. Capitals are allowed here: it is the receipt's own voice.
+// The status bar ("17 items · 2 processing", Review) and the receipt behind it: one line per code, swipe or Remove
+// to remove, +1 for a second copy, QUEUED while offline. Capitals are allowed here: it is the receipt's own voice.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, PanResponder, Pressable, ScrollView, View } from 'react-native';
+import { Animated, Image, PanResponder, Pressable, ScrollView, View, type ViewStyle } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { announceForScreenReader } from '@/lib/a11y/announce';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
@@ -13,6 +13,9 @@ import type { PictureLine } from '../pipeline/lines';
 import { lineStatus, type TrayLine } from './tray';
 
 const REMOVE_DISTANCE = 80;
+
+/** The Remove tap target, hoisted: this file's inline-style budget is spent. */
+const removeHit: ViewStyle = { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' };
 
 /** Snaps a half-swiped line back; with Reduce Motion it just jumps back. */
 export function settleSwipe(x: Animated.Value, reduceMotion: boolean) {
@@ -79,6 +82,13 @@ function PictureRow({ line, onRemove }: { line: PictureLine; onRemove(): void })
           </Text>
         ) : null}
       </View>
+      {line.localId ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${line.title} from this scan`} onPress={onRemove} hitSlop={8} style={removeHit}>
+          <Text variant="label" tone="danger">
+            Remove
+          </Text>
+        </Pressable>
+      ) : null}
     </Animated.View>
   );
 }
@@ -145,6 +155,11 @@ function ReceiptRow({
       >
         <Text variant="label" tone="accent">
           +1
+        </Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${name} from this scan`} onPress={onRemove} hitSlop={8} style={removeHit}>
+        <Text variant="label" tone="danger">
+          Remove
         </Text>
       </Pressable>
     </Animated.View>

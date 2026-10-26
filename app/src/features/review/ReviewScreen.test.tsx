@@ -3,8 +3,12 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
+import { createDiscardOutbox, flushDiscardOutbox, getDiscardOutbox, isDiscarded, setDiscardOutbox } from '@/features/scan/session/discards';
+import { createSessionCountersStore, getSessionCountersStore, setSessionCountersStore } from '@/features/scan/session/sessionCounters';
 import { rememberSessionContext, setSessionContextStorage } from '@/features/scan/session/sessionContext';
-import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
+import { createPipelineStore, getPipelineStore, setPipelineStore, type PicSnap } from '@/features/scan/pipeline/pipelineStore';
+import { getTrayStore, setTrayStore } from '@/features/scan/tray/storage';
+import { createTrayStore, MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { QUOTA_COPY } from '@/features/scan/cards/copy';
@@ -55,11 +59,19 @@ beforeEach(() => {
   useCardsStore.getState().reset();
   setSessionContextStorage(new MemoryKeyValueStore());
   setProvisionalOutbox(createProvisionalOutbox({ storage: new MemoryKeyValueStore() }));
+  setDiscardOutbox(createDiscardOutbox({ storage: new MemoryKeyValueStore() }));
+  setTrayStore(createTrayStore({ storage: new MemoryKeyValueStore() }));
+  setPipelineStore(createPipelineStore({ storage: new MemoryKeyValueStore() }));
+  setSessionCountersStore(createSessionCountersStore({ storage: new MemoryKeyValueStore() }));
 });
 
 afterEach(() => {
   setSessionContextStorage(undefined);
   setProvisionalOutbox(undefined);
+  setDiscardOutbox(undefined);
+  setTrayStore(undefined);
+  setPipelineStore(undefined);
+  setSessionCountersStore(undefined);
 });
 
 describe('Review screen', () => {
@@ -517,5 +529,103 @@ describe('Review screen', () => {
     await press('1 item ready. Show it');
     await press('1 item you own. Show it');
     expect(screen.queryByText('Snap cover')).toBeNull();
+  });
+
+  describe('discard', () => {
+    const snapOf = (candidateId: string, localId: string): PicSnap => ({
+      snapId: 'snap-1',
+      libraryId: MOCK_LIBRARY_ID,
+      trigger: 'shutter',
+      createdAt: 1,
+      thumbUri: 'file:///tmp/snap.jpg',
+      phase: 'read',
+      sent: true,
+      sessionId: SESSION,
+      items: [{ localId, text: 'Dune', title: 'Dune', payload: { localId, text: 'Dune' }, candidateId }],
+      unreadableCount: 0,
+    });
+
+    it('discarding a Not found row removes it at once, rejects it, drops its tray line and snap item, and reseeds the counters', async () => {
+      const row = lost();
+      seed([mario(), row]);
+      getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: row.rawCode!, symbology: 'ean-13' });
+      getPipelineStore().getState().addSnap(snapOf(row.id, 'item-1'));
+      await open();
+      await screen.findByText('Not found · 1');
+
+      await press(`Discard Code ${row.rawCode}`);
+
+      await screen.findByText('Ready · 1');
+      expect(screen.queryByText('Not found · 1')).toBeNull();
+      expect(scanMock.sessions.get(SESSION)!.candidates.find((c) => c.id === row.id)!.decision).toBe('rejected');
+      expect(getTrayStore(MOCK_LIBRARY_ID).getState().lines).toHaveLength(0);
+      expect(getPipelineStore().getState().snaps).toHaveLength(0);
+      await waitFor(() => expect(getSessionCountersStore().getState().snapshots[SESSION]?.counters).toEqual({ captured: 2, added: 0, toReview: 1, owned: 0, skipped: 1 }));
+    });
+
+    it('a rejected candidate never loads back into Review', async () => {
+      seed([lost(), { ...lost(), decision: 'rejected' } as CandidateDto]);
+      await open();
+      expect(await screen.findByText('Not found · 1')).toBeTruthy();
+    });
+
+    it('a queued discard hides its row when Review opens', async () => {
+      const row = lost();
+      seed([row, mario()]);
+      getDiscardOutbox().enqueue({ libraryId: MOCK_LIBRARY_ID, sessionId: SESSION, candidateId: row.id });
+      await open();
+      await screen.findByText('Ready · 1');
+      expect(screen.queryByText(/Not found/)).toBeNull();
+    });
+
+    it('a discard that cannot reach the server stays queued and the row stays gone until the reject lands', async () => {
+      const row = lost();
+      seed([row]);
+      server.use(http.patch('*/api/v1/scan-sessions/:id/candidates/:cid', () => HttpResponse.error()));
+      await open();
+      await screen.findByText('Not found · 1');
+
+      await press(`Discard Code ${row.rawCode}`);
+
+      await screen.findByText('Nothing to review.');
+      expect(isDiscarded(row.id)).toBe(true);
+
+      server.resetHandlers(); // the connection is back
+      await expect(flushDiscardOutbox({ libraryId: MOCK_LIBRARY_ID })).resolves.toBe(0);
+      expect(scanMock.sessions.get(SESSION)!.candidates[0]!.decision).toBe('rejected');
+      expect(isDiscarded(row.id)).toBe(false);
+    });
+
+    it('discarding the whole Not found group leaves the other groups alone', async () => {
+      seed([lost(), lost(), mario()]);
+      await open();
+      await screen.findByText('Not found · 2');
+
+      await press('Discard all 2 not found items');
+
+      await screen.findByText('Ready · 1');
+      expect(screen.queryByText(/Not found/)).toBeNull();
+      expect(scanMock.sessions.get(SESSION)!.candidates.filter((c) => c.decision === 'rejected')).toHaveLength(2);
+    });
+
+    it('pending rows offer Discard too', async () => {
+      const row = candidate({ resolution: 'pending', release: null, rawCode: '222' });
+      seed([row]);
+      await open();
+      await screen.findByText('Still looking up · 1');
+
+      await press('Discard Code 222');
+
+      await screen.findByText('Nothing to review.');
+      expect(scanMock.sessions.get(SESSION)!.candidates[0]!.decision).toBe('rejected');
+    });
+
+    it('offers no Discard to a viewer', async () => {
+      asViewer();
+      seed([lost(), candidate({ resolution: 'pending', release: null, rawCode: '222' })]);
+      await open();
+      await screen.findByText('Not found · 1');
+      expect(screen.queryByLabelText(/Discard/)).toBeNull();
+    });
   });
 });
