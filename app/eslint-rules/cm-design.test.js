@@ -119,3 +119,77 @@ describe('cm-design/no-gradients', () => {
     ],
   });
 });
+
+describe('cm-design/no-unistyles-third-party-styles', () => {
+  tester.run('no-unistyles-third-party-styles', plugin.rules['no-unistyles-third-party-styles'], {
+    valid: [
+      // #351: plain theme-valued objects at the third-party boundary (the #305 fix shape).
+      "import { SafeAreaView } from 'react-native-safe-area-context'; const safe = { flex: 1 }; const el = <SafeAreaView style={safe} />;",
+      "import { SafeAreaView } from 'react-native-safe-area-context'; const el = <SafeAreaView edges={['left', 'right']} style={{ flex: 1 }} />;",
+      "import { TabSlot } from 'expo-router/ui'; const slot = { flex: 1 }; const el = <TabSlot style={slot} />;",
+      "import { TabList, TabTrigger } from 'expo-router/ui'; const el = <TabList style={{ flexDirection: 'row' }}><TabTrigger name='a' style={{ flex: 1 }} /></TabList>;",
+      "import { SafeAreaView as SAV } from 'react-native-safe-area-context'; const el = <SAV style={{ flex: 1 }} />;",
+      "import { SafeAreaView } from 'react-native-safe-area-context'; const el = <SafeAreaView edges={['top']} />;",
+      // Sheets still flow to hosts, Animated, and first-party components.
+      "import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ fill: { flex: 1 } }); const el = <View style={styles.fill} />;",
+      'import { StyleSheet } from \'react-native-unistyles\'; const styles = StyleSheet.create({ bar: ({ width }) => ({ width }) }); const el = <View style={styles.bar({ width: 3 })} />;',
+      "import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ pill: { flex: 1 } }); const el = <GlassSurface style={styles.pill} />;",
+      "import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ panel: { flex: 1 } }); const el = <Animated.View style={styles.panel} />;",
+      // A plain React Native sheet is not a Unistyles sheet: it resolves anywhere.
+      "import { StyleSheet } from 'react-native'; import { SafeAreaView } from 'react-native-safe-area-context'; const styles = StyleSheet.create({ fill: { flex: 1 } }); const el = <SafeAreaView style={styles.fill} />;",
+      // Same component name, but not the third-party import: not a boundary.
+      "import { StyleSheet } from 'react-native-unistyles'; const SafeAreaView = View; const styles = StyleSheet.create({ fill: { flex: 1 } }); const el = <SafeAreaView style={styles.fill} />;",
+    ],
+    invalid: [
+      // The (tabs)/_layout.tsx shape: a Unistyles sheet value into SafeAreaView.
+      {
+        code: "import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ fill: { flex: 1 } }); const el = <SafeAreaView style={styles.fill} />;",
+        errors: 1,
+      },
+      {
+        code: "import { TabSlot } from 'expo-router/ui'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ slot: { flex: 1 } }); const el = <TabSlot style={styles.slot} />;",
+        errors: 1,
+      },
+      {
+        code: "import { TabList } from 'expo-router/ui'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ bar: { flex: 1 } }); const el = <TabList style={styles.bar} />;",
+        errors: 1,
+      },
+      {
+        code: "import { TabTrigger } from 'expo-router/ui'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ trigger: { flex: 1 } }); const el = <TabTrigger name='a' style={styles.trigger} />;",
+        errors: 1,
+      },
+      // A dynamic sheet function crosses the same boundary.
+      {
+        code: "import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ tile: (w) => ({ w }) }); const el = <SafeAreaView style={styles.tile(width)} />;",
+        errors: 1,
+      },
+      // Arrays, conditionals, aliases, and casts still carry the sheet value.
+      {
+        code: "import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ fill: { flex: 1 } }); const el = <SafeAreaView style={[styles.fill, { flex: 1 }]} />;",
+        errors: 1,
+      },
+      {
+        code: "import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ a: { flex: 1 }, b: { flex: 2 } }); const el = <SafeAreaView style={narrow ? styles.a : styles.b} />;",
+        errors: 1,
+      },
+      {
+        code: "import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ fill: { flex: 1 } }); const fill = styles.fill; const el = <SafeAreaView style={fill} />;",
+        errors: 1,
+      },
+      {
+        code: "import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet } from 'react-native-unistyles'; const styles = StyleSheet.create({ fill: { flex: 1 } }); const el = <SafeAreaView style={styles.fill as ViewStyle} />;",
+        errors: 1,
+      },
+      // Sheets are usually declared at the bottom of the file, after the JSX.
+      {
+        code: "import { SafeAreaView } from 'react-native-safe-area-context'; import { StyleSheet } from 'react-native-unistyles'; const el = <SafeAreaView style={styles.fill} />; const styles = StyleSheet.create({ fill: { flex: 1 } });",
+        errors: 1,
+      },
+      // Aliased imports on both sides.
+      {
+        code: "import { SafeAreaView as SAV } from 'react-native-safe-area-context'; import { StyleSheet as US } from 'react-native-unistyles'; const styles = US.create({ fill: { flex: 1 } }); const el = <SAV style={styles.fill} />;",
+        errors: 1,
+      },
+    ],
+  });
+});
