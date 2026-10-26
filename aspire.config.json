@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "src/CollectionMaxxing.AppHost/CollectionMaxxing.AppHost.csproj"
+  }
+}
