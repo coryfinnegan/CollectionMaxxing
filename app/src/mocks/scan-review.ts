@@ -126,6 +126,7 @@ const makeItem = (release: ReleaseDto): MockItem => {
     createdBy: '22222222-2222-4222-8222-222222222222',
     updatedAt: now,
     deletedAt: null,
+    editionVerified: true,
   };
   const work = { id: release.workId, kind: 'other' as const, title: release.title, originalYear: release.year, creators: [], genres: [], synopsis: null, coverUrl: null };
   return { item, work, release, version: 1 };

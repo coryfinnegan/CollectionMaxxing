@@ -107,6 +107,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
       <View style={styles.heroBand(header?.background ?? theme.colors.surface)} testID="Detail header">
         <Cover title={title} uri={coverUri} width={160} sharedTag={sharedCoverTag(reduceMotion, id)} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />
+        {item.editionVerified ? null : <FormatBadge label="Edition unverified" />}
         {work.creators.length ? (
           <Text variant="caption" tone="muted" style={header ? { color: header.text } : undefined}>
             {work.creators.join(', ')}

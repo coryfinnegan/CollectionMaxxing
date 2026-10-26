@@ -29,7 +29,7 @@ public static class ScanningServices
         services.AddScoped<FindSessionLibrary.Handler>();
         services.AddScoped<IsMySession.Handler>();
         services.AddScoped<ReleaseStore>();
-        services.AddScoped<AutoCommitT0>();
+        services.AddScoped<AutoCommit>();
         services.AddScoped<BarcodeResolver>();
         services.AddScoped<TextSearchResolver>();
         services.AddScoped<CandidateResolver>();

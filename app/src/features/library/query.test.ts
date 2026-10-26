@@ -1,4 +1,4 @@
-import { changeFilter, defaultState, PAGE_SIZE, sortLabel, toListParams } from './query';
+import { changeFilter, defaultState, hasActiveFilter, PAGE_SIZE, sortLabel, toListParams } from './query';
 
 describe('toListParams', () => {
   it('sends only what is set, newest first by default', () => {
@@ -33,6 +33,18 @@ describe('toListParams', () => {
 
   it('adds the cursor when asking for a later page', () => {
     expect(toListParams({ ...defaultState(), cursor: 'abc' }).cursor).toBe('abc');
+  });
+
+  it('narrows to unverified editions only when asked', () => {
+    expect(toListParams(defaultState()).editionVerified).toBeUndefined();
+    expect(toListParams(changeFilter(defaultState(), { unverifiedOnly: true })).editionVerified).toBe(false);
+  });
+});
+
+describe('hasActiveFilter', () => {
+  it('counts the unverified-only filter as active', () => {
+    expect(hasActiveFilter(defaultState().filters)).toBe(false);
+    expect(hasActiveFilter(changeFilter(defaultState(), { unverifiedOnly: true }).filters)).toBe(true);
   });
 });
 

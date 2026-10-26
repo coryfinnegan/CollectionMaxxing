@@ -53,6 +53,20 @@ describe('ItemDetailScreen', () => {
     expect(patchHeaders).toEqual(['"v1"']);
   });
 
+  it('badges an edition that is still unverified, and stays quiet once it is proven', async () => {
+    entry().item.editionVerified = false;
+    const unverified = await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+
+    expect(await screen.findByText('Edition unverified')).toBeTruthy();
+    await unverified.unmount();
+
+    entry().item.editionVerified = true;
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+
+    expect(await screen.findByText('The Matrix')).toBeTruthy();
+    expect(screen.queryByText('Edition unverified')).toBeNull();
+  });
+
   it('shows friendly copy when the item is gone', async () => {
     await renderWithProviders(<ItemDetailScreen id="missing" />);
     expect(await screen.findByText("Couldn't load this item")).toBeTruthy();

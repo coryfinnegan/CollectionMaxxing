@@ -50,7 +50,7 @@ internal static class ItemProjection
     public static ItemDto ToDto(Item item, IReadOnlyList<Guid> tagIds) => new(
         item.Id, item.ReleaseId, item.Status, item.Condition, item.Completeness, item.LocationId, item.Notes, item.AcquiredOn,
         item.LentTo, item.LentOn, item.CustomTitle, item.CustomCoverAssetId, item.CoverChoice, item.AddedVia, tagIds,
-        item.CreatedAt, item.CreatedBy, item.UpdatedAt, item.DeletedAt);
+        item.CreatedAt, item.CreatedBy, item.UpdatedAt, item.DeletedAt, item.EditionVerified);
 
     /// <summary>The item as its DTO, with the display name of whoever added it ("Added by").</summary>
     public static async Task<ItemDto> ToDtoAsync(Item item, IReadOnlyList<Guid> tagIds, IUserDirectory? users, CancellationToken cancellationToken)

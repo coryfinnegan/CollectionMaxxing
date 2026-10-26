@@ -30,7 +30,8 @@ public static class ListItems
         string? Tag,
         string? Sort,
         int? Limit,
-        string? Cursor);
+        string? Cursor,
+        bool? EditionVerified = null);
 
     private sealed class Row
     {
@@ -66,6 +67,8 @@ public static class ListItems
         public Guid? LocationId { get; init; }
 
         public Guid? CoverAssetId { get; init; }
+
+        public bool EditionVerified { get; init; }
 
         public DateTimeOffset CreatedAt { get; init; }
     }
@@ -132,7 +135,8 @@ public static class ListItems
 
             var items = page.Select(r => new ItemSummaryDto(
                 r.Id, r.ReleaseId, r.WorkId, r.HasCustomTitle ? r.Title : TitleCaser.ToTitleCase(r.Title), r.Kind, r.Format,
-                r.PlatformName, r.Year, r.Status, r.Condition, r.LocationId, ItemProjection.CoverUrl(r.CoverAssetId), r.CreatedAt)).ToList();
+                r.PlatformName, r.Year, r.Status, r.Condition, r.LocationId, ItemProjection.CoverUrl(r.CoverAssetId), r.CreatedAt,
+                r.EditionVerified)).ToList();
             return new Page<ItemSummaryDto>(items, more ? Encode(sort, page[^1]) : null);
         }
 
@@ -164,6 +168,11 @@ public static class ListItems
             if (status is { } wantedStatus)
             {
                 items = items.Where(i => i.Status == wantedStatus);
+            }
+
+            if (query.EditionVerified is { } verified)
+            {
+                items = items.Where(i => i.EditionVerified == verified);
             }
 
             if (query.LocationId is { } locationId)
@@ -237,6 +246,7 @@ public static class ListItems
                 CoverAssetId = x.Item.CoverChoice == CoverChoice.MyPhoto && x.Item.CustomCoverAssetId != null
                     ? x.Item.CustomCoverAssetId
                     : x.Release.CoverAssetId ?? x.Work.CoverAssetId,
+                EditionVerified = x.Item.EditionVerified,
                 CreatedAt = x.Item.CreatedAt,
             });
         }

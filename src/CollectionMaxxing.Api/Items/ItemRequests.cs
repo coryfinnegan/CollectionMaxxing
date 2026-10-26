@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CollectionMaxxing.Api.Items;
 
-/// <summary>Query of <c>GET …/items</c>. <c>kind</c>, <c>format</c>, <c>status</c>, <c>platform</c> and <c>sort</c> are text (minimal APIs bind enums case-sensitively, the API spells them lower snake_case); a handler validates them.</summary>
+/// <summary>Query of <c>GET …/items</c>. <c>kind</c>, <c>format</c>, <c>status</c>, <c>platform</c> and <c>sort</c> are text (minimal APIs bind enums case-sensitively, the API spells them lower snake_case); a handler validates them. <c>editionVerified</c> narrows to items whose edition is proven (or not).</summary>
 public sealed record ListItemsQuery(
     [FromQuery(Name = "q")] string? Q = null,
     [FromQuery(Name = "kind")] string? Kind = null,
@@ -17,7 +17,8 @@ public sealed record ListItemsQuery(
     [FromQuery(Name = "tag")] string? Tag = null,
     [FromQuery(Name = "sort")] string? Sort = null,
     [FromQuery(Name = "limit")] int? Limit = null,
-    [FromQuery(Name = "cursor")] string? Cursor = null);
+    [FromQuery(Name = "cursor")] string? Cursor = null,
+    [FromQuery(Name = "editionVerified")] bool? EditionVerified = null);
 
 /// <summary>What to create when an item isn't being added from a known release.</summary>
 public sealed record ManualItemDetails(

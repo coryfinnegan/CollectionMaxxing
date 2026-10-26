@@ -20,7 +20,7 @@ import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLo
 import { NeedsAttention, useProvisionals } from '@/features/library/NeedsAttention';
 import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
-import { Button, Chip, Cover, EmptyState, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
+import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { capForBulk, resultMessage } from './bulk';
 import { ColumnChooser } from './ColumnChooser.web';
 import { columnDefs, type ColumnId, loadColumns, saveColumns, sortForColumn } from './columns';
@@ -141,16 +141,19 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         return <Cover title={item.title} uri={item.coverUrl} width={40} />;
       case 'title':
         return (
-          <Pressable
-            accessibilityRole="link"
-            accessibilityLabel={`Open ${item.title}`}
-            onPress={() => router.push(`/item/${item.id}`)}
-            style={styles.cellPress}
-          >
-            <Text variant="label" numberOfLines={2}>
-              {item.title}
-            </Text>
-          </Pressable>
+          <View style={styles.titleCell}>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={item.editionVerified ? `Open ${item.title}` : `Open ${item.title}, edition unverified`}
+              onPress={() => router.push(`/item/${item.id}`)}
+              style={styles.cellPress}
+            >
+              <Text variant="label" numberOfLines={2}>
+                {item.title}
+              </Text>
+            </Pressable>
+            {item.editionVerified ? null : <FormatBadge label="Edition unverified" />}
+          </View>
         );
       case 'format':
         return <Text>{formatLabels[item.format]}</Text>;
@@ -256,6 +259,11 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
             accessibilityLabel="Filter by location"
             selected={!!filters.locationId}
             onPress={() => setPanel('location')}
+          />
+          <Chip
+            label="Edition unverified"
+            selected={!!filters.unverifiedOnly}
+            onPress={() => filter({ unverifiedOnly: filters.unverifiedOnly ? undefined : true })}
           />
           <Chip label="Columns" accessibilityLabel="Choose columns" onPress={() => setPanel(panel === 'columns' ? null : 'columns')} />
           {!fixedStatus ? (
@@ -498,6 +506,7 @@ const styles = StyleSheet.create((theme) => ({
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   cellPress: { minHeight: 44, justifyContent: 'center' },
+  titleCell: { gap: 2, justifyContent: 'center' },
   tableScroll: { borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.line },
   grid: (tableWidth: number) => ({ width: tableWidth, backgroundColor: theme.colors.surface }),
   headerRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: theme.colors.line },

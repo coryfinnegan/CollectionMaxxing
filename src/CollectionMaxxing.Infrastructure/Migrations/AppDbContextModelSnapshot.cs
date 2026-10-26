@@ -649,6 +649,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
+                    b.Property<bool>("EditionVerified")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("edition_verified");
+
                     b.Property<DateOnly?>("LentOn")
                         .HasColumnType("date")
                         .HasColumnName("lent_on");
@@ -715,6 +721,9 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.HasIndex("LibraryId", "CreatedAt")
                         .IsDescending(false, true)
                         .HasDatabaseName("ix_items_library_id_created_at");
+
+                    b.HasIndex("LibraryId", "EditionVerified")
+                        .HasDatabaseName("ix_items_library_id_edition_verified");
 
                     b.HasIndex("LibraryId", "LocationId")
                         .HasDatabaseName("ix_items_library_id_location_id");

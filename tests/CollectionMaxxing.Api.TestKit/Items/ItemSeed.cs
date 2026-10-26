@@ -117,6 +117,13 @@ public static class ItemSeed
         return item.Id;
     }
 
+    /// <summary>Clears <c>edition_verified</c> straight in the table, to stand in for a T1 auto-add.</summary>
+    public static async Task SetEditionUnverifiedAsync(PostgresFixture db, Guid itemId)
+    {
+        await using var context = db.CreateContext();
+        await context.Database.ExecuteSqlInterpolatedAsync($"update items set edition_verified = false where id = {itemId}");
+    }
+
     /// <summary>Sets <c>deleted_at</c> straight in the table, to play out the 30-day window without waiting.</summary>
     public static async Task SetDeletedAtAsync(PostgresFixture db, Guid itemId, DateTimeOffset deletedAt)
     {

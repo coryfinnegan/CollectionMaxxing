@@ -12,7 +12,7 @@ public static class ScanEventNames
     public const string CandidateUpdated = "candidate.updated";
 
     /// <summary>
-    /// A candidate's T0 auto-add landed. It companions the <c>candidate.added</c>/<c>candidate.updated</c> of the same
+    /// A candidate's auto-add landed, T0 or T1. It companions the <c>candidate.added</c>/<c>candidate.updated</c> of the same
     /// change and carries the same <c>CandidateDto</c>; it carries no event id, so it never moves the resume cursor.
     /// Clients detect auto-adds from the candidate payload (a set <c>createdItemId</c>), which also covers polling.
     /// </summary>

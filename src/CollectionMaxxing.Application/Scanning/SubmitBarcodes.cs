@@ -47,7 +47,7 @@ public static class SubmitBarcodes
         ISessionLock sessionLock,
         BarcodeResolver external,
         CandidateResolver resolver,
-        AutoCommitT0 autoCommit,
+        AutoCommit autoCommit,
         IJobQueue jobs,
         ScanningOptions options,
         ILogger<Handler> logger)

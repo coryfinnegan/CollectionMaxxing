@@ -33,6 +33,7 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         builder.Property(i => i.CoverChoice).HasSnakeCaseEnum();
         builder.Property(i => i.AddedVia).HasSnakeCaseEnum();
         builder.Property(i => i.Notes).HasMaxLength(Item.MaxNotesLength);
+        builder.Property(i => i.EditionVerified).HasDefaultValue(true);
         builder.Property(i => i.LentTo).HasMaxLength(200);
         builder.Property(i => i.CustomTitle).HasMaxLength(500);
 
@@ -48,6 +49,7 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(i => new { i.LibraryId, i.Status });
+        builder.HasIndex(i => new { i.LibraryId, i.EditionVerified });
         builder.HasIndex(i => new { i.LibraryId, i.ReleaseId });
         builder.HasIndex(i => new { i.LibraryId, i.CreatedAt }).IsDescending(false, true);
         builder.HasIndex(i => new { i.LibraryId, i.LocationId });

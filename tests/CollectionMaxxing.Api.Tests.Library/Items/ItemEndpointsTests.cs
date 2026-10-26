@@ -534,6 +534,26 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
         (await TitlesAsync(viewer, library.Id, "tag=nothing")).ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task The_list_filters_by_edition_verified_and_every_row_carries_the_flag()
+    {
+        var (library, viewer) = await ArrangeShelfAsync();
+        var page = await ReadJsonAsync(await viewer.GetAsync(ItemsUrl(library.Id)));
+        var rows = page.GetProperty("items").EnumerateArray().ToList();
+        rows.ShouldAllBe(i => i.GetProperty("editionVerified").GetBoolean(), "everything seeded arrives proven");
+        var zelda = rows.Single(i => i.GetProperty("title").GetString() == "Zelda").GetProperty("id").GetGuid();
+        await ItemSeed.SetEditionUnverifiedAsync(Db, zelda);
+
+        (await TitlesAsync(viewer, library.Id, "editionVerified=false")).ShouldBe(["Zelda"]);
+        (await TitlesAsync(viewer, library.Id, "editionVerified=true")).ShouldBe(["Alien", "Dune", "Mario Kart", "Okami"]);
+
+        var filtered = await ReadJsonAsync(await viewer.GetAsync($"{ItemsUrl(library.Id)}?editionVerified=false"));
+        filtered.GetProperty("items").EnumerateArray().Single().GetProperty("editionVerified").GetBoolean().ShouldBeFalse();
+
+        var detail = await ReadJsonAsync(await viewer.GetAsync(ItemUrl(library.Id, zelda)));
+        detail.GetProperty("item").GetProperty("editionVerified").GetBoolean().ShouldBeFalse();
+    }
+
     [Theory]
     [InlineData("sort=sideways")]
     [InlineData("format=papyrus")]

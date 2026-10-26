@@ -277,4 +277,36 @@ public class SchemaTests(PostgresFixture db) : DatabaseTest(db)
 
         await SchemaAssert.FailsWithAsync(PostgresErrorCodes.ForeignKeyViolation, () => context.SaveChangesAsync());
     }
+
+    [Fact]
+    public async Task Items_arrive_edition_verified_unless_said_otherwise()
+    {
+        // The column default is the backfill (issue #343): it wrote true into every pre-existing row when the
+        // migration added the column, and still answers for any insert that does not name it.
+        var defaults = await QueryStringsAsync(
+            "select column_default from information_schema.columns where table_name = 'items' and column_name = 'edition_verified'");
+
+        defaults.ShouldBe(["true"]);
+
+        var library = await TestData.CreateLibraryAsync(Db);
+        var releaseId = await TestData.CreateReleaseAsync(Db);
+        var id = Guid.CreateVersion7();
+        await using var connection = new NpgsqlConnection(Db.ConnectionString);
+        await connection.OpenAsync();
+        await using (var command = new NpgsqlCommand(
+            "insert into items (id, library_id, release_id, status, cover_choice, added_via, created_at, created_by, updated_at) " +
+            "values ($1, $2, $3, 'owned', 'release', 'manual', now(), $4, now())", connection))
+        {
+            command.Parameters.AddWithValue(id);
+            command.Parameters.AddWithValue(library.Id);
+            command.Parameters.AddWithValue(releaseId);
+            command.Parameters.AddWithValue(library.OwnerId);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await using var read = new NpgsqlCommand("select edition_verified from items where id = $1", connection);
+        read.Parameters.AddWithValue(id);
+
+        (await read.ExecuteScalarAsync()).ShouldBe(true);
+    }
 }

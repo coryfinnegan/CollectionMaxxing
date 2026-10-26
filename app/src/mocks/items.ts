@@ -62,6 +62,7 @@ const makeEntry = (n: number, minutesAfterStart: number, [title, kind, format, p
     createdBy: MEMBER,
     updatedAt: CREATED,
     deletedAt: null,
+    editionVerified: true,
   };
   const work: WorkDto = { id: workId, kind, title, originalYear: year, creators: [], genres: [], synopsis: null, coverUrl: cover };
   const release: ReleaseDto = {
@@ -131,6 +132,7 @@ const summary = ({ item, work, release }: MockItem): ItemSummaryDto => ({
   locationId: item.locationId,
   coverUrl: release.coverUrl,
   createdAt: item.createdAt,
+  editionVerified: item.editionVerified,
 });
 
 const detail = (entry: MockItem): ItemDetailDto => ({
@@ -170,6 +172,7 @@ export const handlers = [
     if (q('platform')) list = list.filter((i) => i.platform?.toLowerCase() === q('platform')?.toLowerCase());
     if (q('status')) list = list.filter((i) => i.status === q('status'));
     if (q('locationId')) list = list.filter((i) => i.locationId === q('locationId'));
+    if (q('editionVerified') !== undefined) list = list.filter((i) => i.editionVerified === (q('editionVerified') === 'true'));
     list.sort(sorters[q('sort') ?? '-addedAt'] ?? sorters['-addedAt']);
 
     const limit = Math.min(Number(q('limit') ?? 50) || 50, 200);
