@@ -19,11 +19,11 @@ describe('the Mall room presets', () => {
 
 describe('the anchor contract', () => {
   it('names every cover row anchor_<section>_<n>', () => {
-    expect(anchorName('ticket', 2)).toBe('anchor_ticket_2');
+    expect(anchorName('wall', 2)).toBe('anchor_wall_2');
   });
 
   it('parses a tapped anchor back to its cover row', () => {
-    expect(parseAnchorName('anchor_ticket_2')).toEqual({ section: 'ticket', index: 2 });
+    expect(parseAnchorName('anchor_wall_2')).toEqual({ section: 'wall', index: 2 });
   });
 
   it('ignores static geometry when picking', () => {
@@ -35,7 +35,7 @@ describe('the anchor contract', () => {
   it('furnishes every section the scene graph expects per room', () => {
     expect(roomAnchorSections).toEqual({
       video_store: ['shelf', 'new', 'counter'],
-      toy_store: ['ticket', 'case', 'peg'],
+      toy_store: ['wall', 'case', 'peg'],
       bookstore: ['stack', 'mezz', 'cafe', 'table'],
       mall_hub: ['store', 'kiosk'],
     });

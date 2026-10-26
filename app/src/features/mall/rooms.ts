@@ -42,7 +42,7 @@ export const roomPresets: Record<MallRoomId, CameraPreset[]> = loadRoomPresets()
 /** The anchor sections each room furnishes, one cover row per section. */
 export const roomAnchorSections: Record<MallRoomId, string[]> = {
   video_store: ['shelf', 'new', 'counter'],
-  toy_store: ['ticket', 'case', 'peg'],
+  toy_store: ['wall', 'case', 'peg'],
   bookstore: ['stack', 'mezz', 'cafe', 'table'],
   mall_hub: ['store', 'kiosk'],
 };
