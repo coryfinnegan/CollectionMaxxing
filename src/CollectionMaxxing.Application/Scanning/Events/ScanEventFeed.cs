@@ -14,10 +14,16 @@ public static class ScanEventNames
     /// <summary>A candidate's uploaded photo ("Use my photo") is stored and ready.</summary>
     public const string PhotoStatus = "photo.status";
     public const string SessionStatus = "session.status";
+
+    /// <summary>The session's live counters changed: the four bar counters plus the change counter they were counted at.</summary>
+    public const string SessionCounters = "session.counters";
 }
 
 /// <summary>The session's state, as sent with <c>session.status</c>.</summary>
 public sealed record SessionStatusDto(Guid Id, ScanSessionStatus Status);
+
+/// <summary>What <c>session.counters</c> says: the live counters, counted at <see cref="ChangeSeq"/>.</summary>
+public sealed record SessionCountersEventDto(SessionCountersDto Counters, int ChangeSeq);
 
 /// <summary>What <c>photo.status</c> says: the photo uploaded for <see cref="CandidateId"/> is <c>ready</c> (stored; it becomes the item's cover on commit).</summary>
 public sealed record PhotoStatusDto(Guid CandidateId, string Status)
@@ -59,6 +65,7 @@ public sealed class ScanEventCursor
     private bool _first = true;
     private int _highWater;
     private ScanSessionStatus? _statusShown;
+    private SessionCountersDto? _countersShown;
 
     internal ScanEventCursor(IAppDbContext db, IMembershipReader memberships, Guid userId, Guid libraryId, Guid sessionId, int after)
     {
@@ -132,6 +139,18 @@ public sealed class ScanEventCursor
                 _photosShown[candidate.Id] = assetId;
                 events.Add(new ScanEvent(ScanEventNames.PhotoStatus, _highWater, new PhotoStatusDto(candidate.Id, PhotoStatusDto.Ready)));
             }
+        }
+
+        // The live counters: sent once on (re)connect and again whenever a candidate change moves them, so background
+        // tabs and the web stay consistent without re-reading the session. Like photo.status, this is state, not a
+        // candidate change: it carries the current change counter but never moves the cursor. It goes out before
+        // session.status, so a client that reads through the status has the whole session state and an idle stream
+        // stays heartbeats only.
+        var counters = SessionCounters.Count(candidates);
+        if (_countersShown != counters)
+        {
+            _countersShown = counters;
+            events.Add(new ScanEvent(ScanEventNames.SessionCounters, _highWater, new SessionCountersEventDto(counters, _highWater)));
         }
 
         if (_statusShown != status)

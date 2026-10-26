@@ -82,8 +82,11 @@ public static class GetScanSession
 
             var since = query.Since ?? 0;
             var candidates = await db.ScanCandidates.AsNoTracking()
-                .Where(c => c.SessionId == session.Id && c.ChangeSeq > since)
+                .Where(c => c.SessionId == session.Id)
                 .OrderBy(c => c.Seq)
+                .ToListAsync(cancellationToken);
+            var snaps = await db.ScanSnaps.AsNoTracking()
+                .Where(s => s.SessionId == session.Id)
                 .ToListAsync(cancellationToken);
 
             return new ScanSessionDto(
@@ -96,7 +99,9 @@ public static class GetScanSession
                 session.Channel,
                 session.CreatedAt,
                 session.CommittedAt,
-                await CandidateProjection.ToDtosAsync(db, candidates, cancellationToken));
+                await CandidateProjection.ToDtosAsync(db, candidates.Where(c => c.ChangeSeq > since).ToList(), cancellationToken),
+                SessionCounters.Count(candidates),
+                SessionCounters.Segments(snaps, candidates));
         }
 
         /// <summary>

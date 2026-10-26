@@ -8945,7 +8945,9 @@
           "channel",
           "createdAt",
           "committedAt",
-          "candidates"
+          "candidates",
+          "counters",
+          "segments"
         ],
         "type": "object",
         "properties": {
@@ -8999,6 +9001,15 @@
             "items": {
               "$ref": "#/components/schemas/CandidateDto"
             }
+          },
+          "counters": {
+            "$ref": "#/components/schemas/SessionCountersDto"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionSegmentDto"
+            }
           }
         }
       },
@@ -9044,6 +9055,38 @@
           }
         }
       },
+      "SessionCountersDto": {
+        "required": [
+          "captured",
+          "added",
+          "toReview",
+          "owned",
+          "skipped"
+        ],
+        "type": "object",
+        "properties": {
+          "captured": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "added": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "toReview": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "owned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "SessionDto": {
         "required": [
           "id",
@@ -9084,6 +9127,56 @@
             "type": "string"
           }
         }
+      },
+      "SessionSegmentDto": {
+        "required": [
+          "snapId",
+          "shotKind",
+          "trigger",
+          "itemCount",
+          "state",
+          "createdAt",
+          "candidateIds"
+        ],
+        "type": "object",
+        "properties": {
+          "snapId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shotKind": {
+            "$ref": "#/components/schemas/ShotKind"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/SnapTrigger"
+          },
+          "itemCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SessionSegmentState"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "candidateIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "SessionSegmentState": {
+        "enum": [
+          "resolving",
+          "needs_eye",
+          "resolved",
+          "reviewed"
+        ]
       },
       "ShotKind": {
         "enum": [
@@ -9357,8 +9450,7 @@
         "enum": [
           "auto",
           "shutter",
-          "import",
-          null
+          "import"
         ]
       },
       "StatsDto": {

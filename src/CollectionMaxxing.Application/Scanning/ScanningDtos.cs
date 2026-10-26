@@ -73,7 +73,10 @@ public sealed record CandidateAlternativeDto(
     int AlreadyOwnedCount,
     string? ArtworkUrl);
 
-/// <summary>A scan session with all its candidates (or those after <c>?since=seq</c>).</summary>
+/// <summary>
+/// A scan session with all its candidates (or those after <c>?since=seq</c>). <c>Counters</c> and <c>Segments</c> always cover
+/// the whole session, never just the <c>?since=</c> window, so the phone's bar and strip stay complete while polling.
+/// </summary>
 public sealed record ScanSessionDto(
     Guid Id,
     Guid LibraryId,
@@ -84,7 +87,9 @@ public sealed record ScanSessionDto(
     ScanChannel Channel,
     DateTimeOffset CreatedAt,
     DateTimeOffset? CommittedAt,
-    IReadOnlyList<CandidateDto> Candidates);
+    IReadOnlyList<CandidateDto> Candidates,
+    SessionCountersDto Counters,
+    IReadOnlyList<SessionSegmentDto> Segments);
 
 public sealed record CreatedScanSessionDto(Guid Id);
 
