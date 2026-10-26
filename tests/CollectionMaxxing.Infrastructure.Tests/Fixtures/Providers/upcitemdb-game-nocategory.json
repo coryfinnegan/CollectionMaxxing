@@ -1,0 +1,17 @@
+{
+  "code": "OK",
+  "total": 1,
+  "offset": 0,
+  "items": [
+    {
+      "ean": "0045496905934",
+      "title": "Hyrule Warriors: Age of Imprisonment - Nintendo Switch 2",
+      "upc": "045496905934",
+      "brand": "Nintendo",
+      "description": "Battle hordes of enemies in the untold story of the Imprisoning War.",
+      "category": "",
+      "images": ["https://cms.gameflycdn.com/proxy/gf/boxart/640w/5046023.jpg"],
+      "offers": []
+    }
+  ]
+}

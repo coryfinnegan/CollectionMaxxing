@@ -31,6 +31,7 @@ public class NameCleanerTests
         ("Madden NFL 2005 PS2", "Madden NFL 2005", "PS2", null, null),
         ("Mortal Kombat (Sega Genesis) - Factory Sealed", "Mortal Kombat", "Genesis", null, null),
         ("Final Fantasy VII PlayStation Game Disc", "Final Fantasy VII", "PS1", ReleaseFormat.GameDisc, null),
+        ("Hyrule Warriors: Age of Imprisonment - Nintendo Switch 2", "Hyrule Warriors: Age of Imprisonment", "Switch 2", null, null),
 
         // ---- books ----
         ("Jurassic Park (Paperback)", "Jurassic Park", null, ReleaseFormat.Paperback, null),

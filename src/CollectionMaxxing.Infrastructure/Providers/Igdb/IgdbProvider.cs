@@ -119,7 +119,8 @@ public sealed class IgdbTokenSource(HttpClient http, IOptions<IgdbOptions> optio
 
 /// <summary>IGDB: games by title. No barcode lookup, so <c>LookupAsync</c> is always null.</summary>
 public sealed class IgdbProvider(HttpClient http, IOptions<IgdbOptions> options, IgdbTokenSource tokens, ProviderRuntime runtime)
-    : HttpCatalogProvider(http, runtime, ProviderName, TokenBucketRateLimiter.IntervalFor(options.Value.RequestsPerSecond))
+    : HttpCatalogProvider(http, runtime, ProviderName, TokenBucketRateLimiter.IntervalFor(options.Value.RequestsPerSecond)),
+    ISearchableCatalogProvider
 {
     public const string ProviderName = "igdb";
 

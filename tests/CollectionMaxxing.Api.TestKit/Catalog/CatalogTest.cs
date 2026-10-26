@@ -75,8 +75,8 @@ public abstract class CatalogTest(ApiFixture api) : ApiTest(api)
     }
 }
 
-/// <summary>A provider that answers from a list, or fails on purpose.</summary>
-public sealed class FakeProvider(string name = "fake") : ICatalogProvider
+/// <summary>A provider that answers from a list, or fails on purpose. Searchable, like every real provider but UPCitemdb.</summary>
+public sealed class FakeProvider(string name = "fake") : ICatalogProvider, ISearchableCatalogProvider
 {
     public List<ProviderRelease> Results { get; } = [];
 

@@ -8,6 +8,8 @@ import { haptics } from '@/lib/haptics';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { shownCards, sortedCards, useCardsStore } from '../cards/cardsStore';
+import { unreadableCopy } from '../cards/copy';
+import { isReadableBarcode } from '../scanner/barcodes';
 import type { ScannerSource } from '../scanner/ScannerSource';
 import { createStabilityFilter } from '../tray/stability';
 import { getTrayStore } from '../tray/storage';
@@ -83,6 +85,11 @@ export function useScanSession({
       source.start((seen) => {
         for (const value of filter.observe(seen.map((c) => c.value))) {
           const symbology = seen.find((c) => c.value === value)?.symbology ?? 'ean-13';
+          if (!isReadableBarcode(value)) {
+            // A partial read or not a product code at all: a rescan prompt, never queued (#383).
+            setNotice(unreadableCopy());
+            continue;
+          }
           if (boundCapture) {
             if (boundSending.current) continue; // one read only; the screen leaves on success
             boundSending.current = true;

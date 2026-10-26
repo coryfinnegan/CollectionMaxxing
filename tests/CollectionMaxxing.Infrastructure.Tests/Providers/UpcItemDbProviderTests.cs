@@ -47,6 +47,24 @@ public class UpcItemDbProviderTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task A_game_with_no_category_is_still_a_game_when_the_name_carries_its_platform()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "upcitemdb-game-nocategory.json");
+
+        Identifier.TryParse("045496905934", out var code).ShouldBeTrue();
+        var release = await host.Get<UpcItemDbProvider>().LookupAsync(code!, default);
+
+        release.ShouldNotBeNull();
+        release.Title.ShouldBe("Hyrule Warriors: Age of Imprisonment");
+        release.Kind.ShouldBe(WorkKind.Game);
+        release.Platform.ShouldNotBeNull().ShouldBe("Switch 2");
+        release.Publisher.ShouldBe("Nintendo");
+        release.CoverUrl.ShouldBeNull(); // a retailer's image host is not on the allow-list
+        release.Identifiers.ShouldContain(code!);
+    }
+
+    [Fact]
     public async Task Classifies_a_dvd_from_its_category()
     {
         using var host = ProviderHost.Create(Db);

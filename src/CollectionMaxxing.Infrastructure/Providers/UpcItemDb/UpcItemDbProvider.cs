@@ -46,8 +46,10 @@ public sealed record UpcLookupResult(UpcLookupStatus Status, ProviderRelease? Re
 }
 
 /// <summary>
-/// UPCitemdb: UPC/EAN to a product name and category. Only a real HTTP call spends the daily quota; a cached answer is
-/// free. The product name goes through the NameCleaner to pull out title, platform, format and year.
+/// UPCitemdb: UPC/EAN to a product name and category. Lookup-only (it deliberately does not implement
+/// <see cref="ISearchableCatalogProvider"/>): the barcode quota is kept for barcodes. Only a real HTTP call spends the
+/// daily quota; a cached answer is free. The product name goes through the NameCleaner to pull out title, platform,
+/// format and year.
 /// </summary>
 public sealed class UpcItemDbProvider(
     HttpClient http,
@@ -133,7 +135,7 @@ public sealed class UpcItemDbProvider(
             Provider = ProviderName,
             ExternalId = item.Str("ean") ?? item.Str("upc") ?? id.Value,
             Title = cleaned.Title.Length > 0 ? cleaned.Title : rawTitle,
-            Kind = KindOf(category),
+            Kind = KindOf(category, cleaned),
             Format = cleaned.Format,
             Platform = cleaned.Platform,
             Year = cleaned.Year,
@@ -144,7 +146,12 @@ public sealed class UpcItemDbProvider(
         };
     }
 
-    private static WorkKind KindOf(string category)
+    /// <summary>
+    /// The kind from the category; when the category says nothing, a known games platform or a game-only format in the
+    /// name still makes it a game (a Switch 2 cartridge is not an unknown product). Anything else unclassified stays
+    /// <see cref="WorkKind.Other"/>, which the barcode scorer never answers directly.
+    /// </summary>
+    private static WorkKind KindOf(string category, CleanedName cleaned)
     {
         if (category.Contains("Video Games", StringComparison.OrdinalIgnoreCase))
         {
@@ -161,8 +168,14 @@ public sealed class UpcItemDbProvider(
             return WorkKind.Tv;
         }
 
-        return category.Contains("Movies", StringComparison.OrdinalIgnoreCase) || category.Contains("DVD", StringComparison.OrdinalIgnoreCase)
-            ? WorkKind.Film
+        if (category.Contains("Movies", StringComparison.OrdinalIgnoreCase) || category.Contains("DVD", StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkKind.Film;
+        }
+
+        return cleaned.Platform is not null
+            || cleaned.Format is ReleaseFormat.GameCartridge or ReleaseFormat.GameDisc or ReleaseFormat.GameCard
+            ? WorkKind.Game
             : WorkKind.Other;
     }
 }

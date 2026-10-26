@@ -4,8 +4,8 @@
 export const DEV_CODES = {
   duneOwned: '9780441172719',
   mario64New: '0045496870010',
-  ghostbustersNew: '9786000000017',
-  goldeneyeOwned: '0045496870011',
+  ghostbustersNew: '9786000000011',
+  goldeneyeOwned: '0045496870027',
   unknown: '0000000000000',
   slow: '4006381333931',
   unreadable: '9999999999999',

@@ -112,7 +112,7 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
   );
 
 /** A barcode of another work: the mock refuses it naming Dune Messiah, like the real API names the owning title. */
-export const CROSS_WORK_BARCODE = '9999999999999';
+export const CROSS_WORK_BARCODE = '9999999999994';
 
 const etagOf = (entry: MockItem) => `"v${entry.version}"`;
 const find = (id: unknown) => itemsState.entries.find((e) => e.item.id === id);

@@ -25,7 +25,8 @@ public sealed class TmdbOptions
 
 /// <summary>TMDB: film and TV by title and year. There is no barcode lookup, so <c>LookupAsync</c> is always null.</summary>
 public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options, ProviderRuntime runtime)
-    : HttpCatalogProvider(http, runtime, ProviderName, TokenBucketRateLimiter.IntervalFor(options.Value.RequestsPerSecond))
+    : HttpCatalogProvider(http, runtime, ProviderName, TokenBucketRateLimiter.IntervalFor(options.Value.RequestsPerSecond)),
+    ISearchableCatalogProvider
 {
     public const string ProviderName = "tmdb";
 

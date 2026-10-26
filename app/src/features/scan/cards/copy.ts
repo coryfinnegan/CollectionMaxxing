@@ -27,9 +27,14 @@ export const NOT_FOUND_COPY = 'Not in the catalog. Try the front cover.';
 export const PICTURE_NOT_FOUND_COPY = 'Not in the catalog. Fix it to search by title.';
 const PICTURE_ERROR_COPY = "Couldn't look that one up. Fix it to search by title.";
 const UNREADABLE_COPY = "Couldn't read that barcode. Scan it again.";
+/** A valid code the lookup gave up on: the barcode read fine, the catalog could not answer it. */
+export const BARCODE_LOOKUP_FAILED_COPY = "Couldn't look that one up. Try the front cover.";
 
 /** A per-code failure becomes friendly copy through the same helper every other error uses. */
 export const unreadableCopy = () => friendlyError(new ApiError(422, { code: 'unreadable_barcode' }), UNREADABLE_COPY);
+
+/** A looked-up-but-unanswered code becomes friendly copy the same way. */
+export const lookupFailedCopy = () => friendlyError(new ApiError(422, { code: 'lookup_failed' }), BARCODE_LOOKUP_FAILED_COPY);
 
 /** "Hardcover" for a format value; a platform name or anything else passes through. */
 export const formatName = (format: string | null): string | null =>
@@ -90,7 +95,14 @@ export function describeCandidate(c: CandidateDto): CardCopy {
     case 'pending':
       return { title: code, subtitle: '', status: c.pendingReason === 'quota' ? QUOTA_COPY : 'Looking up…', kind: 'pending' };
     case 'error':
-      return { title: code, subtitle: '', status: reshootOf(c) ?? unreadableCopy(), kind: 'error' };
+      // "Couldn't read" is only for a code that never decoded (guidance scan_barcode); a decoded code the
+      // lookup gave up on says so and points at the cover instead (#383).
+      return {
+        title: code,
+        subtitle: '',
+        status: reshootOf(c) ?? (c.guidanceCode === 'scan_barcode' ? unreadableCopy() : lookupFailedCopy()),
+        kind: 'error',
+      };
     case 'not_found':
       return { title: code, subtitle: '', status: reshootOf(c) ?? NOT_FOUND_COPY, kind: 'not_found' };
     default: {
