@@ -9,6 +9,7 @@ import { AccessibilityInfo, Animated } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { renderWithProviders } from '@/test/render';
 import { ResultCard, ResultCards, type CardActions } from './ResultCards';
+import { estimateStripHeight } from './stripHeight';
 
 const noop = () => undefined;
 const actions: CardActions = { canAdd: true, onOpen: noop, onAdd: noop, onWishlist: noop };
@@ -241,23 +242,24 @@ describe('soft matches', () => {
   });
 });
 
+const closeCall = {
+  id: 'c-pick',
+  seq: 1,
+  source: 'picture_apple_model',
+  rawCode: null,
+  visibleText: 'Pokemon Yellow',
+  resolution: 'ambiguous',
+  alreadyOwnedCount: 0,
+  ownedAt: [],
+  decision: 'undecided',
+  release: null,
+  alternatives: [
+    { id: 'r1', title: 'Pokemon Yellow', format: 'game_cartridge', year: 1999, platform: null, creators: [] },
+    { id: 'r2', title: "Pokemon Yellow (Player's Choice)", format: 'game_cartridge', year: 2000, platform: null, creators: [] },
+  ],
+} as unknown as CandidateDto;
+
 describe('close calls', () => {
-  const closeCall = {
-    id: 'c-pick',
-    seq: 1,
-    source: 'picture_apple_model',
-    rawCode: null,
-    visibleText: 'Pokemon Yellow',
-    resolution: 'ambiguous',
-    alreadyOwnedCount: 0,
-    ownedAt: [],
-    decision: 'undecided',
-    release: null,
-    alternatives: [
-      { id: 'r1', title: 'Pokemon Yellow', format: 'game_cartridge', year: 1999, platform: null, creators: [] },
-      { id: 'r2', title: "Pokemon Yellow (Player's Choice)", format: 'game_cartridge', year: 2000, platform: null, creators: [] },
-    ],
-  } as unknown as CandidateDto;
 
   it('lists the alternatives and binds the tapped one', async () => {
     const onPick = jest.fn();
@@ -286,5 +288,80 @@ describe('close calls', () => {
     await renderWithProviders(<ResultCards cards={[closeCall]} actions={{ ...actions, canAdd: false, onPick: jest.fn() }} />);
     expect(await screen.findByText('Pick one')).toBeTruthy();
     expect(screen.queryByLabelText(/Pick Pokemon/)).toBeNull();
+  });
+});
+
+describe('strip height', () => {
+  // A picture still identifying: header, one status line, nothing else.
+  const identifying = {
+    id: 'c-identifying',
+    seq: 1,
+    source: 'picture_text',
+    rawCode: null,
+    visibleText: 'HYRULE',
+    resolution: 'pending',
+    alreadyOwnedCount: 0,
+    ownedAt: [],
+    decision: 'undecided',
+    release: null,
+  } as unknown as CandidateDto;
+
+  it('compacts the strip for a short card instead of a fixed height', () => {
+    // 8 pad + 66 header + 8 + 18 status + 8 + 2 border. The old fixed 300 left
+    // most of the strip empty over the camera (#373).
+    expect(estimateStripHeight([identifying], actions, 1)).toBe(110);
+  });
+
+  it('fits an owned card with its answer and three actions', () => {
+    // 8 pad + 66 header + 8 + 88 answer ceilings (3 label lines, 2 caption)
+    // + 8 + 140 buttons + 8 + 2 border. The old fixed 300 cut the buttons off (#373).
+    expect(estimateStripHeight([jawsDvd], triState(), 1)).toBe(328);
+  });
+
+  it('fits a close call with two picks, the longer button wrapping', () => {
+    // 8 pad + 66 header + 8 + 18 status + 8 + 106 picks (44 + 54 + gap) + 8 + 2 border.
+    expect(estimateStripHeight([closeCall], { ...actions, onPick: jest.fn() }, 1)).toBe(224);
+  });
+
+  it("counts a failing card's error lines", () => {
+    const errored = failed('042100005264');
+    const without = estimateStripHeight([errored], actions, 1);
+    const message = 'No connection. Try again.';
+    const withError = estimateStripHeight([errored], { ...actions, errors: { [errored.id]: message } }, 1);
+
+    // Two caption lines for the message plus its gap.
+    expect(withError - without).toBe(2 * 17 + 8);
+  });
+
+  it('grows with Dynamic Type and clamps past triple size', () => {
+    const single = estimateStripHeight([jawsDvd], triState(), 1);
+    const double = estimateStripHeight([jawsDvd], triState(), 2);
+
+    expect(double).toBeGreaterThan(single);
+    expect(double).toBe(656);
+    expect(estimateStripHeight([jawsDvd], triState(), 9)).toBe(estimateStripHeight([jawsDvd], triState(), 3));
+    expect(estimateStripHeight([jawsDvd], triState(), 0.5)).toBe(single);
+  });
+
+  it('renders no strip without cards', async () => {
+    await renderWithProviders(<ResultCards cards={[]} actions={actions} />);
+
+    expect(screen.queryByTestId('result-cards')).toBeNull();
+  });
+
+  it('sizes the rendered strip to its tallest card', async () => {
+    await renderWithProviders(<ResultCards cards={[identifying, jawsDvd]} actions={triState()} />);
+
+    // Jest's ambient fontScale is 2, so the strip renders the doubled estimate (656).
+    const strip = await screen.findByTestId('result-cards');
+    expect(strip.props.style.height).toBe(estimateStripHeight([identifying, jawsDvd], triState(), 2));
+  });
+
+  it('renders a compact strip for a short card', async () => {
+    await renderWithProviders(<ResultCards cards={[identifying]} actions={actions} />);
+
+    // 164 at the ambient doubled scale, against the old fixed 600.
+    const strip = await screen.findByTestId('result-cards');
+    expect(strip.props.style.height).toBe(estimateStripHeight([identifying], actions, 2));
   });
 });
