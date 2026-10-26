@@ -120,8 +120,12 @@ public sealed record UpdateItemRequest
     };
 }
 
-/// <summary>Body of <c>POST …/items/{id}:rematch</c>: swap the release, keep your copy data.</summary>
-public sealed record RematchItemRequest(Guid? ReleaseId = null);
+/// <summary>
+/// Body of <c>POST …/items/{id}:rematch</c>: swap the release, keep your copy data. With <c>Barcode</c> instead of a
+/// release, the barcode verifies the edition in place (docs/16 §11): a barcode of the item's own work swaps to that
+/// edition and verifies it, anything else is refused and nothing changes.
+/// </summary>
+public sealed record RematchItemRequest(Guid? ReleaseId = null, string? Barcode = null);
 
 public enum BulkAction
 {

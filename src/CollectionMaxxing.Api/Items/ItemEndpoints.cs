@@ -26,6 +26,7 @@ public static class ItemEndpoints
         services.AddScoped<DeleteItem.Handler>();
         services.AddScoped<RestoreItem.Handler>();
         services.AddScoped<RematchItem.Handler>();
+        services.AddScoped<RematchItem.UpgradeFromBarcode.Handler>();
         services.AddScoped<BulkItems.Handler>();
         services.AddScoped<RestoreItems.Handler>();
         services.AddScoped<GetStats.Handler>();
@@ -199,8 +200,31 @@ public static class ItemEndpoints
     }
 
     private static async Task<IResult> Rematch(
-        Guid libraryId, Guid id, RematchItemRequest body, RematchItem.Handler handler, HttpContext http, CancellationToken cancellationToken)
+        Guid libraryId,
+        Guid id,
+        RematchItemRequest body,
+        RematchItem.Handler handler,
+        RematchItem.UpgradeFromBarcode.Handler upgrade,
+        HttpContext http,
+        CancellationToken cancellationToken)
     {
+        if (body is { ReleaseId: not null, Barcode: not null })
+        {
+            return ItemErrors.Invalid("item.release_or_barcode", "Send a release or a barcode, not both.", "barcode").ToItemProblem();
+        }
+
+        if (body.Barcode is not null)
+        {
+            var upgraded = await upgrade.HandleAsync(new RematchItem.UpgradeFromBarcode.Command(libraryId, id, body.Barcode), cancellationToken);
+            if (!upgraded.IsSuccess)
+            {
+                return upgraded.Error!.ToItemProblem();
+            }
+
+            SetETag(http, upgraded.Value.Version);
+            return TypedResults.Ok(upgraded.Value.Value);
+        }
+
         var result = await handler.HandleAsync(new RematchItem.Command(libraryId, id, body.ReleaseId), cancellationToken);
         if (!result.IsSuccess)
         {

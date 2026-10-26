@@ -2,6 +2,8 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import DetailRoute from '@/app/item/[id]/index';
 import EditRoute from '@/app/item/[id]/edit';
 import { LibraryView } from '@/features/library/LibraryView';
+import { boundScanStore } from '@/features/review/boundScan';
+import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -22,6 +24,7 @@ let patchHeaders: (string | null)[] = [];
 
 beforeEach(() => {
   resetItems();
+  boundScanStore.getState().clear();
   useUndoStore.setState({ deleted: null });
   mockRouter.back.mockClear();
   mockRouter.push.mockClear();
@@ -65,6 +68,27 @@ describe('ItemDetailScreen', () => {
 
     expect(await screen.findByText('The Matrix')).toBeTruthy();
     expect(screen.queryByText('Edition unverified')).toBeNull();
+  });
+
+  it('offers a barcode scan while the edition is unverified, and stays quiet once it is proven', async () => {
+    entry().item.editionVerified = false;
+    const unverified = await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+
+    await fireEvent.press(await screen.findByLabelText('Scan barcode to verify edition'));
+    expect(boundScanStore.getState().binding).toEqual({
+      libraryId: MOCK_LIBRARY_ID,
+      itemId: MATRIX,
+      title: 'The Matrix',
+      kind: 'itemBarcode',
+    });
+    expect(mockRouter.push).toHaveBeenCalledWith('/scanner');
+    await unverified.unmount();
+
+    entry().item.editionVerified = true;
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+
+    expect(await screen.findByText('The Matrix')).toBeTruthy();
+    expect(screen.queryByLabelText('Scan barcode to verify edition')).toBeNull();
   });
 
   it('shows friendly copy when the item is gone', async () => {

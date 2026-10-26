@@ -1,7 +1,7 @@
 // Hooks for one item: load it with its ETag, then update, delete and restore it.
 // The generated mutation hooks can't take per-call headers, so the writes call the generated
 // functions directly and send If-Match / Idempotency-Key themselves.
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { create } from 'zustand';
 import { createItem, deleteItem, restoreItem, updateItem, useGetItem } from '@/api/generated/items/items';
 import type { CreateItemRequest, ItemDetailDto, UpdateItemRequest } from '@/api/generated/models';
@@ -17,17 +17,21 @@ export function useItemDetail(libraryId: string | undefined, id: string) {
 }
 
 /** Refreshes every list and detail query for the library after a change. */
+export function invalidateLibraryItems(queryClient: QueryClient, libraryId: string) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['library-items', libraryId] }),
+    // Item detail keys are one string per item (".../items/<id>"), so match by prefix, not by array element.
+    queryClient.invalidateQueries({
+      predicate: ({ queryKey }) => typeof queryKey[0] === 'string' && queryKey[0].startsWith(`/api/v1/libraries/${libraryId}/items`),
+    }),
+    queryClient.invalidateQueries({ queryKey: [`/api/v1/libraries/${libraryId}/stats`] }),
+  ]);
+}
+
+/** Refreshes every list and detail query for the library after a change. */
 export function useInvalidateLibrary() {
   const queryClient = useQueryClient();
-  return (libraryId: string) =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['library-items', libraryId] }),
-      // Item detail keys are one string per item (".../items/<id>"), so match by prefix, not by array element.
-      queryClient.invalidateQueries({
-        predicate: ({ queryKey }) => typeof queryKey[0] === 'string' && queryKey[0].startsWith(`/api/v1/libraries/${libraryId}/items`),
-      }),
-      queryClient.invalidateQueries({ queryKey: [`/api/v1/libraries/${libraryId}/stats`] }),
-    ]);
+  return (libraryId: string) => invalidateLibraryItems(queryClient, libraryId);
 }
 
 export function useItemMutations(libraryId: string) {

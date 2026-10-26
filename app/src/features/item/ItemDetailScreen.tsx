@@ -9,6 +9,7 @@ import type { ItemDetailDto } from '@/api/generated/models';
 import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLabels } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { boundScanStore } from '@/features/review/boundScan';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
@@ -107,7 +108,18 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
       <View style={styles.heroBand(header?.background ?? theme.colors.surface)} testID="Detail header">
         <Cover title={title} uri={coverUri} width={160} sharedTag={sharedCoverTag(reduceMotion, id)} />
         <FormatBadge label={`${kindLabels[work.kind]} · ${formatLabels[release.format]}`} />
-        {item.editionVerified ? null : <FormatBadge label="Edition unverified" />}
+        {item.editionVerified ? null : (
+          <>
+            <FormatBadge label="Edition unverified" />
+            <Button
+              label="Scan barcode to verify edition"
+              onPress={() => {
+                boundScanStore.getState().bind({ libraryId, itemId: id, title, kind: 'itemBarcode' });
+                router.push('/scanner');
+              }}
+            />
+          </>
+        )}
         {work.creators.length ? (
           <Text variant="caption" tone="muted" style={header ? { color: header.text } : undefined}>
             {work.creators.join(', ')}

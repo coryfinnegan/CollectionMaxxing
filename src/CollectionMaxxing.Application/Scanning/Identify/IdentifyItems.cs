@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
@@ -24,7 +25,12 @@ public static class IdentifyItems
     private const string SafetyKey = ":safety";
     private static readonly TimeSpan SafetyMargin = TimeSpan.FromSeconds(30);
 
-    public sealed record ResolveJob(Guid LibraryId, Guid SessionId, Guid CandidateId, Guid UserId);
+    /// <summary>
+    /// The job that resolves an item a request ran out of time for. <c>ProofItemId</c> carries an edition proof's
+    /// binding (null for any other read), so the job finishes the proof the request would have: upgrade on a match,
+    /// a T2 row otherwise, never an auto-add.
+    /// </summary>
+    public sealed record ResolveJob(Guid LibraryId, Guid SessionId, Guid CandidateId, Guid UserId, Guid? ProofItemId = null);
 
     public sealed record Command(Guid SessionId, IdentifyInput Input);
 
@@ -61,6 +67,11 @@ public static class IdentifyItems
             if (input.BoundCandidateId is not null)
             {
                 return await HandleBoundAsync(command, session, userId, cancellationToken);
+            }
+
+            if (input.BoundItemId is not null)
+            {
+                return await HandleBoundItemAsync(command, session, userId, cancellationToken);
             }
 
             var snapId = input.SnapId!.Value;
@@ -225,6 +236,150 @@ public static class IdentifyItems
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken));
         }
 
+        /// <summary>
+        /// An edition proof (a book's cover + copyright page, design §11): the read becomes one candidate, which is then
+        /// resolved through the same identify path as a fresh read — scored as a cover. A match on the bound item's own
+        /// work upgrades its release link in place and verifies it; anything else leaves a T2 row for review and the item
+        /// is never touched, and a proof never auto-adds. Safe to retry: the same <c>snapId</c> gets the same row back.
+        /// </summary>
+        private async Task<Result<CandidatesDto>> HandleBoundItemAsync(
+            Command command, ScanSession session, Guid userId, CancellationToken cancellationToken)
+        {
+            var input = command.Input;
+            var itemId = input.BoundItemId!.Value;
+            var item = await db.Items.FirstOrDefaultAsync(
+                i => i.LibraryId == session.LibraryId && i.Id == itemId && i.DeletedAt == null, cancellationToken);
+            if (item is null)
+            {
+                return ItemErrors.NotFound;
+            }
+
+            var snapId = input.SnapId!.Value;
+            var proof = IdentifyCleaning.Clean(input.Items!, input.Kind)[0]; // Validate kept exactly one item
+            var now = clock.GetUtcNow();
+
+            ScanCandidate candidate;
+            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
+            {
+                if (await db.ScanSnaps.AnyAsync(s => s.Id == snapId && s.SessionId == session.Id, cancellationToken))
+                {
+                    return await ReplayAsync(session, snapId, userId, cancellationToken);
+                }
+
+                // A snapId is unique everywhere; one taken by another session is refused without saying whose it is.
+                if (await db.ScanSnaps.IgnoreQueryFilters().AnyAsync(s => s.Id == snapId, cancellationToken))
+                {
+                    return IdentifyErrors.SnapInUse;
+                }
+
+                if (session.Status != ScanSessionStatus.Open)
+                {
+                    return ScanningErrors.SessionClosed;
+                }
+
+                db.ScanSnaps.Add(new ScanSnap
+                {
+                    Id = snapId,
+                    LibraryId = session.LibraryId,
+                    SessionId = session.Id,
+                    Trigger = input.Trigger!.Value,
+                    ShotKind = input.ShotKind ?? ShotKind.Unknown,
+                    Engine = input.Engine!.Value,
+                    FellBack = input.FellBackFrom is not null,
+                    FallbackReason = input.FellBackFrom,
+                    ItemCount = 1,
+                    AssetId = null,
+                    CreatedAt = now,
+                });
+
+                var nextSeq = (await db.ScanCandidates.Where(c => c.SessionId == session.Id).MaxAsync(c => (int?)c.Seq, cancellationToken) ?? 0) + 1;
+                var source = input.Engine == ScanEngine.AppleModel ? CandidateSource.PictureAppleModel : CandidateSource.PictureText;
+                candidate = new ScanCandidate
+                {
+                    Id = ids.NewId(),
+                    LibraryId = session.LibraryId,
+                    SessionId = session.Id,
+                    Seq = nextSeq,
+                    Source = source,
+                    ShotKind = input.ShotKind ?? ShotKind.Unknown,
+                    SegmentId = proof.SegmentId,
+                    VisibleText = proof.Facts.Text ?? proof.Facts.Title,
+                    SnapId = snapId,
+                    LocalId = proof.LocalId,
+                    Resolution = CandidateResolution.Pending,
+                    Decision = CandidateDecision.Undecided,
+                    GuidanceCode = GuidanceCodes.For(input.FellBackFrom, CandidateResolution.Pending, source, null, quotaSpent: false),
+                    InferredJson = StoredRead.Serialize(proof.Facts, proof.Profile),
+                    IdempotencyKey = $"snap:{snapId:N}:0",
+                    CreatedAt = now,
+                };
+                db.ScanCandidates.Add(candidate);
+                await db.SaveChangesAsync(cancellationToken);
+
+                // A safety net queued before the slow lookups, due once this request's budget has long passed: if the request is cut
+                // off (a dropped connection, a crash) the row still gets resolved. It is a no-op for anything already resolved.
+                // It carries the proof binding, so the job finishes the proof the request would have.
+                await EnqueueResolveJobsAsync(session, [candidate], userId, SafetyKey, options.ResolveBudget + SafetyMargin, cancellationToken, item.Id);
+            }
+
+            await ResolveProofAsync(session, candidate, proof, item.Id, userId, cancellationToken);
+            return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken));
+        }
+
+        /// <summary>
+        /// Resolves an edition proof's read and completes it: upgrade on a match of the item's own work, a T2 row
+        /// otherwise. Never auto-adds: a proof verifies an item the library already has, it adds nothing.
+        /// </summary>
+        private async Task ResolveProofAsync(
+            ScanSession session, ScanCandidate candidate, CleanItem proof, Guid itemId, Guid userId, CancellationToken cancellationToken)
+        {
+            BarcodeResolution answer;
+            if (proof.LocalMatchReleaseId is { } claim && await ClaimUsableAsync(session.LibraryId, claim, cancellationToken))
+            {
+                answer = ClaimedRelease(claim);
+            }
+            else if (proof.Facts.SearchText is null)
+            {
+                answer = grounding.Score(proof.Facts, proof.Profile, LocalPool.Empty, ProviderAnswers.None);
+            }
+            else
+            {
+                var local = await grounding.FindLocalAsync(proof.Facts, cancellationToken);
+                var (_, _, providers) = (await AskProvidersAsync([(candidate, proof)], cancellationToken)).Single();
+                answer = grounding.Score(proof.Facts, proof.Profile, local, providers);
+            }
+
+            // The answer lands under the session's lock: the session is reloaded inside it (another request may
+            // have changed it while the providers were being asked).
+            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
+            {
+                await db.ScanSessions.Entry(session).ReloadAsync(cancellationToken);
+                if (db.ScanSessions.Entry(session).State == EntityState.Detached)
+                {
+                    return; // cleaned up mid-resolve; the answer dies with the session
+                }
+
+                await resolver.ApplyAsync(session.LibraryId, candidate, answer, cancellationToken);
+                if (!await ProofUpgrade.TryApplyAsync(db, session, candidate, itemId, clock, cancellationToken)
+                    && candidate.Resolution != CandidateResolution.Pending)
+                {
+                    candidate.Tier = ScanTier.T2; // a proof that disagrees is reviewed; the item is never touched
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            await EnqueueResolveJobsAsync(session, [candidate], userId, null, null, cancellationToken, itemId);
+        }
+
+        /// <summary>The phone's own feature-print hit is a claim: honoured only for a release this library may use.</summary>
+        private async Task<bool> ClaimUsableAsync(Guid libraryId, Guid claim, CancellationToken cancellationToken) =>
+            await db.Releases.AsNoTracking()
+                .AnyAsync(r => r.Id == claim && (r.OwnerLibraryId == null || r.OwnerLibraryId == libraryId), cancellationToken);
+
+        private static BarcodeResolution ClaimedRelease(Guid claim) => new(
+            ResolutionVerdict.Matched, [new ResolutionOption(claim, null, 1.0)], null, [new TraceStep("feature_print", "hit", 0, 1.0)]);
+
         private async Task ResolveAsync(
             ScanSession session, List<(ScanCandidate Candidate, CleanItem Item)> fresh, Guid userId, CancellationToken cancellationToken)
         {
@@ -244,8 +399,7 @@ public static class IdentifyItems
             {
                 if (item.LocalMatchReleaseId is { } claim && usable.Contains(claim))
                 {
-                    answers[candidate.Id] = new BarcodeResolution(
-                        ResolutionVerdict.Matched, [new ResolutionOption(claim, null, 1.0)], null, [new TraceStep("feature_print", "hit", 0, 1.0)]);
+                    answers[candidate.Id] = ClaimedRelease(claim);
                 }
                 else if (item.Facts.SearchText is null)
                 {
@@ -286,16 +440,20 @@ public static class IdentifyItems
             await EnqueueResolveJobsAsync(session, fresh.Select(f => f.Candidate), userId, null, null, cancellationToken);
         }
 
-        /// <summary>Queues the resolve job for each candidate still Pending. Safe to repeat: one job per candidate and key.</summary>
+        /// <summary>
+        /// Queues the resolve job for each candidate still Pending. Safe to repeat: one job per candidate and key.
+        /// <paramref name="proofItemId"/> carries an edition proof's binding to its job (null for any other read).
+        /// </summary>
         private async Task EnqueueResolveJobsAsync(
-            ScanSession session, IEnumerable<ScanCandidate> candidates, Guid userId, string? keySuffix, TimeSpan? delay, CancellationToken cancellationToken)
+            ScanSession session, IEnumerable<ScanCandidate> candidates, Guid userId, string? keySuffix, TimeSpan? delay,
+            CancellationToken cancellationToken, Guid? proofItemId = null)
         {
             DateTimeOffset? runAfter = delay is { } d ? clock.GetUtcNow() + d : null;
             foreach (var candidate in candidates.Where(c => c.Resolution == CandidateResolution.Pending))
             {
                 await jobs.EnqueueAsync(
                     ResolveJobType,
-                    new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId),
+                    new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId, proofItemId),
                     new JobEnqueueOptions(runAfter, $"{ResolveJobType}:{candidate.Id}{keySuffix}"),
                     cancellationToken);
             }

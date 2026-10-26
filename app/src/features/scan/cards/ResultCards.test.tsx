@@ -118,6 +118,21 @@ describe('result cards', () => {
     await renderWithProviders(<ResultCards cards={[dune]} actions={actions} />);
     expect(await screen.findByLabelText('Open Dune, Paperback · 1990, Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
   });
+
+  it('offers Verify edition on a T1 auto-added card, and nothing on a T0', async () => {
+    const added = { ...dune, decision: 'accepted', createdItemId: 'item-1', tier: 'T1' } as unknown as CandidateDto;
+    const onVerifyEdition = jest.fn();
+    const { unmount } = await renderWithProviders(<ResultCards cards={[added]} actions={{ ...actions, onVerifyEdition }} />);
+
+    await fireEvent.press(await screen.findByLabelText('Verify edition for Dune'));
+    expect(onVerifyEdition).toHaveBeenCalledWith(added);
+    await unmount();
+
+    const barcodeProof = { ...added, tier: 'T0' } as unknown as CandidateDto;
+    await renderWithProviders(<ResultCards cards={[barcodeProof]} actions={{ ...actions, onVerifyEdition }} />);
+    expect(await screen.findByText('Dune')).toBeTruthy();
+    expect(screen.queryByLabelText('Verify edition for Dune')).toBeNull();
+  });
 });
 
 describe('owned cards', () => {

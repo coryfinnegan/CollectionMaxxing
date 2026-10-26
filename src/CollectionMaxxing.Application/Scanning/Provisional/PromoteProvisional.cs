@@ -12,7 +12,8 @@ using Microsoft.Extensions.Logging;
 namespace CollectionMaxxing.Application.Scanning.Provisional;
 
 /// <summary>
-/// Use case: promote a provisional record to a real item (design §11). The guessed title becomes a library-private release
+/// Use case: promote a provisional record to a real item (design §11). The item is made from the kept row's resolved
+/// release when it has one (a barcode scanned after the keep), else the guessed title becomes a library-private release
 /// through the item-creation path, at the record's location; the crop is kept as the item's cover unless the caller says
 /// otherwise. The record resolves (staying as the audit trail), and the row it came from — when its session still exists —
 /// points at the new item, so the session's counters reconcile. Safe to retry: the same <c>Idempotency-Key</c> returns the
@@ -52,12 +53,17 @@ public static class PromoteProvisional
                     : new DomainError(ErrorKind.Conflict, "scan.provisional_resolved", "That record was already acted on.", "provisionalId");
             }
 
+            // A kept row that resolved afterwards (its barcode was scanned, design §11) promotes to that release —
+            // verified — instead of a manual record typed from the guess.
+            var releaseId = await MatchedReleaseAsync(command.LibraryId, provisional.CandidateId, cancellationToken);
             var created = await items.HandleAsync(
                 new CreateItem.Command(
                     command.LibraryId,
                     $"provisional-promote:{provisional.Id}:{key}",
-                    ReleaseId: null,
-                    new ManualRelease(KindOf(provisional.MediaHint), provisional.TitleGuess, null, null, null, null, null),
+                    ReleaseId: releaseId,
+                    releaseId is null
+                        ? new ManualRelease(KindOf(provisional.MediaHint), provisional.TitleGuess, null, null, null, null, null)
+                        : null,
                     Status: null,
                     Condition: null,
                     Completeness: null,
@@ -124,5 +130,28 @@ public static class PromoteProvisional
             ScanMediaHint.Movies => WorkKind.Film,
             _ => null,
         };
+
+        /// <summary>
+        /// The kept row's match, when it has one this library may use. A row that never resolved, a match on another
+        /// library's private release, or a row whose session is gone all fall back to the manual guess.
+        /// </summary>
+        private async Task<Guid?> MatchedReleaseAsync(Guid libraryId, Guid? candidateId, CancellationToken cancellationToken)
+        {
+            if (candidateId is null)
+            {
+                return null;
+            }
+
+            var matched = await db.ScanCandidates.AsNoTracking()
+                .Where(c => c.LibraryId == libraryId && c.Id == candidateId)
+                .Select(c => c.MatchedReleaseId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (matched is not { } releaseId)
+            {
+                return null;
+            }
+
+            return await ItemProjection.CanUseReleaseAsync(db, libraryId, releaseId, cancellationToken) ? releaseId : null;
+        }
     }
 }

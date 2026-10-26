@@ -28,7 +28,9 @@ public sealed record IdentifyItemInput(
 
 /// <summary>
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
-/// a cover read to the T2 row it was shot for (design §8(b)), which is then upgraded in place instead of adding candidates.
+/// a cover read to the T2 row it was shot for (design §8(b)), which is then upgraded in place instead of adding candidates;
+/// <c>BoundItemId</c> ties an edition-proof read to the library item it verifies (design §11), which is upgraded in place
+/// on a match and never touched otherwise.
 /// </summary>
 public sealed record IdentifyInput(
     Guid? SnapId,
@@ -38,7 +40,8 @@ public sealed record IdentifyInput(
     IReadOnlyList<IdentifyItemInput>? Items,
     ShotKind? ShotKind = null,
     IdentifyKind Kind = IdentifyKind.Shelf,
-    Guid? BoundCandidateId = null);
+    Guid? BoundCandidateId = null,
+    Guid? BoundItemId = null);
 
 public static class IdentifyErrors
 {
@@ -89,6 +92,12 @@ internal static class IdentifyCleaning
             return ScanningErrors.Invalid("scan.too_many_items", $"Send at most {MaxItems} items at a time.", "items");
         }
 
+        if (input is { BoundCandidateId: not null, BoundItemId: not null })
+        {
+            return ScanningErrors.Invalid(
+                "scan.bound_one_row", "A read belongs to one row: send a candidate or an item, not both.", "itemId");
+        }
+
         if (input.BoundCandidateId is not null)
         {
             if (input.Kind != IdentifyKind.Cover)
@@ -102,6 +111,27 @@ internal static class IdentifyCleaning
                 return ScanningErrors.Invalid(
                     "scan.bound_single_item", "A cover bound to a scanned item carries exactly one item.", "items");
             }
+        }
+
+        if (input.BoundItemId is not null)
+        {
+            if (input.Kind != IdentifyKind.EditionProof)
+            {
+                return ScanningErrors.Invalid(
+                    "scan.bound_proof_kind", "A read bound to a library item is an edition proof: send kind edition_proof.", "kind");
+            }
+
+            if (input.Items.Count != 1)
+            {
+                return ScanningErrors.Invalid(
+                    "scan.proof_single_item", "An edition proof carries exactly one item.", "items");
+            }
+        }
+
+        if (input is { BoundItemId: null, Kind: IdentifyKind.EditionProof })
+        {
+            return ScanningErrors.Invalid(
+                "scan.proof_item_required", "An edition proof is bound to a library item: send its itemId.", "itemId");
         }
 
         for (var i = 0; i < input.Items.Count; i++)
@@ -137,7 +167,7 @@ internal static class IdentifyCleaning
                 item.Format,
                 item.Year is >= MinYear and <= MaxYear ? item.Year : null,
                 Text(item.Platform, MaxPlatformLength));
-            var profile = ScoringProfileSelector.Choose(item.Completeness, item.Kind, item.Format, items.Count, kind == IdentifyKind.Cover);
+            var profile = ScoringProfileSelector.Choose(item.Completeness, item.Kind, item.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
             return new CleanItem(Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile);
         }).ToList();
 

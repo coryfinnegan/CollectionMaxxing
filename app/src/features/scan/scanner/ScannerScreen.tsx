@@ -2,6 +2,7 @@
 // It is given its sources, so tests and the dev menu drive it with a FakeScannerSource and no camera.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
@@ -12,6 +13,8 @@ import { DEFAULT_AUTO_SNAP_CONFIG } from '../autosnap/defaults';
 import { createCountingSnapHandler, useAutoSnap, type AutoSnapTuning, type SnapEvent } from '../autosnap/useAutoSnap';
 import type { AutoSnapConfig } from '../autosnap/types';
 import type { CandidateDto } from '@/api/generated/models';
+import { submitItemBarcodeUpgrade } from '@/features/item/upgrade';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { submitBoundBarcode } from '@/features/review/api';
 import type { BoundScan } from '@/features/review/boundScan';
 import { ResultCards, useReduceMotion, type CardActions } from '../cards/ResultCards';
@@ -97,20 +100,30 @@ export function ScannerScreen({
     setContext(defaultSessionContext(libraryId));
   }
   const [sheet, setSheet] = useState<'session' | 'search' | null>(null);
+  const queryClient = useQueryClient();
   const body = useMemo(() => sessionCreateBody(context), [context]);
   const boundCapture = useMemo(
     () =>
       !boundScan
         ? undefined
-        : boundScan.kind === 'cover'
-          ? { submit: async () => undefined } // a cover binding waits for the shutter; stray codes are not its row
-          : {
+        : boundScan.kind === 'itemBarcode'
+          ? {
+              // An item binding verifies the edition, then refreshes the lists and detail behind this screen.
               submit: async (code: { value: string; symbology: string }) => {
-                await submitBoundBarcode(boundScan.sessionId, boundScan.candidateId, code);
+                await submitItemBarcodeUpgrade(boundScan.libraryId, boundScan.itemId, code.value);
+                await invalidateLibraryItems(queryClient, boundScan.libraryId);
                 boundScan.onDone();
               },
-            },
-    [boundScan],
+            }
+          : boundScan.kind === 'cover'
+            ? { submit: async () => undefined } // a cover binding waits for the shutter; stray codes are not its row
+            : {
+                submit: async (code: { value: string; symbology: string }) => {
+                  await submitBoundBarcode(boundScan.sessionId, boundScan.candidateId, code);
+                  boundScan.onDone();
+                },
+              },
+    [boundScan, queryClient],
   );
   const boundCover = useMemo(
     () => (boundScan?.kind === 'cover' ? { candidateId: boundScan.candidateId, onDone: boundScan.onDone } : undefined),

@@ -37,7 +37,8 @@ public static class ScoringProfileSelector
 
     /// <summary>
     /// The profile for an item, given what the phone said it is and how many items were in the same picture. A cover read
-    /// (design §8(b)) is scored as a cover whatever the count: only what the item physically is still wins over that.
+    /// (design §8(b); an edition proof is a cover read too) is scored as a cover whatever the count: only what the item
+    /// physically is still wins over that.
     /// </summary>
     public static ScoringProfileKind Choose(
         ItemCompleteness? completeness, WorkKind? kind, ReleaseFormat? format, int itemsInSnap, bool coverRead = false)

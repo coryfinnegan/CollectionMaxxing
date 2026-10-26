@@ -105,11 +105,14 @@ export const resetItems = (): void => {
   itemsState.replays = new Map();
 };
 
-const problem = (status: number, title: string, errors?: Record<string, string[]>) =>
+const problem = (status: number, title: string, errors?: Record<string, string[]>, extra?: Record<string, string>) =>
   HttpResponse.json(
-    { title, status, ...(errors ? { errors } : {}) },
+    { title, status, ...(errors ? { errors } : {}), ...extra },
     { status, headers: { 'Content-Type': 'application/problem+json' } },
   );
+
+/** A barcode of another work: the mock refuses it naming Dune Messiah, like the real API names the owning title. */
+export const CROSS_WORK_BARCODE = '9999999999999';
 
 const etagOf = (entry: MockItem) => `"v${entry.version}"`;
 const find = (id: unknown) => itemsState.entries.find((e) => e.item.id === id);
@@ -259,5 +262,32 @@ export const handlers = [
     entry.item.deletedAt = null;
     entry.version += 1;
     return HttpResponse.json(entry.item, { headers: { ETag: etagOf(entry) } });
+  }),
+
+  // :rematch (#346): a release swaps the link; a barcode verifies the edition in place (the mock's rows each
+  // have their own work, so there is no second edition to swap to — the server tests prove the swap). The
+  // cross-work barcode is refused naming its owner, like the real API.
+  http.post(/\/api\/v1\/libraries\/[^/]+\/items\/([^/]+):rematch$/, async ({ request }) => {
+    const id = new URL(request.url).pathname.split('/').pop()?.replace(':rematch', '');
+    const entry = live(id);
+    if (!entry) return problem(404, 'Not found');
+    const body = (await request.json()) as { releaseId?: string | null; barcode?: string | null };
+    if (body.releaseId && body.barcode) return problem(400, 'Send a release or a barcode, not both.');
+    if (body.barcode === CROSS_WORK_BARCODE) {
+      return problem(409, 'Conflict', undefined, { detail: 'That barcode belongs to Dune Messiah.', code: 'item.barcode_other_work' });
+    }
+    if (body.barcode) {
+      entry.item.editionVerified = true;
+      entry.item.updatedAt = new Date().toISOString();
+      entry.version += 1;
+      return HttpResponse.json(entry.item, { headers: { ETag: etagOf(entry) } });
+    }
+    if (body.releaseId) {
+      entry.item.releaseId = body.releaseId;
+      entry.item.updatedAt = new Date().toISOString();
+      entry.version += 1;
+      return HttpResponse.json(entry.item, { headers: { ETag: etagOf(entry) } });
+    }
+    return problem(400, 'Say which release to switch to.');
   }),
 ];
