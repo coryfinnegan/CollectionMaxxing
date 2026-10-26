@@ -11,8 +11,9 @@ import { useOwnedLookup } from '@/features/offline/hooks';
 import { Button, Text } from '@/ui';
 import { alreadyOwnLine, formatName, type CardCopy } from './copy';
 import type { CardActions } from './ResultCards';
+import { answerLineCap, staleLineCap } from './stripHeight';
 
-export function OwnedCard({ candidate, copy, actions }: { candidate: CandidateDto; copy: CardCopy; actions: CardActions }) {
+export function OwnedCard({ candidate, copy, actions, scale }: { candidate: CandidateDto; copy: CardCopy; actions: CardActions; scale: number }) {
   const releaseId = candidate.release?.id ?? null;
   const answer = useOwnedLookup(releaseId ? { releaseId } : null);
   const first = answer.owned[0];
@@ -28,11 +29,11 @@ export function OwnedCard({ candidate, copy, actions }: { candidate: CandidateDt
 
   return (
     <View style={styles.body}>
-      <Text variant="label" tone="accent" accessibilityLiveRegion="polite">
+      <Text variant="label" tone="accent" accessibilityLiveRegion="polite" numberOfLines={answerLineCap(scale)}>
         {line}
       </Text>
       {first && answer.staleMessage ? (
-        <Text variant="caption" tone="muted">
+        <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}
         </Text>
       ) : null}

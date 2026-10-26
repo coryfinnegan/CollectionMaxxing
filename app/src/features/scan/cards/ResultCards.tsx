@@ -13,14 +13,16 @@ import { isLocalCard } from './cardsStore';
 import { alreadyOwnLine, alsoOwnLine, describeCandidate, formatName, isPictureCandidate, slideDuration } from './copy';
 import { OwnedCard } from './OwnedCard';
 import { PickAlternatives } from './PickAlternatives';
+import { answerLineCap, CARD_WIDTH, clampFontScale, estimateStripHeight, staleLineCap } from './stripHeight';
 
 export { useReduceMotion };
+export { CARD_WIDTH } from './stripHeight';
 
 /**
  * "Do I own this?" for a card the catalog lookup has not resolved (offline, or it failed). The server answers when it
  * can; otherwise the local copy answers fully — exact copies, soft matches, how old the answer is.
  */
-function OwnedAnswerLine({ code }: { code: string | null }) {
+function OwnedAnswerLine({ code, scale }: { code: string | null; scale: number }) {
   const answer = useOwnedLookup(code);
   const first = answer.owned[0];
   const soft = answer.softMatches[0];
@@ -34,11 +36,11 @@ function OwnedAnswerLine({ code }: { code: string | null }) {
   if (!line) return null;
   return (
     <View accessibilityLiveRegion="polite">
-      <Text variant="label" tone={first ? 'accent' : 'muted'}>
+      <Text variant="label" tone={first ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
         {line}
       </Text>
       {answer.staleMessage ? (
-        <Text variant="caption" tone="muted">
+        <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}
         </Text>
       ) : null}
@@ -47,7 +49,7 @@ function OwnedAnswerLine({ code }: { code: string | null }) {
 }
 
 /** A new card's soft matches, informational only: Add stays the default (docs/02 §7). */
-function SoftAnswerLine({ releaseId }: { releaseId: string }) {
+function SoftAnswerLine({ releaseId, scale }: { releaseId: string; scale: number }) {
   const answer = useOwnedLookup({ releaseId });
   const exact = answer.owned[0];
   const soft = answer.softMatches[0];
@@ -58,11 +60,11 @@ function SoftAnswerLine({ releaseId }: { releaseId: string }) {
     : alsoOwnLine(soft!.platform ?? formatName(soft!.format), soft!.locationPath);
   return (
     <View accessibilityLiveRegion="polite">
-      <Text variant="label" tone={exact ? 'accent' : 'muted'}>
+      <Text variant="label" tone={exact ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
         {line}
       </Text>
       {answer.staleMessage ? (
-        <Text variant="caption" tone="muted">
+        <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}
         </Text>
       ) : null}
@@ -104,11 +106,11 @@ export type CardActions = {
   wishlisted?: Record<string, true>;
 };
 
-export const CARD_WIDTH = 168;
-
 export function ResultCard({ candidate, actions, reduceMotion }: { candidate: CandidateDto; actions: CardActions; reduceMotion: boolean }) {
   const colors = useColors();
   const copy = describeCandidate(candidate);
+  const { fontScale } = useWindowDimensions();
+  const scale = clampFontScale(fontScale);
   const [slide] = useState(() => new Animated.Value(reduceMotion ? 1 : 0));
   useEffect(() => {
     Animated.timing(slide, { toValue: 1, duration: slideDuration(reduceMotion), useNativeDriver: true }).start();
@@ -166,7 +168,7 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
           </View>
         </Pressable>
         {copy.kind === 'owned' ? (
-          <OwnedCard candidate={candidate} copy={copy} actions={actions} />
+          <OwnedCard candidate={candidate} copy={copy} actions={actions} scale={scale} />
         ) : (
           <>
             {copy.status ? (
@@ -174,8 +176,10 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
                 {copy.status}
               </Text>
             ) : null}
-            {(copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode ? <OwnedAnswerLine code={candidate.rawCode} /> : null}
-            {copy.kind === 'new' && candidate.release ? <SoftAnswerLine releaseId={candidate.release.id} /> : null}
+            {(copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode ? (
+              <OwnedAnswerLine code={candidate.rawCode} scale={scale} />
+            ) : null}
+            {copy.kind === 'new' && candidate.release ? <SoftAnswerLine releaseId={candidate.release.id} scale={scale} /> : null}
             {copy.kind === 'added' && actions.onUndoAutoCommit ? (
               <Button
                 label="Undo"
@@ -230,12 +234,11 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
 
 export function ResultCards({ cards, actions }: { cards: CandidateDto[]; actions: CardActions }) {
   const reduceMotion = useReduceMotion();
-  // The strip is a fixed-height list, so it grows with Dynamic Type; the cards inside wrap their text.
   const { fontScale } = useWindowDimensions();
   if (cards.length === 0) return null;
   return (
-    // An owned card carries three actions under its answer, so the strip fits those; shorter cards keep their whitespace below.
-    <View testID="result-cards" style={{ height: Math.round(300 * Math.min(Math.max(fontScale, 1), 3)) }}>
+    // The strip fits its tallest card; shorter cards keep their whitespace below.
+    <View testID="result-cards" style={{ height: estimateStripHeight(cards, actions, fontScale) }}>
       <FlashList
         horizontal
         data={cards}

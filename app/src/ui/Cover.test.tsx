@@ -48,6 +48,18 @@ describe('Cover', () => {
 
     expect(screen.getByLabelText('Cover of Dune').props.sharedTransitionTag).toBeUndefined();
   });
+
+  it('keeps a narrow tile to one line so words never break mid-word', async () => {
+    await render(<Cover title="Code 97127666" width={44} />);
+
+    expect(screen.getByText('Code 97127666', { includeHiddenElements: true }).props.numberOfLines).toBe(1);
+  });
+
+  it('wraps a wide tile over three lines', async () => {
+    await render(<Cover title="The Legend of Zelda: Twilight Princess 9" width={96} />);
+
+    expect(screen.getByText('The Legend of Zelda: Twilight Princess 9', { includeHiddenElements: true }).props.numberOfLines).toBe(3);
+  });
 });
 
 describe('Cover for a cover this server names (#374)', () => {

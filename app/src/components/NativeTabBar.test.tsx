@@ -98,8 +98,12 @@ describe('NativeTabBar', () => {
 
     mockPathname.current = '/scan';
     mockTriggers.length = 0;
+    mockAccessoryChildren.current = undefined;
     await renderWithProviders(<NativeTabBar />);
-    expect(mockAccessoryChildren.current).toBeNull();
+    // An accessory with no child still renders its (empty) container above the
+    // tab bar (#373), so the accessory is gone entirely on the Scan tab.
+    expect(screen.queryByTestId('bottom-accessory')).toBeNull();
+    expect(mockAccessoryChildren.current).toBeUndefined();
     expect(screen.queryByText('Scan')).toBeNull();
   });
 });

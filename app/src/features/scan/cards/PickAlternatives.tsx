@@ -7,6 +7,11 @@ import { alternativesOf } from '@/features/review/grouping';
 import { spacing } from '@/theme/tokens';
 import { Button } from '@/ui';
 
+/** A pick button's label, shared with the strip-height estimator so wrapped labels are counted. */
+export function pickLabel(release: ReleaseDto): string {
+  return `${release.title}${release.year ? ` (${release.year})` : ''} ${formatLabels[release.format] ?? ''}`.trim();
+}
+
 export function PickAlternatives({
   candidate,
   disabled,
@@ -23,7 +28,7 @@ export function PickAlternatives({
       {alternatives.map((r) => (
         <Button
           key={r.id}
-          label={`${r.title}${r.year ? ` (${r.year})` : ''} ${formatLabels[r.format] ?? ''}`.trim()}
+          label={pickLabel(r)}
           accessibilityLabel={`Pick ${r.title}`}
           variant="secondary"
           disabled={disabled}

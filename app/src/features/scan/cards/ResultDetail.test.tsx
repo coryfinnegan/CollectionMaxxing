@@ -75,4 +75,14 @@ describe('result detail', () => {
     await renderWithProviders(<ResultDetail id="missing" />);
     expect(await screen.findByText("That result isn't here any more")).toBeTruthy();
   });
+
+  it('opens a barcode result as a hero that fills the screen', async () => {
+    const candidate = await seedSession(DEV_CODES.duneOwned);
+    useCardsStore.getState().merge([candidate], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    // No photo to show, so the facts card composes like the item detail hero instead of a small row over dead space (#373).
+    expect(await screen.findByTestId('result-hero')).toBeTruthy();
+    expect(screen.getByText('Dune')).toBeTruthy();
+  });
 });

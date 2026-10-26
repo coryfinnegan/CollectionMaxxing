@@ -73,7 +73,9 @@ export function Cover({ title, uri, width = 96, sharedTag }: CoverProps) {
       sharedTransitionTag={sharedTag}
       style={styles.tile({ width, height })}
     >
-      <Text variant="caption" numberOfLines={3}>
+      {/* A narrow tile cannot fit a word per line, so wrapped titles break
+          mid-word ("Cod e 9…"); one truncated line reads as a tile should (#373). */}
+      <Text variant="caption" numberOfLines={width < 64 ? 1 : 3}>
         {title}
       </Text>
     </Animated.View>

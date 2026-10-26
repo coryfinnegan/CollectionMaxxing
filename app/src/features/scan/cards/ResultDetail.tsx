@@ -1,8 +1,12 @@
 // Result detail (docs/06 M4): your own photo with the item boxed on it, the card's facts, where owned copies live, the add buttons,
 // Wrong item? Fix it, and Use my photo (the one place a picture is sent, and only the crop of this item, only when an editor taps).
+// First: this module needs Unistyles configured before it runs (#305).
+import '@/theme/unistyles';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Image, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet } from 'react-native-unistyles';
+import type { CandidateDto } from '@/api/generated/models';
 import { formatLabels } from '@/features/library/labels';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { radius, spacing, useColors } from '@/theme/tokens';
@@ -83,19 +87,21 @@ export function ResultDetail({ id }: { id: string }) {
         />
       ) : null}
       <Card>
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <Cover title={copy.title} uri={sentCrop ?? release?.coverUrl} width={96} />
-          <View style={{ flex: 1, gap: spacing.xs }}>
-            <Text variant="heading" accessibilityRole="header">
-              {copy.title}
-            </Text>
-            {release ? <FormatBadge label={formatLabels[release.format]} /> : null}
-            {release?.creators.length ? <Text tone="muted">{release.creators.join(', ')}</Text> : null}
-            <Text variant="mono" tone="muted">
-              {[release?.platform?.name, release?.year].filter(Boolean).join(' · ')}
-            </Text>
+        {context ? (
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <Cover title={copy.title} uri={sentCrop ?? release?.coverUrl} width={96} />
+            <View style={{ flex: 1, gap: spacing.xs }}>
+              <FactsText title={copy.title} release={release} />
+            </View>
           </View>
-        </View>
+        ) : (
+          // A barcode result has no photo above, so the facts compose like the item detail hero instead of a small
+          // row over dead space (#373). Same facts, no new copy.
+          <View testID="result-hero" style={heroStyles.hero}>
+            <Cover title={copy.title} uri={sentCrop ?? release?.coverUrl} width={160} />
+            <FactsText title={copy.title} release={release} />
+          </View>
+        )}
       </Card>
 
       <Card>
@@ -163,6 +169,25 @@ export function ResultDetail({ id }: { id: string }) {
     </SafeScreen>
   );
 }
+
+function FactsText({ title, release }: { title: string; release: CandidateDto['release'] }) {
+  return (
+    <>
+      <Text variant="heading" accessibilityRole="header">
+        {title}
+      </Text>
+      {release ? <FormatBadge label={formatLabels[release.format]} /> : null}
+      {release?.creators.length ? <Text tone="muted">{release.creators.join(', ')}</Text> : null}
+      <Text variant="mono" tone="muted">
+        {[release?.platform?.name, release?.year].filter(Boolean).join(' · ')}
+      </Text>
+    </>
+  );
+}
+
+const heroStyles = StyleSheet.create((theme) => ({
+  hero: { alignItems: 'center', gap: theme.spacing.sm },
+}));
 
 function SafeScreen({ children }: { children: ReactNode }) {
   const colors = useColors();
