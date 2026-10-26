@@ -1,7 +1,21 @@
 // Review's calls to the API, as plain functions over the generated client. Candidate answers are merged into the
 // shared cards store, so the scanner and Review always show the same candidate.
-import type { CandidateDto, CommitResultDto, DecideCandidateRequest, ScanSessionDto, UndoResultDto } from '@/api/generated/models';
-import { commitScanSession, decideCandidate, scanBarcodes, searchForCandidate, undoScanCommit } from '@/api/generated/scanning/scanning';
+import type {
+  CandidateDto,
+  CommitResultDto,
+  DecideCandidateRequest,
+  ScanSessionDto,
+  UndoAutoCommitResultDto,
+  UndoResultDto,
+} from '@/api/generated/models';
+import {
+  commitScanSession,
+  decideCandidate,
+  scanBarcodes,
+  searchForCandidate,
+  undoAutoCommit as undoAutoCommitRequest,
+  undoScanCommit,
+} from '@/api/generated/scanning/scanning';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { loadSessionSnapshot } from '@/features/scan/session/sessionApi';
@@ -33,6 +47,26 @@ export async function searchCandidate(
 export async function skipCandidate(sessionId: string, candidateId: string): Promise<void> {
   const rejected = await patchCandidate(sessionId, candidateId, { decision: 'rejected' });
   useCardsStore.getState().remove(rejected.id);
+}
+
+/**
+ * Takes back one T0 auto-add: the event's items go, and the candidate comes back with its evidence for the
+ * person to decide. One Idempotency-Key per attempt: a retry after a lost answer gets the first answer back.
+ */
+export async function undoAutoCommit(
+  sessionId: string,
+  candidateId: string | undefined,
+  key: string = newIdempotencyKey(),
+): Promise<CandidateDto> {
+  const response = await undoAutoCommitRequest(
+    sessionId,
+    candidateId === undefined ? null : { candidateId },
+    { headers: { 'Idempotency-Key': key } },
+  );
+  if (response.status !== 200) throw new ApiError(response.status, {});
+  const undone = (response.data as unknown as UndoAutoCommitResultDto).candidate;
+  keep(undone);
+  return undone;
 }
 
 /**

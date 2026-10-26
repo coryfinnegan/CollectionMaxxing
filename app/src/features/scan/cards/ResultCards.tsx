@@ -89,6 +89,8 @@ export type CardActions = {
   onSkip?(candidate: CandidateDto): void;
   /** Move it here on an owned card: the first exact copy moves to `moveTo`. */
   onMove?(candidate: CandidateDto): void;
+  /** Undo on an auto-added card: the auto-add is taken back and the card comes back undecided. */
+  onUndoAutoCommit?(candidate: CandidateDto): void;
   /** Null hides Move (in-store, Not placed). */
   moveTo?: MoveTarget | null;
   moveToast?: MoveToast | null;
@@ -172,6 +174,15 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
             ) : null}
             {(copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode ? <OwnedAnswerLine code={candidate.rawCode} /> : null}
             {copy.kind === 'new' && candidate.release ? <SoftAnswerLine releaseId={candidate.release.id} /> : null}
+            {copy.kind === 'added' && actions.onUndoAutoCommit ? (
+              <Button
+                label="Undo"
+                variant="secondary"
+                accessibilityLabel={`Undo adding ${copy.title}`}
+                busy={busy}
+                onPress={() => actions.onUndoAutoCommit?.(candidate)}
+              />
+            ) : null}
             {canFix ? (
               <Button label="Fix it" variant="secondary" accessibilityLabel={`Fix it: ${copy.title}`} onPress={() => actions.onFixIt?.(candidate)} />
             ) : null}

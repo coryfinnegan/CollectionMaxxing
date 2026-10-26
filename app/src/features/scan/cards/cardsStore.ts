@@ -3,10 +3,16 @@
 import { create } from 'zustand';
 import type { CandidateDto } from '@/api/generated/models';
 
-export type CardEvent = 'owned' | 'new' | 'not_found';
+export type CardEvent = 'owned' | 'new' | 'added' | 'not_found';
+
+/** Whether the candidate was added to the library by a T0 auto-add that still stands (#341). */
+export const isAutoCommitted = (c: Pick<CandidateDto, 'createdItemId'>): boolean => c.createdItemId != null;
 
 /** What the phone should say about a candidate once it is no longer pending; undefined for no sound at all. */
-export function announcementFor(c: Pick<CandidateDto, 'resolution' | 'alreadyOwnedCount'>): CardEvent | undefined {
+export function announcementFor(
+  c: Pick<CandidateDto, 'resolution' | 'alreadyOwnedCount' | 'createdItemId'>,
+): CardEvent | undefined {
+  if (isAutoCommitted(c)) return 'added';
   if (c.resolution === 'not_found') return 'not_found';
   if (c.resolution === 'matched' || c.resolution === 'ambiguous') return c.alreadyOwnedCount > 0 ? 'owned' : 'new';
   return undefined;

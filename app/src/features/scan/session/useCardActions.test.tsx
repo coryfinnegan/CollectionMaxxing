@@ -10,6 +10,7 @@ import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { itemsState, resetItems } from '@/mocks/items';
 import { deleteOwned, resetOwnershipMock, upsertOwned } from '@/mocks/ownership';
 import { scanMock } from '@/mocks/scan';
+import { reviewMock } from '@/mocks/scan-review';
 import { useLibraryStore } from '@/state/library';
 import { Snackbar } from '@/ui';
 import { renderWithProviders } from '@/test/render';
@@ -64,6 +65,7 @@ const press = async (label: string) => {
 
 beforeEach(() => {
   scanMock.reset();
+  reviewMock.reset();
   resetItems();
   resetOwnershipMock();
   setOwnedStorage(new MemoryOwnedStorage());
@@ -201,5 +203,47 @@ describe('the close call pick', () => {
     expect(upgraded.release?.id).toBe('r2');
     expect(upgraded.decision).toBe('accepted');
     expect(upgraded.guidanceCode).toBeNull();
+  });
+});
+
+describe('the auto-added card', () => {
+  const AUTO_ITEM_ID = 'c0000000-0000-4000-8000-0000000000a1';
+
+  const seedAdded = () => {
+    const added = { ...dune, id: 'c-added', alreadyOwnedCount: 0, ownedAt: [], createdItemId: AUTO_ITEM_ID } as CandidateDto;
+    scanMock.sessions.get(SESSION)!.candidates = [JSON.parse(JSON.stringify(added)) as CandidateDto];
+    useCardsStore.getState().reset();
+    useCardsStore.getState().merge([added], { announce: false });
+    const template = itemsState.entries[0]!;
+    itemsState.entries.push({ ...template, item: { ...template.item, id: AUTO_ITEM_ID } });
+  };
+
+  it('takes the auto-add back: the item goes and the card offers Add again', async () => {
+    seedAdded();
+    await renderWithProviders(<Harness />);
+    await screen.findByText('Added to your library');
+    expect(screen.queryByLabelText('Add Dune')).toBeNull();
+
+    await press('Undo adding Dune');
+
+    expect(await screen.findByLabelText('Add Dune')).toBeTruthy();
+    expect(screen.queryByText('Added to your library')).toBeNull();
+    expect(scanMock.sessions.get(SESSION)!.candidates[0]!.createdItemId).toBeNull();
+    expect(itemsState.entries.some((e) => e.item.id === AUTO_ITEM_ID)).toBe(false);
+    expect(itemsState.entries).toHaveLength(35);
+    expect(reviewMock.autoUndos).toEqual([{ sessionId: SESSION, key: expect.any(String), candidateId: 'c-added' }]);
+  });
+
+  it('says when the auto-add changed since and keeps the card added', async () => {
+    seedAdded();
+    reviewMock.failNextAutoUndo = 409;
+    await renderWithProviders(<Harness />);
+    await screen.findByText('Added to your library');
+
+    await press('Undo adding Dune');
+
+    expect(await screen.findByText('It changed since, so it stays in your library.')).toBeTruthy();
+    expect(screen.getByText('Added to your library')).toBeTruthy();
+    expect(itemsState.entries.some((e) => e.item.id === AUTO_ITEM_ID)).toBe(true);
   });
 });

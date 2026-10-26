@@ -6,6 +6,7 @@ import type { CandidateDto } from '@/api/generated/models';
 import { announceForScreenReader } from '@/lib/a11y/announce';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { summaryLine } from '../cards/copy';
+import { isAutoCommitted } from '../cards/cardsStore';
 import { spacing, useColors } from '@/theme/tokens';
 import { Button, GlassSurface, Text } from '@/ui';
 import type { PictureLine } from '../pipeline/lines';
@@ -87,6 +88,7 @@ function ReceiptRow({
   title,
   online,
   pending,
+  added,
   onPlusOne,
   onRemove,
 }: {
@@ -94,13 +96,14 @@ function ReceiptRow({
   title: string | undefined;
   online: boolean;
   pending: boolean;
+  added: boolean;
   onPlusOne(): void;
   onRemove(): void;
 }) {
   const colors = useColors();
   const { x, responder } = useSwipeToRemove(onRemove);
   const status = lineStatus(line, online);
-  const label = status === 'queued' ? 'QUEUED' : status === 'sending' || pending ? 'LOOKING UP' : '';
+  const label = status === 'queued' ? 'QUEUED' : status === 'sending' || pending ? 'LOOKING UP' : added ? 'ADDED' : '';
   const name = title ?? line.code;
   return (
     <Animated.View
@@ -223,6 +226,7 @@ export function ReceiptBar({
                 title={card?.release?.title}
                 online={online}
                 pending={card?.resolution === 'pending'}
+                added={card != null && isAutoCommitted(card)}
                 onPlusOne={() => onPlusOne(line.code)}
                 onRemove={() => onRemove(line.code)}
               />

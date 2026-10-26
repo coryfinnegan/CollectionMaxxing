@@ -38,6 +38,11 @@ export const reviewMock = {
   /** The items each session's commit made, so an undo can remove all of them (a candidate remembers only its first copy). */
   made: new Map<string, string[]>(),
   undoReplays: new Map<string, UndoResultDto>(),
+  /** Every auto-commit undo request the server received. */
+  autoUndos: [] as { sessionId: string; key: string | null; candidateId: string | null }[],
+  /** Set to make the next auto-commit undo answer with this status (404: nothing stands; 409: it changed since). */
+  failNextAutoUndo: null as number | null,
+  autoUndoReplays: new Map<string, unknown>(),
   reset() {
     this.searches = [];
     this.failNextCommit = false;
@@ -49,6 +54,9 @@ export const reviewMock = {
     this.failNextUndo = null;
     this.made = new Map();
     this.undoReplays = new Map();
+    this.autoUndos = [];
+    this.failNextAutoUndo = null;
+    this.autoUndoReplays = new Map();
   },
 };
 
@@ -225,6 +233,43 @@ export const handlers = [
     session.status = 'open';
     const result: UndoResultDto = { removed: made.length };
     reviewMock.undoReplays.set(`${session.id}:${key}`, result);
+    return HttpResponse.json(result);
+  }),
+
+  // MSW can't match the ":undo" suffix as a literal path segment either (and "auto-commit:undo" likewise).
+  http.post(/\/api\/v1\/scan-sessions\/([^/]+)\/auto-commit:undo$/, async ({ request }) => {
+    if (scanMock.role === 'viewer') return problem(403, 'Forbidden');
+    const parts = new URL(request.url).pathname.split('/');
+    const session = scanMock.sessions.get(String(parts[parts.indexOf('scan-sessions') + 1]));
+    if (!session) return problem(404, 'Not found');
+    const key = request.headers.get('Idempotency-Key');
+    const text = await request.text();
+    const parsed = text ? (JSON.parse(text) as { candidateId?: string | null } | null) : null;
+    const candidateId = parsed?.candidateId ?? null;
+    reviewMock.autoUndos.push({ sessionId: session.id, key, candidateId });
+    if (!key) return problem(400, 'An Idempotency-Key header is required.');
+    const replay = reviewMock.autoUndoReplays.get(`${session.id}:${key}`);
+    if (replay) return HttpResponse.json(replay);
+    if (reviewMock.failNextAutoUndo) {
+      const status = reviewMock.failNextAutoUndo;
+      reviewMock.failNextAutoUndo = null;
+      return problem(status, status === 409 ? 'It changed since, so it stays in your library.' : 'Nothing to undo.');
+    }
+    if (session.status !== 'open') return problem(409, 'This scan was already finished.');
+    const standing = session.candidates.filter((x) => x.createdItemId);
+    const target = candidateId ? standing.find((x) => x.id === candidateId) : [...standing].sort((a, b) => b.seq - a.seq)[0];
+    if (!target?.createdItemId) return problem(404, 'Nothing to undo.');
+    // Gone for good, like a commit undo: the candidate forgets the item and is sent again for Review.
+    const removedItemIds = [target.createdItemId];
+    for (const id of removedItemIds) {
+      const at = itemsState.entries.findIndex((e) => e.item.id === id);
+      if (at >= 0) itemsState.entries.splice(at, 1);
+    }
+    target.createdItemId = null;
+    target.seq = ++session.seq;
+    target.changeSeq = target.seq;
+    const result = { removedItemIds, candidate: target };
+    reviewMock.autoUndoReplays.set(`${session.id}:${key}`, result);
     return HttpResponse.json(result);
   }),
 

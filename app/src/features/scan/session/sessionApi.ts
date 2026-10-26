@@ -11,14 +11,27 @@ import type { SseMessage } from '@/lib/sse';
 import { connectSse } from '@/lib/sse';
 import { useCardsStore, type CardEvent } from '../cards/cardsStore';
 import type { FlushDeps } from '../tray/trayStore';
+import { useAutoCommitUndoStore } from './autoCommitUndo';
 import { seedFromSnapshot, seedSessionCounters } from './sessionCounters';
 
 let chain: Promise<unknown> = Promise.resolve();
 
-/** Plays result haptics one after another, so six cards arriving together do not buzz over each other. */
-export function announce(events: { event: CardEvent }[]) {
-  for (const { event } of events) {
-    chain = chain.then(() => (event === 'owned' ? haptics.owned() : event === 'new' ? haptics.isNew() : haptics.notFound()));
+/**
+ * Plays result haptics one after another, so six cards arriving together do not buzz over each other.
+ * An auto-add also becomes the session's "last add" for the Undo snackbar, when the session is known.
+ */
+export function announce(events: { id: string; event: CardEvent }[], sessionId?: string) {
+  for (const { id, event } of events) {
+    chain = chain.then(() =>
+      event === 'owned'
+        ? haptics.owned()
+        : event === 'new'
+          ? haptics.isNew()
+          : event === 'added'
+            ? haptics.succeed()
+            : haptics.notFound(),
+    );
+    if (event === 'added' && sessionId) useAutoCommitUndoStore.getState().setLast({ sessionId, candidateId: id });
   }
 }
 
@@ -53,7 +66,7 @@ export function flushDeps(libraryId: string, sessionBody: () => CreateScanSessio
         { headers: { 'Idempotency-Key': batch.key } },
       );
       if (response.status !== 200) throw new ApiError(response.status, {});
-      announce(useCardsStore.getState().merge(response.data.candidates));
+      announce(useCardsStore.getState().merge(response.data.candidates), sessionId);
     },
     classify(error) {
       if (!(error instanceof ApiError)) return { offline: true }; // fetch itself failed: no connection
@@ -97,10 +110,11 @@ export function routeSessionMessage(sessionId: string, message: SseMessage) {
     }
     return;
   }
-  if (message.event !== 'candidate.added' && message.event !== 'candidate.updated') return;
+  if (message.event !== 'candidate.added' && message.event !== 'candidate.updated' && message.event !== 'candidate.auto_committed')
+    return;
   try {
     const candidate = JSON.parse(message.data) as Partial<CandidateDto>;
-    announce(useCardsStore.getState().merge([candidate]));
+    announce(useCardsStore.getState().merge([candidate]), sessionId);
   } catch {
     // a malformed event is skipped; the next one or the next poll fills the gap
   }

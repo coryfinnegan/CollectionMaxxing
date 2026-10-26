@@ -22,6 +22,7 @@ import type { Resizer } from '../autosnap/snapPhoto';
 import { FixItSheet } from '../pipeline/FixItSheet';
 import type { PipelineDeps } from '../pipeline/SnapPipeline';
 import { usePipeline } from '../pipeline/usePipeline';
+import { AutoCommitSnackbar } from '../session/AutoCommitSnackbar';
 import { useCardActions } from '../session/useCardActions';
 import { SegmentStrip } from '../session/SegmentStrip';
 import { SegmentViewer } from '../session/SegmentViewer';
@@ -320,13 +321,14 @@ export function ScannerScreen({
             />
           </View>
         ) : null}
+        <AutoCommitSnackbar />
         <ResultCards cards={session.cards} actions={actions} />
         {viewingSnap ? (
           <View style={sheetStyles.wrap}>
             <SegmentViewer libraryId={libraryId} initialSnapId={viewingSnap} onClose={() => setViewingSnap(null)} />
           </View>
         ) : null}
-        <SessionCountersBar libraryId={libraryId} sessionId={session.sessionId} />
+        <SessionCountersBar libraryId={libraryId} sessionId={session.sessionId} canAdd={canAdd} />
         {pictures.enabled ? <SegmentStrip libraryId={libraryId} onSelect={setViewingSnap} /> : null}
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar

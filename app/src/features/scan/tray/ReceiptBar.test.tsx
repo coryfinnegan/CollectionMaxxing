@@ -1,6 +1,8 @@
 // The scanner count bar (#306): a frosted dock over the camera on iOS 26+, the surface bar elsewhere.
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
+import type { CandidateDto } from '@/api/generated/models';
 import { ReceiptBar } from './ReceiptBar';
+import type { TrayLine } from './tray';
 
 const mockGlassState = { available: false };
 
@@ -33,5 +35,34 @@ describe('ReceiptBar glass', () => {
 
     expect(screen.getByLabelText('liquid glass')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Show the receipt/ })).toBeTruthy();
+  });
+});
+
+describe('ReceiptBar auto-add', () => {
+  const line: TrayLine = { code: '9780441172719', symbology: 'ean-13', copies: 1, sentCopies: 1, addedAt: 1, lastSeenAt: 1 };
+  const card = (createdItemId: string | null) =>
+    ({ id: 'c1', rawCode: '9780441172719', resolution: 'matched', createdItemId, release: { title: 'Dune' } }) as unknown as CandidateDto;
+
+  const openReceipt = async (cards: CandidateDto[]) => {
+    mockGlassState.available = false;
+    await render(
+      <ReceiptBar lines={[line]} cards={cards} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
+    );
+    fireEvent.press(screen.getByLabelText('1 item. Show the receipt'));
+  };
+
+  it('marks an auto-added line ADDED', async () => {
+    await openReceipt([card('item-1')]);
+
+    expect(await screen.findByText('ADDED')).toBeTruthy();
+    expect(screen.getByLabelText('Dune, 1 copy, added')).toBeTruthy();
+  });
+
+  it('leaves a resolved-but-not-added line unmarked', async () => {
+    await openReceipt([card(null)]);
+
+    expect(await screen.findByText('Dune')).toBeTruthy();
+    expect(screen.queryByText('ADDED')).toBeNull();
+    expect(screen.getByLabelText('Dune, 1 copy')).toBeTruthy();
   });
 });
