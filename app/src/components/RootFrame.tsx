@@ -10,9 +10,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { installForegroundRegistration } from '@/features/auth/appSignIn';
 import { installAuth } from '@/features/auth/bootstrap';
 import { installFocusRing } from '@/lib/a11y/webFocusRing';
+import { applyAppearance, useAppearanceChoice } from '@/theme/appearance';
 import { useAppFonts } from '@/theme/fonts';
 import { useNavigationTheme } from '@/theme/navigationTheme';
 import { darkColors, useColors } from '@/theme/tokens';
+import { useCastleThemeSetting } from '@/ui/castle/mode';
+import { useDragonAppearance } from '@/ui/mascot/appearances';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -29,6 +32,13 @@ export function RootFrame({ children }: { children: ReactNode }) {
   // iPhone: foreground returns re-register this install when the last registration is more than a day old.
   useEffect(() => installForegroundRegistration(), []);
   useEffect(installFocusRing, []);
+  // The kept display choices load before the first screen so the frame, the dragon and the scheme start right.
+  useEffect(() => {
+    useCastleThemeSetting.getState().reload();
+    useDragonAppearance.getState().reload();
+    useAppearanceChoice.getState().reload();
+    applyAppearance(useAppearanceChoice.getState().choice);
+  }, []);
   // The browser paints the page behind the app (overscroll, address-bar gaps) with the document background: keep it on our ground color.
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
