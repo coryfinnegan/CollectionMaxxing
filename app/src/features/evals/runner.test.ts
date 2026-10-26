@@ -7,22 +7,27 @@ import { evalsMock } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import { failedRead, makeKit, uriOf } from './evalsTestKit';
+import { modelItem, okRead } from '@/features/scan/recognition/fakes';
 
 interface Result {
   photoId: string;
   engine: string;
   outcome: string;
   fellBackFrom?: string;
-  items: { title: string; localId: string }[];
+  items: { title: string; localId: string; tier?: string; provisional?: boolean; isGuess?: boolean; segmentId?: string }[];
   unreadableCount: number;
   latencyMs: number;
   firstItemMs?: number;
   thermalState: string;
+  capturedCount?: number;
+  capturedAt?: string;
+  duplicateRescan?: { ownedHits: number; answeredOnCard: number; unsolicitedAdds: number };
 }
 interface Body {
   device: { model: string; osVersion: string; appVersion: string };
   configVersion: string;
   partial?: EvalRunRequest['partial'];
+  baselineNote?: string;
   results: Result[];
 }
 const runs = () => evalsMock.runs as Body[];
@@ -206,6 +211,104 @@ describe('the eval runner', () => {
     await kit.runner.start();
     expect(runs()[0].results.map((r) => r.photoId)).toEqual(['photo-001', 'photo-001', 'photo-003', 'photo-003']);
     expect(kit.runner.getState().skipped).toEqual(['photo-002']);
+  });
+
+  it('claims T1 for high-confidence reads and keeps the rest as guesses for a human', async () => {
+    const kit = makeKit({
+      photos: 2,
+      scenes: {
+        'photo-001': {
+          read: okRead([
+            modelItem('Sure thing', 'Sure thing', 0, { confidence: 'high' }),
+            modelItem('Maybe thing', 'Maybe thing', 1, { confidence: 'medium' }),
+            modelItem('Wild guess', 'Wild guess', 2, { confidence: 'low' }),
+          ]),
+        },
+      },
+    });
+    await kit.runner.start();
+    const model = runs()[0].results.filter((r) => r.engine === 'apple_model');
+    const first = model.find((r) => r.photoId === 'photo-001');
+    expect(first).toBeDefined();
+    expect(first?.items).toMatchObject([
+      { title: 'Sure thing', tier: 'T1', provisional: false },
+      { title: 'Maybe thing', provisional: true, isGuess: true },
+      { title: 'Wild guess', provisional: true, isGuess: true },
+    ]);
+    expect(first?.items[0]).not.toHaveProperty('isGuess');
+    expect(first?.items[1]).not.toHaveProperty('tier');
+    expect(first?.items[2]).not.toHaveProperty('tier');
+    // the Vision text engine only guesses, so every one of its rows is kept, never auto-added
+    for (const row of runs()[0].results.filter((r) => r.engine === 'vision_pipeline')) {
+      expect(row.items.length).toBeGreaterThan(0);
+      for (const item of row.items) {
+        expect(item).toMatchObject({ provisional: true, isGuess: true });
+        expect(item).not.toHaveProperty('tier');
+      }
+    }
+  });
+
+  it('stamps one segment id on each read and reconciles capturedCount with it', async () => {
+    const kit = makeKit({ photos: 3 });
+    await kit.runner.start();
+    const segments = new Set<string>();
+    for (const row of runs()[0].results) {
+      expect(row.items.length).toBeGreaterThan(0);
+      const ids = new Set(row.items.map((i) => i.segmentId));
+      expect(ids.size).toBe(1); // the read's items share its segment
+      const [segment] = [...ids];
+      expect(typeof segment).toBe('string');
+      expect(segment?.length).toBeGreaterThan(0);
+      if (segment) segments.add(segment);
+      expect(row.capturedCount).toBe(row.unreadableCount + 1);
+    }
+    expect(segments.size).toBe(runs()[0].results.length); // each read mints its own
+  });
+
+  it('stamps capturedAt when each read starts', async () => {
+    const kit = makeKit({ photos: 2 });
+    const before = Date.now();
+    await kit.runner.start();
+    const after = Date.now();
+    for (const row of runs()[0].results) {
+      const stamped = Date.parse(row.capturedAt ?? '');
+      expect(Number.isNaN(stamped)).toBe(false);
+      expect(stamped).toBeGreaterThanOrEqual(before);
+      expect(stamped).toBeLessThanOrEqual(after);
+    }
+  });
+
+  it('sends the baseline note when the run carries one, and leaves it out otherwise', async () => {
+    const kit = makeKit({ photos: 1 });
+    await kit.runner.start({ baselineNote: 'T1 bar moved 0.90 to 0.92 for the acceptance re-run.' });
+    expect(runs()[0].baselineNote).toBe('T1 bar moved 0.90 to 0.92 for the acceptance re-run.');
+
+    const plain = makeKit({ photos: 1 });
+    await plain.runner.start();
+    expect(plain.runner.getState().phase).toBe('done');
+    expect(runs()[1]).not.toHaveProperty('baselineNote');
+
+    const blank = makeKit({ photos: 1 });
+    await blank.runner.start({ baselineNote: '   ' });
+    expect(runs()[2]).not.toHaveProperty('baselineNote');
+  });
+
+  it('keeps the baseline note when the upload is retried', async () => {
+    const kit = makeKit({ photos: 1 });
+    evalsMock.failNextSubmit = 500;
+    await kit.runner.start({ baselineNote: 'Threshold move, re-run.' });
+    expect(kit.runner.getState().phase).toBe('upload_failed');
+    await kit.runner.retryUpload();
+    expect(runs()).toHaveLength(1);
+    expect(runs()[0].baselineNote).toBe('Threshold move, re-run.');
+  });
+
+  it('sends no duplicate evidence: the runner never touches the library', async () => {
+    const kit = makeKit({ photos: 2 });
+    await kit.runner.start();
+    for (const row of runs()[0].results) {
+      expect(row).not.toHaveProperty('duplicateRescan');
+    }
   });
 
   describe('locked: what leaves the phone and what the runner may touch', () => {
