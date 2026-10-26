@@ -126,6 +126,20 @@ const resolved = (entry: Known): Partial<CandidateDto> => ({
   ownedAt: entry.owned.map((o) => o.locationPath),
 });
 
+/** The session's live counters, bucketed like the server: added, then owned, then rejected, else to review. */
+function countSession(session: MockSession) {
+  const open = (session.provisionals ?? []).filter((p) => p.resolvedAt === null).length;
+  const counters = { captured: open, added: 0, toReview: open, owned: 0, skipped: 0 };
+  for (const c of session.candidates) {
+    counters.captured += 1;
+    if (c.createdItemId != null) counters.added += 1;
+    else if (c.alreadyOwnedCount > 0) counters.owned += 1;
+    else if (c.decision === 'rejected') counters.skipped += 1;
+    else counters.toReview += 1;
+  }
+  return counters;
+}
+
 function emit(session: MockSession, event: string, candidate: CandidateDto) {
   const text = `event: ${event}\nid: ${candidate.changeSeq}\ndata: ${JSON.stringify(candidate)}\n\n`;
   for (const stream of scanMock.streams) {
@@ -226,6 +240,7 @@ export const handlers = [
       committedAt: null,
       candidates: session.candidates.filter((c) => c.changeSeq > since),
       provisionals: (session.provisionals ?? []).filter((p) => p.resolvedAt === null),
+      counters: countSession(session),
     });
   }),
 
