@@ -26,7 +26,7 @@ import { SessionSheet } from '../session/SessionSheet';
 import { defaultSessionContext, sessionCreateBody, type SessionContext } from '../session/sessionContext';
 import { ReceiptBar } from '../tray/ReceiptBar';
 import { fixed, spacing, useColors } from '@/theme/tokens';
-import { Button, Chip, Text } from '@/ui';
+import { Button, Chip, Snackbar, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
 import { FakeScannerSource, type ScannerSource } from './ScannerSource';
 import { ScannerSearch } from './ScannerSearch';
@@ -88,7 +88,13 @@ export function ScannerScreen({
   const body = useMemo(() => sessionCreateBody(context), [context]);
   const session = useScanSession({ libraryId, sources, tuning, sessionBody: body });
   const { canAdd } = useLibraryRole(libraryId);
-  const cardActions = useCardActions({ libraryId, sessionId: session.sessionId, canAdd });
+  // "Move it here" moves to the session spot; in-store defers the location, so the card hides Move there.
+  const cardActions = useCardActions({
+    libraryId,
+    sessionId: session.sessionId,
+    canAdd,
+    moveToLocationId: context.channel === 'home' ? context.locationId : null,
+  });
   const [fixing, setFixing] = useState<CandidateDto | null>(null);
   const actions: CardActions = useMemo(() => ({ ...cardActions, onFixIt: setFixing }), [cardActions]);
   const [flash, setFlash] = useState(false);
@@ -237,6 +243,15 @@ export function ScannerScreen({
             <ScannerSearch libraryId={libraryId} onClose={() => setSheet(null)} />
           </View>
         ) : null}
+        {actions.moveToast ? (
+          <View style={sheetStyles.snack}>
+            <Snackbar
+              message={actions.moveToast.message}
+              actionLabel={actions.moveToast.canUndo ? 'Undo' : undefined}
+              onAction={actions.moveToast.canUndo ? actions.onUndoMove : undefined}
+            />
+          </View>
+        ) : null}
         <ResultCards cards={session.cards} actions={actions} />
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
@@ -261,4 +276,5 @@ export function ScannerScreen({
 
 const sheetStyles = Unistyles.create((theme) => ({
   wrap: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
+  snack: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
 }));
