@@ -65,7 +65,7 @@ export const poses: Record<MascotPose, PoseConfig> = {
     layers: { ...all },
     lid: 'closed',
     puffs: 3,
-    shifts: { head: { y: 6, rotate: -8, cx: 150, cy: 90 }, book: { y: 12 } },
+    shifts: { head: { y: 10, rotate: -12, cx: 150, cy: 90 }, book: { y: 12 } },
   },
   /** A hop with the head up. */
   celebrating: { layers: { ...all }, lid: 'open', puffs: 0, shifts: { head: { y: -8 } }, motion: 'hop' },
@@ -74,7 +74,7 @@ export const poses: Record<MascotPose, PoseConfig> = {
     layers: { ...all },
     lid: 'squint',
     puffs: 0,
-    shifts: { head: { x: 8, rotate: 6, cx: 150, cy: 90 }, wing: { rotate: -14, cx: 95, cy: 110 }, book: { y: 14 } },
+    shifts: { head: { x: 12, rotate: 6, cx: 150, cy: 90 }, wing: { rotate: -20, cx: 95, cy: 110 }, book: { y: 14 } },
   },
   /** No pile: the dragon sits on the ground, looking around. */
   emptyHoard: {
@@ -110,7 +110,7 @@ export const poses: Record<MascotPose, PoseConfig> = {
     layers: { hoard: true, tail: false, body: false, wing: true, head: true, horns: true, book: false, page: false, shield: false },
     lid: 'open',
     puffs: 0,
-    shifts: { head: { y: 68 }, wing: { x: -8, y: 58 } },
+    shifts: { head: { y: 78 }, wing: { x: -4, y: 68 } },
     motion: 'bob',
   },
 };
