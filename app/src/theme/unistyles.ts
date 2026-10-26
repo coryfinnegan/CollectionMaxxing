@@ -3,9 +3,9 @@
 // breakpoint matches WIDE_BREAKPOINT (768). adaptiveThemes keeps the app
 // following the system scheme, as useColorScheme does today.
 import { StyleSheet } from 'react-native-unistyles';
-import { darkColors, fixed, lightColors, radius, spacing, typeScale } from './tokens';
+import { castle, darkColors, fixed, lightColors, radius, spacing, typeScale } from './tokens';
 
-const shared = { spacing, radius, type: typeScale, fixed };
+const shared = { spacing, radius, type: typeScale, fixed, castle };
 const appThemes = {
   light: { colors: lightColors, ...shared },
   dark: { colors: darkColors, ...shared },
