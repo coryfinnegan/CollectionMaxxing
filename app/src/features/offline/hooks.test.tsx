@@ -10,6 +10,7 @@ import { renderWithProviders } from '@/test/render';
 import { getBulkItemsMutationKey, getRematchItemMutationKey } from '@/api/generated/items/items';
 import { useOwnedLookup, useOwnedSync } from './hooks';
 import { getOwnedCache, MemoryOwnedStorage, setOwnedStorage } from './ownedCache';
+import { createOwnedIndex } from './ownedIndex';
 import { syncLibrary } from './sync';
 
 const H = 3_600_000;
@@ -55,6 +56,18 @@ describe('useOwnedLookup offline', () => {
     await renderWithProviders(<Answer code="042100005264" />);
 
     expect(await screen.findByText('soft:dvd')).toBeTruthy();
+  });
+
+  it('names the oldest copy first when several exact copies sit at different shelves', async () => {
+    const state = getOwnedCache(MOCK_LIBRARY_ID).state;
+    const oldest = state.index.entries().find((e) => e.identifiers.includes('0042100005264'))!;
+    const newer = { ...oldest, itemId: '00000009-0000-4000-8000-000000000000', locationPath: 'Basement' };
+    getOwnedCache(MOCK_LIBRARY_ID).commit({ ...state, index: createOwnedIndex([newer, ...state.index.entries()]) });
+
+    await renderWithProviders(<Answer code="042100005264" />);
+
+    expect(await screen.findByText('owned:Jaws (vhs) at Living room › Shelf B | Jaws (vhs) at Basement')).toBeTruthy();
+    expect(screen.getByText('source:local')).toBeTruthy();
   });
 
   it('says "Not in your library" for a code the library does not own', async () => {
