@@ -33,7 +33,7 @@ public sealed class ResolvePendingCandidate(
     ISessionLock sessionLock,
     BarcodeResolver external,
     CandidateResolver resolver,
-    AutoCommitT0 autoCommit,
+    AutoCommit autoCommit,
     ScanningOptions options,
     IJobQueue jobs,
     TimeProvider clock,

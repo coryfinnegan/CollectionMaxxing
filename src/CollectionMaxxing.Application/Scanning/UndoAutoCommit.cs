@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Application.Scanning;
 
 /// <summary>
-/// Use case: take back one T0 auto-add (docs/16 §6). The event's items are removed <em>for good</em> (not into Recently
+/// Use case: take back one auto-add, T0 or T1 (docs/16 §6). The event's items are removed <em>for good</em> (not into Recently
 /// deleted), the barcode link it taught is taken back unless a standing auto-add still uses it, and the candidate goes back
 /// to needing eyes with its evidence (match, score, alternatives) intact. One transaction: all of it or none of it.
 /// <para>

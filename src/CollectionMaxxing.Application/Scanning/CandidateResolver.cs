@@ -53,14 +53,28 @@ public sealed class CandidateResolver(
     /// three, who already owns it, and what to do by default. Saves nothing; the caller saves.
     /// <paramref name="fromIdentifier"/> is true when the answer comes from a barcode (a normalized identifier), the only
     /// path that can reach T0. <paramref name="copiesMode"/> is true when the session opted into copies: an exact-owned
-    /// hit is accepted (and T0) instead of skipped.
+    /// barcode hit is accepted (and T0) instead of skipped; a T1 never is (docs/16 §15).
     /// </summary>
     public async Task ApplyAsync(
         Guid libraryId, ScanCandidate candidate, BarcodeResolution resolution, CancellationToken cancellationToken,
         bool fromIdentifier = false, bool copiesMode = false)
     {
-        // The series-volume veto lands first: a vetoed match is Ambiguous however high it scored, so the person picks.
-        var verdict = fromIdentifier && VetoApplies(resolution) ? ResolutionVerdict.Ambiguous : resolution.Verdict;
+        // The options' releases are ensured before the verdict is final: the veto and the tier read what the options
+        // point at (a local option carries no title of its own), and a vetoed match is Ambiguous however high it scored.
+        var ensured = new List<EnsuredRelease>();
+        if (resolution.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
+        {
+            foreach (var option in resolution.Options.Take(MaxAlternatives))
+            {
+                ensured.Add(option.LocalReleaseId is { } local
+                    ? new EnsuredRelease(local, false)
+                    : await releases.EnsureAsync(option.Provider!, cancellationToken));
+            }
+        }
+
+        var taken = resolution.Options.Take(MaxAlternatives).Zip(ensured, (option, release) => (option, release.Id)).ToList();
+        var facts = await ReleaseFactsAsync(ensured, cancellationToken);
+        var verdict = VetoApplies(resolution, taken, facts) ? ResolutionVerdict.Ambiguous : resolution.Verdict;
         candidate.Resolution = verdict switch
         {
             ResolutionVerdict.Matched => CandidateResolution.Matched,
@@ -82,14 +96,6 @@ public sealed class CandidateResolver(
         if (verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
         {
             var alternatives = new List<StoredAlternative>();
-            var ensured = new List<EnsuredRelease>();
-            foreach (var option in resolution.Options.Take(MaxAlternatives))
-            {
-                ensured.Add(option.LocalReleaseId is { } local
-                    ? new EnsuredRelease(local, false)
-                    : await releases.EnsureAsync(option.Provider!, cancellationToken));
-            }
-
             var known = await CandidateProjection.LoadReleasesAsync(
                 db, ensured.Where(e => !e.IsNew).Select(e => e.Id).ToList(), cancellationToken);
             for (var i = 0; i < ensured.Count; i++)
@@ -123,7 +129,7 @@ public sealed class CandidateResolver(
             candidate.AlternativesJson = CandidateJson.Serialize(alternatives);
         }
 
-        candidate.Tier = EvaluateTier(verdict, resolution.Options.Count, firstOwned, fromIdentifier, copiesMode);
+        candidate.Tier = EvaluateTier(verdict, resolution, taken, facts, firstOwned, fromIdentifier, copiesMode, candidate.ShotKind);
 
         if (resolution.ProductTitle is { } productTitle && candidate.VisibleText is null)
         {
@@ -140,7 +146,7 @@ public sealed class CandidateResolver(
         // A code that found the UPC allowance spent waits for the nightly drain: say when it will next be tried.
         DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
         candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
-            resolution.Steps, ownedAt, NeedsArt(candidate, resolution), autoDecision, retryAfter));
+            resolution.Steps, ownedAt, NeedsArt(candidate, resolution with { Verdict = verdict }), autoDecision, retryAfter));
     }
 
     /// <summary>
@@ -168,27 +174,117 @@ public sealed class CandidateResolver(
     }
 
     /// <summary>
-    /// The commit tier of an answer (docs/16 §6): T0 is a barcode-proof hit, a normalized identifier resolving to exactly
-    /// one release that the library does not already own (unless the session opted into copies). Anything else is T2,
-    /// reviewed by the person. Pending has no tier yet. (T1 lands with the spine/cover path in issue #343.)
+    /// The commit tier of an answer (docs/16 §6, §16). T0 is a barcode-proof hit: a normalized identifier resolving to
+    /// exactly one release the library does not already own (unless the session opted into copies). T1 is a
+    /// high-confidence spine or cover: <see cref="MatchScorer"/> Matched (the 0.90 + 0.08 lead rules,
+    /// re-checked on the scores kept), every contender one work, the series-volume rule clear, the library not
+    /// owning it, and a spine/cover shot (a loose item is always T2, never T1). Anything else is T2, reviewed by the
+    /// person. Pending has no tier yet. <paramref name="verdict"/> is the verdict after the veto.
     /// </summary>
-    private static ScanTier? EvaluateTier(ResolutionVerdict verdict, int options, int firstOwned, bool fromIdentifier, bool copiesMode)
+    private ScanTier? EvaluateTier(
+        ResolutionVerdict verdict,
+        BarcodeResolution resolution,
+        List<(ResolutionOption Option, Guid ReleaseId)> taken,
+        Dictionary<Guid, ReleaseFact> facts,
+        int firstOwned,
+        bool fromIdentifier,
+        bool copiesMode,
+        ShotKind shotKind)
     {
         if (verdict == ResolutionVerdict.Pending)
         {
             return null;
         }
 
-        return fromIdentifier && verdict == ResolutionVerdict.Matched && options == 1 && (firstOwned == 0 || copiesMode)
-            ? ScanTier.T0
-            : ScanTier.T2;
+        if (fromIdentifier && verdict == ResolutionVerdict.Matched && resolution.Options.Count == 1 && (firstOwned == 0 || copiesMode))
+        {
+            return ScanTier.T0;
+        }
+
+        if (!fromIdentifier
+            && verdict == ResolutionVerdict.Matched
+            && shotKind is ShotKind.SingleCover or ShotKind.ShelfSegment or ShotKind.Unknown
+            && firstOwned == 0
+            && MatchedByScores(taken)
+            && SingleWork(taken, facts))
+        {
+            return ScanTier.T1;
+        }
+
+        return ScanTier.T2;
+    }
+
+    /// <summary>
+    /// The Matched rules (0.90 + 0.08 lead) on the scores kept, best against runner-up (a lone option has no
+    /// runner-up). The verdict already passed them on the full pool; this pins the tier to the same rules whatever
+    /// path produced the answer.
+    /// </summary>
+    private bool MatchedByScores(List<(ResolutionOption Option, Guid ReleaseId)> taken)
+    {
+        if (taken.Count == 0)
+        {
+            return false;
+        }
+
+        var scores = taken.Select(t => t.Option.Score).OrderDescending().ToList();
+        return MatchScorer.Classify(scores[0], scores.Count > 1 ? scores[1] : null, scoring.CurrentValue.Thresholds)
+            == MatchOutcome.Matched;
+    }
+
+    /// <summary>
+    /// Single-work agreement (docs/16 §6): every contender — every option at or above the Ambiguous band — is a
+    /// release of one work. A lone contender trivially agrees; an option pointing nowhere known does not.
+    /// </summary>
+    private bool SingleWork(List<(ResolutionOption Option, Guid ReleaseId)> taken, Dictionary<Guid, ReleaseFact> facts)
+    {
+        var band = scoring.CurrentValue.Thresholds.AmbiguousScore;
+        Guid? work = null;
+        foreach (var (_, releaseId) in taken.Where(t => t.Option.Score >= band))
+        {
+            if (!facts.TryGetValue(releaseId, out var fact))
+            {
+                return false;
+            }
+
+            work ??= fact.WorkId;
+            if (fact.WorkId != work)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>What the tier and the veto read off an option's release: its work, and the title the veto compares.</summary>
+    private sealed record ReleaseFact(Guid WorkId, string Title);
+
+    /// <summary>
+    /// The work and title of each ensured release, by release id. Reads through the change tracker first, so a
+    /// release (or work) this same answer just ensured is found before it is saved.
+    /// </summary>
+    private async Task<Dictionary<Guid, ReleaseFact>> ReleaseFactsAsync(List<EnsuredRelease> ensured, CancellationToken cancellationToken)
+    {
+        var facts = new Dictionary<Guid, ReleaseFact>();
+        foreach (var id in ensured.Select(e => e.Id).Distinct())
+        {
+            if (await db.Releases.FindAsync([id], cancellationToken) is { } release
+                && await db.Works.FindAsync([release.WorkId], cancellationToken) is { } work)
+            {
+                facts[id] = new ReleaseFact(release.WorkId, work.Title);
+            }
+        }
+
+        return facts;
     }
 
     /// <summary>
     /// The series-volume veto (docs/16 §6): two same-series options with different volumes inside the Ambiguous band force
-    /// the person to pick, however high the winner scored. No threshold tuning overrides it; pinned by a locked test.
+    /// the person to pick, however high the winner scored. A provider option is compared by the title it answered with;
+    /// a local option by its work's title. No threshold tuning overrides it; pinned by locked tests.
     /// </summary>
-    private bool VetoApplies(BarcodeResolution resolution)
+    private bool VetoApplies(
+        BarcodeResolution resolution, List<(ResolutionOption Option, Guid ReleaseId)> taken, Dictionary<Guid, ReleaseFact> facts)
     {
         if (resolution.Verdict != ResolutionVerdict.Matched || resolution.Options.Count < 2)
         {
@@ -196,9 +292,10 @@ public sealed class CandidateResolver(
         }
 
         var band = scoring.CurrentValue.Thresholds.AmbiguousScore;
-        var titles = resolution.Options
-            .Where(o => o.Provider?.Title is not null && o.Score >= band)
-            .Select(o => o.Provider!.Title!)
+        var titles = taken
+            .Where(t => t.Option.Score >= band)
+            .Select(t => t.Option.Provider?.Title ?? (facts.TryGetValue(t.ReleaseId, out var fact) ? fact.Title : null))
+            .OfType<string>()
             .ToList();
         for (var i = 0; i < titles.Count; i++)
         {

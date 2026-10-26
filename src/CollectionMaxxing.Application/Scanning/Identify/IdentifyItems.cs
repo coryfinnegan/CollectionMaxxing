@@ -36,6 +36,7 @@ public static class IdentifyItems
         ISessionLock sessionLock,
         IdentifyGrounding grounding,
         CandidateResolver resolver,
+        AutoCommit autoCommit,
         IJobQueue jobs,
         ScanningOptions options,
         ILogger<Handler> logger)
@@ -262,12 +263,26 @@ public static class IdentifyItems
                 answers[candidate.Id] = grounding.Score(item.Facts, item.Profile, local[candidate.Id], providers);
             }
 
-            foreach (var (candidate, _) in fresh)
+            // The answers land under the session's lock: the session is reloaded inside it (another request may
+            // have auto-added while the providers were being asked), and two auto-adds landing together both append
+            // instead of one overwriting the other.
+            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
             {
-                await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken);
+                await db.ScanSessions.Entry(session).ReloadAsync(cancellationToken);
+                if (db.ScanSessions.Entry(session).State == EntityState.Detached)
+                {
+                    return; // cleaned up mid-resolve; the answers die with the session
+                }
+
+                foreach (var (candidate, _) in fresh)
+                {
+                    await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken);
+                    await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken);
+                }
+
+                await db.SaveChangesAsync(cancellationToken);
             }
 
-            await db.SaveChangesAsync(cancellationToken);
             await EnqueueResolveJobsAsync(session, fresh.Select(f => f.Candidate), userId, null, null, cancellationToken);
         }
 

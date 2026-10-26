@@ -23,7 +23,8 @@ internal static class ScanCommitItems
         Guid? photoId,
         AddedVia via,
         Guid userId,
-        DateTimeOffset now) => new()
+        DateTimeOffset now,
+        bool editionVerified = true) => new()
         {
             Id = id,
             LibraryId = libraryId,
@@ -35,6 +36,7 @@ internal static class ScanCommitItems
             CoverChoice = cover,
             CustomCoverAssetId = photoId,
             AddedVia = via,
+            EditionVerified = editionVerified, // false only for a T1 auto-add (docs/16 §6)
             CreatedAt = now,
             CreatedBy = userId, // always the caller
             UpdatedAt = now,

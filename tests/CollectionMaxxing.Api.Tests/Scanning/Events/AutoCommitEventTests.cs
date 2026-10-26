@@ -104,4 +104,30 @@ public class AutoCommitEventTests : ScanTest
         candidates[0].GetProperty("tier").GetString().ShouldBe("T0");
         candidates[0].GetProperty("createdItemId").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.String);
     }
+
+    [Fact]
+    public async Task T1_auto_add_announces_itself_the_same_way()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogAsync("Star Fox 64", ScanData.Upc(34330));
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, new { autoCommitTiers = new[] { "T0", "T1" } });
+        await using var events = await SseClient.ConnectAsync(editor, EventsUrl(sessionId));
+
+        var response = await editor.PostAsync(
+            $"{SessionUrl(sessionId)}/identify",
+            Json(new
+            {
+                snapId = Guid.NewGuid(),
+                trigger = "auto",
+                engine = "apple_model",
+                shotKind = "shelf_segment",
+                items = new[] { new { localId = "seg-1", title = "Star Fox 64", kind = "game", format = "game_cartridge", year = 1996 } },
+            }));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+
+        var committed = (await events.ReadUntilAsync("candidate.auto_committed")).Last();
+        committed.Data!.Value.GetProperty("tier").GetString().ShouldBe("T1");
+        committed.Data!.Value.GetProperty("createdItemId").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.String);
+    }
 }

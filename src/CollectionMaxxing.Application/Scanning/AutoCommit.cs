@@ -7,22 +7,24 @@ using CollectionMaxxing.Domain.Scanning;
 namespace CollectionMaxxing.Application.Scanning;
 
 /// <summary>
-/// The T0 auto-add (docs/16 §6): a barcode-proof candidate becomes real items the moment it resolves, through the same
-/// item shape the full commit uses (<see cref="ScanCommitItems"/>). The session stays open and keeps scanning; every
-/// auto-add is undone on its own (<see cref="UndoAutoCommit"/>). Writes nothing by itself; the caller saves.
+/// The auto-add (docs/16 §6): a T0 barcode-proof or T1 high-confidence candidate becomes real items the moment it
+/// resolves, through the same item shape the full commit uses (<see cref="ScanCommitItems"/>). A T1's items arrive
+/// flagged edition-unverified; a T0's arrive proven. The session stays open and keeps scanning; every auto-add is
+/// undone on its own (<see cref="UndoAutoCommit"/>). Writes nothing by itself; the caller saves.
 /// </summary>
-public sealed class AutoCommitT0(IAppDbContext db, IIdGenerator ids, TimeProvider clock, BarcodeLearner learner)
+public sealed class AutoCommit(IAppDbContext db, IIdGenerator ids, TimeProvider clock, BarcodeLearner learner)
 {
     /// <summary>
-    /// Adds the candidate's items when every gate allows it: tier T0, the session's tiers name T0, the caller may add to
-    /// the library, the session is still open, the person did not already reject it, and the candidate was not added
-    /// already. Returns the created item ids, empty when the candidate stays for review.
+    /// Adds the candidate's items when every gate allows it: tier T0 or T1, the session's tiers name that tier, the
+    /// caller may add to the library, the session is still open, the person did not already reject it, and the
+    /// candidate was not added already. Returns the created item ids, empty when the candidate stays for review.
     /// </summary>
     public async Task<IReadOnlyList<Guid>> TryAddAsync(
         ScanSession session, ScanCandidate candidate, Guid userId, LibraryRole? role, CancellationToken cancellationToken)
     {
-        if (candidate.Tier != ScanTier.T0
-            || !session.AutoCommits(ScanTier.T0)
+        if (candidate.Tier is not (ScanTier.T0 or ScanTier.T1)
+            || candidate.Tier is not { } tier
+            || !session.AutoCommits(tier)
             || role is not (LibraryRole.Owner or LibraryRole.Editor)
             || session.Status != ScanSessionStatus.Open
             || candidate.Decision == CandidateDecision.Rejected
@@ -49,7 +51,8 @@ public sealed class AutoCommitT0(IAppDbContext db, IIdGenerator ids, TimeProvide
                 photoId: null,
                 ScanCommitItems.ViaOf(candidate.Source),
                 userId,
-                now);
+                now,
+                editionVerified: tier != ScanTier.T1);
             db.Items.Add(item);
             created.Add(item.Id);
             if (copy == 0)
@@ -60,7 +63,12 @@ public sealed class AutoCommitT0(IAppDbContext db, IIdGenerator ids, TimeProvide
 
         candidate.AutoCommittedItemIds = [.. created];
         session.AutoCommittedItemIds = [.. session.AutoCommittedItemIds ?? [], .. created];
-        await learner.LearnAsync(session.Id, [candidate], cancellationToken); // the next scan of this barcode is a local hit
+        if (tier == ScanTier.T0)
+        {
+            // A barcode-proof add teaches its link; a cover match never teaches a barcode link, even when the row
+            // happens to carry a code from an earlier bound capture.
+            await learner.LearnAsync(session.Id, [candidate], cancellationToken);
+        }
         return created;
     }
 }

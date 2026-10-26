@@ -18,8 +18,10 @@ public sealed class ResolvePendingIdentify(
     IAppDbContext db,
     CurrentUser currentUser,
     IMembershipReader memberships,
+    ISessionLock sessionLock,
     IdentifyGrounding grounding,
     CandidateResolver resolver,
+    AutoCommit autoCommit,
     ScanningOptions options,
     ILogger<ResolvePendingIdentify> logger) : IJobHandler<IdentifyItems.ResolveJob>
 {
@@ -51,15 +53,31 @@ public sealed class ResolvePendingIdentify(
 
         var (facts, profile) = StoredRead.From(candidate);
         var answer = await grounding.GroundAsync(facts, profile, options.JobResolveBudget, cancellationToken);
-        await resolver.ApplyAsync(job.LibraryId, candidate, answer, cancellationToken);
-        if (candidate.Resolution == CandidateResolution.Pending)
-        {
-            candidate.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
-            candidate.GuidanceCode = candidate.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep)
-                ? keep
-                : GuidanceCodes.For(null, CandidateResolution.Error, candidate.Source, candidate.RawCode, quotaSpent: false);
-        }
 
-        await db.SaveChangesAsync(cancellationToken);
+        // The answer lands under the session's lock, on rows read fresh inside it: a request that resolved the same
+        // candidate while the providers were being asked wins, and this run becomes the no-op it should be.
+        await using (await sessionLock.AcquireAsync(job.SessionId, cancellationToken))
+        {
+            var session = await ScanSessions.FindMineAsync(db, currentUser, job.SessionId, cancellationToken);
+            var row = await db.ScanCandidates.FirstOrDefaultAsync(
+                c => c.Id == job.CandidateId && c.SessionId == job.SessionId, cancellationToken);
+            if (session is null || session.Status != ScanSessionStatus.Open || row is null || row.Resolution != CandidateResolution.Pending)
+            {
+                return;
+            }
+
+            await resolver.ApplyAsync(job.LibraryId, row, answer, cancellationToken);
+            await autoCommit.TryAddAsync(session, row, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken);
+            if (row.Resolution == CandidateResolution.Pending)
+            {
+                row.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
+                row.Tier = ScanTier.T2;
+                row.GuidanceCode = row.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep)
+                    ? keep
+                    : GuidanceCodes.For(null, CandidateResolution.Error, row.Source, row.RawCode, quotaSpent: false);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 }
