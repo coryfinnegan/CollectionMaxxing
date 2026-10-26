@@ -23,6 +23,7 @@ const defaultReason = (rule) =>
     'cm-design/no-raw-text': 'Pre-existing raw text, grandfathered; new raw text fails. Follow-up: #307.',
     'cm-design/no-doubled-title': 'Pre-existing doubled title, grandfathered; new ones fail. Follow-up: #307.',
     'cm-design/no-gradients': 'Pre-existing gradient, grandfathered; new ones fail. Follow-up: #307.',
+    'cm-design/no-unistyles-third-party-styles': 'Pre-existing Unistyles sheet value in a third-party style prop, grandfathered; new ones fail. Follow-up: #351.',
   })[rule];
 
 function runEslint() {
