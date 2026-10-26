@@ -32,6 +32,27 @@ test.describe('visual', () => {
     await expectShot(page, 'library-grid');
   });
 
+  test('library castle', async ({ page, open }) => {
+    await open('/settings');
+    await page.getByRole('button', { name: 'Library design Castle' }).click();
+    await open('/library');
+    await page.getByRole('button', { name: 'Grid view' }).click();
+    await expect(page.getByTestId('castle-shelf')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
+    await expectShot(page, 'library-castle');
+  });
+
+  test('library mall', async ({ page, open }) => {
+    await open('/settings');
+    await page.getByRole('button', { name: 'Library design Mall' }).click();
+    await open('/library');
+    await page.getByRole('button', { name: 'Grid view' }).click();
+    await expect(page.getByTestId('mall-room')).toBeVisible();
+    await expect(page.locator('canvas')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'The Matrix, DVD' }).first()).toBeVisible();
+    await expectShot(page, 'library-mall');
+  });
+
   test('item detail', async ({ page, open }) => {
     await open('/library');
     await page.getByRole('link', { name: 'Open The Matrix' }).click();
