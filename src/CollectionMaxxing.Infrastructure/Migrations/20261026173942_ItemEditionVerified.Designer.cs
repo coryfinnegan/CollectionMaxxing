@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CollectionMaxxing.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261026155137_ItemEditionVerified")]
+    [Migration("20261026173942_ItemEditionVerified")]
     partial class ItemEditionVerified
     {
         /// <inheritdoc />
@@ -1301,6 +1301,113 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.ToTable("match_feedback", (string)null);
                 });
 
+            modelBuilder.Entity("CollectionMaxxing.Domain.Scanning.ProvisionalRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("CandidateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("candidate_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_item_id");
+
+                    b.Property<Guid?>("CropAssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("crop_asset_id");
+
+                    b.Property<Guid>("LibraryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("library_id");
+
+                    b.Property<Guid?>("LocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("location_id");
+
+                    b.Property<string>("MediaHint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("media_hint");
+
+                    b.Property<string>("ResolveAction")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("resolve_action");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<Guid?>("SnapId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("snap_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TitleGuess")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("title_guess");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_provisional_records");
+
+                    b.HasAlternateKey("LibraryId", "Id")
+                        .HasName("ak_provisional_records_library_id_id");
+
+                    b.HasIndex("CropAssetId")
+                        .HasDatabaseName("ix_provisional_records_crop_asset_id");
+
+                    b.HasIndex("LibraryId", "CandidateId")
+                        .HasDatabaseName("ix_provisional_records_library_id_candidate_id");
+
+                    b.HasIndex("LibraryId", "LocationId")
+                        .HasDatabaseName("ix_provisional_records_library_id_location_id");
+
+                    b.HasIndex("LibraryId", "SessionId")
+                        .HasDatabaseName("ix_provisional_records_library_id_session_id");
+
+                    b.HasIndex("LibraryId", "SnapId")
+                        .HasDatabaseName("ix_provisional_records_library_id_snap_id");
+
+                    b.HasIndex("LibraryId", "ResolvedAt", "CreatedAt")
+                        .HasDatabaseName("ix_provisional_records_library_id_resolved_at_created_at");
+
+                    b.ToTable("provisional_records", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_provisional_records_media_hint", "\"media_hint\" in ('books', 'games', 'movies', 'mixed')");
+
+                            t.HasCheckConstraint("ck_provisional_records_resolve_action", "\"resolve_action\" in ('promoted', 'resolved_to_existing')");
+
+                            t.HasCheckConstraint("ck_provisional_records_resolved", "(resolved_at is null and resolve_action is null) or (resolved_at is not null and resolve_action is not null)");
+
+                            t.HasCheckConstraint("ck_provisional_records_status", "\"status\" in ('unverified')");
+                        });
+                });
+
             modelBuilder.Entity("CollectionMaxxing.Domain.Scanning.ScanCandidate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1409,6 +1516,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("matched_release_id");
 
+                    b.Property<Guid?>("ProvisionalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("provisional_id");
+
                     b.Property<string>("RawCode")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -1493,6 +1604,9 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                     b.HasIndex("LibraryId", "CreatedItemId")
                         .HasDatabaseName("ix_scan_candidates_library_id_created_item_id");
+
+                    b.HasIndex("LibraryId", "ProvisionalId")
+                        .HasDatabaseName("ix_scan_candidates_library_id_provisional_id");
 
                     b.HasIndex("LibraryId", "SessionId")
                         .HasDatabaseName("ix_scan_candidates_library_id_session_id");
@@ -1700,6 +1814,9 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_scan_snaps");
+
+                    b.HasAlternateKey("LibraryId", "Id")
+                        .HasName("ak_scan_snaps_library_id_id");
 
                     b.HasAlternateKey("SessionId", "Id")
                         .HasName("ak_scan_snaps_session_id_id");
@@ -2276,6 +2393,50 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasConstraintName("fk_match_feedback_scan_candidates_library_id_candidate_id");
                 });
 
+            modelBuilder.Entity("CollectionMaxxing.Domain.Scanning.ProvisionalRecord", b =>
+                {
+                    b.HasOne("CollectionMaxxing.Domain.Catalog.Asset", null)
+                        .WithMany()
+                        .HasForeignKey("CropAssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provisional_records_assets_crop_asset_id");
+
+                    b.HasOne("CollectionMaxxing.Domain.Libraries.Library", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_provisional_records_libraries_library_id");
+
+                    b.HasOne("CollectionMaxxing.Domain.Scanning.ScanCandidate", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId", "CandidateId")
+                        .HasPrincipalKey("LibraryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provisional_records_scan_candidates_library_id_candidate_id");
+
+                    b.HasOne("CollectionMaxxing.Domain.Locations.Location", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId", "LocationId")
+                        .HasPrincipalKey("LibraryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provisional_records_locations_library_id_location_id");
+
+                    b.HasOne("CollectionMaxxing.Domain.Scanning.ScanSession", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId", "SessionId")
+                        .HasPrincipalKey("LibraryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provisional_records_scan_sessions_library_id_session_id");
+
+                    b.HasOne("CollectionMaxxing.Domain.Scanning.ScanSnap", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId", "SnapId")
+                        .HasPrincipalKey("LibraryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_provisional_records_scan_snaps_library_id_snap_id");
+                });
+
             modelBuilder.Entity("CollectionMaxxing.Domain.Scanning.ScanCandidate", b =>
                 {
                     b.HasOne("CollectionMaxxing.Domain.Libraries.Library", null)
@@ -2297,6 +2458,13 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasPrincipalKey("LibraryId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_scan_candidates_items_library_id_created_item_id");
+
+                    b.HasOne("CollectionMaxxing.Domain.Scanning.ProvisionalRecord", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId", "ProvisionalId")
+                        .HasPrincipalKey("LibraryId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_scan_candidates_provisional_records_library_id_provisional_");
 
                     b.HasOne("CollectionMaxxing.Domain.Scanning.ScanSession", null)
                         .WithMany()
