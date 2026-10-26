@@ -4,8 +4,11 @@
 // leaves the card as it was (Pick one): the step returns undefined and the caller does nothing.
 import type { CandidateDto } from '@/api/generated/models';
 import type { FeaturePrint, Rect } from '@/native/cm-vision';
-import { authHeaders, baseUrl } from '@/lib/auth/session';
+import { authHeaders } from '@/lib/auth/session';
+import { ownMediaUrl as ownArtworkUrl } from '@/lib/media';
 import type { ArtDistance } from './pipelineApi';
+
+export { ownArtworkUrl };
 
 /** The few alternatives worth comparing. */
 export const MAX_COMPARED = 3;
@@ -44,22 +47,6 @@ export function artworkOf(candidate: Pick<CandidateDto, 'alternatives'>): Altern
     if (typeof e.releaseId === 'string' && typeof e.artworkUrl === 'string') out.push({ releaseId: e.releaseId, artworkUrl: e.artworkUrl });
   }
   return out;
-}
-
-/** What the server's cover route can name: letters, digits and a few marks. No escapes, so no `%2e%2e` or `%2f` can hide a path change. */
-const SEGMENT = /^[A-Za-z0-9._~-]+$/;
-
-/**
- * Only this server's own artwork route is fetched, and only with this server's sign-in. The path must be a normalized one
- * under `/media/`: no `..` or `.` segment, no escapes, no backslash, no query, nothing else. A full address, or any other route
- * on this server (such as `/api/...`), is never requested: the phone does not talk to third parties, and the token does not go
- * to them or to routes the server did not mean for artwork.
- */
-export function ownArtworkUrl(url: string): string | undefined {
-  if (!url.startsWith('/media/')) return undefined;
-  const segments = url.slice('/media/'.length).split('/');
-  const ok = segments.every((segment) => SEGMENT.test(segment) && segment !== '.' && segment !== '..');
-  return ok ? `${baseUrl()}${url}` : undefined;
 }
 
 /**
