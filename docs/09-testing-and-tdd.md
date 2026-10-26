@@ -213,6 +213,20 @@ Kent Beck-style test list. Each line becomes one red test.
 
 **Where the golden set lives:** `C:\CollectionMaxxing\evals\golden\shelf\` and `...\golden\single\` on the PC (`CM_EVALS_DIR` in `.env` moves it), beside the repo clone and never inside it. Each photo has an `<id>.truth.json`; `scripts/eval-truth-stub.ps1 <folder>` makes empty skeletons, and a run writes `<id>.truth.draft.json` drafts to correct and rename. Results and `report.md` land in `C:\CollectionMaxxing\evalsesults\`. Only the dated aggregate file may be copied into the repo's `evals/results/` (`.gitignore` blocks the rest, because they hold real titles).
 
+**First real baseline (on the owner's PC):** running the golden set once on real photos turns the regression check on: from that commit on, `no_baseline` is a loud CI failure, not a silent skip.
+
+1. On the PC, enable the eval server: `Evals:Enabled=true`, `Evals:GoldenPath` at the golden folder (`shelf/`, `single/`, truth files), `Evals:ResultsPath` at a writable results folder, `Evals:BaselinePath` at this repo's `evals/baseline.json`.
+2. On the iPhone (dev build), open the hidden eval runner (`app/src/app/evals.tsx`, **Run evals**). It runs every golden photo through both engines and uploads per-photo results to `POST /api/admin/evals/runs`.
+3. Verify the dated aggregate in the results folder: `evals/results/<date>-<sha>.json`, plus `latest.json`, `latest-run.json` (grounded run, titles — PC only) and `report.md` (PC only).
+4. Copy the dated file's `metrics` object **and** its `thresholdHash` into `evals/baseline.json`. Aggregate numbers only — no titles, no photo names.
+5. Commit. The next rescore compares against the baseline; anything but `ok` fails loudly.
+
+Re-baseline (same steps) whenever the golden set changes, and whenever a threshold move lands: same PR carries the baseline note plus the acceptance re-run, whose upload sets `baselineNote`.
+
+Until the phone runner sends the honest fields (per-item tier, provisional / `IsGuess`, per-photo `capturedCount` / `capturedAt`, `duplicateRescan`), runs report the new metrics as no-data (`review_rate` reads 100%: unmeasured work fails closed as burden). Sending those fields is follow-up work, needed before the home acceptance run (issue #348).
+
+**Eval workflow:** `.github/workflows/evals.yml` (manual trigger). Job 1 scores the maths on GitHub-hosted runners; Job 2 re-scores the real goldens on the self-hosted PC runner when dispatched with `rescore: true` (until that runner exists, run the PC procedure above by hand). Suggested required check for PRs touching prompts, models, scorers or thresholds (`src/**/Matching/**`, `src/**/Scanning/**`, `src/**/Evals/**`, `app/src/features/evals/**`, `evals/baseline.json`) — wiring that into branch protection is an owner repo-settings step.
+
 ## CI pipeline (PR)
 
 ```

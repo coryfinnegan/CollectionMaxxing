@@ -1,0 +1,67 @@
+name: Evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      rescore:
+        description: 'Run the real-golden rescore on the self-hosted PC runner (needs the golden set + results paths below)'
+        required: false
+        default: false
+        type: boolean
+      golden_path:
+        description: 'Evals__GoldenPath on the self-hosted runner'
+        required: false
+        default: 'C:\CollectionMaxxing\evals\golden'
+      results_path:
+        description: 'Evals__ResultsPath on the self-hosted runner'
+        required: false
+        default: 'C:\CollectionMaxxing\evals\results'
+      baseline_path:
+        description: 'Evals__BaselinePath (repo evals/baseline.json)'
+        required: false
+        default: 'evals/baseline.json'
+
+permissions:
+  contents: read
+
+jobs:
+  maths:
+    name: Scoring, gate and regression maths
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore tests/CollectionMaxxing.Recognition.Evals
+      # Default run excludes the real-golden rescore (Category=Eval needs
+      # RUN_EVALS=1): pinned maths, anti-gaming locked tests, gate bars and
+      # the loud no_baseline check all run here.
+      - name: Eval maths and gates
+        run: dotnet test tests/CollectionMaxxing.Recognition.Evals --no-restore
+
+  rescore:
+    name: Real-golden rescore (PC)
+    needs: maths
+    if: inputs.rescore
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 60
+    env:
+      RUN_EVALS: 1
+      Evals__GoldenPath: ${{ inputs.golden_path }}
+      Evals__ResultsPath: ${{ inputs.results_path }}
+      Evals__BaselinePath: ${{ inputs.baseline_path }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      # The rescore asserts the regression status is exactly ok: no_baseline,
+      # no_overlap, partial_run, regressed and threshold-incomplete all fail
+      # loudly. The PC's photos, truth files and reports never leave the PC.
+      - name: Real-golden rescore
+        run: dotnet test tests/CollectionMaxxing.Recognition.Evals --filter Category=Eval
+    # Until a self-hosted runner exists on the PC, run the PC procedure by hand
+    # (docs/09 "AI evals": first real baseline) instead of this job.
