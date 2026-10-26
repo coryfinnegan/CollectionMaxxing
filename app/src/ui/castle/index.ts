@@ -8,5 +8,7 @@ export { SeriesShield } from './SeriesShield';
 export { type CastleMode, type CastleThemeSetting, resolveCastleMode, useCastleMode, useCastleThemeSetting, useIncreaseContrast } from './mode';
 export { NineSlice, type CastleSurface } from './NineSlice';
 export { ParchmentCard } from './ParchmentCard';
+export { seasonCloth, seasonFor, seasonNames, useSeason, type Season } from './season';
+export { SeasonalBanner } from './SeasonalBanner';
 export { TabletHeader } from './TabletHeader';
 export { CASTLE_CORNER, CASTLE_EDGE, castleTextures, nightTextures, useCastleArt } from './textures';
