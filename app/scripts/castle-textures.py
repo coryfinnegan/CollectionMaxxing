@@ -16,6 +16,9 @@ Layout (all RGB, 8-bit, no interlace):
   crenel-strip.png      48x24  CastleHeader top: repeating merlons, tileable in X
   ledge-strip.png       32x16  divider ledge, tileable in X, baked shadow under the lip
 Surfaces: parchment, stone, iron (iron has a fill only; BannerMarker is frameless).
+Night (#363): stone-<piece>-night.png, crenel-strip-night.png and ledge-strip-night.png
+regenerate the stone pieces from the castleDark bases for the torchlit hall.
+Parchment stays lit and iron stays put, so both schemes share that art.
 """
 import json
 import math
@@ -34,7 +37,9 @@ except ImportError:
     sys.exit("castle-textures: Pillow is required (pip install pillow)")
 
 with open(os.path.join(APP, "src", "theme", "tokens.json"), encoding="utf-8") as f:
-    TOKENS = json.load(f)["castle"]
+    LOADED = json.load(f)
+DAY = LOADED["castle"]
+NIGHT = LOADED["castleDark"]
 
 EDGE = 12  # frame rail width; content padding in components must exceed this
 CORNER = 12  # matches the rail so the 9-slice grid lines up
@@ -63,9 +68,15 @@ def blotch(x, y, w, h, rng):
     )
 
 
-def make_fill(base_key, grain, blotches, size=64):
-    base = hex_to_rgb(TOKENS[base_key])
-    rng = random.Random(f"{SEED}:{base_key}:fill")
+def seed_for(tag, *parts):
+    # Day seeds keep their Phase 0 strings exactly, so regenerating never churns
+    # the committed day art; night generations take their own seed namespace.
+    return f"{SEED}:{':'.join(parts)}" if tag == "day" else f"{SEED}:night:{':'.join(parts)}"
+
+
+def make_fill(base_key, grain, blotches, size=64, palette=DAY, tag="day"):
+    base = hex_to_rgb(palette[base_key])
+    rng = random.Random(seed_for(tag, base_key, "fill"))
     img = Image.new("RGB", (size, size))
     px = img.load()
     for y in range(size):
@@ -86,9 +97,9 @@ def frame_shade(t):
     return 0
 
 
-def make_edge_h(base_key, grain):
-    base = hex_to_rgb(TOKENS[base_key])
-    rng = random.Random(f"{SEED}:{base_key}:edge-h")
+def make_edge_h(base_key, grain, palette=DAY, tag="day"):
+    base = hex_to_rgb(palette[base_key])
+    rng = random.Random(seed_for(tag, base_key, "edge-h"))
     w, h = 64, EDGE
     img = Image.new("RGB", (w, h))
     px = img.load()
@@ -100,14 +111,14 @@ def make_edge_h(base_key, grain):
     return img
 
 
-def make_edge_v(base_key, grain):
+def make_edge_v(base_key, grain, palette=DAY, tag="day"):
     # Same treatment rotated: outer edge at the left; right rail flips it.
-    return make_edge_h(base_key, grain).transpose(Image.ROTATE_90).resize((EDGE, 64))
+    return make_edge_h(base_key, grain, palette, tag).transpose(Image.ROTATE_90).resize((EDGE, 64))
 
 
-def make_corner(base_key, grain):
-    base = hex_to_rgb(TOKENS[base_key])
-    rng = random.Random(f"{SEED}:{base_key}:corner")
+def make_corner(base_key, grain, palette=DAY, tag="day"):
+    base = hex_to_rgb(palette[base_key])
+    rng = random.Random(seed_for(tag, base_key, "corner"))
     img = Image.new("RGB", (CORNER, CORNER))
     px = img.load()
     for y in range(CORNER):
@@ -118,11 +129,11 @@ def make_corner(base_key, grain):
     return img
 
 
-def make_crenel():
+def make_crenel(palette=DAY, tag="day"):
     """Repeating merlons (period 16px) over a stone band, with baked lip shadows."""
-    base = hex_to_rgb(TOKENS["stone"])
-    dark = hex_to_rgb(TOKENS["iron"])
-    rng = random.Random(f"{SEED}:crenel")
+    base = hex_to_rgb(palette["stone"])
+    dark = hex_to_rgb(palette["iron"])
+    rng = random.Random(seed_for(tag, "crenel"))
     w, h = 48, 24
     img = Image.new("RGB", (w, h))
     px = img.load()
@@ -148,10 +159,10 @@ def make_crenel():
     return img
 
 
-def make_ledge():
+def make_ledge(palette=DAY, tag="day"):
     """A divider ledge: lit lip, body, baked contact shadow under it."""
-    base = hex_to_rgb(TOKENS["stone"])
-    rng = random.Random(f"{SEED}:ledge")
+    base = hex_to_rgb(palette["stone"])
+    rng = random.Random(seed_for(tag, "ledge"))
     w, h = 32, 16
     img = Image.new("RGB", (w, h))
     px = img.load()
@@ -191,6 +202,12 @@ def main():
         "iron-fill.png": make_fill("iron", 6, 1),
         "crenel-strip.png": make_crenel(),
         "ledge-strip.png": make_ledge(),
+        "stone-night-fill.png": make_fill("stone", 7, 2, palette=NIGHT, tag="night"),
+        "stone-night-edge-h.png": make_edge_h("stone", 6, palette=NIGHT, tag="night"),
+        "stone-night-edge-v.png": make_edge_v("stone", 6, palette=NIGHT, tag="night"),
+        "stone-night-corner.png": make_corner("stone", 6, palette=NIGHT, tag="night"),
+        "crenel-strip-night.png": make_crenel(palette=NIGHT, tag="night"),
+        "ledge-strip-night.png": make_ledge(palette=NIGHT, tag="night"),
     }
     for name, img in jobs.items():
         path = os.path.join(OUT, name)

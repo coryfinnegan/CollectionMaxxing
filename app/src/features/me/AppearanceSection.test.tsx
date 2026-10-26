@@ -2,21 +2,42 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { renderWithProviders } from '@/test/render';
+import { applyAppearance, setAppearanceStorage, useAppearanceChoice } from '@/theme/appearance';
+import { setCastleStorage, useCastleThemeSetting } from '@/ui/castle/mode';
+import { setMascotStorage, useDragonAppearance } from '@/ui/mascot/appearances';
 import { FakeAppIconEngine } from '../../../modules/cm-app-icon/src/FakeAppIconEngine';
 import { GAMEBOY_ICON_NAME, useAppIconSetting } from './appIcon';
 import { AppearanceSection } from './AppearanceSection';
 import { setAppIcon, setSettingsStorage } from './services';
+
+jest.mock('@/theme/appearance', () => ({ ...jest.requireActual('@/theme/appearance'), applyAppearance: jest.fn() }));
+const applied = applyAppearance as jest.Mock;
+
+function memoryStore() {
+  const map = new Map<string, string>();
+  return {
+    getString: (key: string) => map.get(key),
+    set: (key: string, value: string) => void map.set(key, value),
+  };
+}
 
 function setup(initial: string | null = null, supported = true) {
   const engine = new FakeAppIconEngine(initial, supported);
   setSettingsStorage(new MemoryKeyValueStore());
   setAppIcon(engine);
   useAppIconSetting.setState({ choice: 'default', supported: false, ready: false, problem: null });
+  setCastleStorage(memoryStore());
+  useCastleThemeSetting.setState({ setting: 'full' });
+  setMascotStorage(memoryStore());
+  useDragonAppearance.setState({ appearance: 'full' });
+  setAppearanceStorage(memoryStore());
+  useAppearanceChoice.setState({ choice: 'system' });
   return engine;
 }
 
 beforeEach(() => {
   configureAuth({ platform: 'native' });
+  applied.mockClear();
 });
 afterEach(() => {
   resetAuth();
@@ -66,13 +87,54 @@ describe('Settings > Appearance', () => {
     expect(screen.getByLabelText('Default').props.accessibilityState.selected).toBe(true);
   });
 
-  it('hides where the iPhone offers no alternates', async () => {
+  it('hides the icon row where the iPhone offers no alternates, keeping the rest', async () => {
     setup(null, false);
 
     await renderWithProviders(<AppearanceSection />);
 
-    // The section resolves unsupported and renders nothing (not even its heading).
     await waitFor(() => expect(useAppIconSetting.getState().ready).toBe(true));
-    expect(screen.queryByText('Appearance')).toBeNull();
+    expect(screen.getByText('Appearance')).toBeTruthy();
+    expect(screen.queryByText('App icon')).toBeNull();
+    expect(screen.getByText('Castle theme')).toBeTruthy();
+  });
+
+  it('switches the castle theme between Full and Quiet', async () => {
+    setup(null, false);
+    await renderWithProviders(<AppearanceSection />);
+    await screen.findByText('Castle theme');
+
+    expect(screen.getByLabelText('Theme Full').props.accessibilityState.selected).toBe(true);
+
+    await fireEvent.press(screen.getByLabelText('Theme Quiet'));
+
+    expect(useCastleThemeSetting.getState().setting).toBe('quiet');
+    expect(screen.getByLabelText('Theme Quiet').props.accessibilityState.selected).toBe(true);
+  });
+
+  it('switches the dragon between Full, Minimal and Off', async () => {
+    setup(null, false);
+    await renderWithProviders(<AppearanceSection />);
+    await screen.findByText('Dragon appearances');
+
+    await fireEvent.press(screen.getByLabelText('Dragon Minimal'));
+    expect(useDragonAppearance.getState().appearance).toBe('minimal');
+
+    await fireEvent.press(screen.getByLabelText('Dragon Off'));
+    expect(useDragonAppearance.getState().appearance).toBe('off');
+    expect(screen.getByLabelText('Dragon Off').props.accessibilityState.selected).toBe(true);
+  });
+
+  it('switches light, dark and system, applying each to the styled layer', async () => {
+    setup(null, false);
+    await renderWithProviders(<AppearanceSection />);
+    await screen.findByText('Light or dark');
+
+    await fireEvent.press(screen.getByLabelText('Appearance Dark'));
+    expect(useAppearanceChoice.getState().choice).toBe('dark');
+    await waitFor(() => expect(applied).toHaveBeenCalledWith('dark'));
+
+    await fireEvent.press(screen.getByLabelText('Appearance System'));
+    expect(useAppearanceChoice.getState().choice).toBe('system');
+    await waitFor(() => expect(applied).toHaveBeenCalledWith('system'));
   });
 });

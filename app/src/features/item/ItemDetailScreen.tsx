@@ -13,6 +13,7 @@ import { boundScanStore } from '@/features/review/boundScan';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
+import { CastleState, ParchmentCard, SeriesShield } from '@/ui/castle';
 import { sharedCoverTag } from '@/ui/motion';
 import { breadcrumb } from './breadcrumb';
 import { headerThemeFromCover } from './coverColor';
@@ -25,7 +26,9 @@ export function ItemDetailScreen({ id }: { id: string }) {
   if (isLoading || !libraryId) {
     return (
       <Screen>
-        <LoadingState label="Loading this item…" />
+        <CastleState pose="fastReading">
+          <LoadingState label="Loading this item…" labelTone="ink" />
+        </CastleState>
       </Screen>
     );
   }
@@ -51,19 +54,18 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   if (isLoading) {
     return (
       <Screen>
-        <LoadingState label="Loading this item…" />
+        <CastleState pose="fastReading">
+          <LoadingState label="Loading this item…" labelTone="ink" />
+        </CastleState>
       </Screen>
     );
   }
   if (isError || !detail || !etag) {
     return (
       <Screen>
-        <EmptyState
-          title="Couldn't load this item"
-          body={friendlyError(error)}
-          actionLabel="Try again"
-          onAction={() => refetch()}
-        />
+        <CastleState pose="oops">
+          <EmptyState title="Couldn't load this item" body={friendlyError(error)} bodyTone="ink" actionLabel="Try again" onAction={() => refetch()} />
+        </CastleState>
       </Screen>
     );
   }
@@ -134,8 +136,11 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         <Fact label="Completeness" value={item.completeness ? completenessLabels[item.completeness] : 'Not set'} />
         <Fact label="Location" value={breadcrumb(locations, item.locationId)} />
         <Fact label="Acquired" value={item.acquiredOn ?? 'Not set'} />
-        <Fact label="Notes" value={item.notes ?? 'None'} />
       </Card>
+
+      <ParchmentCard title="Notes" body={item.notes ?? 'None'} />
+
+      {detail.otherCopies.length > 0 ? <SeriesShield label={`${detail.otherCopies.length + 1} copies of this work`} testID="series-shield" /> : null}
 
       {message ? (
         <Text tone="danger" accessibilityRole="alert">

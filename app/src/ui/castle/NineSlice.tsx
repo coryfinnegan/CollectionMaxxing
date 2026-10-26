@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { Image, View, type StyleProp, type ViewStyle } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { type CastleMode } from './mode';
-import { CASTLE_CORNER, CASTLE_EDGE, castleTextures } from './textures';
+import { CASTLE_CORNER, CASTLE_EDGE, castleTextures, useCastleArt } from './textures';
 
 export type CastleSurface = 'parchment' | 'stone';
 
@@ -27,6 +27,7 @@ const hidden = {
 } as const;
 
 export function NineSlice({ surface, mode, children, style, testID }: NineSliceProps) {
+  const artFor = useCastleArt();
   if (mode !== 'full') {
     return (
       <View style={[mode === 'accessible' ? styles.solidAccessible(surface) : styles.solid(surface), style]} testID={testID}>
@@ -34,7 +35,7 @@ export function NineSlice({ surface, mode, children, style, testID }: NineSliceP
       </View>
     );
   }
-  const art = castleTextures[surface];
+  const art = surface === 'stone' ? artFor.stone : castleTextures.parchment;
   return (
     <View style={[styles.frame, style]} testID={testID}>
       <View style={styles.railRow}>

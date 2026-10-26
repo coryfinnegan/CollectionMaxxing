@@ -1,4 +1,4 @@
-// Settings: Recognition, Appearance and Security. The iPhone shows all three; the web shows Sign out only.
+// Settings: Recognition, Appearance and Security. The iPhone shows all three; the web shows Appearance and Security.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -150,7 +150,7 @@ export function SettingsScreen() {
   return (
     <Screen title="Settings" subtitle={isWeb() ? 'Preferences for this browser.' : 'Recognition, appearance and security on this iPhone.'}>
       {isWeb() ? null : <RecognitionSection />}
-      {isWeb() ? null : <AppearanceSection />}
+      <AppearanceSection />
       {isWeb() ? <Card><GetIphoneAppRow /></Card> : null}
       <Card><ListRow title="Devices and browsers" subtitle="Your browsers and iPhones" onPress={() => router.push('/me/devices')} trailing={<Text tone="muted">›</Text>} /></Card>
       {isWeb() ? <Card><ListRow title="Sign-in methods" subtitle="Google and Apple accounts" onPress={() => router.push('/me/sign-in-methods')} trailing={<Text tone="muted">›</Text>} /></Card> : null}

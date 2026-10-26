@@ -5,28 +5,40 @@
 import '@/theme/unistyles';
 import { Image, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { PlacedMascot } from '../mascot/PlacedMascot';
 import { Text } from '../Text';
 import { type CastleMode, useCastleMode } from './mode';
-import { castleTextures } from './textures';
+import { useCastleArt } from './textures';
 
 type CastleHeaderProps = {
   title: string;
   subtitle?: string;
+  /** Perches the dragon (static idle, decorative) at the header's end. Honors the Dragon appearances setting. */
+  perch?: boolean;
   /** Defaults to the resolved castle mode. */
   mode?: CastleMode;
   testID?: string;
 };
 
-export function CastleHeader({ title, subtitle, mode, testID }: CastleHeaderProps) {
+export function CastleHeader({ title, subtitle, perch = false, mode, testID }: CastleHeaderProps) {
   const hooked = useCastleMode();
+  const art = useCastleArt();
   const resolved = mode ?? hooked;
-  const heading = (
+  const words = (
     <>
       <Text variant="castleDisplay" accessibilityRole="header" style={styles.title}>
         {title}
       </Text>
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
     </>
+  );
+  const heading = perch ? (
+    <View style={styles.perchRow}>
+      <View style={styles.perchWords}>{words}</View>
+      <PlacedMascot pose="idle" placement="decorative" size={88} testID="castle-perch" />
+    </View>
+  ) : (
+    words
   );
   if (resolved !== 'full') {
     return (
@@ -37,12 +49,12 @@ export function CastleHeader({ title, subtitle, mode, testID }: CastleHeaderProp
   }
   return (
     <View testID={testID}>
-      <Image source={castleTextures.crenel} resizeMode="repeat" style={styles.crenel} testID="castle-texture" />
+      <Image source={art.crenel} resizeMode="repeat" style={styles.crenel} testID="castle-texture" />
       <View style={styles.body}>
-        <Image source={castleTextures.stone.fill} resizeMode="repeat" style={styles.fill} testID="castle-texture" />
+        <Image source={art.stone.fill} resizeMode="repeat" style={styles.fill} testID="castle-texture" />
         {heading}
       </View>
-      <Image source={castleTextures.ledge} resizeMode="repeat" style={styles.ledge} testID="castle-texture" />
+      <Image source={art.ledge} resizeMode="repeat" style={styles.ledge} testID="castle-texture" />
     </View>
   );
 }
@@ -69,4 +81,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   title: { color: theme.castle.stoneInk },
   subtitle: { color: theme.castle.stoneInk },
+  perchRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
+  perchWords: { flex: 1, gap: theme.spacing.sm },
 }));

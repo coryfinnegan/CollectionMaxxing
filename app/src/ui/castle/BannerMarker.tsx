@@ -1,54 +1,51 @@
-// A small hanging marker: iron with a brass edge. Textured in Full, solid in
-// Flat, a heavier edge in Accessible.
+// A hanging section marker: a heraldic banner beside its label, never under it.
+// The cloth color-codes the media (books, games, movies); without a medium it is
+// plain iron. Full hangs the cloth from a brass rod, Flat leaves the rod off,
+// Accessible doubles the edge. The label beside the cloth carries the meaning, so
+// screen readers meet one header, never cloth and text separately.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
-import { Image, View } from 'react-native';
+import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { Text } from '../Text';
 import { type CastleMode, useCastleMode } from './mode';
-import { castleTextures } from './textures';
+
+export type BannerMedium = 'book' | 'game' | 'film';
 
 type BannerMarkerProps = {
   label: string;
+  /** The media the cloth color-codes; without one the cloth is plain iron. */
+  medium?: BannerMedium;
   /** Defaults to the resolved castle mode. */
   mode?: CastleMode;
   testID?: string;
 };
 
-export function BannerMarker({ label, mode, testID }: BannerMarkerProps) {
+export function BannerMarker({ label, medium, mode, testID }: BannerMarkerProps) {
   const hooked = useCastleMode();
   const resolved = mode ?? hooked;
   return (
-    <View
-      style={[resolved === 'accessible' ? styles.frameAccessible : styles.frame, resolved === 'full' ? null : styles.solid]}
-      testID={testID}
-    >
-      {resolved === 'full' ? (
-        <Image source={castleTextures.ironFill} resizeMode="repeat" style={styles.fill} testID="castle-texture" />
-      ) : null}
-      <Text variant="label" style={styles.label}>
-        {label}
-      </Text>
+    <View accessibilityRole="header" style={styles.row} testID={testID}>
+      <View style={styles.cloth(resolved, medium)} testID="banner-cloth">
+        {resolved === 'full' ? <View style={styles.rod} testID="banner-rod" /> : null}
+      </View>
+      <Text variant="label">{label}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  frame: {
-    alignSelf: 'flex-start',
-    borderColor: theme.castle.brass,
-    borderWidth: 1,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-  },
-  frameAccessible: {
-    alignSelf: 'flex-start',
-    borderColor: theme.castle.brass,
-    borderWidth: 2,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-  },
-  solid: { backgroundColor: theme.castle.iron },
-  fill: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' },
-  label: { color: theme.castle.ironInk },
+  row: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, alignSelf: 'flex-start' },
+  cloth: (resolved: CastleMode, medium: BannerMedium | undefined) => ({
+    width: 26,
+    height: 34,
+    alignItems: 'center',
+    backgroundColor: medium === 'book' ? theme.castle.bannerBook : medium === 'game' ? theme.castle.bannerGame : medium === 'film' ? theme.castle.bannerFilm : theme.castle.iron,
+    borderColor: theme.castle.iron,
+    borderWidth: resolved === 'accessible' ? 2 : 1,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: theme.radius.sm,
+    borderBottomRightRadius: theme.radius.sm,
+  }),
+  rod: { width: 32, height: 4, marginTop: -2, borderRadius: 2, backgroundColor: theme.castle.brass },
 }));

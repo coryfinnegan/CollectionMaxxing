@@ -66,7 +66,7 @@ test.describe('visual', () => {
 
   test('me', async ({ page, open }) => {
     await open('/me');
-    await expect(page.getByText('Your shelves')).toBeVisible();
+    await expect(page.getByText('Great hall')).toBeVisible();
     await expect(page.getByText('Fullest shelves')).toBeVisible();
     await expectShot(page, 'me');
   });

@@ -1,6 +1,7 @@
 // The TS theme, derived from tokens.json (the single source of truth): Radix 12-step
 // Sand neutrals with an Amber accent, dark-first. Nothing here invents a color.
-import { useColorScheme, type TextStyle } from 'react-native';
+import type { TextStyle } from 'react-native';
+import { useEffectiveScheme } from './appearance';
 import source from './tokens.json';
 
 type ScaleName = keyof typeof source.scales;
@@ -45,7 +46,7 @@ export const fixed = {
   scrim: source.fixed.scrim,
 };
 
-/** The castle palette (#361): fixed like the receipt, so the same art and ratios hold in light and dark. */
+/** The castle day palette (#361, #363): the frame in a light scheme; the dark theme reads castleDark. */
 export const castle = {
   parchment: source.castle.parchment,
   parchmentInk: source.castle.parchmentInk,
@@ -55,6 +56,26 @@ export const castle = {
   iron: source.castle.iron,
   ironInk: source.castle.ironInk,
   olive: source.castle.olive,
+  bannerBook: source.castle.bannerBook,
+  bannerGame: source.castle.bannerGame,
+  bannerFilm: source.castle.bannerFilm,
+};
+
+export type CastlePalette = typeof castle;
+
+/** The castle torchlit-night palette (#363): the frame in a dark scheme. Same keys as the day palette. */
+export const castleDark: CastlePalette = {
+  parchment: source.castleDark.parchment,
+  parchmentInk: source.castleDark.parchmentInk,
+  stone: source.castleDark.stone,
+  stoneInk: source.castleDark.stoneInk,
+  brass: source.castleDark.brass,
+  iron: source.castleDark.iron,
+  ironInk: source.castleDark.ironInk,
+  olive: source.castleDark.olive,
+  bannerBook: source.castleDark.bannerBook,
+  bannerGame: source.castleDark.bannerGame,
+  bannerFilm: source.castleDark.bannerFilm,
 };
 
 /** The dragon mascot palette (#365): fixed like the castle, so the same art holds in light and dark. */
@@ -95,5 +116,5 @@ export type TextVariant = keyof typeof typeScale;
 export const WIDE_BREAKPOINT = 768;
 
 export function useColors(): Colors {
-  return useColorScheme() === 'dark' ? darkColors : lightColors;
+  return useEffectiveScheme() === 'dark' ? darkColors : lightColors;
 }

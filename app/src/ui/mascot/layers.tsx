@@ -178,7 +178,8 @@ function PageLayer() {
   );
 }
 
-function ShieldLayer() {
+/** The milestone shield, shared by the milestone pose and the standalone SeriesShield: one drawing, two frames. */
+export function ShieldLayer() {
   return (
     <G testID="mascot-layer-shield">
       <Path

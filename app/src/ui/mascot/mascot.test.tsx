@@ -4,11 +4,20 @@
 // always gets the static pose.
 import { render, screen } from '@testing-library/react-native';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
+import { setMascotStorage, useDragonAppearance } from './appearances';
 import { Mascot } from './Mascot';
 import { poseIds, poses, type MascotPose } from './poses';
 
 jest.mock('@/lib/a11y/useReduceMotion', () => ({ useReduceMotion: jest.fn() }));
 const reduceMotion = jest.mocked(useReduceMotion);
+
+function memoryStore() {
+  const map = new Map<string, string>();
+  return {
+    getString: (key: string) => map.get(key),
+    set: (key: string, value: string) => void map.set(key, value),
+  };
+}
 
 const coreLayers = ['hoard', 'tail', 'body', 'wing', 'head', 'horns', 'book'] as const;
 
@@ -164,6 +173,8 @@ describe('shared layers, no redraws', () => {
 describe('mascot motion', () => {
   beforeEach(() => {
     reduceMotion.mockReset().mockReturnValue(false);
+    setMascotStorage(memoryStore());
+    useDragonAppearance.setState({ appearance: 'full' });
   });
 
   it.each(['celebrating', 'fastReading', 'refreshPeek'] as const)('loops the %s pose while motion is allowed', async (pose: MascotPose) => {
@@ -181,6 +192,14 @@ describe('mascot motion', () => {
 
   it('holds every pose still when Reduce Motion is on', async () => {
     reduceMotion.mockReturnValue(true);
+    for (const pose of poseIds) {
+      const rendered = await render(<Mascot pose={pose} testID={`mascot-${pose}`} />);
+      expect(rendered.queryByTestId(`mascot-${pose}-motion`)).toBeNull();
+    }
+  });
+
+  it('holds every pose still on Minimal, even with motion allowed', async () => {
+    useDragonAppearance.setState({ appearance: 'minimal' });
     for (const pose of poseIds) {
       const rendered = await render(<Mascot pose={pose} testID={`mascot-${pose}`} />);
       expect(rendered.queryByTestId(`mascot-${pose}-motion`)).toBeNull();

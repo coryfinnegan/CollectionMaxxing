@@ -29,6 +29,10 @@ const config: StorybookConfig = {
       // expo-haptics ships TS source Vite cannot bundle; the app never calls
       // it on web (see the stub), so stories lose nothing.
       { find: /^expo-haptics$/, replacement: join(here, 'shims/expoHapticsStub.js') },
+      // react-native-mmkv pulls nitro plus Flow-typed RN internals that Vite
+      // cannot parse; stories never persist (the stub throws, so every call
+      // site falls back to its memory store), so stories lose nothing.
+      { find: /^react-native-mmkv$/, replacement: join(here, 'shims/mmkvStub.js') },
       { find: /^@\//, replacement: `${join(here, '..', 'src')}/` },
     );
     viteConfig.resolve.alias = entries;

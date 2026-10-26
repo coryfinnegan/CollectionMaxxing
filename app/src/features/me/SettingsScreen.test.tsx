@@ -110,11 +110,14 @@ describe('Settings > Appearance', () => {
     expect(engine.applied).toEqual(['gameboy']);
   });
 
-  it('hides Appearance on the web, which has no home screen icon', async () => {
+  it('shows Appearance without the icon row on the web, which has no home screen icon', async () => {
     configureAuth({ platform: 'web' });
     await renderWithProviders(<SettingsScreen />);
-    expect(screen.queryByText('Appearance')).toBeNull();
+    expect(await screen.findByText('Appearance')).toBeTruthy();
     expect(screen.queryByText('App icon')).toBeNull();
+    expect(screen.getByText('Castle theme')).toBeTruthy();
+    expect(screen.getByText('Dragon appearances')).toBeTruthy();
+    expect(screen.getByText('Light or dark')).toBeTruthy();
   });
 });
 

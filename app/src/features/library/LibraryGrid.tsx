@@ -4,7 +4,7 @@
 import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlatList, Image, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -17,9 +17,10 @@ import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
 import { spacing, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
+import { CastleHeader, CastleState, TabletHeader, useCastleArt, useCastleMode } from '@/ui/castle';
 import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
-import { formatLabels, formats, kindLabels, kinds } from './labels';
+import { bannerMediumForKind, formatLabels, formats, kindLabels, kinds } from './labels';
 import { NeedsAttention, useProvisionals } from './NeedsAttention';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
 import { useDebounced, useItems } from './useItems';
@@ -60,7 +61,9 @@ export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryG
             {title}
           </Text>
         )}
-        <LoadingState label="Loading your library…" />
+        <CastleState pose="fastReading">
+          <LoadingState label="Loading your library…" labelTone="ink" />
+        </CastleState>
       </SafeAreaView>
     );
   }
@@ -101,12 +104,10 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
 
   const header = (
     <View style={styles.header}>
+      {hideTitle ? null : (
+        <CastleHeader title={title} subtitle={counts?.total === undefined ? undefined : `${counts.total} ${counts.total === 1 ? 'item' : 'items'}`} perch />
+      )}
       <View style={styles.headerRow}>
-        {hideTitle ? null : (
-          <Text variant="title" accessibilityRole="header" style={styles.title}>
-            {title}
-          </Text>
-        )}
         <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
       </View>
 
@@ -131,6 +132,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
               key={kind}
               label={count ? `${kindLabels[kind]} ${count}` : kindLabels[kind]}
               accessibilityLabel={kindLabels[kind]}
+              swatch={bannerMediumForKind(kind)}
               selected={filters.kind === kind}
               onPress={() => filter({ kind: filters.kind === kind ? undefined : kind })}
             />
@@ -241,15 +243,16 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
     setState(defaultState());
   };
 
+  // Errors, loading and the true empty state get the full frame; filtered
+  // no-matches stay plain, since search results take no theme beyond the chrome.
   const empty = list.isError ? (
-    <EmptyState
-      title="Couldn't load your library"
-      body={friendlyError(list.error)}
-      actionLabel="Try again"
-      onAction={() => list.refetch()}
-    />
+    <CastleState pose="oops">
+      <EmptyState title="Couldn't load your library" body={friendlyError(list.error)} bodyTone="ink" actionLabel="Try again" onAction={() => list.refetch()} />
+    </CastleState>
   ) : list.isLoading ? (
-    <LoadingState label="Loading your library…" />
+    <CastleState pose="fastReading">
+      <LoadingState label="Loading your library…" labelTone="ink" />
+    </CastleState>
   ) : hasActiveFilter(filters) ? (
     <EmptyState
       title="Nothing matches."
@@ -259,13 +262,15 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       animation="no-results"
     />
   ) : (
-    <EmptyState
-      title={emptyCopy[view].title}
-      body={emptyCopy[view].body}
-      actionLabel={view === 'library' ? 'Scan your first shelf' : undefined}
-      onAction={view === 'library' ? () => router.push('/scan') : undefined}
-      animation="empty-library"
-    />
+    <CastleState pose="emptyHoard">
+      <EmptyState
+        title={emptyCopy[view].title}
+        body={emptyCopy[view].body}
+        bodyTone="ink"
+        actionLabel={view === 'library' ? 'Scan your first shelf' : undefined}
+        onAction={view === 'library' ? () => router.push('/scan') : undefined}
+      />
+    </CastleState>
   );
 
   if (attention) {
@@ -273,13 +278,9 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={safe}>
         <ScrollView testID="needs-attention" contentContainerStyle={styles.listContent}>
           <View style={styles.header}>
-            <View style={styles.headerRow}>
-              {hideTitle ? null : (
-                <Text variant="title" accessibilityRole="header" style={styles.title}>
-                  {title}
-                </Text>
-              )}
-            </View>
+            {hideTitle ? null : (
+              <TabletHeader title={title} subtitle={attentionItems.length === 0 ? 'Nothing waiting' : `${attentionItems.length} waiting`} />
+            )}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
               <Chip
                 label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
@@ -347,6 +348,7 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
         style={styles.tilePressable}
       >
         <Cover title={item.title} uri={item.coverUrl} width={width} sharedTag={sharedCoverTag(reduceMotion, item.id)} />
+        <CoverShelf />
         <Text variant="label" numberOfLines={2}>
           {item.title}
         </Text>
@@ -359,16 +361,28 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
   );
 }
 
+/** The stone shelf every cover sits on: the ledge strip in Full, a plain rule in Flat, a heavier one in Accessible. */
+function CoverShelf() {
+  const mode = useCastleMode();
+  const art = useCastleArt();
+  if (mode === 'full') {
+    return <Image source={art.ledge} resizeMode="repeat" style={styles.shelf} testID="cover-shelf" />;
+  }
+  return <View style={mode === 'accessible' ? styles.shelfAccessible : styles.shelfFlat} testID="cover-shelf" />;
+}
+
 const styles = StyleSheet.create((theme) => ({
   listContent: { padding: theme.spacing.lg, gap: theme.spacing.lg },
   column: { gap: theme.spacing.md },
   header: { gap: theme.spacing.md, paddingBottom: theme.spacing.md },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: theme.spacing.md },
-  title: { flex: 1 },
   chipRow: { gap: theme.spacing.sm },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   snackbarPad: { padding: theme.spacing.lg },
   tilePressable: { gap: theme.spacing.xs },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs },
   tile: (width: number) => ({ width }),
+  shelf: { height: 12, width: '100%' },
+  shelfFlat: { height: 1, backgroundColor: theme.colors.line },
+  shelfAccessible: { height: 2, backgroundColor: theme.castle.iron },
 }));
