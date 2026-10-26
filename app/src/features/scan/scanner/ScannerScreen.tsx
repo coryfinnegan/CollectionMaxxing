@@ -155,7 +155,14 @@ export function ScannerScreen({
             style={{ backgroundColor: flash ? colors.accent : fixed.scrim }}
           />
         </View>
-        <SessionBar libraryId={libraryId} context={context} onOpenSession={() => setSheet('session')} onOpenSearch={() => setSheet('search')} />
+        <SessionBar
+          libraryId={libraryId}
+          context={context}
+          onOpenSession={() => setSheet('session')}
+          onOpenSearch={() => setSheet('search')}
+          onAddManually={() => router.push({ pathname: '/library', params: { add: '1' } })}
+          onOpenReview={() => router.push('/review')}
+        />
 
         <View pointerEvents="none" style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <NiceScanFlash visible={session.showNiceScan || autoSnap.flash} reduceMotion={reduceMotion} />

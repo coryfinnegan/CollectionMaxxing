@@ -8,7 +8,7 @@ import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { useCardsStore } from '../cards/cardsStore';
 import { rememberSessionContext, setSessionContextStorage } from '../session/sessionContext';
-import { setTrayStore } from '../tray/storage';
+import { getTrayStore, setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
 import { DEV_CODES } from './devCodes';
 import { ScannerScreen } from './ScannerScreen';
@@ -88,5 +88,19 @@ describe('scanner session context', () => {
     fireEvent.changeText(await screen.findByLabelText('Type to search'), 'alien');
 
     expect(await screen.findByText('DVD · 1979')).toBeTruthy();
+  });
+
+  it('adds by hand and opens waiting review from the session bar', async () => {
+    await scanner();
+    mockRouter.push.mockClear();
+
+    await press('Add it by hand');
+    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/library', params: { add: '1' } });
+
+    await act(async () => {
+      getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: '9780441172719', symbology: 'ean-13' });
+    });
+    await press('Waiting from your last scan: 1 item. Open Review');
+    expect(mockRouter.push).toHaveBeenCalledWith('/review');
   });
 });
