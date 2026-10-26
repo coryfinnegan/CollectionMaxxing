@@ -13,6 +13,8 @@ type LottieSpotProps = {
   name: LottieSpotName;
   size?: number;
   loop?: boolean;
+  /** Accepted for prop parity with the native player; the still has no playback. */
+  speed?: number;
   testID?: string;
 };
 

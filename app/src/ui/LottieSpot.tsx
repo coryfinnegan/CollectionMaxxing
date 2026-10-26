@@ -20,15 +20,17 @@ type LottieSpotProps = {
   size?: number;
   /** Empty states loop gently; the success check plays once. */
   loop?: boolean;
+  /** Playback rate; the scan-success check runs faster than life so it lands under a second. */
+  speed?: number;
   testID?: string;
 };
 
-export function LottieSpot({ name, size = 96, loop = false, testID = 'lottie-spot' }: LottieSpotProps) {
+export function LottieSpot({ name, size = 96, loop = false, speed = 1, testID = 'lottie-spot' }: LottieSpotProps) {
   const reduceMotion = useReduceMotion();
   if (reduceMotion) return null;
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <LottieView source={SOURCES[name]} autoPlay loop={loop} style={styles.art(size)} testID={testID} />
+      <LottieView source={SOURCES[name]} autoPlay loop={loop} speed={speed} style={styles.art(size)} testID={testID} />
     </View>
   );
 }

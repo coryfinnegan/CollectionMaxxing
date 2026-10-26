@@ -1,8 +1,9 @@
 // The scan-success moment plays its check, then gets out of the way on its own or on a tap.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import successCheck from '@/assets/lottie/success-check.json';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { setMascotStorage, useDragonAppearance } from '@/ui/mascot/appearances';
-import { CELEBRATION_MS, CommitCelebration } from './CommitCelebration';
+import { CELEBRATION_MS, CELEBRATION_SPEED, CommitCelebration } from './CommitCelebration';
 
 jest.mock('@/lib/a11y/useReduceMotion', () => ({ useReduceMotion: jest.fn() }));
 
@@ -71,6 +72,11 @@ describe('CommitCelebration', () => {
 
     expect(screen.getByTestId('celebration-dragon')).toBeTruthy();
     expect(screen.getByTestId('celebration-spot', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('plays the check in under a second, measured from the shipped asset', async () => {
+    const playMs = ((successCheck.op - successCheck.ip) / successCheck.fr / CELEBRATION_SPEED) * 1000;
+    expect(playMs).toBeLessThan(1000);
   });
 
   it('keeps the check without the dragon when dragons are off', async () => {
