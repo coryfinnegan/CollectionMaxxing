@@ -46,7 +46,7 @@ export function SessionBar({ libraryId, context, onOpenSession, onOpenSearch, on
         <Button label="Add it by hand" variant="secondary" onPress={onAddManually} style={styles.entry} />
         {waiting > 0 ? (
           <Button
-            label={`${summaryLine(waiting, 0)} waiting`}
+            label={`Waiting: ${summaryLine(waiting, 0)}`}
             accessibilityLabel={`Waiting from your last scan: ${summaryLine(waiting, 0)}. Open Review`}
             variant="secondary"
             onPress={onOpenReview}

@@ -73,7 +73,7 @@ describe('session bar', () => {
     const { onOpenReview } = await bar({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home' });
 
     const badge = await screen.findByLabelText('Waiting from your last scan: 2 items. Open Review');
-    expect(screen.getByText('2 items waiting')).toBeTruthy();
+    expect(screen.getByText('Waiting: 2 items')).toBeTruthy();
     fireEvent.press(badge);
     expect(onOpenReview).toHaveBeenCalled();
   });
