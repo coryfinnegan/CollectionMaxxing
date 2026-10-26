@@ -1,8 +1,10 @@
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Animated from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
+import { authHeaders, isWeb } from '@/lib/auth/session';
+import { ownMediaUrl } from '@/lib/media';
 import { Text } from './Text';
 
 type CoverProps = {
@@ -14,18 +16,50 @@ type CoverProps = {
   sharedTag?: string;
 };
 
+type ImageSource = { uri: string; headers?: Record<string, string> };
+
+/**
+ * What the image loads. The web keeps the address as it is (its cookie flows with the request). The phone asks this
+ * server's own artwork route at its absolute address with the sign-in, which arrives a beat later; a local photo or a
+ * provider address loads as it is, and never carries the sign-in.
+ */
+function useCoverSource(uri: string | null | undefined): ImageSource | null {
+  const absolute = !uri || isWeb() ? undefined : ownMediaUrl(uri);
+  // The signed source, keyed by its address so a superseded answer never shows for a new cover.
+  const [signed, setSigned] = useState<{ absolute: string; source: ImageSource } | null>(null);
+  useEffect(() => {
+    if (!absolute) return;
+    let live = true;
+    authHeaders('GET').then(
+      (headers) => {
+        if (live) setSigned({ absolute, source: { uri: absolute, headers } });
+      },
+      () => {
+        if (live) setSigned({ absolute, source: { uri: absolute } });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [absolute]);
+  if (!uri) return null;
+  if (isWeb() || !absolute) return { uri };
+  return signed?.absolute === absolute ? signed.source : null;
+}
+
 /** A cover image, or a plain tile with the title when there is no art or it fails to load. */
 export function Cover({ title, uri, width = 96, sharedTag }: CoverProps) {
   const height = Math.round(width * 1.5);
+  const source = useCoverSource(uri);
   // Which address failed, so a new address gets a fresh attempt even after a failure.
   const [failedUri, setFailedUri] = useState<string | null>(null);
-  if (uri && failedUri !== uri) {
+  if (source && failedUri !== source.uri) {
     return (
       <Animated.Image
-        source={{ uri }}
+        source={source}
         accessibilityIgnoresInvertColors
         accessibilityLabel={`Cover of ${title}`}
-        onError={() => setFailedUri(uri)}
+        onError={() => setFailedUri(source.uri)}
         sharedTransitionTag={sharedTag}
         style={styles.image({ width, height })}
       />
