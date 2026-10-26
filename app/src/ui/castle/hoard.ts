@@ -41,6 +41,5 @@ export function hoardPeak(libraryId: string, total: number): number {
 /** The high-water mark for this render: pure during render, persisted as a side effect of reading. */
 export function useHoardPeak(libraryId: string, total: number): number {
   // The peak only moves upward, so memoizing on the inputs is safe across renders.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => hoardPeak(libraryId, total), [libraryId, total]);
 }

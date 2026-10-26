@@ -78,14 +78,12 @@ describe('hoardPeak', () => {
 describe('HoardMeter', () => {
   it('piles coins for the peak while the words report the live count', async () => {
     await render(<HoardMeter peak={100} total={12} />);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     expect(screen.getByTestId('hoard-coins').props.children).toHaveLength(coinsForPeak(100));
     expect(screen.getByText('12 items on your shelves')).toBeTruthy();
   });
 
   it('coins the pile in brass', async () => {
     await render(<HoardMeter peak={10} total={10} />);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     const first = screen.getByTestId('hoard-coins').props.children[0].props.style;
     expect(StyleSheet.flatten(first).backgroundColor).toBe(castle.brass);
   });
