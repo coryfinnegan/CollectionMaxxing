@@ -74,7 +74,8 @@ describe('scanner screen', () => {
     expect(await screen.findByText('GoldenEye 007')).toBeTruthy();
     expect(await screen.findByText(NOT_FOUND_COPY)).toBeTruthy();
     expect(await screen.findByText('Looking up…')).toBeTruthy();
-    expect(screen.getAllByText('You own 1')).toHaveLength(2);
+    expect(screen.getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
+    expect(screen.getByText('Already own — Nintendo 64, Game room › Shelf 1')).toBeTruthy();
     expect(screen.getAllByTestId(/^card-/)).toHaveLength(6);
 
     // 6 ticks right away; then two owned (2 taps each), two new (1 tap each), one not found (long).
@@ -143,7 +144,7 @@ describe('scanner screen', () => {
 
     expect(await screen.findByText("Couldn't read that barcode. Scan it again.")).toBeTruthy();
     expect(await screen.findByText('Dune')).toBeTruthy();
-    expect(screen.getByText('You own 1')).toBeTruthy();
+    expect(screen.getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
   });
 
   it('offers + Add to an editor and adds only that item', async () => {
@@ -165,7 +166,7 @@ describe('scanner screen', () => {
     await act(async () => source.inject([code(DEV_CODES.duneOwned), code(DEV_CODES.mario64New)]));
 
     expect(await screen.findByText('Super Mario 64')).toBeTruthy();
-    expect(screen.getByText('You own 1')).toBeTruthy();
+    expect(screen.getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
     expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull();
     expect(screen.queryByText('+ Add')).toBeNull();
     expect(screen.queryByText('Wishlist')).toBeNull();

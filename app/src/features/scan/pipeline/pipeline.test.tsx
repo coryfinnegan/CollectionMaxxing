@@ -77,7 +77,7 @@ describe('a snap read as three items', () => {
 
     await act(async () => answer.release());
     await waitFor(() => expect(cards()).toHaveLength(3));
-    expect(within(cardTitled('Dune')!).getByText('You own 1')).toBeTruthy(); // owned
+    expect(within(cardTitled('Dune')!).getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy(); // owned
     expect(within(cardTitled('Super Mario 64')!).getByText('Super Mario 64')).toBeTruthy(); // new
     expect(within(cardTitled('Zelda: Ocarina of Time')!).getByText('Identifying…')).toBeTruthy(); // the slow one: a pending card
     expect(screen.getAllByText('IDENTIFYING…')).toHaveLength(1);
@@ -129,12 +129,12 @@ describe('what the cards say', () => {
     await fireEvent.changeText(screen.getByDisplayValue('Goldeneye 7'), 'GoldenEye 007');
     await fireEvent.press(screen.getByLabelText('Search'));
 
-    expect(await screen.findByText('You own 1')).toBeTruthy();
+    expect(await screen.findByText('Already own — Nintendo 64, Game room › Shelf 1')).toBeTruthy();
     expect(screen.getByText('GoldenEye 007')).toBeTruthy();
     expect(screen.queryByText('Fix it')).toBeNull(); // the sheet closed and the card is matched
   });
 
-  it('leads with "You own" for an item the library already has', async () => {
+  it('leads with "Already own" for an item the library already has', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune]));
     await open(kit);
@@ -142,7 +142,7 @@ describe('what the cards say', () => {
     await shutter();
     const card = await screen.findByTestId(/^card-/);
     expect(within(card).getByText('Dune')).toBeTruthy();
-    expect(within(card).getByText('You own 1')).toBeTruthy();
+    expect(within(card).getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
     expect(within(card).queryByText('+ Add')).toBeNull();
   });
 });
@@ -163,7 +163,7 @@ describe('offline and the PC being off', () => {
 
     server.resetHandlers(); // back online
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
-    expect(await screen.findByText('You own 1')).toBeTruthy();
+    expect(await screen.findByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
     expect(identifyMock.requests[0]!.body.snapId).toBe(kit.store.getState().snaps[0]!.snapId);
     await waitFor(() => expect(screen.queryByText('QUEUED')).toBeNull());
     expect(identifyMock.requests).toHaveLength(1);
@@ -316,7 +316,7 @@ describe('the processing count and Get closer', () => {
     await shutter();
     await waitFor(() => expect(statusBar()).toMatch(/^2 items · 2 processing\./)); // streamed, still being read
     await act(async () => reading.release());
-    await screen.findByText('You own 1');
+    await screen.findByText('Already own — Paperback, Living room › Shelf 2');
     await waitFor(() => expect(statusBar()).toMatch(/^2 items · 1 processing\./)); // Zelda is still being looked up
     await act(async () => identifyMock.resolvePending());
     await waitFor(() => expect(statusBar()).toMatch(/^2 items\./));
@@ -401,7 +401,7 @@ describe('the receipt', () => {
     await open(kit);
 
     await shutter();
-    await screen.findByText('You own 1');
+    await screen.findByText('Already own — Paperback, Living room › Shelf 2');
     expect(kit.store.getState().snaps).toHaveLength(1);
     await act(async () => kit.tray.getState().setSessionId(null)); // committed or discarded
     await waitFor(() => expect(kit.store.getState().snaps).toEqual([]));
