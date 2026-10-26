@@ -2,7 +2,7 @@
 // The first sight of a rung seeds quietly, so shelves built before this issue
 // never fanfare themselves; only a later climb celebrates, and it keeps
 // celebrating until dismissed. Kept per library on this device.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 type StringStore = { getString(key: string): string | undefined; set(key: string, value: string): void };
 
@@ -58,16 +58,16 @@ export function dismissMilestone(libraryId: string, rung: number): void {
 
 /** The rung the hall celebrates until dismissed, then never again. */
 export function useMilestoneCelebration(libraryId: string, highest: number | undefined): { rung: number | null; dismiss(): void } {
-  const [rung, setRung] = useState<number | null>(() => milestoneMoment(libraryId, highest));
-  useEffect(() => {
-    const moment = milestoneMoment(libraryId, highest);
-    if (moment !== null) setRung(moment);
-  }, [libraryId, highest]);
+  // The moment only moves when the rung does, so memoizing on the inputs is safe across renders.
+  const moment = useMemo(() => milestoneMoment(libraryId, highest), [libraryId, highest]);
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  const rung = moment !== null && moment !== dismissed ? moment : null;
   const dismiss = useCallback(() => {
-    setRung((current) => {
-      if (current !== null) dismissMilestone(libraryId, current);
-      return null;
-    });
-  }, [libraryId]);
+    const active = milestoneMoment(libraryId, highest);
+    if (active !== null) {
+      dismissMilestone(libraryId, active);
+      setDismissed(active);
+    }
+  }, [libraryId, highest]);
   return { rung, dismiss };
 }

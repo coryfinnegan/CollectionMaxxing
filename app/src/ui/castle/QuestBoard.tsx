@@ -52,14 +52,17 @@ export function QuestBoard({ quests, testID = 'quest-board' }: QuestBoardProps) 
 
 function PinnedBoard({ quests, onUnpin, testID }: { quests: QuestState[]; onUnpin(): void; testID: string }) {
   // The first sight seeds quietly; only later finishes join the celebration.
+  // New finishes merge during render (the documented previous-value pattern),
+  // guarded by a signature so unchanged shelves never update.
   const [celebrating, setCelebrating] = useState<QuestState[]>(() => freshQuests(quests));
-  useEffect(() => {
-    setCelebrating((current) => {
-      const known = new Set(current.map((quest) => quest.id));
-      const next = freshQuests(quests).filter((quest) => !known.has(quest.id));
-      return next.length === 0 ? current : [...current, ...next];
-    });
-  }, [quests]);
+  const signature = quests.map((quest) => `${quest.id}:${quest.done ? 1 : 0}:${quest.progress}`).join(',');
+  const [watched, setWatched] = useState(signature);
+  if (signature !== watched) {
+    setWatched(signature);
+    const known = new Set(celebrating.map((quest) => quest.id));
+    const next = freshQuests(quests).filter((quest) => !known.has(quest.id));
+    if (next.length > 0) setCelebrating([...celebrating, ...next]);
+  }
   const dismiss = (id: string) => setCelebrating((current) => current.filter((quest) => quest.id !== id));
   return (
     <View style={styles.board} testID={testID}>

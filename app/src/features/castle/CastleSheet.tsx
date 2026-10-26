@@ -1,11 +1,12 @@
-// The castle contact sheet (#361, #363): every primitive in Full, Flat and
+// The castle contact sheet (#361, #363, #362): every primitive in Full, Flat and
 // Accessible, side by side, plus the Phase 1 compositions (media banners, the
-// perched header, shields, the hoard and a themed state). A dev fixture for the
+// perched header, shields, the hoard and a themed state) and the Phase 2
+// delights (seasonal banners and a pinned quest board). A dev fixture for the
 // Playwright spec and eyeballing; linked nowhere, so no screen changes for
 // anyone else.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { Screen, Text } from '@/ui';
@@ -16,10 +17,15 @@ import {
   HoardMeter,
   LedgeRow,
   ParchmentCard,
+  QuestBoard,
+  SeasonalBanner,
   SeriesShield,
   TabletHeader,
+  questsFor,
+  useQuestBoard,
   type BannerMedium,
   type CastleMode,
+  type Season,
 } from '@/ui/castle';
 
 const cellModes: { mode: CastleMode; caption: string }[] = [
@@ -102,8 +108,27 @@ export function CastleSheet() {
           <ParchmentCard title="Supplies" body="Rope, torches, chalk." mode={mode} />
         </Cell>
       ))}
+      <Text variant="heading">Seasonal banners</Text>
+      {(['spring', 'summer', 'autumn', 'winter'] as Season[]).map((season) => (
+        <Cell key={season} id={`castle-cell-seasonal-${season}`} caption={season}>
+          <SeasonalBanner season={season} mode="full" />
+        </Cell>
+      ))}
+      <Text variant="heading">Quest board</Text>
+      <Cell id="castle-cell-quests" caption="Pinned, one done">
+        <PinnedQuests />
+      </Cell>
     </Screen>
   );
+}
+
+/** The board as the hall shows it once pinned: sample shelves, one quest done. */
+function PinnedQuests() {
+  const setPinned = useQuestBoard((s) => s.set);
+  useEffect(() => {
+    setPinned(true);
+  }, [setPinned]);
+  return <QuestBoard quests={questsFor({ fullestShelf: 7, shelvesUsed: 3, bestSet: 1 })} />;
 }
 
 const styles = StyleSheet.create((theme) => ({
