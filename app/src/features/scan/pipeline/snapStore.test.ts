@@ -105,3 +105,53 @@ describe('the snap store', () => {
     expect(new SnapStore({ files: new MemorySnapFiles(), storage }).list()).toEqual([]);
   });
 });
+
+describe('pinned snaps', () => {
+  it('survive the retention age and count while unresolved work pins them', async () => {
+    const now = { t: 0 };
+    const { store } = build(now, { maxAgeMs: DAY, maxSnaps: 1 });
+    await store.saveStill('old', PHOTO);
+    store.pin('old');
+    now.t = 8 * DAY;
+    await store.saveStill('new', PHOTO);
+
+    expect(store.list().map((s) => s.snapId).sort()).toEqual(['new', 'old']);
+  });
+
+  it('are trimmable again once unpinned', async () => {
+    const now = { t: 0 };
+    const { store } = build(now, { maxAgeMs: DAY, maxSnaps: 50 });
+    await store.saveStill('old', PHOTO);
+    store.pin('old');
+    store.unpin('old');
+    now.t = 8 * DAY;
+    await store.saveStill('new', PHOTO);
+
+    expect(store.list().map((s) => s.snapId)).toEqual(['new']);
+    expect(store.isPinned('old')).toBe(false);
+  });
+
+  it('hold their pins across a restart', async () => {
+    const now = { t: 1 };
+    const first = build(now);
+    await first.store.saveStill('s1', PHOTO);
+    first.store.pin('s1');
+
+    const second = new SnapStore({ files: first.files, storage: first.storage, now: () => now.t });
+    expect(second.isPinned('s1')).toBe(true);
+  });
+
+  it('lose their pin when forgotten, and every pin is wiped', async () => {
+    const { store, storage } = build({ t: 1 });
+    await store.saveStill('s1', PHOTO);
+    await store.saveStill('s2', PHOTO);
+    store.pin('s1');
+    store.pin('s2');
+    await store.forget('s1');
+    expect(store.isPinned('s1')).toBe(false);
+
+    await store.clear();
+    expect(store.isPinned('s2')).toBe(false);
+    expect(storage.getString('snap-store-pins-v1')).toBeUndefined();
+  });
+});

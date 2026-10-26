@@ -58,14 +58,16 @@ export function usePipeline({
     };
   }, [pipeline, resendMs]);
 
-  // A committed or discarded scan leaves the receipt.
+  // A committed or discarded scan leaves the receipt; a (re)opened session drains what is waiting, barcodes first.
   const sessionId = useTrayValue(tray, (s) => s.sessionId, null);
   useEffect(() => {
     pipeline?.sweep();
+    void pipeline?.flush();
   }, [pipeline, sessionId]);
 
   const snaps = useStore(store, (s) => s.snaps);
   const unreadableCount = useStore(store, (s) => s.unreadableCount);
+  const orphanedCount = useStore(store, (s) => s.orphanedCount);
   const online = useTrayValue(tray, (s) => s.online, true);
   const byId = useCardsStore((s) => s.byId);
   const local = useCardsStore((s) => s.local);
@@ -97,6 +99,8 @@ export function usePipeline({
     processing: counts.processing,
     unreadableCount,
     dismissUnreadable: () => store.getState().dismissUnreadable(),
+    orphanedCount,
+    dismissOrphaned: () => store.getState().dismissOrphaned(),
     removeLine: (snapId: string, localId: string) => pipeline?.removeItem(snapId, localId),
   };
 }

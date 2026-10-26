@@ -81,6 +81,7 @@ export function expoSnapFiles(folder = 'cm-snaps'): SnapFiles {
 }
 
 const INDEX_KEY = 'snap-store-v1';
+const PINS_KEY = 'snap-store-pins-v1';
 
 export interface SnapStoreDeps {
   files: SnapFiles;
@@ -93,6 +94,7 @@ const fileNames = (snap: StoredSnap) => [`${snap.snapId}-still.jpg`, ...snap.ite
 
 export class SnapStore {
   private snaps: StoredSnap[];
+  private pins: Set<string>;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly now: () => number;
   private readonly retention: { maxAgeMs: number; maxSnaps: number };
@@ -101,6 +103,7 @@ export class SnapStore {
     this.now = deps.now ?? Date.now;
     this.retention = deps.retention ?? DEFAULT_RETENTION;
     this.snaps = this.load();
+    this.pins = this.loadPins();
   }
 
   /** Work on the store one step at a time, so a wipe can never be overtaken by a save that started before it. */
@@ -126,6 +129,44 @@ export class SnapStore {
     } catch {
       // storage full or unavailable: the files are still there for this run
     }
+  }
+
+  private loadPins(): Set<string> {
+    try {
+      const raw = this.deps.storage.getString(PINS_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  private savePins() {
+    try {
+      this.deps.storage.set(PINS_KEY, JSON.stringify([...this.pins]));
+    } catch {
+      // storage full or unavailable: the pins hold for this run
+    }
+  }
+
+  /**
+   * Pins a snap against retention trimming: the strip, Review and the pipeline need its still and crops while its
+   * segments are unresolved. A pin survives the app being killed; forgetting the snap lifts it.
+   */
+  pin(snapId: string): void {
+    if (this.pins.has(snapId)) return;
+    this.pins.add(snapId);
+    this.savePins();
+  }
+
+  /** Lifts a pin: the snap is resolved, committed or explicitly discarded, so retention may take it again. */
+  unpin(snapId: string): void {
+    if (!this.pins.delete(snapId)) return;
+    this.savePins();
+  }
+
+  isPinned(snapId: string): boolean {
+    return this.pins.has(snapId);
   }
 
   list(): StoredSnap[] {
@@ -181,14 +222,18 @@ export class SnapStore {
   forget(snapId: string): Promise<void> {
     return this.run(async () => {
       const snap = this.get(snapId);
-      if (!snap) return;
+      if (!snap) {
+        this.unpin(snapId); // a pin without a snap is nothing to keep
+        return;
+      }
       this.snaps = this.snaps.filter((s) => s.snapId !== snapId);
       this.save();
+      this.unpin(snapId);
       await this.deps.files.remove(fileNames(snap)).catch(() => undefined);
     });
   }
 
-  /** Drops snaps older than the retention age, then the oldest beyond the retention count. */
+  /** Drops snaps older than the retention age, then the oldest beyond the retention count. Pinned snaps stay. */
   prune(): Promise<void> {
     return this.run(() => this.trim());
   }
@@ -198,9 +243,9 @@ export class SnapStore {
     const fresh = this.snaps.filter((s) => s.createdAt >= cutoff);
     const keep = [...fresh].sort((a, b) => b.createdAt - a.createdAt).slice(0, this.retention.maxSnaps);
     const kept = new Set(keep.map((s) => s.snapId));
-    const dropped = this.snaps.filter((s) => !kept.has(s.snapId));
+    const dropped = this.snaps.filter((s) => !kept.has(s.snapId) && !this.pins.has(s.snapId));
     if (dropped.length === 0) return;
-    this.snaps = this.snaps.filter((s) => kept.has(s.snapId));
+    this.snaps = this.snaps.filter((s) => kept.has(s.snapId) || this.pins.has(s.snapId));
     this.save();
     await this.deps.files.remove(dropped.flatMap(fileNames)).catch(() => undefined);
   }
@@ -209,8 +254,10 @@ export class SnapStore {
   clear(): Promise<void> {
     return this.run(async () => {
       this.snaps = [];
+      this.pins = new Set();
       try {
         this.deps.storage.remove(INDEX_KEY);
+        this.deps.storage.remove(PINS_KEY);
       } catch {
         // nothing more can be done about a storage that will not forget
       }

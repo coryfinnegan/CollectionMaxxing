@@ -11,7 +11,8 @@ import { createStabilityFilter } from '../tray/stability';
 import { getTrayStore } from '../tray/storage';
 import { flushTray, type TrayStore } from '../tray/trayStore';
 import { lineStatus } from '../tray/tray';
-import { flushDeps, followSession, loadSession, rejectCandidate, resumeCursor } from './sessionApi';
+import { flushDeps, followSession, loadSessionSnapshot, rejectCandidate, resumeCursor } from './sessionApi';
+import { seedFromSnapshot } from './sessionCounters';
 import type { StoreApi } from 'zustand/vanilla';
 
 export type SessionTuning = { retryMs?: number; pollMs?: number; resendMs?: number; flashMs?: number };
@@ -111,9 +112,10 @@ export function useScanSession({
     void (async () => {
       let cursor: string | undefined;
       try {
-        const existing = await loadSession(sessionId);
-        useCardsStore.getState().merge(existing, { announce: false });
-        cursor = resumeCursor(existing);
+        const snapshot = await loadSessionSnapshot(sessionId);
+        useCardsStore.getState().merge(snapshot.candidates, { announce: false });
+        seedFromSnapshot(sessionId, snapshot);
+        cursor = resumeCursor(snapshot.candidates);
       } catch {
         // The stream below will catch up; a failed snapshot is not fatal.
       }

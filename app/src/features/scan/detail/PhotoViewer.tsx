@@ -13,7 +13,21 @@ const SWIPE = 40;
 
 export const PHOTO_GONE = "The photo isn't on this phone any more. The details below are still right.";
 
-export function PhotoViewer({ context, currentId, onSelect }: { context: SnapContext; currentId: string; onSelect(cardId: string): void }) {
+export function PhotoViewer({
+  context,
+  currentId,
+  onSelect,
+  peerStates,
+  heading,
+}: {
+  context: SnapContext;
+  currentId: string;
+  onSelect(cardId: string): void;
+  /** Per-item state words ("Resolved", "Needs a look"), shown for the item on screen. */
+  peerStates?: Record<string, string>;
+  /** A line above the photo ("Snap 2 of 5"). */
+  heading?: string;
+}) {
   const colors = useColors();
   const window = useWindowDimensions();
   const [measured, setMeasured] = useState<number | null>(null);
@@ -49,9 +63,11 @@ export function PhotoViewer({ context, currentId, onSelect }: { context: SnapCon
   const frame = { width: frameWidth, height: frameHeight };
   const placed = peer ? boxOverlay(boxOf(peer), frame, { width: snap.width, height: snap.height }) : undefined;
   const label = many ? `Item ${index + 1} of ${peers.length} highlighted` : 'Item highlighted';
+  const state = peer && peerStates ? peerStates[peer.card.id] : undefined;
 
   return (
     <View style={{ gap: spacing.sm }}>
+      {heading ? <Text variant="label">{heading}</Text> : null}
       <View
         testID="photo-frame"
         onLayout={(e: LayoutChangeEvent) => setMeasured(e.nativeEvent.layout.width)}
@@ -91,6 +107,11 @@ export function PhotoViewer({ context, currentId, onSelect }: { context: SnapCon
           <Text accessibilityLiveRegion="polite">{`${index + 1} of ${peers.length} in this photo`}</Text>
           <Button label="Next item" variant="secondary" onPress={() => go(1)} />
         </View>
+      ) : null}
+      {state ? (
+        <Text tone="muted" accessibilityLiveRegion="polite">
+          {state}
+        </Text>
       ) : null}
     </View>
   );

@@ -95,6 +95,10 @@ export class SnapPipeline {
     this.stop();
     this.unsubscribe = useCardsStore.subscribe(() => this.scanForCloseCalls());
     this.scanForCloseCalls();
+    // Every snap still here has unresolved work: pin it before trimming, so retention never takes it.
+    for (const snap of this.deps.store.getState().snaps) {
+      if (snap.libraryId === this.deps.libraryId) this.deps.snaps.pin(snap.snapId);
+    }
     void this.deps.snaps.prune();
     this.resume();
   }
@@ -125,6 +129,7 @@ export class SnapPipeline {
       unreadableCount: 0,
     });
     reading.add(snapId);
+    snaps.pin(snapId); // unresolved from here until it is dropped, swept or sent and settled
     const stored = await snaps.saveStill(snapId, event.photo);
     if (stored) {
       store.getState().setSnapThumb(snapId, stored.stillUri); // the receipt line shows the store's copy, not the file about to go
@@ -173,6 +178,7 @@ export class SnapPipeline {
   private async drop(snapId: string) {
     this.deps.store.getState().removeSnap(snapId);
     useCardsStore.getState().dropLocal(snapId);
+    this.deps.snaps.unpin(snapId);
     await Promise.all([this.deps.snaps.forget(snapId), discardPicturesOf(snapId)]);
   }
 
@@ -200,6 +206,8 @@ export class SnapPipeline {
       if (snap.libraryId !== this.deps.libraryId || snap.phase !== 'reading' || reading.has(snap.snapId)) continue;
       const stored = this.deps.snaps.get(snap.snapId);
       if (!stored) {
+        // The still is gone too (the OS emptied the cache): count it, never silently complete it.
+        this.deps.store.getState().noteOrphaned();
         void this.drop(snap.snapId);
         continue;
       }
@@ -240,7 +248,16 @@ export class SnapPipeline {
     let resets = 0;
     const renamed = new Set<string>();
     for (;;) {
-      const next = store.getState().snaps.find((s) => s.libraryId === this.deps.libraryId && s.phase === 'read' && !s.sent);
+      // Barcodes first: identify waits while the tray still holds codes the server has not confirmed. The tray's own
+      // flush sends them; the next pipeline flush tries again. A tray with a problem of its own (a refused batch, a
+      // signed-out user) does not hold pictures up: only waiting work waits. Art-scores chain off identify's answers
+      // and crops stay local, so the reconnect order is barcodes, then identify in shoot order, then art, then crops (§9).
+      const unsentCodes = tray.getState().lines.some((l) => l.sentCopies < l.copies);
+      if (unsentCodes && !tray.getState().problem) return;
+      const next = store
+        .getState()
+        .snaps.filter((s) => s.libraryId === this.deps.libraryId && s.phase === 'read' && !s.sent)
+        .sort((a, b) => a.createdAt - b.createdAt)[0];
       if (!next) return;
       if (this.barcodeInView()) return; // held until the barcode is out of view
       try {
@@ -366,6 +383,7 @@ export class SnapPipeline {
     for (const snapId of before) {
       if (after.has(snapId)) continue;
       useCardsStore.getState().dropLocal(snapId);
+      this.deps.snaps.unpin(snapId); // the scan is over: retention may take the still again
       void discardPicturesOf(snapId);
     } // the snap store keeps its own copies for its retention
   }
@@ -375,6 +393,7 @@ export class SnapPipeline {
     const { store, tray } = this.deps;
     const item = store.getState().snaps.find((s) => s.snapId === snapId)?.items.find((i) => i.localId === localId);
     store.getState().removeItem(snapId, localId);
+    if (!store.getState().snaps.some((s) => s.snapId === snapId)) this.deps.snaps.unpin(snapId);
     useCardsStore.getState().dropLocal(snapId, localId);
     const card = item && this.cardOf(item);
     if (card) {
