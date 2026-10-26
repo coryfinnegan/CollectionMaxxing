@@ -38,4 +38,9 @@ describe('design tokens', () => {
     expect(typeScale.mono.fontFamily).toMatch(/^SpaceMono_/);
     expect(typeScale.display.fontSize ?? 0).toBeGreaterThan(typeScale.title.fontSize ?? 0);
   });
+
+  it('sets castle display titles in Cinzel at 20pt and above only', () => {
+    expect(typeScale.castleDisplay.fontFamily).toMatch(/^Cinzel_/);
+    expect(typeScale.castleDisplay.fontSize ?? 0).toBeGreaterThanOrEqual(20);
+  });
 });

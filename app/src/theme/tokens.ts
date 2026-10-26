@@ -45,6 +45,18 @@ export const fixed = {
   scrim: source.fixed.scrim,
 };
 
+/** The castle palette (#361): fixed like the receipt, so the same art and ratios hold in light and dark. */
+export const castle = {
+  parchment: source.castle.parchment,
+  parchmentInk: source.castle.parchmentInk,
+  stone: source.castle.stone,
+  stoneInk: source.castle.stoneInk,
+  brass: source.castle.brass,
+  iron: source.castle.iron,
+  ironInk: source.castle.ironInk,
+  olive: source.castle.olive,
+};
+
 export const spacing = source.spacing;
 export const radius = source.radius;
 
@@ -60,6 +72,8 @@ type TypeScale = Record<string, TypeEntry> & {
   label: TypeEntry;
   caption: TypeEntry;
   mono: TypeEntry;
+  /** Castle display titles (#361): Cinzel, 20pt and above only. */
+  castleDisplay: TypeEntry;
 };
 
 export const typeScale = source.type as TypeScale;

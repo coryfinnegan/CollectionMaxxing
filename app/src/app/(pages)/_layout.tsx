@@ -41,6 +41,7 @@ export default function PagesLayout() {
         <Stack.Screen name="me/sign-in-methods" options={{ title: 'Sign-in methods' }} />
         <Stack.Screen name="me/deleted" options={{ title: 'Recently deleted' }} />
         <Stack.Screen name="me/delete" options={{ title: 'Delete account' }} />
+        <Stack.Screen name="castle-sheet" options={{ title: 'Castle contact sheet' }} />
       </Stack>
     </TabsFrame>
   );

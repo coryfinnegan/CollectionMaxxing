@@ -39,6 +39,7 @@ still scales.
 | label    | 14 / 18     | 600    | BricolageGrotesque_600SemiBold  | Buttons, chips, small actions       |
 | caption  | 13 / 17     | 400    | BricolageGrotesque_400Regular   | Hints, timestamps                   |
 | mono     | 13 / 17     | 400    | SpaceMono_400Regular            | Catalog facts: format, platform, year |
+| castleDisplay | 28 / 34 | 700    | Cinzel_700Bold                  | Castle frame display titles, 20pt+ only |
 
 Reach for the `Text` primitive with a `variant`, never a bare `RNText` with
 a hand-rolled style.
@@ -64,6 +65,30 @@ phone: `Screen` renders its `title` on the web only, unless `showTitleOnPhone`
 opts back in (headerless routes and content titles like an item's name).
 Pushed screens keep a nav-bar title on both platforms and pass no `title` at
 all. Subtitles are content, not titles, and always show.
+
+## Castle theme (Phase 0)
+
+The castle is an opt-in frame; the app inside stays clean. Phase 0 builds the
+system only: no screen is themed yet.
+
+- **Palette:** `tokens.json` `castle` is scheme-independent fixed color, like
+  the receipt: `parchment`/`parchmentInk`, `stone`/`stoneInk`, `brass`,
+  `iron`/`ironInk`, `olive`. Brass and olive are accents and graphics only,
+  never body text.
+- **Textures** (`app/assets/castle/`) are small tileable / 9-slice images
+  generated from the palette bases (`app/scripts/castle-textures.py`) with
+  baked contact shadows. No large background images; no text baked into any
+  texture.
+- **Primitives** (`app/src/ui/castle/`): CastleHeader, TabletHeader,
+  BannerMarker, LedgeRow, ParchmentCard. Each renders in Full / Flat /
+  Accessible modes; the mode resolves from the Theme setting (Full/Quiet)
+  plus system Increase Contrast and Reduce Motion, with Accessible winning
+  conflicts.
+- **Contrast** is measured at the worst-case pixel under the text
+  (`app/scripts/castle-contrast.mjs`): 4.5:1 body text, 3:1 large text and
+  UI components.
+- **Type:** the `castleDisplay` cut (Cinzel 700, OFL) is for castle frame
+  display titles at 20pt and above only. Body and UI text stay Bricolage.
 
 ## Haptics
 
