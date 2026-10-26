@@ -2042,6 +2042,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "editionVerified",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -8204,7 +8211,8 @@
           "createdAt",
           "createdBy",
           "updatedAt",
-          "deletedAt"
+          "deletedAt",
+          "editionVerified"
         ],
         "type": "object",
         "properties": {
@@ -8317,6 +8325,9 @@
             ],
             "format": "date-time"
           },
+          "editionVerified": {
+            "type": "boolean"
+          },
           "createdByName": {
             "type": [
               "null",
@@ -8348,7 +8359,8 @@
           "condition",
           "locationId",
           "coverUrl",
-          "createdAt"
+          "createdAt",
+          "editionVerified"
         ],
         "type": "object",
         "properties": {
@@ -8415,6 +8427,9 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "editionVerified": {
+            "type": "boolean"
           }
         }
       },

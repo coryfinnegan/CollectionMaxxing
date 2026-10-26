@@ -20,11 +20,13 @@ public sealed record ItemSummaryDto(
     ItemCondition? Condition,
     Guid? LocationId,
     string? CoverUrl,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool EditionVerified);
 
 /// <summary>
 /// Your copy of a release. <c>CreatedBy</c> is who added it and <c>CreatedByName</c> is that person's display name (the "Added by" line);
-/// the name stays even after the person was removed from the library.
+/// the name stays even after the person was removed from the library. <c>EditionVerified</c> is false only for a T1
+/// auto-add whose edition is still unproven (docs/16 §6).
 /// </summary>
 public sealed record ItemDto(
     Guid Id,
@@ -46,6 +48,7 @@ public sealed record ItemDto(
     Guid CreatedBy,
     DateTimeOffset UpdatedAt,
     DateTimeOffset? DeletedAt,
+    bool EditionVerified,
     string? CreatedByName = null);
 
 /// <summary>Another copy of the same work that the library owns (maybe on a different format).</summary>

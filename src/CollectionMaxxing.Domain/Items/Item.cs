@@ -84,6 +84,12 @@ public sealed class Item : ILibraryScoped, IConcurrencyVersioned
     /// <summary>Loose cartridges default to <c>MyPhoto</c>.</summary>
     public CoverChoice CoverChoice { get; set; }
 
+    /// <summary>
+    /// Whether this copy's edition is proven: a barcode, a confirmed match, or the person's own entry. A T1 auto-add
+    /// leaves it false until the edition is verified in place (docs/16 §6, §11); everything else arrives true.
+    /// </summary>
+    public bool EditionVerified { get; set; } = true;
+
     public AddedVia AddedVia { get; init; }
 
     public DateTimeOffset CreatedAt { get; init; }

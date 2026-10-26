@@ -115,7 +115,7 @@ public static class ItemEndpoints
         var result = await handler.HandleAsync(
             new ListItems.Query(
                 libraryId, query.Q, query.Kind, query.Format, query.Platform, query.Status, query.LocationId, query.Tag,
-                query.Sort, query.Limit, query.Cursor),
+                query.Sort, query.Limit, query.Cursor, query.EditionVerified),
             cancellationToken);
 
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToItemProblem();
