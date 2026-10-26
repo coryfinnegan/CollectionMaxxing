@@ -19,10 +19,10 @@ internal static class CatalogProjection
     public static string CoverUrl(Guid assetId) => $"/media/covers/{assetId}";
 
     public static WorkDto ToWorkDto(ProviderRelease p) =>
-        new(UnsavedId, p.Kind, p.Title, p.Year, p.Creators, [], p.Synopsis, p.CoverUrl);
+        new(UnsavedId, p.Kind, TitleCaser.ToTitleCase(p.Title), p.Year, p.Creators, [], p.Synopsis, p.CoverUrl);
 
     public static ReleaseDto ToReleaseDto(ProviderRelease p) =>
-        new(UnsavedId, UnsavedId, p.Title, p.Format ?? ReleaseFormat.Other, null, null, p.Edition, p.Publisher, null, p.Year,
+        new(UnsavedId, UnsavedId, TitleCaser.ToTitleCase(p.Title), p.Format ?? ReleaseFormat.Other, null, null, p.Edition, p.Publisher, null, p.Year,
             p.Creators, null, null, p.CoverUrl, ReleaseSource.Provider,
             p.Identifiers.Select(i => new ReleaseIdentifierDto(i.Type, i.Value)).ToList());
 

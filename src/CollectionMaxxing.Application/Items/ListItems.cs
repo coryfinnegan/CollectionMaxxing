@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,9 @@ public static class ListItems
         public Guid WorkId { get; init; }
 
         public string Title { get; init; } = string.Empty;
+
+        /// <summary>Whether <see cref="Title"/> is the person's own edit: those display verbatim, never re-cased.</summary>
+        public bool HasCustomTitle { get; init; }
 
         public string TitleKey { get; init; } = string.Empty;
 
@@ -127,8 +131,8 @@ public static class ListItems
             }
 
             var items = page.Select(r => new ItemSummaryDto(
-                r.Id, r.ReleaseId, r.WorkId, r.Title, r.Kind, r.Format, r.PlatformName, r.Year, r.Status, r.Condition, r.LocationId,
-                ItemProjection.CoverUrl(r.CoverAssetId), r.CreatedAt)).ToList();
+                r.Id, r.ReleaseId, r.WorkId, r.HasCustomTitle ? r.Title : TitleCaser.ToTitleCase(r.Title), r.Kind, r.Format,
+                r.PlatformName, r.Year, r.Status, r.Condition, r.LocationId, ItemProjection.CoverUrl(r.CoverAssetId), r.CreatedAt)).ToList();
             return new Page<ItemSummaryDto>(items, more ? Encode(sort, page[^1]) : null);
         }
 
@@ -219,6 +223,7 @@ public static class ListItems
                 ReleaseId = x.Item.ReleaseId,
                 WorkId = x.Work.Id,
                 Title = x.Item.CustomTitle ?? x.Work.Title,
+                HasCustomTitle = x.Item.CustomTitle != null,
                 TitleKey = x.Item.CustomTitle != null ? x.Item.CustomTitle.ToLower() : x.Work.SortTitle.ToLower(),
                 Kind = x.Work.Kind,
                 Format = x.Release.Format,

@@ -4,6 +4,7 @@ using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Application.Scanning.Quota;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -129,8 +130,8 @@ internal static class CandidateProjection
 
         return CandidateJson.ReadAlternatives(alternativesJson)
             .Select(a => new CandidateAlternativeDto(
-                a.ReleaseId, a.Title, a.Format, a.Platform, a.Year, a.Score, a.Creators, a.CoverUrl, a.AlreadyOwnedCount,
-                artwork is null ? a.ArtworkUrl : artwork.GetValueOrDefault(a.ReleaseId)))
+                a.ReleaseId, TitleCaser.ToTitleCase(a.Title), a.Format, a.Platform, a.Year, a.Score, a.Creators, a.CoverUrl,
+                a.AlreadyOwnedCount, artwork is null ? a.ArtworkUrl : artwork.GetValueOrDefault(a.ReleaseId)))
             .ToList();
     }
 

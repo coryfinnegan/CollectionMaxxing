@@ -3,6 +3,7 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
@@ -67,6 +68,7 @@ public static class ListDeletedItems
                     i.ReleaseId,
                     WorkId = w.Id,
                     Title = i.CustomTitle ?? w.Title,
+                    HasCustomTitle = i.CustomTitle != null,
                     w.Kind,
                     r.Format,
                     PlatformName = p == null ? null : p.Name,
@@ -86,7 +88,7 @@ public static class ListDeletedItems
             }
 
             var dtos = rows.Select(r => new DeletedItemDto(
-                r.Id, r.ReleaseId, r.WorkId, r.Title, r.Kind, r.Format, r.PlatformName, r.Year,
+                r.Id, r.ReleaseId, r.WorkId, r.HasCustomTitle ? r.Title : TitleCaser.ToTitleCase(r.Title), r.Kind, r.Format, r.PlatformName, r.Year,
                 ItemProjection.CoverUrl(r.Cover), r.DeletedAt, r.DeletedAt + RestoreItem.Window)).ToList();
             return new Page<DeletedItemDto>(dtos, more ? Encode(rows[^1].DeletedAt, rows[^1].Id) : null);
         }

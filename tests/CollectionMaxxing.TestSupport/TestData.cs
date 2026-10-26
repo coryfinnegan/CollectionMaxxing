@@ -74,9 +74,9 @@ public static class TestData
     }
 
     /// <summary>Adds a work with one release. A release owned by a library is private to it; otherwise it is global.</summary>
-    public static async Task<Guid> CreateReleaseAsync(PostgresFixture db, Guid? ownerLibraryId = null)
+    public static async Task<Guid> CreateReleaseAsync(PostgresFixture db, Guid? ownerLibraryId = null, string title = "Jurassic Park")
     {
-        var work = new Work { Id = Guid.CreateVersion7(), Kind = WorkKind.Film, Title = "Jurassic Park", SortTitle = "Jurassic Park", NormalizedTitle = "jurassic park", CreatedAt = Now };
+        var work = new Work { Id = Guid.CreateVersion7(), Kind = WorkKind.Film, Title = title, SortTitle = title.ToLowerInvariant(), NormalizedTitle = title.ToLowerInvariant(), CreatedAt = Now };
         var release = new Release
         {
             Id = Guid.CreateVersion7(),
@@ -95,7 +95,7 @@ public static class TestData
     }
 
     /// <summary>Adds an item (of a fresh release unless one is given) and returns its id.</summary>
-    public static async Task<Guid> CreateItemAsync(PostgresFixture db, TestLibrary library, Guid? releaseId = null, Guid? locationId = null)
+    public static async Task<Guid> CreateItemAsync(PostgresFixture db, TestLibrary library, Guid? releaseId = null, Guid? locationId = null, string? customTitle = null)
     {
         var item = new Item
         {
@@ -103,6 +103,7 @@ public static class TestData
             LibraryId = library.Id,
             ReleaseId = releaseId ?? await CreateReleaseAsync(db),
             LocationId = locationId,
+            CustomTitle = customTitle,
             Status = ItemStatus.Owned,
             CoverChoice = CoverChoice.Release,
             AddedVia = AddedVia.Manual,
