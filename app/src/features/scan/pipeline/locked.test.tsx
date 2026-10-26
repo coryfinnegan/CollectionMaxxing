@@ -195,7 +195,7 @@ describe('a viewer', () => {
     await open(kit);
 
     await shutter();
-    expect(await screen.findByText('You own 1')).toBeTruthy();
+    expect(await screen.findByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
     expect(await screen.findByText('Super Mario 64')).toBeTruthy();
     expect(await screen.findByText('Space Mutiny')).toBeTruthy();
     expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull();

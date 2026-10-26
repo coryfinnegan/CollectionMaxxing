@@ -53,7 +53,7 @@ describe('scan announcements', () => {
     const view = await render(<ResultCard candidate={candidate({ resolution: 'matched', alreadyOwnedCount: 0, ...dune })} actions={actions} reduceMotion={false} />, { wrapper });
     spoken.mockClear();
     await view.rerender(<ResultCard candidate={candidate({ resolution: 'matched', alreadyOwnedCount: 2, ...dune })} actions={actions} reduceMotion={false} />);
-    expect(spoken).toHaveBeenCalledWith('Dune. You own 2');
+    expect(spoken).toHaveBeenCalledWith('Dune. Already own — Paperback · 2 copies');
   });
 
   it('announces Queued when a scan joins the receipt while offline', async () => {

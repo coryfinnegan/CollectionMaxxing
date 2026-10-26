@@ -10,7 +10,7 @@ export type CardCopy = {
   title: string;
   /** Format or platform, and the year when known. */
   subtitle: string;
-  /** The line that matters: "You own 1", "Looking up…", the not-found or error copy. */
+  /** The line that matters: "Already own — …", "Looking up…", the not-found or error copy. */
   status: string | null;
   /** `pick` is a picture's close call the person has to settle; it has no Add yet. */
   kind: 'pending' | 'owned' | 'new' | 'pick' | 'not_found' | 'error';
@@ -26,8 +26,6 @@ const UNREADABLE_COPY = "Couldn't read that barcode. Scan it again.";
 
 /** A per-code failure becomes friendly copy through the same helper every other error uses. */
 export const unreadableCopy = () => friendlyError(new ApiError(422, { code: 'unreadable_barcode' }), UNREADABLE_COPY);
-
-export const ownedCopy = (count: number) => `You own ${count}`;
 
 /** "Hardcover" for a format value; a platform name or anything else passes through. */
 export const formatName = (format: string | null): string | null =>

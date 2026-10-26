@@ -26,11 +26,16 @@ describe('card copy', () => {
   });
 
   it('names the platform for an owned game, and counts past the first copy', () => {
-    const game = candidate({
+    const game = {
+      id: 'c1',
+      seq: 1,
+      source: 'barcode',
+      rawCode: '123',
+      resolution: 'matched',
       alreadyOwnedCount: 2,
       ownedAt: ['Game room › Shelf 1'],
       release: { id: 'r', title: 'Super Mario 64', format: 'game_cartridge', year: 1996, platform: { name: 'Nintendo 64' }, creators: [] },
-    });
+    } as unknown as CandidateDto;
     expect(describeCandidate(game).status).toBe('Already own — Nintendo 64, Game room › Shelf 1 · 2 copies');
   });
 

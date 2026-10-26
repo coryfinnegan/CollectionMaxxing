@@ -9,27 +9,31 @@ import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Cover, Text } from '@/ui';
 import { useOwnedLookup } from '@/features/offline/hooks';
 import { isLocalCard } from './cardsStore';
-import { describeCandidate,isPictureCandidate, ownedCopy, slideDuration } from './copy';
+import { alreadyOwnLine, alsoOwnLine, describeCandidate, formatName, isPictureCandidate, slideDuration } from './copy';
+import { OwnedCard } from './OwnedCard';
 
 export { useReduceMotion };
 
 /**
  * "Do I own this?" for a card the catalog lookup has not resolved (offline, or it failed). The server answers when it
- * can; otherwise the local copy does, with how old it is.
+ * can; otherwise the local copy answers fully — exact copies, soft matches, how old the answer is.
  */
 function OwnedAnswerLine({ code }: { code: string | null }) {
   const answer = useOwnedLookup(code);
   const first = answer.owned[0];
-  const text = first
-    ? `${ownedCopy(answer.owned.length)}${first.locationPath ? `: ${first.locationPath}` : ''}`
-    : answer.notInLibrary
-      ? answer.notInLibraryText
-      : null;
-  if (!text) return null;
+  const soft = answer.softMatches[0];
+  const line = first
+    ? alreadyOwnLine(first.platform ?? formatName(first.format), first.locationPath, answer.owned.length)
+    : soft
+      ? alsoOwnLine(soft.platform ?? formatName(soft.format), soft.locationPath)
+      : answer.notInLibrary
+        ? answer.notInLibraryText
+        : null;
+  if (!line) return null;
   return (
     <View accessibilityLiveRegion="polite">
       <Text variant="label" tone={first ? 'accent' : 'muted'}>
-        {text}
+        {line}
       </Text>
       {answer.staleMessage ? (
         <Text variant="caption" tone="muted">
@@ -40,6 +44,36 @@ function OwnedAnswerLine({ code }: { code: string | null }) {
   );
 }
 
+/** A new card's soft matches, informational only: Add stays the default (docs/02 §7). */
+function SoftAnswerLine({ releaseId }: { releaseId: string }) {
+  const answer = useOwnedLookup({ releaseId });
+  const exact = answer.owned[0];
+  const soft = answer.softMatches[0];
+  const found = exact ?? soft;
+  if (!found) return null;
+  const line = exact
+    ? alreadyOwnLine(exact.platform ?? formatName(exact.format), exact.locationPath, answer.owned.length)
+    : alsoOwnLine(soft!.platform ?? formatName(soft!.format), soft!.locationPath);
+  return (
+    <View accessibilityLiveRegion="polite">
+      <Text variant="label" tone={exact ? 'accent' : 'muted'}>
+        {line}
+      </Text>
+      {answer.staleMessage ? (
+        <Text variant="caption" tone="muted">
+          {answer.staleMessage}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** Where "Move it here" puts the copy: the session spot, by id and by name. */
+export type MoveTarget = { locationId: string; label: string };
+
+/** The move toast: what happened, and whether Undo is still on offer. */
+export type MoveToast = { message: string; canUndo: boolean };
+
 export type CardActions = {
   canAdd: boolean;
   onOpen(candidate: CandidateDto): void;
@@ -47,6 +81,14 @@ export type CardActions = {
   onWishlist(candidate: CandidateDto): void;
   /** Fix it on a picture's item the catalog could not find: opens a search that starts from what was read. */
   onFixIt?(candidate: CandidateDto): void;
+  /** Skip on an owned card: the owned default; the card goes away and nothing is added. */
+  onSkip?(candidate: CandidateDto): void;
+  /** Move it here on an owned card: the first exact copy moves to `moveTo`. */
+  onMove?(candidate: CandidateDto): void;
+  /** Null hides Move (in-store, Not placed). */
+  moveTo?: MoveTarget | null;
+  moveToast?: MoveToast | null;
+  onUndoMove?(): void;
   /** Friendly message per candidate id when its last action failed. */
   errors?: Record<string, string>;
   busy?: Record<string, boolean>;
@@ -114,33 +156,40 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
             ) : null}
           </View>
         </Pressable>
-        {copy.status ? (
-          <Text variant="label" tone={copy.kind === 'owned' ? 'accent' : copy.kind === 'error' ? 'danger' : 'muted'} accessibilityLiveRegion="polite">
-            {copy.status}
-          </Text>
-        ) : null}
-        {(copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode ? <OwnedAnswerLine code={candidate.rawCode} /> : null}
-        {canFix ? (
-          <Button label="Fix it" variant="secondary" accessibilityLabel={`Fix it: ${copy.title}`} onPress={() => actions.onFixIt?.(candidate)} />
-        ) : null}
-        {addable && (accepted || wishlisted) ? (
-          <Text variant="label" tone="accent">
-            {wishlisted ? 'On your wishlist' : 'Added to this scan'}
-          </Text>
-        ) : null}
-        {addable && !accepted && !wishlisted ? (
-          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-            <Button label="+ Add" accessibilityLabel={`Add ${copy.title}`} busy={busy} onPress={() => actions.onAdd(candidate)} style={{ flex: 1, paddingHorizontal: spacing.sm }} />
-            <Button
-              label="Wishlist"
-              variant="secondary"
-              accessibilityLabel={`Add ${copy.title} to wishlist`}
-              disabled={busy}
-              onPress={() => actions.onWishlist(candidate)}
-              style={{ flex: 1, paddingHorizontal: spacing.sm }}
-            />
-          </View>
-        ) : null}
+        {copy.kind === 'owned' ? (
+          <OwnedCard candidate={candidate} copy={copy} actions={actions} />
+        ) : (
+          <>
+            {copy.status ? (
+              <Text variant="label" tone={copy.kind === 'error' ? 'danger' : 'muted'} accessibilityLiveRegion="polite">
+                {copy.status}
+              </Text>
+            ) : null}
+            {(copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode ? <OwnedAnswerLine code={candidate.rawCode} /> : null}
+            {copy.kind === 'new' && candidate.release ? <SoftAnswerLine releaseId={candidate.release.id} /> : null}
+            {canFix ? (
+              <Button label="Fix it" variant="secondary" accessibilityLabel={`Fix it: ${copy.title}`} onPress={() => actions.onFixIt?.(candidate)} />
+            ) : null}
+            {addable && (accepted || wishlisted) ? (
+              <Text variant="label" tone="accent">
+                {wishlisted ? 'On your wishlist' : 'Added to this scan'}
+              </Text>
+            ) : null}
+            {addable && !accepted && !wishlisted ? (
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <Button label="+ Add" accessibilityLabel={`Add ${copy.title}`} busy={busy} onPress={() => actions.onAdd(candidate)} style={{ flex: 1, paddingHorizontal: spacing.sm }} />
+                <Button
+                  label="Wishlist"
+                  variant="secondary"
+                  accessibilityLabel={`Add ${copy.title} to wishlist`}
+                  disabled={busy}
+                  onPress={() => actions.onWishlist(candidate)}
+                  style={{ flex: 1, paddingHorizontal: spacing.sm }}
+                />
+              </View>
+            ) : null}
+          </>
+        )}
         {error ? (
           <Text variant="caption" tone="danger" accessibilityLiveRegion="polite">
             {error}
@@ -157,7 +206,8 @@ export function ResultCards({ cards, actions }: { cards: CandidateDto[]; actions
   const { fontScale } = useWindowDimensions();
   if (cards.length === 0) return null;
   return (
-    <View testID="result-cards" style={{ height: Math.round(190 * Math.min(Math.max(fontScale, 1), 3)) }}>
+    // An owned card carries three actions under its answer, so the strip fits those; shorter cards keep their whitespace below.
+    <View testID="result-cards" style={{ height: Math.round(300 * Math.min(Math.max(fontScale, 1), 3)) }}>
       <FlashList
         horizontal
         data={cards}
