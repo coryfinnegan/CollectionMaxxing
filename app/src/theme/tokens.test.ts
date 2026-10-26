@@ -1,6 +1,6 @@
 // The theme derives from tokens.json: both schemes resolve the same roles to real colors,
 // so a typo in a role reference fails here instead of painting `undefined`.
-import { darkColors, fixed, lightColors, typeScale } from './tokens';
+import { darkColors, fixed, lightColors, mascot, typeScale } from './tokens';
 import source from './tokens.json';
 
 const hex = /^#[0-9a-fA-F]{6}$/;
@@ -37,6 +37,10 @@ describe('design tokens', () => {
     }
     expect(typeScale.mono.fontFamily).toMatch(/^SpaceMono_/);
     expect(typeScale.display.fontSize ?? 0).toBeGreaterThan(typeScale.title.fontSize ?? 0);
+  });
+
+  it.each(Object.entries(mascot))('keeps mascot %s a fixed hex color', (_name, value) => {
+    expect(value).toMatch(hex);
   });
 
   it('sets castle display titles in Cinzel at 20pt and above only', () => {

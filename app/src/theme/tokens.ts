@@ -57,6 +57,18 @@ export const castle = {
   olive: source.castle.olive,
 };
 
+/** The dragon mascot palette (#365): fixed like the castle, so the same art holds in light and dark. */
+export const mascot = {
+  body: source.mascot.body,
+  belly: source.mascot.belly,
+  spike: source.mascot.spike,
+  ink: source.mascot.ink,
+  cover: source.mascot.cover,
+  page: source.mascot.page,
+  pupil: source.mascot.pupil,
+  smoke: source.mascot.smoke,
+};
+
 export const spacing = source.spacing;
 export const radius = source.radius;
 
