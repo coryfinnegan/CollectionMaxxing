@@ -103,8 +103,18 @@ foreach ($proj in @((Get-ChildItem 'src/*/*.csproj', 'tests/*/*.csproj' | Sort-O
   $verified = $false
   while ((-not $verified) -and ($attempt -lt $maxAttempts)) {
     $attempt++
-    $attemptLines = @(dotnet format $proj.FullName --verify-no-changes --no-restore 2>&1 | ForEach-Object { "$_" })
-    $code = $LASTEXITCODE
+    # Windows PowerShell 5.1 throws NativeCommandError on merged native stderr while $ErrorActionPreference is
+    # Stop (the ForEach stringify does not save it); dotnet format's flaky workspace warning (exit 0) hit this.
+    # Run the call under Continue so stderr lines land in $attemptLines as text (#398).
+    $prevErr = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $attemptLines = @(dotnet format $proj.FullName --verify-no-changes --no-restore 2>&1 | ForEach-Object { "$_" })
+      $code = $LASTEXITCODE
+    }
+    finally {
+      $ErrorActionPreference = $prevErr
+    }
     $attemptLines | Add-Content -Path $formatLog
     if ($code -eq 0) {
       $verified = $true
