@@ -1,10 +1,20 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
+import { setCastleStorage, useCastleThemeSetting } from '@/ui/castle/mode';
+import { setMascotStorage, useDragonAppearance } from '@/ui/mascot/appearances';
 import { searchPlaceholder } from './LibraryGrid';
 import { LibraryView } from './LibraryView';
+
+function memoryStore() {
+  const map = new Map<string, string>();
+  return {
+    getString: (key: string) => map.get(key),
+    set: (key: string, value: string) => void map.set(key, value),
+  };
+}
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
@@ -233,5 +243,111 @@ describe('Add item', () => {
     await waitFor(() => expect(screen.queryByText('Add an item')).toBeNull());
     // Newest first, so the new item is on the first page.
     expect(await screen.findByText('Zelda homebrew')).toBeTruthy();
+  });
+});
+
+describe('Library castle frame', () => {
+  beforeEach(() => {
+    setCastleStorage(memoryStore());
+    useCastleThemeSetting.setState({ setting: 'full' });
+    setMascotStorage(memoryStore());
+    useDragonAppearance.setState({ appearance: 'full' });
+  });
+
+  it('frames the library in a battlement header with the count and the perched dragon', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.getByRole('header', { name: 'Library' })).toBeTruthy();
+    expect(screen.getByText('35 items')).toBeTruthy();
+    expect(screen.getByTestId('castle-perch')).toBeTruthy();
+  });
+
+  it('leaves the perch empty when dragons are off, keeping the header', async () => {
+    useDragonAppearance.setState({ appearance: 'off' });
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.getByRole('header', { name: 'Library' })).toBeTruthy();
+    expect(screen.queryByTestId('castle-perch')).toBeNull();
+  });
+
+  it('flies a media swatch on every kind chip but All and Other', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    // Books, Games, Movies and TV; All has no medium and Other stays iron.
+    expect(screen.getAllByTestId('chip-swatch')).toHaveLength(4);
+  });
+
+  it('seats every cover on a stone shelf', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.getAllByTestId('cover-shelf').length).toBeGreaterThan(0);
+  });
+
+  it('poses the empty-hoard dragon when the library has no items', async () => {
+    server.use(http.get('*/api/v1/libraries/:libraryId/items', () => HttpResponse.json({ items: [], nextCursor: null })));
+    await renderWithProviders(<LibraryView title="Library" />);
+
+    expect(await screen.findByText('Nothing here yet.')).toBeTruthy();
+    const dragon = within(screen.getByTestId('castle-state-dragon'));
+    expect(dragon.queryByTestId('mascot-layer-hoard', { includeHiddenElements: true })).toBeNull();
+    expect(dragon.getByTestId('mascot-layer-head', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('poses the fast-reading dragon while the list loads', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/items', async () => {
+        await gate;
+        return HttpResponse.json({ items: [], nextCursor: null });
+      }),
+    );
+    await renderWithProviders(<LibraryView title="Library" />);
+
+    expect(screen.getByText('Loading your library…')).toBeTruthy();
+    expect(within(screen.getByTestId('castle-state-dragon')).getByTestId('mascot-layer-page', { includeHiddenElements: true })).toBeTruthy();
+
+    release();
+    expect(await screen.findByText('Nothing here yet.')).toBeTruthy();
+  });
+
+  it('poses the oops dragon when the list fails to load', async () => {
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/items', () =>
+        HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404, headers: { 'Content-Type': 'application/problem+json' } }),
+      ),
+    );
+    await renderWithProviders(<LibraryView title="Library" />);
+
+    expect(await screen.findByText("Couldn't load your library")).toBeTruthy();
+    const dragon = within(screen.getByTestId('castle-state-dragon'));
+    expect(dragon.getByTestId('mascot-puff-0', { includeHiddenElements: true })).toBeTruthy();
+    expect(dragon.queryByTestId('mascot-puff-1', { includeHiddenElements: true })).toBeNull();
+  });
+
+  it('keeps filtered no-matches plain: search results take no theme beyond the chrome', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    await fireEvent.changeText(screen.getByLabelText('Search'), 'zzzz');
+
+    expect(await screen.findByText('Nothing matches.')).toBeTruthy();
+    expect(screen.queryByTestId('castle-state-dragon')).toBeNull();
+  });
+
+  it('skips the battlement where the stack header already names the page', async () => {
+    await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" hideTitle />);
+
+    expect(await screen.findByText('Blade Runner')).toBeTruthy();
+    expect(screen.queryByTestId('castle-perch')).toBeNull();
+    // The chips and shelves still carry the media colors.
+    expect(screen.getAllByTestId('chip-swatch').length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('cover-shelf').length).toBeGreaterThan(0);
   });
 });
