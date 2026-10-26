@@ -1,6 +1,8 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Scanning.Photo;
+using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Scanning;
@@ -62,7 +64,7 @@ public static class GetScanSession
 {
     public sealed record Query(Guid SessionId, int? Since);
 
-    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser)
+    public sealed class Handler(IAppDbContext db, ICurrentUser currentUser, IJobQueue jobs, TimeProvider clock)
     {
         public async Task<Result<ScanSessionDto>> HandleAsync(Query query, CancellationToken cancellationToken)
         {
@@ -75,6 +77,8 @@ public static class GetScanSession
             {
                 return ScanningErrors.SessionNotFound;
             }
+
+            await DrainQuotaBacklogForSessionAsync(session, cancellationToken);
 
             var since = query.Since ?? 0;
             var candidates = await db.ScanCandidates.AsNoTracking()
@@ -93,6 +97,44 @@ public static class GetScanSession
                 session.CreatedAt,
                 session.CommittedAt,
                 await CandidateProjection.ToDtosAsync(db, candidates, cancellationToken));
+        }
+
+        /// <summary>
+        /// The session-reopen drain (design §12): reopening a session re-queues its quota-pending codes whose
+        /// retry time has passed, so they resolve without waiting for the nightly drain. One job per code per day,
+        /// however often the session is opened; a code whose retry time hasn't come is left for the nightly drain.
+        /// </summary>
+        private async Task DrainQuotaBacklogForSessionAsync(ScanSession session, CancellationToken cancellationToken)
+        {
+            if (session.Status != ScanSessionStatus.Open)
+            {
+                return;
+            }
+
+            var now = clock.GetUtcNow();
+            var waiting = await db.ScanCandidates.AsNoTracking()
+                .Where(c => c.SessionId == session.Id && c.Resolution == CandidateResolution.Pending)
+                .Select(c => new { c.Id, c.TraceJson })
+                .ToListAsync(cancellationToken);
+            foreach (var candidate in waiting)
+            {
+                var trace = CandidateJson.ReadTrace(candidate.TraceJson);
+                if (!UpcQuotaWindow.IsSpent(trace.Steps))
+                {
+                    continue;
+                }
+
+                if (trace.RetryAfter is { } retryAfter && retryAfter > now)
+                {
+                    continue;
+                }
+
+                await jobs.EnqueueAsync(
+                    SubmitBarcodes.ResolveJobType,
+                    new SubmitBarcodes.ResolveJob(session.LibraryId, session.Id, candidate.Id, session.UserId),
+                    new JobEnqueueOptions(null, UpcQuotaWindow.DedupeKey(candidate.Id, now)),
+                    cancellationToken);
+            }
         }
     }
 }

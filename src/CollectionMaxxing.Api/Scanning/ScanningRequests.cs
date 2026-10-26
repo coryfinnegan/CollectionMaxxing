@@ -16,8 +16,12 @@ public sealed record ScanSessionQuery([FromQuery(Name = "since")] int? Since = n
 
 public sealed record ScannedCode(string? Value = null, string? Symbology = null, int? Copies = null);
 
-/// <summary>Body of <c>POST …/barcodes</c>: up to 50 codes per call. Needs an <c>Idempotency-Key</c> header.</summary>
-public sealed record BarcodeBatchRequest(IReadOnlyList<ScannedCode>? Codes = null);
+/// <summary>
+/// Body of <c>POST …/barcodes</c>: up to 50 codes per call. Needs an <c>Idempotency-Key</c> header.
+/// With <c>CandidateId</c> (Review's "Scan barcode", design §8(c)), the batch carries exactly one code and
+/// upgrades that row in place instead of adding candidates.
+/// </summary>
+public sealed record BarcodeBatchRequest(IReadOnlyList<ScannedCode>? Codes = null, Guid? CandidateId = null);
 
 /// <summary>
 /// One item the phone read in a photo. At most 16 KB. No image is ever sent. <c>Format</c> and <c>Year</c> are deliberate

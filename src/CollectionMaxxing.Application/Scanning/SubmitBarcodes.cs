@@ -30,7 +30,7 @@ public static class SubmitBarcodes
     public const int MaxRawCodeLength = 64;
     private static readonly TimeSpan KeyLifetime = TimeSpan.FromHours(24);
 
-    public sealed record Command(Guid SessionId, string? IdempotencyKey, IReadOnlyList<SubmittedCode>? Codes);
+    public sealed record Command(Guid SessionId, string? IdempotencyKey, IReadOnlyList<SubmittedCode>? Codes, Guid? CandidateId = null);
 
     /// <summary>The job that resolves a code a request ran out of time for. Carries ids only; the code is read from the candidate.</summary>
     public const string ResolveJobType = "scan.resolve_candidate";
@@ -60,6 +60,11 @@ public static class SubmitBarcodes
             if (invalid is not null)
             {
                 return invalid;
+            }
+
+            if (command.CandidateId is not null)
+            {
+                return await HandleBoundAsync(command, userId, cancellationToken);
             }
 
             var session = await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken);
@@ -154,6 +159,78 @@ public static class SubmitBarcodes
 
             await ResolveAsync(session, fresh, userId, cancellationToken);
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, candidates.DistinctBy(c => c.Id).ToList(), cancellationToken));
+        }
+
+        /// <summary>
+        /// A bound capture (Review's "Scan barcode", design §8(c)): the batch's one code is stamped onto the bound row,
+        /// which is then resolved through the same barcode (T0) path as a fresh scan — learned layer first, providers
+        /// after. The row keeps its id, copies and decisions; only its code and answer change. Safe to retry: the same
+        /// <c>Idempotency-Key</c> with the same code gets the same row back.
+        /// </summary>
+        private async Task<Result<CandidatesDto>> HandleBoundAsync(Command command, Guid userId, CancellationToken cancellationToken)
+        {
+            var session = await ScanSessions.FindMineAsync(db, currentUser, command.SessionId, cancellationToken);
+            if (session is null)
+            {
+                return ScanningErrors.SessionNotFound;
+            }
+
+            var candidate = await db.ScanCandidates.FirstOrDefaultAsync(
+                c => c.SessionId == session.Id && c.Id == command.CandidateId, cancellationToken);
+            if (candidate is null)
+            {
+                return ScanningErrors.CandidateNotFound;
+            }
+
+            var key = ScanSessions.IdempotencyKeyFor("barcodes", session.Id, command.IdempotencyKey!.Trim());
+            var line = Normalise(command.Codes!)[0]; // Validate kept exactly one readable line
+            var hash = RequestHash(session.Id, [line], command.CandidateId);
+            var now = clock.GetUtcNow();
+
+            await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
+            {
+                var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == key, cancellationToken);
+                if (previous is not null)
+                {
+                    if (previous.ExpiresAt > now)
+                    {
+                        return await ReplayAsync(previous, hash, session, userId, cancellationToken);
+                    }
+
+                    db.IdempotencyKeys.Remove(previous); // expired: the key can be used again
+                }
+
+                // After the replay, so a retry that arrives once the session has closed still gets the original answer.
+                if (session.Status != ScanSessionStatus.Open)
+                {
+                    return ScanningErrors.SessionClosed;
+                }
+
+                // RawCode/Symbology are init-only (history, not state), so the bound read is written through EF.
+                var entry = db.ScanCandidates.Attach(candidate);
+                entry.Property(c => c.RawCode).CurrentValue = line.RawCode;
+                entry.Property(c => c.Symbology).CurrentValue = line.Symbology;
+                candidate.Resolution = CandidateResolution.Pending;
+
+                db.IdempotencyKeys.Add(new IdempotencyKey
+                {
+                    UserId = userId,
+                    Key = key,
+                    RequestHash = hash,
+                    ResponseStatus = 200,
+                    ResponseBodyJson = JsonSerializer.Serialize(new List<Guid> { candidate.Id }),
+                    CreatedAt = now,
+                    ExpiresAt = now + KeyLifetime,
+                });
+                await db.SaveChangesAsync(cancellationToken);
+
+                await EnqueueAsync(
+                    session, [candidate], userId, ":safety",
+                    clock.GetUtcNow() + options.ResolveBudget + SafetyMargin, cancellationToken);
+            }
+
+            await ResolveAsync(session, [candidate], userId, cancellationToken);
+            return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken));
         }
 
         private async Task ResolveAsync(ScanSession session, List<ScanCandidate> fresh, Guid userId, CancellationToken cancellationToken)
@@ -308,9 +385,27 @@ public static class SubmitBarcodes
                     "scan.too_many_codes", $"Send at most {ScanningOptions.MaxCodesPerBatch} codes at a time.", "codes");
             }
 
-            return command.Codes.Any(c => c is { Copies: { } copies } && (copies < 1 || copies > ScanningOptions.MaxCopies))
-                ? ScanningErrors.Invalid("scan.copies_invalid", $"Copies must be from 1 to {ScanningOptions.MaxCopies}.", "codes")
-                : null;
+            if (command.Codes.Any(c => c is { Copies: { } copies } && (copies < 1 || copies > ScanningOptions.MaxCopies)))
+            {
+                return ScanningErrors.Invalid("scan.copies_invalid", $"Copies must be from 1 to {ScanningOptions.MaxCopies}.", "codes");
+            }
+
+            if (command.CandidateId is not null)
+            {
+                var lines = Normalise(command.Codes);
+                if (lines.Count != 1)
+                {
+                    return ScanningErrors.Invalid(
+                        "scan.bound_single_code", "A barcode bound to a scanned item carries exactly one code.", "codes");
+                }
+
+                if (lines[0].Identifier is null)
+                {
+                    return ScanningErrors.Invalid("scan.code_invalid", "That code couldn't be read. Scan it again.", "codes");
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -352,9 +447,9 @@ public static class SubmitBarcodes
             return lines;
         }
 
-        private static string RequestHash(Guid sessionId, List<Line> lines)
+        private static string RequestHash(Guid sessionId, List<Line> lines, Guid? candidateId = null)
         {
-            var text = sessionId + "|" + string.Join(';', lines.Select(l => $"{l.Key}*{l.Copies}"));
+            var text = sessionId + "|" + (candidateId is { } bound ? $"bound:{bound}|" : string.Empty) + string.Join(';', lines.Select(l => $"{l.Key}*{l.Copies}"));
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
         }
 

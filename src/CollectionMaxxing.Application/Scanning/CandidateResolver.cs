@@ -114,6 +114,13 @@ public sealed class CandidateResolver(
         {
             SetVisibleText(candidate, productTitle);
         }
+        else if (UpcQuotaWindow.IsSpent(resolution) && candidate.VisibleText is null
+            && Identifier.TryParse(candidate.RawCode, out var quotaCode))
+        {
+            // A barcode-only provisional (design §12): the code is kept, counted and duplicate-checked by its
+            // digits, and the drain looks it up when the quota resets. The text is write-once, like any other.
+            SetVisibleText(candidate, QuotaProvisionalText(quotaCode.Value));
+        }
 
         // A code that found the UPC allowance spent waits for the nightly drain: say when it will next be tried.
         DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
@@ -148,6 +155,9 @@ public sealed class CandidateResolver(
 
     public static List<string> OwnedAt(OwnershipDto owned) =>
         owned.Copies.Select(c => c.LocationPath).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+
+    /// <summary>What a barcode-only provisional reads until the quota drain looks it up.</summary>
+    public static string QuotaProvisionalText(string digits) => $"UPC {digits} — lookup pending";
 
     /// <summary>Stores what the person typed or the product was called, so Fix it can start from it. The property is write-once, so this goes through EF.</summary>
     public void SetVisibleText(ScanCandidate candidate, string text) =>

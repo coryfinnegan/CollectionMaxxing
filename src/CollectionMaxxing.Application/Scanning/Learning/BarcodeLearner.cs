@@ -16,15 +16,16 @@ namespace CollectionMaxxing.Application.Scanning.Learning;
 public sealed class BarcodeLearner(IAppDbContext db)
 {
     /// <summary>
-    /// Adds the barcodes of the accepted barcode candidates to their releases, marked as learned by <paramref name="sessionId"/>'s commit.
-    /// A link the release already has (from a provider, or an earlier commit) is left as it is. Saves nothing; the caller saves.
+    /// Adds the barcodes of the accepted candidates that carry one (a barcode scan, or a row a barcode was bound
+    /// to in Review) to their releases, marked as learned by <paramref name="sessionId"/>'s commit. A link the
+    /// release already has (from a provider, or an earlier commit) is left as it is. Saves nothing; the caller saves.
     /// </summary>
     public async Task LearnAsync(Guid sessionId, IReadOnlyCollection<ScanCandidate> accepted, CancellationToken cancellationToken)
     {
         var wanted = new List<(Guid ReleaseId, Identifier Id)>();
         foreach (var candidate in accepted)
         {
-            if (candidate is { Source: CandidateSource.Barcode, MatchedReleaseId: { } releaseId }
+            if (candidate is { MatchedReleaseId: { } releaseId }
                 && Identifier.TryParse(candidate.RawCode, out var id)
                 && !wanted.Any(w => w.ReleaseId == releaseId && w.Id.Value == id.Value))
             {
