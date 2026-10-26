@@ -1,10 +1,12 @@
 // The /scanner route: finds the library, builds the real camera source (plus the fake one in dev builds) and
 // opens the scanner. On the web there is no scanner (docs/06 W2), so the camera is never created or imported.
 import { useRouter } from 'expo-router';
-import { useMemo, type ReactNode } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useStore } from 'zustand';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
+import { boundScanStore } from '@/features/review/boundScan';
 import { useColors } from '@/theme/tokens';
 import { Button, EmptyState, LoadingState, Screen } from '@/ui';
 import { createDevicePipelineDeps } from '../pipeline/device';
@@ -39,11 +41,21 @@ function RouteFallback({ onClose, children }: { onClose?: () => void; children: 
 }
 
 function PhoneScanner({ onClose }: { onClose?: () => void }) {
+  const router = useRouter();
   const { libraryId, isLoading } = useActiveLibraryId();
+  const binding = useStore(boundScanStore, (s) => s.binding);
   const camera = useMemo(() => new VisionCameraSource(), []);
   const devSource = useMemo(() => (__DEV__ ? new FakeScannerSource() : undefined), []);
   const pipeline = useMemo(() => (libraryId ? createDevicePipelineDeps(libraryId) : undefined), [libraryId]);
   const autoSnapConfig = useAutoSnapConfig();
+  const leaveBound = useCallback(() => {
+    boundScanStore.getState().clear();
+    router.back();
+  }, [router]);
+  const boundScan = useMemo(
+    () => (binding ? { ...binding, onDone: leaveBound, onCancel: leaveBound } : undefined),
+    [binding, leaveBound],
+  );
   if (!libraryId) {
     return (
       <RouteFallback onClose={onClose}>
@@ -64,6 +76,7 @@ function PhoneScanner({ onClose }: { onClose?: () => void }) {
       onClose={onClose}
       pipeline={pipeline}
       autoSnapConfig={autoSnapConfig}
+      boundScan={boundScan}
     />
   );
 }

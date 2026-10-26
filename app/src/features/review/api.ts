@@ -1,7 +1,8 @@
 // Review's calls to the API, as plain functions over the generated client. Candidate answers are merged into the
 // shared cards store, so the scanner and Review always show the same candidate.
 import type { CandidateDto, CommitResultDto, DecideCandidateRequest, ScanSessionDto, UndoResultDto } from '@/api/generated/models';
-import { commitScanSession, decideCandidate, searchForCandidate, undoScanCommit } from '@/api/generated/scanning/scanning';
+import { commitScanSession, decideCandidate, scanBarcodes, searchForCandidate, undoScanCommit } from '@/api/generated/scanning/scanning';
+import { newIdempotencyKey } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { loadSessionSnapshot } from '@/features/scan/session/sessionApi';
 import { ApiError } from '@/lib/http';
@@ -27,6 +28,28 @@ export async function searchCandidate(sessionId: string, candidateId: string, te
 export async function skipCandidate(sessionId: string, candidateId: string): Promise<void> {
   const rejected = await patchCandidate(sessionId, candidateId, { decision: 'rejected' });
   useCardsStore.getState().remove(rejected.id);
+}
+
+/**
+ * A bound capture: the stable read belongs to one Review row, which upgrades in place (same candidate id).
+ * One Idempotency-Key per attempt: a retry after a lost answer gets the first answer back.
+ */
+export async function submitBoundBarcode(
+  sessionId: string,
+  candidateId: string,
+  code: { value: string; symbology: string },
+  key: string = newIdempotencyKey(),
+): Promise<CandidateDto> {
+  const response = await scanBarcodes(
+    sessionId,
+    { codes: [{ value: code.value, symbology: code.symbology }], candidateId },
+    { headers: { 'Idempotency-Key': key } },
+  );
+  if (response.status !== 200) throw new ApiError(response.status, {});
+  const [upgraded] = response.data.candidates;
+  if (!upgraded) throw new ApiError(response.status, {});
+  keep(upgraded);
+  return upgraded;
 }
 
 /** What Review starts from: the session's own location, status and channel. */
