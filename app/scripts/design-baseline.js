@@ -2,7 +2,7 @@
 // counts against the grandfathered baseline. Tested by design-baseline.test.js.
 'use strict';
 
-const RULES = ['cm-design/no-raw-colors', 'cm-design/no-inline-styles', 'cm-design/no-raw-text', 'cm-design/no-doubled-title', 'cm-design/no-gradients'];
+const RULES = ['cm-design/no-raw-colors', 'cm-design/no-inline-styles', 'cm-design/no-raw-text', 'cm-design/no-doubled-title', 'cm-design/no-gradients', 'cm-design/no-unistyles-third-party-styles'];
 
 /** Collapse eslint JSON results into { file: { rule: { count, messages } } }. Keys use posix separators. */
 function summarize(results, root) {

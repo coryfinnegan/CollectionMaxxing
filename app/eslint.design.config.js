@@ -21,6 +21,7 @@ module.exports = [
       'cm-design/no-raw-text': 'error',
       'cm-design/no-doubled-title': 'error',
       'cm-design/no-gradients': 'error',
+      'cm-design/no-unistyles-third-party-styles': 'error',
     },
   },
 ];
