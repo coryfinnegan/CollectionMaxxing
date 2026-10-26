@@ -17,6 +17,7 @@ resolves roles from it. Nothing invents a color anywhere else.
   `sticker`, `stickerText`, `danger`, `receiptInk`, `receiptMuted`.
 - **Fixed** (scheme-independent): `laser` `#FF2D3A` (scan beam), `receipt`
   `#FBFBF7`, `black`, `white`, `scrim` `rgba(0,0,0,0.5)`.
+- **Mascot:** `tokens.json` `mascot` is scheme-independent fixed color, like the castle: `body`/`belly`/`spike`, `ink`, `cover`/`page`, `pupil`, `smoke`. The eye white is fixed white; the shield reuses cover, page and belly.
 - **Spacing:** xs 4, sm 8, md 12, lg 16, xl 24, xxl 32. **Radius:** sm 6,
   md 10, lg 16, pill 999.
 - Touch targets are at least 44pt. `WIDE_BREAKPOINT` (768) switches phone
@@ -89,6 +90,16 @@ system only: no screen is themed yet.
   UI components.
 - **Type:** the `castleDisplay` cut (Cinzel 700, OFL) is for castle frame
   display titles at 20pt and above only. Body and UI text stay Bricolage.
+
+## Mascot
+
+The dragon (approved master, redrawn as layered vector in `app/src/ui/mascot/`) is the app's mascot. That folder is the reusable base every later placement depends on: one fixed silhouette with separately movable layers (body, head, horns, wing, tail, eyelids, book + loose page, smoke puffs, hoard pile, shield) and a 10-pose library (`idle`, `reading`, `sleeping`, `celebrating`, `searching`, `emptyHoard`, `oops`, `milestone`, `fastReading`, `refreshPeek`). Poses reuse the shared layers; no pose redraws the dragon. The `/mascot-sheet` contact sheet renders all poses for verification and is pinned by the Playwright visual spec.
+
+- The dragon appears reactively (state changes, empty/loading/error, milestones), never uninvited mid-task.
+- Never on: the scanner/camera, forms while editing, search results, Settings, paywall, or delete/consent flows.
+- At most one proactive mascot moment per session; no looping motion in peripheral vision while the user is reading or scanning.
+- Decorative to VoiceOver unless the pose conveys state; Reduce Motion always gets the static pose.
+- Settings control: Dragon appearances — Full / Minimal / Off.
 
 ## Haptics
 
