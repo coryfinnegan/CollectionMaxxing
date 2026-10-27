@@ -81,6 +81,34 @@ test.describe('visual', () => {
     await expectShot(page, 'settings-appearance');
   });
 
+  // The shared toast (#465): the delete Undo and the review commit Undo, each in
+  // both schemes, so an unthemed bar or an invisible action label fails here.
+  test.describe('toasts', () => {
+    test('delete toast', async ({ page, open }) => {
+      await openDeleteToast(page, open);
+      await expectShot(page, 'delete-toast');
+    });
+
+    test('review commit toast', async ({ page, open }) => {
+      await openCommitToast(page, open);
+      await expectShot(page, 'review-toast');
+    });
+
+    test.describe('dark', () => {
+      test.use({ colorScheme: 'dark' });
+
+      test('delete toast dark', async ({ page, open }) => {
+        await openDeleteToast(page, open);
+        await expectShot(page, 'delete-toast-dark');
+      });
+
+      test('review commit toast dark', async ({ page, open }) => {
+        await openCommitToast(page, open);
+        await expectShot(page, 'review-toast-dark');
+      });
+    });
+  });
+
   // The revised scanner scope (#432): captures queue silently, and every capture's state is a Review row
   // with its thumbnail. Matched rows aggregate, so the spec expands them; the rows do not fit one viewport,
   // so each scheme shoots the top (needing attention) and the tail (matched + still looking up).
@@ -116,6 +144,24 @@ test.describe('visual', () => {
     });
   });
 });
+
+async function openDeleteToast(page: Page, open: (path: string) => Promise<void>) {
+  await open('/library');
+  await page.getByRole('button', { name: 'Grid view' }).click();
+  await page.getByRole('button', { name: 'The Matrix, DVD' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText('Deleted The Matrix')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).scrollIntoViewIfNeeded();
+}
+
+async function openCommitToast(page: Page, open: (path: string) => Promise<void>) {
+  await openSeededReview(page, open);
+  await page.getByRole('button', { name: 'Add 2 items' }).click();
+  await expect(page.getByText('Added 2 items')).toBeVisible();
+  // The celebration dismisses itself; the toast below keeps the words and the Undo.
+  await expect(page.getByTestId('commit-celebration')).toBeHidden({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Undo' }).scrollIntoViewIfNeeded();
+}
 
 async function openSeededReview(page: Page, open: (path: string) => Promise<void>) {
   await open('/review?seed=review-rows');
