@@ -64,7 +64,15 @@ jobs:
         working-directory: app
         env:
           JEST_CACHE_DIR: ${{ github.workspace }}/app/.jest-cache
+          CM_APP_CHECK_LOG_DIR: ${{ runner.temp }}/cm-app-check
         run: npm run check
+      # Keep the failure evidence (#260): the step log plus the jest report that names the failed tests.
+      - name: Upload app gate logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-check-logs
+          path: ${{ runner.temp }}/cm-app-check/
 
   e2e:
     runs-on: ubuntu-latest
