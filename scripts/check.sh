@@ -194,6 +194,8 @@ fi
 
 # ---- app (only once the Expo app exists) -----------------------------------------------------------------------
 if want app && [ -f app/package.json ]; then
+  # The app gate's own logs land here too, so one upload carries app.log and the test.log it points to (#260).
+  export CM_APP_CHECK_LOG_DIR="$log_dir/app"
   run_step app npm run check --prefix app --silent
   if [ "$code" -ne 0 ]; then
     fail "app (npm run check)" "$(grep -v '^[[:space:]]*$' "$log" | tail -n "$max_lines")"
