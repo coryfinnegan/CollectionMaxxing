@@ -97,18 +97,22 @@ describe('scanner session context', () => {
     expect(screen.queryByLabelText('Close')).toBeNull();
   });
 
-  it('adds by hand from the control row and opens waiting review from the Review bar', async () => {
+  it('opens waiting review from the Review bar', async () => {
     await scanner();
     mockRouter.push.mockClear();
-
-    await press('Add it by hand');
-    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/library', params: { add: '1' } });
 
     await act(async () => {
       getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: '9780441172719', symbology: 'ean-13' });
     });
     await press('Review');
     expect(mockRouter.push).toHaveBeenCalledWith('/review');
+  });
+
+  it('offers no manual add from the control row', async () => {
+    await scanner();
+
+    await screen.findByLabelText('Take picture');
+    expect(screen.queryByLabelText('Add it by hand')).toBeNull();
   });
 
   it('merges the tray and the session counters into the Review bar status line', async () => {

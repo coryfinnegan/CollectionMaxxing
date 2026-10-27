@@ -200,7 +200,6 @@ export function ScannerScreen({
           photosEnabled={photos.enabled}
           photosRunning={photos.running}
           onPhotos={photos.start}
-          onAddManually={() => router.push({ pathname: '/library', params: { add: '1' } })}
         />
         {boundScan ? (
           <View style={boundStyles.wrap}>

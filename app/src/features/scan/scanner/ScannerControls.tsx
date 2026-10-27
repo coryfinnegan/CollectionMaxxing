@@ -1,6 +1,7 @@
-// The scanner's one control row (#408): the session chip plus Flash, Search, Photos and manual add as compact
-// icon controls in a single fixed row. Nothing else floats over the viewfinder. The glyphs are hand-drawn SVG,
-// the repo's icon idiom; every control keeps its spoken label.
+// The scanner's one control row (#408): the session settings chip plus Flash, Search and Photos as compact
+// icon controls in a single fixed row (#439: manual add lives in Library, not the viewfinder). Nothing else
+// floats over the viewfinder. The glyphs are hand-drawn SVG, the repo's icon idiom; every control keeps its
+// spoken label.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { Platform, Pressable, View } from 'react-native';
@@ -41,10 +42,17 @@ function PhotosGlyph({ color }: { color: string }) {
   );
 }
 
-function PlusGlyph({ color }: { color: string }) {
+function GearGlyph({ color }: { color: string }) {
   return (
-    <Svg width={22} height={22} viewBox="0 0 24 24">
-      <Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    <Svg testID="session-settings-gear" width={20} height={20} viewBox="0 0 24 24">
+      <Circle cx={12} cy={12} r={6.5} fill="none" stroke={color} strokeWidth={2} />
+      <Circle cx={12} cy={12} r={1.8} fill={color} />
+      <Path
+        d="M19.5 12H22M17.3 17.3l1.8 1.8M12 19.5V22M6.7 17.3l-1.8 1.8M4.5 12H2M6.7 6.7 4.9 4.9M12 4.5V2M17.3 6.7l1.8-1.8"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
     </Svg>
   );
 }
@@ -107,7 +115,6 @@ export function ScannerControls({
   photosEnabled,
   photosRunning,
   onPhotos,
-  onAddManually,
 }: {
   libraryId: string;
   context: SessionContext;
@@ -120,13 +127,14 @@ export function ScannerControls({
   photosEnabled: boolean;
   photosRunning: boolean;
   onPhotos: () => void;
-  onAddManually: () => void;
 }) {
   const colors = useColors();
   const chipPress = usePressFeedback('select');
   const { locations } = useLocationsList(libraryId);
   const place = context.channel === 'in_store' ? 'Decide later' : breadcrumb(locations, context.locationId);
-  const summary = `${place} · ${SESSION_STATUS_LABEL[context.status]} · ${SESSION_MEDIA_LABEL[context.mediaHint]} · ${SESSION_CHANNEL_LABEL[context.channel]}`;
+  // The chip reads as what it is (#439): a settings control. The visible label stays compact (place and
+  // status) so it fits at phone width; the spoken label keeps every default the session will apply.
+  const summary = `${place} · ${SESSION_STATUS_LABEL[context.status]}`;
   const glyph = fixed.white;
   return (
     <View testID="scanner-controls" style={styles.row}>
@@ -152,7 +160,8 @@ export function ScannerControls({
           onPressOut={chipPress.onPressOut}
           style={styles.chip}
         >
-          <Text style={styles.chipText} numberOfLines={1}>
+          <GearGlyph color={glyph} />
+          <Text variant="label" style={styles.chipText} numberOfLines={1}>
             {summary}
           </Text>
         </Pressable>
@@ -168,9 +177,6 @@ export function ScannerControls({
           <PhotosGlyph color={glyph} />
         </ControlButton>
       ) : null}
-      <ControlButton label="Add it by hand" onPress={onAddManually}>
-        <PlusGlyph color={glyph} />
-      </ControlButton>
     </View>
   );
 }
@@ -181,12 +187,15 @@ const styles = StyleSheet.create((theme) => ({
   chipFlex: { flex: 1 },
   chip: {
     minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
+    gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.fixed.scrim,
   },
-  chipText: { color: theme.fixed.white },
+  chipText: { flexShrink: 1, color: theme.fixed.white },
   icon: ({ selected }: { selected: boolean }) => ({
     width: 44,
     height: 44,
