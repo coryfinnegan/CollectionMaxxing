@@ -13,7 +13,6 @@ import { boundScanStore } from '@/features/review/boundScan';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
-import { CastleState, ParchmentCard, SeriesShield } from '@/ui/castle';
 import { sharedCoverTag } from '@/ui/motion';
 import { breadcrumb } from './breadcrumb';
 import { headerThemeFromCover } from './coverColor';
@@ -26,9 +25,7 @@ export function ItemDetailScreen({ id }: { id: string }) {
   if (isLoading || !libraryId) {
     return (
       <Screen>
-        <CastleState pose="fastReading">
-          <LoadingState label="Loading this item…" labelTone="ink" />
-        </CastleState>
+        <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
@@ -54,18 +51,14 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   if (isLoading) {
     return (
       <Screen>
-        <CastleState pose="fastReading">
-          <LoadingState label="Loading this item…" labelTone="ink" />
-        </CastleState>
+        <LoadingState label="Loading this item…" />
       </Screen>
     );
   }
   if (isError || !detail || !etag) {
     return (
       <Screen>
-        <CastleState pose="oops">
-          <EmptyState title="Couldn't load this item" body={friendlyError(error)} bodyTone="ink" actionLabel="Try again" onAction={() => refetch()} />
-        </CastleState>
+        <EmptyState title="Couldn't load this item" body={friendlyError(error)} actionLabel="Try again" onAction={() => refetch()} />
       </Screen>
     );
   }
@@ -138,9 +131,12 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         <Fact label="Acquired" value={item.acquiredOn ?? 'Not set'} />
       </Card>
 
-      <ParchmentCard title="Notes" body={item.notes ?? 'None'} />
+      <Card>
+        <Text variant="heading">Notes</Text>
+        <Text>{item.notes ?? 'None'}</Text>
+      </Card>
 
-      {detail.otherCopies.length > 0 ? <SeriesShield label={`${detail.otherCopies.length + 1} copies of this work`} testID="series-shield" /> : null}
+      {detail.otherCopies.length > 0 ? <Text tone="muted">{`${detail.otherCopies.length + 1} copies of this work`}</Text> : null}
 
       {message ? (
         <Text tone="danger" accessibilityRole="alert">

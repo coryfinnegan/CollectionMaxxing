@@ -13,11 +13,9 @@ type EmptyStateProps = {
   onAction?: () => void;
   /** A small looping spot above the words. Error states stay bare: no animation on data-critical paths. */
   animation?: Extract<LottieSpotName, 'empty-library' | 'no-results'>;
-  /** Full ink for textured grounds (castle parchment), where muted fails 4.5:1 at the worst pixel. */
-  bodyTone?: 'muted' | 'ink';
 };
 
-export function EmptyState({ title, body, actionLabel, onAction, animation, bodyTone = 'muted' }: EmptyStateProps) {
+export function EmptyState({ title, body, actionLabel, onAction, animation }: EmptyStateProps) {
   return (
     <View style={styles.root}>
       {animation ? <LottieSpot name={animation} loop testID="empty-spot" /> : null}
@@ -25,7 +23,7 @@ export function EmptyState({ title, body, actionLabel, onAction, animation, body
         {title}
       </Text>
       {body ? (
-        <Text tone={bodyTone} style={styles.centered}>
+        <Text tone="muted" style={styles.centered}>
           {body}
         </Text>
       ) : null}
