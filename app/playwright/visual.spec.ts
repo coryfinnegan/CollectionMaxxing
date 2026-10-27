@@ -32,27 +32,6 @@ test.describe('visual', () => {
     await expectShot(page, 'library-grid');
   });
 
-  test('library castle', async ({ page, open }) => {
-    await open('/settings');
-    await page.getByRole('button', { name: 'Library design Castle' }).click();
-    await open('/library');
-    await page.getByRole('button', { name: 'Grid view' }).click();
-    await expect(page.getByTestId('castle-shelf')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
-    await expectShot(page, 'library-castle');
-  });
-
-  test('library mall', async ({ page, open }) => {
-    await open('/settings');
-    await page.getByRole('button', { name: 'Library design Mall' }).click();
-    await open('/library');
-    await page.getByRole('button', { name: 'Grid view' }).click();
-    await expect(page.getByTestId('mall-room')).toBeVisible();
-    await expect(page.locator('canvas')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'The Matrix, DVD' }).first()).toBeVisible();
-    await expectShot(page, 'library-mall');
-  });
-
   test('item detail', async ({ page, open }) => {
     await open('/library');
     await page.getByRole('link', { name: 'Open The Matrix' }).click();
@@ -87,8 +66,18 @@ test.describe('visual', () => {
 
   test('me', async ({ page, open }) => {
     await open('/me');
-    await expect(page.getByText('Great hall')).toBeVisible();
-    await expect(page.getByText('Fullest shelves')).toBeVisible();
+    await expect(page.getByText('This browser')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Locations' })).toBeVisible();
+    // The counts settle after the stats and members calls; the shot waits for them.
+    await expect(page.getByText(/\d+ items · \d+ members/)).toBeVisible();
     await expectShot(page, 'me');
+  });
+
+  test('settings appearance', async ({ page, open }) => {
+    await open('/settings');
+    await expect(page.getByRole('button', { name: 'Appearance Light' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Appearance Dark' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Appearance System' })).toBeVisible();
+    await expectShot(page, 'settings-appearance');
   });
 });

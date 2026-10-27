@@ -1,11 +1,8 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { setDesignStorage, useLibraryDesign } from '@/features/library/design';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { renderWithProviders } from '@/test/render';
 import { applyAppearance, setAppearanceStorage, useAppearanceChoice } from '@/theme/appearance';
-import { setCastleStorage, useCastleThemeSetting } from '@/ui/castle/mode';
-import { setMascotStorage, useDragonAppearance } from '@/ui/mascot/appearances';
 import { FakeAppIconEngine } from '../../../modules/cm-app-icon/src/FakeAppIconEngine';
 import { GAMEBOY_ICON_NAME, useAppIconSetting } from './appIcon';
 import { AppearanceSection } from './AppearanceSection';
@@ -27,14 +24,8 @@ function setup(initial: string | null = null, supported = true) {
   setSettingsStorage(new MemoryKeyValueStore());
   setAppIcon(engine);
   useAppIconSetting.setState({ choice: 'default', supported: false, ready: false, problem: null });
-  setCastleStorage(memoryStore());
-  useCastleThemeSetting.setState({ setting: 'full' });
-  setMascotStorage(memoryStore());
-  useDragonAppearance.setState({ appearance: 'full' });
   setAppearanceStorage(memoryStore());
   useAppearanceChoice.setState({ choice: 'system' });
-  setDesignStorage(memoryStore());
-  useLibraryDesign.setState({ choice: 'current' });
   return engine;
 }
 
@@ -98,48 +89,20 @@ describe('Settings > Appearance', () => {
     await waitFor(() => expect(useAppIconSetting.getState().ready).toBe(true));
     expect(screen.getByText('Appearance')).toBeTruthy();
     expect(screen.queryByText('App icon')).toBeNull();
-    expect(screen.getByText('Castle theme')).toBeTruthy();
+    expect(screen.getByText('Light or dark')).toBeTruthy();
   });
 
-  it('switches the castle theme between Full and Quiet', async () => {
+  it('offers exactly Light, Dark and System, and no theme switcher', async () => {
     setup(null, false);
     await renderWithProviders(<AppearanceSection />);
-    await screen.findByText('Castle theme');
+    await screen.findByText('Light or dark');
 
-    expect(screen.getByLabelText('Theme Full').props.accessibilityState.selected).toBe(true);
-
-    await fireEvent.press(screen.getByLabelText('Theme Quiet'));
-
-    expect(useCastleThemeSetting.getState().setting).toBe('quiet');
-    expect(screen.getByLabelText('Theme Quiet').props.accessibilityState.selected).toBe(true);
-  });
-
-  it('switches the dragon between Full, Minimal and Off', async () => {
-    setup(null, false);
-    await renderWithProviders(<AppearanceSection />);
-    await screen.findByText('Dragon appearances');
-
-    await fireEvent.press(screen.getByLabelText('Dragon Minimal'));
-    expect(useDragonAppearance.getState().appearance).toBe('minimal');
-
-    await fireEvent.press(screen.getByLabelText('Dragon Off'));
-    expect(useDragonAppearance.getState().appearance).toBe('off');
-    expect(screen.getByLabelText('Dragon Off').props.accessibilityState.selected).toBe(true);
-  });
-
-  it('switches the library design between Current, Castle and Mall', async () => {
-    setup(null, false);
-    await renderWithProviders(<AppearanceSection />);
-    await screen.findByText('Library design');
-
-    expect(screen.getByLabelText('Library design Current').props.accessibilityState.selected).toBe(true);
-
-    await fireEvent.press(screen.getByLabelText('Library design Castle'));
-    expect(useLibraryDesign.getState().choice).toBe('castle');
-
-    await fireEvent.press(screen.getByLabelText('Library design Mall'));
-    expect(useLibraryDesign.getState().choice).toBe('mall');
-    expect(screen.getByLabelText('Library design Mall').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('Appearance Light')).toBeTruthy();
+    expect(screen.getByLabelText('Appearance Dark')).toBeTruthy();
+    expect(screen.getByLabelText('Appearance System')).toBeTruthy();
+    expect(screen.queryByText('Castle theme')).toBeNull();
+    expect(screen.queryByText('Library design')).toBeNull();
+    expect(screen.queryByText('Dragon appearances')).toBeNull();
   });
 
   it('switches light, dark and system, applying each to the styled layer', async () => {
