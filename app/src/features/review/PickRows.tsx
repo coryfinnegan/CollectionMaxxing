@@ -132,7 +132,7 @@ function OptionRow({
   );
 }
 
-/** The pick-one row's secondary paths: details, keep, skip, and reshoots as small chips, not full-width buttons. */
+/** The pick-one row's secondary paths: details, keep, skip, reshoots, and discard as small chips, not full-width buttons. Discard sits last: it throws the row away. */
 export function PickOverflow({
   title,
   canKeep,
@@ -142,6 +142,7 @@ export function PickOverflow({
   onSkip,
   onScanBarcode,
   onSnapCover,
+  onDiscard,
 }: {
   title: string;
   canKeep: boolean;
@@ -151,6 +152,7 @@ export function PickOverflow({
   onSkip?: () => void;
   onScanBarcode?: () => void;
   onSnapCover?: () => void;
+  onDiscard?: () => void;
 }) {
   const { theme } = useUnistyles();
   return (
@@ -161,6 +163,7 @@ export function PickOverflow({
       {onSkip ? <Chip label="Skip" accessibilityLabel={`Skip ${title}`} onPress={busy ? undefined : onSkip} /> : null}
       {onScanBarcode ? <Chip label="Scan barcode" accessibilityLabel={`Scan barcode for ${title}`} onPress={busy ? undefined : onScanBarcode} /> : null}
       {onSnapCover ? <Chip label="Snap cover" accessibilityLabel={`Snap cover for ${title}`} onPress={busy ? undefined : onSnapCover} /> : null}
+      {onDiscard ? <Chip label="Discard" accessibilityLabel={`Discard ${title}`} onPress={busy ? undefined : onDiscard} /> : null}
     </View>
   );
 }
