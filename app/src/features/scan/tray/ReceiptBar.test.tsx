@@ -1,5 +1,5 @@
 // The scanner count bar (#306): a frosted dock over the camera on iOS 26+, the surface bar elsewhere.
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';
@@ -26,7 +26,9 @@ const noop = () => undefined;
 
 const bar = (available: boolean) => {
   mockGlassState.available = available;
-  return render(<ReceiptBar lines={[]} cards={[]} online items={3} processing={1} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />);
+  return renderWithProviders(
+    <ReceiptBar libraryId={MOCK_LIBRARY_ID} lines={[]} cards={[]} online items={3} processing={1} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
+  );
 };
 
 describe('ReceiptBar glass', () => {
@@ -52,8 +54,8 @@ describe('ReceiptBar auto-add', () => {
 
   const openReceipt = async (cards: CandidateDto[]) => {
     mockGlassState.available = false;
-    await render(
-      <ReceiptBar lines={[line]} cards={cards} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
+    await renderWithProviders(
+      <ReceiptBar libraryId={MOCK_LIBRARY_ID} lines={[line]} cards={cards} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
     );
     fireEvent.press(screen.getByLabelText('1 item. Show the receipt'));
   };
@@ -80,7 +82,9 @@ describe('ReceiptBar remove', () => {
   it('removes a barcode line with its Remove button', async () => {
     const onRemove = jest.fn();
     mockGlassState.available = false;
-    await render(<ReceiptBar lines={[line]} cards={[]} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={onRemove} onReview={noop} />);
+    await renderWithProviders(
+      <ReceiptBar libraryId={MOCK_LIBRARY_ID} lines={[line]} cards={[]} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={onRemove} onReview={noop} />,
+    );
     fireEvent.press(screen.getByLabelText('1 item. Show the receipt'));
 
     fireEvent.press(await screen.findByLabelText('Remove 9780441172719 from this scan'));
@@ -91,8 +95,9 @@ describe('ReceiptBar remove', () => {
   it('removes a picture line with its Remove button', async () => {
     const onRemovePicture = jest.fn();
     mockGlassState.available = false;
-    await render(
+    await renderWithProviders(
       <ReceiptBar
+        libraryId={MOCK_LIBRARY_ID}
         lines={[]}
         pictureLines={[{ key: 'snap-1:item-1', snapId: 'snap-1', localId: 'item-1', thumbUri: undefined, title: 'Dune', status: 'identifying', createdAt: 1 }]}
         onRemovePicture={onRemovePicture}
@@ -132,6 +137,7 @@ describe('ReceiptBar status line', () => {
     mockGlassState.available = false;
     return renderWithProviders(
       <ReceiptBar
+        libraryId={MOCK_LIBRARY_ID}
         lines={[]}
         cards={[]}
         online={props.online ?? true}
@@ -204,6 +210,7 @@ describe('ReceiptBar undo last add', () => {
     mockGlassState.available = false;
     return renderWithProviders(
       <ReceiptBar
+        libraryId={MOCK_LIBRARY_ID}
         lines={[]}
         cards={[]}
         online
