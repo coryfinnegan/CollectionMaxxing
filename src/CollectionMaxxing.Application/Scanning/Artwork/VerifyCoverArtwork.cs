@@ -31,6 +31,7 @@ public static class VerifyCoverArtwork
         ICurrentUser currentUser,
         ISessionLock sessionLock,
         ICoverFetcher covers,
+        ICoverStore coverStore,
         ICoverVerifier verifier,
         IOptionsMonitor<ScoringOptions> scoring)
     {
@@ -71,18 +72,18 @@ public static class VerifyCoverArtwork
             }
 
             var alternatives = CandidateJson.ReadAlternatives(snapshot.AlternativesJson);
-            var withCovers = alternatives.Where(a => !string.IsNullOrWhiteSpace(a.CoverUrl)).ToList();
-            if (withCovers.Count == 0)
+            if (alternatives.Count == 0)
             {
                 return CoverVerifyErrors.NoCovers;
             }
 
             var started = Stopwatch.GetTimestamp();
-            var attempts = await CompareAllAsync(command.Quad, cleaned.Value.Bytes, withCovers, cancellationToken);
+            var attempts = await CompareAllAsync(command.Quad, cleaned.Value.Bytes, alternatives, cancellationToken);
             var compared = attempts.Where(a => a.Comparison is not null).ToList();
             if (compared.Count == 0)
             {
-                return CoverVerifyErrors.Unavailable;
+                // Nothing had a cover at all, or everything that did failed transiently: only the second is worth retrying.
+                return attempts.All(a => a.Failure == CoverVerification.NoCover) ? CoverVerifyErrors.NoCovers : CoverVerifyErrors.Unavailable;
             }
 
             var options = scoring.CurrentValue.CoverVerify;
@@ -150,35 +151,101 @@ public static class VerifyCoverArtwork
 
         private sealed record Attempt(StoredAlternative Alternative, CoverComparison? Comparison, string? Failure);
 
-        private async Task<List<Attempt>> CompareAllAsync(
-            CoverQuad? quad, byte[] capture, List<StoredAlternative> withCovers, CancellationToken cancellationToken)
-        {
-            var tasks = withCovers.Select(async alternative =>
-            {
-                var fetched = await covers.FetchAsync(alternative.CoverUrl!, cancellationToken);
-                if (fetched.Cover is null)
-                {
-                    return new Attempt(alternative, null, fetched.FailureReason ?? CoverFailure.FetchFailed);
-                }
+        /// <summary>Where an alternative's cover comes from: a provider download, a stored blob, or nowhere.</summary>
+        private sealed record CoverSource(string? FetchUrl, string? BlobPath, string? Missing);
 
-                try
-                {
-                    var comparison = await verifier.CompareAsync(capture, fetched.Cover.Bytes, quad, cancellationToken);
-                    return new Attempt(alternative, comparison, null);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-#pragma warning disable CA1031 // One unreadable cover must not fail the verification of the rest.
-                catch (Exception)
-#pragma warning restore CA1031
-                {
-                    return new Attempt(alternative, null, CoverVerification.CompareFailed);
-                }
-            });
+        private async Task<List<Attempt>> CompareAllAsync(
+            CoverQuad? quad, byte[] capture, IReadOnlyList<StoredAlternative> alternatives, CancellationToken cancellationToken)
+        {
+            // The sources resolve one at a time: they touch the database, which answers one caller at a time. Only the
+            // downloads, reads and comparisons below run side by side.
+            var sources = new List<(StoredAlternative Alternative, CoverSource Source)>(alternatives.Count);
+            foreach (var alternative in alternatives)
+            {
+                sources.Add((alternative, await ResolveSourceAsync(alternative, cancellationToken)));
+            }
+
+            var tasks = sources.Select(s => AttemptAsync(quad, capture, s.Alternative, s.Source, cancellationToken));
             return (await Task.WhenAll(tasks)).ToList();
         }
+
+        /// <summary>
+        /// Where the alternative's cover lives: a provider cover by its URL, a catalogue release's by release id (its
+        /// <c>/media</c> URL is for serving, not fetching), or nowhere.
+        /// </summary>
+        private async Task<CoverSource> ResolveSourceAsync(StoredAlternative alternative, CancellationToken cancellationToken)
+        {
+            if (IsAbsoluteHttp(alternative.CoverUrl))
+            {
+                return new CoverSource(alternative.CoverUrl, null, null);
+            }
+
+            var assetId = await db.Releases.Where(r => r.Id == alternative.ReleaseId).Select(r => r.CoverAssetId).SingleOrDefaultAsync(cancellationToken);
+            var blobPath = assetId is null
+                ? null
+                : await db.Assets.Where(a => a.Id == assetId).Select(a => a.BlobPath).SingleOrDefaultAsync(cancellationToken);
+            return blobPath is null ? new CoverSource(null, null, CoverVerification.NoCover) : new CoverSource(null, blobPath, null);
+        }
+
+        private async Task<Attempt> AttemptAsync(
+            CoverQuad? quad, byte[] capture, StoredAlternative alternative, CoverSource source, CancellationToken cancellationToken)
+        {
+            var (bytes, failure) = await CoverBytesAsync(source, cancellationToken);
+            if (bytes is null)
+            {
+                return new Attempt(alternative, null, failure!);
+            }
+
+            try
+            {
+                var comparison = await verifier.CompareAsync(capture, bytes, quad, cancellationToken);
+                return new Attempt(alternative, comparison, null);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // One unreadable cover must not fail the verification of the rest.
+            catch (Exception)
+#pragma warning restore CA1031
+            {
+                return new Attempt(alternative, null, CoverVerification.CompareFailed);
+            }
+        }
+
+        /// <summary>
+        /// The cover bytes from a resolved source. Blobs are server-written and were size-bounded when stored, so they
+        /// are read whole.
+        /// </summary>
+        private async Task<(byte[]? Bytes, string? Failure)> CoverBytesAsync(CoverSource source, CancellationToken cancellationToken)
+        {
+            if (source.Missing is not null)
+            {
+                return (null, source.Missing);
+            }
+
+            if (source.FetchUrl is not null)
+            {
+                var fetched = await covers.FetchAsync(source.FetchUrl, cancellationToken);
+                return fetched.Cover is null
+                    ? (null, fetched.FailureReason ?? CoverFailure.FetchFailed)
+                    : (fetched.Cover.Bytes.ToArray(), null);
+            }
+
+            await using var stream = await coverStore.OpenReadAsync(source.BlobPath!, cancellationToken);
+            if (stream is null)
+            {
+                return (null, CoverFailure.FetchFailed);
+            }
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, cancellationToken);
+            return (buffer.ToArray(), null);
+        }
+
+        private static bool IsAbsoluteHttp(string? url) =>
+            Uri.TryCreate(url, UriKind.Absolute, out var absolute)
+            && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps);
 
         private static void WriteAnswer(
             ScanCandidate candidate,

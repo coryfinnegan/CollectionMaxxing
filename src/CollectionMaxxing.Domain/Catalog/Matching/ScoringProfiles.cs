@@ -96,8 +96,10 @@ public sealed record ArtScoringOptions
 /// <summary>
 /// How the server verifies a cover capture against the candidates' covers (#438 stage 2): SIFT feature matching with a
 /// FLANN matcher, Lowe's ratio test and RANSAC homography verification, whose inlier count is the sameness score. The
-/// counts below start from the researched recipe (OpenCV's own sample calls 10 good matches enough) and are tuned on
-/// the #438 fixtures: the fixture test fails unless the measured matches and non-matches fall on either side of them.
+/// counts below are tuned on the #438 fixtures, which measured 227 and 159 inliers for the photo-matching edition
+/// (gentle and hard tilt, warped by the quad) against 24 for the same-title other edition and 11 for an unrelated
+/// cover: weak sits ~1.6x above the hardest negative, strong ~1.6x below the weakest positive. The fixture test fails
+/// unless fresh measurements still fall on either side of them.
 /// </summary>
 public sealed record CoverVerifyOptions
 {
@@ -108,10 +110,10 @@ public sealed record CoverVerifyOptions
     public double RansacReprojThreshold { get; init; } = 3.0;
 
     /// <summary>Inliers at or below this read as no match (visual score 0).</summary>
-    public int WeakInliers { get; init; } = 10;
+    public int WeakInliers { get; init; } = 40;
 
     /// <summary>Inliers at or above this read as a clear match (visual score 1); between the two the score is linear.</summary>
-    public int StrongInliers { get; init; } = 30;
+    public int StrongInliers { get; init; } = 100;
 
     /// <summary>Combined-score lead the top cover needs over the runner-up to be preselected for Review.</summary>
     public double PreselectMargin { get; init; } = 0.10;

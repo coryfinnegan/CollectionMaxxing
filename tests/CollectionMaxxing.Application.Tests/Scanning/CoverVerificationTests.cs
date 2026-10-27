@@ -10,9 +10,9 @@ public class CoverVerificationTests
 
     [Theory]
     [InlineData(0, 0.0)]
-    [InlineData(10, 0.0)]
-    [InlineData(20, 0.5)]
-    [InlineData(30, 1.0)]
+    [InlineData(40, 0.0)]
+    [InlineData(70, 0.5)]
+    [InlineData(100, 1.0)]
     [InlineData(300, 1.0)]
     public void Inliers_map_to_a_visual_score_between_weak_and_strong(int inliers, double visual)
     {
@@ -70,7 +70,7 @@ public class CoverVerificationTests
     {
         var only = Guid.NewGuid();
 
-        var (_, preselected) = CoverVerification.Rank([(only, 0.7, 45)], Options);
+        var (_, preselected) = CoverVerification.Rank([(only, 0.7, 150)], Options);
 
         preselected.ShouldBe(only);
     }

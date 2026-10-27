@@ -3,6 +3,7 @@ using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Artwork;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Libraries;
@@ -47,6 +48,12 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
             var n = inliers(capture.ToArray(), cover.ToArray());
             return Task.FromResult(new CoverComparison(n, 200, 150, 12));
         }
+    }
+
+    private sealed class StubCoverStore(Dictionary<string, byte[]> blobs) : ICoverStore
+    {
+        public Task<Stream?> OpenReadAsync(string blobPath, CancellationToken cancellationToken) =>
+            Task.FromResult<Stream?>(blobs.TryGetValue(blobPath, out var bytes) ? new MemoryStream(bytes) : null);
     }
 
     private sealed class FixedScoring(ScoringOptions value) : IOptionsMonitor<ScoringOptions>
@@ -120,8 +127,9 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
         return new Seeded(library, sessionId, candidateId, firstId, secondId);
     }
 
-    private static VerifyCoverArtwork.Handler Handler(AppDbContext context, ICurrentUser acting, ICoverFetcher covers, ICoverVerifier verifier) =>
-        new(context, acting, new PostgresSessionLock(context), covers, verifier, new FixedScoring(new ScoringOptions()));
+    private static VerifyCoverArtwork.Handler Handler(
+        AppDbContext context, ICurrentUser acting, ICoverFetcher covers, ICoverVerifier verifier, ICoverStore? coverStore = null) =>
+        new(context, acting, new PostgresSessionLock(context), covers, coverStore ?? new StubCoverStore([]), verifier, new FixedScoring(new ScoringOptions()));
 
     private static async Task<JsonElement> LastStepOfAsync(PostgresFixture db, ICurrentUser acting, Guid candidateId)
     {
@@ -180,7 +188,7 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
             ["https://covers.test/2003.jpg"] = [0x03],
             ["https://covers.test/2001.jpg"] = [0x01],
         });
-        var verifier = new StubVerifier((_, cover) => cover[0] == 0x01 ? 25 : 12);
+        var verifier = new StubVerifier((_, cover) => cover[0] == 0x01 ? 85 : 55);
         var acting = seeded.Library.ActingAs(LibraryRole.Viewer);
         await using var context = Db.CreateContext(acting);
 
@@ -258,6 +266,43 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
 
         result.IsSuccess.ShouldBeFalse();
         result.Error!.Code.ShouldBe("scan.art_candidate_decided");
+    }
+
+    [Fact]
+    public async Task A_catalogue_cover_is_read_from_the_store_by_release_id()
+    {
+        var seeded = await SeedAsync(firstCover: null, secondCover: null);
+        var assetId = Guid.CreateVersion7();
+        await using (var seed = Db.CreateContext())
+        {
+            var workId = Guid.CreateVersion7();
+            seed.Works.Add(new Work { Id = workId, Kind = WorkKind.Book, Title = "Suddenly You", CreatedAt = Now });
+            seed.Releases.Add(new Release
+            {
+                Id = seeded.SecondId,
+                WorkId = workId,
+                Format = ReleaseFormat.Paperback,
+                Source = ReleaseSource.User,
+                CoverAssetId = assetId,
+                CreatedAt = Now,
+            });
+            seed.Assets.Add(new Asset { Id = assetId, Kind = AssetKind.Cover, BlobPath = "ab/2001.png", ContentType = "image/png" });
+            await seed.SaveChangesAsync();
+        }
+
+        var covers = new StubCovers(new Dictionary<string, byte[]>());
+        var store = new StubCoverStore(new Dictionary<string, byte[]> { ["ab/2001.png"] = [0x01] });
+        var verifier = new StubVerifier((_, cover) => cover[0] == 0x01 ? 150 : 4);
+        var acting = seeded.Library.ActingAs(LibraryRole.Viewer);
+        await using var context = Db.CreateContext(acting);
+
+        var result = await Handler(context, acting, covers, verifier, store).HandleAsync(
+            new VerifyCoverArtwork.Command(seeded.SessionId, seeded.CandidateId, JpegFixtures.Plain(), null), default);
+
+        result.IsSuccess.ShouldBeTrue();
+        covers.Fetched.ShouldBeEmpty();
+        result.Value.Alternatives!.Select(a => a.Year!.Value).ShouldBe([2001, 2003]);
+        result.Value.CoverPick!.ReleaseId.ShouldBe(seeded.SecondId);
     }
 
     [Fact]

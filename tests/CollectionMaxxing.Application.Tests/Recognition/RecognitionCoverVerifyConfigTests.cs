@@ -16,8 +16,8 @@ public class RecognitionCoverVerifyConfigTests
         cover.ShouldBe(new CoverVerifyOptions());
         cover.LoweRatio.ShouldBe(0.75);
         cover.RansacReprojThreshold.ShouldBe(3.0);
-        cover.WeakInliers.ShouldBe(10);
-        cover.StrongInliers.ShouldBe(30);
+        cover.WeakInliers.ShouldBe(40);
+        cover.StrongInliers.ShouldBe(100);
         cover.PreselectMargin.ShouldBe(0.10);
         cover.VisualWeight.ShouldBe(0.5);
         cover.MaxDimension.ShouldBe(1024);
@@ -30,7 +30,7 @@ public class RecognitionCoverVerifyConfigTests
 
         build.Problems.ShouldBeEmpty();
         build.Scoring!.CoverVerify.PreselectMargin.ShouldBe(0.2);
-        build.Scoring.CoverVerify.StrongInliers.ShouldBe(30);
+        build.Scoring.CoverVerify.StrongInliers.ShouldBe(100);
         build.Scoring.Art.ShouldBe(new ArtScoringOptions());
     }
 
@@ -61,7 +61,7 @@ public class RecognitionCoverVerifyConfigTests
     [Fact]
     public void Strong_inliers_at_or_below_weak_inliers_are_refused()
     {
-        var build = Build("""{ "scoring": { "coverVerify": { "weakInliers": 30, "strongInliers": 30 } } }""");
+        var build = Build("""{ "scoring": { "coverVerify": { "weakInliers": 100, "strongInliers": 100 } } }""");
 
         build.IsValid.ShouldBeFalse();
         build.Problems.ShouldContain(p => p.Contains("scoring.coverVerify.strongInliers", StringComparison.Ordinal));

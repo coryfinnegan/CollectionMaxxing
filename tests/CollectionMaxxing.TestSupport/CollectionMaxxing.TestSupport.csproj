@@ -11,6 +11,7 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Respawn" />
     <PackageReference Include="Shouldly" />
+    <PackageReference Include="OpenCvSharp4" />
   </ItemGroup>
 
 </Project>
