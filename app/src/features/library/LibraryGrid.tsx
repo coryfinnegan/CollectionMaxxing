@@ -20,6 +20,9 @@ import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sh
 import { CastleHeader, CastleState, TabletHeader, useCastleArt, useCastleMode } from '@/ui/castle';
 import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
+import { MallView } from '@/features/mall/MallView';
+import { CastleShelfList } from './CastleShelf';
+import { useLibraryDesign } from './design';
 import { bannerMediumForKind, formatLabels, formats, kindLabels, kinds } from './labels';
 import { NeedsAttention, useProvisionals } from './NeedsAttention';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
@@ -75,6 +78,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
   const { theme } = useUnistyles();
   const safe = { flex: 1, backgroundColor: theme.colors.ground };
   const { width } = useWindowDimensions();
+  const design = useLibraryDesign((s) => s.choice);
   const columns = width >= WIDE_BREAKPOINT ? 6 : 3;
   const tileWidth = Math.floor((width - spacing.lg * 2 - spacing.md * (columns - 1)) / columns);
 
@@ -292,6 +296,58 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
           </View>
           <NeedsAttention libraryId={libraryId} />
         </ScrollView>
+        <View style={styles.snackbarPad}>
+          <UndoSnackbar />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Castle shelves the same items in the same order (#357); the search, filters,
+  // and pagination below stay shared, so the modes cannot disagree.
+  if (design === 'castle') {
+    return (
+      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={safe}>
+        <CastleShelfList
+          header={header}
+          empty={empty}
+          items={list.items}
+          refreshing={list.isRefreshing}
+          onRefresh={() => list.refetch()}
+          hasNextPage={list.hasNextPage}
+          fetchNextPage={() => {
+            void list.fetchNextPage();
+          }}
+          isFetchingNextPage={list.isFetchingNextPage}
+          shelfSize={columns * 2}
+          tileWidth={tileWidth}
+          onOpenItem={(id) => router.push(`/item/${id}`)}
+        />
+        <View style={styles.snackbarPad}>
+          <UndoSnackbar />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Mall walks the same items as 90s stores (#357); the search, filters, and
+  // pagination below stay shared, so the modes cannot disagree.
+  if (design === 'mall') {
+    return (
+      <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={safe}>
+        <MallView
+          header={header}
+          empty={empty}
+          items={list.items}
+          refreshing={list.isRefreshing}
+          onRefresh={() => list.refetch()}
+          hasNextPage={list.hasNextPage}
+          fetchNextPage={() => {
+            void list.fetchNextPage();
+          }}
+          isFetchingNextPage={list.isFetchingNextPage}
+          onOpenItem={(id) => router.push(`/item/${id}`)}
+        />
         <View style={styles.snackbarPad}>
           <UndoSnackbar />
         </View>

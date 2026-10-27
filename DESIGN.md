@@ -18,6 +18,7 @@ resolves roles from it. Nothing invents a color anywhere else.
 - **Fixed** (scheme-independent): `laser` `#FF2D3A` (scan beam), `receipt`
   `#FBFBF7`, `black`, `white`, `scrim` `rgba(0,0,0,0.5)`.
 - **Mascot:** `tokens.json` `mascot` is scheme-independent fixed color, like the castle: `body`/`belly`/`spike`, `ink`, `cover`/`page`, `pupil`, `smoke`. The eye white is fixed white; the shield reuses cover, page and belly.
+- **Mall:** `tokens.json` `mall` is scheme-independent fixed color mirroring the Blender room bases (`video`/`toy`/`book`/`hub`, each `floor`/`wall`/`fixture`/`trim`/`sign`, plus `spines` for generated cover tiles). Read it through `mallPalette`; nothing invents a room color anywhere else.
 - **Spacing:** xs 4, sm 8, md 12, lg 16, xl 24, xxl 32. **Radius:** sm 6,
   md 10, lg 16, pill 999.
 - Touch targets are at least 44pt. `WIDE_BREAKPOINT` (768) switches phone

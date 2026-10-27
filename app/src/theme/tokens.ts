@@ -90,6 +90,17 @@ export const mascot = {
   smoke: source.mascot.smoke,
 };
 
+/** The Mall room palette (#357): fixed like the castle, so the rooms match their Blender bases in both schemes. */
+export const mallPalette = {
+  video: { ...source.mall.video },
+  toy: { ...source.mall.toy },
+  book: { ...source.mall.book },
+  hub: { ...source.mall.hub },
+  spines: [...source.mall.spines],
+};
+
+export type MallRoomPalette = keyof Omit<typeof mallPalette, 'spines'>;
+
 export const spacing = source.spacing;
 export const radius = source.radius;
 

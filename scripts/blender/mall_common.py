@@ -12,7 +12,7 @@ Conventions the Mall spike codes against:
 - Static geometry merges to one mesh per material (one draw call each).
 
 Trademark guardrails: signs carry generic words only (MOVIES, GAMES, BOOKS,
-CAFE); no real logos, store names, or baked covers.
+CAFE, DIRECTORY, TOP 10, TRY ME); no real logos, store names, or baked covers.
 """
 
 import json

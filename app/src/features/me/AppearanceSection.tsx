@@ -1,11 +1,12 @@
-// Settings → Appearance: the castle theme, the dragon, and light or dark, plus the
-// home screen icon where the iPhone offers alternates. Native controls throughout:
-// Settings itself takes no castle theme.
+// Settings → Appearance: the library design, the castle theme, the dragon, and
+// light or dark, plus the home screen icon where the iPhone offers alternates.
+// Native controls throughout: Settings itself takes no castle theme.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useEffect } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { useLibraryDesign, type LibraryDesign } from '@/features/library/design';
 import { isWeb } from '@/lib/auth/session';
 import { applyAppearance, useAppearanceChoice, type AppearanceChoice } from '@/theme/appearance';
 import { Card, Chip, LoadingState, Text } from '@/ui';
@@ -29,12 +30,16 @@ export function AppearanceSection() {
   const appearance = useAppearanceChoice((s) => s.choice);
   const setAppearance = useAppearanceChoice((s) => s.set);
   const reloadAppearance = useAppearanceChoice((s) => s.reload);
+  const design = useLibraryDesign((s) => s.choice);
+  const setDesign = useLibraryDesign((s) => s.set);
+  const reloadDesign = useLibraryDesign((s) => s.reload);
   useEffect(() => {
     void refresh();
     reloadTheme();
     reloadDragon();
     reloadAppearance();
-  }, [refresh, reloadTheme, reloadDragon, reloadAppearance]);
+    reloadDesign();
+  }, [refresh, reloadTheme, reloadDragon, reloadAppearance, reloadDesign]);
   useEffect(() => {
     applyAppearance(appearance);
   }, [appearance]);
@@ -84,6 +89,20 @@ export function AppearanceSection() {
         />
       </View>
       <Text tone="muted">Minimal keeps the dragon to empty, loading and error states. Off hides it everywhere.</Text>
+      <Text>Library design</Text>
+      <View style={styles.choices}>
+        <ChoiceRow<LibraryDesign>
+          options={[
+            { value: 'current', label: 'Current' },
+            { value: 'castle', label: 'Castle' },
+            { value: 'mall', label: 'Mall' },
+          ]}
+          name="Library design"
+          current={design}
+          onPick={setDesign}
+        />
+      </View>
+      <Text tone="muted">Castle shelves your collection in stone. Mall walks it as 90s stores. Current stays the fast grid.</Text>
       <Text>Light or dark</Text>
       <View style={styles.choices}>
         <ChoiceRow<AppearanceChoice>
