@@ -2,6 +2,8 @@
 
 A self-hosted collection tracker: a .NET 10 API and Postgres on the owner's Windows PC, plus an Expo app (iOS + web). The plan is in `docs/`. Read **only** the sections your brief links. `docs/13-agent-orchestration.md` explains how agents work together.
 
+Lead sessions: operate per docs/lead-master-prompt.md.
+
 ## Hard rules (this runs on the owner's personal PC; don't break anything)
 
 - **Stay inside this repo and your worktree.** Package caches (NuGet, npm) are fine. Never change global git config, PATH, the registry, WSL, or system settings. Never install anything that needs admin rights.
