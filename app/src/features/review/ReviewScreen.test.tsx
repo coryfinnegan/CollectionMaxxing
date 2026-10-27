@@ -40,8 +40,9 @@ const asViewer = () => {
   server.use(http.get('*/api/v1/me', () => HttpResponse.json({ id: 'u1', memberships: [{ libraryId: MOCK_LIBRARY_ID, role: 'viewer' }] })));
 };
 
-const open = async (undoMs?: number) => {
-  await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} undoMs={undoMs} />);
+const open = async (undoMs?: number, onOpenResult: (c: CandidateDto) => void = jest.fn()) => {
+  await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} undoMs={undoMs} onOpenResult={onOpenResult} />);
+  return onOpenResult as jest.Mock;
 };
 
 /** One tap, flushed before the next (state updates inside a sheet need their own act). */
@@ -114,6 +115,55 @@ describe('Review screen', () => {
     seed([row]);
     await open();
     expect(await screen.findByLabelText(`Cover of Code ${row.rawCode}`)).toBeTruthy();
+  });
+
+  it('tapping a row opens its Result screen', async () => {
+    const row = mario();
+    seed([row]);
+    const onOpenResult = await open();
+    await press('1 item ready. Show it');
+    await press('Open result for Super Mario 64');
+    expect(onOpenResult).toHaveBeenCalledTimes(1);
+    expect(onOpenResult.mock.calls[0]?.[0].id).toBe(row.id);
+  });
+
+  it('keeps Details on the row for the sheet', async () => {
+    seed([mario()]);
+    await open();
+    await press('1 item ready. Show it');
+    await press('Details for Super Mario 64');
+    expect(screen.getByLabelText('Condition Good')).toBeTruthy();
+  });
+
+  it('shows the identifying state on a pending row with no guidance', async () => {
+    seed([
+      candidate({ resolution: 'pending', release: null, rawCode: '111', pendingReason: 'lookup' }),
+      candidate({ source: 'picture_text', visibleText: 'Dune Mess', resolution: 'pending', release: null }),
+    ]);
+    await open();
+    await screen.findByText('Still looking up · 2');
+    expect(screen.getByText('Looking up…')).toBeTruthy();
+    expect(screen.getByText('Identifying…')).toBeTruthy();
+  });
+
+  it('shows the capture thumbnail on a matched row', async () => {
+    const row = candidate({ source: 'picture_text', visibleText: 'Dune', localId: 'item-9', release: release(1, 'Dune', { format: 'paperback' }) });
+    seed([row]);
+    getPipelineStore().getState().addSnap({
+      snapId: 'snap-1',
+      libraryId: MOCK_LIBRARY_ID,
+      trigger: 'shutter',
+      createdAt: 1,
+      thumbUri: 'file:///tmp/snap.jpg',
+      phase: 'read',
+      sent: true,
+      sessionId: SESSION,
+      items: [{ localId: 'item-9', text: 'Dune', title: 'Dune', payload: { localId: 'item-9', text: 'Dune' }, thumbUri: 'file:///tmp/crop.jpg' }],
+      unreadableCount: 0,
+    });
+    await open();
+    await press('1 item ready. Show it');
+    expect(await screen.findByLabelText('Cover of Dune')).toBeTruthy();
   });
 
   it('counts only checked rows and adds them with one commit, then offers Undo', async () => {
@@ -416,7 +466,7 @@ describe('Review screen', () => {
       mario(),
       dune(),
     ]);
-    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onScanBarcode={onScanBarcode} />);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={jest.fn()} onScanBarcode={onScanBarcode} />);
     await screen.findByText('Pick one · 1');
     expect(screen.getAllByText('Scan barcode')).toHaveLength(3);
 
@@ -427,7 +477,7 @@ describe('Review screen', () => {
 
   it('offers no Scan barcode on rows that already name a release', async () => {
     seed([mario(), dune()]);
-    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onScanBarcode={jest.fn()} />);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={jest.fn()} onScanBarcode={jest.fn()} />);
     await screen.findByText('Ready · 1');
     await press('1 item ready. Show it');
     await press('1 item you own. Show it');
@@ -437,7 +487,7 @@ describe('Review screen', () => {
   it('offers no Scan barcode to a viewer', async () => {
     asViewer();
     seed([pick()]);
-    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onScanBarcode={jest.fn()} />);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={jest.fn()} onScanBarcode={jest.fn()} />);
     await screen.findByText('Pick one · 1');
     await waitFor(() => expect(screen.getByText(/You can look but not add/)).toBeTruthy());
     expect(screen.queryByText('Scan barcode')).toBeNull();
@@ -513,7 +563,7 @@ describe('Review screen', () => {
       mario(),
       dune(),
     ]);
-    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onSnapCover={onSnapCover} />);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={jest.fn()} onSnapCover={onSnapCover} />);
     await screen.findByText('Pick one · 1');
     expect(screen.getAllByText('Snap cover')).toHaveLength(3);
 
@@ -524,7 +574,7 @@ describe('Review screen', () => {
 
   it('offers no Snap cover on rows that already name a release', async () => {
     seed([mario(), dune()]);
-    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onSnapCover={jest.fn()} />);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={jest.fn()} onSnapCover={jest.fn()} />);
     await screen.findByText('Ready · 1');
     await press('1 item ready. Show it');
     await press('1 item you own. Show it');

@@ -3,10 +3,9 @@
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useUnistyles } from 'react-native-unistyles';
-import { TabBottomPad } from '@/components/TabBottomPad';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { fixed } from '@/theme/tokens';
 import { EmptyState, Screen } from '@/ui';
@@ -38,8 +37,11 @@ function WebScanTab() {
 function PhoneScanTab() {
   const { libraryId } = useActiveLibraryId();
   const [coached, setCoached] = useState(hasSeenScanCoach);
+  // No bottom spacer: the scanner is full-bleed, and the receipt bar already pads the home-indicator inset. The
+  // bottom chrome is the status bar alone (#432): captures queue silently, so an empty tray leaves no dead block
+  // behind and the camera keeps the height in every session state.
   return (
-    <TabBottomPad withPill={false} background={fixed.black}>
+    <View style={styles.fill}>
       <ScannerRoute showClose={false} />
       {!coached && libraryId ? (
         <ScanCoach
@@ -49,6 +51,10 @@ function PhoneScanTab() {
           }}
         />
       ) : null}
-    </TabBottomPad>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  fill: { flex: 1, backgroundColor: fixed.black },
+});

@@ -90,3 +90,25 @@ describe('review route scan barcode', () => {
     expect(mockRouter.push).toHaveBeenCalledWith('/scanner');
   });
 });
+
+describe('review route open result', () => {
+  const A = 'aaaaaaaa-0000-4000-8000-000000000000';
+
+  beforeEach(() => {
+    setTrayStore(undefined);
+    rendered.mockClear();
+    mockRouter.push.mockClear();
+    library.mockReturnValue({ libraryId: A, isLoading: false });
+  });
+  afterEach(() => setTrayStore(undefined));
+
+  it('opens the tapped row on its Result screen', async () => {
+    getTrayStore(A).getState().setSessionId('session-A');
+    await renderWithProviders(<ReviewRoute />);
+    const onOpenResult = rendered.mock.calls[0]?.[0].onOpenResult;
+
+    onOpenResult({ id: 'row-1' });
+
+    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/result/[id]', params: { id: 'row-1' } });
+  });
+});

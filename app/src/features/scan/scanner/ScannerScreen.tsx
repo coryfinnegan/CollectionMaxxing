@@ -1,5 +1,7 @@
-// The scanner (docs/06 M3): camera behind everything, "Nice scan!" flash, result cards, the receipt bar.
-// It is given its sources, so tests and the dev menu drive it with a FakeScannerSource and no camera.
+// The scanner (docs/06 M3): camera behind everything, "Nice scan!" flash, the receipt bar. Captures queue
+// silently here (#432): no result cards, no snap strip — processing state lives on the Review rows, and a row
+// opens the Result screen. It is given its sources, so tests and the dev menu drive it with a FakeScannerSource
+// and no camera.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useQueryClient } from '@tanstack/react-query';
@@ -12,30 +14,25 @@ import { NiceScanFlash } from '../autosnap/NiceScanFlash';
 import { DEFAULT_AUTO_SNAP_CONFIG } from '../autosnap/defaults';
 import { createCountingSnapHandler, useAutoSnap, type AutoSnapTuning, type SnapEvent } from '../autosnap/useAutoSnap';
 import type { AutoSnapConfig } from '../autosnap/types';
-import type { CandidateDto } from '@/api/generated/models';
 import { submitItemBarcodeUpgrade } from '@/features/item/upgrade';
 import { invalidateLibraryItems } from '@/features/item/useItem';
 import { submitBoundBarcode } from '@/features/review/api';
 import type { BoundScan } from '@/features/review/boundScan';
-import { ResultCards, useReduceMotion, type CardActions } from '../cards/ResultCards';
+import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { deviceBarcodes, devicePicker } from '../import/devicePicker';
 import type { BarcodeDetector, ImportDeps, PhotoPicker } from '../import/photoImport';
 import { usePhotoImport } from '../import/usePhotoImport';
 import type { Resizer } from '../autosnap/snapPhoto';
-import { FixItSheet } from '../pipeline/FixItSheet';
 import type { PipelineDeps } from '../pipeline/SnapPipeline';
 import { usePipeline } from '../pipeline/usePipeline';
 import { AutoCommitSnackbar } from '../session/AutoCommitSnackbar';
-import { useCardActions } from '../session/useCardActions';
-import { SegmentStrip } from '../session/SegmentStrip';
-import { SegmentViewer } from '../session/SegmentViewer';
 import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
 import { useSessionCounters } from '../session/useSessionCounters';
 import { SessionSheet } from '../session/SessionSheet';
 import { defaultSessionContext, sessionCreateBody, type SessionContext } from '../session/sessionContext';
 import { ReceiptBar } from '../tray/ReceiptBar';
 import { fixed, spacing, useColors } from '@/theme/tokens';
-import { Button, Chip, Snackbar, Text } from '@/ui';
+import { Button, Chip, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
 import { FakeScannerSource, type ScannerSource } from './ScannerSource';
 import { ScannerControls } from './ScannerControls';
@@ -133,16 +130,6 @@ export function ScannerScreen({
   const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture });
   const { canAdd } = useLibraryRole(libraryId);
   const { counters } = useSessionCounters(libraryId, session.sessionId);
-  // "Move it here" moves to the session spot; in-store defers the location, so the card hides Move there.
-  const cardActions = useCardActions({
-    libraryId,
-    sessionId: session.sessionId,
-    canAdd,
-    moveToLocationId: context.channel === 'home' ? context.locationId : null,
-  });
-  const [fixing, setFixing] = useState<CandidateDto | null>(null);
-  const [viewingSnap, setViewingSnap] = useState<string | null>(null);
-  const actions: CardActions = useMemo(() => ({ ...cardActions, onFixIt: setFixing }), [cardActions]);
   const [flash, setFlash] = useState(false);
   const reduceMotion = useReduceMotion();
   const [counter] = useState(() => createCountingSnapHandler());
@@ -280,11 +267,6 @@ export function ScannerScreen({
           </Pressable>
         </View>
 
-        {fixing ? (
-          <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
-            <FixItSheet candidate={fixing} sessionId={session.sessionId} onClose={() => setFixing(null)} />
-          </View>
-        ) : null}
         {sheet === 'session' ? (
           <View style={sheetStyles.wrap}>
             <SessionSheet
@@ -303,23 +285,7 @@ export function ScannerScreen({
             <ScannerSearch libraryId={libraryId} onClose={() => setSheet(null)} />
           </View>
         ) : null}
-        {actions.moveToast ? (
-          <View style={sheetStyles.snack}>
-            <Snackbar
-              message={actions.moveToast.message}
-              actionLabel={actions.moveToast.canUndo ? 'Undo' : undefined}
-              onAction={actions.moveToast.canUndo ? actions.onUndoMove : undefined}
-            />
-          </View>
-        ) : null}
         <AutoCommitSnackbar />
-        <ResultCards cards={session.cards} actions={actions} />
-        {viewingSnap ? (
-          <View style={sheetStyles.wrap}>
-            <SegmentViewer libraryId={libraryId} initialSnapId={viewingSnap} onClose={() => setViewingSnap(null)} />
-          </View>
-        ) : null}
-        {pictures.enabled ? <SegmentStrip libraryId={libraryId} onSelect={setViewingSnap} /> : null}
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
             lines={session.lines}
@@ -346,7 +312,6 @@ export function ScannerScreen({
 
 const sheetStyles = Unistyles.create((theme) => ({
   wrap: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
-  snack: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.sm },
 }));
 
 const boundStyles = Unistyles.create((theme) => ({

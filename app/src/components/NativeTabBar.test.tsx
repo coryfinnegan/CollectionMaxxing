@@ -1,13 +1,12 @@
 // The phone tab bar (#303): native tabs with SF Symbol icons in default/selected
 // variants, equal labels, and no custom backgrounds: iOS 26 Liquid Glass owns the
-// bar, and tintColor names the selected tab. The Scan pill floats above every tab
-// but Scan itself.
+// bar, and tintColor names the selected tab. Scan is the center tab; no floating
+// pill duplicates it above the bar (#432).
 import { screen } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { renderWithProviders } from '@/test/render';
 import { lightColors } from '@/theme/tokens';
 import { NativeTabBar } from './NativeTabBar';
-import { ScanPill } from './ScanPill';
 
 const mockRouter = { navigate: jest.fn(), push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 const mockPathname: { current: string } = { current: '/library' };
@@ -90,20 +89,16 @@ describe('NativeTabBar', () => {
     expect(mockTabsProps.current?.labelStyle).toBeUndefined();
   });
 
-  it('floats the Scan pill above every tab but Scan itself', async () => {
+  it.each(['/library', '/scan', '/me'])('floats no Scan pill above the bar on %s', async (pathname) => {
+    mockPathname.current = pathname;
     await renderWithProviders(<NativeTabBar />);
-    expect(screen.getByText('Scan')).toBeTruthy();
-    const pill = mockAccessoryChildren.current as ReactElement;
-    expect(pill.type).toBe(ScanPill);
 
-    mockPathname.current = '/scan';
-    mockTriggers.length = 0;
-    mockAccessoryChildren.current = undefined;
-    await renderWithProviders(<NativeTabBar />);
-    // An accessory with no child still renders its (empty) container above the
-    // tab bar (#373), so the accessory is gone entirely on the Scan tab.
+    // No accessory, so no container above the bar (#373) and no duplicate Scan
+    // action: the center tab is the only path to the scanner (#432). Trigger
+    // labels render null in this mock, so any Scan text is the pill.
     expect(screen.queryByTestId('bottom-accessory')).toBeNull();
     expect(mockAccessoryChildren.current).toBeUndefined();
     expect(screen.queryByText('Scan')).toBeNull();
+    expect(mockTriggers.map((t) => t.name)).toEqual(['library', 'scan', 'me/index']);
   });
 });

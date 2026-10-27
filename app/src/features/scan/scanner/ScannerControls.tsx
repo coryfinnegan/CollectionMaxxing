@@ -1,6 +1,6 @@
 // The scanner's one control row (#408): the session chip plus Flash, Search, Photos and manual add as compact
 // icon controls in a single fixed row. Nothing else floats over the viewfinder. The glyphs are hand-drawn SVG,
-// the repo's icon idiom (ScanPill's barcode); every control keeps its spoken label.
+// the repo's icon idiom; every control keeps its spoken label.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { Platform, Pressable, View } from 'react-native';

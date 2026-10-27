@@ -9,7 +9,7 @@ import { listPlatforms } from '@/api/generated/catalog/catalog';
 import { conditionLabels, conditions, formatLabels, formats } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useLocationsList } from '@/features/locations/useLocations';
-import { NOT_FOUND_COPY, QUOTA_COPY } from '@/features/scan/cards/copy';
+import { describeCandidate, NOT_FOUND_COPY, QUOTA_COPY } from '@/features/scan/cards/copy';
 import { getPipelineStore } from '@/features/scan/pipeline/pipelineStore';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Chip, Cover, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
@@ -52,12 +52,15 @@ export function ReviewScreen({
   libraryId,
   sessionId,
   undoMs,
+  onOpenResult,
   onScanBarcode,
   onSnapCover,
 }: {
   libraryId: string;
   sessionId: string | null;
   undoMs?: number;
+  /** Tapping a row opens its Result screen (#432). */
+  onOpenResult: (c: CandidateDto) => void;
   /** Review's "Scan barcode": opens the camera bound to this row. */
   onScanBarcode?: (c: CandidateDto) => void;
   /** Review's "Snap cover": opens the camera to shoot this row's cover. */
@@ -145,6 +148,7 @@ export function ReviewScreen({
                     review={review}
                     isOpen={open === c.id}
                     onOpen={() => setOpen(open === c.id ? null : c.id)}
+                    onOpenResult={onOpenResult}
                     onScanBarcode={onScanBarcode}
                     onSnapCover={onSnapCover}
                     locations={locations}
@@ -193,6 +197,7 @@ type RowProps = {
   review: Review;
   isOpen: boolean;
   onOpen(): void;
+  onOpenResult(c: CandidateDto): void;
   onScanBarcode?: (c: CandidateDto) => void;
   onSnapCover?: (c: CandidateDto) => void;
   locations: LocationDto[];
@@ -200,7 +205,7 @@ type RowProps = {
   setPickingFor(id: string | null): void;
 };
 
-function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, locations, pickingFor, setPickingFor }: RowProps) {
+function Row({ c, group, review, isOpen, onOpen, onOpenResult, onScanBarcode, onSnapCover, locations, pickingFor, setPickingFor }: RowProps) {
   const colors = useColors();
   const [text, setText] = useState(c.visibleText ?? '');
   const snaps = useStore(getPipelineStore(), (s) => s.snaps);
@@ -208,10 +213,10 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
   const checked = checkable && review.isChecked(c);
   const title = titleOf(c);
   // The crop→entry pairing: what this row's crop shows, beside what the row says. The phone's own crop first,
-  // else the kept one from the server.
+  // else the kept one from the server. Every row pairs its capture, matched or still looking (#432).
   const t2 = group === 'pick' || group === 'notFound' || group === 'pending';
-  const thumb = t2 ? thumbForLocalId(snaps, c.localId) : undefined;
-  const crop = t2 ? pairCropUri(c, thumb) : null;
+  const thumb = thumbForLocalId(snaps, c.localId);
+  const crop = pairCropUri(c, thumb);
   const error = review.rowErrors[c.id];
   const busy = !!review.rowBusy[c.id];
   const alternatives = group === 'pick' ? alternativesOf(c) : [];
@@ -238,7 +243,7 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
           </Pressable>
         ) : null}
         {crop ? <Cover title={title} uri={crop} width={48} /> : null}
-        <Pressable accessibilityRole="button" accessibilityLabel={`Details for ${title}`} onPress={onOpen} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Open result for ${title}`} onPress={() => onOpenResult(c)} style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}>
           <Text>{title}</Text>
           {detail ? (
             <Text variant="caption" tone="muted">
@@ -247,6 +252,7 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
           ) : null}
         </Pressable>
       </View>
+      <Button label="Details" accessibilityLabel={`Details for ${title}`} variant="secondary" onPress={onOpen} />
       {t2 && review.canAdd && keepable(c) ? (
         <Button label={`Keep ${title} as unverified`} variant="secondary" busy={busy} onPress={() => void review.keep(c, thumb)} />
       ) : null}
@@ -288,7 +294,7 @@ function Row({ c, group, review, isOpen, onOpen, onScanBarcode, onSnapCover, loc
       ) : null}
 
       {group === 'pending' && c.pendingReason === 'quota' ? <Text tone="muted">{QUOTA_COPY}</Text> : null}
-      {group === 'pending' && c.pendingReason !== 'quota' && guidance ? <Text tone="muted">{guidance}</Text> : null}
+      {group === 'pending' && c.pendingReason !== 'quota' ? <Text tone="muted">{guidance ?? describeCandidate(c).status}</Text> : null}
       {group === 'pending' && review.canAdd && onScanBarcode ? (
         <ScanBarcodeButton title={title} onPress={() => onScanBarcode(c)} />
       ) : null}

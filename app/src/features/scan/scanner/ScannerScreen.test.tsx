@@ -1,4 +1,6 @@
 // The scanner end to end without a camera: FakeScannerSource -> tray -> mock API -> mock event stream -> cards.
+// Captures queue silently (#432): answers land in the store for Review, the status bar counts them, and nothing
+// renders over the camera — so these tests read the store and the status bar, never result cards.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { type HapticDriver, setHapticDriver } from '@/lib/haptics';
@@ -6,7 +8,6 @@ import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
-import { NOT_FOUND_COPY } from '../cards/copy';
 import { useCardsStore } from '../cards/cardsStore';
 import { setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
@@ -64,19 +65,21 @@ afterEach(() => {
 });
 
 describe('scanner screen', () => {
-  it('turns six injected codes into six cards, says what you own, and buzzes for each answer', async () => {
+  it('queues six injected codes silently: six answers in the store, counted in the status bar, nothing over the camera, and a buzz for each answer', async () => {
     const source = await scanner();
     await act(async () => source.inject(DEV_SIX_CODES));
 
-    expect(await screen.findByText('Dune')).toBeTruthy();
-    expect(await screen.findByText('Super Mario 64')).toBeTruthy();
-    expect(await screen.findByText('Ghostbusters')).toBeTruthy();
-    expect(await screen.findByText('GoldenEye 007')).toBeTruthy();
-    expect(await screen.findByText(NOT_FOUND_COPY)).toBeTruthy();
-    expect(await screen.findByText('Looking up…')).toBeTruthy();
-    expect(screen.getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
-    expect(screen.getByText('Already own — Nintendo 64, Game room › Shelf 1')).toBeTruthy();
-    expect(screen.getAllByTestId(/^card-/)).toHaveLength(6);
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(6));
+    const cards = Object.values(useCardsStore.getState().byId);
+    expect(cards.map((c) => c.release?.title).filter(Boolean).sort()).toEqual(['Dune', 'Ghostbusters', 'GoldenEye 007', 'Super Mario 64']);
+    expect(cards.filter((c) => c.resolution === 'not_found')).toHaveLength(1);
+    expect(cards.filter((c) => c.resolution === 'pending')).toHaveLength(1);
+    expect(cards.filter((c) => c.alreadyOwnedCount > 0).map((c) => c.ownedAt[0]).sort()).toEqual(['Game room › Shelf 1', 'Living room › Shelf 2']);
+    // The status bar counts what Review will show; the camera shows no cards and no strip.
+    expect(await screen.findByText('6 items · 1 processing', { exact: false })).toBeTruthy();
+    expect(screen.queryByTestId('result-cards')).toBeNull();
+    expect(screen.queryAllByTestId(/^card-/)).toHaveLength(0);
+    expect(screen.queryByLabelText('Snaps in this scan')).toBeNull();
 
     // 6 ticks right away; then two owned (2 taps each), two new (1 tap each), one not found (long).
     await waitFor(() => expect(haptic.filter((h) => h === 'long')).toHaveLength(1));
@@ -93,25 +96,30 @@ describe('scanner screen', () => {
     expect(haptic).toContain('tick');
   });
 
-  it('shows the slow lookup resolving over the event stream, with no duplicate card', async () => {
+  it('resolves the slow lookup over the event stream into the quiet queue, with no duplicate', async () => {
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.slow)]));
-    expect(await screen.findByText('Looking up…')).toBeTruthy();
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1));
+    expect(Object.values(useCardsStore.getState().byId)[0]!.resolution).toBe('pending');
+    expect(await screen.findByText('1 item · 1 processing', { exact: false })).toBeTruthy();
+    expect(screen.queryByTestId('result-cards')).toBeNull();
 
     await act(async () => scanMock.resolvePending());
 
-    expect(await screen.findByText('Zelda: Ocarina of Time')).toBeTruthy();
-    expect(screen.getAllByTestId(/^card-/)).toHaveLength(1);
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)[0]!.release?.title).toBe('Zelda: Ocarina of Time'));
+    expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByText('1 item · 1 processing', { exact: false })).toBeNull());
+    expect(screen.queryByTestId('result-cards')).toBeNull();
   });
 
-  it('resumes the stream with Last-Event-ID after a drop and does not duplicate cards', async () => {
+  it('resumes the stream with Last-Event-ID after a drop and does not duplicate the quiet queue', async () => {
     const lastIds: (string | null)[] = [];
     server.events.on('request:start', ({ request }) => {
       if (request.url.endsWith('/events')) lastIds.push(request.headers.get('Last-Event-ID'));
     });
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.slow)]));
-    await screen.findByText('Looking up…');
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1));
     await waitFor(() => expect(scanMock.streams.size).toBe(1));
 
     await act(async () => {
@@ -119,8 +127,8 @@ describe('scanner screen', () => {
       scanMock.resolvePending(); // happens while the client is disconnected
     });
 
-    expect(await screen.findByText('Zelda: Ocarina of Time')).toBeTruthy();
-    expect(screen.getAllByTestId(/^card-/)).toHaveLength(1);
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)[0]!.release?.title).toBe('Zelda: Ocarina of Time'));
+    expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1);
     expect(lastIds.length).toBeGreaterThanOrEqual(2);
     expect(lastIds[lastIds.length - 1]).not.toBeNull();
     server.events.removeAllListeners();
@@ -130,24 +138,27 @@ describe('scanner screen', () => {
     server.use(http.get('*/api/v1/scan-sessions/:id/events', () => new HttpResponse(null, { status: 503 })));
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.slow)]));
-    await screen.findByText('Looking up…');
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1));
 
     await act(async () => scanMock.resolvePending());
 
-    expect(await screen.findByText('Zelda: Ocarina of Time')).toBeTruthy();
-    expect(screen.getAllByTestId(/^card-/)).toHaveLength(1);
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)[0]!.release?.title).toBe('Zelda: Ocarina of Time'));
+    expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1);
   });
 
-  it('rejects an unreadable decode at capture with a rescan prompt and keeps the other cards', async () => {
+  it('rejects an unreadable decode at capture with a rescan prompt and keeps the other answer', async () => {
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.duneOwned), code(DEV_CODES.unreadable)]));
 
     expect(await screen.findByText("Couldn't read that barcode. Scan it again.")).toBeTruthy();
-    expect(await screen.findByText('Dune')).toBeTruthy();
-    expect(screen.getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
-    // Never queued: no error card for the decode that could never resolve.
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1));
+    const [card] = Object.values(useCardsStore.getState().byId);
+    expect(card!.release?.title).toBe('Dune');
+    expect(card!.alreadyOwnedCount).toBe(1);
+    expect(card!.ownedAt[0]).toBe('Living room › Shelf 2');
+    // Never queued: no answer for the decode that could never resolve, and nothing over the camera.
     expect(screen.queryByText(`Code ${DEV_CODES.unreadable}`)).toBeNull();
-    expect(screen.getAllByTestId(/^card-/)).toHaveLength(1);
+    expect(screen.queryByTestId('result-cards')).toBeNull();
   });
 
   it('rejects a partial-length code at capture without queuing it', async () => {
@@ -158,42 +169,23 @@ describe('scanner screen', () => {
     expect(screen.queryByTestId(/^card-/)).toBeNull();
   });
 
-  it('offers + Add to an editor and adds only that item', async () => {
-    asRole('editor');
-    const source = await scanner();
-    await act(async () => source.inject([code(DEV_CODES.mario64New), code(DEV_CODES.ghostbustersNew)]));
-
-    await fireEvent.press(await screen.findByLabelText('Add Super Mario 64'));
-
-    expect(await screen.findByText('Added to this scan')).toBeTruthy();
-    const [mario, ghostbusters] = [...scanMock.sessions.values()][0]!.candidates;
-    expect(mario!.decision).toBe('accepted');
-    expect(ghostbusters!.decision).toBe('undecided');
-  });
-
-  it('shows a viewer the cards and ownership but no + Add', async () => {
+  it('shows a viewer the counts but no cards and no add', async () => {
     asRole('viewer');
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.duneOwned), code(DEV_CODES.mario64New)]));
 
-    expect(await screen.findByText('Super Mario 64')).toBeTruthy();
-    expect(screen.getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(2));
+    expect(await screen.findByText('2 items', { exact: false })).toBeTruthy();
+    expect(screen.queryByTestId('result-cards')).toBeNull();
     expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull();
     expect(screen.queryByText('+ Add')).toBeNull();
     expect(screen.queryByText('Wishlist')).toBeNull();
   });
 
-  it('opens the result detail when a card is tapped', async () => {
-    const source = await scanner();
-    await act(async () => source.inject([code(DEV_CODES.duneOwned)]));
-    await fireEvent.press(await screen.findByLabelText(/^Open Dune/));
-    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/result/[id]', params: { id: expect.any(String) } });
-  });
-
   it('routes to Review from the status bar', async () => {
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.duneOwned)]));
-    await screen.findByText('Dune');
+    await screen.findByText('1 item', { exact: false });
     await fireEvent.press(screen.getByLabelText('Review'));
     expect(mockRouter.push).toHaveBeenCalledWith('/review');
   });
@@ -207,8 +199,9 @@ describe('scanner screen', () => {
   it('runs "Scan these 6 codes" from the dev menu', async () => {
     await scanner(new FakeScannerSource(), new FakeScannerSource());
     await fireEvent.press(screen.getByLabelText('Scan these 6 codes'));
-    expect(await screen.findByText('Dune')).toBeTruthy();
-    expect(screen.getAllByTestId(/^card-/)).toHaveLength(6);
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(6));
+    expect(await screen.findByText('6 items · 1 processing', { exact: false })).toBeTruthy();
+    expect(screen.queryByTestId('result-cards')).toBeNull();
   });
 
   it('does not show the dev menu without a dev source', async () => {
@@ -219,7 +212,7 @@ describe('scanner screen', () => {
   it('labels every button', async () => {
     const source = await scanner(new FakeScannerSource(), new FakeScannerSource());
     await act(async () => source.inject([code(DEV_CODES.mario64New)]));
-    await screen.findByText('Super Mario 64');
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(1));
     const buttons = screen.getAllByRole('button');
     expect(buttons.length).toBeGreaterThan(3);
     for (const button of buttons) expect(button.props.accessibilityLabel).toBeTruthy();
@@ -251,7 +244,8 @@ describe('scanner offline', () => {
 
     server.resetHandlers(); // the connection is back
     await scanner();
-    await waitFor(() => expect(screen.getAllByTestId(/^card-/)).toHaveLength(2));
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(2));
+    expect(screen.queryByTestId('result-cards')).toBeNull();
 
     // Even after more retry rounds, the server saw the codes exactly once.
     await act(async () => {

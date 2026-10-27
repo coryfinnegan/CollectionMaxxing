@@ -9,6 +9,7 @@ import { reviewMock } from '@/mocks/scan-review';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
 import { Button } from '@/ui';
+import { ReviewScreen } from '@/features/review/ReviewScreen';
 import { makeQueryClient, renderWithProviders } from '@/test/render';
 import type { Resizer } from '../autosnap/snapPhoto';
 import { useCardsStore } from '../cards/cardsStore';
@@ -70,7 +71,8 @@ describe('no image leaves the phone', () => {
     await open(kit);
 
     await shutter();
-    expect(await screen.findByText('Space Mutiny')).toBeTruthy();
+    // All four answers merged, queued silently for Review (#432; the privacy assertions below are unchanged).
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(4));
     await waitFor(() => expect(identifyMock.artRequests).toHaveLength(1)); // the art step ran
     await waitFor(() => expect(kit.art.downloads).toHaveLength(2));
 
@@ -153,9 +155,10 @@ describe('nothing is added by scanning', () => {
     await open(kit);
 
     await shutter();
-    expect(await screen.findByText('Space Mutiny')).toBeTruthy();
+    // All four answers merged, queued silently for Review (#432; the no-write assertions below are unchanged).
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(4));
     await waitFor(() => expect(identifyMock.artRequests).toHaveLength(1));
-    expect(await screen.findByText(CLOSE_CALL.title)).toBeTruthy();
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId).find((c) => c.visibleText === CLOSE_CALL.title)?.release?.title).toBe(CLOSE_CALL.title));
 
     const seen = await requests.all();
     requests.stop();
@@ -178,7 +181,8 @@ describe('a barcode in view wins', () => {
 
     await act(async () => source.inject([{ value: DEV_CODES.duneOwned, symbology: 'ean-13' }]));
     await shutter();
-    expect(await screen.findByText('Dune')).toBeTruthy(); // the barcode's card
+    // The barcode's answer, queued silently for Review (#432; the nothing-read assertions below are unchanged).
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId).some((c) => c.release?.title === 'Dune')).toBe(true));
 
     expect(kit.reader.stills).toEqual([]); // nothing was even read
     expect(identifyMock.requests).toEqual([]);
@@ -188,29 +192,48 @@ describe('a barcode in view wins', () => {
 });
 
 describe('a viewer', () => {
-  it('can scan a picture and see ownership, but gets no Add buttons on picture cards', async () => {
+  // Ownership and adding moved to Review with the cards (#432): the scan below still drives the picture,
+  // and the role gating is asserted where the rows now live. What each role may do is unchanged.
+  const scanThenReview = async (kit: ReturnType<typeof makeKit>) => {
+    await open(kit);
+    await shutter();
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(3));
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={kit.tray.getState().sessionId} onOpenResult={jest.fn()} />);
+    await screen.findByText('Not found · 1');
+  };
+  const expand = async (label: string) => {
+    await act(async () => {
+      fireEvent.press(await screen.findByLabelText(label));
+    });
+  };
+
+  it('can scan a picture and see ownership in Review, but gets no Add buttons', async () => {
     asRole('viewer');
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mario, mutiny]));
-    await open(kit);
+    await scanThenReview(kit);
 
-    await shutter();
-    expect(await screen.findByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
-    expect(await screen.findByText('Super Mario 64')).toBeTruthy();
-    expect(await screen.findByText('Space Mutiny')).toBeTruthy();
+    await expand('1 item you own. Show it');
+    await expand('1 item ready. Show it');
+    expect(screen.getByText('Dune')).toBeTruthy();
+    expect(screen.getByText(/You own 1/)).toBeTruthy();
+    expect(screen.getByText('Super Mario 64')).toBeTruthy();
+    expect(screen.getByText('"Space Mutiny"')).toBeTruthy();
     expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull();
+    expect(screen.queryByLabelText(/^Add \d+ items?$/)).toBeNull();
     expect(screen.queryByText('+ Add')).toBeNull();
     expect(screen.queryByText('Fix it')).toBeNull();
   });
 
-  it('is the only difference: an editor gets Add and Fix it for the same snap', async () => {
+  it('is the only difference: an editor gets Add and the title search in Review for the same snap', async () => {
     asRole('editor');
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mario, mutiny]));
-    await open(kit);
+    await scanThenReview(kit);
 
-    await shutter();
-    expect(await screen.findByLabelText('Add Super Mario 64')).toBeTruthy();
-    expect(await screen.findByLabelText('Fix it: Space Mutiny')).toBeTruthy();
+    await expand('1 item ready. Show it');
+    expect(screen.getByLabelText('Add Super Mario 64')).toBeTruthy();
+    expect(screen.getByDisplayValue('Space Mutiny')).toBeTruthy();
+    expect(screen.getByLabelText('Search')).toBeTruthy();
   });
 });
