@@ -405,7 +405,7 @@ export class SnapPipeline {
     } // the snap store keeps its own copies for its retention
   }
 
-  /** Swipe to remove a picture item: gone from the receipt and the cards, and queued for reject so Review will not add it — even after a restart. */
+  /** Remove a picture item: gone from the queue and the cards, and queued for reject so Review will not add it — even after a restart. */
   removeItem(snapId: string, localId: string) {
     const { store, tray } = this.deps;
     const item = store.getState().snaps.find((s) => s.snapId === snapId)?.items.find((i) => i.localId === localId);

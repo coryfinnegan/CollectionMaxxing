@@ -91,6 +91,19 @@ describe('Review screen', () => {
     expect(screen.getByText('Scan something and it shows up here.')).toBeTruthy();
   });
 
+  it('lists every pending item of a 3-item session (#451)', async () => {
+    seed([
+      candidate({ resolution: 'pending', rawCode: '9780441172719' }),
+      candidate({ resolution: 'pending', rawCode: '9780451524935' }),
+      candidate({ resolution: 'pending', rawCode: '4020628758862' }),
+    ]);
+    await open();
+    expect(await screen.findByText('Still looking up · 3')).toBeTruthy();
+    for (const code of ['9780441172719', '9780451524935', '4020628758862']) {
+      expect(screen.getByLabelText(`Discard Code ${code}`)).toBeTruthy();
+    }
+  });
+
   it('keeps a T2 row as unverified: the row leaves Review and the keep is sent', async () => {
     const row = lost();
     seed([row]);

@@ -1,4 +1,4 @@
-// The picture pipeline end to end on the scanner screen: FakeReader -> receipt -> mock API -> mock event stream ->
+// The picture pipeline end to end on the scanner screen: FakeReader -> mock API -> mock event stream ->
 // the quiet queue for Review. Captures queue silently (#432): answers land in the store, the status bar counts
 // them, and nothing renders over the camera — so these tests read the store and the status bar, never cards.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
@@ -40,16 +40,14 @@ const open = async (kit: ReturnType<typeof makeKit>, source = new FakeScannerSou
 const shutter = async () => {
   await fireEvent.press(screen.getByLabelText('Take picture'));
 };
-const showReceipt = async () => {
-  await fireEvent.press(screen.getByLabelText(/Show the receipt$/));
-};
 const gate = () => {
   let release: () => void = () => undefined;
   const hold = new Promise<void>((resolve) => (release = resolve));
   return { hold, release };
 };
 const stored = () => Object.values(useCardsStore.getState().byId);
-const statusBar = () => screen.getByLabelText(/(Show|Hide) the receipt$/).props.accessibilityLabel as string;
+/** The scanner's one status line, e.g. "3 items · 3 processing". */
+const statusBar = () => screen.getByText(/^\d+ items?/).props.children as string;
 
 beforeEach(() => {
   scanMock.reset();
@@ -63,7 +61,7 @@ afterEach(() => {
 });
 
 describe('a snap read as three items', () => {
-  it('shows three IDENTIFYING lines, then each becomes the right quiet answer as responses and events arrive', async () => {
+  it('counts three processing, then each becomes the right quiet answer as responses and events arrive', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mario, zelda]));
     const answer = gate();
@@ -72,9 +70,8 @@ describe('a snap read as three items', () => {
 
     await shutter();
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
-    await showReceipt();
-    expect(screen.getAllByText('IDENTIFYING…')).toHaveLength(3);
-    expect(screen.queryByTestId(/^card-/)).toBeNull(); // no answer until the server has one
+    expect(stored()).toHaveLength(0); // no answer until the server has one
+    expect(screen.queryByTestId(/^card-/)).toBeNull();
     expect(statusBar()).toMatch(/^3 items · 3 processing/);
 
     await act(async () => answer.release());
@@ -85,12 +82,12 @@ describe('a snap read as three items', () => {
     expect(byTitle.get('Super Mario 64')?.resolution).toBe('matched'); // new
     expect(byTitle.get('Zelda: Ocarina of Time')?.resolution).toBe('pending'); // the slow one
     expect(screen.queryByTestId('result-cards')).toBeNull(); // queued silently: nothing over the camera
-    expect(screen.getAllByText('IDENTIFYING…')).toHaveLength(1);
+    await waitFor(() => expect(statusBar()).toMatch(/^3 items · 1 processing/));
 
     await act(async () => identifyMock.resolvePending()); // arrives over the event stream
-    await waitFor(() => expect(screen.queryByText('IDENTIFYING…')).toBeNull());
     await waitFor(() => expect(stored().find((c) => c.visibleText === 'Zelda: Ocarina of Time')?.resolution).toBe('matched'));
     expect(stored()).toHaveLength(3);
+    await waitFor(() => expect(statusBar()).not.toMatch(/processing/));
     expect(statusBar()).toMatch(/^3 items/);
   });
 
@@ -162,15 +159,15 @@ describe('what the answers say', () => {
 });
 
 describe('offline and the PC being off', () => {
-  it('reads anyway, shows QUEUED, sends nothing, and sends one identify per snap with the same snapId when it is back', async () => {
+  it('reads anyway, queues, sends nothing, and sends one identify per snap with the same snapId when it is back', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mario]));
     server.use(http.post('*/api/v1/libraries/:libraryId/scan-sessions', () => HttpResponse.error()));
     await open(kit);
 
     await shutter();
-    await showReceipt();
-    expect(await screen.findAllByText('QUEUED')).toHaveLength(2);
+    expect(await screen.findByText('2 items · 2 processing', { exact: false })).toBeTruthy();
+    expect(screen.getByLabelText('Offline')).toBeTruthy();
     expect(kit.reader.stills).toHaveLength(1); // read on the phone
     expect(identifyMock.requests).toEqual([]); // nothing sent
     expect(screen.getByText(/Couldn.t reach your server/)).toBeTruthy();
@@ -179,7 +176,7 @@ describe('offline and the PC being off', () => {
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
     await waitFor(() => expect(stored().find((c) => c.release?.title === 'Dune')?.alreadyOwnedCount).toBe(1));
     expect(identifyMock.requests[0]!.body.snapId).toBe(kit.store.getState().snaps[0]!.snapId);
-    await waitFor(() => expect(screen.queryByText('QUEUED')).toBeNull());
+    await waitFor(() => expect(statusBar()).not.toMatch(/processing/));
     expect(identifyMock.requests).toHaveLength(1);
   });
 
@@ -377,39 +374,30 @@ describe('the processing count and Get closer', () => {
   });
 });
 
-describe('the receipt', () => {
-  it('shows a line with a thumbnail from the first moment, before anything is read', async () => {
-    const kit = makeKit();
-    const reading = gate();
-    kit.reader.hold = reading.hold;
-    kit.reader.script(readingOf([dune]));
-    await open(kit);
-
-    await shutter();
-    await showReceipt();
-    await waitFor(() => expect(screen.getAllByText('IDENTIFYING…').length).toBeGreaterThan(0));
-    expect(screen.getByLabelText(/^Dune, identifying…/)).toBeTruthy();
-    await act(async () => reading.release());
-  });
-
-  it('removes a picture item on a swipe action: gone from the receipt and the queue, and rejected so Review will not add it', async () => {
+describe('removing a picture item', () => {
+  it('drops it from the queue and the counts, and rejects it so Review will not add it', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mario]));
     await open(kit);
 
     await shutter();
     await waitFor(() => expect(stored()).toHaveLength(2));
-    await showReceipt();
-    const row = screen.getByLabelText('Super Mario 64'); // settled, so no status in its label
-    await act(async () => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'delete' } }));
+    const [snap] = kit.store.getState().snaps;
+    const localId = snap!.items.find((i) => i.title === 'Super Mario 64')!.localId;
+    await act(async () => new SnapPipeline(kit.deps).removeItem(snap!.snapId, localId));
 
-    await waitFor(() => expect(screen.queryByLabelText('Super Mario 64')).toBeNull());
-    expect(stored()).toHaveLength(1);
-    const rejected = [...scanMock.sessions.values()].flatMap((s) => s.candidates).filter((c) => c.decision === 'rejected');
-    expect(rejected.map((c) => c.visibleText)).toEqual(['Super Mario 64']);
+    await waitFor(() => expect(stored()).toHaveLength(1));
+    await waitFor(() => expect(statusBar()).toMatch(/^1 item/));
+    await waitFor(() =>
+      expect(
+        [...scanMock.sessions.values()].flatMap((s) => s.candidates).filter((c) => c.decision === 'rejected').map((c) => c.visibleText),
+      ).toEqual(['Super Mario 64']),
+    );
   });
+});
 
-  it('leaves the receipt when the scan it was sent to is over', async () => {
+describe('when the scan is over', () => {
+  it('forgets the snaps once the scan they were sent to is over', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune]));
     await open(kit);
