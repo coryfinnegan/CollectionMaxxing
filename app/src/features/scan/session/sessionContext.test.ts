@@ -21,7 +21,6 @@ const home = (over: Partial<SessionContext> = {}): SessionContext => ({
   status: 'owned',
   mediaHint: 'mixed',
   channel: 'home',
-  autoAddConfident: false,
   ...over,
 });
 
@@ -33,12 +32,12 @@ describe('session memory', () => {
     rememberSessionContext(LIB_A, home({ locationId: SHELF, status: 'wishlist', mediaHint: 'games' }));
 
     expect(loadSessionMemory(LIB_A)).toEqual({ locationId: SHELF, status: 'wishlist' });
-    expect(defaultSessionContext(LIB_A)).toEqual({ locationId: SHELF, status: 'wishlist', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
+    expect(defaultSessionContext(LIB_A)).toEqual({ locationId: SHELF, status: 'wishlist', mediaHint: 'mixed', channel: 'home' });
   });
 
   it('offers a blank home context when nothing was remembered', () => {
     expect(loadSessionMemory(LIB_A)).toBeNull();
-    expect(defaultSessionContext(LIB_A)).toEqual({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
+    expect(defaultSessionContext(LIB_A)).toEqual({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home' });
   });
 
   it('keeps an explicit Not placed instead of forgetting it', () => {
@@ -51,12 +50,12 @@ describe('session memory', () => {
     rememberSessionContext(LIB_A, home({ locationId: SHELF, status: 'wishlist' }));
 
     expect(loadSessionMemory(LIB_B)).toBeNull();
-    expect(defaultSessionContext(LIB_B)).toEqual({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
+    expect(defaultSessionContext(LIB_B)).toEqual({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home' });
   });
 
   it('lets an in-store scan leave the last home spot alone', () => {
     rememberSessionContext(LIB_A, home({ locationId: SHELF, status: 'owned' }));
-    rememberSessionContext(LIB_A, { locationId: null, status: 'wishlist', mediaHint: 'mixed', channel: 'in_store', autoAddConfident: false });
+    rememberSessionContext(LIB_A, { locationId: null, status: 'wishlist', mediaHint: 'mixed', channel: 'in_store' });
 
     expect(loadSessionMemory(LIB_A)).toEqual({ locationId: SHELF, status: 'owned' });
   });
@@ -126,9 +125,8 @@ describe('review defaults', () => {
 });
 
 describe('session create body', () => {
-  it('opts into T1 only when confident matches auto-add', () => {
-    expect(sessionCreateBody(home()).autoCommitTiers).toEqual(['T0']);
-    expect(sessionCreateBody(home({ autoAddConfident: true })).autoCommitTiers).toEqual(['T0', 'T1']);
+  it('never auto-adds: every capture waits for the Review commit (#452)', () => {
+    expect(sessionCreateBody(home()).autoCommitTiers).toEqual([]);
   });
 
   it('carries the context Review starts from', () => {
@@ -137,7 +135,7 @@ describe('session create body', () => {
       defaultStatus: 'wishlist',
       mediaHint: 'games',
       channel: 'home',
-      autoCommitTiers: ['T0'],
+      autoCommitTiers: [],
     });
   });
 });

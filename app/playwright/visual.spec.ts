@@ -130,10 +130,11 @@ async function openSeededReview(page: Page, open: (path: string) => Promise<void
   await expect(page.getByText('Identifying…')).toBeVisible();
   await expect(page.getByText('Pick the right one')).toBeVisible();
   await expect(page.getByText(/You own 1/)).toBeVisible();
-  // Capture thumbnails pair each picture row with its crop.
+  // Capture thumbnails pair each picture row with its crop. The Ready row is a barcode scan (#452):
+  // no crop, its match preselected, waiting for the commit like every other row.
   await expect(page.getByLabel('Cover of Suddenly You', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Cover of Dune', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Cover of Super Mario 64', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Cover of Super Mario 64', { exact: true })).toHaveCount(0);
   // The pick-one editions (#440): radio rows with authors and edition facts, catalog art on the
   // 2001 edition and the captured crop standing in on the 2003, the engine preselection with its
   // reason, the secondary paths as small chips, and Add N counting the selection.
