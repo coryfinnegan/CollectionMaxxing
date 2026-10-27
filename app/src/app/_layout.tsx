@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import { RootFrame } from '@/components/RootFrame';
-import { StackBackButton } from '@/components/StackBackButton';
+import { StackHeader } from '@/components/StackHeader';
 import { useColors } from '@/theme/tokens';
 
 export default function RootLayout() {
@@ -9,12 +9,11 @@ export default function RootLayout() {
     <RootFrame>
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: colors.surface },
-          headerTintColor: colors.ink,
           contentStyle: { backgroundColor: colors.ground },
           animationDuration: 250, // screen pushes match the motion vocabulary (#304)
-          headerLeft: () => <StackBackButton />,
-          headerBackTitle: 'Back', // the native label never falls back to a route-group name (#372)
+          // The shared custom header (#445): a chevron-only back with no native bar-button glass. Every pushed
+          // screen declares an explicit title, so the header never falls back to a route-group name (#372).
+          header: ({ options }) => <StackHeader title={options.title} />,
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
