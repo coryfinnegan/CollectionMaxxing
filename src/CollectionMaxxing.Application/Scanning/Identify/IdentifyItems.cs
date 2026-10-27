@@ -43,6 +43,7 @@ public static class IdentifyItems
         IdentifyGrounding grounding,
         CandidateResolver resolver,
         AutoCommit autoCommit,
+        ReleaseCovers releaseCovers,
         IJobQueue jobs,
         ScanningOptions options,
         ILogger<Handler> logger)
@@ -428,13 +429,22 @@ public static class IdentifyItems
                     return; // cleaned up mid-resolve; the answers die with the session
                 }
 
+                var coverFiles = new List<string>();
                 foreach (var (candidate, _) in fresh)
                 {
                     await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken);
-                    await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken);
+                    await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken, coverFiles);
                 }
 
-                await db.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                }
+                catch
+                {
+                    await releaseCovers.DeleteFilesAsync(coverFiles); // nothing points at the covers just downloaded
+                    throw;
+                }
             }
 
             await EnqueueResolveJobsAsync(session, fresh.Select(f => f.Candidate), userId, null, null, cancellationToken);

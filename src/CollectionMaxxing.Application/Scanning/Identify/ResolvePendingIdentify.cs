@@ -22,6 +22,7 @@ public sealed class ResolvePendingIdentify(
     IdentifyGrounding grounding,
     CandidateResolver resolver,
     AutoCommit autoCommit,
+    ReleaseCovers releaseCovers,
     ScanningOptions options,
     TimeProvider clock,
     ILogger<ResolvePendingIdentify> logger) : IJobHandler<IdentifyItems.ResolveJob>
@@ -78,9 +79,10 @@ public sealed class ResolvePendingIdentify(
                     row.Tier = ScanTier.T2;
                 }
             }
-            else
+            var coverFiles = new List<string>();
+            if (job.ProofItemId is null)
             {
-                await autoCommit.TryAddAsync(session, row, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken);
+                await autoCommit.TryAddAsync(session, row, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken, coverFiles);
             }
 
             if (row.Resolution == CandidateResolution.Pending)
@@ -92,7 +94,15 @@ public sealed class ResolvePendingIdentify(
                     : GuidanceCodes.For(null, CandidateResolution.Error, row.Source, row.RawCode, quotaSpent: false);
             }
 
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                await releaseCovers.DeleteFilesAsync(coverFiles); // nothing points at the covers just downloaded
+                throw;
+            }
         }
     }
 }

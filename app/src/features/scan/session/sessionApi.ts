@@ -116,8 +116,12 @@ export function routeSessionMessage(sessionId: string, message: SseMessage) {
   try {
     const candidate = JSON.parse(message.data) as Partial<CandidateDto>;
     // A discarded candidate never comes back: not while its reject is queued, not after it landed (a rejected
-    // candidate has no card — Review filters it, and the scanner never drew one for it).
-    if ((candidate.id && isDiscarded(candidate.id)) || candidate.decision === 'rejected') return;
+    // candidate has no card — Review filters it, and the scanner never drew one for it). Its resolved title is
+    // still remembered, so the receipt names the book, not the code.
+    if ((candidate.id && isDiscarded(candidate.id)) || candidate.decision === 'rejected') {
+      if (candidate.decision === 'rejected') useCardsStore.getState().rememberTitles([candidate]);
+      return;
+    }
     announce(useCardsStore.getState().merge([candidate]), sessionId);
   } catch {
     // a malformed event is skipped; the next one or the next poll fills the gap

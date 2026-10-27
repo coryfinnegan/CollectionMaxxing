@@ -34,6 +34,7 @@ public sealed class ResolvePendingCandidate(
     BarcodeResolver external,
     CandidateResolver resolver,
     AutoCommit autoCommit,
+    ReleaseCovers releaseCovers,
     ScanningOptions options,
     IJobQueue jobs,
     TimeProvider clock,
@@ -98,7 +99,8 @@ public sealed class ResolvePendingCandidate(
             }
 
             await resolver.ApplyAsync(job.LibraryId, candidate, answer, cancellationToken, fromIdentifier: true, copiesMode: session.AutoCommitCopies);
-            await autoCommit.TryAddAsync(session, candidate, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken);
+            var coverFiles = new List<string>();
+            await autoCommit.TryAddAsync(session, candidate, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken, coverFiles);
             var quotaSpent = candidate.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(answer);
             if (candidate.Resolution == CandidateResolution.Pending && !quotaSpent)
             {
@@ -109,7 +111,15 @@ public sealed class ResolvePendingCandidate(
                     : GuidanceCodes.For(null, CandidateResolution.Error, candidate.Source, candidate.RawCode, quotaSpent: false);
             }
 
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                await releaseCovers.DeleteFilesAsync(coverFiles); // nothing points at the covers just downloaded
+                throw;
+            }
             if (!quotaSpent)
             {
                 return ResolveOutcome.Done;
