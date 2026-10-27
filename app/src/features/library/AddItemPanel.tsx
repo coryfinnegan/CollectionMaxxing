@@ -8,6 +8,7 @@ import { useSearchCatalog } from '@/api/generated/catalog/catalog';
 import type { CreateItemRequest, ReleaseFormat, WorkKind } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useItemMutations } from '@/features/item/useItem';
+import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
 import { Button, Chip, ListRow, Sheet, Text, TextField } from '@/ui';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
@@ -25,14 +26,17 @@ export function AddItemPanel({ libraryId, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const submit = (data: CreateItemRequest) => {
-    const payload = JSON.stringify(data);
+    // Acquired is the day it was added (#441): the device stamps its local day, so an
+    // evening add stays on today. The server defaults the same day when it is missing.
+    const dated: CreateItemRequest = data.acquiredOn ? data : { ...data, acquiredOn: localDateString() };
+    const payload = JSON.stringify(dated);
     if (payload !== lastPayload.current) {
       key.current = newIdempotencyKey();
       lastPayload.current = payload;
     }
     setError(null);
     create.mutate(
-      { data, idempotencyKey: key.current },
+      { data: dated, idempotencyKey: key.current },
       {
         onSuccess: () => {
           key.current = newIdempotencyKey();

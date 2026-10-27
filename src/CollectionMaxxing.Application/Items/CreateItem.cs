@@ -123,7 +123,7 @@ public static class CreateItem
                 Completeness = command.Completeness,
                 LocationId = command.LocationId,
                 Notes = command.Notes,
-                AcquiredOn = command.AcquiredOn,
+                AcquiredOn = command.AcquiredOn ?? DateOnly.FromDateTime(now.UtcDateTime),
                 CoverChoice = CoverChoice.Release,
                 AddedVia = command.AddedVia ?? (command.Manual is null ? AddedVia.Search : AddedVia.Manual),
                 CreatedAt = now,

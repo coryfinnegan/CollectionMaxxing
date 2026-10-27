@@ -1,5 +1,6 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
+import { localDateString } from '@/lib/dates';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -63,5 +64,18 @@ describe('AddItemPanel idempotency keys', () => {
 
     expect(sent).toHaveLength(1);
     expect(JSON.parse(sent[0]!.body).manual.format).toBe('unknown');
+  });
+});
+
+describe('AddItemPanel acquired date (#441)', () => {
+  it('stamps a new item with the day it was added, without asking', async () => {
+    const sent = captureKeys();
+    await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={() => {}} />);
+    await fireEvent.press(screen.getByLabelText('None of these? Add it yourself'));
+
+    await addManual('Fresh find');
+
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0]!.body).acquiredOn).toBe(localDateString());
   });
 });

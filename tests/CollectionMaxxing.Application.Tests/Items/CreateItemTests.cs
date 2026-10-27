@@ -12,8 +12,8 @@ public class CreateItemTests(PostgresFixture db) : DatabaseTest(db)
     private static readonly SteppingClock Clock = new(new DateTimeOffset(2026, 6, 1, 9, 0, 0, TimeSpan.Zero));
 
     private static CreateItem.Command Manual(
-        Guid libraryId, string key, ManualRelease? manual, Guid? releaseId = null, string? notes = null) =>
-        new(libraryId, key, releaseId, manual, null, null, null, null, notes, null, null, null);
+        Guid libraryId, string key, ManualRelease? manual, Guid? releaseId = null, string? notes = null, DateOnly? acquiredOn = null) =>
+        new(libraryId, key, releaseId, manual, null, null, null, null, notes, acquiredOn, null, null);
 
     private static ManualRelease Book(string? title = "A Book", string? barcode = null, Guid? platformId = null, ReleaseFormat? format = null) =>
         new(WorkKind.Book, title, null, format, platformId, null, barcode);
@@ -93,6 +93,28 @@ public class CreateItemTests(PostgresFixture db) : DatabaseTest(db)
         var result = await RunAsync(library, Manual(library.Id, "k1", Book(platformId: Guid.CreateVersion7())));
 
         result.Error!.Code.ShouldBe("platform.not_found");
+    }
+
+    [Fact]
+    public async Task An_item_added_without_a_date_is_acquired_today()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+
+        var result = await RunAsync(library, Manual(library.Id, "k-acq-1", Book()));
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Value.AcquiredOn.ShouldBe(new DateOnly(2026, 6, 1));
+    }
+
+    [Fact]
+    public async Task An_explicit_acquired_date_is_kept()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+
+        var result = await RunAsync(library, Manual(library.Id, "k-acq-2", Book(), acquiredOn: new DateOnly(2020, 1, 15)));
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Value.AcquiredOn.ShouldBe(new DateOnly(2020, 1, 15));
     }
 
     [Fact]

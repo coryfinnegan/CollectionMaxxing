@@ -33,6 +33,7 @@ internal static class ScanCommitItems
             Condition = condition,
             Completeness = completeness,
             LocationId = locationId,
+            AcquiredOn = DateOnly.FromDateTime(now.UtcDateTime),
             CoverChoice = cover,
             CustomCoverAssetId = photoId,
             AddedVia = via,
