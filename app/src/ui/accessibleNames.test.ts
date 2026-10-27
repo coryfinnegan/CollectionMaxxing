@@ -35,6 +35,7 @@ function openingTags(source: string, names: string[]): { name: string; tag: stri
 /** Decorative elements that may go without a name, each with the reason. Key: `relative/path.tsx:Name`. */
 const decorative: Record<string, string> = {
   'features/library/LibraryGrid.tsx:Image': 'the stone shelf under each cover; the tile label carries the meaning',
+  'features/library/CastleShelf.tsx:Image': 'the stone ledge under each shelf; the shelf marker and book labels carry the meaning',
   'features/scan/tray/ReceiptBar.tsx:Image': 'the receipt row is one accessible element with the item title as its label; the thumbnail adds nothing',
   'features/scan/session/SegmentStrip.tsx:Image': 'the strip cell is one accessible element with the snap state as its label; the thumbnail adds nothing',
   'ui/castle/NineSlice.tsx:Image': 'frame and fill texture; the panel content carries the meaning',
