@@ -47,12 +47,34 @@ const asRelease = (value: unknown): ReleaseDto | undefined => {
   if (!value || typeof value !== 'object') return undefined;
   const v = value as Record<string, unknown>;
   if (typeof v.id === 'string' && typeof v.title === 'string') return v as unknown as ReleaseDto;
+  // The wire shape (CandidateAlternativeDto): a releaseId plus flat fields. Picks only read
+  // id/title/year/format, and choosing PATCHes the id; the full release arrives after the pick.
+  if (typeof v.releaseId === 'string' && typeof v.title === 'string') return { ...v, id: v.releaseId, platform: null } as unknown as ReleaseDto;
   return v.release ? asRelease(v.release) : undefined;
 };
 
-/** The top alternatives of an unsure match. The API sends them as releases, or as `{ release, score }`. */
+/** The top alternatives of an unsure match. The API sends them flat with a releaseId; mocks and old fixtures send releases, or `{ release, score }`. */
 export function alternativesOf(c: Pick<CandidateDto, 'alternatives'>): ReleaseDto[] {
   const raw = c.alternatives as unknown;
   if (!Array.isArray(raw)) return [];
   return raw.map(asRelease).filter((r): r is ReleaseDto => !!r).slice(0, MAX_ALTERNATIVES);
+}
+
+/** What an unnamed candidate is called. Raw read text is never a title (#435). */
+export const UNKNOWN_ITEM = 'Unknown item';
+
+/** The read's own title guess, when the phone offered one. The model is a hint, never the answer. */
+export function inferredTitleOf(c: Pick<CandidateDto, 'inferred'>): string | null {
+  const v = c.inferred as unknown;
+  if (!v || typeof v !== 'object') return null;
+  const title = (v as Record<string, unknown>).title;
+  return typeof title === 'string' && title.trim() ? title.trim() : null;
+}
+
+/** The most grounded name for a candidate with no matched release: the catalog's leading alternative first, the read's own guess next. Raw read text is never a title (#435). */
+export function unresolvedTitleOf(c: Pick<CandidateDto, 'alternatives' | 'inferred'>): string | null {
+  const [top] = alternativesOf(c);
+  const catalog = top ? top.title.trim() : '';
+  if (catalog) return catalog;
+  return inferredTitleOf(c);
 }

@@ -14,7 +14,7 @@ import { getPipelineStore } from '@/features/scan/pipeline/pipelineStore';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Chip, Cover, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
 import { CommitCelebration } from './CommitCelebration';
-import { alternativesOf, isAggregated, type ReviewGroup } from './grouping';
+import { alternativesOf, isAggregated, UNKNOWN_ITEM, unresolvedTitleOf, type ReviewGroup } from './grouping';
 import { guidanceOf } from './guidance';
 import { addLabel, effective, type ReviewStatus } from './plan';
 import { keepable, pairCropUri, thumbForLocalId } from './provisionals';
@@ -33,7 +33,7 @@ const TITLES: Record<ReviewGroup, string> = {
 const ORDER: readonly ReviewGroup[] = ['pick', 'notFound', 'owned', 'ready', 'pending'];
 const STATUS_LABEL: Record<ReviewStatus, string> = { owned: 'Owned', wishlist: 'Wishlist' };
 
-const titleOf = (c: CandidateDto) => c.release?.title ?? (c.visibleText ? `"${c.visibleText}"` : c.rawCode ? `Code ${c.rawCode}` : 'Unknown item');
+const titleOf = (c: CandidateDto) => c.release?.title ?? unresolvedTitleOf(c) ?? (c.rawCode ? `Code ${c.rawCode}` : UNKNOWN_ITEM);
 
 /** One line for a whole success group: "21 items ready. Show them", "1 item you own. Show it". */
 const aggregateLabel = (group: ReviewGroup, count: number): string => {

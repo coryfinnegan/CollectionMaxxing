@@ -1,6 +1,7 @@
 // What the receipt shows for pictures, as plain data: one line per item being read or identified, and the counts the status
 // bar uses. IDENTIFYING until the server has named it; QUEUED while the phone cannot reach the server.
 import type { CandidateDto } from '@/api/generated/models';
+import { UNKNOWN_ITEM, unresolvedTitleOf } from '@/features/review/grouping';
 import { isLocalCard } from '../cards/cardsStore';
 import type { PicItem, PicSnap } from './pipelineStore';
 
@@ -43,7 +44,7 @@ export function pictureLines(snaps: PicSnap[], cards: CandidateDto[], online: bo
         snapId: snap.snapId,
         localId: item.localId,
         thumbUri: item.thumbUri ?? snap.thumbUri,
-        title: card?.release?.title ?? (item.title || item.text),
+        title: card?.release?.title ?? (card ? unresolvedTitleOf(card) : null) ?? (item.title || UNKNOWN_ITEM),
         status: statusOf(snap, card, online),
         createdAt: snap.createdAt,
       });

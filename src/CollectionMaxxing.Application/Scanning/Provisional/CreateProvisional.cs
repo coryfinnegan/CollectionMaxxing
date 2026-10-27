@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Domain.Catalog;
@@ -9,7 +10,7 @@ namespace CollectionMaxxing.Application.Scanning.Provisional;
 
 /// <summary>
 /// Use case: "Keep as unverified" (design §8(e)). An unreadable spine becomes a provisional record instead of staying a T2
-/// row: the guess title comes from what the phone read (never invented), the location from the session's default, and an
+/// row: the guess title names the catalogue's best alternative when there is one, else what the phone read (never invented); the location comes from the session's default, and an
 /// uploaded crop is claimed as its visual anchor. The row retires (rejected, linked to the record) so the segment is visible
 /// exactly once, in Needs attention — the provisional-or-counted invariant.
 /// </summary>
@@ -107,21 +108,43 @@ public static class CreateProvisional
             return new CreateProvisionalResultDto(ProvisionalProjection.ToDto(provisional), dto);
         }
 
-        /// <summary>What the phone read, in its own words; a code or a plain "Unknown item" when it read nothing usable.</summary>
+        /// <summary>
+        /// The guess Needs attention shows: the catalogue's leading alternative first, then the read's own title guess,
+        /// then what the phone read (a last resort for truly unreadable rows), else a code or a plain "Unknown item".
+        /// Garbled OCR never headlines a row the catalogue could name (#435).
+        /// </summary>
         private static string TitleGuessOf(ScanCandidate candidate)
         {
+            var alternatives = CandidateJson.ReadAlternatives(candidate.AlternativesJson);
+            if (alternatives.Count > 0 && !string.IsNullOrWhiteSpace(alternatives[0].Title))
+            {
+                return Truncate(alternatives[0].Title.Trim());
+            }
+
+            if (InferredTitleOf(candidate) is { } inferred)
+            {
+                return Truncate(inferred);
+            }
+
             if (!string.IsNullOrWhiteSpace(candidate.VisibleText))
             {
                 return Truncate(candidate.VisibleText.Trim());
             }
 
-            var alternatives = CandidateJson.ReadAlternatives(candidate.AlternativesJson);
-            if (alternatives.Count > 0)
+            return string.IsNullOrWhiteSpace(candidate.RawCode) ? "Unknown item" : $"Code {candidate.RawCode!.Trim()}";
+        }
+
+        /// <summary>The read's own title guess, when the phone offered one (the <c>title</c> of its stored read).</summary>
+        private static string? InferredTitleOf(ScanCandidate candidate)
+        {
+            if (CandidateJson.ReadElement(candidate.InferredJson) is not { ValueKind: JsonValueKind.Object } inferred
+                || !inferred.TryGetProperty("title", out var title)
+                || title.ValueKind != JsonValueKind.String)
             {
-                return Truncate(alternatives[0].Title);
+                return null;
             }
 
-            return string.IsNullOrWhiteSpace(candidate.RawCode) ? "Unknown item" : $"Code {candidate.RawCode!.Trim()}";
+            return string.IsNullOrWhiteSpace(title.GetString()) ? null : title.GetString()!.Trim();
         }
 
         private static string Truncate(string text) => text.Length > CreateItem.MaxTitleLength ? text[..CreateItem.MaxTitleLength] : text;

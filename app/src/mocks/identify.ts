@@ -139,6 +139,17 @@ const alternative = (r: ReleaseDto, score: number, artworkPath: string) => ({
 });
 
 function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['shotKind']): CandidateDto {
+  // Like the real API (StoredRead): the read's fields come back on the candidate, so cards can name it.
+  const inferred = {
+    ...(item.title ? { title: item.title } : null),
+    ...(item.creator ? { creator: item.creator } : null),
+    ...(item.edition ? { edition: item.edition } : null),
+    ...(item.kind ? { kind: item.kind } : null),
+    ...(item.format ? { format: item.format } : null),
+    ...(item.year ? { year: item.year } : null),
+    ...(item.platform ? { platform: item.platform } : null),
+    ...(item.completeness ? { completeness: item.completeness } : null),
+  };
   const base: CandidateDto = {
     id: newMockId(),
     seq,
@@ -158,7 +169,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
     artDistance: null,
     needsArt: false,
     release: null,
-    inferred: null,
+    inferred,
     alternatives: null,
     decision: 'undecided',
     copies: 1,
@@ -213,6 +224,7 @@ export const handlers = [
       const fresh = candidateFor(++session.seq, item, body.shotKind ?? 'unknown');
       Object.assign(bound, {
         visibleText: fresh.visibleText,
+        inferred: fresh.inferred,
         localId: fresh.localId,
         segmentId: fresh.segmentId,
         shotKind: fresh.shotKind,
