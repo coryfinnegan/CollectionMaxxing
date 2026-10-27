@@ -1,6 +1,6 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore, announcementFor } from './cardsStore';
-import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, reviewStatusLine, slideDuration, summaryLine } from './copy';
+import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, receiptLineName, reviewStatusLine, slideDuration, summaryLine } from './copy';
 
 const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   ({
@@ -120,6 +120,54 @@ describe('card copy', () => {
   it('has no slide with Reduce Motion', () => {
     expect(slideDuration(true)).toBe(0);
     expect(slideDuration(false)).toBeGreaterThan(0);
+  });
+});
+
+describe('receipt line name (#450)', () => {
+  const CODE = '9781974723386';
+
+  it('shows the resolved title once the server names it', () => {
+    expect(receiptLineName(CODE, candidate({}), undefined)).toBe('Dune');
+  });
+
+  it('shows the book for a resolved-but-rejected line instead of the raw code', () => {
+    expect(receiptLineName(CODE, undefined, 'The Legend of Zelda: Twilight Princess 9')).toBe('The Legend of Zelda: Twilight Princess 9');
+  });
+
+  it('shows an honest not-found state, never the raw code', () => {
+    expect(receiptLineName(CODE, candidate({ resolution: 'not_found', release: null }), undefined)).toBe('Not in the catalog');
+  });
+
+  it('shows the leading pick for an ambiguous line', () => {
+    const ambiguous = candidate({
+      resolution: 'ambiguous',
+      release: null,
+      alternatives: [{ releaseId: 'r', title: 'Dune Messiah', score: 0.9 }] as never,
+    });
+    expect(receiptLineName(CODE, ambiguous, undefined)).toBe('Dune Messiah');
+  });
+
+  it('shows an honest state for an ambiguous line with nothing to pick', () => {
+    expect(receiptLineName(CODE, candidate({ resolution: 'ambiguous', release: null, alternatives: [] }), undefined)).toBe('Needs review');
+  });
+
+  it('shows an honest state for a failed lookup, and a re-scan hint when the code never decoded', () => {
+    expect(receiptLineName(CODE, candidate({ resolution: 'error', release: null, guidanceCode: null }), undefined)).toBe("Couldn't look that one up");
+    expect(receiptLineName(CODE, candidate({ resolution: 'error', release: null, guidanceCode: 'scan_barcode' }), undefined)).toBe(
+      "Couldn't read that barcode",
+    );
+  });
+
+  it('keeps the raw code only while nothing is known yet', () => {
+    expect(receiptLineName(CODE, candidate({ resolution: 'pending', release: null }), undefined)).toBe(CODE);
+    expect(receiptLineName(CODE, undefined, undefined)).toBe(CODE);
+  });
+
+  it('never shows the raw code once resolution has run', () => {
+    for (const resolution of ['matched', 'ambiguous', 'not_found', 'error'] as const) {
+      const name = receiptLineName(CODE, candidate({ resolution, release: null, alternatives: [] }), 'Known Title');
+      expect(name).not.toContain(CODE);
+    }
   });
 });
 

@@ -7,7 +7,7 @@ import { undoAutoCommit } from '@/features/review/api';
 import { announceForScreenReader } from '@/lib/a11y/announce';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
-import { reviewStatusLine, summaryLine } from '../cards/copy';
+import { receiptLineName, reviewStatusLine, summaryLine } from '../cards/copy';
 import { isAutoCommitted, useCardsStore } from '../cards/cardsStore';
 import { useAutoCommitUndoStore } from '../session/autoCommitUndo';
 import type { SessionCounters } from '../session/sessionCounters';
@@ -104,26 +104,27 @@ function PictureRow({ line, onRemove }: { line: PictureLine; onRemove(): void })
 
 function ReceiptRow({
   line,
-  title,
+  card,
+  knownTitle,
   online,
-  pending,
-  added,
   onPlusOne,
   onRemove,
 }: {
   line: TrayLine;
-  title: string | undefined;
+  card: CandidateDto | undefined;
+  /** The title of a resolved-but-rejected candidate for this line, which has no card. */
+  knownTitle: string | undefined;
   online: boolean;
-  pending: boolean;
-  added: boolean;
   onPlusOne(): void;
   onRemove(): void;
 }) {
   const colors = useColors();
   const { x, responder } = useSwipeToRemove(onRemove);
   const status = lineStatus(line, online);
+  const pending = card?.resolution === 'pending';
+  const added = card != null && isAutoCommitted(card);
   const label = status === 'queued' ? 'QUEUED' : status === 'sending' || pending ? 'LOOKING UP' : added ? 'ADDED' : '';
-  const name = title ?? line.code;
+  const name = receiptLineName(line.code, card, knownTitle);
   return (
     <Animated.View
       {...responder.panHandlers}
@@ -226,6 +227,7 @@ export function ReceiptBar({
   const colors = useColors();
   const [open, setOpen] = useState(false);
   const byId = useCardsStore((s) => s.byId);
+  const resolvedTitles = useCardsStore((s) => s.resolvedTitles);
   // The newest auto-add that still stands, by when it last changed; null when there is nothing to undo.
   const undoable = useMemo(() => {
     const standing = Object.values(byId).filter((c) => c.createdItemId != null);
@@ -284,10 +286,9 @@ export function ReceiptBar({
               <ReceiptRow
                 key={line.code}
                 line={line}
-                title={card?.release?.title}
+                card={card}
+                knownTitle={resolvedTitles[line.code]}
                 online={online}
-                pending={card?.resolution === 'pending'}
-                added={card != null && isAutoCommitted(card)}
                 onPlusOne={() => onPlusOne(line.code)}
                 onRemove={() => onRemove(line.code)}
               />

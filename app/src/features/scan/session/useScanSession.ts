@@ -137,8 +137,11 @@ export function useScanSession({
         const snapshot = await loadSessionSnapshot(sessionId);
         pruneDiscarded(snapshot.candidates);
         // Discarded and rejected candidates have no card: the snapshot confirms them, it never brings them back.
+        // A rejected candidate's resolved title is still remembered, so the receipt names the book, not the code.
+        const kept = withoutDiscarded(snapshot.candidates);
+        useCardsStore.getState().rememberTitles(kept.filter((c) => c.decision === 'rejected'));
         useCardsStore.getState().merge(
-          withoutDiscarded(snapshot.candidates).filter((c) => c.decision !== 'rejected'),
+          kept.filter((c) => c.decision !== 'rejected'),
           { announce: false },
         );
         seedFromSnapshot(sessionId, snapshot);
