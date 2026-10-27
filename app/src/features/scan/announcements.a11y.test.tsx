@@ -58,8 +58,8 @@ describe('scan announcements', () => {
 
   it('announces Queued when a scan joins the receipt while offline', async () => {
     const line = (code: string): TrayLine => ({ code, symbology: 'ean-13', copies: 1, sentCopies: 0, addedAt: 1 }) as unknown as TrayLine;
-    const props = { pictureLines: [], cards: [], items: 1, processing: 1, problem: null, notice: null, onPlusOne: () => undefined, onRemove: () => undefined, onReview: () => undefined };
-    const view = await render(<ReceiptBar {...props} lines={[]} online={false} />);
+    const props = { libraryId: 'library-1', pictureLines: [], cards: [], items: 1, processing: 1, problem: null, notice: null, onPlusOne: () => undefined, onRemove: () => undefined, onReview: () => undefined };
+    const view = await render(<ReceiptBar {...props} lines={[]} online={false} />, { wrapper });
     expect(spoken).not.toHaveBeenCalled();
     await view.rerender(<ReceiptBar {...props} lines={[line('111')]} online={false} />);
     expect(spoken).toHaveBeenCalledWith('Queued. 1 item waiting for your server.');

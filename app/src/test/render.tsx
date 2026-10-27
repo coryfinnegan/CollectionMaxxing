@@ -8,7 +8,7 @@ export const makeQueryClient = () =>
 
 // Jest has no native safe-area metrics, and the provider renders nothing until metrics exist;
 // zero insets match the old provider-less behavior.
-const testMetrics: Metrics = {
+export const testMetrics: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 0, bottom: 0, left: 0, right: 0 },
 };
