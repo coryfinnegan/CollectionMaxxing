@@ -1,6 +1,7 @@
 // Review's "Scan barcode" end to end without a camera: the bound read upgrades its row in place,
 // bypasses the tray, and leaves the scanner.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto } from '@/api/generated/models';
 import { submitBoundBarcode } from '@/features/review/api';
@@ -8,6 +9,7 @@ import { candidate } from '@/features/review/testData';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';
 import { renderWithProviders } from '@/test/render';
+import { fixed } from '@/theme/tokens';
 import { useCardsStore } from '../cards/cardsStore';
 import { setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore, type TrayStore } from '../tray/trayStore';
@@ -100,5 +102,21 @@ describe('bound scan', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(scanMock.barcodeRequests).toHaveLength(0);
     expect(scanMock.sessions.get(SESSION)!.candidates[0]).toMatchObject({ id: row.id, resolution: 'not_found' });
+  });
+
+  it('paints Cancel in fixed white so it stays legible on the dark banner in both schemes (#470)', async () => {
+    const row = candidate({ resolution: 'not_found', release: null, rawCode: '000111' });
+    seed([row]);
+    await renderWithProviders(
+      <ScannerScreen
+        libraryId={MOCK_LIBRARY_ID}
+        source={new FakeScannerSource()}
+        tuning={tuning}
+        boundScan={{ sessionId: SESSION, candidateId: row.id, title: 'Code 000111', kind: 'barcode', onDone: jest.fn(), onCancel: jest.fn() }}
+      />,
+    );
+
+    const flat = StyleSheet.flatten((await screen.findByText('Cancel')).props.style);
+    expect(flat.color).toBe(fixed.white);
   });
 });
