@@ -76,6 +76,44 @@ describe('ReceiptBar auto-add', () => {
   });
 });
 
+describe('ReceiptBar resolved labels (#450)', () => {
+  const line: TrayLine = { code: '9781974723386', symbology: 'ean-13', copies: 1, sentCopies: 1, addedAt: 1, lastSeenAt: 1 };
+
+  beforeEach(() => useCardsStore.getState().reset());
+
+  const openReceipt = async (cards: CandidateDto[]) => {
+    mockGlassState.available = false;
+    await renderWithProviders(
+      <ReceiptBar libraryId={MOCK_LIBRARY_ID} lines={[line]} cards={cards} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
+    );
+    fireEvent.press(screen.getByLabelText('1 item. Show the receipt'));
+  };
+
+  it('shows the book for a resolved-but-rejected line instead of the raw code', async () => {
+    useCardsStore.getState().rememberTitles([{ rawCode: line.code, release: { title: 'The Legend of Zelda: Twilight Princess 9' } }]);
+    await openReceipt([]);
+
+    expect(await screen.findByText('The Legend of Zelda: Twilight Princess 9')).toBeTruthy();
+    expect(screen.queryByText(line.code)).toBeNull();
+  });
+
+  it('shows an honest not-found state for an unanswered line', async () => {
+    const notFound = { id: 'c1', rawCode: line.code, resolution: 'not_found', release: null } as unknown as CandidateDto;
+    await openReceipt([notFound]);
+
+    expect(await screen.findByText('Not in the catalog')).toBeTruthy();
+    expect(screen.queryByText(line.code)).toBeNull();
+  });
+
+  it('keeps the raw code while the lookup is still running', async () => {
+    const pending = { id: 'c1', rawCode: line.code, resolution: 'pending', release: null } as unknown as CandidateDto;
+    await openReceipt([pending]);
+
+    expect(await screen.findByText(line.code)).toBeTruthy();
+    expect(await screen.findByText('LOOKING UP')).toBeTruthy();
+  });
+});
+
 describe('ReceiptBar remove', () => {
   const line: TrayLine = { code: '9780441172719', symbology: 'ean-13', copies: 1, sentCopies: 1, addedAt: 1, lastSeenAt: 1 };
 

@@ -48,6 +48,7 @@ public static class SubmitBarcodes
         BarcodeResolver external,
         CandidateResolver resolver,
         AutoCommit autoCommit,
+        ReleaseCovers releaseCovers,
         IJobQueue jobs,
         ScanningOptions options,
         ILogger<Handler> logger)
@@ -178,12 +179,21 @@ public static class SubmitBarcodes
                     return ScanningErrors.SessionNotFound;
                 }
 
+                var coverFiles = new List<string>();
                 foreach (var candidate in fresh.Where(c => c.Resolution == CandidateResolution.Pending))
                 {
-                    await ApplyLineAsync(session, candidate, answers, userId, cancellationToken);
+                    await ApplyLineAsync(session, candidate, answers, userId, coverFiles, cancellationToken);
                 }
 
-                await db.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                }
+                catch
+                {
+                    await releaseCovers.DeleteFilesAsync(coverFiles); // nothing points at the covers just downloaded
+                    throw;
+                }
 
                 foreach (var candidate in fresh.Where(c => c.Resolution == CandidateResolution.Pending))
                 {
@@ -261,7 +271,8 @@ public static class SubmitBarcodes
                 entry.Property(c => c.Symbology).CurrentValue = line.Symbology;
                 bound.Resolution = CandidateResolution.Pending;
                 await resolver.ApplyAsync(session.LibraryId, bound, answers[line.Key], cancellationToken, fromIdentifier: true, copiesMode: session.AutoCommitCopies);
-                await autoCommit.TryAddAsync(session, bound, userId, currentUser.RoleIn(session.LibraryId), cancellationToken);
+                var boundCoverFiles = new List<string>();
+                await autoCommit.TryAddAsync(session, bound, userId, currentUser.RoleIn(session.LibraryId), cancellationToken, boundCoverFiles);
                 candidate = bound;
 
                 db.IdempotencyKeys.Add(new IdempotencyKey
@@ -274,7 +285,15 @@ public static class SubmitBarcodes
                     CreatedAt = now,
                     ExpiresAt = now + KeyLifetime,
                 });
-                await db.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                }
+                catch
+                {
+                    await releaseCovers.DeleteFilesAsync(boundCoverFiles); // nothing points at the covers just downloaded
+                    throw;
+                }
 
                 await EnqueueAsync(
                     session, bound.Resolution == CandidateResolution.Pending ? [bound] : [], userId, ":safety",
@@ -326,7 +345,8 @@ public static class SubmitBarcodes
 
         /// <summary>Writes one line's answer onto its fresh candidate and auto-adds when it is T0. Runs under the session's lock.</summary>
         private async Task ApplyLineAsync(
-            ScanSession session, ScanCandidate candidate, Dictionary<string, BarcodeResolution> answers, Guid userId, CancellationToken cancellationToken)
+            ScanSession session, ScanCandidate candidate, Dictionary<string, BarcodeResolution> answers, Guid userId,
+            ICollection<string> coverFiles, CancellationToken cancellationToken)
         {
             if (candidate.IdempotencyKey is null || !answers.TryGetValue(candidate.IdempotencyKey, out var answer))
             {
@@ -334,7 +354,7 @@ public static class SubmitBarcodes
             }
 
             await resolver.ApplyAsync(session.LibraryId, candidate, answer, cancellationToken, fromIdentifier: true, copiesMode: session.AutoCommitCopies);
-            await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken);
+            await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken, coverFiles);
         }
 
         /// <summary>Asks the providers for several codes at once, within the budget. A code the budget runs out on comes back Pending.</summary>
