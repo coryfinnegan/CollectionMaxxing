@@ -1,0 +1,66 @@
+// Home acceptance shelf: ground-truth template (issue #348, design docs/16 §17).
+// Copy this file to <photo-id>.truth.json next to the shelf photo in the golden
+// folder's shelf/ set (PC only, never committed with real titles), then fill it in.
+// The truth parser allows these comment lines: leave the guidance in place.
+// Ground truth is written FIRST, before any run. Seal it with
+// scripts/Write-EvalTruthManifest.ps1 and commit the manifest before running.
+// One photo is enough when the whole shelf reads in it (10-50 spines per photo).
+// If the shelf needs segments, copy one truth file per photo and split the slots:
+// the N = 25-40 count and the composition below then hold across all of them.
+{
+  // What the shot is, for slicing. Leave as is for a shelf segment photo.
+  "shotKind": "shelf_segment",
+  // Items you can see but cannot read at all. Keep 0 unless truly unreadable:
+  // excess unreadable past this counts against recall, and every captured
+  // segment must reconcile (read + unreadable == captured).
+  "unreadable": 0,
+  // Acceptance composition (ignored by the scorer; checked by the manifest
+  // script). Slots are 1-based positions in "items" below, in shelf order.
+  "_acceptance": {
+    // A series of at least 3 volumes, shelved together. Replace the name and
+    // keep the slots on the series volumes (add more slots if longer).
+    "seriesName": "SLOT - the series title shared by the volumes below",
+    "seriesSlots": [4, 5, 6],
+    // One omnibus or box set, shelved and counted as ONE item.
+    "omnibusSlot": 12,
+    // One worn spine (faded, rubbed, torn): list it honestly, never drop it.
+    "wornSpineSlot": 20
+  },
+  // The shelf in order, left to right (or top to bottom). Replace every
+  // SLOT-NN title with the real spine title; delete unneeded slots or add
+  // more so the shelf totals N = 25-40. mediaType is book, film, tv or game;
+  // platform only matters for games (it is match-checked when present);
+  // year is optional. "_note" lines are ignored by the scorer.
+  "items": [
+    { "title": "SLOT-01", "mediaType": "book" },
+    { "title": "SLOT-02", "mediaType": "book" },
+    { "title": "SLOT-03", "mediaType": "book" },
+    { "title": "SLOT-04", "mediaType": "book", "_note": "series volume 1 of 3+" },
+    { "title": "SLOT-05", "mediaType": "book", "_note": "series volume 2 of 3+" },
+    { "title": "SLOT-06", "mediaType": "book", "_note": "series volume 3 of 3+" },
+    { "title": "SLOT-07", "mediaType": "book" },
+    { "title": "SLOT-08", "mediaType": "book" },
+    { "title": "SLOT-09", "mediaType": "book" },
+    { "title": "SLOT-10", "mediaType": "book" },
+    { "title": "SLOT-11", "mediaType": "book" },
+    { "title": "SLOT-12", "mediaType": "book", "_note": "omnibus or box set: one spine, one item" },
+    { "title": "SLOT-13", "mediaType": "book" },
+    { "title": "SLOT-14", "mediaType": "book" },
+    { "title": "SLOT-15", "mediaType": "book" },
+    { "title": "SLOT-16", "mediaType": "book" },
+    { "title": "SLOT-17", "mediaType": "book" },
+    { "title": "SLOT-18", "mediaType": "book" },
+    { "title": "SLOT-19", "mediaType": "book" },
+    { "title": "SLOT-20", "mediaType": "book", "_note": "worn spine: transcribe best effort" },
+    { "title": "SLOT-21", "mediaType": "book" },
+    { "title": "SLOT-22", "mediaType": "book" },
+    { "title": "SLOT-23", "mediaType": "book" },
+    { "title": "SLOT-24", "mediaType": "book" },
+    { "title": "SLOT-25", "mediaType": "book" },
+    { "title": "SLOT-26", "mediaType": "book" },
+    { "title": "SLOT-27", "mediaType": "book" },
+    { "title": "SLOT-28", "mediaType": "book" },
+    { "title": "SLOT-29", "mediaType": "book" },
+    { "title": "SLOT-30", "mediaType": "book" }
+  ]
+}
