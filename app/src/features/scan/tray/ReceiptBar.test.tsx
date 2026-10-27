@@ -83,8 +83,8 @@ describe('ReceiptBar resolved labels (#450)', () => {
 
   const openReceipt = async (cards: CandidateDto[]) => {
     mockGlassState.available = false;
-    await render(
-      <ReceiptBar lines={[line]} cards={cards} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
+    await renderWithProviders(
+      <ReceiptBar libraryId={MOCK_LIBRARY_ID} lines={[line]} cards={cards} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
     );
     fireEvent.press(screen.getByLabelText('1 item. Show the receipt'));
   };
