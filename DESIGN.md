@@ -17,8 +17,6 @@ resolves roles from it. Nothing invents a color anywhere else.
   `sticker`, `stickerText`, `danger`, `receiptInk`, `receiptMuted`.
 - **Fixed** (scheme-independent): `laser` `#FF2D3A` (scan beam), `receipt`
   `#FBFBF7`, `black`, `white`, `scrim` `rgba(0,0,0,0.5)`.
-- **Mascot:** `tokens.json` `mascot` is scheme-independent fixed color, like the castle: `body`/`belly`/`spike`, `ink`, `cover`/`page`, `pupil`, `smoke`. The eye white is fixed white; the shield reuses cover, page and belly.
-- **Mall:** `tokens.json` `mall` is scheme-independent fixed color mirroring the Blender room bases (`video`/`toy`/`book`/`hub`, each `floor`/`wall`/`fixture`/`trim`/`sign`, plus `spines` for generated cover tiles). Read it through `mallPalette`; nothing invents a room color anywhere else.
 - **Spacing:** xs 4, sm 8, md 12, lg 16, xl 24, xxl 32. **Radius:** sm 6,
   md 10, lg 16, pill 999.
 - Touch targets are at least 44pt. `WIDE_BREAKPOINT` (768) switches phone
@@ -41,7 +39,6 @@ still scales.
 | label    | 14 / 18     | 600    | BricolageGrotesque_600SemiBold  | Buttons, chips, small actions       |
 | caption  | 13 / 17     | 400    | BricolageGrotesque_400Regular   | Hints, timestamps                   |
 | mono     | 13 / 17     | 400    | SpaceMono_400Regular            | Catalog facts: format, platform, year |
-| castleDisplay | 28 / 34 | 700    | Cinzel_700Bold                  | Castle frame display titles, 20pt+ only |
 
 Reach for the `Text` primitive with a `variant`, never a bare `RNText` with
 a hand-rolled style.
@@ -68,39 +65,26 @@ opts back in (headerless routes and content titles like an item's name).
 Pushed screens keep a nav-bar title on both platforms and pass no `title` at
 all. Subtitles are content, not titles, and always show.
 
-## Castle theme (Phase 0)
+## Appearance
 
-The castle is an opt-in frame; the app inside stays clean. Phase 0 builds the
-system only: no screen is themed yet.
-
-- **Palette:** `tokens.json` `castle` is scheme-independent fixed color, like
-  the receipt: `parchment`/`parchmentInk`, `stone`/`stoneInk`, `brass`,
-  `iron`/`ironInk`, `olive`. Brass and olive are accents and graphics only,
-  never body text.
-- **Textures** (`app/assets/castle/`) are small tileable / 9-slice images
-  generated from the palette bases (`app/scripts/castle-textures.py`) with
-  baked contact shadows. No large background images; no text baked into any
-  texture.
-- **Primitives** (`app/src/ui/castle/`): CastleHeader, TabletHeader,
-  BannerMarker, LedgeRow, ParchmentCard. Each renders in Full / Flat /
-  Accessible modes; the mode resolves from the Theme setting (Full/Quiet)
-  plus system Increase Contrast and Reduce Motion, with Accessible winning
-  conflicts.
-- **Contrast** is measured at the worst-case pixel under the text
-  (`app/scripts/castle-contrast.mjs`): 4.5:1 body text, 3:1 large text and
-  UI components.
-- **Type:** the `castleDisplay` cut (Cinzel 700, OFL) is for castle frame
-  display titles at 20pt and above only. Body and UI text stay Bricolage.
+One design in two schemes: Light, Dark, and System (follow the OS). The two
+Unistyles themes are the Phase 0 tokens; the kept choice persists on the
+device and the first paint reads it synchronously. There are no themed modes,
+no alternate skins, and no mode switcher. The Mall, Castle, and Great Hall
+themes were removed outright (#426); do not resurrect them without the
+owner's explicit word.
 
 ## Mascot
 
-The dragon (approved master, redrawn as layered vector in `app/src/ui/mascot/`) is the app's mascot. That folder is the reusable base every later placement depends on: one fixed silhouette with separately movable layers (body, head, horns, wing, tail, eyelids, book + loose page, smoke puffs, hoard pile, shield) and a 10-pose library (`idle`, `reading`, `sleeping`, `celebrating`, `searching`, `emptyHoard`, `oops`, `milestone`, `fastReading`, `refreshPeek`). Poses reuse the shared layers; no pose redraws the dragon. The `/mascot-sheet` contact sheet renders all poses for verification and is pinned by the Playwright visual spec.
+The dragon is the app's character, and only the approved master artwork ships
+— charming, not a theme. The #365 redrawn pose library was removed without
+shipping (#426); no redrawn or off-model dragon appears anywhere in the app.
+Any future placement of the master artwork follows these rules:
 
-- The dragon appears reactively (state changes, empty/loading/error, milestones), never uninvited mid-task.
+- The dragon appears reactively (state changes, empty/loading/error), never uninvited mid-task.
 - Never on: the scanner/camera, forms while editing, search results, Settings, paywall, or delete/consent flows.
 - At most one proactive mascot moment per session; no looping motion in peripheral vision while the user is reading or scanning.
-- Decorative to VoiceOver unless the pose conveys state; Reduce Motion always gets the static pose.
-- Settings control: Dragon appearances — Full / Minimal / Off.
+- Decorative to VoiceOver unless the art conveys state; Reduce Motion always gets the static art.
 
 ## Haptics
 
