@@ -9917,6 +9917,8 @@
           "hardcover",
           "paperback",
           "mass_market",
+          "board_book",
+          "spiral_bound",
           "vhs",
           "betamax",
           "laserdisc",
@@ -9926,7 +9928,8 @@
           "game_cartridge",
           "game_disc",
           "game_card",
-          "other"
+          "other",
+          "unknown"
         ]
       },
       "ReleaseIdentifierDto": {

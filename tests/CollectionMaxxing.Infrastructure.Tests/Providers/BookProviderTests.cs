@@ -40,6 +40,62 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
         release.Identifiers.ShouldContain(Isbn);
     }
 
+    private static void StubEdition(ProviderHost host, string? physicalFormat)
+    {
+        var format = physicalFormat is null ? string.Empty : $", \"physical_format\": \"{physicalFormat}\"";
+        host.Server.Given(Request.Create().WithPath($"/isbn/{Isbn.Value}.json").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json")
+                .WithBody("{\"key\": \"/books/OL1M\", \"title\": \"Brown Bear, Brown Bear, What Do You See?\"" + format + "}"));
+    }
+
+    [Fact]
+    public async Task Maps_a_board_book_physical_format()
+    {
+        using var host = ProviderHost.Create(Db);
+        StubEdition(host, "Board book");
+
+        var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
+
+        release.ShouldNotBeNull();
+        release.Format.ShouldBe(ReleaseFormat.BoardBook);
+    }
+
+    [Fact]
+    public async Task Maps_a_spiral_bound_physical_format()
+    {
+        using var host = ProviderHost.Create(Db);
+        StubEdition(host, "Spiral-bound");
+
+        var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
+
+        release.ShouldNotBeNull();
+        release.Format.ShouldBe(ReleaseFormat.SpiralBound);
+    }
+
+    [Fact]
+    public async Task Leaves_the_format_unset_when_the_edition_names_no_physical_format()
+    {
+        using var host = ProviderHost.Create(Db);
+        StubEdition(host, null);
+
+        var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
+
+        release.ShouldNotBeNull();
+        release.Format.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Keeps_other_for_a_physical_format_that_fits_no_category()
+    {
+        using var host = ProviderHost.Create(Db);
+        StubEdition(host, "Audio CD");
+
+        var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
+
+        release.ShouldNotBeNull();
+        release.Format.ShouldBe(ReleaseFormat.Other);
+    }
+
     [Fact]
     public async Task An_answer_that_starts_with_a_utf8_byte_order_mark_is_read_like_any_other()
     {
@@ -151,6 +207,18 @@ public class GoogleBooksProviderTests(PostgresFixture db) : DatabaseTest(db)
         release.Synopsis.ShouldBe("A clever fox outwits three farmers.");
         release.CoverUrl.ShouldStartWith("https://books.google.com/books/content?id=Zk9bAwAAQBAJ");
         release.Identifiers.Select(i => i.Value).ShouldBe([ProviderHost.ValidIsbn]);
+    }
+
+    [Fact]
+    public async Task Leaves_the_format_unset_because_google_books_carries_no_binding()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "googlebooks-found.json");
+
+        var release = await host.Get<GoogleBooksProvider>().LookupAsync(ProviderCase.Isbn, default);
+
+        release.ShouldNotBeNull();
+        release.Format.ShouldBeNull();
     }
 
     [Fact]

@@ -9,13 +9,13 @@ namespace CollectionMaxxing.Application.Tests.Scanning;
 
 public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
 {
-    private static ProviderRelease Book(string? coverUrl, string isbn = "9780441172719") => new()
+    private static ProviderRelease Book(string? coverUrl, string isbn = "9780441172719", ReleaseFormat? format = ReleaseFormat.Paperback) => new()
     {
         Provider = "openlibrary",
         ExternalId = "OL1M",
         Title = "Dune",
         Kind = WorkKind.Book,
-        Format = ReleaseFormat.Paperback,
+        Format = format,
         Year = 1965,
         CoverUrl = coverUrl,
         Identifiers = [Identifier.TryParse(isbn, out var id) ? id! : throw new InvalidOperationException()],
@@ -81,5 +81,29 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         again.ShouldBe(new EnsuredRelease(first.Id, false));
         CoverUrlOf((await context.Releases.AsNoTracking().SingleAsync(r => r.Id == first.Id)).ProviderPayloadsJson)
             .ShouldBe("https://covers.openlibrary.org/b/id/42-L.jpg");
+    }
+
+    [Fact]
+    public async Task A_provider_answer_with_no_format_is_stored_as_unknown_not_other()
+    {
+        await using var context = Db.CreateContext();
+        var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
+
+        var ensured = await store.EnsureAsync(Book(null, format: null), TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync();
+
+        (await context.Releases.AsNoTracking().SingleAsync(r => r.Id == ensured.Id)).Format.ShouldBe(ReleaseFormat.Unknown);
+    }
+
+    [Fact]
+    public async Task A_provider_answer_with_an_uncategorized_format_keeps_other()
+    {
+        await using var context = Db.CreateContext();
+        var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
+
+        var ensured = await store.EnsureAsync(Book(null, format: ReleaseFormat.Other), TestContext.Current.CancellationToken);
+        await context.SaveChangesAsync();
+
+        (await context.Releases.AsNoTracking().SingleAsync(r => r.Id == ensured.Id)).Format.ShouldBe(ReleaseFormat.Other);
     }
 }

@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Evals;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.TestSupport.Evals;
 using static CollectionMaxxing.Recognition.Evals.EvalFixtures;
 
@@ -239,5 +240,15 @@ public sealed class ScoringMathsTests : IDisposable
         EvalKinds.Key("Star Fox 64 (the real title)").ShouldBe("other");
         EvalKinds.Key(null).ShouldBe("other");
         EvalKinds.Key(new string('a', 33)).ShouldBe("other");
+    }
+
+    [Fact]
+    public void Every_book_format_guesses_a_book_spine()
+    {
+        EvalKinds.Guess(ReleaseFormat.Hardcover, null).ShouldBe(EvalKinds.BookSpine);
+        EvalKinds.Guess(ReleaseFormat.Paperback, null).ShouldBe(EvalKinds.BookSpine);
+        EvalKinds.Guess(ReleaseFormat.MassMarket, null).ShouldBe(EvalKinds.BookSpine);
+        EvalKinds.Guess(ReleaseFormat.BoardBook, null).ShouldBe(EvalKinds.BookSpine);
+        EvalKinds.Guess(ReleaseFormat.SpiralBound, null).ShouldBe(EvalKinds.BookSpine);
     }
 }

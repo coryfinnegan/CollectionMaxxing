@@ -352,12 +352,12 @@ public sealed class CandidateResolver(
         if (option.Provider is { } provider)
         {
             return new StoredAlternative(
-                releaseId, provider.Title, Domain.Common.EnumText.ToText(provider.Format ?? Domain.Catalog.ReleaseFormat.Other),
+                releaseId, provider.Title, Domain.Common.EnumText.ToText(provider.Format ?? Domain.Catalog.ReleaseFormat.Unknown),
                 provider.Platform, provider.Year, option.Score, provider.Creators, provider.CoverUrl, ownedCount);
         }
 
         return known.TryGetValue(releaseId, out var release)
             ? CandidateProjection.AlternativeOf(release, option.Score, ownedCount)
-            : new StoredAlternative(releaseId, string.Empty, "other", null, null, option.Score, [], null, ownedCount);
+            : new StoredAlternative(releaseId, string.Empty, "unknown", null, null, option.Score, [], null, ownedCount);
     }
 }

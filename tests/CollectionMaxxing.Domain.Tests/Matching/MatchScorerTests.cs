@@ -462,6 +462,18 @@ public class MatchScorerTests
     }
 
     [Fact]
+    public void A_board_book_scores_as_a_book_not_as_another_format_family()
+    {
+        var read = new ReadItem { Title = "Brown Bear", Format = ReleaseFormat.Paperback };
+        var barcode = Profile(ScoringProfileKind.BarcodeProduct);
+
+        var board = MatchScorer.Score(read, Release("a", "Brown Bear", WorkKind.Book, ReleaseFormat.BoardBook), barcode);
+        var dvd = MatchScorer.Score(read, Release("b", "Brown Bear", WorkKind.Film, ReleaseFormat.Dvd), barcode);
+
+        board.ShouldBeGreaterThan(dvd);
+    }
+
+    [Fact]
     public void Without_a_format_the_kind_stands_in_for_it()
     {
         var read = new ReadItem { Title = "Alien", Kind = WorkKind.Film };
