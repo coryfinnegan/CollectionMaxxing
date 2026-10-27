@@ -47,3 +47,35 @@ describe('Screen titles', () => {
     expect(screen.getByText('DVD · 1999')).toBeTruthy();
   });
 });
+
+describe('Screen keyboard avoidance', () => {
+  it('wraps the form in a KeyboardAvoidingView when asked (#442)', async () => {
+    Platform.OS = 'ios';
+    await render(
+      <Screen subtitle="Edit" keyboardAvoiding>
+        <RNText>Body</RNText>
+      </Screen>,
+    );
+    expect(screen.getByTestId('keyboard-avoiding-view')).toBeTruthy();
+  });
+
+  it('lets taps reach controls while the keyboard is up (#442)', async () => {
+    Platform.OS = 'ios';
+    await render(
+      <Screen subtitle="Edit" keyboardAvoiding>
+        <RNText>Body</RNText>
+      </Screen>,
+    );
+    expect(screen.getByTestId('keyboard-avoiding-scroll').props.keyboardShouldPersistTaps).toBe('handled');
+  });
+
+  it('leaves other screens unchanged by default', async () => {
+    Platform.OS = 'ios';
+    await render(
+      <Screen subtitle="Library">
+        <RNText>Body</RNText>
+      </Screen>,
+    );
+    expect(screen.queryByTestId('keyboard-avoiding-view')).toBeNull();
+  });
+});

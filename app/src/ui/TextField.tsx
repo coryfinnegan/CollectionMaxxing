@@ -1,7 +1,9 @@
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
+import { useRef } from 'react';
 import { TextInput, type TextInputProps, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { useReportInputFocus } from './keyboardScroll';
 import { Text } from './Text';
 
 type TextFieldProps = TextInputProps & {
@@ -10,15 +12,24 @@ type TextFieldProps = TextInputProps & {
   error?: string | null;
 };
 
-export function TextField({ label, error, style, ...rest }: TextFieldProps) {
+export function TextField({ label, error, style, onFocus, ...rest }: TextFieldProps) {
   const { theme } = useUnistyles();
+  // Inside a keyboard-avoiding Screen (#442), focusing scrolls this field
+  // above the keyboard. Outside one the scope is absent and focus is untouched.
+  const inputRef = useRef<TextInput>(null);
+  const reportFocus = useReportInputFocus();
   return (
     <View style={styles.field}>
       <Text variant="label">{label}</Text>
       <TextInput
+        ref={inputRef}
         accessibilityLabel={label}
         placeholderTextColor={theme.colors.muted}
         {...rest}
+        onFocus={(e) => {
+          reportFocus?.(inputRef.current);
+          onFocus?.(e);
+        }}
         style={[styles.input(!!error), style]}
       />
       {error ? (
