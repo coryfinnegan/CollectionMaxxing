@@ -1,4 +1,4 @@
-// The scanner (docs/06 M3): camera behind everything, "Nice scan!" flash, the receipt bar. Captures queue
+// The scanner (docs/06 M3): camera behind everything, "Nice scan!" flash, the count bar. Captures queue
 // silently here (#432): no result cards, no snap strip — processing state lives on the Review rows, and a row
 // opens the Result screen. It is given its sources, so tests and the dev menu drive it with a FakeScannerSource
 // and no camera.
@@ -26,11 +26,12 @@ import type { Resizer } from '../autosnap/snapPhoto';
 import type { PipelineDeps } from '../pipeline/SnapPipeline';
 import { usePipeline } from '../pipeline/usePipeline';
 import { AutoCommitSnackbar } from '../session/AutoCommitSnackbar';
-import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
+import { useScanSession, type SessionTuning } from '../session/useScanSession';
 import { useSessionCounters } from '../session/useSessionCounters';
 import { SessionSheet } from '../session/SessionSheet';
 import { defaultSessionContext, sessionCreateBody, type SessionContext } from '../session/sessionContext';
 import { ReceiptBar } from '../tray/ReceiptBar';
+import { lineStatus } from '../tray/tray';
 import { fixed, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
@@ -128,7 +129,6 @@ export function ScannerScreen({
     [boundScan],
   );
   const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture });
-  const { canAdd } = useLibraryRole(libraryId);
   const { counters } = useSessionCounters(libraryId, session.sessionId);
   const [flash, setFlash] = useState(false);
   const reduceMotion = useReduceMotion();
@@ -141,6 +141,10 @@ export function ScannerScreen({
     onOutcome: (found) => reportOutcome.current(found),
     boundCover,
   });
+  // Scans waiting on this phone for a connection, for the bar's Queued announcement.
+  const queued = session.online
+    ? 0
+    : session.lines.filter((l) => lineStatus(l, false) === 'queued').length + pictures.lines.filter((l) => l.status === 'queued').length;
   const importDeps = useMemo<ImportDeps | undefined>(
     () =>
       pictures.enabled && Platform.OS !== 'web' && pictures.recognition
@@ -287,20 +291,13 @@ export function ScannerScreen({
         <AutoCommitSnackbar />
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
-            lines={session.lines}
-            pictureLines={pictures.lines}
-            onRemovePicture={pictures.removeLine}
-            cards={session.cards}
             online={session.online}
             items={session.items + pictures.items}
             processing={session.processing + pictures.processing}
             problem={session.problem}
             notice={session.notice}
             counters={counters}
-            sessionId={session.sessionId}
-            canAdd={canAdd}
-            onPlusOne={session.plusOne}
-            onRemove={session.remove}
+            queued={queued}
             onReview={() => router.push('/review')}
           />
         </View>

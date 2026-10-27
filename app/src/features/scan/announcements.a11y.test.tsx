@@ -10,7 +10,6 @@ import { Snackbar } from '@/ui';
 import { NiceScanFlash } from './autosnap/NiceScanFlash';
 import { ResultCard, type CardActions } from './cards/ResultCards';
 import { ReceiptBar } from './tray/ReceiptBar';
-import type { TrayLine } from './tray/tray';
 
 jest.mock('@/lib/a11y/announce', () => ({ announceForScreenReader: jest.fn() }));
 const spoken = announceForScreenReader as jest.Mock;
@@ -56,18 +55,17 @@ describe('scan announcements', () => {
     expect(spoken).toHaveBeenCalledWith('Dune. Already own — Paperback · 2 copies');
   });
 
-  it('announces Queued when a scan joins the receipt while offline', async () => {
-    const line = (code: string): TrayLine => ({ code, symbology: 'ean-13', copies: 1, sentCopies: 0, addedAt: 1 }) as unknown as TrayLine;
-    const props = { pictureLines: [], cards: [], items: 1, processing: 1, problem: null, notice: null, onPlusOne: () => undefined, onRemove: () => undefined, onReview: () => undefined };
-    const view = await render(<ReceiptBar {...props} lines={[]} online={false} />);
+  it('announces Queued when a scan waits on the phone while offline', async () => {
+    const props = { items: 1, processing: 1, problem: null, notice: null, onReview: () => undefined };
+    const view = await render(<ReceiptBar {...props} queued={0} online={false} />);
     expect(spoken).not.toHaveBeenCalled();
-    await view.rerender(<ReceiptBar {...props} lines={[line('111')]} online={false} />);
+    await view.rerender(<ReceiptBar {...props} queued={1} online={false} />);
     expect(spoken).toHaveBeenCalledWith('Queued. 1 item waiting for your server.');
     spoken.mockClear();
-    await view.rerender(<ReceiptBar {...props} lines={[line('111'), line('222')]} online={false} />);
+    await view.rerender(<ReceiptBar {...props} queued={2} online={false} />);
     expect(spoken).toHaveBeenCalledWith('Queued. 2 items waiting for your server.');
     spoken.mockClear();
-    await view.rerender(<ReceiptBar {...props} lines={[line('111'), line('222')]} online />);
+    await view.rerender(<ReceiptBar {...props} queued={2} online />);
     expect(spoken).not.toHaveBeenCalled();
   });
 

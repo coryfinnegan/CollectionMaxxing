@@ -145,5 +145,11 @@ export function reviewStatusLine(items: number, processing: number, added: numbe
   return parts.join(' · ');
 }
 
+/** "Review 3 items" on the scanner's Review button (#451); a bare "Review" when nothing waits. */
+export function reviewButtonLabel(pending: number): string {
+  if (pending <= 0) return 'Review';
+  return `Review ${pending} ${pending === 1 ? 'item' : 'items'}`;
+}
+
 /** Card slide: none when Reduce Motion is on. */
 export const slideDuration = (reduceMotion: boolean) => (reduceMotion ? 0 : 220);

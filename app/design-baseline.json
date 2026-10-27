@@ -169,12 +169,6 @@
       "rule": "cm-design/no-inline-styles",
       "count": 7,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
-    },
-    {
-      "file": "src/features/scan/tray/ReceiptBar.tsx",
-      "rule": "cm-design/no-inline-styles",
-      "count": 10,
-      "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     }
   ]
 }

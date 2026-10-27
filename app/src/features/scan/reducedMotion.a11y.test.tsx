@@ -1,4 +1,4 @@
-// Reduce Motion: the shutter flash, card slide-in and the receipt's swipe snap-back are skipped when the setting is on.
+// Reduce Motion: the shutter flash and the card slide-in are skipped when the setting is on.
 import { QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react-native';
 import { Animated } from 'react-native';
@@ -7,7 +7,6 @@ import type { CandidateDto } from '@/api/generated/models';
 import { makeQueryClient } from '@/test/render';
 import { NiceScanFlash } from './autosnap/NiceScanFlash';
 import { ResultCard } from './cards/ResultCards';
-import { settleSwipe } from './tray/ReceiptBar';
 
 jest.mock('@/lib/a11y/announce', () => ({ announceForScreenReader: jest.fn() }));
 
@@ -39,23 +38,12 @@ describe('with Reduce Motion on', () => {
     expect(timing).toHaveBeenCalled();
     expect(timing.mock.calls.every(([, config]) => config.duration === 0)).toBe(true);
   });
-
-  it('a swiped receipt line snaps back without a spring', () => {
-    const spring = jest.spyOn(Animated, 'spring');
-    const x = new Animated.Value(-40);
-    settleSwipe(x, true);
-    expect(spring).not.toHaveBeenCalled();
-    expect((x as unknown as { _value: number })._value).toBe(0);
-  });
 });
 
 describe('with Reduce Motion off', () => {
-  it('the flash pops in and a swiped line springs back', async () => {
+  it('the flash pops in', async () => {
     const timing = jest.spyOn(Animated, 'timing');
-    const spring = jest.spyOn(Animated, 'spring');
     await render(<NiceScanFlash visible reduceMotion={false} />);
-    settleSwipe(new Animated.Value(-40), false);
     expect(timing).toHaveBeenCalled();
-    expect(spring).toHaveBeenCalled();
   });
 });

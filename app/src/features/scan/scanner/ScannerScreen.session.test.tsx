@@ -97,14 +97,29 @@ describe('scanner session context', () => {
     expect(screen.queryByLabelText('Close')).toBeNull();
   });
 
-  it('opens waiting review from the Review bar', async () => {
+  it('opens waiting review from the Review button', async () => {
     await scanner();
     mockRouter.push.mockClear();
 
     await act(async () => {
       getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: '9780441172719', symbology: 'ean-13' });
     });
-    await press('Review');
+    await press('Review 1 item');
+    expect(mockRouter.push).toHaveBeenCalledWith('/review');
+  });
+
+  it('reviews a 3-item pending session from the Review button (#451)', async () => {
+    await scanner();
+    mockRouter.push.mockClear();
+
+    await act(async () => {
+      const tray = getTrayStore(MOCK_LIBRARY_ID).getState();
+      tray.scan({ value: '9780441172719', symbology: 'ean-13' });
+      tray.scan({ value: '9780451524935', symbology: 'ean-13' });
+      tray.scan({ value: '4020628758862', symbology: 'ean-13' });
+    });
+    expect(await screen.findByText(/^3 items/)).toBeTruthy();
+    await press('Review 3 items');
     expect(mockRouter.push).toHaveBeenCalledWith('/review');
   });
 
@@ -118,7 +133,7 @@ describe('scanner session context', () => {
   it('merges the tray and the session counters into the Review bar status line', async () => {
     await scanner();
 
-    expect(await screen.findByLabelText('0 items. Show the receipt')).toBeTruthy();
+    expect(await screen.findByText('0 items')).toBeTruthy();
   });
 
   it('shows the session buckets in the status line once scans are waiting', async () => {
@@ -127,6 +142,6 @@ describe('scanner session context', () => {
     await act(async () => {
       getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: '9780441172719', symbology: 'ean-13' });
     });
-    expect(await screen.findByLabelText('1 item · 1 processing · 1 to review. Show the receipt')).toBeTruthy();
+    expect(await screen.findByText('1 item · 1 processing · 1 to review')).toBeTruthy();
   });
 });

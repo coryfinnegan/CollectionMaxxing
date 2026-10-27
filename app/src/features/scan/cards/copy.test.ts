@@ -1,6 +1,6 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore, announcementFor } from './cardsStore';
-import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, reviewStatusLine, slideDuration, summaryLine } from './copy';
+import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, reviewButtonLabel, reviewStatusLine, slideDuration, summaryLine } from './copy';
 
 const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   ({
@@ -115,6 +115,12 @@ describe('card copy', () => {
     expect(reviewStatusLine(5, 1, 2, 4, 1)).toBe('5 items · 1 processing · 4 to review · 1 owned · 2 added');
     expect(reviewStatusLine(1, 0, 0, 1, 0)).toBe('1 item · 1 to review');
     expect(reviewStatusLine(0, 0, 0, 0, 0)).toBe('0 items');
+  });
+
+  it('labels the scanner Review button with the pending count (#451)', () => {
+    expect(reviewButtonLabel(3)).toBe('Review 3 items');
+    expect(reviewButtonLabel(1)).toBe('Review 1 item');
+    expect(reviewButtonLabel(0)).toBe('Review');
   });
 
   it('has no slide with Reduce Motion', () => {
