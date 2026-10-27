@@ -1,8 +1,10 @@
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import type { ReactNode } from 'react';
-import { Platform, ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useRef } from 'react';
+import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, type TextInput, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { InputFocusScope, keyboardAvoidingBehavior, scrollInputAboveKeyboard } from './keyboardScroll';
 import { Text } from './Text';
 
 type ScreenProps = {
@@ -16,6 +18,11 @@ type ScreenProps = {
   subtitleVariant?: 'body' | 'mono';
   children?: ReactNode;
   scroll?: boolean;
+  /**
+   * Form screens (#442): the scroll view sits in a KeyboardAvoidingView and
+   * the focused field scrolls above the keyboard. Ignored when scroll is off.
+   */
+  keyboardAvoiding?: boolean;
 };
 
 export function Screen({
@@ -26,6 +33,7 @@ export function Screen({
   subtitleVariant = 'body',
   children,
   scroll = true,
+  keyboardAvoiding = false,
 }: ScreenProps) {
   // One title per screen: on the phone the navigator header names it, so the section title
   // only renders on the web. Pushed screens keep the nav-bar title on both platforms and pass
@@ -50,12 +58,52 @@ export function Screen({
       {children}
     </>
   );
-  return scroll ? (
-    <ScrollView style={styles.fill} contentContainerStyle={styles.padding}>
-      {content}
-    </ScrollView>
-  ) : (
-    <View style={[styles.fill, styles.padding]}>{content}</View>
+  if (!scroll) {
+    return <View style={[styles.fill, styles.padding]}>{content}</View>;
+  }
+  if (!keyboardAvoiding) {
+    return (
+      <ScrollView style={styles.fill} contentContainerStyle={styles.padding}>
+        {content}
+      </ScrollView>
+    );
+  }
+  return <AvoidingScrollView>{content}</AvoidingScrollView>;
+}
+
+// The keyboard-aware-scroll-view pattern with built-ins only: the avoiding
+// view keeps the scroll frame above the keyboard, and each focused field
+// scrolls into view. Focus fires before the keyboard frame exists, so showing
+// the keyboard re-scrolls to the last focused field.
+function AvoidingScrollView({ children }: { children: ReactNode }) {
+  const scrollRef = useRef<ScrollView>(null);
+  const focusedRef = useRef<TextInput | null>(null);
+  const reportFocus = useCallback((input: TextInput | null) => {
+    focusedRef.current = input;
+    scrollInputAboveKeyboard(scrollRef.current, input);
+  }, []);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const show = Keyboard.addListener('keyboardDidShow', () => {
+      scrollInputAboveKeyboard(scrollRef.current, focusedRef.current);
+    });
+    return () => show.remove();
+  }, []);
+  return (
+    <InputFocusScope onFocus={reportFocus}>
+      <KeyboardAvoidingView testID="keyboard-avoiding-view" style={styles.fill} behavior={keyboardAvoidingBehavior()}>
+        <ScrollView
+          ref={scrollRef}
+          testID="keyboard-avoiding-scroll"
+          style={styles.fill}
+          contentContainerStyle={styles.padding}
+          keyboardShouldPersistTaps="handled"
+          contentInsetAdjustmentBehavior="automatic"
+        >
+          {children}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </InputFocusScope>
   );
 }
 

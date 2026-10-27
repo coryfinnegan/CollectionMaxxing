@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import DetailRoute from '@/app/item/[id]/index';
 import EditRoute from '@/app/item/[id]/edit';
 import { LibraryView } from '@/features/library/LibraryView';
@@ -252,6 +252,23 @@ describe('ItemEditScreen', () => {
 
     await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
     expect(entry().item.lentOn).toBe('2026-10-24');
+  });
+
+  it('keeps every text field above the keyboard (#442)', async () => {
+    await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+
+    // The Lent to field only appears for lent items; show it so the whole
+    // form, not only Notes, is covered.
+    await fireEvent.press(screen.getByLabelText('Status Lent out'));
+    await screen.findByLabelText('Lent to');
+
+    const avoiding = screen.queryByTestId('keyboard-avoiding-view');
+    expect(avoiding).not.toBeNull();
+    const form = within(avoiding!);
+    expect(form.queryByLabelText('Lent to')).not.toBeNull();
+    expect(form.queryByLabelText('Acquired')).not.toBeNull();
+    expect(form.queryByLabelText('Notes')).not.toBeNull();
   });
 
   it('gives every button an accessibility label', async () => {
