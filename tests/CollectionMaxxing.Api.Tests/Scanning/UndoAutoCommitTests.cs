@@ -58,7 +58,7 @@ public class UndoAutoCommitTests : ScanTest
         }
 
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         var candidates = await ScanAsync(editor, sessionId, codes[0], codes[1]);
         candidates.Count.ShouldBe(2);
         candidates.ShouldAllBe(c => c.GetProperty("createdItemId").ValueKind == JsonValueKind.String);
@@ -103,7 +103,7 @@ public class UndoAutoCommitTests : ScanTest
         Products.Know(code, ScanData.Product("Wave Race 64", code));
         Games.Results.Add(ScanData.Game("Wave Race 64"));
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
         candidate.GetProperty("createdItemId").ValueKind.ShouldBe(JsonValueKind.String);
         var releaseId = candidate.GetProperty("release").GetProperty("id").GetGuid();
@@ -155,7 +155,7 @@ public class UndoAutoCommitTests : ScanTest
         await CatalogAsync("Auto game", autoCode);
         await OwnAsync(library, "Commit game", commitCode);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         var auto = (await ScanAsync(editor, sessionId, autoCode))[0];
         auto.GetProperty("createdItemId").ValueKind.ShouldBe(JsonValueKind.String);
         var owned = (await ScanAsync(editor, sessionId, commitCode))[0];
@@ -191,7 +191,7 @@ public class UndoAutoCommitTests : ScanTest
         Products.Know(code, ScanData.Product("Wave Race 64", code));
         Games.Results.Add(ScanData.Game("Wave Race 64"));
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id, new { autoCommitCopies = true });
+        var sessionId = await StartSessionAsync(editor, library.Id, new { autoCommitTiers = new[] { "T0" }, autoCommitCopies = true });
         var first = (await ScanAsync(editor, sessionId, code))[0];
         var bound = (await ScanAsync(editor, sessionId, unknown))[0];
         Resolution(bound).ShouldBe("not_found");
@@ -247,7 +247,7 @@ public class UndoAutoCommitTests : ScanTest
         Games.Results.Add(ScanData.Game("Auto game"));
         await OwnAsync(library, "Commit game", commitCode);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         var auto = (await ScanAsync(editor, sessionId, autoCode))[0];
         var autoRelease = auto.GetProperty("release").GetProperty("id").GetGuid();
         (await HasCodeAsync(autoRelease, autoCode)).ShouldBeTrue("the auto-add taught the link");

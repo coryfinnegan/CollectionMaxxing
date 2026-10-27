@@ -75,7 +75,7 @@ public class ScanAutoCommitCoverTests : ScanTest
         var library = await CreateLibraryAsync();
         Books.LookupResult = Book("openlibrary", "OL1M", "Dune", ScanData.Isbn, CoverUrl);
         using var client = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(client, library.Id); // T0 auto-adds by default
+        var sessionId = await StartSessionWithAutoCommitAsync(client, library.Id);
 
         var candidate = (await ScanAsync(client, sessionId, ScanData.Isbn))[0];
 
@@ -95,7 +95,7 @@ public class ScanAutoCommitCoverTests : ScanTest
         Books.LookupResult = Book("openlibrary", "OL1M", "Dune", ScanData.Isbn, coverUrl: null);
         _google.LookupResult = Book("googlebooks", "abc", "Dune", ScanData.Isbn, GoogleCoverUrl);
         using var client = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(client, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(client, library.Id);
 
         var candidate = (await ScanAsync(client, sessionId, ScanData.Isbn))[0];
 
@@ -114,7 +114,7 @@ public class ScanAutoCommitCoverTests : ScanTest
         Books.LookupResult = Book("openlibrary", "OL61859789M", ReproTitle, ReproIsbn, coverUrl: null);
         _google.LookupResult = Book("googlebooks", "abc", ReproTitle, ReproIsbn, coverUrl: null);
         using var client = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(client, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(client, library.Id);
 
         var candidate = (await ScanAsync(client, sessionId, ReproIsbn))[0];
 

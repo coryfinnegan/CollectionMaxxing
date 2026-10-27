@@ -243,7 +243,7 @@ public static class CreateItem
             {
                 Id = ids.NewId(),
                 WorkId = work.Id,
-                Format = manual.Format ?? ReleaseFormat.Other,
+                Format = manual.Format ?? ReleaseFormat.Unknown,
                 PlatformId = manual.PlatformId,
                 Source = ReleaseSource.User,
                 OwnerLibraryId = libraryId,

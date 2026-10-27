@@ -1,5 +1,5 @@
-// The auto-add snackbar: "Added Dune" with Undo for 10 s, then it hides while the session's
-// "Undo last add" keeps offering the same undo. A failed undo says so without poisoning the next add.
+// The auto-add snackbar: "Added Dune" with Undo for 10 s, then it hides (#451: the only Undo on
+// the scanner). A failed undo says so without poisoning the next add.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { scanMock } from '@/mocks/scan';

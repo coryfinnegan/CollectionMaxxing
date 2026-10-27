@@ -1,5 +1,5 @@
 // The last T0 auto-add of this session, so Undo can be offered on the scanner: the snackbar for 10 s
-// after each add, and the counters bar's "Undo last add" until it is undone or something newer is added.
+// after each add (#451: the only Undo left on the scanner).
 import { create } from 'zustand';
 
 type AutoCommitUndoState = {

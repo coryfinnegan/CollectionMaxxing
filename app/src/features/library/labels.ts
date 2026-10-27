@@ -19,6 +19,8 @@ export const formatLabels: Record<ReleaseFormat, string> = {
   hardcover: 'Hardcover',
   paperback: 'Paperback',
   mass_market: 'Mass market',
+  board_book: 'Board book',
+  spiral_bound: 'Spiral-bound',
   vhs: 'VHS',
   betamax: 'Betamax',
   laserdisc: 'LaserDisc',
@@ -29,6 +31,7 @@ export const formatLabels: Record<ReleaseFormat, string> = {
   game_disc: 'Game disc',
   game_card: 'Game card',
   other: 'Other',
+  unknown: 'Unknown',
 };
 
 export const statusLabels: Record<ItemStatus, string> = {

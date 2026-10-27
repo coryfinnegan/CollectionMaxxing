@@ -10,7 +10,7 @@ namespace CollectionMaxxing.Api.Tests.Scanning;
 
 /// <summary>
 /// A game barcode when no title-search provider is configured (#383): the exact UPCitemdb product answers directly, so
-/// the game adds with its title instead of failing both barcode and cover.
+/// the game resolves with its title instead of failing both barcode and cover, and waits for the Review commit (#452).
 /// </summary>
 public class BarcodeDirectAnswerTests(ApiFixture api) : ScanTest(api)
 {
@@ -28,7 +28,7 @@ public class BarcodeDirectAnswerTests(ApiFixture api) : ScanTest(api)
     }
 
     [Fact]
-    public async Task A_game_barcode_adds_by_its_product_answer_without_any_title_search_provider()
+    public async Task A_game_barcode_resolves_by_its_product_answer_without_any_title_search_provider()
     {
         ConfigureServices = services =>
         {
@@ -48,7 +48,7 @@ public class BarcodeDirectAnswerTests(ApiFixture api) : ScanTest(api)
         candidates[0].GetProperty("release").GetProperty("title").GetString().ShouldBe("Hyrule Warriors: Age of Imprisonment");
         candidates[0].GetProperty("release").GetProperty("platform").GetProperty("name").GetString().ShouldBe("Switch 2");
         Decision(candidates[0]).ShouldBe("accepted");
-        (await CountItemsAsync(library.Id)).ShouldBe(1);
+        (await CountItemsAsync(library.Id)).ShouldBe(0, "resolved at scan time, added only by the Review commit (#452)");
     }
 
     [Fact]

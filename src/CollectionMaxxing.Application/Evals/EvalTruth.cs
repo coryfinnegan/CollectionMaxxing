@@ -78,7 +78,7 @@ public static class EvalKinds
         (_, ItemCompleteness.CartOnly) => LooseCartridge,
         (ReleaseFormat.GameCartridge or ReleaseFormat.GameCard, _) => LooseCartridge,
         (ReleaseFormat.Vhs or ReleaseFormat.Betamax, _) => VhsSleeve,
-        (ReleaseFormat.Hardcover or ReleaseFormat.Paperback or ReleaseFormat.MassMarket, _) => BookSpine,
+        (ReleaseFormat.Hardcover or ReleaseFormat.Paperback or ReleaseFormat.MassMarket or ReleaseFormat.BoardBook or ReleaseFormat.SpiralBound, _) => BookSpine,
         (ReleaseFormat.Dvd or ReleaseFormat.Bluray or ReleaseFormat.UhdBluray or ReleaseFormat.Laserdisc, _) => DiscCover,
         _ => GameBox,
     };

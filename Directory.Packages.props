@@ -40,6 +40,13 @@
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.1" />
   </ItemGroup>
 
+  <!-- Cover-image verification (#438 stage 2): SIFT matching needs the native runtimes per OS. -->
+  <ItemGroup Label="Vision">
+    <PackageVersion Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageVersion Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
+    <PackageVersion Include="OpenCvSharp4.official.runtime.linux-x64" Version="4.13.0.20260627" />
+  </ItemGroup>
+
   <ItemGroup Label="Tests">
     <PackageVersion Include="xunit.v3.mtp-off" Version="4.0.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />

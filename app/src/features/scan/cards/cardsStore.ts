@@ -33,10 +33,6 @@ type CardsState = {
    * `localId` replaces its local card the moment it arrives.
    */
   local: Record<string, CandidateDto>;
-  /** Titles of resolved-but-rejected candidates by raw code: they have no card, but the receipt still names the book (#450). */
-  resolvedTitles: Record<string, string>;
-  /** Remembers the resolved titles of candidates that will never become cards. */
-  rememberTitles(candidates: { rawCode?: string | null; release?: { title: string } | null }[]): void;
   /** Merges candidates. Returns the ones that deserve a haptic now (first time they leave pending). */
   merge(incoming: Partial<CandidateDto>[], options?: { announce?: boolean }): { id: string; event: CardEvent }[];
   setDecision(id: string, candidate: CandidateDto): void;
@@ -52,14 +48,6 @@ export const useCardsStore = create<CardsState>((set, get) => ({
   order: {},
   announced: {},
   local: {},
-  resolvedTitles: {},
-  rememberTitles(candidates) {
-    const resolvedTitles = { ...get().resolvedTitles };
-    for (const c of candidates) {
-      if (c.rawCode && c.release?.title) resolvedTitles[c.rawCode] = c.release.title;
-    }
-    set({ resolvedTitles });
-  },
   merge(incoming, { announce = true } = {}) {
     const byId = { ...get().byId };
     const order = { ...get().order };
@@ -102,7 +90,7 @@ export const useCardsStore = create<CardsState>((set, get) => ({
     const { [id]: _removed, ...rest } = get().byId;
     set({ byId: rest });
   },
-  reset: () => set({ byId: {}, order: {}, announced: {}, local: {}, resolvedTitles: {} }),
+  reset: () => set({ byId: {}, order: {}, announced: {}, local: {} }),
 }));
 
 export const LOCAL_PREFIX = 'local:';

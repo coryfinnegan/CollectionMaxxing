@@ -6,7 +6,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from './Text';
 import { usePressFeedback, type PressHaptic } from './usePressFeedback';
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger';
+/** onDark sits on fixed-dark surfaces over the camera (the scrim banner): fixed-white text and border, legible in both schemes (#470). */
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'onDark';
 
 type ButtonProps = Omit<PressableProps, 'children'> & {
   label: string;
@@ -20,7 +21,14 @@ export function Button({ label, variant = 'primary', busy = false, disabled, sty
   const { theme } = useUnistyles();
   const press = usePressFeedback(haptic);
   const isDisabled = disabled || busy;
-  const textColor = variant === 'primary' ? theme.colors.onAccent : variant === 'danger' ? theme.colors.danger : theme.colors.ink;
+  const textColor =
+    variant === 'primary'
+      ? theme.colors.onAccent
+      : variant === 'danger'
+        ? theme.colors.danger
+        : variant === 'onDark'
+          ? theme.fixed.white
+          : theme.colors.ink;
   return (
     <Animated.View style={press.style}>
       <Pressable
@@ -65,7 +73,14 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing.lg,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: variant === 'danger' ? theme.colors.danger : variant === 'secondary' ? theme.colors.control : theme.colors.accent,
+    borderColor:
+      variant === 'danger'
+        ? theme.colors.danger
+        : variant === 'secondary'
+          ? theme.colors.control
+          : variant === 'onDark'
+            ? theme.fixed.white
+            : theme.colors.accent,
     backgroundColor: variant === 'primary' ? theme.colors.accent : 'transparent',
     alignItems: 'center',
     justifyContent: 'center',

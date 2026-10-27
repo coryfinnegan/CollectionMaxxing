@@ -44,7 +44,7 @@ afterEach(() => {
 
 describe('session sheet', () => {
   it('shows the remembered spot, status, media and channel', async () => {
-    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'wishlist', mediaHint: 'games', channel: 'home', autoAddConfident: false });
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'wishlist', mediaHint: 'games', channel: 'home' });
     await open(defaultSessionContext(MOCK_LIBRARY_ID));
 
     expect(await screen.findByLabelText('Location: Game room › Shelf 1. Change')).toBeTruthy();
@@ -63,13 +63,13 @@ describe('session sheet', () => {
     await press('Save');
 
     expect(saved).toEqual([
-      { libraryId: MOCK_LIBRARY_ID, context: { locationId: SHELF_1, status: 'wishlist', mediaHint: 'games', channel: 'home', autoAddConfident: false } },
+      { libraryId: MOCK_LIBRARY_ID, context: { locationId: SHELF_1, status: 'wishlist', mediaHint: 'games', channel: 'home' } },
     ]);
     expect(loadSessionMemory(MOCK_LIBRARY_ID)).toEqual({ locationId: SHELF_1, status: 'wishlist' });
   });
 
   it('saving in-store defers the location and leaves the last home spot alone', async () => {
-    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'owned', mediaHint: 'mixed', channel: 'home' });
     const saved = await open(defaultSessionContext(MOCK_LIBRARY_ID));
 
     await press('In-store');
@@ -77,29 +77,21 @@ describe('session sheet', () => {
     await press('Save');
 
     expect(saved).toEqual([
-      { libraryId: MOCK_LIBRARY_ID, context: { locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'in_store', autoAddConfident: false } },
+      { libraryId: MOCK_LIBRARY_ID, context: { locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'in_store' } },
     ]);
     expect(loadSessionMemory(MOCK_LIBRARY_ID)).toEqual({ locationId: SHELF_1, status: 'owned' });
   });
 
-  it('opts into auto-adding confident matches for this session only', async () => {
-    const saved = await open();
+  it('offers no auto-add: every scan waits for Review (#452)', async () => {
+    await open();
 
-    expect(screen.getByLabelText('Auto-add confident matches').props.accessibilityState.selected).toBe(false);
-    await press('Auto-add confident matches');
-    expect(screen.getByLabelText('Auto-add confident matches').props.accessibilityState.selected).toBe(true);
-    await press('Save');
-
-    expect(saved).toEqual([
-      { libraryId: MOCK_LIBRARY_ID, context: { locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: true } },
-    ]);
-    expect(loadSessionMemory(MOCK_LIBRARY_ID)).toEqual({ locationId: null, status: 'owned' });
-    expect(defaultSessionContext(MOCK_LIBRARY_ID).autoAddConfident).toBe(false);
+    expect(screen.queryByLabelText('Auto-add confident matches')).toBeNull();
+    expect(screen.queryByText('Auto-add')).toBeNull();
   });
 
   it('switching library loads that library\u2019s remembered spot', async () => {
     mockAccount.libraries.push({ id: LIB_B, name: "Sam's library", role: 'viewer' });
-    rememberSessionContext(LIB_B, { locationId: null, status: 'wishlist', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
+    rememberSessionContext(LIB_B, { locationId: null, status: 'wishlist', mediaHint: 'mixed', channel: 'home' });
     const saved = await open();
 
     await press(`Library: Cory's library. Change`);
@@ -109,7 +101,7 @@ describe('session sheet', () => {
 
     await press('Save');
     expect(saved).toEqual([
-      { libraryId: LIB_B, context: { locationId: null, status: 'wishlist', mediaHint: 'mixed', channel: 'home', autoAddConfident: false } },
+      { libraryId: LIB_B, context: { locationId: null, status: 'wishlist', mediaHint: 'mixed', channel: 'home' } },
     ]);
     expect(useLibraryStore.getState().activeLibraryId).toBe(LIB_B);
   });
