@@ -64,9 +64,24 @@ hub room, 40 covers, committed pacing probe in `mall.spec.ts`):
   | bookstore | 316 KB | 7268 | 18 | 5 |
   | mall_hub | 361 KB | 8768 | 29 | 5 |
 
-- Cost: `three` (647 KB unminified, web bundle only — the native app never
-  imports it) and `expo-asset` (SDK-pinned, resolves the room files). No new
-  native modules. Bundle delta vs main was not measured; that is follow-up #421.
+- Cost: `three` (web bundle only — the native app never imports it) and
+  `expo-asset` (SDK-pinned, resolves the room files). No new native modules.
+  Bundle delta vs main, measured in #421 (`npm run build:web`, i.e.
+  `expo export --platform web`, after `npm ci` + `npm run generate` on each
+  side; spike at 9b30fea, parent at c585b92 via `git archive`):
+  - `dist/` total 6,378,209 → 8,435,609 bytes (+2,057,400, +32%), 108 → 112
+    files.
+  - JS +862,212 bytes, all in the shared `index-*.js` bundle (3,039,181 →
+    3,901,393; every other chunk byte-identical); three.js markers in that
+    bundle 0 → 52. Gzip of the shared bundle 743,264 → 948,196 (+204,932).
+  - Per route: 46 HTML files byte-identical on every route (1,012,427 bytes
+    both sides) — the delta is the shared JS plus assets, not route shells.
+  - Room GLBs +1,195,188 bytes in 4 on-demand asset files (mall_hub 369,280,
+    bookstore 323,928, toy_store 275,580, video_store 226,400).
+  - The JS delta (862,212) plus the GLBs (1,195,188) accounts for the total
+    (2,057,400) exactly. Every web route loads the three.js weight even
+    without visiting the Mall, so lazy-loading the 3D room on first Mall
+    visit is follow-up #423.
 
 CI calibration (PR #422 round 1): the same probe on CI's 2-core shared
 runners (two specs in parallel) reports 40 frames over 3 s, median
@@ -190,7 +205,11 @@ Cory's go/no-go:
   feel report.
 - #420 — Location-grouped castle shelves (reorders vs the guardrail — needs
   Cory's explicit call). Depends on: go for Castle.
-- #421 — Measure the web bundle delta vs main. Depends on nothing.
+- #421 — Measure the web bundle delta vs main. Depends on nothing. Done;
+  numbers are in the route A section above.
+- #423 — Lazy-load the web 3D room on first Mall visit (dynamic-import the
+  three.js canvas so non-Mall routes keep the pre-spike bundle). Depends on:
+  go for Mall.
 
 ## What Cory gets back to us
 
