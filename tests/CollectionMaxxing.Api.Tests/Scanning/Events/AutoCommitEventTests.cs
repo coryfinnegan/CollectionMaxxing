@@ -29,7 +29,7 @@ public class AutoCommitEventTests : ScanTest
         var code = ScanData.Upc(34150);
         await CatalogAsync("T0 game", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         await using var events = await SseClient.ConnectAsync(editor, EventsUrl(sessionId));
 
         await ScanAsync(editor, sessionId, code);
@@ -67,7 +67,7 @@ public class AutoCommitEventTests : ScanTest
         };
         Games.Results.Add(ScanData.Game("Wave Race 64"));
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         await using var events = await SseClient.ConnectAsync(editor, EventsUrl(sessionId));
 
         var candidates = await ScanAsync(editor, sessionId, code);
@@ -95,7 +95,7 @@ public class AutoCommitEventTests : ScanTest
         var code = ScanData.Upc(34151);
         await CatalogAsync("T0 game", code);
         using var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         await ScanAsync(editor, sessionId, code);
 
         var candidates = (await GetSessionAsync(editor, sessionId, 0)).GetProperty("candidates").EnumerateArray().ToList();

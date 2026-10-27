@@ -80,14 +80,17 @@ function reviewRows(): CandidateDto[] {
       alreadyOwnedCount: 1,
       ownedAt: ['Living room › Shelf 2'],
     }),
+    // The barcode row (#452): resolved at scan time with its match preselected, waiting for the commit.
     candidate({
       id: 'e2e00000-0000-4000-8000-000000000014',
       seq: 4,
       changeSeq: 4,
-      source: 'picture_text',
-      visibleText: 'Super Mario 64',
-      localId: 'seed-ready',
+      source: 'barcode',
+      shotKind: 'barcode',
+      rawCode: '045496730647',
       resolution: 'matched',
+      tier: 'T0',
+      decision: 'accepted',
       release: release(2, 'Super Mario 64', { format: 'game_cartridge' }),
     }),
     candidate({
@@ -119,7 +122,6 @@ function seedSnaps(): void {
     'seed-pick': thumb(ART.Y2!),
     'seed-lost': thumb(ART.D1!),
     'seed-owned': thumb(ART.D2!),
-    'seed-ready': thumb(ART.M!),
     'seed-waiting': thumb(ART.S!),
   };
   getPipelineStore().getState().addSnap({

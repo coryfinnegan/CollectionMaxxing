@@ -60,7 +60,7 @@ public static class CreateScanSession
                 DefaultStatus = command.DefaultStatus,
                 MediaHint = command.MediaHint ?? ScanMediaHint.Mixed,
                 Channel = command.Channel ?? ScanChannel.Home,
-                AutoCommitTiers = command.AutoCommitTiers?.Distinct().Select(EnumText.ToText).ToArray() ?? [EnumText.ToText(ScanTier.T0)],
+                AutoCommitTiers = command.AutoCommitTiers?.Distinct().Select(EnumText.ToText).ToArray() ?? [],
                 AutoCommitCopies = command.AutoCommitCopies,
                 CreatedAt = clock.GetUtcNow(),
             };

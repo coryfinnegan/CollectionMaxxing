@@ -7,7 +7,8 @@ using CollectionMaxxing.TestSupport;
 namespace CollectionMaxxing.Api.Tests.Scanning;
 
 // Issue #341: the T0 tier matrix. A barcode-proof hit (a normalized identifier resolving to exactly one release,
-// learned or provider) auto-adds with tier T0; anything else lands T2 for the person.
+// learned or provider) auto-adds with tier T0 when the session opts in; anything else lands T2 for the person.
+// Since #452 nothing auto-adds by default: every capture waits for the Review commit.
 public class AutoCommitTierTests : ScanTest
 {
     public AutoCommitTierTests(ApiFixture api)
@@ -28,7 +29,7 @@ public class AutoCommitTierTests : ScanTest
         var code = ScanData.Upc(34101);
         var releaseId = await CatalogAsync("T0 game", code);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
 
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
 
@@ -51,7 +52,7 @@ public class AutoCommitTierTests : ScanTest
         Products.Know(code, ScanData.Product("Wave Race 64", code));
         Games.Results.Add(ScanData.Game("Wave Race 64"));
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
 
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
 
@@ -106,7 +107,7 @@ public class AutoCommitTierTests : ScanTest
         var code = ScanData.Upc(34105);
         var (releaseId, _) = await OwnAsync(library, "Owned game", code);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id, new { autoCommitCopies = true });
+        var sessionId = await StartSessionAsync(editor, library.Id, new { autoCommitTiers = new[] { "T0" }, autoCommitCopies = true });
 
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
 
@@ -116,6 +117,37 @@ public class AutoCommitTierTests : ScanTest
         var items = await ScanReaders.ItemsAsync(Db, library.Id);
         items.Count.ShouldBe(2);
         items.ShouldAllBe(i => i.ReleaseId == releaseId);
+    }
+
+    [Fact]
+    public async Task Unique_hit_waits_in_review_with_nothing_added_by_default()
+    {
+        // Issue #452: nothing enters the library straight from a scan. A barcode-proof hit resolves at scan time
+        // (the match preselected) and waits for the Review commit, which is what creates the item.
+        var library = await CreateLibraryAsync();
+        var code = ScanData.Upc(45201);
+        var releaseId = await CatalogAsync("Review game", code);
+        var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+
+        var candidate = (await ScanAsync(editor, sessionId, code))[0];
+
+        Resolution(candidate).ShouldBe("matched");
+        Tier(candidate).ShouldBe("T0");
+        Decision(candidate).ShouldBe("accepted");
+        CreatedItemId(candidate).ShouldBeNull();
+        candidate.GetProperty("release").GetProperty("id").GetGuid().ShouldBe(releaseId);
+        (await CountItemsAsync(library.Id)).ShouldBe(0);
+        var counters = (await GetSessionAsync(editor, sessionId)).GetProperty("counters");
+        counters.GetProperty("added").GetInt32().ShouldBe(0);
+        counters.GetProperty("toReview").GetInt32().ShouldBe(1);
+
+        var commit = await CommitAsync(editor, sessionId);
+        commit.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ReadJsonAsync(commit)).GetProperty("created").GetInt32().ShouldBe(1);
+        var items = await ScanReaders.ItemsAsync(Db, library.Id);
+        items.Count.ShouldBe(1);
+        items[0].ReleaseId.ShouldBe(releaseId);
     }
 
     [Fact]
@@ -189,7 +221,7 @@ public class AutoCommitTierTests : ScanTest
     }
 
     [Fact]
-    public async Task Session_defaults_to_T0_without_copies()
+    public async Task Session_defaults_to_no_auto_add_without_copies()
     {
         var library = await CreateLibraryAsync();
         var editor = As(library, LibraryRole.Editor);
@@ -197,7 +229,7 @@ public class AutoCommitTierTests : ScanTest
 
         var session = await GetSessionAsync(editor, sessionId);
 
-        session.GetProperty("autoCommitTiers").EnumerateArray().Select(e => e.GetString()).ShouldBe(["T0"]);
+        session.GetProperty("autoCommitTiers").EnumerateArray().ShouldBeEmpty();
         session.GetProperty("autoCommitCopies").GetBoolean().ShouldBeFalse();
     }
 
@@ -219,7 +251,7 @@ public class AutoCommitTierTests : ScanTest
         var code = ScanData.Upc(34110);
         await CatalogAsync("T0 game", code);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
         CreatedItemId(candidate).ShouldNotBeNull();
 
@@ -238,7 +270,7 @@ public class AutoCommitTierTests : ScanTest
         var other = ScanData.Upc(34112);
         await CatalogAsync("Other game", other);
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id);
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
         CreatedItemId(candidate).ShouldNotBeNull();
 
