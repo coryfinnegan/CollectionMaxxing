@@ -183,12 +183,19 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
         };
     }
 
+    /// <summary>
+    /// The edition's binding in our taxonomy: null when the edition does not name one (unknown, never Other),
+    /// <see cref="ReleaseFormat.Other"/> only when it names something that fits no category (an audiobook disc).
+    /// </summary>
     private static ReleaseFormat? FormatOf(string? physicalFormat) => physicalFormat?.ToLowerInvariant() switch
     {
         null => null,
+        var f when string.IsNullOrWhiteSpace(f) => null,
         var f when f.Contains("mass market", StringComparison.Ordinal) => ReleaseFormat.MassMarket,
         var f when f.Contains("hardcover", StringComparison.Ordinal) || f.Contains("hardback", StringComparison.Ordinal) => ReleaseFormat.Hardcover,
         var f when f.Contains("paperback", StringComparison.Ordinal) || f.Contains("softcover", StringComparison.Ordinal) => ReleaseFormat.Paperback,
-        _ => null,
+        var f when f.Contains("board book", StringComparison.Ordinal) || f.Contains("boardbook", StringComparison.Ordinal) => ReleaseFormat.BoardBook,
+        var f when f.Contains("spiral", StringComparison.Ordinal) => ReleaseFormat.SpiralBound,
+        _ => ReleaseFormat.Other,
     };
 }
