@@ -6,7 +6,6 @@ import type {
   ReleaseFormat,
   WorkKind,
 } from '@/api/generated/models';
-import type { BannerMedium } from '@/ui/castle';
 
 export const kindLabels: Record<WorkKind, string> = {
   game: 'Games',
@@ -59,10 +58,6 @@ export const completenessLabels: Record<Present<ItemCompleteness>, string> = {
   no_manual: 'No manual',
   n_a: 'Not applicable',
 };
-
-/** The heraldic banner cloth for a kind (#363): TV rides with movies, Other stays iron. */
-export const bannerMediumForKind = (kind: WorkKind): BannerMedium | undefined =>
-  kind === 'book' ? 'book' : kind === 'game' ? 'game' : kind === 'film' || kind === 'tv' ? 'film' : undefined;
 
 export const kinds = Object.keys(kindLabels) as WorkKind[];
 export const formats = Object.keys(formatLabels) as ReleaseFormat[];

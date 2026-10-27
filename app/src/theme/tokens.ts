@@ -46,61 +46,6 @@ export const fixed = {
   scrim: source.fixed.scrim,
 };
 
-/** The castle day palette (#361, #363): the frame in a light scheme; the dark theme reads castleDark. */
-export const castle = {
-  parchment: source.castle.parchment,
-  parchmentInk: source.castle.parchmentInk,
-  stone: source.castle.stone,
-  stoneInk: source.castle.stoneInk,
-  brass: source.castle.brass,
-  iron: source.castle.iron,
-  ironInk: source.castle.ironInk,
-  olive: source.castle.olive,
-  bannerBook: source.castle.bannerBook,
-  bannerGame: source.castle.bannerGame,
-  bannerFilm: source.castle.bannerFilm,
-};
-
-export type CastlePalette = typeof castle;
-
-/** The castle torchlit-night palette (#363): the frame in a dark scheme. Same keys as the day palette. */
-export const castleDark: CastlePalette = {
-  parchment: source.castleDark.parchment,
-  parchmentInk: source.castleDark.parchmentInk,
-  stone: source.castleDark.stone,
-  stoneInk: source.castleDark.stoneInk,
-  brass: source.castleDark.brass,
-  iron: source.castleDark.iron,
-  ironInk: source.castleDark.ironInk,
-  olive: source.castleDark.olive,
-  bannerBook: source.castleDark.bannerBook,
-  bannerGame: source.castleDark.bannerGame,
-  bannerFilm: source.castleDark.bannerFilm,
-};
-
-/** The dragon mascot palette (#365): fixed like the castle, so the same art holds in light and dark. */
-export const mascot = {
-  body: source.mascot.body,
-  belly: source.mascot.belly,
-  spike: source.mascot.spike,
-  ink: source.mascot.ink,
-  cover: source.mascot.cover,
-  page: source.mascot.page,
-  pupil: source.mascot.pupil,
-  smoke: source.mascot.smoke,
-};
-
-/** The Mall room palette (#357): fixed like the castle, so the rooms match their Blender bases in both schemes. */
-export const mallPalette = {
-  video: { ...source.mall.video },
-  toy: { ...source.mall.toy },
-  book: { ...source.mall.book },
-  hub: { ...source.mall.hub },
-  spines: [...source.mall.spines],
-};
-
-export type MallRoomPalette = keyof Omit<typeof mallPalette, 'spines'>;
-
 export const spacing = source.spacing;
 export const radius = source.radius;
 
@@ -116,8 +61,6 @@ type TypeScale = Record<string, TypeEntry> & {
   label: TypeEntry;
   caption: TypeEntry;
   mono: TypeEntry;
-  /** Castle display titles (#361): Cinzel, 20pt and above only. */
-  castleDisplay: TypeEntry;
 };
 
 export const typeScale = source.type as TypeScale;

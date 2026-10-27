@@ -115,8 +115,8 @@ describe('Settings > Appearance', () => {
     await renderWithProviders(<SettingsScreen />);
     expect(await screen.findByText('Appearance')).toBeTruthy();
     expect(screen.queryByText('App icon')).toBeNull();
-    expect(screen.getByText('Castle theme')).toBeTruthy();
-    expect(screen.getByText('Dragon appearances')).toBeTruthy();
+    expect(screen.queryByText('Castle theme')).toBeNull();
+    expect(screen.queryByText('Library design')).toBeNull();
     expect(screen.getByText('Light or dark')).toBeTruthy();
   });
 });

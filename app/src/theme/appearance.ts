@@ -1,7 +1,8 @@
-// The display appearance choice (#363): Light, Dark, or follow the System. Kept on
-// this device; RootFrame applies it at startup and the Settings screen applies it
-// live. The effective scheme drives useColors, the navigator theme, and the
-// castle's day and torchlit-night art together, so they can never disagree.
+// The display appearance choice (#363, #426): Light, Dark, or follow the System.
+// Kept on this device; the Unistyles config reads it synchronously for the first
+// paint and RootFrame plus the Settings screen apply later changes live. The
+// effective scheme drives useColors and the navigator theme together, so they
+// can never disagree.
 import { useColorScheme } from 'react-native';
 import { UnistylesRuntime } from 'react-native-unistyles';
 import { create } from 'zustand';
@@ -34,9 +35,18 @@ export const setAppearanceStorage = (next: StringStore | undefined) => {
   storage = next;
 };
 
-const readChoice = (): AppearanceChoice => {
-  const stored = getAppearanceStorage().getString(KEY);
-  return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+/**
+ * The kept choice, read synchronously: the Unistyles config calls this for the
+ * first paint. Storage can throw where there is none (the static prerender),
+ * so anything unreadable falls back to System; RootFrame applies the live value.
+ */
+export const readAppearanceChoice = (): AppearanceChoice => {
+  try {
+    const stored = getAppearanceStorage().getString(KEY);
+    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+  } catch {
+    return 'system';
+  }
 };
 
 type AppearanceState = { choice: AppearanceChoice; set(choice: AppearanceChoice): void; reload(): void };
@@ -48,7 +58,7 @@ export const useAppearanceChoice = create<AppearanceState>((set) => ({
     getAppearanceStorage().set(KEY, choice);
     set({ choice });
   },
-  reload: () => set({ choice: readChoice() }),
+  reload: () => set({ choice: readAppearanceChoice() }),
 }));
 
 /** The scheme the app paints: the choice, or the system scheme while it is still loading. */

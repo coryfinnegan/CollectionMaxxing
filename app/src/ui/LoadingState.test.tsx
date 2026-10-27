@@ -1,6 +1,4 @@
 import { render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
-import { lightColors } from '@/theme/tokens';
 import { LoadingState } from './LoadingState';
 
 describe('LoadingState', () => {
@@ -19,10 +17,5 @@ describe('LoadingState', () => {
   it('announces status-like loading when asked', async () => {
     await render(<LoadingState label="Your export is waiting to start." alert />);
     expect(screen.getByRole('alert')).toBeTruthy();
-  });
-
-  it('sets the label in full ink for textured grounds when asked', async () => {
-    await render(<LoadingState label="Loading your library…" labelTone="ink" />);
-    expect(StyleSheet.flatten(screen.getByText('Loading your library…').props.style).color).toBe(lightColors.ink);
   });
 });
