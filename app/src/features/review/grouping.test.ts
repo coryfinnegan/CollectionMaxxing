@@ -1,5 +1,17 @@
 import type { CandidateDto, ReleaseDto } from '@/api/generated/models';
-import { alternativesOf, defaultChecked, groupCandidates, groupOf, isAggregated, reviewable, unresolvedTitleOf } from './grouping';
+import {
+  alternativeCoverOf,
+  alternativesOf,
+  defaultChecked,
+  groupCandidates,
+  groupOf,
+  isAggregated,
+  ownedCountOf,
+  platformNameOf,
+  preselectedOf,
+  reviewable,
+  unresolvedTitleOf,
+} from './grouping';
 import { candidate, release } from './testData';
 
 // #435: the alternatives the server actually sends (CandidateAlternativeDto): a releaseId plus flat fields.
@@ -8,13 +20,13 @@ const wireAlternatives = (titles: string[]) =>
     releaseId: `01a17d15-8eb5-7fea-ae3e-b36a8d89d55${i}`,
     title,
     format: 'other',
-    platform: null,
+    platform: null as string | null,
     year: 2001 + i,
     score: 0.78125,
     creators: ['Lisa Kleypas'],
-    coverUrl: null,
+    coverUrl: null as string | null,
     alreadyOwnedCount: 0,
-    artworkUrl: null,
+    artworkUrl: null as string | null,
   }));
 
 describe('grouping', () => {
@@ -93,6 +105,54 @@ describe('grouping', () => {
       ['01a17d15-8eb5-7fea-ae3e-b36a8d89d550', 'Suddenly You', 2001],
       ['01a17d15-8eb5-7fea-ae3e-b36a8d89d551', 'Suddenly You', 2002],
     ]);
+  });
+
+  it('reads the platform name off either alternative shape (#440)', () => {
+    const wire = wireAlternatives(['Suddenly You'])[0]!;
+    wire.platform = 'Nintendo 64';
+    const [flat] = alternativesOf(candidate({ alternatives: [wire] as never }));
+    expect(platformNameOf(flat!)).toBe('Nintendo 64');
+    const [noPlatform] = alternativesOf(candidate({ alternatives: wireAlternatives(['Suddenly You']) as never }));
+    expect(platformNameOf(noPlatform!)).toBeNull();
+    const full = release(1, 'Dune', { platform: { id: 'p1', name: 'Nintendo 64', shortName: 'N64', manufacturer: 'Nintendo' } });
+    const [object] = alternativesOf(candidate({ alternatives: [full] as never }));
+    expect(platformNameOf(object!)).toBe('Nintendo 64');
+    const [bare] = alternativesOf(candidate({ alternatives: [release(2, 'Dune')] as never }));
+    expect(platformNameOf(bare!)).toBeNull();
+  });
+
+  it('reads the catalog art: the cover first, the provider artwork next, nothing when neither (#440)', () => {
+    const wire = wireAlternatives(['A', 'B', 'C']);
+    wire[0]!.coverUrl = 'https://covers.example/a.jpg';
+    wire[0]!.artworkUrl = 'https://art.example/a.jpg';
+    wire[1]!.artworkUrl = 'https://art.example/b.jpg';
+    const [first, second, third] = alternativesOf(candidate({ alternatives: wire as never }));
+    expect(alternativeCoverOf(first!)).toBe('https://covers.example/a.jpg');
+    expect(alternativeCoverOf(second!)).toBe('https://art.example/b.jpg');
+    expect(alternativeCoverOf(third!)).toBeNull();
+    const full = release(1, 'Dune', { coverUrl: 'https://covers.example/dune.jpg' });
+    const [object] = alternativesOf(candidate({ alternatives: [full] as never }));
+    expect(alternativeCoverOf(object!)).toBe('https://covers.example/dune.jpg');
+  });
+
+  it('reads how many copies are already owned off a wire alternative, else none (#440)', () => {
+    const wire = wireAlternatives(['Suddenly You'])[0]!;
+    wire.alreadyOwnedCount = 2;
+    const [flat] = alternativesOf(candidate({ alternatives: [wire] as never }));
+    expect(ownedCountOf(flat!)).toBe(2);
+    const [full] = alternativesOf(candidate({ alternatives: [release(1, 'Dune')] as never }));
+    expect(ownedCountOf(full!)).toBe(0);
+  });
+
+  it('reads the engine preselection only when it names a real alternative (#440)', () => {
+    const wire = wireAlternatives(['Suddenly You', 'Suddenly You']);
+    const suggested = candidate({ alternatives: wire as never, suggestedReleaseId: wire[1]!.releaseId, suggestionReason: 'Cover match' } as never);
+    expect(preselectedOf(suggested)).toEqual({ releaseId: wire[1]!.releaseId, reason: 'Cover match' });
+    const noReason = candidate({ alternatives: wire as never, suggestedReleaseId: wire[0]!.releaseId } as never);
+    expect(preselectedOf(noReason)).toEqual({ releaseId: wire[0]!.releaseId, reason: null });
+    expect(preselectedOf(candidate({ alternatives: wire as never }))).toBeNull();
+    expect(preselectedOf(candidate({ alternatives: wire as never, suggestedReleaseId: '8098d60b-a5a8-4ff1-9942-f0a1fdfd6024' } as never))).toBeNull();
+    expect(preselectedOf(candidate({ alternatives: null, suggestedReleaseId: wire[0]!.releaseId } as never))).toBeNull();
   });
 
   it('names an unresolved candidate from the catalog first, the read guess next, never the raw text (#435)', () => {

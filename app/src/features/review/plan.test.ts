@@ -1,8 +1,10 @@
-import { addCount, addLabel, commitBody, committable, effective, emptyDraft, type Draft } from './plan';
+import { addCount, addLabel, commitBody, committable, effective, emptyDraft, picked, selectedPick, type Draft } from './plan';
 import { candidate, release } from './testData';
 
 const ready = (id: string, n: number) => candidate({ id, release: release(n, `Title ${n}`) });
 const owned = (id: string, n: number) => candidate({ id, release: release(n, `Title ${n}`), alreadyOwnedCount: 1 });
+const editions = [release(10, 'Suddenly You', { year: 2001 }), release(11, 'Suddenly You', { year: 2003 })];
+const pick = (id: string) => candidate({ id, resolution: 'ambiguous', release: release(9, 'Guess'), alternatives: editions as never });
 
 describe('review plan', () => {
   it('counts exactly the checked rows', () => {
@@ -22,6 +24,41 @@ describe('review plan', () => {
     ];
     const draft: Draft = { ...emptyDraft(), checked: { p: true, n: true, w: true } };
     expect(committable(list, draft).map((c) => c.id)).toEqual(['a']);
+    expect(addCount(list, draft)).toBe(1);
+  });
+
+  it('counts a staged pick-one selection, beside the checked rows (#440)', () => {
+    const list = [ready('a', 1), pick('p')];
+    expect(addCount(list, emptyDraft())).toBe(1);
+    const draft: Draft = { ...emptyDraft(), picks: { p: editions[1]!.id } };
+    expect(selectedPick(draft, list[1]!)).toBe(editions[1]);
+    expect(picked(list, draft).map((c) => c.id)).toEqual(['p']);
+    expect(addCount(list, draft)).toBe(2);
+    // The commit resolves staged picks first; they are not committable as they stand.
+    expect(committable(list, draft).map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('counts the engine preselection until the person picks another edition (#440)', () => {
+    const row = candidate({
+      id: 'p',
+      resolution: 'ambiguous',
+      release: release(9, 'Guess'),
+      alternatives: editions as never,
+      suggestedReleaseId: editions[0]!.id,
+      suggestionReason: 'Cover match',
+    } as never);
+    expect(selectedPick(emptyDraft(), row)).toBe(editions[0]);
+    expect(addCount([row], emptyDraft())).toBe(1);
+    const changed: Draft = { ...emptyDraft(), picks: { p: editions[1]!.id } };
+    expect(selectedPick(changed, row)).toBe(editions[1]);
+  });
+
+  it('ignores staged picks that name no real alternative, or no pick-one row (#440)', () => {
+    const list = [pick('p'), ready('a', 1)];
+    const draft: Draft = { ...emptyDraft(), picks: { p: '8098d60b-a5a8-4ff1-9942-f0a1fdfd6024', a: editions[0]!.id } };
+    expect(selectedPick(draft, list[0]!)).toBeNull();
+    expect(selectedPick(draft, list[1]!)).toBeNull();
+    expect(picked(list, draft)).toEqual([]);
     expect(addCount(list, draft)).toBe(1);
   });
 

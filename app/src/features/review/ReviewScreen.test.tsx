@@ -272,12 +272,143 @@ describe('Review screen', () => {
     expect(screen.getByLabelText('Add Super Mario 64').props.accessibilityState.checked).toBe(true);
   });
 
-  it('choosing an alternative sends that release', async () => {
+  it('selecting an edition stages it, and Add sends that release with the one commit (#440)', async () => {
     seed([pick()]);
     await open();
-    fireEvent.press(await screen.findByLabelText('Aliens (1986) DVD'));
+    await screen.findByLabelText('Add 0 items'); // nothing selected yet
+    await press('Select Aliens (1986), DVD');
+    expect(screen.getByLabelText('Add 1 item')).toBeTruthy();
+    expect(screen.queryByLabelText('Aliens (1986) DVD')).toBeNull(); // the bare pick button is gone
+    fireEvent.press(screen.getByLabelText('Add 1 item'));
     await waitFor(() => expect(scanMock.sessions.get(SESSION)!.candidates[0]!.release?.id).toBe(alien[1]!.id));
-    await screen.findByText('Ready · 1');
+    await screen.findByText('Added 1 item');
+  });
+
+  it('moves the one selection when another edition is tapped (#440)', async () => {
+    seed([pick()]);
+    await open();
+    await press('Select Alien (1979), DVD');
+    expect(screen.getByLabelText('Select Alien (1979), DVD').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('Add 1 item')).toBeTruthy();
+    await press('Select Alien 3 (1992), DVD');
+    expect(screen.getByLabelText('Select Alien (1979), DVD').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByLabelText('Select Alien 3 (1992), DVD').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('Add 1 item')).toBeTruthy(); // still one selection
+  });
+
+  it('counts staged selections across rows in Add N (#440)', async () => {
+    const second = candidate({
+      resolution: 'ambiguous',
+      release: release(31, 'Dune'),
+      alternatives: [release(31, 'Dune', { year: 1990 }), release(32, 'Dune', { year: 2021, format: 'bluray' })] as never,
+    });
+    seed([pick(), second, mario()]);
+    await open();
+    await screen.findByText('Pick one · 2');
+    expect(screen.getByLabelText('Add 1 item')).toBeTruthy(); // only the ready row
+    await press('Select Aliens (1986), DVD');
+    expect(screen.getByLabelText('Add 2 items')).toBeTruthy();
+    await press('Select Dune (2021), Blu-ray');
+    expect(screen.getByLabelText('Add 3 items')).toBeTruthy();
+  });
+
+  it('adds nothing when a staged pick cannot be saved (#440)', async () => {
+    seed([pick()]);
+    server.use(http.patch('*/api/v1/scan-sessions/:id/candidates/:cid', () => HttpResponse.error()));
+    await open();
+    await press('Select Aliens (1986), DVD');
+    fireEvent.press(screen.getByLabelText('Add 1 item'));
+    await screen.findByText(/Nothing was added/);
+    expect(reviewMock.commits).toHaveLength(0);
+    expect(screen.getByLabelText('Select Aliens (1986), DVD').props.accessibilityState.selected).toBe(true); // still staged
+  });
+
+  it('shows each edition with its cover, author, and edition facts (#440)', async () => {
+    const editions = [
+      release(21, 'Suddenly You', {
+        year: 2001,
+        format: 'paperback',
+        creators: ['Lisa Kleypas'],
+        publisher: 'Avon',
+        edition: 'First edition',
+        coverUrl: 'https://covers.example/su-2001.jpg',
+      }),
+      release(22, 'Suddenly You', { year: 2003, format: 'paperback', creators: ['Lisa Kleypas'], publisher: 'Avon' }),
+    ];
+    seed([candidate({ resolution: 'ambiguous', release: editions[0], alternatives: editions as never })]);
+    await open();
+    await screen.findByText('Pick one · 1');
+    expect(screen.getByLabelText('Cover of Suddenly You (2001), Paperback, First edition, Avon')).toBeTruthy();
+    expect(screen.getByText('Lisa Kleypas · 2001 · Paperback · First edition · Avon')).toBeTruthy();
+    expect(screen.getByLabelText('Select Suddenly You (2003), Paperback, Avon')).toBeTruthy();
+    expect(screen.queryByLabelText('Cover of Suddenly You (2003), Paperback, Avon')).toBeNull(); // no art, no crop: a plain tile, not a text stand-in
+  });
+
+  it('falls back to the captured crop when the catalog has no art (#440)', async () => {
+    const row = candidate({ resolution: 'ambiguous', release: alien[0], alternatives: alien as never, localId: 'item-9', source: 'picture_text', visibleText: 'Alien' });
+    seed([row]);
+    getPipelineStore().getState().addSnap({
+      snapId: 'snap-1',
+      libraryId: MOCK_LIBRARY_ID,
+      trigger: 'shutter',
+      createdAt: 1,
+      thumbUri: 'file:///tmp/snap.jpg',
+      phase: 'read',
+      sent: true,
+      sessionId: SESSION,
+      items: [{ localId: 'item-9', text: 'Alien', title: 'Alien', payload: { localId: 'item-9', text: 'Alien' }, thumbUri: 'file:///tmp/crop.jpg' }],
+      unreadableCount: 0,
+    });
+    await open();
+    await screen.findByText('Pick one · 1');
+    // Every option shows an image (the catalog has no art, the crop stands in): no text tiles.
+    expect(await screen.findByLabelText('Cover of Alien (1979), DVD')).toBeTruthy();
+    expect(screen.getByLabelText('Cover of Aliens (1986), DVD')).toBeTruthy();
+    expect(screen.getByLabelText('Cover of Alien 3 (1992), DVD')).toBeTruthy();
+  });
+
+  it('shows the engine preselection with its reason, changed with one tap (#440)', async () => {
+    seed([
+      candidate({
+        resolution: 'ambiguous',
+        release: alien[0],
+        alternatives: alien as never,
+        suggestedReleaseId: alien[1]!.id,
+        suggestionReason: 'Cover match',
+      } as never),
+    ]);
+    await open();
+    await screen.findByText('Pick one · 1');
+    expect(screen.getByLabelText('Select Aliens (1986), DVD').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByText('Cover match')).toBeTruthy();
+    expect(screen.getByLabelText('Add 1 item')).toBeTruthy();
+    await press('Select Alien (1979), DVD');
+    expect(screen.getByLabelText('Select Aliens (1986), DVD').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByText('Cover match')).toBeTruthy(); // the reason stays with the suggested edition
+    expect(screen.getByLabelText('Add 1 item')).toBeTruthy();
+  });
+
+  it('keeps the secondary paths in one compact row on a pick (#440)', async () => {
+    seed([pick()]);
+    await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={jest.fn()} onScanBarcode={jest.fn()} onSnapCover={jest.fn()} />);
+    await screen.findByText('Pick one · 1');
+    for (const label of ['Details for Alien', 'Keep Alien as unverified', 'Skip Alien', 'Scan barcode for Alien', 'Snap cover for Alien']) {
+      expect(screen.getByLabelText(label)).toBeTruthy();
+    }
+    await press('Details for Alien');
+    expect(screen.getByLabelText('Condition Good')).toBeTruthy();
+  });
+
+  it('offers a viewer the edition rows without selection or secondary actions (#440)', async () => {
+    asViewer();
+    seed([pick()]);
+    await open();
+    await screen.findByText('Pick one · 1');
+    await waitFor(() => expect(screen.getByText(/You can look but not add/)).toBeTruthy());
+    expect(screen.getByLabelText('Select Alien (1979), DVD').props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByLabelText('Details for Alien')).toBeTruthy();
+    expect(screen.queryByLabelText(/Keep .* as unverified/)).toBeNull();
+    expect(screen.queryByLabelText(/Skip /)).toBeNull();
   });
 
   it('skipping a pick-one row removes it from the count', async () => {

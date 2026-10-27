@@ -16,7 +16,7 @@ import { commitDraft, discardCandidates, loadIntoCards, patchCandidate, searchCa
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
 import { flushProvisionalOutbox, keepAsUnverified } from './provisionals';
 import { contextWorkIdsFor } from './searchContext';
-import { addCount, commitBody, committable, emptyDraft, isChecked, type Draft, type LineOverride, type ReviewStatus } from './plan';
+import { addCount, commitBody, committable, emptyDraft, isChecked, picked, selectedPick, type Draft, type LineOverride, type ReviewStatus } from './plan';
 
 /** How long the "Added 11 items" toast offers Undo (docs/06 M5). */
 export const UNDO_MS = 10_000;
@@ -110,6 +110,12 @@ export function useReview({
     setDraft((d) => ({ ...d, checked: { ...d.checked, [id]: checked } }));
   }, []);
 
+  /** Stages a pick-one tap: radio behavior, so tapping the selected edition again changes nothing. The commit resolves it. */
+  const select = useCallback((c: CandidateDto, release: ReleaseDto) => {
+    pristine.current = false;
+    setDraft((d) => (d.picks[c.id] === release.id ? d : { ...d, picks: { ...d.picks, [c.id]: release.id } }));
+  }, []);
+
   /** Runs one row's server call with a busy flag and its own friendly error. */
   const onRow = useCallback(async (id: string, action: () => Promise<unknown>) => {
     setRowBusy((b) => ({ ...b, [id]: true }));
@@ -168,12 +174,37 @@ export function useReview({
     inFlight.current = true;
     setCommitting(true);
     setCommitError(null);
-    const chosen = committable(list, draft);
+    // Staged pick-one selections resolve first: each chosen edition PATCHes its row, which lands
+    // matched and checked, so the one commit below adds exactly what Add N counted. A pick that
+    // cannot be saved stops the whole commit: nothing is added then.
+    const flushed: string[] = [];
+    for (const c of picked(list, draft)) {
+      const option = selectedPick(draft, c);
+      if (!option) continue;
+      setRowBusy((b) => ({ ...b, [c.id]: true }));
+      setRowErrors(({ [c.id]: _cleared, ...rest }) => rest);
+      try {
+        await patchCandidate(sessionId, c.id, { releaseId: option.id });
+        flushed.push(c.id);
+        setChecked(c.id, true); // the tap chose this edition: it stays in the commit even when owned
+      } catch (error) {
+        setRowErrors((e) => ({ ...e, [c.id]: friendlyError(error) }));
+        setCommitError('A pick could not be saved. Nothing was added, and your picks are still checked.');
+        setRowBusy((b) => ({ ...b, [c.id]: false }));
+        inFlight.current = false;
+        setCommitting(false);
+        return;
+      }
+      setRowBusy((b) => ({ ...b, [c.id]: false }));
+    }
+    const settled: Draft = { ...draft, checked: { ...draft.checked, ...Object.fromEntries(flushed.map((id) => [id, true])) } };
+    const fresh = reviewable(Object.values(useCardsStore.getState().byId));
+    const chosen = committable(fresh, settled);
     // The key is tied to the exact request: the same key with different options is refused by the server.
-    const signature = `${chosen.map((c) => `${c.id}:${c.copies}`).join(',')}|${JSON.stringify(commitBody(draft, chosen.map((c) => c.id)))}`;
+    const signature = `${chosen.map((c) => `${c.id}:${c.copies}`).join(',')}|${JSON.stringify(commitBody(settled, chosen.map((c) => c.id)))}`;
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: newIdempotencyKey() };
     try {
-      const result = await commitDraft(sessionId, list, draft, attempt.current.key);
+      const result = await commitDraft(sessionId, fresh, settled, attempt.current.key);
       attempt.current = null;
       for (const c of chosen) useCardsStore.getState().remove(c.id);
       store.getState().clear();
@@ -241,10 +272,11 @@ export function useReview({
     isChecked: (c: CandidateDto) => isChecked(draft, c),
     canCheck: (c: CandidateDto) => canAdd && canCommit(c, groupOf(c)),
     toggle: (c: CandidateDto) => setChecked(c.id, !isChecked(draft, c)),
+    pickOf: (c: CandidateDto) => selectedPick(draft, c),
+    select,
     setAddTo: (locationId: string | null) => update({ addTo: locationId }),
     setStatus: (status: ReviewStatus) => update({ status }),
     override,
-    choose: (c: CandidateDto, release: ReleaseDto) => onRow(c.id, () => patchCandidate(requireSession(), c.id, { releaseId: release.id })),
     skip: (c: CandidateDto) => onRow(c.id, () => skipCandidate(requireSession(), c.id)),
     discard: (c: CandidateDto) => onRow(c.id, () => discardCandidates({ libraryId, sessionId: requireSession(), candidates: [c], tray: store })),
     setCopies: (c: CandidateDto, copies: number) => onRow(c.id, () => patchCandidate(requireSession(), c.id, { copies: Math.max(1, copies) })),
