@@ -27,13 +27,17 @@ const pages = [
 // where the native back would have nothing to go back to.
 const pushed = [`/item/${MATRIX}`, `/item/${MATRIX}/edit`, '/review', `/result/${RESULT}`, '/evals'];
 
-async function expectWayBack(page: Page, name: string) {
+async function expectWayBack(page: Page, name: string, chevronOnly = false) {
   const back = page.getByRole('button', { name, exact: true });
   await expect(back).toHaveCount(1);
   await expect(back).toBeVisible();
   const box = (await back.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(44);
   expect(box.height).toBeGreaterThanOrEqual(44);
+  if (chevronOnly) {
+    // Chevron only (#445): spoken as Back, with no Back text rendered.
+    await expect(back).not.toContainText('Back');
+  }
   // No route-group name leaks into a visible header (#372).
   await expect(page.getByText(/\(tabs\)|\(pages\)/)).toHaveCount(0);
 }
@@ -42,14 +46,14 @@ test.describe('way back', () => {
   for (const path of pages) {
     test(`${path} shows one 44px back button`, async ({ page, open }) => {
       await open(path);
-      await expectWayBack(page, 'Back');
+      await expectWayBack(page, 'Back', true);
     });
   }
 
   for (const path of pushed) {
     test(`${path} shows one 44px back button`, async ({ page, open }) => {
       await open(path);
-      await expectWayBack(page, 'Back');
+      await expectWayBack(page, 'Back', true);
     });
   }
 
@@ -89,7 +93,7 @@ test.describe('way back', () => {
     await open('/settings');
     await page.getByRole('button', { name: 'About and privacy' }).click();
     await expect(page).toHaveURL(/\/about$/);
-    await expectWayBack(page, 'Back');
+    await expectWayBack(page, 'Back', true);
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(page).toHaveURL(/\/settings$/);
   });

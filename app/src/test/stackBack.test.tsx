@@ -1,12 +1,18 @@
-// The way-back sweep (#356): every pushed screen inherits a visible back
-// control from its stack layout — the phone header on native, an in-flow row
-// on the web where pages have no header — with an accessible name and a 44pt
+// The way-back sweep (#356, #445): every pushed screen inherits a visible back
+// control from its stack layout — the shared custom header on the phone, the web
+// header or an in-flow row on the web — with an accessible name and a 44pt
 // target, and nowhere to go back to lands on the parent hub instead of
-// stranding the page. The shared layouts also pin the native back label to
-// Back (#372), so it never falls back to a route-group name like (tabs).
+// stranding the page. The control is a chevron glyph alone: the spoken name
+// stays Back, but no Back text renders and no pill background wraps it (a custom
+// header owns the phone bar, so iOS draws no bar-button glass around it). The
+// web layout also pins the native back label to Back (#372), so it never falls
+// back to a route-group name like (tabs); on the phone every pushed screen
+// declares an explicit header title instead, so the custom header cannot fall
+// back to a route name either.
 import { fireEvent } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { Platform, StyleSheet } from 'react-native';
+import { StackBackButton } from '@/components/StackBackButton';
 import { renderWithProviders } from '@/test/render';
 
 const mockRouter = { back: jest.fn(), replace: jest.fn(), push: jest.fn(), navigate: jest.fn(), canGoBack: jest.fn(() => true) };
@@ -67,6 +73,7 @@ afterEach(() => {
   Platform.OS = originalOs;
 });
 
+type Header = (props: { options?: Record<string, unknown> }) => ReactElement;
 type HeaderLeft = (props: object) => ReactElement;
 type Captured = { screens: { name: string; options?: Record<string, unknown> }[]; screenOptions?: Record<string, unknown> };
 
@@ -80,6 +87,14 @@ async function captureLayout(Layout: () => ReactElement): Promise<Captured> {
   return { screens: [...mockCaptured.screens], screenOptions: mockCaptured.screenOptions };
 }
 
+/** The shared phone header a screen resolves: its own option, else the layout's shared one. */
+function headerFor(captured: Captured, screenName: string): Header {
+  const found = captured.screens.find((s) => s.name === screenName);
+  const resolved = (found?.options?.header ?? captured.screenOptions?.header) as Header | undefined;
+  expect(resolved).toBeDefined();
+  return resolved as Header;
+}
+
 function headerLeftFor(captured: Captured, screenName: string): HeaderLeft {
   const found = captured.screens.find((s) => s.name === screenName);
   const resolved = (found?.options?.headerLeft ?? captured.screenOptions?.headerLeft) as HeaderLeft | undefined;
@@ -87,24 +102,62 @@ function headerLeftFor(captured: Captured, screenName: string): HeaderLeft {
   return resolved as HeaderLeft;
 }
 
-/** The native back label a screen resolves: its own option, else the layout's shared one. */
+/** The options the navigator hands the header for a screen. */
+function optionsFor(captured: Captured, screenName: string): Record<string, unknown> {
+  return captured.screens.find((s) => s.name === screenName)?.options ?? {};
+}
+
+/** The native back label a web screen resolves: its own option, else the layout's shared one. */
 function backTitleFor(captured: Captured, screenName: string): unknown {
   const found = captured.screens.find((s) => s.name === screenName);
   return found?.options?.headerBackTitle ?? captured.screenOptions?.headerBackTitle;
 }
 
-async function expectBackButton(headerLeft: HeaderLeft) {
-  const view = await renderWithProviders(headerLeft({}));
+type Rendered = Awaited<ReturnType<typeof renderWithProviders>>;
+
+/** The chevron-only assertions every back control meets, wherever it renders. */
+async function expectChevronBack(view: Rendered) {
   const back = view.getByRole('button', { name: 'Back' });
   const flat = StyleSheet.flatten(back.props.style);
   expect(flat.minHeight).toBeGreaterThanOrEqual(44);
   expect(flat.minWidth).toBeGreaterThanOrEqual(44);
+  // Chevron only (#445): spoken as Back, with no Back text rendered.
+  expect(view.queryByText(/Back/)).toBeNull();
 }
 
-async function pressBack(headerLeft: HeaderLeft) {
+async function expectHeaderBack(header: Header, screenOptions: Record<string, unknown>) {
+  const view = await renderWithProviders(header({ options: screenOptions }));
+  await expectChevronBack(view);
+  // The header names the screen from its explicit title, never a route name.
+  const title = screenOptions.title;
+  expect(typeof title).toBe('string');
+  expect(view.getByText(title as string)).toBeTruthy();
+}
+
+async function expectHeaderLeftBack(headerLeft: HeaderLeft) {
   const view = await renderWithProviders(headerLeft({}));
+  await expectChevronBack(view);
+}
+
+async function pressHeaderBack(header: Header, screenOptions: Record<string, unknown>) {
+  const view = await renderWithProviders(header({ options: screenOptions }));
   await fireEvent.press(view.getByRole('button', { name: 'Back' }));
 }
+
+describe('the shared back control', () => {
+  it('is spoken as Back with a 44pt target and no Back text', async () => {
+    const view = await renderWithProviders(<StackBackButton />);
+
+    await expectChevronBack(view);
+  });
+
+  it('renders no button on the scanner: its own Close owns that flow', async () => {
+    mockPathname.current = '/scanner';
+    const view = await renderWithProviders(<StackBackButton />);
+
+    expect(view.queryByRole('button', { name: 'Back' })).toBeNull();
+  });
+});
 
 describe('every pushed page', () => {
   it('registers its screens with the layout, so the sweep below sees them all', async () => {
@@ -117,13 +170,13 @@ describe('every pushed page', () => {
     expect(names.length).toBeGreaterThan(0);
   });
 
-  it('inherits a header back button with an accessible name and a 44pt target', async () => {
+  it('inherits the shared phone header with a chevron back and its own title', async () => {
     const captured = await captureLayout(PagesLayout);
     expect(captured.screens.length).toBeGreaterThan(0);
 
     for (const { name } of captured.screens) {
       mockPathname.current = `/${name}`;
-      await expectBackButton(headerLeftFor(captured, name));
+      await expectHeaderBack(headerFor(captured, name), optionsFor(captured, name));
     }
   });
 
@@ -158,12 +211,12 @@ describe('every pushed root screen', () => {
     for (const name of pushed) expect(names).toContain(name);
   });
 
-  it('inherits a header back button with an accessible name and a 44pt target', async () => {
+  it('inherits the shared phone header with a chevron back and its own title', async () => {
     const captured = await captureLayout(RootLayout);
 
     for (const name of pushed) {
       mockPathname.current = pathnameFor[name];
-      await expectBackButton(headerLeftFor(captured, name));
+      await expectHeaderBack(headerFor(captured, name), optionsFor(captured, name));
     }
   });
 
@@ -175,12 +228,43 @@ describe('every pushed root screen', () => {
     }
   });
 
-  it('leaves the scanner header without a back button: its own Close owns that flow', async () => {
+  it('leaves the scanner header titled with no back button: its own Close owns that flow', async () => {
     const captured = await captureLayout(RootLayout);
 
     mockPathname.current = '/scanner';
-    const view = await renderWithProviders(<>{headerLeftFor(captured, 'scanner')({})}</>);
+    const view = await renderWithProviders(<>{headerFor(captured, 'scanner')({ options: optionsFor(captured, 'scanner') })}</>);
     expect(view.queryByRole('button', { name: 'Back' })).toBeNull();
+    expect(view.getByText('Scanner')).toBeTruthy();
+  });
+
+  it('declares an explicit title on every headed screen, so the header never falls back to a route name', async () => {
+    const captured = await captureLayout(RootLayout);
+
+    for (const { options } of captured.screens) {
+      if (options?.headerShown === false) continue;
+      expect(typeof options?.title).toBe('string');
+    }
+  });
+});
+
+describe('every pushed page title', () => {
+  it('declares an explicit title on every page, so the header never falls back to a route name', async () => {
+    const captured = await captureLayout(PagesLayout);
+    expect(captured.screens.length).toBeGreaterThan(0);
+
+    for (const { options } of captured.screens) {
+      expect(typeof options?.title).toBe('string');
+    }
+  });
+});
+
+describe('every pushed web root screen', () => {
+  it('keeps a chevron back in the web header, with no Back text', async () => {
+    const captured = await captureLayout(WebRootLayout);
+
+    for (const name of ['item/[id]/index', 'item/[id]/edit', 'review', 'evals', 'result/[id]']) {
+      await expectHeaderLeftBack(headerLeftFor(captured, name));
+    }
   });
 });
 
@@ -189,7 +273,7 @@ describe('the back button', () => {
     mockRouter.canGoBack.mockReturnValue(true);
     const captured = await captureLayout(PagesLayout);
 
-    await pressBack(headerLeftFor(captured, 'settings'));
+    await pressHeaderBack(headerFor(captured, 'settings'), optionsFor(captured, 'settings'));
 
     expect(mockRouter.back).toHaveBeenCalled();
     expect(mockRouter.replace).not.toHaveBeenCalled();
@@ -206,7 +290,7 @@ describe('the back button', () => {
     mockPathname.current = pathname;
     const captured = await captureLayout(PagesLayout);
 
-    await pressBack(headerLeftFor(captured, pathname.slice(1)));
+    await pressHeaderBack(headerFor(captured, pathname.slice(1)), optionsFor(captured, pathname.slice(1)));
 
     expect(mockRouter.replace).toHaveBeenCalledWith(hub);
   });
@@ -216,7 +300,7 @@ describe('the back button', () => {
     mockPathname.current = pathname;
     const captured = await captureLayout(PagesLayout);
 
-    await pressBack(headerLeftFor(captured, pathname.slice(1)));
+    await pressHeaderBack(headerFor(captured, pathname.slice(1)), optionsFor(captured, pathname.slice(1)));
 
     expect(mockRouter.replace).toHaveBeenCalledWith('/library');
   });
@@ -231,43 +315,21 @@ describe('the back button', () => {
     mockPathname.current = pathname;
     const captured = await captureLayout(RootLayout);
 
-    await pressBack(headerLeftFor(captured, screenName));
+    await pressHeaderBack(headerFor(captured, screenName), optionsFor(captured, screenName));
 
     expect(mockRouter.replace).toHaveBeenCalledWith(hub);
   });
 });
 
-describe('the native back label (#372)', () => {
-  it.each([
-    ['root', RootLayout],
-    ['web root', WebRootLayout],
-    ['pages', PagesLayout],
-  ])('pins the label in the shared %s options, so it never falls back to a route name', async (_label, Layout) => {
-    const captured = await captureLayout(Layout);
+describe('the native back label on the web (#372)', () => {
+  it('pins the label in the shared web options, so it never falls back to a route name', async () => {
+    const captured = await captureLayout(WebRootLayout);
 
     expect(captured.screenOptions?.headerBackTitle).toBe('Back');
   });
 
-  it('resolves every root screen to Back, never a route-group name', async () => {
-    const captured = await captureLayout(RootLayout);
-    expect(captured.screens.length).toBeGreaterThan(0);
-
-    for (const { name } of captured.screens) {
-      expect(backTitleFor(captured, name)).toBe('Back');
-    }
-  });
-
   it('resolves every web root screen to Back, never a route-group name', async () => {
     const captured = await captureLayout(WebRootLayout);
-    expect(captured.screens.length).toBeGreaterThan(0);
-
-    for (const { name } of captured.screens) {
-      expect(backTitleFor(captured, name)).toBe('Back');
-    }
-  });
-
-  it('resolves every page to Back, never a route-group name', async () => {
-    const captured = await captureLayout(PagesLayout);
     expect(captured.screens.length).toBeGreaterThan(0);
 
     for (const { name } of captured.screens) {

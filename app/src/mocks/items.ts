@@ -13,6 +13,7 @@ import type {
   WorkDto,
   WorkKind,
 } from '@/api/generated/models';
+import { localDateString } from '@/lib/dates';
 import { catalogReleases } from './catalog';
 import { newMockId } from './data';
 
@@ -222,6 +223,7 @@ export const handlers = [
     entry.item.id = newMockId();
     entry.item.createdAt = new Date().toISOString();
     entry.item.addedVia = body.addedVia ?? (body.releaseId ? 'search' : 'manual');
+    entry.item.acquiredOn = body.acquiredOn ?? localDateString();
     if (body.status) entry.item.status = body.status;
     if (body.locationId !== undefined) entry.item.locationId = body.locationId;
     if (body.notes !== undefined) entry.item.notes = body.notes;

@@ -1,5 +1,5 @@
 // A snap belongs to the library whose scanner took it: after a switch, the other library's waiting snaps are never
-// uploaded into this session, shown on this receipt, counted on its Close sheet, or wiped by its Discard.
+// uploaded into this session, counted in its status line, shown on its Close sheet, or wiped by its Discard.
 import { render, screen } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { Text } from 'react-native';
@@ -138,7 +138,7 @@ describe('switching libraries with a snap still waiting', () => {
     expect(kit.store.getState().snaps.map((s) => s.snapId).sort()).toEqual(['snap-a', 'snap-b-new']);
   });
 
-  it('shows only this library\'s snaps on the receipt', async () => {
+  it('counts only this library\'s snaps in its lines', async () => {
     const { kit, depsB } = twoLibraries();
     kit.store.getState().addSnap(waitingSnap('snap-a', OTHER_LIBRARY_ID, 'Dune'));
     kit.store.getState().addSnap(waitingSnap('snap-b', MOCK_LIBRARY_ID, 'Super Mario 64', 2));
