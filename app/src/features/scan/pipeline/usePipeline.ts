@@ -1,5 +1,5 @@
 // Runs the picture pipeline for the scanner screen: starts it, keeps sending what is waiting (a snap read offline goes out when
-// the connection returns), tells it whether a barcode is in view, and hands the screen the receipt lines and the counts.
+// the connection returns), tells it whether a barcode is in view, and hands the screen the picture lines and the counts.
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
@@ -61,7 +61,7 @@ export function usePipeline({
     };
   }, [pipeline, resendMs]);
 
-  // A committed or discarded scan leaves the receipt; a (re)opened session drains what is waiting, barcodes first.
+  // A committed or discarded scan is forgotten; a (re)opened session drains what is waiting, barcodes first.
   const sessionId = useTrayValue(tray, (s) => s.sessionId, null);
   useEffect(() => {
     pipeline?.sweep();
@@ -75,7 +75,7 @@ export function usePipeline({
   const byId = useCardsStore((s) => s.byId);
   const local = useCardsStore((s) => s.local);
   const cards = useMemo(() => withLocalCards({ byId, local }), [byId, local]);
-  // One store holds every library's snaps; the receipt shows only this scanner's own.
+  // One store holds every library's snaps; only this scanner's own count here.
   const mine = useMemo(() => (deps ? snaps.filter((s) => s.libraryId === deps.libraryId) : snaps), [deps, snaps]);
   const lines = useMemo(() => pictureLines(mine, cards, online), [mine, cards, online]);
   const counts = useMemo(() => pictureCounts(lines), [lines]);

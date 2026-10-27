@@ -126,31 +126,6 @@ export function describeCandidate(c: CandidateDto): CardCopy {
   }
 }
 
-/** What the receipt calls one barcode line: the resolved title when the server named one, an honest state once
- * resolution has run, and the raw code only while nothing is known yet (#450). `knownTitle` is the title of a
- * resolved-but-rejected candidate, which has no card. */
-export function receiptLineName(
-  code: string,
-  card: Pick<CandidateDto, 'release' | 'resolution' | 'alternatives' | 'guidanceCode'> | undefined,
-  knownTitle: string | undefined,
-): string {
-  if (card?.release?.title) return card.release.title;
-  if (knownTitle) return knownTitle;
-  if (!card || card.resolution === 'pending') return code;
-  switch (card.resolution) {
-    case 'not_found':
-      return 'Not in the catalog';
-    case 'ambiguous': {
-      const top = card.alternatives?.[0]?.title?.trim();
-      return top || 'Needs review';
-    }
-    case 'error':
-      return card.guidanceCode === 'scan_barcode' ? "Couldn't read that barcode" : "Couldn't look that one up";
-    default:
-      return UNKNOWN_ITEM;
-  }
-}
-
 /** "17 items · 2 processing" */
 export function summaryLine(items: number, processing: number): string {
   const noun = items === 1 ? 'item' : 'items';
@@ -168,6 +143,12 @@ export function reviewStatusLine(items: number, processing: number, added: numbe
   if (owned > 0) parts.push(`${owned} owned`);
   if (added > 0) parts.push(`${added} added`);
   return parts.join(' · ');
+}
+
+/** "Review 3 items" on the scanner's Review button (#451); a bare "Review" when nothing waits. */
+export function reviewButtonLabel(pending: number): string {
+  if (pending <= 0) return 'Review';
+  return `Review ${pending} ${pending === 1 ? 'item' : 'items'}`;
 }
 
 /** Card slide: none when Reduce Motion is on. */
