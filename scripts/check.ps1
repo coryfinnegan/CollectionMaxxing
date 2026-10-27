@@ -223,6 +223,8 @@ if (Test-Path $perfLog) {
 
 # ---- app (only once the Expo app exists) --------------------------------------------------------------------
 if ((Test-Want 'app') -and (Test-Path 'app/package.json')) {
+  # The app gate's own logs land here too, so one upload carries app.log and the test.log it points to (#260).
+  $env:CM_APP_CHECK_LOG_DIR = Join-Path $logDir 'app'
   $step = Invoke-Step 'app' { npm run check --prefix app --silent }
   if ($step.Code -ne 0) {
     Write-Failure 'app (npm run check)' ($step.Lines | Where-Object { $_.Trim() -ne '' } | Select-Object -Last $maxLines) $step.Log
