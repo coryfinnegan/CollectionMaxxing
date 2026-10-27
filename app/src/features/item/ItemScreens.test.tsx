@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import DetailRoute from '@/app/item/[id]/index';
 import EditRoute from '@/app/item/[id]/edit';
 import { LibraryView } from '@/features/library/LibraryView';
@@ -17,7 +18,25 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: 'c0000000-0000-4000-8000-000000000001' }),
 }));
 
+// The native picker has no Jest implementation: the stand-in renders a marker
+// and keeps its last props, so tests drive onChange the way the OS would.
+jest.mock('@react-native-community/datetimepicker', () => {
+  const { View } = jest.requireActual('react-native');
+  const MockPicker = (props: { value: Date }) => {
+    (MockPicker as unknown as { lastProps: unknown }).lastProps = props;
+    return <View testID="acquired-picker" />;
+  };
+  return { __esModule: true, default: MockPicker };
+});
+
+type PickerChange = (event: { type: string }, date?: Date) => void;
+const pickerOnChange = () =>
+  (jest.requireMock('@react-native-community/datetimepicker').default as unknown as { lastProps: { onChange: PickerChange } })
+    .lastProps.onChange;
+
 const MATRIX = 'c0000000-0000-4000-8000-000000000001';
+const DUNE = 'c0000000-0000-4000-8000-000000000003';
+const MARIO = 'c0000000-0000-4000-8000-000000000004';
 const entry = () => itemsState.entries.find((e) => e.item.id === MATRIX)!;
 
 let patchHeaders: (string | null)[] = [];
@@ -204,15 +223,103 @@ describe('ItemEditScreen', () => {
     expect(patchHeaders).toEqual(['"v1"', '"v2"']);
   });
 
-  it('rejects a date that is not YYYY-MM-DD without calling the server', async () => {
+  it('shows completeness for games only, never for books or movies (#441)', async () => {
+    const game = await renderWithProviders(<ItemEditScreen id={MARIO} />);
+    await screen.findByLabelText('Notes');
+    expect(screen.getByLabelText('Completeness not set')).toBeTruthy();
+    await game.unmount();
+
+    const book = await renderWithProviders(<ItemEditScreen id={DUNE} />);
+    await screen.findByLabelText('Notes');
+    expect(screen.queryByLabelText('Completeness not set')).toBeNull();
+    expect(screen.queryByText('Completeness')).toBeNull();
+    await book.unmount();
+
+    await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+    expect(screen.queryByLabelText('Completeness not set')).toBeNull();
+    expect(screen.queryByText('Completeness')).toBeNull();
+  });
+
+  it('picks the acquired date from the date picker and keeps it after saving (#441)', async () => {
+    const first = await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+    expect(within(screen.getByLabelText('Acquired')).getByText('Not set')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Acquired'));
+    expect(screen.getByTestId('acquired-picker')).toBeTruthy();
+    await act(async () => {
+      pickerOnChange()({ type: 'set' }, new Date(2024, 5, 3));
+    });
+    expect(within(screen.getByLabelText('Acquired')).getByText('2024-06-03')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Save changes'));
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(entry().item.acquiredOn).toBe('2024-06-03');
+    await first.unmount();
+
+    await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+    expect(within(screen.getByLabelText('Acquired')).getByText('2024-06-03')).toBeTruthy();
+  });
+
+  it('clears the acquired date back to Not set (#441)', async () => {
+    entry().item.acquiredOn = '2024-06-02';
+    await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+    expect(within(screen.getByLabelText('Acquired')).getByText('2024-06-02')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Clear date'));
+    expect(within(screen.getByLabelText('Acquired')).getByText('Not set')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Save changes'));
+
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(entry().item.acquiredOn).toBeNull();
+  });
+
+  it('a dismissed picker leaves the acquired date alone (#441)', async () => {
     await renderWithProviders(<ItemEditScreen id={MATRIX} />);
     await screen.findByLabelText('Notes');
 
-    await fireEvent.changeText(screen.getByLabelText('Acquired'), 'June 2');
-    await fireEvent.press(screen.getByLabelText('Save changes'));
+    await fireEvent.press(screen.getByLabelText('Acquired'));
+    expect(screen.getByTestId('acquired-picker')).toBeTruthy();
+    await act(async () => {
+      pickerOnChange()({ type: 'dismissed' }, undefined);
+    });
 
-    expect(await screen.findByText('Use the format 2024-06-02.')).toBeTruthy();
-    expect(patchHeaders).toEqual([]);
+    expect(screen.queryByTestId('acquired-picker')).toBeNull();
+    expect(within(screen.getByLabelText('Acquired')).getByText('Not set')).toBeTruthy();
+  });
+
+  describe('on the web, where the native picker does not exist', () => {
+    const originalOs = Platform.OS;
+    afterEach(() => {
+      Platform.OS = originalOs;
+    });
+
+    it('rejects a date that is not YYYY-MM-DD without calling the server', async () => {
+      Platform.OS = 'web';
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+
+      await fireEvent.changeText(screen.getByLabelText('Acquired'), 'June 2');
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      expect(await screen.findByText('Use the format 2024-06-02.')).toBeTruthy();
+      expect(patchHeaders).toEqual([]);
+    });
+
+    it('saves a valid typed date', async () => {
+      Platform.OS = 'web';
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+
+      await fireEvent.changeText(screen.getByLabelText('Acquired'), '2024-06-03');
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+      expect(entry().item.acquiredOn).toBe('2024-06-03');
+    });
   });
 
   it('asks who an item is lent to when its status is Lent out', async () => {
