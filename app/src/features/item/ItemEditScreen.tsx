@@ -1,4 +1,4 @@
-// Item edit: status, condition, completeness, location, notes, acquired date, lent-to.
+// Item edit: status, condition, completeness (games only, #441), location, notes, acquired date, lent-to.
 // Saves with If-Match from the loaded ETag. A 412 keeps the user's edits on screen and offers Reload.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -6,6 +6,7 @@ import { View } from 'react-native';
 import type { ItemCompleteness, ItemCondition, ItemStatus } from '@/api/generated/models';
 import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
+import { AcquiredField } from './AcquiredField';
 import {
   completenesses,
   completenessLabels,
@@ -81,6 +82,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
   const save = () => {
     setError(null);
     setConflict(false);
+    // The native picker can only produce a real date; this guards the web's typed field.
     if (!isValidDate(form.acquiredOn.trim())) {
       setDateError('Use the format 2024-06-02.');
       return;
@@ -135,12 +137,14 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
         ))}
       </Group>
 
-      <Group label="Completeness">
-        <Chip label="Not set" accessibilityLabel="Completeness not set" selected={form.completeness === null} onPress={() => set('completeness', null)} />
-        {completenesses.map((c: Exclude<ItemCompleteness, null>) => (
-          <Chip key={c} label={completenessLabels[c]} accessibilityLabel={`Completeness ${completenessLabels[c]}`} selected={form.completeness === c} onPress={() => set('completeness', c)} />
-        ))}
-      </Group>
+      {detail.work.kind === 'game' ? (
+        <Group label="Completeness">
+          <Chip label="Not set" accessibilityLabel="Completeness not set" selected={form.completeness === null} onPress={() => set('completeness', null)} />
+          {completenesses.map((c: Exclude<ItemCompleteness, null>) => (
+            <Chip key={c} label={completenessLabels[c]} accessibilityLabel={`Completeness ${completenessLabels[c]}`} selected={form.completeness === c} onPress={() => set('completeness', c)} />
+          ))}
+        </Group>
+      ) : null}
 
       <View style={{ gap: spacing.sm }}>
         <Text variant="label">Location</Text>
@@ -174,7 +178,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
         ) : null}
       </View>
 
-      <TextField label="Acquired" value={form.acquiredOn} onChangeText={(v) => set('acquiredOn', v)} placeholder="2024-06-02" error={dateError} />
+      <AcquiredField value={form.acquiredOn} onChange={(v) => set('acquiredOn', v)} error={dateError} />
       <TextField label="Notes" value={form.notes} onChangeText={(v) => set('notes', v)} multiline />
 
       {error ? (

@@ -7,6 +7,7 @@ import { HttpResponse, http } from 'msw';
 import type { CandidateDto, CommitResultDto, ItemDto, PlatformDto, ProvisionalDto, ReleaseDto, UndoResultDto } from '@/api/generated/models';
 import { alternativesOf, unresolvedTitleOf } from '@/features/review/grouping';
 import type { CommitBody } from '@/features/review/plan';
+import { localDateString } from '@/lib/dates';
 import { MOCK_LIBRARY_ID, newMockId } from './data';
 import { itemsState, type MockItem } from './items';
 import { scanMock, type MockSession } from './scan';
@@ -114,7 +115,7 @@ const makeItem = (release: ReleaseDto): MockItem => {
     completeness: null,
     locationId: null,
     notes: null,
-    acquiredOn: null,
+    acquiredOn: localDateString(),
     lentTo: null,
     lentOn: null,
     customTitle: null,
