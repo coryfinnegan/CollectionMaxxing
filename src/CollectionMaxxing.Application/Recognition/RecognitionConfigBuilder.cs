@@ -6,18 +6,21 @@ using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Recognition;
 
-/// <summary>The scoring section of the config file: thresholds, weights per profile (docs/02 section 6) and the artwork settings.</summary>
-public sealed record RecognitionScoringSection(ScoringThresholds Thresholds, RecognitionScoringWeights Weights, ArtScoringOptions Art)
+/// <summary>The scoring section of the config file: thresholds, weights per profile (docs/02 section 6), the artwork settings and the cover-verification settings.</summary>
+public sealed record RecognitionScoringSection(
+    ScoringThresholds Thresholds, RecognitionScoringWeights Weights, ArtScoringOptions Art, CoverVerifyOptions CoverVerify)
 {
     public static RecognitionScoringSection From(ScoringOptions options) => new(
         options.Thresholds,
         new RecognitionScoringWeights(options.BarcodeProduct, options.ShelfSpine, options.Cover, options.LooseCartridge, options.BareLabel),
-        options.Art);
+        options.Art,
+        options.CoverVerify);
 
     public ScoringOptions ToOptions() => new()
     {
         Thresholds = Thresholds,
         Art = Art,
+        CoverVerify = CoverVerify,
         BarcodeProduct = Weights.BarcodeProduct,
         ShelfSpine = Weights.ShelfSpine,
         Cover = Weights.Cover,

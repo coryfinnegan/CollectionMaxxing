@@ -93,6 +93,36 @@ public sealed record ArtScoringOptions
     public double MaxDistance { get; init; } = 100.0;
 }
 
+/// <summary>
+/// How the server verifies a cover capture against the candidates' covers (#438 stage 2): SIFT feature matching with a
+/// FLANN matcher, Lowe's ratio test and RANSAC homography verification, whose inlier count is the sameness score. The
+/// counts below start from the researched recipe (OpenCV's own sample calls 10 good matches enough) and are tuned on
+/// the #438 fixtures: the fixture test fails unless the measured matches and non-matches fall on either side of them.
+/// </summary>
+public sealed record CoverVerifyOptions
+{
+    /// <summary>A match is kept when its best descriptor distance is below this share of the second-best (~0.75).</summary>
+    public double LoweRatio { get; init; } = 0.75;
+
+    /// <summary>RANSAC reprojection threshold in pixels: how far a point may stray from the homography and still count.</summary>
+    public double RansacReprojThreshold { get; init; } = 3.0;
+
+    /// <summary>Inliers at or below this read as no match (visual score 0).</summary>
+    public int WeakInliers { get; init; } = 10;
+
+    /// <summary>Inliers at or above this read as a clear match (visual score 1); between the two the score is linear.</summary>
+    public int StrongInliers { get; init; } = 30;
+
+    /// <summary>Combined-score lead the top cover needs over the runner-up to be preselected for Review.</summary>
+    public double PreselectMargin { get; init; } = 0.10;
+
+    /// <summary>Weight of the visual score in the combined score; the text score carries the rest.</summary>
+    public double VisualWeight { get; init; } = 0.5;
+
+    /// <summary>Images are scaled down to this longest side, in pixels, before SIFT runs.</summary>
+    public int MaxDimension { get; init; } = 1024;
+}
+
 /// <summary>A named set of weights and the thresholds to apply, for one way of reading an item.</summary>
 public sealed record ScoringProfile(string Name, ScoringWeights Weights, ScoringThresholds Thresholds);
 
@@ -123,6 +153,8 @@ public sealed record ScoringOptions
     public ScoringThresholds Thresholds { get; init; } = new();
 
     public ArtScoringOptions Art { get; init; } = new();
+
+    public CoverVerifyOptions CoverVerify { get; init; } = new();
 
     public ScoringWeights BarcodeProduct { get; init; } = new(0.55, 0.15, 0.15, 0.10, 0.05, 0, 0);
 

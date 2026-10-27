@@ -42,7 +42,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
       const titleLine = p.lines.reduce((best, l) =>
         l.confidence * l.text.length > best.confidence * best.text.length ? l : best,
       );
-      const creator = creatorOf(p.lines, titleLine);
+      const creator = creatorOf(p.lines, titleLine, settings.local);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),

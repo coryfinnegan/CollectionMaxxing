@@ -6611,6 +6611,16 @@
               "null",
               "string"
             ]
+          },
+          "coverPick": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CoverPickDto"
+              }
+            ]
           }
         }
       },
@@ -6854,6 +6864,22 @@
           "release",
           "my_photo"
         ]
+      },
+      "CoverPickDto": {
+        "required": [
+          "releaseId",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "releaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "CreateInviteRequest": {
         "type": "object",
