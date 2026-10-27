@@ -1,5 +1,5 @@
-// What the receipt shows for pictures, as plain data: one line per item being read or identified, and the counts the status
-// bar uses. IDENTIFYING until the server has named it; QUEUED while the phone cannot reach the server.
+// What pictures contribute to the scanner counts, as plain data: one line per item being read or identified, and the
+// counts the status bar uses. IDENTIFYING until the server has named it; QUEUED while the phone cannot reach the server.
 import type { CandidateDto } from '@/api/generated/models';
 import { UNKNOWN_ITEM, unresolvedTitleOf } from '@/features/review/grouping';
 import { isLocalCard } from '../cards/cardsStore';

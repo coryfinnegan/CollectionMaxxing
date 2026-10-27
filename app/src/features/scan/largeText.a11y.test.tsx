@@ -1,14 +1,12 @@
 // Large text: nothing the person has to read or press is clipped at the biggest Dynamic Type sizes.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fireEvent, render } from '@testing-library/react-native';
+import { render } from '@testing-library/react-native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StyleSheet, useWindowDimensions } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
 import { makeQueryClient } from '@/test/render';
 import { ResultCards } from './cards/ResultCards';
-import { ReceiptBar } from './tray/ReceiptBar';
-import type { TrayLine } from './tray/tray';
 
 jest.mock('@/lib/a11y/announce', () => ({ announceForScreenReader: jest.fn() }));
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
@@ -43,19 +41,6 @@ describe('result cards at large text sizes', () => {
     const bigger = await render(<ResultCards cards={[card]} actions={actions} />, { wrapper });
     const large = StyleSheet.flatten(bigger.getByTestId('result-cards').props.style).height as number;
     expect(large).toBeGreaterThan(base * 2);
-  });
-});
-
-describe('the receipt at large text sizes', () => {
-  it('lets a long title wrap instead of cutting it off', async () => {
-    const line = { code: '111', symbology: 'ean-13', copies: 1, sentCopies: 1, addedAt: 1, lastSeenAt: 1 } as TrayLine;
-    const noop = () => undefined;
-    const receipt = await render(
-      <ReceiptBar libraryId="library-1" lines={[line]} cards={[]} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
-      { wrapper },
-    );
-    await fireEvent.press(receipt.getByLabelText(/Show the receipt/));
-    expect(receipt.getByText('111').props.numberOfLines).toBeUndefined();
   });
 });
 

@@ -1,5 +1,5 @@
 // "Added Dune. Undo": shown on the scanner for 10 s after a T0 auto-add, and takes the add back.
-// The timeout only hides the snackbar: the counters bar's "Undo last add" keeps offering it for the session.
+// The timeout only hides the snackbar: it is the only Undo on the scanner (#451).
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useQueryClient } from '@tanstack/react-query';
