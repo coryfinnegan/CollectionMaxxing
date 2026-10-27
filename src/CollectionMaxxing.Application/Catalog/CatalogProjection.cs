@@ -22,7 +22,7 @@ internal static class CatalogProjection
         new(UnsavedId, p.Kind, TitleCaser.ToTitleCase(p.Title), p.Year, p.Creators, [], p.Synopsis, p.CoverUrl);
 
     public static ReleaseDto ToReleaseDto(ProviderRelease p) =>
-        new(UnsavedId, UnsavedId, TitleCaser.ToTitleCase(p.Title), p.Format ?? ReleaseFormat.Other, null, null, p.Edition, p.Publisher, null, p.Year,
+        new(UnsavedId, UnsavedId, TitleCaser.ToTitleCase(p.Title), p.Format ?? ReleaseFormat.Unknown, null, null, p.Edition, p.Publisher, null, p.Year,
             p.Creators, null, null, p.CoverUrl, ReleaseSource.Provider,
             p.Identifiers.Select(i => new ReleaseIdentifierDto(i.Type, i.Value)).ToList());
 

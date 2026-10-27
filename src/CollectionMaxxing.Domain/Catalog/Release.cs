@@ -5,6 +5,8 @@ public enum ReleaseFormat
     Hardcover,
     Paperback,
     MassMarket,
+    BoardBook,
+    SpiralBound,
     Vhs,
     Betamax,
     Laserdisc,
@@ -14,7 +16,12 @@ public enum ReleaseFormat
     GameCartridge,
     GameDisc,
     GameCard,
+
+    /// <summary>The catalog named a format that fits no category (an audiobook CD, a rebound library copy). Never the missing-data default.</summary>
     Other,
+
+    /// <summary>The catalog did not say what the format is. Displayed honestly, never as a category.</summary>
+    Unknown,
 }
 
 public enum ReleaseRegion

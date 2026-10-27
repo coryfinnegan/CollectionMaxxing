@@ -252,7 +252,8 @@ public static class MatchScorer
 
     private static FormatFamily Family(ReleaseFormat format) => format switch
     {
-        ReleaseFormat.Hardcover or ReleaseFormat.Paperback or ReleaseFormat.MassMarket => FormatFamily.Book,
+        ReleaseFormat.Hardcover or ReleaseFormat.Paperback or ReleaseFormat.MassMarket or ReleaseFormat.BoardBook
+            or ReleaseFormat.SpiralBound => FormatFamily.Book,
         ReleaseFormat.Vhs or ReleaseFormat.Betamax or ReleaseFormat.Laserdisc or ReleaseFormat.Dvd
             or ReleaseFormat.Bluray or ReleaseFormat.UhdBluray => FormatFamily.Video,
         ReleaseFormat.GameCartridge or ReleaseFormat.GameDisc or ReleaseFormat.GameCard => FormatFamily.Game,

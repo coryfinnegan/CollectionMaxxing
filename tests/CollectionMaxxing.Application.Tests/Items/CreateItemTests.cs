@@ -3,6 +3,7 @@ using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.TestSupport;
+using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Tests.Items;
 
@@ -14,8 +15,8 @@ public class CreateItemTests(PostgresFixture db) : DatabaseTest(db)
         Guid libraryId, string key, ManualRelease? manual, Guid? releaseId = null, string? notes = null) =>
         new(libraryId, key, releaseId, manual, null, null, null, null, notes, null, null, null);
 
-    private static ManualRelease Book(string? title = "A Book", string? barcode = null, Guid? platformId = null) =>
-        new(WorkKind.Book, title, null, null, platformId, null, barcode);
+    private static ManualRelease Book(string? title = "A Book", string? barcode = null, Guid? platformId = null, ReleaseFormat? format = null) =>
+        new(WorkKind.Book, title, null, format, platformId, null, barcode);
 
     private Task<Result<Versioned<ItemDto>>> RunAsync(TestLibrary library, CreateItem.Command command)
     {
@@ -106,5 +107,27 @@ public class CreateItemTests(PostgresFixture db) : DatabaseTest(db)
         first.IsSuccess.ShouldBeTrue();
         again.Value.Value.Id.ShouldBe(first.Value.Value.Id);
         different.Error!.Code.ShouldBe(ItemErrors.KeyReusedCode);
+    }
+
+    [Fact]
+    public async Task A_manual_item_without_a_format_is_unknown_not_other()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+
+        (await RunAsync(library, Manual(library.Id, "k1", Book()))).IsSuccess.ShouldBeTrue();
+
+        await using var check = Db.CreateContext(library.ActingAs(LibraryRole.Viewer));
+        (await check.Releases.AsNoTracking().SingleAsync()).Format.ShouldBe(ReleaseFormat.Unknown);
+    }
+
+    [Fact]
+    public async Task A_manual_item_keeps_an_explicitly_picked_other()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+
+        (await RunAsync(library, Manual(library.Id, "k1", Book(format: ReleaseFormat.Other)))).IsSuccess.ShouldBeTrue();
+
+        await using var check = Db.CreateContext(library.ActingAs(LibraryRole.Viewer));
+        (await check.Releases.AsNoTracking().SingleAsync()).Format.ShouldBe(ReleaseFormat.Other);
     }
 }
