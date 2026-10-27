@@ -68,6 +68,21 @@ hub room, 40 covers, committed pacing probe in `mall.spec.ts`):
   imports it) and `expo-asset` (SDK-pinned, resolves the room files). No new
   native modules. Bundle delta vs main was not measured; that is follow-up #421.
 
+CI calibration (PR #422 round 1): the same probe on CI's 2-core shared
+runners (two specs in parallel) reports 40 frames over 3 s, median
+83 ms, p95 100 ms. The deltas are even — no stall tail — and the
+identical scene locks 60 fps on a fast CPU, so this is runner speed,
+not a pacing regression: the steady-state frame does no per-frame
+allocation (lerp + render), and software rasterization is purely
+CPU-bound. The probe therefore detects software GL
+(`WEBGL_debug_renderer_info`) and asserts steady animation there
+(frames > 30, p95 < 250 ms — continuous rAF with no stalls) while
+hardware GL keeps the rate floor (frames > 60). The phone story is
+unaffected: the native canvas is Reanimated 2.5D with no GL surface at
+all. Measured vs still-needed: this probe measures that the web canvas
+animates continuously without stalls; the 60 fps feel on Cory's iPhone
+(route B, risk 1) and the web feel on a real GPU still need his device.
+
 ### Mall route B — Reanimated 2.5D rooms (phone, shipped)
 
 The native canvas is a snap carousel of anchor cards in the room palette with
