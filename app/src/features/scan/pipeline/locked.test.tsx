@@ -218,7 +218,8 @@ describe('a viewer', () => {
     expect(screen.getByText('Dune')).toBeTruthy();
     expect(screen.getByText(/You own 1/)).toBeTruthy();
     expect(screen.getByText('Super Mario 64')).toBeTruthy();
-    expect(screen.getByText('"Space Mutiny"')).toBeTruthy();
+    // Unquoted: the read's own guess via unresolvedTitleOf, not raw OCR as a title (#435).
+    expect(screen.getByText('Space Mutiny')).toBeTruthy();
     expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull();
     expect(screen.queryByLabelText(/^Add \d+ items?$/)).toBeNull();
     expect(screen.queryByText('+ Add')).toBeNull();
