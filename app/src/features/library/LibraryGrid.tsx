@@ -28,7 +28,7 @@ export type LibraryGridProps = {
   title: string;
   /** Set for the Wishlist and Lent out views. */
   fixedStatus?: ItemStatus;
-  /** Opens with the Add an item panel showing (the Scan tab's "Add it by hand"). */
+  /** Opens with the Add an item panel showing (Library's own Add item entry point). */
   openAdd?: boolean;
   /** Hides the content title: pushed pages on the phone already name themselves in the stack header (#303). */
   hideTitle?: boolean;

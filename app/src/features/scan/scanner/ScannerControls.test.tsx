@@ -1,5 +1,6 @@
-// The scanner's one control row (#408): the session chip plus Flash, Search, Photos and manual add as compact
-// icon controls in a single fixed row. Every control stays one tap away, with its spoken label unchanged.
+// The scanner's one control row (#408): the session settings chip plus Flash, Search and Photos as compact
+// icon controls in a single fixed row (#439: manual add lives in Library, not the viewfinder). Every control
+// stays one tap away, with its spoken label unchanged.
 import { fireEvent, screen } from '@testing-library/react-native';
 import { Platform } from 'react-native';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
@@ -17,11 +18,10 @@ const controls = (
     onToggleFlash?: jest.Mock;
     onOpenSearch?: jest.Mock;
     onPhotos?: jest.Mock;
-    onAddManually?: jest.Mock;
   } = {},
   options: { showClose?: boolean; flash?: boolean; photosEnabled?: boolean; photosRunning?: boolean } = {},
 ) => {
-  const { onClose = jest.fn(), onOpenSession = jest.fn(), onToggleFlash = jest.fn(), onOpenSearch = jest.fn(), onPhotos = jest.fn(), onAddManually = jest.fn() } = actions;
+  const { onClose = jest.fn(), onOpenSession = jest.fn(), onToggleFlash = jest.fn(), onOpenSearch = jest.fn(), onPhotos = jest.fn() } = actions;
   return renderWithProviders(
     <ScannerControls
       libraryId={MOCK_LIBRARY_ID}
@@ -35,9 +35,8 @@ const controls = (
       photosEnabled={options.photosEnabled ?? false}
       photosRunning={options.photosRunning ?? false}
       onPhotos={onPhotos}
-      onAddManually={onAddManually}
     />,
-  ).then(() => ({ onClose, onOpenSession, onToggleFlash, onOpenSearch, onPhotos, onAddManually }));
+  ).then(() => ({ onClose, onOpenSession, onToggleFlash, onOpenSearch, onPhotos }));
 };
 
 const home = { locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false } as SessionContext;
@@ -60,6 +59,14 @@ describe('scanner controls', () => {
     const chip = await screen.findByLabelText('Session: Game room › Shelf 1, Wishlist, Games, Home. Change settings');
     await fireEvent.press(chip);
     expect(onOpenSession).toHaveBeenCalled();
+  });
+
+  it('shows the session chip as a settings control with its place and status fully visible', async () => {
+    await controls(home);
+
+    expect(await screen.findByText('Not placed · Owned')).toBeTruthy();
+    expect(screen.getByTestId('session-settings-gear')).toBeTruthy();
+    expect(screen.queryByText('Not placed · Owned · Mixed · Home')).toBeNull();
   });
 
   it('names an explicit Not placed instead of hiding it', async () => {
@@ -119,11 +126,11 @@ describe('scanner controls', () => {
     expect(photos.props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
   });
 
-  it('adds by hand one tap from the viewfinder', async () => {
-    const { onAddManually } = await controls(home);
+  it('offers no manual add from the viewfinder', async () => {
+    await controls(home);
 
-    await fireEvent.press(await screen.findByLabelText('Add it by hand'));
-    expect(onAddManually).toHaveBeenCalled();
+    await screen.findByLabelText('Search the catalog');
+    expect(screen.queryByLabelText('Add it by hand')).toBeNull();
   });
 
   it('closes where Close is offered', async () => {
@@ -136,14 +143,13 @@ describe('scanner controls', () => {
   it('reads its controls in viewfinder order', async () => {
     await controls(home, {}, { showClose: true, photosEnabled: true });
 
-    await screen.findByLabelText('Add it by hand');
+    await screen.findByLabelText('Photos');
     expect(screen.getAllByRole('button').map((b) => b.props.accessibilityLabel)).toEqual([
       'Close',
       'Session: Not placed, Owned, Mixed, Home. Change settings',
       'Flash',
       'Search the catalog',
       'Photos',
-      'Add it by hand',
     ]);
   });
 

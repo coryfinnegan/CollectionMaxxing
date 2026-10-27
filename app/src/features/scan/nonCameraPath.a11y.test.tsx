@@ -1,6 +1,6 @@
 // The camera is never the only way in: Import from Photos sits on the scanner (which works with no camera picture),
-// and the Scan tab's control row offers adding by hand, which lands on the library's Add an item panel.
-import { fireEvent, screen } from '@testing-library/react-native';
+// and manual add lives in Library's Add an item panel (#439: the Scan tab no longer carries it).
+import { screen } from '@testing-library/react-native';
 import { scanMock } from '@/mocks/scan';
 import { renderWithProviders } from '@/test/render';
 import { useCardsStore } from './cards/cardsStore';
@@ -41,10 +41,10 @@ describe('using the app without the camera', () => {
     expect(photos.props.accessibilityHint).toBe('Choose pictures from your library to read, with no camera needed');
   });
 
-  it('offers adding an item by hand from the Scan tab', async () => {
+  it('offers no manual add from the Scan tab', async () => {
     dismissScanCoach();
     await renderWithProviders(<ScanTab />);
-    fireEvent.press(await screen.findByRole('button', { name: 'Add it by hand' }));
-    expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/library', params: { add: '1' } });
+    await screen.findByRole('button', { name: 'Take picture' });
+    expect(screen.queryByRole('button', { name: 'Add it by hand' })).toBeNull();
   });
 });
