@@ -167,7 +167,7 @@
     {
       "file": "src/features/scan/scanner/ScannerScreen.tsx",
       "rule": "cm-design/no-inline-styles",
-      "count": 9,
+      "count": 7,
       "reason": "Pre-existing token-valued inline style, grandfathered; new files must use StyleSheet or a primitive. Follow-up: #307."
     },
     {

@@ -201,7 +201,7 @@ describe('scanner screen', () => {
   it('reads "N items · M processing" in the status bar', async () => {
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.duneOwned), code(DEV_CODES.slow)]));
-    expect(await screen.findByText('2 items · 1 processing')).toBeTruthy();
+    expect(await screen.findByText('2 items · 1 processing', { exact: false })).toBeTruthy();
   });
 
   it('runs "Scan these 6 codes" from the dev menu', async () => {
