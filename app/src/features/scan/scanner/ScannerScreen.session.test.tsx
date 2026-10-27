@@ -90,25 +90,6 @@ describe('scanner session context', () => {
     expect(await screen.findByText('DVD · 1979')).toBeTruthy();
   });
 
-  it('offers Move it here at home and hides it in-store', async () => {
-    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false });
-    const source = await scanner();
-    await act(async () => source.inject([{ value: DEV_CODES.duneOwned, symbology: 'ean-13' }]));
-
-    expect(await screen.findByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
-    expect(await screen.findByLabelText('Move Dune to Game room › Shelf 1')).toBeTruthy();
-
-    // In-store defers the location: the same card answers, without Move.
-    await press('Session: Game room › Shelf 1, Owned, Mixed, Home. Change settings');
-    await press('In-store');
-    await press('Save');
-
-    expect(await screen.findByLabelText('Session: Decide later, Owned, Mixed, In-store. Change settings')).toBeTruthy();
-    expect(screen.queryByLabelText('Move Dune to Game room › Shelf 1')).toBeNull();
-    expect(screen.getByLabelText('Add another copy of Dune')).toBeTruthy();
-    expect(screen.getByLabelText('Skip Dune')).toBeTruthy();
-  });
-
   it('hides Close when embedded in the Scan tab', async () => {
     await renderWithProviders(<ScannerScreen libraryId={MOCK_LIBRARY_ID} source={new FakeScannerSource()} tuning={tuning} showClose={false} />);
 

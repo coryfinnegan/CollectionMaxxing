@@ -38,8 +38,8 @@ function PhoneScanTab() {
   const { libraryId } = useActiveLibraryId();
   const [coached, setCoached] = useState(hasSeenScanCoach);
   // No bottom spacer: the scanner is full-bleed, and the receipt bar already pads the home-indicator inset. The
-  // bottom chrome is content-driven (the cards strip only when cards exist, the status bar always), so an empty tray
-  // leaves no dead block behind and the camera keeps the height (#432).
+  // bottom chrome is the status bar alone (#432): captures queue silently, so an empty tray leaves no dead block
+  // behind and the camera keeps the height in every session state.
   return (
     <View style={styles.fill}>
       <ScannerRoute showClose={false} />

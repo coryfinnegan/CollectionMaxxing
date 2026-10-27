@@ -53,6 +53,26 @@ describe('scan layout', () => {
     expect(screen.getByRole('button', { name: 'Review' })).toBeTruthy();
   });
 
+  it('shows no cards or strip over the camera even when the session has answers', async () => {
+    dismissScanCoach();
+    // Answers waiting do not bring the strip back: the Scan view stays camera, shutter and status bar (#432).
+    useCardsStore.getState().merge(
+      [
+        { id: 'c1', seq: 1, changeSeq: 1, resolution: 'matched', rawCode: '111' },
+        { id: 'c2', seq: 2, changeSeq: 2, resolution: 'pending', rawCode: '222' },
+      ],
+      { announce: false },
+    );
+    await renderWithProviders(<ScanTab />);
+
+    expect(await screen.findByLabelText('Take picture')).toBeTruthy();
+    expect(screen.queryByTestId('result-cards')).toBeNull();
+    expect(screen.queryAllByTestId(/^card-/)).toHaveLength(0);
+    expect(screen.queryByLabelText('Snaps in this scan')).toBeNull();
+    expect(await screen.findByLabelText(/Show the receipt/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Review' })).toBeTruthy();
+  });
+
   it('keeps the result detail inside the safe area', async () => {
     await renderWithProviders(<ResultDetail id="missing" />);
     expect(await screen.findByText("That result isn't here any more")).toBeTruthy();

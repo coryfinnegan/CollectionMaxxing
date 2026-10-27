@@ -23,6 +23,7 @@ export function ReviewRoute() {
         <ReviewScreen
           libraryId={libraryId}
           sessionId={sessionId}
+          onOpenResult={(c) => router.push({ pathname: '/result/[id]', params: { id: c.id } })}
           onScanBarcode={(c) => {
             if (!sessionId) return;
             boundScanStore.getState().bind({ sessionId, candidateId: c.id, title: boundTitleOf(c), kind: 'barcode' });

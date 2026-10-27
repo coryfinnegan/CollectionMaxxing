@@ -13,6 +13,7 @@ const routes: { name: string; path: string }[] = [
   { name: 'item', path: `/item/${MATRIX}` },
   { name: 'item-edit', path: `/item/${MATRIX}/edit` },
   { name: 'review', path: '/review' },
+  { name: 'review-rows', path: '/review?seed=review-rows' },
   { name: 'me', path: '/me' },
   { name: 'devices', path: '/me/devices' },
   { name: 'sign-in-methods', path: '/me/sign-in-methods' },

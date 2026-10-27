@@ -17,6 +17,11 @@ async function installTestHooks(worker: ReturnType<typeof setupWorker>): Promise
   const account = new URLSearchParams(window.location.search).get('account');
   if (account === 'new') mockAccount.libraries = [];
   if (account === 'signedout') mockAccount.signedIn = false;
+  // `?seed=review-rows` opens with a review session waiting, one row per state (#432).
+  if (new URLSearchParams(window.location.search).get('seed') === 'review-rows') {
+    const { seedReviewRows } = await import('./seedReview');
+    seedReviewRows();
+  }
   (window as unknown as { __cm: unknown }).__cm = {
     /** Makes every API call answer 401, like a session that was revoked or timed out. */
     expireSession: () =>

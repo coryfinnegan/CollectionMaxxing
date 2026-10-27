@@ -80,4 +80,54 @@ test.describe('visual', () => {
     await expect(page.getByRole('button', { name: 'Appearance System' })).toBeVisible();
     await expectShot(page, 'settings-appearance');
   });
+
+  // The revised scanner scope (#432): captures queue silently, and every capture's state is a Review row
+  // with its thumbnail. Matched rows aggregate, so the spec expands them; the rows do not fit one viewport,
+  // so each scheme shoots the top (needing attention) and the tail (matched + still looking up).
+  test.describe('review rows seeded', () => {
+    test.use({ viewport: { width: 1280, height: 1500 } });
+
+    test('review rows', async ({ page, open }) => {
+      await openSeededReview(page, open);
+      await page.getByText('Pick one · 1').scrollIntoViewIfNeeded();
+      await expectShot(page, 'review-rows');
+      await page.getByText('You own these · 1').evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'instant' as ScrollBehavior }));
+      await expectShot(page, 'review-rows-tail');
+      // Tapping a row opens its Result screen.
+      await page.getByRole('button', { name: 'Open result for Super Mario 64' }).click();
+      await expect(page).toHaveURL(/\/result\/e2e00000-0000-4000-8000-000000000014$/);
+      await expect(page.getByRole('heading', { name: 'Super Mario 64' })).toBeVisible();
+    });
+
+    test.describe('dark', () => {
+      test.use({ colorScheme: 'dark' });
+
+      test('review rows dark', async ({ page, open }) => {
+        await openSeededReview(page, open);
+        await page.getByText('Pick one · 1').scrollIntoViewIfNeeded();
+        await expectShot(page, 'review-rows-dark');
+        await page.getByText('You own these · 1').evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'instant' as ScrollBehavior }));
+        await expectShot(page, 'review-rows-tail-dark');
+      });
+    });
+  });
 });
+
+async function openSeededReview(page: Page, open: (path: string) => Promise<void>) {
+  await open('/review?seed=review-rows');
+  await expect(page.getByText('Pick one · 1')).toBeVisible();
+  await expect(page.getByText('Not found · 1')).toBeVisible();
+  await expect(page.getByText('You own these · 1')).toBeVisible();
+  await expect(page.getByText('Ready · 1')).toBeVisible();
+  await expect(page.getByText('Still looking up · 2')).toBeVisible();
+  await page.getByRole('button', { name: '1 item ready. Show it' }).click();
+  await page.getByRole('button', { name: '1 item you own. Show it' }).click();
+  // Row states: the lookup wait names itself, the pick names its next step, the owned row its copy.
+  await expect(page.getByText('Identifying…')).toBeVisible();
+  await expect(page.getByText('Pick the right one')).toBeVisible();
+  await expect(page.getByText(/You own 1/)).toBeVisible();
+  // Capture thumbnails pair each picture row with its crop.
+  await expect(page.getByLabel('Cover of Alien', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Cover of Dune', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Cover of Super Mario 64', { exact: true })).toBeVisible();
+}

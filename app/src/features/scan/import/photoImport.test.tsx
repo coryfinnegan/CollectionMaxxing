@@ -80,7 +80,7 @@ describe('importing from Photos', () => {
     await open();
 
     await pressPhotos();
-    expect(await screen.findByText('Dune')).toBeTruthy();
+    await waitFor(() => expect(Object.values(useCardsStore.getState().byId).some((c) => c.release?.title === 'Dune')).toBe(true));
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
     expect(kit.reader.stills).toHaveLength(1); // only the picture without a code was read
     expect(identifyMock.requests[0]?.body.items?.map((i) => i.title)).toEqual(['Space Mutiny']);

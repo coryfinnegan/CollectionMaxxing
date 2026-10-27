@@ -1,5 +1,7 @@
-// The picture pipeline end to end on the scanner screen: FakeReader -> receipt -> mock API -> mock event stream -> cards.
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
+// The picture pipeline end to end on the scanner screen: FakeReader -> receipt -> mock API -> mock event stream ->
+// the quiet queue for Review. Captures queue silently (#432): answers land in the store, the status bar counts
+// them, and nothing renders over the camera — so these tests read the store and the status bar, never cards.
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { CLOSE_CALL, identifyMock } from '@/mocks/identify';
@@ -8,6 +10,7 @@ import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import type { Resizer } from '../autosnap/snapPhoto';
 import { useCardsStore } from '../cards/cardsStore';
+import { ResultDetail } from '../cards/ResultDetail';
 import { ScannerScreen } from '../scanner/ScannerScreen';
 import { FakeScannerSource } from '../scanner/ScannerSource';
 import { MemoryKeyValueStore } from '../tray/trayStore';
@@ -45,8 +48,7 @@ const gate = () => {
   const hold = new Promise<void>((resolve) => (release = resolve));
   return { hold, release };
 };
-const cards = () => screen.queryAllByTestId(/^card-/);
-const cardTitled = (title: string) => cards().find((c) => within(c).queryByText(title));
+const stored = () => Object.values(useCardsStore.getState().byId);
 const statusBar = () => screen.getByLabelText(/(Show|Hide) the receipt$/).props.accessibilityLabel as string;
 
 beforeEach(() => {
@@ -61,7 +63,7 @@ afterEach(() => {
 });
 
 describe('a snap read as three items', () => {
-  it('shows three IDENTIFYING lines, then each becomes the right card as responses and events arrive', async () => {
+  it('shows three IDENTIFYING lines, then each becomes the right quiet answer as responses and events arrive', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mario, zelda]));
     const answer = gate();
@@ -72,20 +74,23 @@ describe('a snap read as three items', () => {
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
     await showReceipt();
     expect(screen.getAllByText('IDENTIFYING…')).toHaveLength(3);
-    expect(screen.queryByTestId(/^card-/)).toBeNull(); // no card until the server has one
+    expect(screen.queryByTestId(/^card-/)).toBeNull(); // no answer until the server has one
     expect(statusBar()).toMatch(/^3 items · 3 processing/);
 
     await act(async () => answer.release());
-    await waitFor(() => expect(cards()).toHaveLength(3));
-    expect(within(cardTitled('Dune')!).getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy(); // owned
-    expect(within(cardTitled('Super Mario 64')!).getByText('Super Mario 64')).toBeTruthy(); // new
-    expect(within(cardTitled('Zelda: Ocarina of Time')!).getByText('Identifying…')).toBeTruthy(); // the slow one: a pending card
+    await waitFor(() => expect(stored()).toHaveLength(3));
+    const byTitle = new Map(stored().map((c) => [c.release?.title ?? c.visibleText, c]));
+    expect(byTitle.get('Dune')?.alreadyOwnedCount).toBe(1); // owned
+    expect(byTitle.get('Dune')?.ownedAt[0]).toBe('Living room › Shelf 2');
+    expect(byTitle.get('Super Mario 64')?.resolution).toBe('matched'); // new
+    expect(byTitle.get('Zelda: Ocarina of Time')?.resolution).toBe('pending'); // the slow one
+    expect(screen.queryByTestId('result-cards')).toBeNull(); // queued silently: nothing over the camera
     expect(screen.getAllByText('IDENTIFYING…')).toHaveLength(1);
 
     await act(async () => identifyMock.resolvePending()); // arrives over the event stream
     await waitFor(() => expect(screen.queryByText('IDENTIFYING…')).toBeNull());
-    expect(within(cardTitled('Zelda: Ocarina of Time')!).queryByText('Identifying…')).toBeNull();
-    expect(cards()).toHaveLength(3);
+    await waitFor(() => expect(stored().find((c) => c.visibleText === 'Zelda: Ocarina of Time')?.resolution).toBe('matched'));
+    expect(stored()).toHaveLength(3);
     expect(statusBar()).toMatch(/^3 items/);
   });
 
@@ -107,43 +112,52 @@ describe('a snap read as three items', () => {
   });
 });
 
-describe('what the cards say', () => {
-  it('shows Fix it, starting from the read text, when the server does not know the item', async () => {
+describe('what the answers say', () => {
+  it('offers Wrong item? Fix it on the Result screen, starting from the read text, when the server does not know the item', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([mutiny]));
     await open(kit);
 
     await shutter();
-    expect(await screen.findByText('Not in the catalog. Fix it to search by title.')).toBeTruthy();
-    await fireEvent.press(await screen.findByLabelText('Fix it: Space Mutiny'));
+    await waitFor(() => expect(stored()).toHaveLength(1));
+    expect(stored()[0]!.resolution).toBe('not_found');
+    await renderWithProviders(<ResultDetail id={stored()[0]!.id} />);
+
+    await fireEvent.press(await screen.findByText('Wrong item? Fix it'));
     expect(screen.getByDisplayValue('Space Mutiny')).toBeTruthy();
   });
 
-  it('searches again from Fix it with the corrected title, and the card updates', async () => {
+  it('searches again from the Result screen with the corrected title, and the answer updates', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([readItem('Goldeneye 7')]));
     await open(kit);
 
     await shutter();
-    await fireEvent.press(await screen.findByLabelText('Fix it: Goldeneye 7'));
+    await waitFor(() => expect(stored()).toHaveLength(1));
+    await renderWithProviders(<ResultDetail id={stored()[0]!.id} />);
+    await fireEvent.press(await screen.findByText('Wrong item? Fix it'));
     await fireEvent.changeText(screen.getByDisplayValue('Goldeneye 7'), 'GoldenEye 007');
     await fireEvent.press(screen.getByLabelText('Search'));
 
-    expect(await screen.findByText('Already own — Nintendo 64, Game room › Shelf 1')).toBeTruthy();
-    expect(screen.getByText('GoldenEye 007')).toBeTruthy();
-    expect(screen.queryByText('Fix it')).toBeNull(); // the sheet closed and the card is matched
+    await waitFor(() => expect(stored()[0]!.release?.title).toBe('GoldenEye 007'));
+    expect(stored()[0]!.alreadyOwnedCount).toBe(1);
+    expect(await screen.findByText('You own this: Game room › Shelf 1')).toBeTruthy();
+    expect(screen.queryByText('Fix it')).toBeNull(); // the sheet closed and the answer is matched
   });
 
-  it('leads with "Already own" for an item the library already has', async () => {
+  it('records "Already own" for an item the library already has', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune]));
     await open(kit);
 
     await shutter();
-    const card = await screen.findByTestId(/^card-/);
-    expect(within(card).getByText('Dune')).toBeTruthy();
-    expect(within(card).getByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
-    expect(within(card).queryByText('+ Add')).toBeNull();
+    await waitFor(() => expect(stored()).toHaveLength(1));
+    const [card] = stored();
+    expect(card!.release?.title).toBe('Dune');
+    expect(card!.alreadyOwnedCount).toBe(1);
+    expect(card!.ownedAt[0]).toBe('Living room › Shelf 2');
+    expect(card!.decision).toBe('undecided'); // seen, never accepted by scanning
+    expect(card!.createdItemId).toBeNull();
   });
 });
 
@@ -163,7 +177,7 @@ describe('offline and the PC being off', () => {
 
     server.resetHandlers(); // back online
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
-    expect(await screen.findByText('Already own — Paperback, Living room › Shelf 2')).toBeTruthy();
+    await waitFor(() => expect(stored().find((c) => c.release?.title === 'Dune')?.alreadyOwnedCount).toBe(1));
     expect(identifyMock.requests[0]!.body.snapId).toBe(kit.store.getState().snaps[0]!.snapId);
     await waitFor(() => expect(screen.queryByText('QUEUED')).toBeNull());
     expect(identifyMock.requests).toHaveLength(1);
@@ -178,9 +192,9 @@ describe('offline and the PC being off', () => {
     await shutter();
     await waitFor(() => expect(identifyMock.requests.length).toBeGreaterThanOrEqual(2));
     expect(new Set(identifyMock.requests.map((r) => r.body.snapId)).size).toBe(1);
-    expect(await screen.findByText('Super Mario 64')).toBeTruthy();
+    await waitFor(() => expect(stored()).toHaveLength(2));
+    expect(stored().map((c) => c.release?.title).sort()).toEqual(['Dune', 'Super Mario 64']);
     expect([...scanMock.sessions.values()].flatMap((s) => s.candidates)).toHaveLength(2);
-    expect(screen.getAllByTestId(/^card-/)).toHaveLength(2);
   });
 
   it('keeps what was read across a restart and sends it from the new run', async () => {
@@ -221,7 +235,7 @@ describe('a close call', () => {
   const settle = async () => {
     await open(kit);
     await shutter();
-    expect(await screen.findByText('Pick one')).toBeTruthy();
+    await waitFor(() => expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.resolution).toBe('ambiguous'));
   };
   let kit: ReturnType<typeof makeKit>;
   beforeEach(() => {
@@ -231,7 +245,7 @@ describe('a close call', () => {
     kit.art.distances.set('0002', 0.8);
   });
 
-  it('downloads the alternatives from this server, compares them with the crop, sends the distances once and updates the card', async () => {
+  it('downloads the alternatives from this server, compares them with the crop, sends the distances once and updates the answer', async () => {
     await open(kit);
     await shutter();
 
@@ -246,27 +260,27 @@ describe('a close call', () => {
       { releaseId: CLOSE_CALL.original.id, distance: 0.1 },
       { releaseId: CLOSE_CALL.rerelease.id, distance: 0.8 },
     ]);
-    await waitFor(() => expect(screen.queryByText('Pick one')).toBeNull());
-    expect(screen.getByText('Pokemon Yellow')).toBeTruthy();
+    await waitFor(() => expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.resolution).toBe('matched'));
+    expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.release?.id).toBe(CLOSE_CALL.original.id);
     expect(kit.art.discarded).toHaveLength(2); // the downloaded thumbnails do not pile up
     expect(identifyMock.artRequests).toHaveLength(1);
   });
 
-  it('leaves the card as Pick one when a download fails, and says nothing is wrong', async () => {
+  it('leaves the answer undecided when a download fails, and says nothing is wrong', async () => {
     kit.art.failDownloads = true;
     await settle();
     await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
     expect(identifyMock.artRequests).toEqual([]);
-    expect(screen.getByText('Pick one')).toBeTruthy();
+    expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.resolution).toBe('ambiguous');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('leaves the card as it is when the server says the person already decided (409)', async () => {
+  it('leaves the answer as it is when the server says the person already decided (409)', async () => {
     server.use(http.post(/\/candidates\/[^/]+:art$/, () => HttpResponse.json({ title: 'Decided', status: 409 }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } })));
     await settle();
     await waitFor(() => expect(kit.art.downloads).toHaveLength(2));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
-    expect(screen.getByText('Pick one')).toBeTruthy();
+    expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.resolution).toBe('ambiguous');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -316,7 +330,7 @@ describe('the processing count and Get closer', () => {
     await shutter();
     await waitFor(() => expect(statusBar()).toMatch(/^2 items · 2 processing/)); // streamed, still being read
     await act(async () => reading.release());
-    await screen.findByText('Already own — Paperback, Living room › Shelf 2');
+    await waitFor(() => expect(stored().find((c) => c.release?.title === 'Dune')?.alreadyOwnedCount).toBe(1));
     await waitFor(() => expect(statusBar()).toMatch(/^2 items · 1 processing/)); // Zelda is still being looked up
     await act(async () => identifyMock.resolvePending());
     await waitFor(() => expect(statusBar()).toMatch(/^2 items/));
@@ -378,19 +392,19 @@ describe('the receipt', () => {
     await act(async () => reading.release());
   });
 
-  it('removes a picture item on a swipe action: gone from the receipt and the cards, and rejected so Review will not add it', async () => {
+  it('removes a picture item on a swipe action: gone from the receipt and the queue, and rejected so Review will not add it', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mario]));
     await open(kit);
 
     await shutter();
-    await waitFor(() => expect(cards()).toHaveLength(2));
+    await waitFor(() => expect(stored()).toHaveLength(2));
     await showReceipt();
     const row = screen.getByLabelText('Super Mario 64'); // settled, so no status in its label
     await act(async () => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'delete' } }));
 
-    await waitFor(() => expect(screen.queryByText('Super Mario 64')).toBeNull());
-    expect(cards()).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByLabelText('Super Mario 64')).toBeNull());
+    expect(stored()).toHaveLength(1);
     const rejected = [...scanMock.sessions.values()].flatMap((s) => s.candidates).filter((c) => c.decision === 'rejected');
     expect(rejected.map((c) => c.visibleText)).toEqual(['Super Mario 64']);
   });
@@ -401,7 +415,7 @@ describe('the receipt', () => {
     await open(kit);
 
     await shutter();
-    await screen.findByText('Already own — Paperback, Living room › Shelf 2');
+    await waitFor(() => expect(stored().find((c) => c.release?.title === 'Dune')).toBeTruthy());
     expect(kit.store.getState().snaps).toHaveLength(1);
     await act(async () => kit.tray.getState().setSessionId(null)); // committed or discarded
     await waitFor(() => expect(kit.store.getState().snaps).toEqual([]));
@@ -418,10 +432,12 @@ describe('the dev menu', () => {
     );
 
     await fireEvent.press(screen.getByLabelText('Snap a fixture shelf'));
-    expect(await screen.findByText('Super Mario 64')).toBeTruthy();
-    expect(await screen.findByText('Space Mutiny')).toBeTruthy();
+    await waitFor(() => expect(stored().length).toBeGreaterThanOrEqual(4));
+    expect(stored().map((c) => c.release?.title ?? c.visibleText)).toEqual(
+      expect.arrayContaining(['Super Mario 64', 'Space Mutiny']),
+    );
     expect(await screen.findByText('Get closer for these 2')).toBeTruthy();
-    expect(screen.getAllByTestId(/^card-/).length).toBeGreaterThanOrEqual(4);
+    expect(screen.queryByTestId('result-cards')).toBeNull(); // replayed, and queued silently
     expect(source.captures).toBe(0); // no camera
     expect(kit.reader.stills).toEqual([]); // and no model: the recording was played
   });
