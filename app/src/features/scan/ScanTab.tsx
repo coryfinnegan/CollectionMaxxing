@@ -1,5 +1,5 @@
 // The Scan tab: the camera, immediately. The first run shows a one-time coach overlay over the viewfinder; after
-// that the scanner opens with no intermediate taps. Manual add and waiting review live in the session bar.
+// that the scanner opens with no intermediate taps. Manual add lives in the control row; waiting scans open from the Review bar.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useState } from 'react';

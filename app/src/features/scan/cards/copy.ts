@@ -128,5 +128,18 @@ export function summaryLine(items: number, processing: number): string {
   return processing > 0 ? `${items} ${noun} · ${processing} processing` : `${items} ${noun}`;
 }
 
+/**
+ * The scanner's one status line (#408): the tray's summary plus where the session stands. The tray's own item
+ * count is the headline, so the counters' captured twin (which counts lines, not copies) stays out of it. Zero
+ * buckets stay out too, and the rest run most-actionable first, so the line fits its row instead of truncating.
+ */
+export function reviewStatusLine(items: number, processing: number, added: number, toReview: number, owned: number): string {
+  const parts = [summaryLine(items, processing)];
+  if (toReview > 0) parts.push(`${toReview} to review`);
+  if (owned > 0) parts.push(`${owned} owned`);
+  if (added > 0) parts.push(`${added} added`);
+  return parts.join(' · ');
+}
+
 /** Card slide: none when Reduce Motion is on. */
 export const slideDuration = (reduceMotion: boolean) => (reduceMotion ? 0 : 220);

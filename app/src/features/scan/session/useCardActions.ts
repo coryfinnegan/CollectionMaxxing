@@ -63,7 +63,7 @@ export function useCardActions({
 
   const [wishlisted, setWishlisted] = useState<Record<string, true>>({});
 
-  // The session spot by name for the toast; "here" when the list cannot say (it is the spot in the session bar).
+  // The session spot by name for the toast; "here" when the list cannot say (it is the spot in the session chip).
   const placeOf = useCallback(
     (locationId: string | null): string => {
       if (locationId === null) return 'here';

@@ -116,7 +116,7 @@ describe('scanner session context', () => {
     expect(screen.queryByLabelText('Close')).toBeNull();
   });
 
-  it('adds by hand and opens waiting review from the session bar', async () => {
+  it('adds by hand from the control row and opens waiting review from the Review bar', async () => {
     await scanner();
     mockRouter.push.mockClear();
 
@@ -126,7 +126,22 @@ describe('scanner session context', () => {
     await act(async () => {
       getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: '9780441172719', symbology: 'ean-13' });
     });
-    await press('Waiting from your last scan: 1 item. Open Review');
+    await press('Review');
     expect(mockRouter.push).toHaveBeenCalledWith('/review');
+  });
+
+  it('merges the tray and the session counters into the Review bar status line', async () => {
+    await scanner();
+
+    expect(await screen.findByLabelText('0 items. Show the receipt')).toBeTruthy();
+  });
+
+  it('shows the session buckets in the status line once scans are waiting', async () => {
+    await renderWithProviders(<ScannerScreen libraryId={MOCK_LIBRARY_ID} source={new FakeScannerSource()} tuning={{ ...tuning, resendMs: 3_600_000 }} />);
+
+    await act(async () => {
+      getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: '9780441172719', symbology: 'ean-13' });
+    });
+    expect(await screen.findByLabelText('1 item · 1 processing · 1 to review. Show the receipt')).toBeTruthy();
   });
 });

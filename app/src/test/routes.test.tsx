@@ -19,7 +19,7 @@ jest.mock('expo-secure-store', () => ({
 
 const routes: [url: string, expected: string][] = [
   ['/library', 'Library'],
-  ['/scan', 'Add it by hand'],
+  ['/scan', 'Review'],
   ['/me', 'Me'],
   ['/me/locations', 'Where things live: rooms, shelves, boxes.'],
   ['/me/export', 'Download everything in your library as files you can keep.'],
@@ -34,7 +34,7 @@ const routes: [url: string, expected: string][] = [
   ['/about', 'Version, privacy and credits.'],
   ['/item/42', "Couldn't load this item"],
   ['/item/42/edit', "Couldn't load this item"],
-  ['/scanner', 'Close'],
+  ['/scanner', 'Review'],
   ['/review', 'Nothing to review.'],
   ['/result/7', "That result isn't here any more"],
 ];

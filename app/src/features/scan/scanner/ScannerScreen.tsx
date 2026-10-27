@@ -29,8 +29,8 @@ import { AutoCommitSnackbar } from '../session/AutoCommitSnackbar';
 import { useCardActions } from '../session/useCardActions';
 import { SegmentStrip } from '../session/SegmentStrip';
 import { SegmentViewer } from '../session/SegmentViewer';
-import { SessionCountersBar } from '../session/SessionCountersBar';
 import { useLibraryRole, useScanSession, type SessionTuning } from '../session/useScanSession';
+import { useSessionCounters } from '../session/useSessionCounters';
 import { SessionSheet } from '../session/SessionSheet';
 import { defaultSessionContext, sessionCreateBody, type SessionContext } from '../session/sessionContext';
 import { ReceiptBar } from '../tray/ReceiptBar';
@@ -38,8 +38,9 @@ import { fixed, spacing, useColors } from '@/theme/tokens';
 import { Button, Chip, Snackbar, Text } from '@/ui';
 import { DEV_SIX_CODES } from './devCodes';
 import { FakeScannerSource, type ScannerSource } from './ScannerSource';
+import { ScannerControls } from './ScannerControls';
 import { ScannerSearch } from './ScannerSearch';
-import { SessionBar } from './SessionBar';
+import { TransientHint } from './TransientHint';
 
 type Props = {
   libraryId: string;
@@ -131,6 +132,7 @@ export function ScannerScreen({
   );
   const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture });
   const { canAdd } = useLibraryRole(libraryId);
+  const { counters } = useSessionCounters(libraryId, session.sessionId);
   // "Move it here" moves to the session spot; in-store defers the location, so the card hides Move there.
   const cardActions = useCardActions({
     libraryId,
@@ -199,32 +201,19 @@ export function ScannerScreen({
     <View style={{ flex: 1, backgroundColor: fixed.black }}>
       {preview}
       <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { paddingTop: insets.top + spacing.sm }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg }}>
-          {showClose ? (
-            <Button label="Close" variant="secondary" onPress={onClose ?? (() => router.back())} style={{ backgroundColor: fixed.scrim }} />
-          ) : null}
-          {Platform.OS === 'web' ? (
-            <Text variant="heading" accessibilityRole="header" style={{ color: fixed.white }}>
-              Scanner
-            </Text>
-          ) : (
-            <View style={{ flex: 1 }} />
-          )}
-          <Button
-            label={flash ? 'Flash on' : 'Flash'}
-            variant="secondary"
-            accessibilityState={{ selected: flash }}
-            onPress={toggleFlash}
-            style={{ backgroundColor: flash ? colors.accent : fixed.scrim }}
-          />
-        </View>
-        <SessionBar
+        <ScannerControls
           libraryId={libraryId}
           context={context}
+          showClose={showClose}
+          onClose={onClose ?? (() => router.back())}
           onOpenSession={() => setSheet('session')}
+          flash={flash}
+          onToggleFlash={toggleFlash}
           onOpenSearch={() => setSheet('search')}
+          photosEnabled={photos.enabled}
+          photosRunning={photos.running}
+          onPhotos={photos.start}
           onAddManually={() => router.push({ pathname: '/library', params: { add: '1' } })}
-          onOpenReview={() => router.push('/review')}
         />
         {boundScan ? (
           <View style={boundStyles.wrap}>
@@ -274,24 +263,13 @@ export function ScannerScreen({
             </View>
           ) : null}
           {!photos.running && photos.message ? <Text style={{ color: fixed.white }}>{photos.message}</Text> : null}
-          {autoSnap.hint ? (
-            <Chip
-              label="Try the flash or move closer"
-              onPress={() => {
-                if (!flash) toggleFlash();
-              }}
-            />
-          ) : null}
-          {photos.enabled ? (
-            <Button
-              label="Photos"
-              variant="secondary"
-              accessibilityHint="Choose pictures from your library to read, with no camera needed"
-              disabled={photos.running}
-              onPress={photos.start}
-              style={{ backgroundColor: fixed.scrim }}
-            />
-          ) : null}
+          <TransientHint
+            visible={autoSnap.hint}
+            label="Try the flash or move closer"
+            onPress={() => {
+              if (!flash) toggleFlash();
+            }}
+          />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Take picture"
@@ -341,7 +319,6 @@ export function ScannerScreen({
             <SegmentViewer libraryId={libraryId} initialSnapId={viewingSnap} onClose={() => setViewingSnap(null)} />
           </View>
         ) : null}
-        <SessionCountersBar libraryId={libraryId} sessionId={session.sessionId} canAdd={canAdd} />
         {pictures.enabled ? <SegmentStrip libraryId={libraryId} onSelect={setViewingSnap} /> : null}
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
@@ -354,6 +331,9 @@ export function ScannerScreen({
             processing={session.processing + pictures.processing}
             problem={session.problem}
             notice={session.notice}
+            counters={counters}
+            sessionId={session.sessionId}
+            canAdd={canAdd}
             onPlusOne={session.plusOne}
             onRemove={session.remove}
             onReview={() => router.push('/review')}

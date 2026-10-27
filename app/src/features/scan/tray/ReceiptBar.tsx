@@ -1,13 +1,17 @@
 // The status bar ("17 items · 2 processing", Review) and the receipt behind it: one line per code, swipe or Remove
 // to remove, +1 for a second copy, QUEUED while offline. Capitals are allowed here: it is the receipt's own voice.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, PanResponder, Pressable, ScrollView, View, type ViewStyle } from 'react-native';
+import { Animated, Image, PanResponder, Pressable, ScrollView, View, type TextStyle, type ViewStyle } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
+import { undoAutoCommit } from '@/features/review/api';
 import { announceForScreenReader } from '@/lib/a11y/announce';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
-import { summaryLine } from '../cards/copy';
-import { isAutoCommitted } from '../cards/cardsStore';
-import { spacing, useColors } from '@/theme/tokens';
+import { friendlyError } from '@/lib/problem';
+import { reviewStatusLine, summaryLine } from '../cards/copy';
+import { isAutoCommitted, useCardsStore } from '../cards/cardsStore';
+import { useAutoCommitUndoStore } from '../session/autoCommitUndo';
+import type { SessionCounters } from '../session/sessionCounters';
+import { fixed, radius, spacing, useColors } from '@/theme/tokens';
 import { Button, GlassSurface, Text } from '@/ui';
 import type { PictureLine } from '../pipeline/lines';
 import { lineStatus, type TrayLine } from './tray';
@@ -16,6 +20,11 @@ const REMOVE_DISTANCE = 80;
 
 /** The Remove tap target, hoisted: this file's inline-style budget is spent. */
 const removeHit: ViewStyle = { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' };
+
+/** The merged status row's offline badge and undo error, hoisted for the same reason. */
+const statusBadge: ViewStyle = { borderRadius: radius.pill, backgroundColor: fixed.white, paddingHorizontal: spacing.sm, paddingVertical: 2 };
+const statusBadgeText: TextStyle = { color: fixed.black };
+const statusError: TextStyle = { paddingHorizontal: spacing.lg, paddingTop: spacing.sm };
 
 /** Snaps a half-swiped line back; with Reduce Motion it just jumps back. */
 export function settleSwipe(x: Animated.Value, reduceMotion: boolean) {
@@ -188,6 +197,9 @@ export function ReceiptBar({
   processing,
   problem,
   notice,
+  counters,
+  sessionId,
+  canAdd,
   onPlusOne,
   onRemove,
   onReview,
@@ -202,12 +214,46 @@ export function ReceiptBar({
   processing: number;
   problem: string | null;
   notice: string | null;
+  /** The session counters: when present, the bar shows the merged one-line status (#408). */
+  counters?: SessionCounters;
+  /** The session an undo takes back from; without it (or without `canAdd`) there is no undo. */
+  sessionId?: string | null;
+  canAdd?: boolean;
   onPlusOne(code: string): void;
   onRemove(code: string): void;
   onReview(): void;
 }) {
   const colors = useColors();
   const [open, setOpen] = useState(false);
+  const byId = useCardsStore((s) => s.byId);
+  // The newest auto-add that still stands, by when it last changed; null when there is nothing to undo.
+  const undoable = useMemo(() => {
+    const standing = Object.values(byId).filter((c) => c.createdItemId != null);
+    return standing.length > 0 ? standing.reduce((a, b) => (b.changeSeq > a.changeSeq ? b : a)) : null;
+  }, [byId]);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const undoableId = undoable?.id ?? null;
+  // A new add retires the last attempt's error. Adjusted during render (not in an effect).
+  const [errorFor, setErrorFor] = useState(undoableId);
+  if (errorFor !== undoableId) {
+    setErrorFor(undoableId);
+    setUndoError(null);
+  }
+  const status = counters ? reviewStatusLine(items, processing, counters.added, counters.toReview, counters.owned) : summaryLine(items, processing);
+
+  const undoLast = () => {
+    if (!sessionId || undoBusy) return; // a second tap while the first is running is ignored
+    setUndoBusy(true);
+    setUndoError(null);
+    undoAutoCommit(sessionId, undefined)
+      .then((undone) => {
+        // The snackbar may still be showing this add: it goes away with it.
+        if (useAutoCommitUndoStore.getState().last?.candidateId === undone.id) useAutoCommitUndoStore.getState().setLast(null);
+      })
+      .catch((e: unknown) => setUndoError(friendlyError(e)))
+      .finally(() => setUndoBusy(false));
+  };
   // VoiceOver ignores live regions: say "Queued" when a scan lands in the receipt with no connection to send it.
   const queued = online
     ? 0
@@ -267,15 +313,30 @@ export function ReceiptBar({
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.lg, gap: spacing.md }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${summaryLine(items, processing)}. ${open ? 'Hide' : 'Show'} the receipt`}
+          accessibilityLabel={`${status}${online ? '' : '. Offline: counts include scans still on this phone'}. ${open ? 'Hide' : 'Show'} the receipt`}
           accessibilityState={{ expanded: open }}
           onPress={() => setOpen((o) => !o)}
           style={{ flex: 1, minHeight: 44, justifyContent: 'center' }}
         >
-          <Text variant="label">{summaryLine(items, processing)}</Text>
+          <Text variant="label" accessibilityLiveRegion="polite" numberOfLines={1}>
+            {status}
+          </Text>
         </Pressable>
+        {!online ? (
+          <View style={statusBadge} accessibilityLabel="Offline">
+            <Text variant="label" style={statusBadgeText}>
+              Offline
+            </Text>
+          </View>
+        ) : null}
+        {undoable && sessionId && canAdd ? <Button label="Undo last add" variant="secondary" busy={undoBusy} onPress={undoLast} /> : null}
         <Button label="Review" onPress={onReview} disabled={items === 0} />
       </View>
+      {undoError ? (
+        <Text variant="caption" tone="danger" accessibilityLiveRegion="polite" style={statusError}>
+          {undoError}
+        </Text>
+      ) : null}
     </GlassSurface>
   );
 }

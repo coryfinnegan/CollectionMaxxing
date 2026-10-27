@@ -1,5 +1,5 @@
 // The camera is never the only way in: Import from Photos sits on the scanner (which works with no camera picture),
-// and the Scan tab's session bar offers adding by hand, which lands on the library's Add an item panel.
+// and the Scan tab's control row offers adding by hand, which lands on the library's Add an item panel.
 import { fireEvent, screen } from '@testing-library/react-native';
 import { scanMock } from '@/mocks/scan';
 import { renderWithProviders } from '@/test/render';

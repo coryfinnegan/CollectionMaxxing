@@ -73,7 +73,7 @@ describe('a snap read as three items', () => {
     await showReceipt();
     expect(screen.getAllByText('IDENTIFYING…')).toHaveLength(3);
     expect(screen.queryByTestId(/^card-/)).toBeNull(); // no card until the server has one
-    expect(statusBar()).toMatch(/^3 items · 3 processing\./);
+    expect(statusBar()).toMatch(/^3 items · 3 processing/);
 
     await act(async () => answer.release());
     await waitFor(() => expect(cards()).toHaveLength(3));
@@ -86,7 +86,7 @@ describe('a snap read as three items', () => {
     await waitFor(() => expect(screen.queryByText('IDENTIFYING…')).toBeNull());
     expect(within(cardTitled('Zelda: Ocarina of Time')!).queryByText('Identifying…')).toBeNull();
     expect(cards()).toHaveLength(3);
-    expect(statusBar()).toMatch(/^3 items\./);
+    expect(statusBar()).toMatch(/^3 items/);
   });
 
   it('puts the read text and fields in the request, with the engine and trigger, and nothing else', async () => {
@@ -314,12 +314,12 @@ describe('the processing count and Get closer', () => {
     await open(kit);
 
     await shutter();
-    await waitFor(() => expect(statusBar()).toMatch(/^2 items · 2 processing\./)); // streamed, still being read
+    await waitFor(() => expect(statusBar()).toMatch(/^2 items · 2 processing/)); // streamed, still being read
     await act(async () => reading.release());
     await screen.findByText('Already own — Paperback, Living room › Shelf 2');
-    await waitFor(() => expect(statusBar()).toMatch(/^2 items · 1 processing\./)); // Zelda is still being looked up
+    await waitFor(() => expect(statusBar()).toMatch(/^2 items · 1 processing/)); // Zelda is still being looked up
     await act(async () => identifyMock.resolvePending());
-    await waitFor(() => expect(statusBar()).toMatch(/^2 items\./));
+    await waitFor(() => expect(statusBar()).toMatch(/^2 items/));
   });
 
   it('shows "Get closer for these N" with the unreadable count, without blocking the camera', async () => {
