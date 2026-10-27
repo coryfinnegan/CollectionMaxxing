@@ -50,7 +50,7 @@ EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Snackbar,
 Text, TextField, plus `usePressFeedback`.
 
 - Compose screens from primitives. A repeated view earns promotion into `ui/`.
-- Button takes a `label` prop and a `variant` (primary / secondary / danger);
+- Button takes a `label` prop and a `variant` (primary / secondary / danger / onDark — onDark is fixed-white for dark surfaces over the camera);
   it owns its press feedback and haptic. Do not wrap button text by hand.
 - Loading and empty branches are designed states: `LoadingState` and
   `EmptyState`, not blank screens or bare spinners.
