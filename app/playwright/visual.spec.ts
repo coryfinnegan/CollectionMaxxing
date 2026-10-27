@@ -145,5 +145,6 @@ async function openSeededReview(page: Page, open: (path: string) => Promise<void
   await expect(page.getByRole('radio', { name: 'Select Suddenly You (2003), Other' })).toBeChecked();
   await expect(page.getByText('Cover match')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Keep Suddenly You as unverified' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Discard Suddenly You' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add 2 items' })).toBeVisible();
 }

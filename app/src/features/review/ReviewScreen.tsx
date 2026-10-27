@@ -272,6 +272,7 @@ function Row({ c, group, review, isOpen, onOpen, onOpenResult, onScanBarcode, on
             onSkip={review.canAdd ? () => void review.skip(c) : undefined}
             onScanBarcode={review.canAdd && onScanBarcode ? () => onScanBarcode(c) : undefined}
             onSnapCover={review.canAdd && onSnapCover ? () => onSnapCover(c) : undefined}
+            onDiscard={review.canAdd ? () => void review.discard(c) : undefined}
           />
         </>
       ) : (
