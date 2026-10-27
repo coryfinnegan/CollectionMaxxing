@@ -1,6 +1,6 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore, announcementFor } from './cardsStore';
-import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, slideDuration, summaryLine } from './copy';
+import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, reviewStatusLine, slideDuration, summaryLine } from './copy';
 
 const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   ({
@@ -109,6 +109,12 @@ describe('card copy', () => {
   it('reads the summary line', () => {
     expect(summaryLine(17, 2)).toBe('17 items · 2 processing');
     expect(summaryLine(1, 0)).toBe('1 item');
+  });
+
+  it('reads the one status line: the tray plus where the session stands', () => {
+    expect(reviewStatusLine(5, 1, 2, 4, 1)).toBe('5 items · 1 processing · 4 to review · 1 owned · 2 added');
+    expect(reviewStatusLine(1, 0, 0, 1, 0)).toBe('1 item · 1 to review');
+    expect(reviewStatusLine(0, 0, 0, 0, 0)).toBe('0 items');
   });
 
   it('has no slide with Reduce Motion', () => {
