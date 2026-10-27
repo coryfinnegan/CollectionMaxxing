@@ -49,7 +49,9 @@ const asRelease = (value: unknown): ReleaseDto | undefined => {
   if (typeof v.id === 'string' && typeof v.title === 'string') return v as unknown as ReleaseDto;
   // The wire shape (CandidateAlternativeDto): a releaseId plus flat fields. Picks only read
   // id/title/year/format, and choosing PATCHes the id; the full release arrives after the pick.
-  if (typeof v.releaseId === 'string' && typeof v.title === 'string') return { ...v, id: v.releaseId, platform: null } as unknown as ReleaseDto;
+  // The bare platform name rides along under its own key: ReleaseDto's platform is an object.
+  if (typeof v.releaseId === 'string' && typeof v.title === 'string')
+    return { ...v, id: v.releaseId, platform: null, platformName: typeof v.platform === 'string' ? v.platform : null } as unknown as ReleaseDto;
   return v.release ? asRelease(v.release) : undefined;
 };
 
@@ -58,6 +60,42 @@ export function alternativesOf(c: Pick<CandidateDto, 'alternatives'>): ReleaseDt
   const raw = c.alternatives as unknown;
   if (!Array.isArray(raw)) return [];
   return raw.map(asRelease).filter((r): r is ReleaseDto => !!r).slice(0, MAX_ALTERNATIVES);
+}
+
+/** The platform's name, whichever shape the alternative arrived in (a full release object or a flat wire name). */
+export function platformNameOf(r: ReleaseDto): string | null {
+  if (r.platform && typeof r.platform === 'object') return r.platform.name ?? null;
+  const extra = r as unknown as Record<string, unknown>;
+  return typeof extra.platformName === 'string' ? extra.platformName : null;
+}
+
+/** The catalog art for the option row: the release cover first, the provider artwork next. */
+export function alternativeCoverOf(r: ReleaseDto): string | null {
+  if (r.coverUrl) return r.coverUrl;
+  const extra = r as unknown as Record<string, unknown>;
+  return typeof extra.artworkUrl === 'string' ? extra.artworkUrl : null;
+}
+
+/** How many copies of this alternative are already owned (the wire shape says; a full release cannot). */
+export function ownedCountOf(r: ReleaseDto): number {
+  const extra = r as unknown as Record<string, unknown>;
+  return typeof extra.alreadyOwnedCount === 'number' ? extra.alreadyOwnedCount : 0;
+}
+
+/**
+ * The matching engine's preselected edition (#438): its release id plus the short reason
+ * shown beside the row ("Cover match"). Tolerant by design: absent, blank, or naming no
+ * listed alternative means no preselection, and the person taps as usual.
+ */
+export type Preselection = { releaseId: string; reason: string | null };
+
+export function preselectedOf(c: Pick<CandidateDto, 'alternatives'>): Preselection | null {
+  const extra = c as unknown as Record<string, unknown>;
+  const releaseId = typeof extra.suggestedReleaseId === 'string' && extra.suggestedReleaseId ? extra.suggestedReleaseId : null;
+  if (!releaseId) return null;
+  if (!alternativesOf(c).some((r) => r.id === releaseId)) return null;
+  const reason = typeof extra.suggestionReason === 'string' && extra.suggestionReason.trim() ? extra.suggestionReason.trim() : null;
+  return { releaseId, reason };
 }
 
 /** What an unnamed candidate is called. Raw read text is never a title (#435). */
