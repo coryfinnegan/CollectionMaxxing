@@ -80,7 +80,8 @@ function applyAlternateIconResources(objects, { projectName, files }) {
     const refPath = `${projectName}/${file}`;
     if (have.has(refPath)) continue;
     const refId = objectId('fileref', refPath);
-    objects.PBXFileReference[refId] = { isa: 'PBXFileReference', lastKnownFileType: 'image.png', path: refPath, sourceTree: 'SOURCE_ROOT' };
+    // The xcode serializer writes values verbatim, so the path carries its own quotes (#409: a bare @ corrupts the pbxproj for CocoaPods).
+    objects.PBXFileReference[refId] = { isa: 'PBXFileReference', lastKnownFileType: 'image.png', path: `"${refPath}"`, sourceTree: 'SOURCE_ROOT' };
     for (const [targetId, target] of targets) {
       const phaseId = (target.buildPhases ?? []).map((p) => p.value).find((id) => objects.PBXResourcesBuildPhase?.[id]);
       if (!phaseId) throw new Error('Alternate app icons found an app target with no Resources phase.');

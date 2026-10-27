@@ -53,7 +53,7 @@ describe('alternate app icons', () => {
 
     const refs = Object.values(objects.PBXFileReference);
     expect(refs).toHaveLength(2);
-    expect(refs.map((r) => r.path).sort()).toEqual(['CollectionMaxxing/gameboy-icon@2x.png', 'CollectionMaxxing/gameboy-icon@3x.png']);
+    expect(refs.map((r) => r.path).sort()).toEqual(['"CollectionMaxxing/gameboy-icon@2x.png"', '"CollectionMaxxing/gameboy-icon@3x.png"']);
     for (const ref of refs) {
       expect(ref.isa).toBe('PBXFileReference');
       expect(ref.sourceTree).toBe('SOURCE_ROOT');
@@ -65,6 +65,15 @@ describe('alternate app icons', () => {
     for (const id of buildIds) expect(refIds).toContain(objects.PBXBuildFile[id].fileRef);
     expect(objects.PBXResourcesBuildPhase.R1.files.map((f) => f.value).sort()).toEqual(buildIds.sort());
     expect(objects.PBXGroup.G1.children.map((f) => f.value).sort()).toEqual(refIds.sort());
+  });
+
+  it('quotes every stored path, so the verbatim serializer emits a pbxproj CocoaPods can parse (#409)', () => {
+    const objects = project();
+    applyAlternateIconResources(objects, { projectName: 'CollectionMaxxing', files: ['gameboy-icon@2x.png', 'gameboy-icon@3x.png'] });
+
+    for (const ref of Object.values(objects.PBXFileReference)) {
+      expect(ref.path).toMatch(/^".*"$/);
+    }
   });
 
   it('adds nothing twice: a second prebuild without --clean leaves the project as it was', () => {
