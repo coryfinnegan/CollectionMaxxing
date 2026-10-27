@@ -20,25 +20,44 @@ const ART: Record<string, string> = {
   D2: 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjMmU3ZDRmIi8+PHRleHQgeD0iMjQiIHk9IjMxIiBmb250LXNpemU9IjIyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZmZmZmZmIj5EPC90ZXh0Pjwvc3ZnPg==',
   M: 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjYTMyZTJlIi8+PHRleHQgeD0iMjQiIHk9IjMxIiBmb250LXNpemU9IjIyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZmZmZmZmIj5NPC90ZXh0Pjwvc3ZnPg==',
   S: 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjNmI2YjZiIi8+PHRleHQgeD0iMjQiIHk9IjMxIiBmb250LXNpemU9IjIyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZmZmZmZmIj5TPC90ZXh0Pjwvc3ZnPg==',
+  Y1: 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjN2M0YTFlIi8+PHRleHQgeD0iMjQiIHk9IjMxIiBmb250LXNpemU9IjIyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZmZmZmZmIj5TPC90ZXh0Pjwvc3ZnPg==',
+  Y2: 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCI+PHJlY3Qgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiBmaWxsPSIjM2U2YjRmIi8+PHRleHQgeD0iMjQiIHk9IjMxIiBmb250LXNpemU9IjIyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjZmZmZmZmIj5TPC90ZXh0Pjwvc3ZnPg==',
 };
 
-const alien = [release(11, 'Alien'), release(12, 'Aliens'), release(13, 'Alien 3')];
+// The seeded pick-one row (#440): two editions of one title in the wire shape the API sends,
+// one with catalog art and one falling back to the captured crop, the 2003 edition preselected.
+const suddenly = (['Y1', null] as const).map((art, i) => ({
+  releaseId: `e2e00000-0000-4000-8000-00000000002${i + 1}`,
+  title: 'Suddenly You',
+  format: 'other',
+  platform: null,
+  year: 2001 + i * 2,
+  score: 0.9 - i * 0.1,
+  creators: ['Lisa Kleypas'],
+  coverUrl: art ? thumb(ART[art]!) : null,
+  alreadyOwnedCount: 0,
+  artworkUrl: null,
+}));
 
 /** One row per Review state: pick, not found, owned, ready, and two still looking up (quota + identifying). */
 function reviewRows(): CandidateDto[] {
   return [
-    candidate({
-      id: 'e2e00000-0000-4000-8000-000000000011',
-      seq: 1,
-      changeSeq: 1,
-      source: 'picture_text',
-      visibleText: 'Alien Tape',
-      localId: 'seed-pick',
-      resolution: 'ambiguous',
-      release: alien[0],
-      alternatives: alien as never,
-      guidanceCode: 'pick_match',
-    }),
+    {
+      ...candidate({
+        id: 'e2e00000-0000-4000-8000-000000000011',
+        seq: 1,
+        changeSeq: 1,
+        source: 'picture_text',
+        visibleText: 'Suddenly You',
+        localId: 'seed-pick',
+        resolution: 'ambiguous',
+        release: release(11, 'Suddenly You', { year: 2001, format: 'other' }),
+        alternatives: suddenly as never,
+        guidanceCode: 'pick_match',
+      }),
+      suggestedReleaseId: suddenly[1]!.releaseId,
+      suggestionReason: 'Cover match',
+    } as CandidateDto,
     candidate({
       id: 'e2e00000-0000-4000-8000-000000000012',
       seq: 2,
@@ -97,7 +116,7 @@ function reviewRows(): CandidateDto[] {
 /** The phone's own crops for the picture rows, paired by local id. */
 function seedSnaps(): void {
   const thumbs: Record<string, string> = {
-    'seed-pick': thumb(ART.A!),
+    'seed-pick': thumb(ART.Y2!),
     'seed-lost': thumb(ART.D1!),
     'seed-owned': thumb(ART.D2!),
     'seed-ready': thumb(ART.M!),

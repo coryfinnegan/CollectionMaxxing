@@ -93,6 +93,10 @@ test.describe('visual', () => {
       await expectShot(page, 'review-rows');
       await page.getByText('You own these · 1').evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'instant' as ScrollBehavior }));
       await expectShot(page, 'review-rows-tail');
+      // One tap moves the pick-one selection; Add N still counts the row.
+      await page.getByRole('radio', { name: 'Select Suddenly You (2001), Other' }).click();
+      await expect(page.getByRole('radio', { name: 'Select Suddenly You (2001), Other' })).toBeChecked();
+      await expect(page.getByRole('button', { name: 'Add 2 items' })).toBeVisible();
       // Tapping a row opens its Result screen.
       await page.getByRole('button', { name: 'Open result for Super Mario 64' }).click();
       await expect(page).toHaveURL(/\/result\/e2e00000-0000-4000-8000-000000000014$/);
@@ -127,7 +131,19 @@ async function openSeededReview(page: Page, open: (path: string) => Promise<void
   await expect(page.getByText('Pick the right one')).toBeVisible();
   await expect(page.getByText(/You own 1/)).toBeVisible();
   // Capture thumbnails pair each picture row with its crop.
-  await expect(page.getByLabel('Cover of Alien', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Cover of Suddenly You', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Cover of Dune', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Cover of Super Mario 64', { exact: true })).toBeVisible();
+  // The pick-one editions (#440): radio rows with authors and edition facts, catalog art on the
+  // 2001 edition and the captured crop standing in on the 2003, the engine preselection with its
+  // reason, the secondary paths as small chips, and Add N counting the selection.
+  await expect(page.getByText('Lisa Kleypas · 2001 · Other')).toBeVisible();
+  await expect(page.getByText('Lisa Kleypas · 2003 · Other')).toBeVisible();
+  await expect(page.getByLabel('Cover of Suddenly You (2001), Other', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Cover of Suddenly You (2003), Other', { exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Select Suddenly You (2001), Other' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Select Suddenly You (2003), Other' })).toBeChecked();
+  await expect(page.getByText('Cover match')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Keep Suddenly You as unverified' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add 2 items' })).toBeVisible();
 }

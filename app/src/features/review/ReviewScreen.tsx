@@ -14,8 +14,9 @@ import { getPipelineStore } from '@/features/scan/pipeline/pipelineStore';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Chip, Cover, EmptyState, ListRow, LoadingState, Screen, Sheet, Snackbar, Text, TextField } from '@/ui';
 import { CommitCelebration } from './CommitCelebration';
-import { alternativesOf, isAggregated, UNKNOWN_ITEM, unresolvedTitleOf, type ReviewGroup } from './grouping';
+import { alternativesOf, isAggregated, preselectedOf, UNKNOWN_ITEM, unresolvedTitleOf, type ReviewGroup } from './grouping';
 import { guidanceOf } from './guidance';
+import { PickOptions, PickOverflow } from './PickRows';
 import { addLabel, effective, type ReviewStatus } from './plan';
 import { keepable, pairCropUri, thumbForLocalId } from './provisionals';
 import { quotaPausedLine, quotaPending } from './quotaLine';
@@ -219,7 +220,6 @@ function Row({ c, group, review, isOpen, onOpen, onOpenResult, onScanBarcode, on
   const crop = pairCropUri(c, thumb);
   const error = review.rowErrors[c.id];
   const busy = !!review.rowBusy[c.id];
-  const alternatives = group === 'pick' ? alternativesOf(c) : [];
   const guidance = group === 'ready' || group === 'owned' ? null : guidanceOf(c);
   const detail = [
     subtitleOf(c),
@@ -252,29 +252,35 @@ function Row({ c, group, review, isOpen, onOpen, onOpenResult, onScanBarcode, on
           ) : null}
         </Pressable>
       </View>
-      <Button label="Details" accessibilityLabel={`Details for ${title}`} variant="secondary" onPress={onOpen} />
-      {t2 && review.canAdd && keepable(c) ? (
+      {group === 'pick' ? (
+        <>
+          {guidance ? <Text tone="muted">{guidance}</Text> : null}
+          <PickOptions
+            options={alternativesOf(c)}
+            selectedId={review.pickOf(c)?.id ?? null}
+            suggested={preselectedOf(c)}
+            cropUri={crop}
+            disabled={busy || !review.canAdd}
+            onSelect={(r) => review.select(c, r)}
+          />
+          <PickOverflow
+            title={title}
+            canKeep={review.canAdd && keepable(c)}
+            busy={busy}
+            onDetails={onOpen}
+            onKeep={() => void review.keep(c, thumb)}
+            onSkip={review.canAdd ? () => void review.skip(c) : undefined}
+            onScanBarcode={review.canAdd && onScanBarcode ? () => onScanBarcode(c) : undefined}
+            onSnapCover={review.canAdd && onSnapCover ? () => onSnapCover(c) : undefined}
+          />
+        </>
+      ) : (
+        <Button label="Details" accessibilityLabel={`Details for ${title}`} variant="secondary" onPress={onOpen} />
+      )}
+      {t2 && group !== 'pick' && review.canAdd && keepable(c) ? (
         <Button label={`Keep ${title} as unverified`} variant="secondary" busy={busy} onPress={() => void review.keep(c, thumb)} />
       ) : null}
       {review.queued[c.id] ? <Text tone="muted">Kept. Sends when you are back online.</Text> : null}
-
-      {group === 'pick' && guidance ? <Text tone="muted">{guidance}</Text> : null}
-      {alternatives.map((r) => (
-        <Button
-          key={r.id}
-          label={`${r.title}${r.year ? ` (${r.year})` : ''} ${formatLabels[r.format] ?? ''}`.trim()}
-          variant="secondary"
-          disabled={busy || !review.canAdd}
-          onPress={() => void review.choose(c, r)}
-        />
-      ))}
-      {group === 'pick' && review.canAdd ? <Button label={`Skip ${title}`} variant="secondary" disabled={busy} onPress={() => void review.skip(c)} /> : null}
-      {group === 'pick' && review.canAdd && onScanBarcode ? (
-        <ScanBarcodeButton title={title} onPress={() => onScanBarcode(c)} />
-      ) : null}
-      {group === 'pick' && review.canAdd && onSnapCover ? (
-        <SnapCoverButton title={title} onPress={() => onSnapCover(c)} />
-      ) : null}
 
       {group === 'notFound' ? (
         <>
