@@ -41,7 +41,7 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
         }
 
         var normalized = TitleNormalizer.Normalize(provider.Title);
-        var format = provider.Format ?? ReleaseFormat.Other;
+        var format = provider.Format ?? ReleaseFormat.Unknown;
         var platformId = await PlatformIdAsync(provider.Platform, cancellationToken);
         var key = $"{normalized}|{provider.Kind}|{format}|{platformId}|{provider.Year}";
         if (_added.TryGetValue(key, out var already))
