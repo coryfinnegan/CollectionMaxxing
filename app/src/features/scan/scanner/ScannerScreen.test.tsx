@@ -175,7 +175,7 @@ describe('scanner screen', () => {
     await act(async () => source.inject([code(DEV_CODES.duneOwned), code(DEV_CODES.mario64New)]));
 
     await waitFor(() => expect(Object.values(useCardsStore.getState().byId)).toHaveLength(2));
-    expect(await screen.findByText('2 items', { exact: false })).toBeTruthy();
+    expect(await screen.findByText(/^2 items/)).toBeTruthy();
     expect(screen.queryByTestId('result-cards')).toBeNull();
     expect(screen.queryByLabelText('Add Super Mario 64')).toBeNull();
     expect(screen.queryByText('+ Add')).toBeNull();
@@ -185,8 +185,8 @@ describe('scanner screen', () => {
   it('routes to Review from the status bar', async () => {
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.duneOwned)]));
-    await screen.findByText('1 item', { exact: false });
-    await fireEvent.press(screen.getByLabelText('Review'));
+    await screen.findByText(/^1 item/);
+    await fireEvent.press(screen.getByLabelText('Review 1 item'));
     expect(mockRouter.push).toHaveBeenCalledWith('/review');
   });
 
@@ -226,13 +226,13 @@ describe('scanner offline', () => {
       http.post('*/api/v1/scan-sessions/:id/barcodes', () => HttpResponse.error()),
     );
 
-  it('shows QUEUED offline, keeps it across a restart, and sends it once when back online', async () => {
+  it('queues offline, keeps it across a restart, and sends it once when back online', async () => {
     offline();
     const source = await scanner();
     await act(async () => source.inject([code(DEV_CODES.mario64New), code(DEV_CODES.duneOwned)]));
 
-    await fireEvent.press(await screen.findByLabelText(/Show the receipt/));
-    expect((await screen.findAllByText('QUEUED')).length).toBe(2);
+    expect(await screen.findByText('2 items · 2 processing', { exact: false })).toBeTruthy();
+    expect(screen.getByLabelText('Offline')).toBeTruthy();
     expect(screen.getByText(/Your scans are saved and will finish when you're back online/)).toBeTruthy();
     expect(scanMock.barcodeRequests).toHaveLength(0);
 
@@ -257,18 +257,5 @@ describe('scanner offline', () => {
     expect(scanMock.sessions.size).toBe(1);
   });
 
-  it('removes a line with the swipe action and adds a copy with +1', async () => {
-    offline();
-    const source = await scanner();
-    await act(async () => source.inject([code(DEV_CODES.mario64New), code(DEV_CODES.duneOwned)]));
-    await fireEvent.press(await screen.findByLabelText(/Show the receipt/));
-
-    await fireEvent.press(screen.getByLabelText(`Add another copy of ${DEV_CODES.mario64New}`));
-    expect(await screen.findByText(/^3 items/)).toBeTruthy();
-
-    const row = screen.getByLabelText(new RegExp(`^${DEV_CODES.duneOwned}, 1 copy`));
-    await act(async () => row.props.onAccessibilityAction({ nativeEvent: { actionName: 'delete' } }));
-    expect(await screen.findByText(/^2 items/)).toBeTruthy();
-    expect(screen.queryByLabelText(new RegExp(`^${DEV_CODES.duneOwned}`))).toBeNull();
-  });
+  // +1 and swipe-to-remove left the scanner with the receipt (#451): copies and removal now happen in Review.
 });

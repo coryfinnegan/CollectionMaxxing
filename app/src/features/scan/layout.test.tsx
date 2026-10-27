@@ -46,10 +46,10 @@ describe('scan layout', () => {
 
     expect(await screen.findByLabelText('Take picture')).toBeTruthy();
     // An empty tray leaves no spacer behind: no tab-bottom-pad, no result strip,
-    // and the status bar + Review stay the single bottom row of the chrome (#432).
+    // and the status line + Review stay the single bottom row of the chrome (#432, #451).
     expect(screen.queryByTestId('tab-bottom-pad')).toBeNull();
     expect(screen.queryByTestId('result-cards')).toBeNull();
-    expect(await screen.findByLabelText(/Show the receipt/)).toBeTruthy();
+    expect(await screen.findByText('0 items')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Review' })).toBeTruthy();
   });
 
@@ -69,7 +69,7 @@ describe('scan layout', () => {
     expect(screen.queryByTestId('result-cards')).toBeNull();
     expect(screen.queryAllByTestId(/^card-/)).toHaveLength(0);
     expect(screen.queryByLabelText('Snaps in this scan')).toBeNull();
-    expect(await screen.findByLabelText(/Show the receipt/)).toBeTruthy();
+    expect(await screen.findByText('0 items')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Review' })).toBeTruthy();
   });
 
