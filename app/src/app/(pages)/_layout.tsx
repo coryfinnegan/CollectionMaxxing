@@ -8,6 +8,7 @@
 import { Stack } from 'expo-router';
 import { Platform, StyleSheet, View } from 'react-native';
 import { StackBackButton } from '@/components/StackBackButton';
+import { StackHeader } from '@/components/StackHeader';
 import { TabsFrame } from '@/components/TabsFrame';
 import { spacing, useColors } from '@/theme/tokens';
 
@@ -22,12 +23,11 @@ export default function PagesLayout() {
       ) : null}
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: colors.surface },
-          headerTintColor: colors.ink,
           contentStyle: { backgroundColor: colors.ground },
           headerShown: Platform.OS !== 'web',
-          headerLeft: () => <StackBackButton />,
-          headerBackTitle: 'Back', // the native label never falls back to a route-group name (#372)
+          // The shared custom header on the phone (#445): a chevron-only back with no native bar-button glass.
+          // Inert on the web, where pages hide their headers and render the in-flow row above instead.
+          header: ({ options }) => <StackHeader title={options.title} />,
           animationDuration: 250, // screen pushes match the motion vocabulary (#304)
         }}
       >
