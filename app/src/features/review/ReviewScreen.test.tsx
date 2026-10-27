@@ -392,7 +392,7 @@ describe('Review screen', () => {
     seed([pick()]);
     await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={jest.fn()} onScanBarcode={jest.fn()} onSnapCover={jest.fn()} />);
     await screen.findByText('Pick one · 1');
-    for (const label of ['Details for Alien', 'Keep Alien as unverified', 'Skip Alien', 'Scan barcode for Alien', 'Snap cover for Alien']) {
+    for (const label of ['Details for Alien', 'Keep Alien as unverified', 'Skip Alien', 'Scan barcode for Alien', 'Snap cover for Alien', 'Discard Alien']) {
       expect(screen.getByLabelText(label)).toBeTruthy();
     }
     await press('Details for Alien');
@@ -409,6 +409,7 @@ describe('Review screen', () => {
     expect(screen.getByLabelText('Details for Alien')).toBeTruthy();
     expect(screen.queryByLabelText(/Keep .* as unverified/)).toBeNull();
     expect(screen.queryByLabelText(/Skip /)).toBeNull();
+    expect(screen.queryByLabelText(/Discard /)).toBeNull();
   });
 
   it('skipping a pick-one row removes it from the count', async () => {
@@ -801,9 +802,41 @@ describe('Review screen', () => {
       expect(scanMock.sessions.get(SESSION)!.candidates[0]!.decision).toBe('rejected');
     });
 
+    it('discarding a pick-one row before selecting removes it at once, rejects it, and drops it from the count (#449)', async () => {
+      const row = pick();
+      seed([row, mario()]);
+      await open();
+      await screen.findByText('Pick one · 1');
+
+      await press('Discard Alien');
+
+      await screen.findByText('Ready · 1');
+      expect(screen.queryByText(/Pick one/)).toBeNull();
+      expect(scanMock.sessions.get(SESSION)!.candidates.find((c) => c.id === row.id)!.decision).toBe('rejected');
+      expect(screen.getByLabelText('Add 1 item')).toBeTruthy();
+    });
+
+    it('discarding a pick-one row after staging a selection drops the selection and never reaches the library (#449)', async () => {
+      const row = pick();
+      seed([row, mario()]);
+      await open();
+      await press('Select Aliens (1986), DVD');
+      expect(screen.getByLabelText('Add 2 items')).toBeTruthy();
+
+      await press('Discard Alien');
+
+      await screen.findByText('Ready · 1');
+      expect(screen.queryByText(/Pick one/)).toBeNull();
+      expect(scanMock.sessions.get(SESSION)!.candidates.find((c) => c.id === row.id)!.decision).toBe('rejected');
+      expect(screen.getByLabelText('Add 1 item')).toBeTruthy(); // the staged selection went with the row
+      fireEvent.press(screen.getByLabelText('Add 1 item'));
+      await screen.findByText('Added 1 item');
+      expect(reviewMock.commits).toHaveLength(1);
+    });
+
     it('offers no Discard to a viewer', async () => {
       asViewer();
-      seed([lost(), candidate({ resolution: 'pending', release: null, rawCode: '222' })]);
+      seed([lost(), pick(), candidate({ resolution: 'pending', release: null, rawCode: '222' })]);
       await open();
       await screen.findByText('Not found · 1');
       expect(screen.queryByLabelText(/Discard/)).toBeNull();
