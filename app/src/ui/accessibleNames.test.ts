@@ -19,6 +19,9 @@ function openingTags(source: string, names: string[]): { name: string; tag: stri
   const re = new RegExp(`<(${names.join('|')})\\b`, 'g');
   let match: RegExpExecArray | null;
   while ((match = re.exec(source))) {
+    // A `<` glued to an identifier is a type argument (useRef<TextInput>),
+    // not a JSX tag (#442).
+    if (/[\w$]/.test(source[match.index - 1] ?? '')) continue;
     let depth = 0;
     let end = match.index;
     for (; end < source.length; end++) {
