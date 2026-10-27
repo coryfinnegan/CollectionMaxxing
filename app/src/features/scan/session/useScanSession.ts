@@ -1,9 +1,11 @@
 // The scanner's brain: camera codes -> stability filter -> tray (persisted) -> batches to the server, and the
 // session's cards back via the event stream. It never touches a camera; it only knows a `ScannerSource`.
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { useGetMe } from '@/api/generated/account/account';
 import type { CreateScanSessionRequest, LibraryRole } from '@/api/generated/models';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { haptics } from '@/lib/haptics';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
@@ -15,6 +17,7 @@ import { createStabilityFilter } from '../tray/stability';
 import { getTrayStore } from '../tray/storage';
 import { flushTray, type TrayStore } from '../tray/trayStore';
 import { lineStatus } from '../tray/tray';
+import { useAutoCommitUndoStore } from './autoCommitUndo';
 import { flushDeps, followSession, loadSessionSnapshot, resumeCursor } from './sessionApi';
 import { flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from './discards';
 import { seedFromSnapshot } from './sessionCounters';
@@ -74,6 +77,19 @@ export function useScanSession({
   const order = useCardsStore((s) => s.order);
   const local = useCardsStore((s) => s.local);
   const cards = useMemo(() => sortedCards(shownCards({ byId, local }), order), [byId, local, order]);
+  const queryClient = useQueryClient();
+  const lastAutoAdd = useAutoCommitUndoStore((s) => s.last);
+  // What this mount has already refreshed for: an add from before it mounted was refreshed when it arrived.
+  const refreshedAutoAdd = useRef(lastAutoAdd);
+  useEffect(() => {
+    // A T0 auto-add lands server-side with no client mutation (#448): the library list refreshes itself
+    // the moment the add arrives, not when the tab is opened. Only this session's adds: a switched-to
+    // library never refreshes for another library's scan.
+    if (lastAutoAdd && lastAutoAdd !== refreshedAutoAdd.current && lastAutoAdd.sessionId === sessionId) {
+      refreshedAutoAdd.current = lastAutoAdd;
+      void invalidateLibraryItems(queryClient, libraryId);
+    }
+  }, [lastAutoAdd, libraryId, queryClient, sessionId]);
 
   // Camera -> tray, or to the bound Review row. The "Nice scan!" tick happens here, before any network call.
   const boundSending = useRef(false);
@@ -137,8 +153,11 @@ export function useScanSession({
         const snapshot = await loadSessionSnapshot(sessionId);
         pruneDiscarded(snapshot.candidates);
         // Discarded and rejected candidates have no card: the snapshot confirms them, it never brings them back.
+        // A rejected candidate's resolved title is still remembered, so the receipt names the book, not the code.
+        const kept = withoutDiscarded(snapshot.candidates);
+        useCardsStore.getState().rememberTitles(kept.filter((c) => c.decision === 'rejected'));
         useCardsStore.getState().merge(
-          withoutDiscarded(snapshot.candidates).filter((c) => c.decision !== 'rejected'),
+          kept.filter((c) => c.decision !== 'rejected'),
           { announce: false },
         );
         seedFromSnapshot(sessionId, snapshot);

@@ -2,9 +2,11 @@
 // The timeout only hides the snackbar: it is the only Undo on the scanner (#451).
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { undoAutoCommit } from '@/features/review/api';
 import { UNDO_MS } from '@/features/review/useReview';
 import { friendlyError } from '@/lib/problem';
@@ -13,7 +15,8 @@ import { describeCandidate } from '../cards/copy';
 import { useCardsStore } from '../cards/cardsStore';
 import { useAutoCommitUndoStore } from './autoCommitUndo';
 
-export function AutoCommitSnackbar() {
+export function AutoCommitSnackbar({ libraryId }: { libraryId: string }) {
+  const queryClient = useQueryClient();
   const last = useAutoCommitUndoStore((s) => s.last);
   const setLast = useAutoCommitUndoStore((s) => s.setLast);
   const card = useCardsStore((s) => (last ? s.byId[last.candidateId] : undefined));
@@ -55,10 +58,12 @@ export function AutoCommitSnackbar() {
           if (busy) return; // a second tap while the first is running is ignored
           setBusy(true);
           undoAutoCommit(last.sessionId, last.candidateId)
-            .then(() => {
+            .then(async () => {
               // Each add is a new object, so only the Undo for the currently shown
               // add may clear it; a late success for a superseded add must not clear a newer one.
               if (useAutoCommitUndoStore.getState().last === last) setLast(null);
+              // The taken-back add leaves the library list by itself (#448).
+              await invalidateLibraryItems(queryClient, libraryId);
             })
             .catch((e: unknown) => {
               setBusy(false);

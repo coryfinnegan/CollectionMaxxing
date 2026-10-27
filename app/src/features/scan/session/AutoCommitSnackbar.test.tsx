@@ -48,7 +48,7 @@ beforeEach(() => {
 describe('AutoCommitSnackbar', () => {
   it('takes the add back on Undo and goes away', async () => {
     seed();
-    await renderWithProviders(<AutoCommitSnackbar />);
+    await renderWithProviders(<AutoCommitSnackbar libraryId="library-1" />);
     expect(await screen.findByText('Added Dune')).toBeTruthy();
 
     await fireEvent.press(screen.getByLabelText('Undo'));
@@ -62,7 +62,7 @@ describe('AutoCommitSnackbar', () => {
   it('says when the undo failed and offers nothing stale after that', async () => {
     seed();
     reviewMock.failNextAutoUndo = 409;
-    await renderWithProviders(<AutoCommitSnackbar />);
+    await renderWithProviders(<AutoCommitSnackbar libraryId="library-1" />);
     expect(await screen.findByText('Added Dune')).toBeTruthy();
 
     await fireEvent.press(screen.getByLabelText('Undo'));
@@ -76,7 +76,7 @@ describe('AutoCommitSnackbar', () => {
     jest.useFakeTimers();
     try {
       seed();
-      await renderWithProviders(<AutoCommitSnackbar />);
+      await renderWithProviders(<AutoCommitSnackbar libraryId="library-1" />);
       expect(screen.getByText('Added Dune')).toBeTruthy();
 
       await act(async () => {
@@ -92,7 +92,7 @@ describe('AutoCommitSnackbar', () => {
 
   it('shows a newer add when one lands while an older snackbar is up', async () => {
     seed();
-    await renderWithProviders(<AutoCommitSnackbar />);
+    await renderWithProviders(<AutoCommitSnackbar libraryId="library-1" />);
     expect(await screen.findByText('Added Dune')).toBeTruthy();
 
     const jaws = { ...dune, id: 'c-added-2', release: { ...dune.release!, title: 'Jaws' } } as CandidateDto;

@@ -288,7 +288,7 @@ export function ScannerScreen({
             <ScannerSearch libraryId={libraryId} onClose={() => setSheet(null)} />
           </View>
         ) : null}
-        <AutoCommitSnackbar />
+        <AutoCommitSnackbar libraryId={libraryId} />
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
             online={session.online}
