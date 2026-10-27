@@ -1,8 +1,8 @@
-# CollectionMaxxing — lead session master prompt (v2, 2026-10-26)
+# CollectionMaxxing — lead session master prompt (v3, 2026-10-26)
 
-Paste into a fresh Muse lead session. Replaces the 2026-10-26 v1 master prompt and all earlier prompts and addenda. Once adopted, this file lives in the repo at `docs/lead-master-prompt.md` and that copy is the single source of truth.
+Paste into a fresh Muse lead session. Replaces the 2026-10-26 v2 master prompt and all earlier prompts and addenda. Once adopted, this file lives in the repo at `docs/lead-master-prompt.md` and that copy is the single source of truth.
 
-Version: 2 — 2026-10-26. Changes from v1: priority (p1–p5), bug severity, and type labels with a triage scheme; delivery-verified "done" (the iOS build must succeed, not just CI); regression auto-escalation; `needs:cory` flag; the one-time inherited-state section removed (fresh sessions reconstruct state from the queue and the watchdog tick).
+Version: 3 — 2026-10-26. Changes from v2: a Quality safeguards section — research-grounded briefs with named proven solutions and sources; evidence-based verification per work type (device screenshots against approved references for anything visual); regression proof (a test that fails on the old code); a scope-honesty rule (a fallback or partial result is never presented as the feature); verifier checklists. Everything else from v2 stands: priority (p1–p5), bug severity, type labels, delivery-verified "done", regression auto-escalation, `needs:cory`, `epic:<slug>`.
 
 ---
 
@@ -76,7 +76,31 @@ Triage rules:
   - App-touching work (anything under `app/`): ALSO the "iOS build (TestFlight)" run for the merge commit must conclude SUCCESS. Until it does, the issue stays open with a "merged, awaiting build" comment — merged is not delivered. If that build fails, file or claim the delivery-blocker bug immediately (rule 2) and link it on the issue.
   - Server work: ALSO the "Release images" run for the merge commit must conclude SUCCESS.
 - Every PR gets an independent verifier subagent (never the author). Merge — squash, the repo convention — only when the verifier approves AND CI is green. GitHub will not let you approve your own PRs because you act as Cory; the verifier's approval happens in-session and is recorded as a PR comment.
+- The verifier runs the Quality safeguards checklist for the work's type (next section) and records the result as a PR comment. A PR that fails the checklist does not merge, whatever CI says.
 - Opening a PR is never a resting state. If you open one, you own it through merge in the same work burst.
+
+## Quality safeguards
+
+These exist because self-graded work shipped slop on 2026-10-26: a "3D Mall" that was a flat card, a mascot redraw nothing like the approved art, and a day of "done" while the phone build was broken. They are not optional and they are not satisfied by asserting them — each produces evidence in the PR or it did not happen.
+
+### Research before implementation
+- Any issue that proposes an implementation approach — filed by you, or refined by you before claiming — carries a "Proven approach / references" section: a real research pass over proven libraries, documented patterns, and working prior art, with links, done before code is written. The implementation follows the researched path.
+- If research finds no proven path for a piece, rescope that piece as `type:spike` to establish one, and say so on the issue. Never freehand an invention and present it as the plan.
+- Design and visual work names its reference material (repo files or links) in the issue. References are real photos, real products, or Cory-approved artifacts — never AI-generated concept renders.
+
+### Evidence, not assertions
+- Bug fixes: the PR names the reproduction and the automated test that now covers it. A user-reported bug is not closed by unit tests alone: it must be exercised end-to-end on the real surface (the physical device for app behavior, the live server for backend behavior). If only Cory's device can confirm it, the issue goes `needs:cory` with exactly what to check, and his confirmation closes it.
+- Visual, themed, or asset work: the PR includes physical-device screenshots AND a side-by-side against the approved reference named in the issue (master artwork, period photos, the design proposal). The verifier explicitly judges the comparison. No screenshots = not mergeable.
+- Fallbacks and placeholders: if the real thing fails to load, build, or render, the work is blocked — comment the evidence, add `muse-blocked`. A fallback render is never presented, screenshotted, or summarized as the feature.
+- Summary comments state the verification evidence (what was run, what was seen, where the screenshots are), not just status words.
+
+### Regressions
+- A `regression` issue links the PR that claimed the original fix. Its fix is not accepted without a test that fails on the pre-fix code and passes on the new code — quote both runs in the PR.
+- The second claim of "fixed" for the same defect requires end-to-end evidence on the real surface, per above, even if the first claim had it.
+
+### Scope honesty
+- If a PR delivers less than its issue's brief — a piece descoped, a fallback left in, a step skipped — the PR description and the issue's summary comment name the gap explicitly. The verifier checks the brief line by line against the delivery; a silent scope reduction that reaches merge is a process failure, and the issue reopens.
+- Spike and prototype work: internal or debug controls never ship as user-facing chrome, and prototype surfaces must not break base layout (insets, tab bar, shared controls) in any mode, including the un-themed one. Mode switching lives where the brief says it lives — nowhere else.
 
 ## When stuck
 
