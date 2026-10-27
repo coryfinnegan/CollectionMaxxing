@@ -5,7 +5,7 @@
 // (not into Recently deleted) and reopens the session with its candidates, like the real API (SCAN-1e).
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto, CommitResultDto, ItemDto, PlatformDto, ProvisionalDto, ReleaseDto, UndoResultDto } from '@/api/generated/models';
-import { alternativesOf } from '@/features/review/grouping';
+import { alternativesOf, unresolvedTitleOf } from '@/features/review/grouping';
 import type { CommitBody } from '@/features/review/plan';
 import { MOCK_LIBRARY_ID, newMockId } from './data';
 import { itemsState, type MockItem } from './items';
@@ -372,7 +372,7 @@ export const handlers = [
       libraryId: session.libraryId,
       sessionId: session.id,
       snapId: null,
-      titleGuess: candidate.visibleText?.trim() || candidate.alternatives?.[0]?.title || (candidate.rawCode ? `Code ${candidate.rawCode}` : 'Unknown item'),
+      titleGuess: unresolvedTitleOf(candidate) || candidate.visibleText?.trim() || (candidate.rawCode ? `Code ${candidate.rawCode}` : 'Unknown item'),
       isGuess: true,
       mediaHint: session.context?.mediaHint ?? 'mixed',
       locationId: session.context?.defaultLocationId ?? null,

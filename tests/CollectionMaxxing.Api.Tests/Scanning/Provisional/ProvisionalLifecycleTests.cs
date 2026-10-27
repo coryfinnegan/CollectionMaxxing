@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using CollectionMaxxing.Api.Tests.Catalog;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.TestSupport;
@@ -50,6 +52,30 @@ public class ProvisionalLifecycleTests : ProvisionalTest
         stored.SessionId.ShouldBe(sessionId);
         stored.SnapId.ShouldBe((await CandidateAsync(candidateId)).SnapId);
         (await CandidateAsync(candidateId)).ProvisionalId.ShouldBe(provisionalId);
+    }
+
+    [Fact]
+    public async Task Keeping_an_ambiguous_row_guesses_the_catalogs_top_alternative_not_the_raw_read()
+    {
+        // #435: the Suddenly You shape — garbled OCR text, the right title in the read's own guess, two catalog alternatives.
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Suddenly You", WorkKind.Book, 2001, format: ReleaseFormat.Paperback);
+        await CatalogSeed.AddAsync(Db, "Suddenly You", WorkKind.Book, 2003, format: ReleaseFormat.Paperback);
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+        const string blurb = "The rare author who can make you laugh and cry—the same page. ẠồThe rare author who can make you laugh and cry-on the same pageại";
+        var candidate = (await IdentifyOkAsync(
+            editor, sessionId, Read(title: "Suddenly You", text: blurb, kind: "book", creator: "Lisa Kleypas")))[0];
+        Resolution(candidate).ShouldBe("ambiguous");
+        candidate.GetProperty("visibleText").GetString().ShouldBe(blurb);
+        var top = candidate.GetProperty("alternatives")[0].GetProperty("title").GetString();
+
+        var response = await KeepAsync(editor, sessionId, new { candidateId = Id(candidate) });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var kept = (await ReadJsonAsync(response)).GetProperty("provisional");
+        kept.GetProperty("titleGuess").GetString().ShouldBe("Suddenly You");
+        kept.GetProperty("titleGuess").GetString().ShouldBe(top);
     }
 
     [Fact]
