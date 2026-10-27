@@ -62,7 +62,7 @@ public class AutoCommitVetoTests : ScanTest
         Products.Know(code, ScanData.Product("One Piece Vol. 1", code));
         Games.Results.Add(ScanData.Game("One Piece Vol. 1", externalId: "v1"));
         var editor = As(library, LibraryRole.Editor);
-        var sessionId = await StartSessionAsync(editor, library.Id);
+        var sessionId = await StartSessionWithAutoCommitAsync(editor, library.Id); // #452: the T0 control opts in; the veto cases below are untouched
 
         var candidate = (await ScanAsync(editor, sessionId, code))[0];
 

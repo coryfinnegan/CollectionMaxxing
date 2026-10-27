@@ -29,10 +29,10 @@ public static class EvalThresholds
     public const string TierRulesVersion = "t1-v1";
 
     /// <summary>
-    /// The session default for <c>autoCommitTiers</c> (<c>ScanSessionUseCases</c>). A default only the code knows is hashed as a
-    /// marker, for the same reason as <see cref="TierRulesVersion"/>.
+    /// The session default for <c>autoCommitTiers</c> (<c>ScanSessionUseCases</c>): none since #452, so the marker is
+    /// empty. A default only the code knows is hashed as a marker, for the same reason as <see cref="TierRulesVersion"/>.
     /// </summary>
-    public const string DefaultAutoCommitTiers = "T0";
+    public const string DefaultAutoCommitTiers = "";
 
     /// <summary>The fingerprint of the effective thresholds: the live scoring rules plus the gate bars and the regression band.</summary>
     public static string Fingerprint(ScoringThresholds scoring)

@@ -178,7 +178,8 @@ public sealed class AntiGamingLockedTests : IDisposable
     public void The_fingerprint_of_the_doc_defaults_is_pinned()
     {
         // A threshold move breaks this on purpose: update the hash, the baseline and the note in the same PR (docs/16 §17).
-        EvalThresholds.Fingerprint(new ScoringThresholds()).ShouldBe("00e2732db24a2394");
+        // #452 moved autocommit.default_tiers from T0 to none.
+        EvalThresholds.Fingerprint(new ScoringThresholds()).ShouldBe("129638999700db1e");
     }
 
     [Fact]
