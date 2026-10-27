@@ -33,8 +33,12 @@ test.describe('mall', () => {
     await page.getByRole('button', { name: 'Camera Wall' }).click();
     await expect(page.getByTestId('mall-room')).toBeVisible();
 
-    // Tapping a cover identifies it; the card opens the item.
     await page.getByRole('button', { name: 'Room Mall' }).click();
+    await expect(page.getByRole('button', { name: 'The Matrix, DVD' }).first()).toBeVisible();
+    await page.waitForTimeout(500);
+    await shot('library-mall');
+
+    // Tapping a cover identifies it; the card opens the item.
     await expect(canvas).toBeVisible();
     const box = await canvas.boundingBox();
     if (!box) throw new Error('the mall canvas has no box');
@@ -55,7 +59,6 @@ test.describe('mall', () => {
 
     await expectAccessible();
     expect(errors).toEqual([]);
-    await shot('library-mall');
   });
 
   test('mall room animates at interactive pacing', async ({ page, open }) => {
