@@ -467,7 +467,7 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                     b.ToTable("releases", null, t =>
                         {
-                            t.HasCheckConstraint("ck_releases_format", "\"format\" in ('hardcover', 'paperback', 'mass_market', 'vhs', 'betamax', 'laserdisc', 'dvd', 'bluray', 'uhd_bluray', 'game_cartridge', 'game_disc', 'game_card', 'other')");
+                            t.HasCheckConstraint("ck_releases_format", "\"format\" in ('hardcover', 'paperback', 'mass_market', 'board_book', 'spiral_bound', 'vhs', 'betamax', 'laserdisc', 'dvd', 'bluray', 'uhd_bluray', 'game_cartridge', 'game_disc', 'game_card', 'other', 'unknown')");
 
                             t.HasCheckConstraint("ck_releases_region", "\"region\" in ('ntsc_u', 'pal', 'ntsc_j', 'region_free')");
 
@@ -1637,7 +1637,7 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_scan_candidates_decision", "\"decision\" in ('undecided', 'accepted', 'rejected')");
 
-                            t.HasCheckConstraint("ck_scan_candidates_edited_format", "\"edited_format\" in ('hardcover', 'paperback', 'mass_market', 'vhs', 'betamax', 'laserdisc', 'dvd', 'bluray', 'uhd_bluray', 'game_cartridge', 'game_disc', 'game_card', 'other')");
+                            t.HasCheckConstraint("ck_scan_candidates_edited_format", "\"edited_format\" in ('hardcover', 'paperback', 'mass_market', 'board_book', 'spiral_bound', 'vhs', 'betamax', 'laserdisc', 'dvd', 'bluray', 'uhd_bluray', 'game_cartridge', 'game_disc', 'game_card', 'other', 'unknown')");
 
                             t.HasCheckConstraint("ck_scan_candidates_guidance_code", "\"guidance_code\" in ('move_closer', 'split_segment', 'hold_steady', 'kill_glare', 'shoot_cover', 'pick_match', 'scan_barcode')");
 

@@ -184,7 +184,7 @@ public static class SubmitEvalRun
             return TruthFiles.WriteSingleDraft(new SingleTruth(
                 top?.Title ?? item.ReadTitle ?? string.Empty,
                 top?.Platform,
-                top?.Format ?? "other",
+                top?.Format ?? "unknown",
                 item.ReadCompleteness ?? "n_a",
                 null,
                 EvalKinds.Guess(format, completeness)));
