@@ -7,6 +7,7 @@
 import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto } from '@/api/generated/models';
 import type { Rect } from '@/native/cm-vision';
+import { UNKNOWN_ITEM } from '@/features/review/grouping';
 import { ApiError } from '@/lib/http';
 import { LOCAL_PREFIX, useCardsStore } from '../cards/cardsStore';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
@@ -374,7 +375,7 @@ export class SnapPipeline {
       score: 1,
       artDistance: null,
       needsArt: false,
-      release: { id: releaseId, title: item.title || item.text },
+      release: { id: releaseId, title: item.title || UNKNOWN_ITEM },
       inferred: null,
       alternatives: null,
       decision: 'undecided',

@@ -4,6 +4,7 @@
 // Held outside React so Review can set it while navigating and the scanner route can read it on mount.
 import { createStore } from 'zustand/vanilla';
 import type { CandidateDto } from '@/api/generated/models';
+import { UNKNOWN_ITEM, unresolvedTitleOf } from './grouping';
 
 export type BoundScan =
   | { sessionId: string; candidateId: string; title: string; kind: 'barcode' | 'cover' }
@@ -21,6 +22,6 @@ export const boundScanStore = createStore<BoundScanState>()((set) => ({
   clear: () => set({ binding: null }),
 }));
 
-/** What the scanner's banner names: the release, the read text, the code, or a fallback. Never empty. */
-export const boundTitleOf = (c: Pick<CandidateDto, 'release' | 'visibleText' | 'rawCode'>): string =>
-  c.release?.title ?? c.visibleText ?? (c.rawCode ? `Code ${c.rawCode}` : 'Unknown item');
+/** What the scanner's banner names: the release, the best unresolved guess, the code, or a fallback. Never empty, never raw read text (#435). */
+export const boundTitleOf = (c: Pick<CandidateDto, 'release' | 'alternatives' | 'inferred' | 'rawCode'>): string =>
+  c.release?.title ?? unresolvedTitleOf(c) ?? (c.rawCode ? `Code ${c.rawCode}` : UNKNOWN_ITEM);

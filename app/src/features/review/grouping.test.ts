@@ -1,6 +1,21 @@
 import type { CandidateDto, ReleaseDto } from '@/api/generated/models';
-import { alternativesOf, defaultChecked, groupCandidates, groupOf, isAggregated, reviewable } from './grouping';
+import { alternativesOf, defaultChecked, groupCandidates, groupOf, isAggregated, reviewable, unresolvedTitleOf } from './grouping';
 import { candidate, release } from './testData';
+
+// #435: the alternatives the server actually sends (CandidateAlternativeDto): a releaseId plus flat fields.
+const wireAlternatives = (titles: string[]) =>
+  titles.map((title, i) => ({
+    releaseId: `01a17d15-8eb5-7fea-ae3e-b36a8d89d55${i}`,
+    title,
+    format: 'other',
+    platform: null,
+    year: 2001 + i,
+    score: 0.78125,
+    creators: ['Lisa Kleypas'],
+    coverUrl: null,
+    alreadyOwnedCount: 0,
+    artworkUrl: null,
+  }));
 
 describe('grouping', () => {
   it('puts every candidate in exactly one group by resolution and ownership', () => {
@@ -70,5 +85,23 @@ describe('grouping', () => {
 
   it('names the group of one candidate', () => {
     expect(groupOf(candidate({ resolution: 'matched', release: release(1, 'A') }))).toBe('ready');
+  });
+
+  it('reads the wire-shape alternatives, keyed by releaseId (#435)', () => {
+    const picks = alternativesOf(candidate({ alternatives: wireAlternatives(['Suddenly You', 'Suddenly You']) as never }));
+    expect(picks.map((r) => [r.id, r.title, r.year])).toEqual([
+      ['01a17d15-8eb5-7fea-ae3e-b36a8d89d550', 'Suddenly You', 2001],
+      ['01a17d15-8eb5-7fea-ae3e-b36a8d89d551', 'Suddenly You', 2002],
+    ]);
+  });
+
+  it('names an unresolved candidate from the catalog first, the read guess next, never the raw text (#435)', () => {
+    const blurb = 'The rare author who can make you laugh and cry—the same page.';
+    const withPicks = candidate({ visibleText: blurb, alternatives: wireAlternatives(['Suddenly You']) as never, inferred: { title: 'Wrong Guess' } as never });
+    expect(unresolvedTitleOf(withPicks)).toBe('Suddenly You');
+    const guessOnly = candidate({ visibleText: blurb, inferred: { title: 'Suddenly You' } as never });
+    expect(unresolvedTitleOf(guessOnly)).toBe('Suddenly You');
+    expect(unresolvedTitleOf(candidate({ visibleText: blurb }))).toBe(null);
+    expect(unresolvedTitleOf(candidate({ inferred: 'nonsense' as never }))).toBe(null);
   });
 });

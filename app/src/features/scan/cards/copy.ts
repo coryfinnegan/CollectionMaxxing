@@ -3,6 +3,7 @@
 import type { CandidateDto, ReleaseFormat } from '@/api/generated/models';
 import { formatLabels } from '@/features/library/labels';
 import { reshootOf } from '@/features/review/guidance';
+import { UNKNOWN_ITEM, unresolvedTitleOf } from '@/features/review/grouping';
 import { ApiError } from '@/lib/http';
 import { isLocalCard } from './cardsStore';
 import { friendlyError } from '@/lib/problem';
@@ -64,26 +65,29 @@ export const isPictureCandidate = (c: Pick<CandidateDto, 'source'>) => c.source 
 export const LOCAL_MATCH_COPY = "Seen before. We'll check it when you're online.";
 
 function describePicture(c: CandidateDto): CardCopy {
-  const read = c.visibleText?.trim() || 'Unknown item';
+  // Raw read text is never a title (#435): the matched release, the catalog's leading
+  // alternative, or the read's own guess — else an honest unknown. The read text stays on
+  // the candidate as data, where Fix it picks it up.
+  const title = c.release?.title ?? unresolvedTitleOf(c) ?? UNKNOWN_ITEM;
   // No Add and no detail until the server answers: `pick` is the kind that has neither.
-  if (isLocalCard(c)) return { title: c.release?.title ?? read, subtitle: '', status: LOCAL_MATCH_COPY, kind: 'pick' };
+  if (isLocalCard(c)) return { title, subtitle: '', status: LOCAL_MATCH_COPY, kind: 'pick' };
   switch (c.resolution) {
     case 'pending':
-      return { title: read, subtitle: '', status: reshootOf(c) ?? 'Identifying…', kind: 'pending' };
+      return { title, subtitle: '', status: reshootOf(c) ?? 'Identifying…', kind: 'pending' };
     case 'error':
-      return { title: read, subtitle: '', status: reshootOf(c) ?? PICTURE_ERROR_COPY, kind: 'error' };
+      return { title, subtitle: '', status: reshootOf(c) ?? PICTURE_ERROR_COPY, kind: 'error' };
     case 'not_found':
-      return { title: read, subtitle: '', status: reshootOf(c) ?? PICTURE_NOT_FOUND_COPY, kind: 'not_found' };
+      return { title, subtitle: '', status: reshootOf(c) ?? PICTURE_NOT_FOUND_COPY, kind: 'not_found' };
     default: {
       const release = c.release;
       const subtitle = [release?.platform?.name ?? (release ? formatLabels[release.format] : null), release?.year].filter(Boolean).join(' · ');
       // Added leads over owned: a second copy scanned in copies mode is in the library now, whatever was there before.
-      if (c.createdItemId != null) return { title: release?.title ?? read, subtitle, status: ADDED_COPY, kind: 'added' };
+      if (c.createdItemId != null) return { title, subtitle, status: ADDED_COPY, kind: 'added' };
       // Owned leads: "Already own" is the answer the person is standing at the shelf for, even when the match is a close call.
       if (c.alreadyOwnedCount > 0)
-        return { title: release?.title ?? read, subtitle, status: alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount), kind: 'owned' };
-      if (c.resolution === 'ambiguous') return { title: release?.title ?? read, subtitle, status: reshootOf(c) ?? 'Pick one', kind: 'pick' };
-      return { title: release?.title ?? read, subtitle, status: null, kind: 'new' };
+        return { title, subtitle, status: alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount), kind: 'owned' };
+      if (c.resolution === 'ambiguous') return { title, subtitle, status: reshootOf(c) ?? 'Pick one', kind: 'pick' };
+      return { title, subtitle, status: null, kind: 'new' };
     }
   }
 }
