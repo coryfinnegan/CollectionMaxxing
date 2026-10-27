@@ -104,7 +104,7 @@ function SearchStep({ onPick }: { onPick: (releaseId: string) => void }) {
 
 function ManualStep({ busy, onSubmit }: { busy: boolean; onSubmit: (data: CreateItemRequest) => void }) {
   const [kind, setKind] = useState<WorkKind>('other');
-  const [format, setFormat] = useState<ReleaseFormat>('other');
+  const [format, setFormat] = useState<ReleaseFormat>('unknown');
   const [title, setTitle] = useState('');
   const [year, setYear] = useState('');
   const [titleError, setTitleError] = useState<string | null>(null);

@@ -53,4 +53,15 @@ describe('AddItemPanel idempotency keys', () => {
     expect(sent).toHaveLength(2);
     expect(sent[1]!.key).toBe(sent[0]!.key);
   });
+
+  it('sends unknown when no format is picked, never other', async () => {
+    const sent = captureKeys();
+    await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={() => {}} />);
+    await fireEvent.press(screen.getByLabelText('None of these? Add it yourself'));
+
+    await addManual('No format picked');
+
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0]!.body).manual.format).toBe('unknown');
+  });
 });
