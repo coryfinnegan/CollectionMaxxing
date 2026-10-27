@@ -5,6 +5,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { getItem, updateItem } from '@/api/generated/items/items';
 import { getOwnership } from '@/api/generated/ownership/ownership';
 import { ifMatchHeader } from '@/features/item/etag';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { syncLibrary } from '@/features/offline/sync';
 import { ApiError } from '@/lib/http';
 
@@ -43,9 +44,10 @@ export async function moveCopyTo(libraryId: string, itemId: string, locationId: 
   return { itemId, previousLocationId, alreadyThere: false };
 }
 
-/** After a move or its undo: the owned index and the ownership answers say where the copy is now. */
+/** After a move or its undo: the owned index, the ownership answers, and the library lists say where the copy is now. */
 export async function refreshAfterMove(queryClient: QueryClient, libraryId: string): Promise<void> {
   await syncLibrary(libraryId);
+  await invalidateLibraryItems(queryClient, libraryId);
   await queryClient.invalidateQueries({
     predicate: ({ queryKey }) => typeof queryKey[0] === 'string' && queryKey[0].startsWith(`/api/v1/libraries/${libraryId}/ownership`),
   });

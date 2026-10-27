@@ -107,7 +107,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
   };
 
   return (
-    <Screen subtitle={detail.item.customTitle ?? detail.work.title}>
+    <Screen subtitle={detail.item.customTitle ?? detail.work.title} keyboardAvoiding>
       {conflict ? (
         <Card>
           <Text tone="danger" accessibilityRole="alert">Someone changed this. Reload?</Text>

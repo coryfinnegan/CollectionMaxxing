@@ -284,9 +284,10 @@ export function ScannerScreen({
             <ScannerSearch libraryId={libraryId} onClose={() => setSheet(null)} />
           </View>
         ) : null}
-        <AutoCommitSnackbar />
+        <AutoCommitSnackbar libraryId={libraryId} />
         <View style={{ paddingBottom: insets.bottom, backgroundColor: colors.surface }}>
           <ReceiptBar
+            libraryId={libraryId}
             lines={session.lines}
             pictureLines={pictures.lines}
             onRemovePicture={pictures.removeLine}

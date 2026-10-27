@@ -1,8 +1,10 @@
 // The status bar ("17 items · 2 processing", Review) and the receipt behind it: one line per code, swipe or Remove
 // to remove, +1 for a second copy, QUEUED while offline. Capitals are allowed here: it is the receipt's own voice.
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Image, PanResponder, Pressable, ScrollView, View, type TextStyle, type ViewStyle } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { undoAutoCommit } from '@/features/review/api';
 import { announceForScreenReader } from '@/lib/a11y/announce';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
@@ -189,6 +191,7 @@ function receiptEntries(codes: TrayLine[], pictures: PictureLine[]): Entry[] {
 }
 
 export function ReceiptBar({
+  libraryId,
   lines,
   pictureLines = [],
   onRemovePicture,
@@ -205,6 +208,7 @@ export function ReceiptBar({
   onRemove,
   onReview,
 }: {
+  libraryId: string;
   lines: TrayLine[];
   /** Items read from pictures, newest last like `lines`. */
   pictureLines?: PictureLine[];
@@ -225,6 +229,7 @@ export function ReceiptBar({
   onReview(): void;
 }) {
   const colors = useColors();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const byId = useCardsStore((s) => s.byId);
   const resolvedTitles = useCardsStore((s) => s.resolvedTitles);
@@ -249,9 +254,11 @@ export function ReceiptBar({
     setUndoBusy(true);
     setUndoError(null);
     undoAutoCommit(sessionId, undefined)
-      .then((undone) => {
+      .then(async (undone) => {
         // The snackbar may still be showing this add: it goes away with it.
         if (useAutoCommitUndoStore.getState().last?.candidateId === undone.id) useAutoCommitUndoStore.getState().setLast(null);
+        // The taken-back add leaves the library list by itself (#448).
+        await invalidateLibraryItems(queryClient, libraryId);
       })
       .catch((e: unknown) => setUndoError(friendlyError(e)))
       .finally(() => setUndoBusy(false));
