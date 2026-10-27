@@ -3,6 +3,7 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { renderWithProviders } from '@/test/render';
+import { fixed } from '@/theme/tokens';
 import { Button } from './Button';
 
 describe('Button', () => {
@@ -27,5 +28,15 @@ describe('Button', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Close Format' }));
 
     expect(onPress).toHaveBeenCalled();
+  });
+
+  it('paints onDark in fixed white so it stays legible on dark surfaces in both schemes (#470)', async () => {
+    await renderWithProviders(<Button label="Cancel" variant="onDark" onPress={() => undefined} />);
+
+    const button = screen.getByRole('button', { name: 'Cancel' });
+    const buttonStyle = StyleSheet.flatten(typeof button.props.style === 'function' ? button.props.style({ pressed: false }) : button.props.style);
+    expect(buttonStyle.borderColor).toBe(fixed.white);
+    const labelStyle = StyleSheet.flatten(screen.getByText('Cancel').props.style);
+    expect(labelStyle.color).toBe(fixed.white);
   });
 });

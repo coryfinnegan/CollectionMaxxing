@@ -205,7 +205,7 @@ export function ScannerScreen({
           <View style={boundStyles.wrap}>
             <View style={boundStyles.banner}>
               <Text style={boundStyles.title}>{boundScan.kind === 'cover' ? `Snap the cover for ${boundScan.title}` : `Scan the barcode for ${boundScan.title}`}</Text>
-              <Button label="Cancel" variant="secondary" onPress={boundScan.onCancel} />
+              <Button label="Cancel" variant="onDark" onPress={boundScan.onCancel} />
             </View>
           </View>
         ) : null}
@@ -218,12 +218,12 @@ export function ScannerScreen({
           <View style={{ alignItems: 'center', gap: spacing.sm, paddingBottom: spacing.sm }}>
             <Button
               label="Scan these 6 codes"
-              variant="secondary"
+              variant="onDark"
               onPress={() => devSource.inject(DEV_SIX_CODES)}
               style={{ backgroundColor: fixed.scrim }}
             />
             {pictures.enabled ? (
-              <Button label="Snap a fixture shelf" variant="secondary" onPress={pictures.replayFixture} style={{ backgroundColor: fixed.scrim }} />
+              <Button label="Snap a fixture shelf" variant="onDark" onPress={pictures.replayFixture} style={{ backgroundColor: fixed.scrim }} />
             ) : null}
           </View>
         ) : null}
