@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getItem } from '@/api/generated/items/items';
 import type { CandidateDto } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { getOwnedCache } from '@/features/offline/ownedCache';
 import { patchCandidate, skipCandidate, undoAutoCommit } from '@/features/review/api';
@@ -147,6 +148,8 @@ export function useCardActions({
       onWishlist: (c) =>
         void run(c, async () => {
           await wishlistCandidate(libraryId, c);
+          // The wishlist item shows in the library list by itself (#448).
+          await invalidateLibraryItems(queryClient, libraryId);
           setWishlisted((w) => ({ ...w, [c.id]: true }));
         }),
       onPick: (c, r) => {
@@ -164,9 +167,11 @@ export function useCardActions({
       onUndoAutoCommit: (c) => {
         if (sessionId)
           void run(c, () =>
-            undoAutoCommit(sessionId, c.id).then((undone) => {
+            undoAutoCommit(sessionId, c.id).then(async (undone) => {
               // The snackbar may still be showing this add: it goes away with it.
               if (useAutoCommitUndoStore.getState().last?.candidateId === undone.id) useAutoCommitUndoStore.getState().setLast(null);
+              // The taken-back add leaves the library list by itself (#448).
+              await invalidateLibraryItems(queryClient, libraryId);
             }),
           );
       },
@@ -176,7 +181,7 @@ export function useCardActions({
         router.push('/scanner');
       },
     }),
-    [canAdd, errors, busy, wishlisted, moveTo, moveToast, router, sessionId, run, libraryId, move, undoMove],
+    [canAdd, errors, busy, wishlisted, moveTo, moveToast, router, sessionId, run, libraryId, move, undoMove, queryClient],
   );
   return actions;
 }

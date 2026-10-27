@@ -1,8 +1,10 @@
 // Review's brain: the session's candidates, the owner's draft choices, the commit (once) and the Undo toast.
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto, DecideCandidateRequest, ReleaseDto } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { flushDiscardOutbox } from '@/features/scan/session/discards';
 import { loadSessionMemory, resolveReviewDefaults } from '@/features/scan/session/sessionContext';
@@ -39,6 +41,7 @@ export function useReview({
   undoMs?: number;
 }) {
   const { role, canAdd } = useLibraryRole(libraryId);
+  const queryClient = useQueryClient();
   const byId = useCardsStore((s) => s.byId);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [loading, setLoading] = useState(!!sessionId);
@@ -205,6 +208,8 @@ export function useReview({
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: newIdempotencyKey() };
     try {
       const result = await commitDraft(sessionId, fresh, settled, attempt.current.key);
+      // The library list shows the new items by itself (#448): no pull-to-refresh.
+      await invalidateLibraryItems(queryClient, libraryId);
       attempt.current = null;
       for (const c of chosen) useCardsStore.getState().remove(c.id);
       store.getState().clear();
@@ -233,6 +238,8 @@ export function useReview({
     setCelebration(null); // undone is not a moment to celebrate
     try {
       await undoCommit(toast.sessionId, toast.undoKey);
+      // The taken-back items leave the library list by themselves (#448).
+      await invalidateLibraryItems(queryClient, libraryId);
       // The commit cleared the tray (and with it the session): Review has the session and its results back now.
       store.getState().setSessionId(toast.sessionId);
       setDraft(emptyDraft());

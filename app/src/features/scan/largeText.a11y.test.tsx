@@ -51,7 +51,8 @@ describe('the receipt at large text sizes', () => {
     const line = { code: '111', symbology: 'ean-13', copies: 1, sentCopies: 1, addedAt: 1, lastSeenAt: 1 } as TrayLine;
     const noop = () => undefined;
     const receipt = await render(
-      <ReceiptBar lines={[line]} cards={[]} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
+      <ReceiptBar libraryId="library-1" lines={[line]} cards={[]} online items={1} processing={0} problem={null} notice={null} onPlusOne={noop} onRemove={noop} onReview={noop} />,
+      { wrapper },
     );
     await fireEvent.press(receipt.getByLabelText(/Show the receipt/));
     expect(receipt.getByText('111').props.numberOfLines).toBeUndefined();
