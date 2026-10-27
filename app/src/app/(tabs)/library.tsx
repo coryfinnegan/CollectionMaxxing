@@ -5,7 +5,7 @@ import { LibraryView } from '@/features/library/LibraryView';
 export default function Route() {
   const { add } = useLocalSearchParams<{ add?: string }>();
   return (
-    <TabBottomPad withPill>
+    <TabBottomPad>
       <LibraryView title="Library" openAdd={add === '1'} />
     </TabBottomPad>
   );
