@@ -7,7 +7,6 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { LottieSpot } from '@/ui';
-import { PlacedMascot } from '@/ui/mascot';
 import { motionMs } from '@/ui/motion';
 
 /** How long the check stays up before it goes away by itself. */
@@ -48,7 +47,6 @@ export function CommitCelebration({ message, onDone }: { message: string; onDone
         }}
       >
         <LottieSpot name="success" size={120} speed={CELEBRATION_SPEED} testID="celebration-spot" />
-        <PlacedMascot pose="celebrating" placement="state" size={96} testID="celebration-dragon" />
       </Pressable>
     </Animated.View>
   );

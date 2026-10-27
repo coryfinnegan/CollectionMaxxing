@@ -1,6 +1,6 @@
 // The theme derives from tokens.json: both schemes resolve the same roles to real colors,
 // so a typo in a role reference fails here instead of painting `undefined`.
-import { castle, castleDark, darkColors, fixed, lightColors, mascot, typeScale } from './tokens';
+import { darkColors, fixed, lightColors, typeScale } from './tokens';
 import source from './tokens.json';
 
 const hex = /^#[0-9a-fA-F]{6}$/;
@@ -39,32 +39,11 @@ describe('design tokens', () => {
     expect(typeScale.display.fontSize ?? 0).toBeGreaterThan(typeScale.title.fontSize ?? 0);
   });
 
-  it.each(Object.entries(mascot))('keeps mascot %s a fixed hex color', (_name, value) => {
-    expect(value).toMatch(hex);
-  });
-
-  it('sets castle display titles in Cinzel at 20pt and above only', () => {
-    expect(typeScale.castleDisplay.fontFamily).toMatch(/^Cinzel_/);
-    expect(typeScale.castleDisplay.fontSize ?? 0).toBeGreaterThanOrEqual(20);
-  });
-
-  it.each(Object.entries(castle))('keeps day castle %s a hex color', (_name, value) => {
-    expect(value).toMatch(hex);
-  });
-
-  it.each(Object.entries(castleDark))('keeps torchlit castle %s a hex color', (_name, value) => {
-    expect(value).toMatch(hex);
-  });
-
-  it('keeps the day and torchlit castle palettes the same shape', () => {
-    expect(Object.keys(castleDark).sort()).toEqual(Object.keys(castle).sort());
-  });
-
-  it('keeps parchment lit and iron put at night: the hall is torchlit, never inverted', () => {
-    expect(castleDark.parchment).toBe(castle.parchment);
-    expect(castleDark.parchmentInk).toBe(castle.parchmentInk);
-    expect(castleDark.iron).toBe(castle.iron);
-    expect(castleDark.ironInk).toBe(castle.ironInk);
-    expect(castleDark.stone).not.toBe(castle.stone);
+  it('ships one design in two schemes: no theme palettes beside the roles', () => {
+    expect(source).not.toHaveProperty('castle');
+    expect(source).not.toHaveProperty('castleDark');
+    expect(source).not.toHaveProperty('mall');
+    expect(source).not.toHaveProperty('mascot');
+    expect(typeScale).not.toHaveProperty('castleDisplay');
   });
 });

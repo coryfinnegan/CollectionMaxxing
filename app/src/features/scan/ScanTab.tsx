@@ -3,10 +3,12 @@
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
+import { TabBottomPad } from '@/components/TabBottomPad';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
+import { fixed } from '@/theme/tokens';
 import { EmptyState, Screen } from '@/ui';
 import { ScanCoach } from './scanner/ScanCoach';
 import { dismissScanCoach, hasSeenScanCoach } from './scanner/scanEntry';
@@ -37,7 +39,7 @@ function PhoneScanTab() {
   const { libraryId } = useActiveLibraryId();
   const [coached, setCoached] = useState(hasSeenScanCoach);
   return (
-    <View style={styles.fill}>
+    <TabBottomPad withPill={false} background={fixed.black}>
       <ScannerRoute showClose={false} />
       {!coached && libraryId ? (
         <ScanCoach
@@ -47,10 +49,6 @@ function PhoneScanTab() {
           }}
         />
       ) : null}
-    </View>
+    </TabBottomPad>
   );
 }
-
-const styles = StyleSheet.create({
-  fill: { flex: 1 },
-});

@@ -1,8 +1,6 @@
 // Empty states get a small looping spot above the words; errors stay bare.
 import { render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
-import { lightColors } from '@/theme/tokens';
 import { EmptyState } from './EmptyState';
 
 jest.mock('@/lib/a11y/useReduceMotion', () => ({ useReduceMotion: jest.fn() }));
@@ -25,11 +23,5 @@ describe('EmptyState', () => {
     reduceMotion(true);
     const still = await render(<EmptyState title="Nothing here yet." animation="empty-library" />);
     expect(still.queryByTestId('empty-spot')).toBeNull();
-  });
-
-  it('sets the body in full ink for textured grounds when asked', async () => {
-    reduceMotion(false);
-    await render(<EmptyState title="Nothing here yet." body="Point your camera at a shelf." bodyTone="ink" />);
-    expect(StyleSheet.flatten(screen.getByText('Point your camera at a shelf.').props.style).color).toBe(lightColors.ink);
   });
 });

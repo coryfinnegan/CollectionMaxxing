@@ -97,7 +97,7 @@ describe('ItemDetailScreen', () => {
     expect(screen.getByText("That's no longer here. Refresh and try again.")).toBeTruthy();
   });
 
-  it('sets the notes on a parchment card', async () => {
+  it('sets the notes on a plain card', async () => {
     entry().item.notes = 'Slipcover missing';
     await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
     await screen.findByText('The Matrix');
@@ -114,27 +114,26 @@ describe('ItemDetailScreen', () => {
     expect(screen.getByText('None')).toBeTruthy();
   });
 
-  it('shields a work owned more than once', async () => {
+  it('counts a work owned more than once in plain words', async () => {
     const matrix = entry();
     itemsState.entries.push({ ...matrix, item: { ...matrix.item, id: 'c0000000-0000-4000-8000-999999999999' } });
     await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
     await screen.findByText('The Matrix');
 
-    expect(screen.getByTestId('series-shield')).toBeTruthy();
     expect(screen.getByText('2 copies of this work')).toBeTruthy();
   });
 
-  it('shows no shield for a single copy', async () => {
+  it('shows no copies line for a single copy', async () => {
     await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
     await screen.findByText('The Matrix');
 
-    expect(screen.queryByTestId('series-shield')).toBeNull();
+    expect(screen.queryByText(/copies of this work/)).toBeNull();
   });
 
-  it('poses the oops dragon when the item is gone', async () => {
+  it('keeps the gone state plain when the item is gone', async () => {
     await renderWithProviders(<ItemDetailScreen id="missing" />);
     expect(await screen.findByText("Couldn't load this item")).toBeTruthy();
-    expect(screen.getByTestId('castle-state-dragon')).toBeTruthy();
+    expect(screen.queryByTestId('castle-state-dragon')).toBeNull();
   });
 
   it('deletes the item and goes back', async () => {
