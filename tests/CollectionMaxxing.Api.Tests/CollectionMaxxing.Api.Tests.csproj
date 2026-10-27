@@ -11,6 +11,7 @@
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="WireMock.Net" />
+    <PackageReference Include="OpenCvSharp4" />
   </ItemGroup>
 
   <ItemGroup Label="Security pins">

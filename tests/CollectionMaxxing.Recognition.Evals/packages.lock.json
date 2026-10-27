@@ -608,13 +608,17 @@
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.11, )",
           "Microsoft.Extensions.Diagnostics.HealthChecks": "[10.0.11, )",
           "Microsoft.Extensions.Http.Resilience": "[10.9.0, )",
-          "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )"
+          "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
+          "OpenCvSharp4": "[4.13.0.20260627, )",
+          "OpenCvSharp4.official.runtime.linux-x64": "[4.13.0.20260627, )",
+          "OpenCvSharp4.runtime.win": "[4.13.0.20260627, )"
         }
       },
       "collectionmaxxing.testsupport": {
         "type": "Project",
         "dependencies": {
           "CollectionMaxxing.Infrastructure": "[1.0.0, )",
+          "OpenCvSharp4": "[4.13.0.20260627, )",
           "Respawn": "[7.0.0, )",
           "Shouldly": "[4.3.0, )",
           "Testcontainers.PostgreSql": "[4.16.0, )",
@@ -687,6 +691,24 @@
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.4, 11.0.0)",
           "Npgsql": "10.0.3"
         }
+      },
+      "OpenCvSharp4": {
+        "type": "CentralTransitive",
+        "requested": "[4.13.0.20260627, )",
+        "resolved": "4.13.0.20260627",
+        "contentHash": "nYk95jkyYY9f0sF5KqZ3OB1SWkmqsfV7eN0ROiQds/rxpSn0v1G0QIedMbwuqbdPhvQnOIG2DDmpkLnHEJMh8Q=="
+      },
+      "OpenCvSharp4.official.runtime.linux-x64": {
+        "type": "CentralTransitive",
+        "requested": "[4.13.0.20260627, )",
+        "resolved": "4.13.0.20260627",
+        "contentHash": "Jy14YMCB9iBhT+vGLPmbFsZfgDi7Imbh8H9egzz8MH+UCbwO+ZQ+HHZFdUgqd18B2c7088QPsG+0aa1W3i554g=="
+      },
+      "OpenCvSharp4.runtime.win": {
+        "type": "CentralTransitive",
+        "requested": "[4.13.0.20260627, )",
+        "resolved": "4.13.0.20260627",
+        "contentHash": "POIxR+CTpwHJIdam6wd8U2fprWv5QnIUw50jw79WEGb37He3T1h11SdtwSj9p2PLSfrzonMjO2t71wqi5uFsoQ=="
       },
       "Respawn": {
         "type": "CentralTransitive",

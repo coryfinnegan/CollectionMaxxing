@@ -113,6 +113,7 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}/crop` | scan-session role | editor and above (in the session's library) | Y | Y | CropUploadDto: the asset id and its cover URL (library-private bytes) |
 | POST | `/api/v1/scan-sessions/{id:guid}/provisionals` | scan-session role | editor and above (in the session's library) | Y | Y | ProvisionalDto + CandidateDto: the session's own kept row |
 | POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}:art` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
+| POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}:verify-cover` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/candidates/{cid:guid}:search` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/commit` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/commit:undo` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
