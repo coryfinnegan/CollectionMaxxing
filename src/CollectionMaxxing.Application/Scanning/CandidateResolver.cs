@@ -130,6 +130,7 @@ public sealed class CandidateResolver(
         var firstOwned = 0;
 
         var ownershipBiased = false;
+        var coverBiased = false;
         if (verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
         {
             var alternatives = new List<StoredAlternative>();
@@ -148,6 +149,23 @@ public sealed class CandidateResolver(
             var order = BiasTowardOwned(resolution.Options, ownership, verdict);
             ownershipBiased = order is not null;
             order ??= Enumerable.Range(0, ensured.Count).ToList();
+
+            // #519: an exact-score tie lists what has a stored cover first, so
+            // the top pick is one the person can verify against its picture.
+            // Only ties move; a real lead (text or artwork) always wins.
+            var covered = new List<bool>(ensured.Count);
+            for (var i = 0; i < ensured.Count; i++)
+            {
+                covered.Add(CoveredNow(resolution.Options, ensured, known, i));
+            }
+
+            var coverOrder = BreakTiesTowardCovered(resolution.Options, ownership, covered, order, verdict);
+            coverBiased = coverOrder is not null;
+            if (coverOrder is not null)
+            {
+                order = coverOrder;
+            }
+
             for (var rank = 0; rank < order.Count; rank++)
             {
                 var i = order[rank];
@@ -196,9 +214,16 @@ public sealed class CandidateResolver(
 
         // A code that found the UPC allowance spent waits for the nightly drain: say when it will next be tried.
         DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
-        var steps = ownershipBiased
-            ? (IReadOnlyList<TraceStep>)[.. resolution.Steps, new TraceStep("ownership", "biased", 0)]
-            : resolution.Steps;
+        var steps = resolution.Steps;
+        if (ownershipBiased)
+        {
+            steps = [.. steps, new TraceStep("ownership", "biased", 0)];
+        }
+
+        if (coverBiased)
+        {
+            steps = [.. steps, new TraceStep("cover", "biased", 0)];
+        }
         candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
             steps, ownedAt, NeedsArt(candidate, resolution with { Verdict = verdict }), autoDecision, retryAfter));
     }
@@ -228,6 +253,41 @@ public sealed class CandidateResolver(
             .OrderByDescending(i => options[i].Score + (ownership[i].Count > 0 ? OwnedBias : 0))
             .ToList();
         return order.SequenceEqual(Enumerable.Range(0, ownership.Count)) ? null : order;
+    }
+
+    /// <summary>
+    /// Whether option <paramref name="index"/> shows a stored cover right now: its release (or work) already has a cover
+    /// asset. A provider option never does: its cover address is a promise the commit or backfill has not kept yet, and
+    /// counting it would let a provider shadow jump the learned row it reunites with (#514). A same-novel share this same
+    /// answer just made counts only once saved, like #515's one-scan-late display. Pure.
+    /// </summary>
+    private static bool CoveredNow(
+        IReadOnlyList<ResolutionOption> options, List<EnsuredRelease> ensured,
+        Dictionary<Guid, Catalog.ReleaseDto> known, int index) =>
+        options[index].Provider is null
+        && known.TryGetValue(ensured[index].Id, out var release)
+        && release.CoverUrl is not null;
+
+    /// <summary>
+    /// The display order of a close call's exact-score ties: options with a stored cover sort first, so the top pick is
+    /// one the person can verify against its picture (#519). Only ties on the owned-biased score move — a real lead
+    /// (text or artwork) always wins, and ties otherwise keep their order. Null when the verdict is not Ambiguous or no
+    /// tie moves, so the caller keeps the owned-biased order. Pure.
+    /// </summary>
+    internal static List<int>? BreakTiesTowardCovered(
+        IReadOnlyList<ResolutionOption> options, IReadOnlyList<OwnershipDto> ownership, IReadOnlyList<bool> covered,
+        IReadOnlyList<int> order, ResolutionVerdict verdict)
+    {
+        if (verdict != ResolutionVerdict.Ambiguous)
+        {
+            return null;
+        }
+
+        var reordered = order
+            .OrderByDescending(i => options[i].Score + (ownership[i].Count > 0 ? OwnedBias : 0))
+            .ThenByDescending(i => covered[i])
+            .ToList();
+        return reordered.SequenceEqual(order) ? null : reordered;
     }
 
     /// <summary>
@@ -553,7 +613,8 @@ public sealed class CandidateResolver(
             resolution.Options.Take(MaxAlternatives).Select(o => o.Score).ToList(),
             CloseCall.ArtWeight(options, profile),
             options.Art.CloseCallMargin,
-            alreadyCompared: resolution.Steps.Any(step => step.Provider == ScoreCandidateArtwork.StepName));
+            alreadyCompared: resolution.Steps.Any(step => step.Provider == ScoreCandidateArtwork.StepName),
+            shot: candidate.ShotKind);
     }
 
     /// <summary>Where the library already has the release (exactly), for a release it may or may not have.</summary>

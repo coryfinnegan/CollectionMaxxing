@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Domain.Catalog.Matching;
+using CollectionMaxxing.Domain.Scanning;
 
 namespace CollectionMaxxing.Application.Tests.Scanning.Artwork;
 
@@ -9,8 +10,10 @@ public class CloseCallTests
     private const double Margin = 0.15;
     private const double CoverArt = 0.20;
 
-    private static bool Needs(ResolutionVerdict verdict, double[] scores, double artWeight = CoverArt, double margin = Margin, bool compared = false) =>
-        CloseCall.NeedsArt(verdict, scores, artWeight, margin, compared);
+    private static bool Needs(
+        ResolutionVerdict verdict, double[] scores, double artWeight = CoverArt, double margin = Margin, bool compared = false,
+        ShotKind shot = ShotKind.Unknown) =>
+        CloseCall.NeedsArt(verdict, scores, artWeight, margin, compared, shot);
 
     [Fact]
     public void An_ambiguous_item_is_a_close_call()
@@ -83,5 +86,23 @@ public class CloseCallTests
     public void Only_profiles_with_an_art_weight_can_use_artwork(ScoringProfileKind profile, bool usesArt)
     {
         (CloseCall.ArtWeight(new ScoringOptions(), profile) > 0).ShouldBe(usesArt);
+    }
+
+    [Fact]
+    public void A_shelf_segment_is_text_only_even_when_it_would_otherwise_be_a_close_call()
+    {
+        // #519: a shelf photo shows spines, so comparing it against cover art
+        // ranked the wrong book first. Spines are matched by text.
+        Needs(ResolutionVerdict.Ambiguous, [0.80, 0.78], shot: ShotKind.ShelfSegment).ShouldBeFalse();
+        Needs(ResolutionVerdict.Matched, [0.95, 0.88], shot: ShotKind.ShelfSegment).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(ShotKind.SingleCover)]
+    [InlineData(ShotKind.LooseItem)]
+    [InlineData(ShotKind.Unknown)]
+    public void Any_other_shot_keeps_todays_artwork_behavior(ShotKind shot)
+    {
+        Needs(ResolutionVerdict.Ambiguous, [0.80, 0.78], shot: shot).ShouldBeTrue();
     }
 }

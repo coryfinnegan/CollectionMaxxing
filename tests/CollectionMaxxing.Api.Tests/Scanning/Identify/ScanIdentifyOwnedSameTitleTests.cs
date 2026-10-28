@@ -27,6 +27,12 @@ namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
 //   [2] Kleypas sibling 1.0 owned 0
 // Post-fix, the owned novel ranks first with its count; the verdict and every
 // score stay exactly as the scorer computed them.
+//
+// Issue #519: prod's answer went through the artwork re-score (shelf photo vs
+// the shared Kleypas cover below neutral, coverless Mayberry neutral 0.5),
+// final 0.75 vs 0.734, wrong book first. Shelf shots are text-only now, and
+// exact-score ties list stored-cover options first, so this seed's all-0
+// shape answers the covered Kleypas sibling first.
 public class ScanIdentifyOwnedSameTitleTests(ApiFixture api) : IdentifyTest(api)
 {
     private const string Title = "Suddenly You";
@@ -159,26 +165,32 @@ public class ScanIdentifyOwnedSameTitleTests(ApiFixture api) : IdentifyTest(api)
         owned.GetProperty("alreadyOwnedCount").GetInt32().ShouldBe(2);
     }
 
+    private async Task DeleteLearnedItemsAsync(Guid learnedId)
+    {
+        await using var seedContext = Db.CreateContext();
+        var items = await seedContext.Items.IgnoreQueryFilters()
+            .Where(i => i.ReleaseId == learnedId).ToListAsync();
+        items.Count.ShouldBe(2);
+        foreach (var item in items)
+        {
+            item.DeletedAt = new DateTimeOffset(2026, 10, 28, 19, 30, 39, TimeSpan.Zero);
+        }
+
+        await seedContext.SaveChangesAsync();
+    }
+
     [Fact]
-    public async Task Copies_deleted_before_the_answer_read_unowned_and_keep_scorer_order()
+    public async Task Deleted_copies_read_unowned_and_the_covered_novel_lists_first()
     {
         var seed = await SeedSuddenlyYouAsync();
 
         // Prod #516 read all-0 with the learned row among the options: both of
-        // its items were deleted before the answer (one 12 s before), so 0 was
-        // the true count and the reorder correctly no-ops on it.
-        await using (var seedContext = Db.CreateContext())
-        {
-            var items = await seedContext.Items.IgnoreQueryFilters()
-                .Where(i => i.ReleaseId == seed.LearnedId).ToListAsync();
-            items.Count.ShouldBe(2);
-            foreach (var item in items)
-            {
-                item.DeletedAt = new DateTimeOffset(2026, 10, 28, 19, 30, 39, TimeSpan.Zero);
-            }
-
-            await seedContext.SaveChangesAsync();
-        }
+        // its items were deleted before the answer (one 12 s before), so 0 is
+        // the true count and the owned-first reorder correctly no-ops on it.
+        // #519: the exact-score tie then lists the stored-cover Kleypas row
+        // first (pre-fix, coverless Mayberry rode scorer-order noise to the
+        // top here, and the artwork re-score kept it there at 0.75 vs 0.734).
+        await DeleteLearnedItemsAsync(seed.LearnedId);
 
         var candidate = await IdentifyOnceAsync(seed.Client, seed.SessionId, Read(title: Title, kind: "book"));
 
@@ -189,11 +201,69 @@ public class ScanIdentifyOwnedSameTitleTests(ApiFixture api) : IdentifyTest(api)
         alternatives.Count.ShouldBe(3);
         alternatives.Select(a => a.GetProperty("releaseId").GetGuid()).ShouldContain(seed.LearnedId);
         alternatives.All(a => a.GetProperty("alreadyOwnedCount").GetInt32() == 0).ShouldBeTrue();
-        alternatives[0].GetProperty("releaseId").GetGuid().ShouldBe(seed.MayberryId);
+        alternatives.All(a => a.GetProperty("score").GetDouble() == 1.0).ShouldBeTrue();
+        alternatives[0].GetProperty("releaseId").GetGuid().ShouldBe(seed.SiblingId);
 
         await using var context = Db.CreateContext();
         var trace = (await context.ScanCandidates.IgnoreQueryFilters().SingleAsync(c => c.Id == Id(candidate))).TraceJson;
         trace.ShouldNotBeNull();
-        trace.ShouldNotContain("biased");
+        using var traceJson = JsonDocument.Parse(trace);
+        var steps = traceJson.RootElement.GetProperty("steps").EnumerateArray().ToList();
+        steps.ShouldContain(s => s.GetProperty("provider").GetString() == "cover" && s.GetProperty("outcome").GetString() == "biased");
+        steps.ShouldNotContain(s => s.GetProperty("provider").GetString() == "ownership");
+    }
+
+    [Fact]
+    public async Task A_shelf_shot_is_text_only_so_artwork_is_refused_and_the_covered_novel_stays_first()
+    {
+        var seed = await SeedSuddenlyYouAsync();
+        await DeleteLearnedItemsAsync(seed.LearnedId);
+
+        var candidate = await IdentifyOnceAsync(seed.Client, seed.SessionId, Read(title: Title, kind: "book"));
+
+        // A shelf photo shows spines, not covers: comparing it against cover
+        // art is what ranked prod's wrong book first, so a shelf shot is
+        // never a close call for artwork.
+        candidate.GetProperty("needsArt").GetBoolean().ShouldBeFalse();
+        var alternatives = candidate.GetProperty("alternatives").EnumerateArray().ToList();
+        alternatives[0].GetProperty("releaseId").GetGuid().ShouldBe(seed.SiblingId);
+
+        // The phone reporting distances anyway (an older app) is refused: the
+        // unfair comparison must not move the ranking.
+        var art = await seed.Client.PostAsync(
+            $"{SessionUrl(seed.SessionId)}/candidates/{Id(candidate)}:art",
+            Json(new
+            {
+                distances = new[]
+                {
+                    new { releaseId = seed.LearnedId, distance = 1.1 },
+                    new { releaseId = seed.SiblingId, distance = 1.1 },
+                },
+            }));
+        art.StatusCode.ShouldBe(HttpStatusCode.Conflict, await art.Content.ReadAsStringAsync());
+        (await art.Content.ReadAsStringAsync()).ShouldContain("scan.art_not_needed");
+
+        var reread = (await GetSessionAsync(seed.Client, seed.SessionId)).GetProperty("candidates").EnumerateArray()
+            .Single(c => c.GetProperty("id").GetGuid() == Id(candidate));
+        reread.GetProperty("alternatives").EnumerateArray().First()
+            .GetProperty("releaseId").GetGuid().ShouldBe(seed.SiblingId);
+    }
+
+    [Fact]
+    public async Task An_unknown_shot_is_still_a_close_call_for_artwork()
+    {
+        // Only an explicit shelf_segment is text-only: a shot the phone did
+        // not classify keeps today's artwork behavior. Guard, not a fix: it
+        // passes identically pre- and post-fix.
+        var seed = await SeedSuddenlyYouAsync();
+
+        var body = Body(Guid.NewGuid(), [Read(title: Title, kind: "book")]);
+        body["kind"] = "shelf";
+        var response = await seed.Client.PostAsync(IdentifyUrl(seed.SessionId), Json(body));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var candidate = (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().Single();
+
+        Resolution(candidate).ShouldBe("ambiguous");
+        candidate.GetProperty("needsArt").GetBoolean().ShouldBeTrue();
     }
 }
