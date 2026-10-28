@@ -121,6 +121,7 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | POST | `/api/v1/scan-sessions/{id:guid}/identify` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | GET | `/health/live` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
 | GET | `/health/ready` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
+| GET | `/health/version` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
 | GET | `/join/{token}` | anonymous (allow-listed) | everyone | Y | n/a (no object id; acts on the caller) | Auth0 sign-in: a 302, `{ next }` or `{ logoutUrl }`; no token ever reaches the browser |
 | GET | `/media/covers/{assetId:guid}` | signed in | any signed-in caller (own data only) | Y | Y | image bytes, nosniff, private caching for library covers |
 | GET | `/openapi/{documentName}.json` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
