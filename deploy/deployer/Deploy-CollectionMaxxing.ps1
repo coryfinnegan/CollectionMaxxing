@@ -10,9 +10,10 @@
   run while one is active exits at once, unless the lock has been held for over 30 minutes, which alerts like a failure.
   The lock itself is never broken: two deployers must never run at once.
 
-  After a good deploy of commit X the deployer's own clone is fast-forwarded to X (git merge --ff-only; skipped with a
-  WARN if the clone has local changes or is not on main), so its scripts follow the build. On a server that still has the
-  .ipa it served before the iPhone app moved to TestFlight (ADR-024), a run removes it from the files volume, once.
+  At the start of every poll the deployer's own clone is fast-forwarded to origin/main (git merge --ff-only; skipped
+  with a WARN if the clone has local changes or is not on main), so its scripts follow main with no manual pull, ever.
+  Last-good stays solely in the state file (the rollback anchor), never in the clone position. On a server that still
+  has the .ipa it served before the iPhone app moved to TestFlight (ADR-024), a run removes it from the files volume, once.
 
   Refusals are loud: a refused, failed or rolled-back deploy exits non-zero, writes an ALERT line to the log and pings
   <CM_HEARTBEAT_URL>/fail (the free check the nightly backup already uses).

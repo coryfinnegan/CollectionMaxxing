@@ -224,6 +224,9 @@ function Get-CmPlan {
     param($Ctx)
     $tag = '<sha>'
     $plan = @()
+    $plan += '(first the clone is fast-forwarded to origin/main when it is clean and on main, so the deployer scripts follow main by themselves)'
+    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'fetch', '--quiet', 'origin', 'main')
+    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'merge', '--ff-only', 'origin/main')
     $plan += Format-CmCommand 'docker' @('pull', (Get-CmImageRef $Ctx 'api' 'main'))
     $plan += Format-CmCommand 'docker' @('image', 'inspect', (Get-CmImageRef $Ctx 'api' 'main'), '--format', '{{json .}}')
     $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'fetch', '--quiet', 'origin', 'main')
@@ -244,8 +247,6 @@ function Get-CmPlan {
     $plan += Format-CmCommand 'docker' @('inspect', '<api container>', '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}')
     $plan += '(the running api must report the deployed commit, or the previous good version is pinned again)'
     $plan += '(if the smoke test or the service check fails: the same up -d with CM_TAG=<previous good sha>)'
-    $plan += '(then, if the clone is clean and on main, it is fast-forwarded to the deployed commit so the deployer scripts on disk match the running build)'
-    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'merge', '--ff-only', $tag)
     $plan += '(then, once, on a server that still has the .ipa it served before the iPhone app moved to TestFlight, any run removes it)'
     $plan += Format-CmCommand 'docker' (Get-CmRetiredIpaArgs $Ctx '<deployed sha>')
     $plan += '(any refusal, failure or rollback exits non-zero, writes an ALERT line to the log and pings <CM_HEARTBEAT_URL>/fail)'
@@ -293,35 +294,37 @@ function Update-CmRepo {
     $r.ExitCode -eq 0
 }
 
-function Update-CmRepoToDeployed {
+function Update-CmRepoToMain {
     <#
-      After a good deploy of Sha: fast-forward the deployer's clone to it, so the scripts the next run loads (and the
-      compose file) are the ones from the build that is now running. The images were just attested as built from this
-      commit on main, and the clone only ever moves along main. It never resets, checks out, cleans or forces: a clone with
-      local changes, off main, or that cannot fast-forward is left exactly as it is, with a WARN (not an alert).
-      Returns $true when the clone is at Sha afterwards.
+      At the START of every poll: fast-forward the deployer's clone to origin/main, so deployer and compose fixes
+      self-deliver within one poll cycle and no manual pull is ever needed (#499). The clone tracks main; last-good
+      stays solely in the state file (the rollback anchor). It never resets, checks out, cleans or forces: a failed
+      fetch, a clone with local changes, one off main, or one that cannot fast-forward is left exactly as it is, with
+      a WARN (not an alert); the poll continues and the next poll tries again. $true when at origin/main afterwards.
     #>
-    param($Ctx, [string]$Sha)
+    param($Ctx)
     $repo = $Ctx.RepoDir
-    $short = if ($Sha.Length -ge 12) { $Sha.Substring(0, 12) } else { $Sha }
-    if ($Sha -cnotmatch '^[0-9a-f]{40}$') { Write-CmLog "not moving the clone at ${repo}: '$Sha' is not a full commit hash" 'WARN'; return $false }
+    if (-not (Update-CmRepo -Ctx $Ctx)) {
+        Write-CmLog "could not fetch main into the clone at $repo, so it was not moved to origin/main; the poll continues and the next poll tries again" 'WARN'
+        return $false
+    }
     $status = Invoke-Cm -Command 'git' -Arguments @('-C', $repo, 'status', '--porcelain', '--untracked-files=no')
-    if ($status.ExitCode -ne 0) { Write-CmLog "could not read the state of the clone at $repo, so it was not moved to $short" 'WARN'; return $false }
+    if ($status.ExitCode -ne 0) { Write-CmLog "could not read the state of the clone at $repo, so it was not moved to origin/main" 'WARN'; return $false }
     if (@($status.Output | Where-Object { "$_".Trim() }).Count -gt 0) {
-        Write-CmLog "the clone at $repo has local changes, so it was not moved to $short; the deployer scripts there may be older than the running build" 'WARN'
+        Write-CmLog "the clone at $repo has local changes, so it was not moved to origin/main; the deployer scripts there may be older than main" 'WARN'
         return $false
     }
     $branch = Invoke-Cm -Command 'git' -Arguments @('-C', $repo, 'symbolic-ref', '--quiet', '--short', 'HEAD')
     if ($branch.ExitCode -ne 0 -or (@($branch.Output) -join '').Trim() -ne 'main') {
-        Write-CmLog "the clone at $repo is not on main, so it was not moved to $short" 'WARN'
+        Write-CmLog "the clone at $repo is not on main, so it was not moved to origin/main" 'WARN'
         return $false
     }
-    $merge = Invoke-Cm -Mutating -Command 'git' -Arguments @('-C', $repo, 'merge', '--ff-only', $Sha)
+    $merge = Invoke-Cm -Mutating -Command 'git' -Arguments @('-C', $repo, 'merge', '--ff-only', 'origin/main')
     if ($merge.ExitCode -ne 0) {
-        Write-CmLog "the clone at $repo could not be fast-forwarded to $short (it has diverged, or the commit was not fetched); left as it is" 'WARN'
+        Write-CmLog "the clone at $repo could not be fast-forwarded to origin/main (it has diverged); left as it is" 'WARN'
         return $false
     }
-    Write-CmLog "moved the clone at $repo to $short, so the deployer scripts match the running build"
+    Write-CmLog "moved the clone at $repo to origin/main, so the deployer scripts match the latest main"
     $true
 }
 
@@ -568,6 +571,11 @@ function Invoke-CmDeployCore {
             return New-CmResult 'config-error' 2 ($problems -join '; ')
         }
 
+        # The clone tracks origin/main from the start of every poll (#499): deployer and compose fixes self-deliver
+        # within one poll cycle. Never fatal: a skipped move is a WARN and the poll continues.
+        try { Update-CmRepoToMain -Ctx $Ctx | Out-Null }
+        catch { Write-CmLog "could not move the clone at $($Ctx.RepoDir) to origin/main: $($_.Exception.Message)" 'WARN' }
+
         $read = Read-CmStateStrict -Path $Ctx.StateFile
         if (-not $read.Ok) {
             Write-CmLog $read.Reason 'ERROR'
@@ -640,7 +648,7 @@ function Invoke-CmDeployCore {
         Write-CmLog "deploying $($sha.Substring(0, 12)) (attestations verified)"
 
         # 4. Migrate (expand-only migrations, so the running api stays compatible), then restart the api. Both use the
-        #    compose file AT the new commit; the clone itself is only moved after a good deploy.
+        #    compose file AT the new commit; the clone itself already tracks origin/main from the start of the poll.
         $newCtx = New-CmCtxAtCommit -Ctx $Ctx -Sha $sha
         if (-not $newCtx) {
             $message = "could not read deploy/docker-compose.yml at $($sha.Substring(0, 12)) from the clone at $($Ctx.RepoDir); nothing deployed"
@@ -686,8 +694,6 @@ function Invoke-CmDeployCore {
             $state.Remove('failedSha')
             Write-CmState -Path $Ctx.StateFile -State $state
             Write-CmLog "deployed $($sha.Substring(0, 12)); smoke test passed"
-            try { Update-CmRepoToDeployed -Ctx $Ctx -Sha $sha | Out-Null }
-            catch { Write-CmLog "could not move the clone at $($Ctx.RepoDir) to $($sha.Substring(0, 12)): $($_.Exception.Message)" 'WARN' }
             Remove-CmRetiredIpa -Ctx $Ctx
             return New-CmResult 'deployed' 0
         }
@@ -697,7 +703,7 @@ function Invoke-CmDeployCore {
         Write-CmState -Path $Ctx.StateFile -State $state
         if ($current) {
             Write-CmLog "$($health.Note); pinning previous good $("$($current['sha'])".Substring(0, 12))" 'ERROR'
-            # The previous release's own compose file; if it cannot be read, the clone's (still the previous release's).
+            # The previous release's own compose file; if it cannot be read, the clone's (which tracks origin/main).
             Invoke-CmUp -Ctx $(if ($oldCtx) { $oldCtx } else { $Ctx }) -Tag $current['sha'] | Out-Null
             if ((Test-CmStackHealthy -Ctx $Ctx).Ok) { Write-CmLog 'rolled back; the previous version is healthy' 'WARN'; $tail = 'the previous version is healthy again' }
             else { Write-CmLog 'rolled back but the previous version is not healthy either; check the stack' 'ERROR'; $tail = 'the previous version is NOT healthy either; check the stack' }
