@@ -58,11 +58,11 @@ public sealed class ScanSession : ILibraryScoped, IConcurrencyVersioned
     public Guid[]? CommittedItemIds { get; set; }
 
     /// <summary>
-    /// Which tiers auto-add in this session (docs/16 §6), spelled as <see cref="EnumText"/> spells them: T0 unless the
-    /// session says otherwise. T1 needs an explicit opt-in until the eval gate passes on real data; an empty list turns
-    /// auto-add off entirely. Use <see cref="AutoCommits"/> to ask.
+    /// Which tiers auto-add in this session (docs/16 §6), spelled as <see cref="EnumText"/> spells them: none unless
+    /// the session says otherwise (#452 — nothing enters the library straight from a scan; every capture waits for the
+    /// Review commit). An empty list turns auto-add off entirely. Use <see cref="AutoCommits"/> to ask.
     /// </summary>
-    public string[] AutoCommitTiers { get; set; } = [EnumText.ToText(ScanTier.T0)];
+    public string[] AutoCommitTiers { get; set; } = [];
 
     /// <summary>Whether <paramref name="tier"/> auto-adds in this session.</summary>
     public bool AutoCommits(ScanTier tier) => AutoCommitTiers.Contains(EnumText.ToText(tier));

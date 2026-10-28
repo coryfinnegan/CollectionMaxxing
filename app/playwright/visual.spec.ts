@@ -81,6 +81,34 @@ test.describe('visual', () => {
     await expectShot(page, 'settings-appearance');
   });
 
+  // The shared toast (#465): the delete Undo and the review commit Undo, each in
+  // both schemes, so an unthemed bar or an invisible action label fails here.
+  test.describe('toasts', () => {
+    test('delete toast', async ({ page, open }) => {
+      await openDeleteToast(page, open);
+      await expectShot(page, 'delete-toast');
+    });
+
+    test('review commit toast', async ({ page, open }) => {
+      await openCommitToast(page, open);
+      await expectShot(page, 'review-toast');
+    });
+
+    test.describe('dark', () => {
+      test.use({ colorScheme: 'dark' });
+
+      test('delete toast dark', async ({ page, open }) => {
+        await openDeleteToast(page, open);
+        await expectShot(page, 'delete-toast-dark');
+      });
+
+      test('review commit toast dark', async ({ page, open }) => {
+        await openCommitToast(page, open);
+        await expectShot(page, 'review-toast-dark');
+      });
+    });
+  });
+
   // The revised scanner scope (#432): captures queue silently, and every capture's state is a Review row
   // with its thumbnail. Matched rows aggregate, so the spec expands them; the rows do not fit one viewport,
   // so each scheme shoots the top (needing attention) and the tail (matched + still looking up).
@@ -117,6 +145,24 @@ test.describe('visual', () => {
   });
 });
 
+async function openDeleteToast(page: Page, open: (path: string) => Promise<void>) {
+  await open('/library');
+  await page.getByRole('button', { name: 'Grid view' }).click();
+  await page.getByRole('button', { name: 'The Matrix, DVD' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText('Deleted The Matrix')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).scrollIntoViewIfNeeded();
+}
+
+async function openCommitToast(page: Page, open: (path: string) => Promise<void>) {
+  await openSeededReview(page, open);
+  await page.getByRole('button', { name: 'Add 2 items' }).click();
+  await expect(page.getByText('Added 2 items')).toBeVisible();
+  // The celebration dismisses itself; the toast below keeps the words and the Undo.
+  await expect(page.getByTestId('commit-celebration')).toBeHidden({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Undo' }).scrollIntoViewIfNeeded();
+}
+
 async function openSeededReview(page: Page, open: (path: string) => Promise<void>) {
   await open('/review?seed=review-rows');
   await expect(page.getByText('Pick one · 1')).toBeVisible();
@@ -130,10 +176,11 @@ async function openSeededReview(page: Page, open: (path: string) => Promise<void
   await expect(page.getByText('Identifying…')).toBeVisible();
   await expect(page.getByText('Pick the right one')).toBeVisible();
   await expect(page.getByText(/You own 1/)).toBeVisible();
-  // Capture thumbnails pair each picture row with its crop.
+  // Capture thumbnails pair each picture row with its crop. The Ready row is a barcode scan (#452):
+  // no crop, its match preselected, waiting for the commit like every other row.
   await expect(page.getByLabel('Cover of Suddenly You', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Cover of Dune', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Cover of Super Mario 64', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Cover of Super Mario 64', { exact: true })).toHaveCount(0);
   // The pick-one editions (#440): radio rows with authors and edition facts, catalog art on the
   // 2001 edition and the captured crop standing in on the 2003, the engine preselection with its
   // reason, the secondary paths as small chips, and Add N counting the selection.

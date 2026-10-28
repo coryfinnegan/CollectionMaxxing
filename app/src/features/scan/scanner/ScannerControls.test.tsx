@@ -39,7 +39,7 @@ const controls = (
   ).then(() => ({ onClose, onOpenSession, onToggleFlash, onOpenSearch, onPhotos }));
 };
 
-const home = { locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home', autoAddConfident: false } as SessionContext;
+const home = { locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'home' } as SessionContext;
 
 const originalOs = Platform.OS;
 afterEach(() => {
@@ -54,7 +54,7 @@ describe('scanner controls', () => {
   });
 
   it('summarizes the session context in one tappable chip and opens the sheet on tap', async () => {
-    const { onOpenSession } = await controls({ locationId: SHELF_1, status: 'wishlist', mediaHint: 'games', channel: 'home', autoAddConfident: false });
+    const { onOpenSession } = await controls({ locationId: SHELF_1, status: 'wishlist', mediaHint: 'games', channel: 'home' });
 
     const chip = await screen.findByLabelText('Session: Game room › Shelf 1, Wishlist, Games, Home. Change settings');
     await fireEvent.press(chip);
@@ -76,7 +76,7 @@ describe('scanner controls', () => {
   });
 
   it('shows decide later for an in-store scan', async () => {
-    await controls({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'in_store', autoAddConfident: false });
+    await controls({ locationId: null, status: 'owned', mediaHint: 'mixed', channel: 'in_store' });
 
     expect(await screen.findByLabelText('Session: Decide later, Owned, Mixed, In-store. Change settings')).toBeTruthy();
   });

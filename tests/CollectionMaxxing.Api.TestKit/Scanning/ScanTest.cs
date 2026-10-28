@@ -184,6 +184,10 @@ public abstract class ScanTest(ApiFixture api) : ApiTest(api)
     protected static Task<Guid> StartSessionWithoutAutoCommitAsync(HttpClient client, Guid libraryId) =>
         StartSessionAsync(client, libraryId, new { autoCommitTiers = Array.Empty<string>() });
 
+    /// <summary>Starts a session with T0 auto-add on, for tests about the auto-add mechanism itself (opt-in since #452).</summary>
+    protected static Task<Guid> StartSessionWithAutoCommitAsync(HttpClient client, Guid libraryId) =>
+        StartSessionAsync(client, libraryId, new { autoCommitTiers = new[] { "T0" } });
+
     protected static object Code(string value, int? copies = null) => new { value, symbology = "ean_13", copies };
 
     protected static Task<HttpResponseMessage> SubmitAsync(HttpClient client, Guid sessionId, string key, params object[] codes)

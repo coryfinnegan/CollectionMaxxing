@@ -29,7 +29,9 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing.md,
     padding: theme.spacing.md,
     borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.ink,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.surface,
   },
-  message: { flex: 1, color: theme.colors.ground },
+  message: { flex: 1 },
 }));
