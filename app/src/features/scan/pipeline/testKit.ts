@@ -9,7 +9,7 @@ import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { setPictureFiles } from '../pictureFiles';
 import { setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
-import type { ReadItem, SnapReading, Still } from '../recognition/types';
+import type { ReadItem, ReadOptions, SnapReading, Still } from '../recognition/types';
 import type { ArtDeps } from './artStep';
 import type { CoverVerifyDeps } from './coverVerify';
 import { restPipelineApi } from './pipelineApi';
@@ -40,6 +40,7 @@ export const readingOf = (items: ReadItem[], extra: Partial<SnapReading> = {}): 
 /** Returns the scripted readings one after another and remembers what it was asked to read. */
 export class FakeReader implements Reader {
   readonly stills: Still[] = [];
+  readonly options: (ReadOptions | undefined)[] = [];
   private readonly queue: SnapReading[] = [];
   /** Hold every read until this settles. */
   hold: Promise<void> | null = null;
@@ -49,8 +50,9 @@ export class FakeReader implements Reader {
     return this;
   }
 
-  async read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
+  async read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading> {
     this.stills.push(still);
+    this.options.push(options);
     const next = this.queue.shift() ?? readingOf([]);
     for (const item of next.items) onItem(item);
     if (this.hold) await this.hold;

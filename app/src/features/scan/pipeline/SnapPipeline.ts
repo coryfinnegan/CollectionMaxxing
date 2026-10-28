@@ -13,10 +13,11 @@ import { ApiError } from '@/lib/http';
 import { LOCAL_PREFIX, useCardsStore } from '../cards/cardsStore';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { discardPicture, discardPicturesOf, trackPicture } from '../pictureFiles';
+import type { ShotKind } from '../shotkind/shotKind';
 import { announce, flushDeps } from '../session/sessionApi';
 import { flushDiscardOutbox, getDiscardOutbox } from '../session/discards';
 import type { TrayStore } from '../tray/trayStore';
-import type { ReadItem, SnapReading, Still } from '../recognition/types';
+import type { ReadItem, ReadOptions, SnapReading, Still } from '../recognition/types';
 import { compareArtwork, type ArtDeps, type ItemPicture } from './artStep';
 import { coverCaptureOf, verifyCoverPhoto, type CoverVerifyDeps } from './coverVerify';
 import { identifyRequestOf, picItemOf } from './payload';
@@ -30,7 +31,7 @@ export interface CropMaker {
 }
 
 export interface Reader {
-  read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading>;
+  read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading>;
 }
 
 export interface PipelineDeps {
@@ -150,18 +151,23 @@ export class SnapPipeline {
     const still: Still = stored
       ? { uri: stored.stillUri, width: stored.width, height: stored.height }
       : { uri: event.photo.uri, width: event.photo.width, height: event.photo.height };
-    await this.read(snapId, still, options.recognition ?? this.deps.recognition);
+    await this.read(snapId, still, options.recognition ?? this.deps.recognition, event.shotKind);
     await this.flush();
   }
 
-  private async read(snapId: string, still: Still, recognition: Reader): Promise<void> {
+  private async read(snapId: string, still: Still, recognition: Reader, shotKind?: ShotKind): Promise<void> {
     const { store } = this.deps;
     reading.add(snapId);
     try {
-      const result = await recognition.read(still, (item) => {
-        store.getState().upsertItem(snapId, picItemOf(item));
-        this.makeCrop(snapId, still, item);
-      });
+      // The reader routes on what the framing said (#504): a cover shot reads as one item, a shelf shot splits.
+      const result = await recognition.read(
+        still,
+        (item) => {
+          store.getState().upsertItem(snapId, picItemOf(item));
+          this.makeCrop(snapId, still, item);
+        },
+        { shotKind },
+      );
       const items = result.items.map(picItemOf);
       store.getState().finishRead(snapId, {
         items,
@@ -225,7 +231,7 @@ export class SnapPipeline {
       }
       const still: Still = { uri: stored.stillUri, width: stored.width, height: stored.height };
       reading.add(snap.snapId);
-      void this.read(snap.snapId, still, this.deps.recognition).then(() => this.flush());
+      void this.read(snap.snapId, still, this.deps.recognition, snap.shotKind).then(() => this.flush());
     }
   }
 

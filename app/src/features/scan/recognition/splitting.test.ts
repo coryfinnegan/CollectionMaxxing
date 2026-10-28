@@ -42,6 +42,64 @@ describe('splitting Vision text into items', () => {
     expect(pieces[0].lines).toHaveLength(2);
   });
 
+  it('#504: nested rectangles on a cover read as one item, never one shard per quad', () => {
+    const lines = [
+      line('Author of How to Be a Domestic Goddess', 0.2, 0.08, 0.6, 0.06),
+      line('NIGELLA', 0.35, 0.2, 0.3, 0.08),
+      line('LAVSON', 0.36, 0.28, 0.28, 0.07),
+      line('NIGELLA BITES', 0.25, 0.35, 0.5, 0.1),
+      line('Potter', 0.3, 0.55, 0.4, 0.06),
+      line('ELOST LSOT', 0.4, 0.7, 0.2, 0.05),
+    ];
+    const rects = [
+      { x: 0.05, y: 0.05, width: 0.9, height: 0.9 },
+      { x: 0.1, y: 0.06, width: 0.8, height: 0.75 },
+      { x: 0.15, y: 0.3, width: 0.7, height: 0.4 },
+      { x: 0.2, y: 0.07, width: 0.6, height: 0.1 },
+      { x: 0.25, y: 0.5, width: 0.5, height: 0.15 },
+      { x: 0.3, y: 0.65, width: 0.4, height: 0.12 },
+    ];
+    const { pieces, unreadableCount } = splitIntoPieces(lines, rects, C.splitting, T);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0].lines).toHaveLength(6);
+    expect(unreadableCount).toBe(0);
+  });
+
+  it('merges only the rectangles that overlap: a nested pair plus a disjoint spine read as two items', () => {
+    const lines = [line('Left', 0.1, 0.2, 0.2, 0.1), line('Right', 0.65, 0.2, 0.2, 0.1)];
+    const rects = [
+      { x: 0.05, y: 0.05, width: 0.4, height: 0.8 },
+      { x: 0.1, y: 0.1, width: 0.3, height: 0.7 },
+      { x: 0.6, y: 0.05, width: 0.3, height: 0.8 },
+    ];
+    const { pieces } = splitIntoPieces(lines, rects, C.splitting, T);
+    expect(pieces.map((p) => p.lines.map((l) => l.text))).toEqual([['Left'], ['Right']]);
+  });
+
+  it('#504: tall lines scattered over several heights read as the whole frame, not spine columns', () => {
+    const lines = [
+      line('NIGELLA', 0.02, 0.05, 0.1, 0.25),
+      line('BITES', 0.18, 0.5, 0.1, 0.25),
+      line('Author of', 0.34, 0.1, 0.1, 0.25),
+      line('How to Be', 0.5, 0.55, 0.1, 0.25),
+      line('Potter', 0.66, 0.05, 0.1, 0.25),
+      line('ELOST', 0.82, 0.5, 0.1, 0.25),
+    ];
+    const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0].lines).toHaveLength(6);
+  });
+
+  it('keeps disjoint spine rectangles as one item each', () => {
+    const lines = [line('Dune', 0.07, 0.2, 0.1, 0.5), line('Emma', 0.42, 0.2, 0.1, 0.5)];
+    const rects = [
+      { x: 0.02, y: 0.05, width: 0.2, height: 0.8 },
+      { x: 0.37, y: 0.05, width: 0.2, height: 0.8 },
+    ];
+    const { pieces } = splitIntoPieces(lines, rects, C.splitting, T);
+    expect(pieces.map((p) => p.lines.map((l) => l.text))).toEqual([['Dune'], ['Emma']]);
+  });
+
   it('returns nothing for no text', () => {
     expect(splitIntoPieces([], [], C.splitting, T)).toEqual({ pieces: [], unreadableCount: 0 });
   });

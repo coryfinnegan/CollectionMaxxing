@@ -6,7 +6,7 @@ import { AppleModelEngine } from './AppleModelEngine';
 import { VisionPipelineEngine, type EngineDeps } from './VisionPipelineEngine';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
-import { type EngineName, type FellBackFrom, ModelUnusableError, type ReadItem, type SnapReading, type Still, type StillCropper } from './types';
+import { type EngineName, type FellBackFrom, ModelUnusableError, type ReadItem, type ReadOptions, type SnapReading, type Still, type StillCropper } from './types';
 
 export type AppleIntelligenceState = 'on' | ModelUnavailableReason | 'unknown';
 
@@ -53,25 +53,25 @@ export class EngineSelector {
     return { engine: 'vision_pipeline', appleIntelligence: caps ? (caps.reason ?? 'notSupported') : 'unknown' };
   }
 
-  async read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
+  async read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
     const started = this.now();
     const caps = await this.capabilities();
-    if (!caps || !usable(caps)) return this.fallBack(still, onItem, 'unavailable');
+    if (!caps || !usable(caps)) return this.fallBack(still, onItem, 'unavailable', options);
     try {
-      const reading = await this.apple.read(still, onItem);
-      return await this.maybeHalves(still, reading, started);
+      const reading = await this.apple.read(still, onItem, options);
+      return await this.maybeHalves(still, reading, started, options);
     } catch (error) {
-      return this.fallBack(still, onItem, error instanceof ModelUnusableError ? error.reason : 'unavailable');
+      return this.fallBack(still, onItem, error instanceof ModelUnusableError ? error.reason : 'unavailable', options);
     }
   }
 
-  private async fallBack(still: Still, onItem: (item: ReadItem) => void, reason: FellBackFrom): Promise<SnapReading> {
-    const reading = await this.pipeline.read(still, onItem);
+  private async fallBack(still: Still, onItem: (item: ReadItem) => void, reason: FellBackFrom, options: ReadOptions): Promise<SnapReading> {
+    const reading = await this.pipeline.read(still, onItem, options);
     return { ...reading, fellBackFrom: reason };
   }
 
   /** A shelf with more items than the config allows in one look is read as two halves cut where there is no text. */
-  private async maybeHalves(still: Still, whole: SnapReading, started: number): Promise<SnapReading> {
+  private async maybeHalves(still: Still, whole: SnapReading, started: number, options: ReadOptions): Promise<SnapReading> {
     const settings = this.deps.settings();
     const { cropper } = this.deps;
     if (!cropper || whole.items.length <= settings.splitting.halvesWhenItemsOver) return whole;
@@ -85,8 +85,8 @@ export class EngineSelector {
       const lines = await readLines(this.vision, still.uri, settings.local);
       const [leftRegion, rightRegion] = halfRegions(chooseCut(lines, settings.local), settings.local);
       const noop = () => {};
-      const left = await this.apple.read(await cut(leftRegion), noop);
-      const right = await this.apple.read(await cut(rightRegion), noop);
+      const left = await this.apple.read(await cut(leftRegion), noop, options);
+      const right = await this.apple.read(await cut(rightRegion), noop, options);
       const items = mergeHalves(
         { items: left.items, region: leftRegion },
         { items: right.items, region: rightRegion },

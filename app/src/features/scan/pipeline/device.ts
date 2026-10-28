@@ -71,7 +71,7 @@ export function createDevicePipelineDeps(libraryId: string): PipelineDeps {
     tray: getTrayStore(libraryId),
     store: getPipelineStore(),
     snaps: getSnapStore(),
-    recognition: { read: (still, onItem) => getRecognition().selector.read(still, onItem) },
+    recognition: { read: (still, onItem, options) => getRecognition().selector.read(still, onItem, options) },
     api: restPipelineApi,
     crops: deviceCrops,
     coverVerify: deviceCoverVerify,
