@@ -112,9 +112,13 @@ public static class ScoreCandidateArtwork
                     return ArtworkErrors.ReleaseNotAnOption;
                 }
 
-                // Only an open close call (or one already compared, being corrected) is scored; a barcode is never.
+                // Only an open close call (or one already compared, being corrected) is scored; a barcode is never,
+                // and neither is a shelf segment (spines are matched by text — #519). A bound cover re-stamps the shot,
+                // so "Snap cover" rows still compare.
                 var alreadyCompared = trace.Steps.Any(s => s.Provider == StepName);
-                if (candidate.Source == CandidateSource.Barcode || !(trace.NeedsArt || alreadyCompared))
+                if (candidate.Source == CandidateSource.Barcode
+                    || candidate.ShotKind == ShotKind.ShelfSegment
+                    || !(trace.NeedsArt || alreadyCompared))
                 {
                     return ArtworkErrors.NotNeeded;
                 }
