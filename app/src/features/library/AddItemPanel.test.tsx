@@ -1,10 +1,17 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { localDateString } from '@/lib/dates';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { server } from '@/mocks/server';
+import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
+import { setRecentStorage } from '@/features/search/recent';
 import { renderWithProviders } from '@/test/render';
 import { AddItemPanel } from './AddItemPanel';
+
+const ALIEN_VHS = 'f1000000-0000-4000-8000-000000000002';
+
+beforeEach(() => setRecentStorage(new MemoryKeyValueStore()));
+afterAll(() => setRecentStorage(undefined));
 
 // Every create carries an Idempotency-Key; the server replays the first payload a key
 // was sent with and rejects any other payload under the same key (422).
@@ -64,6 +71,34 @@ describe('AddItemPanel idempotency keys', () => {
 
     expect(sent).toHaveLength(1);
     expect(JSON.parse(sent[0]!.body).manual.format).toBe('unknown');
+  });
+});
+
+describe('AddItemPanel Search view adoption (#458)', () => {
+  it('adds the picked edition from the Search view', async () => {
+    const sent: string[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/items', async ({ request }) => {
+        sent.push(await request.text());
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+    const onClose = jest.fn();
+    await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
+    await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'alien');
+    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1980), VHS' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0]!)).toMatchObject({ releaseId: ALIEN_VHS, addedVia: 'search' });
+  });
+
+  it('opens the manual form from the no-matches state', async () => {
+    const onClose = jest.fn();
+    await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
+    await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'zzz no such title');
+    await fireEvent.press(await screen.findByLabelText('Add it yourself'));
+    expect(await screen.findByLabelText('Title')).toBeTruthy();
   });
 });
 

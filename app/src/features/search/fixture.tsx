@@ -1,11 +1,16 @@
-// E2E-only fixture (#457): the shared work and edition rows on fixed data, for
-// the visual spec. Reached as /search-rows, which production builds redirect
-// away from; nothing links here.
+// E2E-only fixtures (search epic): the shared work and edition rows on fixed
+// data (#457), and every Search view state (#458) for the visual spec.
+// Reached as /search-rows and /search?state=..., which production builds
+// redirect away from; nothing links here.
+import { useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import type { CatalogSearchResultDto, ReleaseDto } from '@/api/generated/models';
+import { ApiError } from '@/lib/http';
 import { Screen, Text } from '@/ui';
+import { getRecentStorage, saveRecentSearch } from './recent';
 import { EditionRow, WorkRow } from './rows';
+import { SearchView, type SearchAnswer } from './SearchView';
 
 /**
  * One inline cover per row (CSP allows data: images): a flat 2:3 tile with the
@@ -105,3 +110,45 @@ export function SearchRowsFixture() {
 const styles = StyleSheet.create((theme) => ({
   rows: { gap: theme.spacing.sm },
 }));
+
+export type SearchViewFixtureState = 'initial' | 'loading' | 'results' | 'none' | 'error';
+
+const pinnedAnswer = (overrides: Partial<SearchAnswer> = {}): SearchAnswer => ({
+  items: [],
+  isLoading: false,
+  isError: false,
+  error: null,
+  refetch: nop,
+  ...overrides,
+});
+
+export function SearchViewFixture({ state }: { state: SearchViewFixtureState }) {
+  // The initial state opens on two past searches. Seeded in the parent's
+  // initializer so the store is full before the view first reads it (saves
+  // dedupe, so a second render seeds nothing new).
+  useState(() => {
+    if (state === 'initial') {
+      const storage = getRecentStorage();
+      saveRecentSearch(storage, 'dune');
+      saveRecentSearch(storage, 'alien');
+    }
+  });
+  if (state === 'initial') {
+    return (
+      <Screen>
+        <SearchView onPick={nop} onManual={nop} />
+      </Screen>
+    );
+  }
+  const answers: Record<Exclude<SearchViewFixtureState, 'initial'>, SearchAnswer> = {
+    loading: pinnedAnswer({ isLoading: true }),
+    results: pinnedAnswer({ items: [{ ...alien, ownedReleaseIds: [alien.releases[1]!.id] }, arrival, dune] }),
+    none: pinnedAnswer(),
+    error: pinnedAnswer({ isError: true, error: new ApiError(500, { title: 'Catalog unavailable.', status: 500 }) }),
+  };
+  return (
+    <Screen>
+      <SearchView onPick={nop} onManual={nop} initialQuery="alien" search={answers[state]} />
+    </Screen>
+  );
+}
