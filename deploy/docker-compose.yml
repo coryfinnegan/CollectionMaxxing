@@ -49,6 +49,9 @@ services:
       - "127.0.0.1:${CM_API_PORT:-5480}:5480"
     environment:
       ASPNETCORE_HTTP_PORTS: "5480"
+      # #491: the commit this build came from, reported by GET /health/version so a merge's delivery can be
+      # verified against the running server. The deployer sets CM_TAG to the commit it deploys on every call.
+      CM_BUILD_SHA: ${CM_TAG}
       ConnectionStrings__collectionmaxxing: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       Catalog__CoversRoot: /data/files/covers

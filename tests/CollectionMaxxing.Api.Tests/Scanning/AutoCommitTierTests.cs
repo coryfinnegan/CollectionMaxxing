@@ -3,6 +3,7 @@ using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.TestSupport;
+using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Api.Tests.Scanning;
 
@@ -148,6 +149,38 @@ public class AutoCommitTierTests : ScanTest
         var items = await ScanReaders.ItemsAsync(Db, library.Id);
         items.Count.ShouldBe(1);
         items[0].ReleaseId.ShouldBe(releaseId);
+    }
+
+    [Fact]
+    public async Task Legacy_session_with_T0_tiers_waits_in_review_with_nothing_added()
+    {
+        // Issue #489: the owner's continuing session predates the #452 cutover and kept the old T0 default, so his
+        // scans silently kept auto-adding after #469. Pre-cutover sessions follow the no-auto-add rule now, whatever
+        // their stored tiers say; the match still resolves at scan time and waits for the Review commit.
+        var library = await CreateLibraryAsync();
+        var code = ScanData.Upc(48901);
+        var releaseId = await CatalogAsync("Legacy game", code);
+        var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, new { autoCommitTiers = new[] { "T0" } });
+        await using (var context = Db.CreateContext())
+        {
+            var session = await context.ScanSessions.IgnoreQueryFilters().SingleAsync(s => s.Id == sessionId);
+            context.Entry(session).Property(s => s.CreatedAt).CurrentValue =
+                new DateTimeOffset(2026, 10, 27, 19, 32, 35, TimeSpan.Zero); // the owner's session hour, pre-cutover
+            await context.SaveChangesAsync();
+        }
+
+        var candidate = (await ScanAsync(editor, sessionId, code))[0];
+
+        Resolution(candidate).ShouldBe("matched");
+        Tier(candidate).ShouldBe("T0");
+        Decision(candidate).ShouldBe("accepted");
+        CreatedItemId(candidate).ShouldBeNull();
+        candidate.GetProperty("release").GetProperty("id").GetGuid().ShouldBe(releaseId);
+        (await CountItemsAsync(library.Id)).ShouldBe(0);
+        var counters = (await GetSessionAsync(editor, sessionId)).GetProperty("counters");
+        counters.GetProperty("added").GetInt32().ShouldBe(0);
+        counters.GetProperty("toReview").GetInt32().ShouldBe(1);
     }
 
     [Fact]

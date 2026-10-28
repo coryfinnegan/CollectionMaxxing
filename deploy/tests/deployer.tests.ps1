@@ -501,3 +501,53 @@ Test-Case 'deployer: without a portable gh the PATH is left alone' {
     }
     finally { $env:PATH = $saved; Remove-TestRoot $root }
 }
+
+# ---- #491: the running server proves its build -------------------------------------------------------------------
+
+Test-Case 'deployer #491: an image whose first-listed digest is unattested still deploys when another digest verifies' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ ExtraDigests = @{ api = @(('e1' * 32)) } }
+    Assert-Equal 'deployed' $r.Result.Outcome
+    Assert-Equal $script:Sha2 $r.State.current.sha
+    Assert-Equal "sha256:$($script:Digest.api)" $r.State.current.digests.api 'the recorded digest is the attested one'
+    Assert-Equal "sha256:$($script:Digest.migrate)" $r.State.current.digests.migrate
+    Assert-Equal "sha256:$($script:Digest.backup)" $r.State.current.digests.backup
+    Assert-True ((Get-Calls 'gh' '*attestation verify*').Count -gt 3) 'the unattested digest was tried before the attested one'
+}
+
+Test-Case 'deployer #491: an image with no attested digest at all still deploys nothing' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ ExtraDigests = @{ api = @(('e1' * 32)) }; BadAttest = @('api') }
+    Assert-Equal 'refused' $r.Result.Outcome
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+    Assert-Equal $script:Sha1 $r.State.current.sha
+}
+
+Test-Case 'deployer #491: when the main tag moves while checking, the stale commit is not deployed' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ MainMovesTo = ('c3' * 20) }
+    Assert-Equal 'refused' $r.Result.Outcome
+    Assert-Match $r.Log 'the main tag moved while checking'
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+    Assert-Equal $script:Sha1 $r.State.current.sha
+}
+
+Test-Case 'deployer #491: when the api that started reports an older build, the deploy rolls back' {
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ RunningRevision = $script:Sha1 }
+    Assert-Equal 'rolled-back' $r.Result.Outcome
+    Assert-Equal 1 $r.Result.ExitCode
+    Assert-Match $r.Log 'reports build'
+    Assert-Match $r.Result.Reason 'reports build'
+    $ups = Get-Calls 'docker' '*up -d*'
+    Assert-Equal 2 $ups.Count
+    Assert-Equal $script:Sha1 $ups[1].Env['CM_TAG'] 'rollback pins the previous tag'
+    Assert-Equal $script:Sha1 $r.State.current.sha
+    Assert-Equal $script:Sha2 $r.State.failedSha
+}
+
+Test-Case 'deployer #491: when the running api version cannot be read, the deploy fails closed' {
+    foreach ($machine in @(@{ ApiContainerMissing = $true }, @{ ApiInspectFails = $true })) {
+        $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine $machine
+        Assert-Equal 'rolled-back' $r.Result.Outcome
+        Assert-Equal $script:Sha1 $r.State.current.sha
+        Assert-Equal $script:Sha2 $r.State.failedSha
+    }
+}

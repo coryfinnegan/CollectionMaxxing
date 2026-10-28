@@ -82,6 +82,7 @@ public static class AuthorizationMatrix
     [
         "/health/live",
         "/health/ready",
+        "/health/version",
         "/openapi/{documentName}.json",
 
         // Sign-in (Auth0), recovery, sign-out and the invite page (AUTH-1 #228, ONB-1 #249). The Auth0 callback, /signin-oidc, is the
@@ -100,6 +101,7 @@ public static class AuthorizationMatrix
     [
         "/health/live",
         "/health/ready",
+        "/health/version",
         "/openapi/{documentName}.json",
     ];
 

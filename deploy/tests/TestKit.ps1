@@ -99,6 +99,13 @@ function New-FakeMachine {
         Sha, Created            the commit and build time of the "main" image
         Up                      tag the stack currently runs
         BadAttest               image names whose `gh attestation verify` fails (exit 1)
+        ExtraDigests            image name -> extra RepoDigests (hex) listed BEFORE the attested one (#491: the
+                                :main index digest sorts before the :sha manifest digest); `gh attestation verify`
+                                fails for these digests and succeeds for the attested one
+        MainMovesTo             revision a second `:main` pull resolves to (the tag moved mid-run)
+        ApiContainerMissing     `compose ps -q api` lists no container
+        RunningRevision         revision `docker inspect` of the running api reports (default: the tag it runs)
+        ApiInspectFails         make that `docker inspect` fail
         OmitCertDigest          certificate has no sourceRepositoryDigest field
         AttestRef               branch the certificate claims (default refs/heads/main)
         MigrateExit             exit code of `compose run --rm migrate`
@@ -124,6 +131,8 @@ function New-FakeMachine {
         MigrateExit = 0; UnhealthyTags = @(); BrokenServices = @{}; MissingServices = @{}; PsFails = $false
         ComposeConfig = (New-GoodComposeConfig); PullFails = $false
         Digest = $script:Digest
+        ExtraDigests = @{}; MainMovesTo = $null; MainPulls = 0
+        ApiContainerMissing = $false; RunningRevision = ''; ApiInspectFails = $false
     }
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
     $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
@@ -146,19 +155,30 @@ function New-FakeMachine {
         $line = $Arguments -join ' '
         switch ($Command) {
             'docker' {
-                if ($line -match '^pull') { if ($m.PullFails) { return & $fail } return & $ok }
+                if ($line -match '^pull') { if ($line -match ':main(\s|$)') { $m.MainPulls++ }; if ($m.PullFails) { return & $fail } return & $ok }
                 if ($line -match '^image inspect (\S+)') {
                     $ref = $Matches[1]
                     $repo = $ref.Substring(0, $ref.LastIndexOf(':'))
                     $name = ($repo -split 'collectionmaxxing-')[-1]
+                    $digests = @()
+                    if ($m.ExtraDigests.ContainsKey($name)) { $digests += @($m.ExtraDigests[$name] | ForEach-Object { "$repo@sha256:$_" }) }
+                    $digests += "$repo@sha256:$($m.Digest[$name])"
+                    $rev = $m.Sha
+                    if ($ref -like '*:main' -and $m.MainMovesTo -and $m.MainPulls -ge 2) { $rev = $m.MainMovesTo }
                     $json = [ordered]@{
-                        RepoDigests = @("$repo@sha256:$($m.Digest[$name])")
+                        RepoDigests = $digests
                         Created     = $m.Created
-                        Config      = @{ Labels = @{ 'org.opencontainers.image.revision' = $m.Sha } }
+                        Config      = @{ Labels = @{ 'org.opencontainers.image.revision' = $rev } }
                     } | ConvertTo-Json -Depth 6 -Compress
                     return & $ok @($json)
                 }
-                if ($line -match '^compose .* ps -q') { return & $ok @($m.RunningServices) }
+                if ($line -match '^inspect ') {
+                    if ($m.ApiInspectFails) { return & $fail 1 }
+                    $running = if ($m.RunningRevision) { $m.RunningRevision } elseif ("$($m.Up)" -match '^[0-9a-f]{40}$') { $m.Up } else { $m.Sha }
+                    return & $ok @($running)
+                }
+                if ($line -match '^compose .* ps -q --status') { return & $ok @($m.RunningServices) }
+                if ($line -match '^compose .* ps -q \w+') { if ($m.ApiContainerMissing) { return & $ok @() } return & $ok @('fake-api-container') }
                 if ($line -match '^compose .* ps --format json') {
                     if ($m.PsFails) { return & $fail 1 }
                     $broken = @(); if ($m.BrokenServices.ContainsKey($m.Up)) { $broken = @($m.BrokenServices[$m.Up]) }
@@ -183,8 +203,9 @@ function New-FakeMachine {
                 return & $ok
             }
             'gh' {
-                if ($line -match '^attestation verify oci://\S+collectionmaxxing-(\w+)@') {
+                if ($line -match '^attestation verify oci://\S+collectionmaxxing-(\w+)@sha256:([0-9a-f]+)') {
                     if ($m.BadAttest -contains $Matches[1]) { return & $fail }
+                    if (@($m.ExtraDigests[$Matches[1]]) -contains $Matches[2]) { return & $fail }
                     $cert = @{ sourceRepositoryRef = $m.AttestRef; sourceRepositoryDigest = $m.Sha; sourceRepositoryURI = 'https://github.com/coryfinnegan/CollectionMaxxing' }
                     if ($m.OmitCertDigest) { $cert.Remove('sourceRepositoryDigest') }
                     return & $ok @((@(@{ verificationResult = @{ signature = @{ certificate = $cert } } }) | ConvertTo-Json -Depth 8 -Compress))
