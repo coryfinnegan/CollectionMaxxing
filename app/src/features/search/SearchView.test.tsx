@@ -6,6 +6,7 @@ import { delay, HttpResponse, http } from 'msw';
 import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
 import { seed } from '@/mocks/catalog';
 import { server } from '@/mocks/server';
+import type { OwnedCopy } from '@/features/offline/ownedIndex';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { renderWithProviders } from '@/test/render';
 import { getRecentStorage, saveRecentSearch, setRecentStorage } from './recent';
@@ -121,6 +122,7 @@ describe('results', () => {
         expect(param(url, 'kind')).toBeNull();
         expect(param(url, 'platform')).toBeNull();
         expect(param(url, 'year')).toBeNull();
+        expect(param(url, 'scope')).toBeNull();
       }
     } finally {
       stop();
@@ -328,6 +330,99 @@ describe('dead ends', () => {
     } finally {
       stop();
     }
+  });
+});
+
+describe('library scope', () => {
+  it('searches the library first when scoped', async () => {
+    const { asked, stop } = listenSearches();
+    try {
+      await renderSearch({ scope: 'library' });
+      await typeQuery('alien');
+      expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+      expect(asked.length).toBeGreaterThan(0);
+      for (const url of asked) expect(param(url, 'scope')).toBe('library');
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe('offline answers', () => {
+  const ownedCopy = (overrides: Partial<OwnedCopy> = {}): OwnedCopy => ({
+    itemId: 'item-alien',
+    releaseId: ALIEN_DVD,
+    workId: 'work-alien',
+    title: 'Alien',
+    format: 'dvd',
+    platform: null,
+    locationPath: 'Living room › Shelf B',
+    ...overrides,
+  });
+
+  const offlineSource = (copies: OwnedCopy[]) => ({
+    searchTitles: jest.fn((_query: string) => copies),
+    staleLine: 'Based on your last sync, 2 h ago',
+  });
+
+  const failSearchOnce = () =>
+    server.use(
+      http.get(
+        '*/api/v1/catalog/search',
+        () => HttpResponse.json({ title: 'Catalog unavailable.', status: 500 }, { status: 500, headers: { 'Content-Type': 'application/problem+json' } }),
+        { once: true },
+      ),
+    );
+
+  it('answers from the owned cache when offline', async () => {
+    onlineManager.setOnline(false);
+    const { asked, stop } = listenSearches();
+    try {
+      const source = offlineSource([ownedCopy(), ownedCopy({ itemId: 'item-aliens', title: 'Aliens', format: 'bluray' })]);
+      await renderSearch({ offline: source });
+      await typeQuery('alien');
+      expect(await screen.findByText('Based on your last sync, 2 h ago')).toBeTruthy();
+      expect(screen.getByText('DVD · Living room › Shelf B')).toBeTruthy();
+      expect(screen.getByText('Blu-ray · Living room › Shelf B')).toBeTruthy();
+      expect(screen.queryByText("You're offline")).toBeNull();
+      expect(source.searchTitles).toHaveBeenCalledWith('alien');
+      expect(asked).toHaveLength(0);
+    } finally {
+      stop();
+    }
+  });
+
+  it('shows no matches without a manual path when the owned cache is empty', async () => {
+    onlineManager.setOnline(false);
+    await renderSearch({ offline: offlineSource([]), onManual: undefined });
+    await typeQuery('zzz no such title');
+    expect(await screen.findByText('No matches')).toBeTruthy();
+    expect(screen.getByText('Based on your last sync, 2 h ago')).toBeTruthy();
+    expect(screen.queryByLabelText('Add it yourself')).toBeNull();
+  });
+
+  it('falls back to the owned cache when the catalog fails', async () => {
+    failSearchOnce();
+    await renderSearch({ offline: offlineSource([ownedCopy()]) });
+    await typeQuery('alien');
+    expect(await screen.findByText("Couldn't search the catalog. Check your connection.")).toBeTruthy();
+    expect(screen.getByText('DVD · Living room › Shelf B')).toBeTruthy();
+  });
+
+  it('offers a retry when the catalog fails and the owned cache is empty', async () => {
+    failSearchOnce();
+    await renderSearch({ offline: offlineSource([]) });
+    await typeQuery('alien');
+    expect(await screen.findByText("Couldn't search the catalog")).toBeTruthy();
+    await fireEvent.press(await screen.findByLabelText('Try again'));
+    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+  });
+
+  it('shows no matches without an action when the host has no manual path', async () => {
+    await renderSearch({ onManual: undefined });
+    await typeQuery('zzz no such title');
+    expect(await screen.findByText('No matches')).toBeTruthy();
+    expect(screen.queryByLabelText('Add it yourself')).toBeNull();
   });
 });
 

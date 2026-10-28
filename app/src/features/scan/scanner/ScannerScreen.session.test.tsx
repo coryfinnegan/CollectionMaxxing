@@ -85,9 +85,9 @@ describe('scanner session context', () => {
     await scanner();
 
     await press('Search the catalog');
-    fireEvent.changeText(await screen.findByLabelText('Type to search'), 'alien');
+    fireEvent.changeText(await screen.findByPlaceholderText('Title, author or barcode'), 'alien');
 
-    expect(await screen.findByText('DVD · 1979')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
   });
 
   it('hides Close when embedded in the Scan tab', async () => {

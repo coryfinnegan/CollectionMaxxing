@@ -165,8 +165,9 @@ test.describe('visual', () => {
   });
 
   // The Search view states (#458): the initial view with its recent searches,
-  // the loading, results, no-matches and error states, and a work's editions
-  // one tap down from the results.
+  // the loading, results, no-matches, error and offline states, and a work's
+  // editions one tap down from the results. The offline state is the
+  // scanner's owned-cache answers with the stale line (#459).
   test.describe('search view seeded', () => {
     test.use({ viewport: { width: 1280, height: 1500 } });
 
@@ -211,6 +212,14 @@ test.describe('visual', () => {
       await expectShot(page, 'search-error');
     });
 
+    test('search offline', async ({ page, open }) => {
+      await open('/search?state=offline');
+      await expect(page.getByText('Based on your last sync, 2 h ago')).toBeVisible();
+      await expect(page.getByText('DVD · Living room › Shelf B')).toBeVisible();
+      await expect(page.getByText('Blu-ray · Living room › Shelf B')).toBeVisible();
+      await expectShot(page, 'search-offline');
+    });
+
     test.describe('dark', () => {
       test.use({ colorScheme: 'dark' });
 
@@ -248,6 +257,13 @@ test.describe('visual', () => {
         await open('/search?state=error');
         await expect(page.getByRole('heading', { name: "Couldn't search the catalog" })).toBeVisible();
         await expectShot(page, 'search-error-dark');
+      });
+
+      test('search offline dark', async ({ page, open }) => {
+        await open('/search?state=offline');
+        await expect(page.getByText('Based on your last sync, 2 h ago')).toBeVisible();
+        await expect(page.getByText('DVD · Living room › Shelf B')).toBeVisible();
+        await expectShot(page, 'search-offline-dark');
       });
     });
   });

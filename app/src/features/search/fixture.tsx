@@ -2,10 +2,12 @@
 // data (#457), and every Search view state (#458) for the visual spec.
 // Reached as /search-rows and /search?state=..., which production builds
 // redirect away from; nothing links here.
-import { useState } from 'react';
+import { onlineManager } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import type { CatalogSearchResultDto, ReleaseDto } from '@/api/generated/models';
+import type { OwnedCopy } from '@/features/offline/ownedIndex';
 import { ApiError } from '@/lib/http';
 import { Screen, Text } from '@/ui';
 import { getRecentStorage, saveRecentSearch } from './recent';
@@ -111,7 +113,7 @@ const styles = StyleSheet.create((theme) => ({
   rows: { gap: theme.spacing.sm },
 }));
 
-export type SearchViewFixtureState = 'initial' | 'loading' | 'results' | 'none' | 'error';
+export type SearchViewFixtureState = 'initial' | 'loading' | 'results' | 'none' | 'error' | 'offline';
 
 const pinnedAnswer = (overrides: Partial<SearchAnswer> = {}): SearchAnswer => ({
   items: [],
@@ -121,6 +123,13 @@ const pinnedAnswer = (overrides: Partial<SearchAnswer> = {}): SearchAnswer => ({
   refetch: nop,
   ...overrides,
 });
+
+// The scanner's offline answers (#459): two owned copies and the stale line.
+const offlineCopies: OwnedCopy[] = [
+  { itemId: 'item-alien', releaseId: 'e2000000-0000-4000-8000-000000000001', workId: ALIEN, title: 'Alien', format: 'dvd', platform: null, locationPath: 'Living room › Shelf B' },
+  { itemId: 'item-aliens', releaseId: null, workId: null, title: 'Aliens', format: 'bluray', platform: null, locationPath: 'Living room › Shelf B' },
+];
+const offlineSource = { searchTitles: () => offlineCopies, staleLine: 'Based on your last sync, 2 h ago' };
 
 export function SearchViewFixture({ state }: { state: SearchViewFixtureState }) {
   // The initial state opens on two past searches. Seeded in the parent's
@@ -132,7 +141,15 @@ export function SearchViewFixture({ state }: { state: SearchViewFixtureState }) 
       saveRecentSearch(storage, 'dune');
       saveRecentSearch(storage, 'alien');
     }
+    if (state === 'offline') onlineManager.setOnline(false);
   });
+  // The radio goes off for the offline state and comes back when it leaves,
+  // so a state change (not just a fresh mount) lands offline too.
+  useEffect(() => {
+    if (state !== 'offline') return;
+    onlineManager.setOnline(false);
+    return () => onlineManager.setOnline(true);
+  }, [state]);
   if (state === 'initial') {
     return (
       <Screen>
@@ -140,7 +157,14 @@ export function SearchViewFixture({ state }: { state: SearchViewFixtureState }) 
       </Screen>
     );
   }
-  const answers: Record<Exclude<SearchViewFixtureState, 'initial'>, SearchAnswer> = {
+  if (state === 'offline') {
+    return (
+      <Screen>
+        <SearchView onPick={nop} initialQuery="alien" scope="library" offline={offlineSource} />
+      </Screen>
+    );
+  }
+  const answers: Record<Exclude<SearchViewFixtureState, 'initial' | 'offline'>, SearchAnswer> = {
     loading: pinnedAnswer({ isLoading: true }),
     results: pinnedAnswer({ items: [{ ...alien, ownedReleaseIds: [alien.releases[1]!.id] }, arrival, dune] }),
     none: pinnedAnswer(),
