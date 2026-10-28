@@ -34,8 +34,12 @@ public sealed class BackfillCovers(
     /// <summary>Releases per save; each batch downloads its covers side by side under the cover budget.</summary>
     internal const int BatchSize = 10;
 
-    /// <summary>How long a "no provider names a cover" answer stands before the providers are asked again.</summary>
-    internal static readonly TimeSpan RecheckAfter = TimeSpan.FromDays(30);
+    /// <summary>
+    /// How long a "no provider names a cover" answer stands before the providers are asked again. One night, not
+    /// thirty days (#490): the verdict only means no <em>consulted</em> provider named one, and provider availability
+    /// changes (a key lands, a catalog gains the cover), so every no-cover release is re-verified by the next run.
+    /// </summary>
+    internal static readonly TimeSpan RecheckAfter = TimeSpan.FromDays(1);
 
     public async Task HandleAsync(Job payload, CancellationToken cancellationToken)
     {

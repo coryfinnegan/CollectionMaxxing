@@ -68,6 +68,15 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
             .Where(p => (providerNames is null || providerNames.Contains(p.Name, StringComparer.OrdinalIgnoreCase)) && p.Supports(WorkKind.Book))
             .ToList();
 
+        // A scan that names a provider nobody enabled would otherwise race single-source without a trace (#490):
+        // say which requested providers were never consulted. Names only; the code never goes to the log.
+        var missing = providerNames?.Where(name => asked.All(p => !p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (missing is { Count: > 0 } && logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation(
+                "Book lookup did not consult {Missing} (no enabled provider by that name).", string.Join(", ", missing));
+        }
+
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (timeout is { } limit)
         {
