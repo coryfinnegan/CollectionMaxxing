@@ -1,4 +1,6 @@
 using CollectionMaxxing.Application.Accounts;
+using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Scanning.Quota;
@@ -33,6 +35,7 @@ public sealed class ResolvePendingCandidate(
     ISessionLock sessionLock,
     BarcodeResolver external,
     CandidateResolver resolver,
+    CoverReResolver reResolve,
     AutoCommit autoCommit,
     ReleaseCovers releaseCovers,
     ScanningOptions options,
@@ -69,7 +72,27 @@ public sealed class ResolvePendingCandidate(
         BarcodeResolution answer;
         if (local.TryGetValue(identifier.Value, out var releaseIds))
         {
-            answer = CandidateResolver.LocalResolution(releaseIds);
+            // A lone coverless match is re-asked before it is answered, as on the request path (#506). No fail-fast:
+            // a job has the long budget, like the backfill.
+            IReadOnlyList<BookLookupStep> steps = [];
+            if (releaseIds is [var only]
+                && await db.Releases.FindAsync([only], cancellationToken) is { } release
+                && release.CoverAssetId is null
+                && CoverOutcome.CoverUrlOf(release.ProviderPayloadsJson) is null)
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(options.JobResolveBudget);
+                try
+                {
+                    steps = await reResolve.ReResolveAsync(release, clock.GetUtcNow(), timeout.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    steps = []; // the budget ran out: today's local answer stands
+                }
+            }
+
+            answer = CandidateResolver.LocalResolution(releaseIds, steps);
         }
         else
         {

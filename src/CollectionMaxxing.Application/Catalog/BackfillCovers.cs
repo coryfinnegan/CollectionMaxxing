@@ -1,9 +1,6 @@
-using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Scanning;
-using CollectionMaxxing.Domain.Catalog;
-using CollectionMaxxing.Domain.Identifiers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -19,8 +16,7 @@ namespace CollectionMaxxing.Application.Catalog;
 /// Safe to repeat: a fetched release is no longer a candidate, and a stored address is reused, never downloaded twice.
 /// </summary>
 public sealed class BackfillCovers(
-    IAppDbContext db, ReleaseCovers covers, BookLookup books, CatalogOptions options, ScanningOptions scanning,
-    TimeProvider clock, ILogger<BackfillCovers> logger)
+    IAppDbContext db, ReleaseCovers covers, CoverReResolver reResolve, TimeProvider clock, ILogger<BackfillCovers> logger)
     : IJobHandler<BackfillCovers.Job>
 {
     public const string JobType = "catalog.backfill_covers";
@@ -86,7 +82,7 @@ public sealed class BackfillCovers(
         var releases = await db.Releases.Where(r => ids.Contains(r.Id)).ToListAsync(cancellationToken);
         foreach (var release in releases.Where(r => CoverOutcome.CoverUrlOf(r.ProviderPayloadsJson) is null))
         {
-            await ReResolveAsync(release, now, cancellationToken);
+            await reResolve.ReResolveAsync(release, now, cancellationToken);
         }
 
         var written = await covers.FetchMissingAsync(ids, cancellationToken);
@@ -103,67 +99,4 @@ public sealed class BackfillCovers(
         return releases.Count(r => r.CoverAssetId is not null);
     }
 
-    /// <summary>
-    /// Asks the book providers again for a cover address, through the same provider list a scan uses. Only books by ISBN
-    /// are re-asked (a product lookup would spend the daily allowance); anything else is marked as having no cover.
-    /// Stale kept answers are forgotten first, so the providers are really asked; what they say is kept for good, as in
-    /// a scan.
-    /// </summary>
-    private async Task ReResolveAsync(Release release, DateTimeOffset now, CancellationToken cancellationToken)
-    {
-        var isbn = await IsbnAsync(release.Id, cancellationToken);
-        if (isbn is null)
-        {
-            release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null)
-                ?? release.ProviderPayloadsJson;
-            release.RefreshedAt = now;
-            return;
-        }
-
-        await ForgetStaleAnswersAsync(isbn.Value, cancellationToken);
-        var book = await books.LookupAsync(isbn, scanning.BookProviders, options.ProviderTimeout, cancellationToken);
-        if (book.Release is { CoverUrl: { } url })
-        {
-            release.ProviderPayloadsJson =
-                CoverOutcome.WithCover(release.ProviderPayloadsJson, book.Release.Provider, book.Release.ExternalId, url);
-            return;
-        }
-
-        // Asked and answered: no provider names a cover. A provider failure answers nothing and is asked again next night.
-        release.ProviderPayloadsJson = CoverOutcome.WithOutcome(release.ProviderPayloadsJson, CoverOutcome.NoCover, null)
-            ?? release.ProviderPayloadsJson;
-        if (!book.Failed)
-        {
-            release.RefreshedAt = now;
-        }
-    }
-
-    private async Task<Identifier?> IsbnAsync(Guid releaseId, CancellationToken cancellationToken)
-    {
-        var values = await db.ReleaseIdentifiers.AsNoTracking()
-            .Where(i => i.ReleaseId == releaseId)
-            .Select(i => i.Value)
-            .ToListAsync(cancellationToken);
-        foreach (var value in values)
-        {
-            if (Identifier.TryParse(value, out var id) && id.Type == IdentifierType.Isbn13)
-            {
-                return id;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Forgets the kept ISBN answers the re-ask could otherwise serve: the permanent copy and the book providers'
-    /// cached ISBN lookups. Only the permanent copy keys rows by the bare ISBN; the providers prefix theirs. The
-    /// product lookup is never asked, so its rows need no clearing.
-    /// </summary>
-    private async Task ForgetStaleAnswersAsync(string isbn13, CancellationToken cancellationToken)
-    {
-        await db.ProviderCache
-            .Where(c => c.Key == isbn13 || c.Key == $"lookup:isbn:{isbn13}")
-            .ExecuteDeleteAsync(cancellationToken);
-    }
 }

@@ -1,3 +1,4 @@
+using System.Net;
 using CollectionMaxxing.Api.Tests.Catalog;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog;
@@ -129,6 +130,97 @@ public class ScanBarcodeCoverHealingTests : ScanTest
 
             var detail = await ReadJsonAsync(await client.GetAsync($"{ItemsUrl(library.Id)}/{itemId}"));
             detail.GetProperty("release").GetProperty("coverUrl").GetString().ShouldBe(expected);
+        }
+    }
+
+    // Issue #506: the rescan between key-landing and the next backfill must heal by itself. The release below is
+    // re-scanned minutes after its no-cover verdict (no clock advance, no backfill): the sync path re-asks the book
+    // providers instead of serving the permanent coverless ISBN cache, and the Review commit fetches the named cover.
+    [Fact]
+    public async Task A_rescan_heals_the_cover_once_the_missing_catalog_comes_online_without_waiting_for_the_backfill()
+    {
+        var library = await CreateLibraryAsync();
+        Books.LookupResult = Book("openlibrary", "OL27185406M", coverUrl: null);
+        using var client = As(library, LibraryRole.Editor);
+        var firstSession = await StartSessionWithAutoCommitAsync(client, library.Id);
+
+        // Tonight's path: a T0 auto-add while Google Books is off. Added without a cover, and says why.
+        var first = (await ScanAsync(client, firstSession, ReproIsbn))[0];
+        Resolution(first).ShouldBe("matched");
+        Guid releaseId;
+        await using (var context = Db.CreateContext())
+        {
+            var release = await ReleaseOfAsync(context, ReproIsbn);
+            release.CoverAssetId.ShouldBeNull();
+            CoverStatusOf(release.ProviderPayloadsJson).ShouldBe("no-cover");
+            releaseId = release.Id;
+        }
+
+        // The key lands. No night passes and no backfill runs: the rescan itself re-asks the providers.
+        _google.Enabled = true;
+        _google.LookupResult = Book("googlebooks", "YcDgoQEACAAJ", GoogleCoverUrl);
+        var rescanSession = await StartSessionWithoutAutoCommitAsync(client, library.Id);
+        var rescan = (await ScanAsync(client, rescanSession, ReproIsbn))[0];
+        Resolution(rescan).ShouldBe("matched");
+
+        // The rescan healed the release's cover address (nothing else could have named Google's URL).
+        await using (var context = Db.CreateContext())
+        {
+            var healed = await ReleaseByIdAsync(context, releaseId);
+            healed.ProviderPayloadsJson.ShouldNotBeNull();
+            healed.ProviderPayloadsJson.ShouldContain("books.google.com");
+        }
+
+        // Committing the re-add fetches it, like the owner's E2E.
+        (await DecideAsync(client, rescanSession, Id(rescan), new { decision = "accepted" })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var commit = await CommitAsync(client, rescanSession);
+        commit.StatusCode.ShouldBe(HttpStatusCode.OK, await commit.Content.ReadAsStringAsync());
+
+        _covers.Asked.ShouldBe([GoogleCoverUrl]);
+        await using (var context = Db.CreateContext())
+        {
+            var fetched = await ReleaseByIdAsync(context, releaseId);
+            fetched.CoverAssetId.ShouldNotBeNull();
+            CoverStatusOf(fetched.ProviderPayloadsJson).ShouldBe("fetched");
+        }
+    }
+
+    // Issue #506, before the key lands: the rescan re-asks the providers (visible work, not a silent cache hit) and the
+    // scan still succeeds coverless — the re-ask never turns today's match into a pending retry.
+    [Fact]
+    public async Task A_rescan_before_the_key_lands_asks_the_providers_again_and_stays_coverless()
+    {
+        var library = await CreateLibraryAsync();
+        Books.LookupResult = Book("openlibrary", "OL27185406M", coverUrl: null);
+        var providerCalls = 0;
+        Books.Behaviour = _ =>
+        {
+            providerCalls++;
+            return Task.CompletedTask;
+        };
+        _google.Behaviour = _ =>
+        {
+            providerCalls++;
+            return Task.CompletedTask;
+        };
+        using var client = As(library, LibraryRole.Editor);
+        var firstSession = await StartSessionWithAutoCommitAsync(client, library.Id);
+
+        var first = (await ScanAsync(client, firstSession, ReproIsbn))[0];
+        Resolution(first).ShouldBe("matched");
+        var callsAfterFirst = providerCalls;
+        callsAfterFirst.ShouldBeGreaterThan(0);
+
+        var rescanSession = await StartSessionWithoutAutoCommitAsync(client, library.Id);
+        var rescan = (await ScanAsync(client, rescanSession, ReproIsbn))[0];
+
+        Resolution(rescan).ShouldBe("matched");
+        providerCalls.ShouldBeGreaterThan(callsAfterFirst, "the rescan re-asks the providers instead of serving the kept coverless answer");
+        await using (var context = Db.CreateContext())
+        {
+            var release = await ReleaseOfAsync(context, ReproIsbn);
+            release.CoverAssetId.ShouldBeNull();
+            CoverStatusOf(release.ProviderPayloadsJson).ShouldBe("no-cover");
         }
     }
 

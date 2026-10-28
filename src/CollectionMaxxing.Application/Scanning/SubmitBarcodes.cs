@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Jobs;
@@ -47,6 +49,7 @@ public static class SubmitBarcodes
         ISessionLock sessionLock,
         BarcodeResolver external,
         CandidateResolver resolver,
+        CoverReResolver reResolve,
         AutoCommit autoCommit,
         ReleaseCovers releaseCovers,
         IJobQueue jobs,
@@ -323,11 +326,20 @@ public static class SubmitBarcodes
 
             var answers = new Dictionary<string, BarcodeResolution>();
             var outside = new List<Line>();
+            var refresh = new List<Line>();
+            var coverless = await resolver.FindCoverlessAsync([.. local.Values.SelectMany(v => v).Distinct()], cancellationToken);
             foreach (var line in readable)
             {
                 if (local.TryGetValue(line.Identifier!.Value, out var releaseIds))
                 {
-                    answers[line.Key] = CandidateResolver.LocalResolution(releaseIds);
+                    if (releaseIds is [var only] && coverless.Contains(only))
+                    {
+                        refresh.Add(line); // a lone coverless match: re-ask the providers before answering it (#506)
+                    }
+                    else
+                    {
+                        answers[line.Key] = CandidateResolver.LocalResolution(releaseIds);
+                    }
                 }
                 else
                 {
@@ -335,9 +347,61 @@ public static class SubmitBarcodes
                 }
             }
 
+            foreach (var (key, answer) in await RefreshAsync(refresh, local, budget, cancellationToken))
+            {
+                answers[key] = answer;
+            }
+
             foreach (var (key, answer) in await ResolveOutsideAsync(outside, budget, cancellationToken))
             {
                 answers[key] = answer;
+            }
+
+            return answers;
+        }
+
+        /// <summary>
+        /// Re-asks the book providers for lines matching one coverless release, so a rescan heals the cover without
+        /// waiting for the nightly backfill (#506). Runs within the budget, like the provider path; a line the budget
+        /// runs out on keeps today's local answer. The release update rides with the caller's save.
+        /// </summary>
+        private async Task<Dictionary<string, BarcodeResolution>> RefreshAsync(
+            List<Line> lines, Dictionary<string, List<Guid>> local, TimeSpan budget, CancellationToken cancellationToken)
+        {
+            var answers = new Dictionary<string, BarcodeResolution>();
+            if (lines.Count == 0)
+            {
+                return answers;
+            }
+
+            using var failFast = ProviderCalls.FailFast(); // a person is waiting
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(budget);
+            var now = clock.GetUtcNow();
+            foreach (var line in lines)
+            {
+                var releaseIds = local[line.Identifier!.Value];
+                try
+                {
+                    IReadOnlyList<BookLookupStep> steps = [];
+                    if (await db.Releases.FindAsync([releaseIds[0]], timeout.Token) is { } release
+                        && release.CoverAssetId is null
+                        && CoverOutcome.CoverUrlOf(release.ProviderPayloadsJson) is null)
+                    {
+                        steps = await reResolve.ReResolveAsync(release, now, timeout.Token);
+                    }
+
+                    answers[line.Key] = CandidateResolver.LocalResolution(releaseIds, steps);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    break; // the budget ran out: this line and the rest keep today's local answer
+                }
+            }
+
+            foreach (var line in lines.Where(l => !answers.ContainsKey(l.Key)))
+            {
+                answers[line.Key] = CandidateResolver.LocalResolution(local[line.Identifier!.Value]);
             }
 
             return answers;
@@ -367,7 +431,7 @@ public static class SubmitBarcodes
                 return results;
             }
 
-            using var failFast = CollectionMaxxing.Application.Catalog.Providers.ProviderCalls.FailFast(); // a person is waiting
+            using var failFast = ProviderCalls.FailFast(); // a person is waiting
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(budget);
             using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
