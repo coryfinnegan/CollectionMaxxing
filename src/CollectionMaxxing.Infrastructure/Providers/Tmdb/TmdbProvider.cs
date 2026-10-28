@@ -121,10 +121,12 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
             return null;
         }
 
+        var externalId = $"{(film ? "movie" : "tv")}/{id}";
         return new ProviderRelease
         {
             Provider = ProviderName,
-            ExternalId = $"{(film ? "movie" : "tv")}/{id}",
+            ExternalId = externalId,
+            WorkKey = externalId, // a TMDB movie or show is a work
             Title = title,
             Kind = kind,
             Year = ProviderJson.Year(result.Str(film ? "release_date" : "first_air_date")),

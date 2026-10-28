@@ -28,6 +28,7 @@ export default function RootLayout() {
         <Stack.Screen name="scanner" options={{ title: 'Scanner', presentation: 'fullScreenModal' }} />
         <Stack.Screen name="review" options={{ title: 'Review' }} />
         <Stack.Screen name="evals" options={{ title: 'Run evals' }} />
+        <Stack.Screen name="search-rows" options={{ title: 'Search rows' }} />
         <Stack.Screen name="result/[id]" options={{ title: 'Result' }} />
       </Stack>
     </RootFrame>
