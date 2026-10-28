@@ -1,77 +1,67 @@
-// Typed search from the scanner: the catalog scoped to this library (owned answers first), the owned copy when offline.
+// Typed search from the scanner: the dedicated Search view scoped to this
+// library (owned answers first), the owned copy when offline. Picking an
+// edition adds it as a search match and leaves the scanner to its flow.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
-import { useState } from 'react';
-import { View } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
-import { useSearchCatalog } from '@/api/generated/catalog/catalog';
-import type { ReleaseDto, ReleaseFormat } from '@/api/generated/models';
-import { formatLabels } from '@/features/library/labels';
-import { useDebounced } from '@/features/library/useItems';
+import { useRef, useState } from 'react';
+import type { CreateItemRequest } from '@/api/generated/models';
+import { newIdempotencyKey } from '@/features/item/etag';
+import { useItemMutations } from '@/features/item/useItem';
 import { staleCopyMessage } from '@/features/offline/copy';
-import { useOnline } from '@/features/offline/hooks';
 import { getOwnedCache } from '@/features/offline/ownedCache';
-import type { OwnedCopy } from '@/features/offline/ownedIndex';
-import { ListRow, Sheet, Text, TextField } from '@/ui';
-
-const formatName = (format: string | null): string | null =>
-  format && format in formatLabels ? formatLabels[format as ReleaseFormat] : format;
-
-const ownedLine = (copies: OwnedCopy[]): string | null => {
-  if (copies.length === 0) return null;
-  const first = copies.find((c) => c.locationPath)?.locationPath;
-  return `You own ${copies.length}${first ? ` · ${first}` : ''}`;
-};
+import { SearchView } from '@/features/search/SearchView';
+import { localDateString } from '@/lib/dates';
+import { friendlyError } from '@/lib/problem';
+import { Sheet, Text } from '@/ui';
 
 export function ScannerSearch({ libraryId, onClose }: { libraryId: string; onClose(): void }) {
-  const [text, setText] = useState('');
+  const { create } = useItemMutations(libraryId);
+  const key = useRef(newIdempotencyKey());
+  // A key replays the first payload it was sent with, so it belongs to one payload:
+  // a changed payload needs a fresh key, while retrying the same payload keeps its key.
+  const lastPayload = useRef<string | null>(null);
   const [now] = useState(() => Date.now()); // the stale line is computed once per opening, not per keystroke
-  const q = useDebounced(text.trim());
-  const online = useOnline();
+  const [error, setError] = useState<string | null>(null);
   const cache = getOwnedCache(libraryId);
-  const search = useSearchCatalog({ q, scope: 'library' }, { query: { enabled: online && q.length >= 2 } });
-  const results = search.data?.status === 200 ? search.data.data.items : [];
-  const asked = q.length >= 2;
-  // Offline, or the server failed: answer from the owned copy instead of failing.
-  const local = asked && (!online || search.isError) ? cache.state.index.searchTitles(q) : [];
-  const hits = results.flatMap((r) => r.releases).length + local.length;
+
+  const pick = (releaseId: string) => {
+    // Acquired is the day it was added (#441): the device stamps its local day, so an
+    // evening add stays on today. The server defaults the same day when it is missing.
+    const dated: CreateItemRequest = { releaseId, addedVia: 'search', acquiredOn: localDateString() };
+    const payload = JSON.stringify(dated);
+    if (payload !== lastPayload.current) {
+      key.current = newIdempotencyKey();
+      lastPayload.current = payload;
+    }
+    setError(null);
+    create.mutate(
+      { data: dated, idempotencyKey: key.current },
+      {
+        onSuccess: () => {
+          key.current = newIdempotencyKey();
+          lastPayload.current = null;
+          onClose();
+        },
+        onError: (e) => setError(friendlyError(e)),
+      },
+    );
+  };
 
   return (
     <Sheet title="Search" onClose={onClose}>
-      <View style={styles.body}>
-        <TextField label="Type to search" value={text} onChangeText={setText} placeholder="Title, author or barcode" autoCapitalize="none" autoCorrect={false} />
-        {!online ? (
-          <Text variant="caption" tone="muted">
-            {staleCopyMessage(cache.state.syncedAt, now)}
-          </Text>
-        ) : null}
-        {search.isError ? (
-          <Text tone="danger" accessibilityRole="alert">
-            {"Couldn't search the catalog. Check your connection."}
-          </Text>
-        ) : null}
-        {asked && !search.isLoading && !search.isError && hits === 0 ? (
-          <Text variant="caption" tone="muted">
-            No matches yet.
-          </Text>
-        ) : null}
-        {results.flatMap((result) =>
-          result.releases.map((release: ReleaseDto) => {
-            const detail = [formatName(release.format), release.platform?.name ?? null, release.year ?? null, ownedLine(cache.state.index.lookup({ releaseId: release.id }).owned)]
-              .filter((part) => part !== null && part !== '')
-              .join(' · ');
-            return <ListRow key={release.id} title={release.title} subtitle={detail} />;
-          }),
-        )}
-        {local.map((copy) => {
-          const detail = [formatName(copy.format), copy.platform, copy.locationPath].filter((part) => part !== null && part !== '').join(' · ');
-          return <ListRow key={copy.itemId} title={copy.title ?? 'Unknown item'} subtitle={detail} />;
-        })}
-      </View>
+      <SearchView
+        scope="library"
+        onPick={pick}
+        offline={{
+          searchTitles: (query) => cache.state.index.searchTitles(query),
+          staleLine: staleCopyMessage(cache.state.syncedAt, now),
+        }}
+      />
+      {error ? (
+        <Text tone="danger" accessibilityRole="alert">
+          {error}
+        </Text>
+      ) : null}
     </Sheet>
   );
 }
-
-const styles = StyleSheet.create((theme) => ({
-  body: { gap: theme.spacing.sm },
-}));

@@ -1,19 +1,21 @@
 // The dedicated Search view (#458): as-you-type catalog search with kind,
 // platform and year filters, recent searches, one row per work, and each
 // work's editions one tap down. AddItemPanel hosts it; ScannerSearch adopts
-// it in #459. Owned state comes from each result's ownedReleaseIds (#456).
+// it in #459 with scope=library and the owned cache as its offline state.
+// Owned state comes from each result's ownedReleaseIds (#456).
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useEffect, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useListPlatforms, useSearchCatalog } from '@/api/generated/catalog/catalog';
-import type { CatalogSearchResultDto, PlatformDto, WorkKind } from '@/api/generated/models';
-import { kindLabels, kinds } from '@/features/library/labels';
+import type { CatalogSearchResultDto, PlatformDto, ReleaseFormat, WorkKind } from '@/api/generated/models';
+import { formatLabels, kindLabels, kinds } from '@/features/library/labels';
 import { useDebounced } from '@/features/library/useItems';
 import { useOnline } from '@/features/offline/hooks';
+import type { OwnedCopy } from '@/features/offline/ownedIndex';
 import { friendlyError } from '@/lib/problem';
-import { Button, Chip, Cover, EmptyState, LoadingState, Text, TextField } from '@/ui';
+import { Button, Chip, Cover, EmptyState, ListRow, LoadingState, Text, TextField } from '@/ui';
 import { useRecentSearches } from './recent';
 import { EditionRow, representativeCoverOf, WorkRow, yearSpanOf } from './rows';
 
@@ -26,21 +28,36 @@ export type SearchAnswer = {
   refetch(): void;
 };
 
+/** The owned-cache answers the view renders while offline, per the ScannerSearch pattern (#459). */
+export type OfflineSearchSource = {
+  /** Owned copies matching the query, best match first. */
+  searchTitles(query: string): OwnedCopy[];
+  /** The stale-copy line ("Based on your last sync, 2 h ago"), computed once per opening. */
+  staleLine: string;
+};
+
 export type SearchViewProps = {
   onPick(releaseId: string): void;
-  onManual(): void;
+  /** Absent when the host has no manual-entry path (the scanner): no-matches then offers no action. */
+  onManual?(): void;
   initialQuery?: string;
+  /** The scanner searches its library first (owned answers first); the library search leaves this unset. */
+  scope?: 'library';
+  /** The offline state: owned answers with the stale-copy line. Without it, offline is the "You're offline" line. */
+  offline?: OfflineSearchSource;
   /** Fixtures pin the catalog answer (loading, results, empty, error) without touching the network. */
   search?: SearchAnswer;
 };
 
 const asked = (q: string) => q.length >= 2;
+const formatName = (format: string | null): string | null =>
+  format && format in formatLabels ? formatLabels[format as ReleaseFormat] : format;
 const parseYear = (text: string): number | undefined => {
   const trimmed = text.trim();
   return /^\d{4}$/.test(trimmed) ? Number(trimmed) : undefined;
 };
 
-export function SearchView({ onPick, onManual, initialQuery = '', search: pinned }: SearchViewProps) {
+export function SearchView({ onPick, onManual, initialQuery = '', scope, offline: offlineSource, search: pinned }: SearchViewProps) {
   const [text, setText] = useState(initialQuery);
   const [kind, setKind] = useState<WorkKind | null>(null);
   const [platform, setPlatform] = useState<PlatformDto | null>(null);
@@ -53,7 +70,7 @@ export function SearchView({ onPick, onManual, initialQuery = '', search: pinned
 
   const live = pinned === undefined;
   const catalog = useSearchCatalog(
-    { q, kind: kind ?? undefined, platform: platform?.name, year },
+    { q, kind: kind ?? undefined, platform: platform?.name, year, scope },
     { query: { enabled: live && online && asked(q) } },
   );
   const platforms = useListPlatforms({ query: { enabled: live && kind === 'game' } });
@@ -121,6 +138,7 @@ export function SearchView({ onPick, onManual, initialQuery = '', search: pinned
         q={q}
         answer={answer}
         offline={live && !online}
+        offlineSource={offlineSource}
         recent={recent}
         onRecent={setText}
         onClearRecent={clear}
@@ -135,6 +153,7 @@ function SearchBody({
   q,
   answer,
   offline,
+  offlineSource,
   recent,
   onRecent,
   onClearRecent,
@@ -144,10 +163,11 @@ function SearchBody({
   q: string;
   answer: SearchAnswer;
   offline: boolean;
+  offlineSource?: OfflineSearchSource;
   recent: string[];
   onRecent(term: string): void;
   onClearRecent(): void;
-  onManual(): void;
+  onManual?(): void;
   onOpen(result: CatalogSearchResultDto): void;
 }) {
   if (!asked(q)) {
@@ -170,6 +190,17 @@ function SearchBody({
       </View>
     );
   }
+  if (offline && offlineSource) {
+    const copies = offlineSource.searchTitles(q);
+    return (
+      <View style={styles.step}>
+        <Text variant="caption" tone="muted">
+          {offlineSource.staleLine}
+        </Text>
+        {copies.length > 0 ? <OwnedRows copies={copies} /> : <NoMatches onManual={onManual} />}
+      </View>
+    );
+  }
   if (offline) {
     return (
       <EmptyState title="You're offline" body="Check your connection and try again." actionLabel="Try again" onAction={answer.refetch} />
@@ -177,18 +208,24 @@ function SearchBody({
   }
   if (answer.isLoading) return <LoadingState label="Searching the catalog" />;
   if (answer.isError) {
+    if (offlineSource) {
+      // The server failed but the owned copy answers: the error line plus what you own.
+      const copies = offlineSource.searchTitles(q);
+      if (copies.length > 0) {
+        return (
+          <View style={styles.step}>
+            <Text tone="danger" accessibilityRole="alert">
+              {"Couldn't search the catalog. Check your connection."}
+            </Text>
+            <OwnedRows copies={copies} />
+          </View>
+        );
+      }
+    }
     return <EmptyState title="Couldn't search the catalog" body={friendlyError(answer.error)} actionLabel="Try again" onAction={answer.refetch} />;
   }
   if (answer.items.length === 0) {
-    return (
-      <EmptyState
-        title="No matches"
-        body="Try different words or fewer filters."
-        actionLabel="Add it yourself"
-        onAction={onManual}
-        animation="no-results"
-      />
-    );
+    return <NoMatches onManual={onManual} />;
   }
   return (
     <View style={styles.rows}>
@@ -196,6 +233,29 @@ function SearchBody({
         // Provider works share the empty id, so the index keeps keys apart.
         <WorkRow key={`${result.work.id}-${i}`} result={result} ownedReleaseIds={new Set(result.ownedReleaseIds)} onPress={() => onOpen(result)} />
       ))}
+    </View>
+  );
+}
+
+function NoMatches({ onManual }: { onManual?(): void }) {
+  return (
+    <EmptyState
+      title="No matches"
+      body="Try different words or fewer filters."
+      actionLabel={onManual ? 'Add it yourself' : undefined}
+      onAction={onManual}
+      animation="no-results"
+    />
+  );
+}
+
+function OwnedRows({ copies }: { copies: OwnedCopy[] }) {
+  return (
+    <View style={styles.rows}>
+      {copies.map((copy) => {
+        const detail = [formatName(copy.format), copy.platform, copy.locationPath].filter((part) => part !== null && part !== '').join(' · ');
+        return <ListRow key={copy.itemId} title={copy.title ?? 'Unknown item'} subtitle={detail} />;
+      })}
     </View>
   );
 }
