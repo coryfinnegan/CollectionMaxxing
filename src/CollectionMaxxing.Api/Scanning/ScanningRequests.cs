@@ -7,8 +7,8 @@ namespace CollectionMaxxing.Api.Scanning;
 /// <summary>
 /// Body of <c>POST …/scan-sessions</c>. There are no modes: defaults only save typing at Review. <c>MediaHint</c> says what
 /// is being scanned (mixed when missing) and <c>Channel</c> says where (home when missing; in a store, Review asks for each location later).
-/// <c>AutoCommitTiers</c> says which tiers auto-add (T0 when missing; empty turns auto-add off); <c>AutoCommitCopies</c> whether
-/// an exact-owned hit still adds another copy.
+/// <c>AutoCommitTiers</c> says which tiers auto-add (none when missing, since #452; pre-cutover sessions never
+/// auto-add whatever they carry, #489); <c>AutoCommitCopies</c> whether an exact-owned hit still adds another copy.
 /// </summary>
 public sealed record CreateScanSessionRequest(
     Guid? DefaultLocationId = null,
