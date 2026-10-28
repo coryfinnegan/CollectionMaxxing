@@ -3,7 +3,7 @@ using CollectionMaxxing.Domain.Catalog.Matching;
 namespace CollectionMaxxing.Application.Recognition;
 
 /// <summary>
-/// What the phone fetches to recognise things (docs/02 section 1 and "The Apple model call"): the model's prompt, the
+/// What the phone fetches to recognise things (docs/02 section 1 and "The Apple model call"): the model's prompts, the
 /// auto-snap gate, the engine's limits and how a wide shot is split. Served from <c>GET /api/v1/recognition/config</c>;
 /// tuned by editing one file on the PC, so tuning needs no iOS build. The phone treats all of it as data and keeps a
 /// built-in safe default when it cannot fetch or understand it.
@@ -12,6 +12,7 @@ namespace CollectionMaxxing.Application.Recognition;
 public sealed record RecognitionConfig(
     string Version,
     RecognitionPrompt Prompt,
+    RecognitionPrompt ExtractionPrompt,
     RecognitionAutoSnap AutoSnap,
     RecognitionEngine Engine,
     RecognitionSplitting Splitting,
@@ -20,7 +21,8 @@ public sealed record RecognitionConfig(
 /// <summary>
 /// The text the phone gives the model: <see cref="Template"/>, then <see cref="OutputRules"/> after a blank line. Each is at
 /// most 4096 UTF-8 bytes of text, with line breaks and tabs but no other control or invisible characters. Between them they
-/// must keep the two rules the app relies on (see <see cref="RecognitionConfigRules.RequiredPromptRules"/>).
+/// must keep the two rules the app relies on: <see cref="RecognitionConfigRules.RequiredPromptRules"/> for the picture
+/// prompt, <see cref="RecognitionConfigRules.RequiredExtractionPromptRules"/> for the OCR-text extraction prompt.
 /// </summary>
 public sealed record RecognitionPrompt(string Template, string OutputRules);
 

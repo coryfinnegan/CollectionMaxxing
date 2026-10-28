@@ -1829,7 +1829,7 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                     b.ToTable("scan_snaps", null, t =>
                         {
-                            t.HasCheckConstraint("ck_scan_snaps_engine", "\"engine\" in ('apple_model', 'vision_pipeline')");
+                            t.HasCheckConstraint("ck_scan_snaps_engine", "\"engine\" in ('apple_model', 'vision_pipeline', 'fm_text')");
 
                             t.HasCheckConstraint("ck_scan_snaps_fallback_reason", "\"fallback_reason\" in ('unavailable', 'declined', 'context', 'timeout', 'move_closer', 'split_segment', 'hold_steady', 'kill_glare')");
 

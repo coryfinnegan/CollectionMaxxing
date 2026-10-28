@@ -166,6 +166,21 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task An_fm_text_result_is_accepted_and_scored_under_its_own_engine()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        var response = await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "fm_text", [StarFoxRead()])));
+
+        var single = response.GetProperty("summary").GetProperty("engines").GetProperty("fm_text").GetProperty("single");
+        single.GetProperty("top1Pct").GetDouble().ShouldBe(100);
+        // An unspoken step defaults to the engine that read it: fm_text reads are settled by the model.
+        single.GetProperty("resolvedBy").GetProperty("model").GetInt32().ShouldBe(1);
+    }
+
     // ---- truth, drafts and what is skipped -----------------------------------------------------------------------------------
 
     [Fact]

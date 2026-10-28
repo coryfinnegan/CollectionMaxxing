@@ -143,13 +143,13 @@ public static class ResolvedByText
     public const string Artwork = "artwork";
     public const string FixIt = "fix_it";
 
-    /// <summary>What settled an item when the phone did not say: the engine that read it.</summary>
+    /// <summary>What settled an item when the phone did not say: the engine that read it (only the Vision text engine settles without the model).</summary>
     public static string For(ScanEngine engine, ResolvedStep? said) => said switch
     {
         ResolvedStep.Model => Model,
         ResolvedStep.VisionText => VisionText,
         ResolvedStep.Artwork => Artwork,
         ResolvedStep.FixIt => FixIt,
-        _ => engine == ScanEngine.AppleModel ? Model : VisionText,
+        _ => engine == ScanEngine.VisionPipeline ? VisionText : Model,
     };
 }

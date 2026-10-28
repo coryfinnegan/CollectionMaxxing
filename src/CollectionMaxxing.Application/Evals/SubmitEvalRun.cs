@@ -258,7 +258,7 @@ public static class SubmitEvalRun
 
             if (photo!.Engine is null)
             {
-                return EvalErrors.Invalid("evals.engine_required", "Send the engine: apple_model or vision_pipeline.", $"{at}.engine");
+                return EvalErrors.Invalid("evals.engine_required", "Send the engine: apple_model, fm_text or vision_pipeline.", $"{at}.engine");
             }
 
             if (photo.Outcome is null)

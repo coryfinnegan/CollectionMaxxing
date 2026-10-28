@@ -13,6 +13,9 @@ public enum ScanEngine
 {
     AppleModel,
     VisionPipeline,
+
+    /// <summary>The on-device model extracting typed items from Vision OCR text (no picture reaches the model; #508).</summary>
+    FmText,
 }
 
 public enum FallbackReason
