@@ -69,7 +69,7 @@ describe('cm-vision contract', () => {
 
     it('a Swift enum string that is not in the schema enum is reported', () => {
       const sources = realSources();
-      sources['CmModelReader.swift'] = sources['CmModelReader.swift'].replace('case ok, declined, timeout,', 'case ok, declined, timedOut,');
+      sources['CmGenerable.swift'] = sources['CmGenerable.swift'].replace('case ok, declined, timeout,', 'case ok, declined, timedOut,');
       expect(checkSwiftEnums(sources).join('\n')).toMatch(/outcome.*timedOut/);
     });
 

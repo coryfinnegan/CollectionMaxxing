@@ -28,6 +28,9 @@ export class UnavailableVisionEngine implements VisionEngine {
   async readItems(): Promise<ReadItemsResult> {
     return { items: [], unreadableCount: 0, outcome: 'unavailable', elapsedMs: 0 };
   }
+  async extractItems(): Promise<ReadItemsResult> {
+    return { items: [], unreadableCount: 0, outcome: 'unavailable', elapsedMs: 0 };
+  }
   async deviceStatus(): Promise<DeviceStatus> {
     return { thermalState: 'nominal', osVersion: 'web' };
   }

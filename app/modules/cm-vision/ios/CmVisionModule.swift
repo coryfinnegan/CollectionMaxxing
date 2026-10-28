@@ -29,6 +29,9 @@ public class CmVisionModule: Module {
       if #available(iOS 27.0, *) {
         return CmModelReader.capabilities()
       }
+      if #available(iOS 26.0, *) {
+        return CmTextReader.capabilities()
+      }
       return CmContract.modelCapabilities(
         available: false, vision: false, guidedGeneration: false, contextSize: nil, reason: "osTooOld")
     }
@@ -46,6 +49,25 @@ public class CmVisionModule: Module {
       }
       Task.detached(priority: .userInitiated) {
         let result = await CmModelReader.read(imageUri: imageUri, request: request) { item in
+          self?.sendEvent("onItem", item)
+        }
+        promise.resolve(result)
+      }
+    }
+
+    // Spike #505: typed extraction from OCR text, no picture. Never rejects either.
+    AsyncFunction("extractItems") { [weak self] (ocrText: String, options: [String: Any], promise: Promise) in
+      let unavailable = CmContract.readItemsResult(items: [], unreadableCount: 0, outcome: "unavailable", elapsedMs: 0)
+      guard let request = CmReadRequest(options), !ocrText.isEmpty else {
+        promise.resolve(unavailable)
+        return
+      }
+      guard #available(iOS 26.0, *) else {
+        promise.resolve(unavailable)
+        return
+      }
+      Task.detached(priority: .userInitiated) {
+        let result = await CmTextReader.extract(ocrText: ocrText, request: request) { item in
           self?.sendEvent("onItem", item)
         }
         promise.resolve(result)

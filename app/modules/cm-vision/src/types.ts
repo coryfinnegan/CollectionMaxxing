@@ -35,6 +35,8 @@ export type Unsubscribe = () => void;
  *
  * Model reading (`readItems`) is implemented in Swift by NAT-2b with Foundation Models image input
  * (`Attachment(cgImage, orientation:)`, guarded by `SystemLanguageModel.default.capabilities.contains(.vision)`).
+ * Text extraction (`extractItems`, spike #505) sends no picture: Vision OCR text goes to the same on-device
+ * model as text, so it works on iOS 26 where the model cannot see pictures yet.
  */
 export interface VisionEngine {
   isAvailable(): Promise<boolean>;
@@ -58,6 +60,12 @@ export interface VisionEngine {
    * promise resolves. A declined, timed-out or oversized read resolves with an `outcome`; it never throws.
    */
   readItems(imageUri: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult>;
+  /**
+   * Asks the on-device model to extract typed items from Vision OCR text (no picture crosses this call).
+   * Same options, same streamed items, same result shape as `readItems`; needs only
+   * `modelCapabilities().guidedGeneration`, so iOS 26 phones can use it. Never throws.
+   */
+  extractItems(ocrText: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult>;
   deviceStatus(): Promise<DeviceStatus>;
 }
 

@@ -1,11 +1,11 @@
 // The Apple on-device model reads the picture; Vision text then gives each item a box. The model is a hint:
 // what comes out is read fields and a confidence, and the server decides what it matches.
-import type { ModelItem, TextLine } from '@/native/cm-vision';
+import type { ModelItem } from '@/native/cm-vision';
 import { type EngineDeps, defaultId } from './VisionPipelineEngine';
 import { promptOf } from './defaults';
-import { readLines, normalize } from './lines';
-import { mapCompleteness, mapKind } from './mapping';
-import { matchBoxes, type BoxMatch } from './matching';
+import { readLines } from './lines';
+import { matchBoxes } from './matching';
+import { toReadItem } from './modelReading';
 import { type FellBackFrom, ModelUnusableError, type ReadItem, type RecognitionEngine, type SnapReading, type Still } from './types';
 
 const FAILURES: Record<string, FellBackFrom> = {
@@ -54,7 +54,7 @@ export class AppleModelEngine implements RecognitionEngine {
       emitting = emitting.then(async () => {
         const lines = await linesPromise;
         const [match] = matchBoxes([m.visibleText], lines, settings.local, claimed);
-        onItem(this.toReadItem(m, match, idFor(m.order)));
+        onItem(toReadItem(m, match, idFor(m.order)));
       });
     };
 
@@ -79,7 +79,7 @@ export class AppleModelEngine implements RecognitionEngine {
       lines,
       settings.local,
     );
-    const items = result.items.map((m, i) => this.toReadItem(m, matches[i], idFor(m.order)));
+    const items = result.items.map((m, i) => toReadItem(m, matches[i], idFor(m.order)));
     const total = this.now() - started;
     return {
       items,
@@ -89,30 +89,4 @@ export class AppleModelEngine implements RecognitionEngine {
     };
   }
 
-  private toReadItem(m: ModelItem, match: BoxMatch, localId: string): ReadItem {
-    const { kind, format } = mapKind(m.kind);
-    const item: ReadItem = {
-      localId,
-      text: textOf(m.visibleText, match.lines),
-      title: m.title,
-      kind,
-      order: m.order,
-      confidence: m.confidence,
-    };
-    if (m.creator) item.creator = m.creator;
-    if (format) item.format = format;
-    if (m.platform) item.platform = m.platform;
-    if (m.editionMarks) item.edition = m.editionMarks;
-    const completeness = mapCompleteness(m.completeness);
-    if (completeness) item.completeness = completeness;
-    if (match.box) item.box = match.box;
-    return item;
-  }
-}
-
-/** The model's hint, plus any matched Vision line the hint does not already contain. */
-function textOf(hint: string, lines: TextLine[]): string {
-  const known = normalize(hint);
-  const extra = lines.map((l) => l.text).filter((t) => !known.includes(normalize(t)));
-  return [hint, ...extra].join(' ').trim();
 }

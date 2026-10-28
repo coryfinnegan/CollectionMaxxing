@@ -7,6 +7,7 @@ const mockNative = {
   listeners: [] as Listener[],
   removed: 0,
   readItems: jest.fn<Promise<ReadItemsResult>, [string, ReadItemsOptions]>(),
+  extractItems: jest.fn<Promise<ReadItemsResult>, [string, ReadItemsOptions]>(),
   modelCapabilities: jest.fn(),
   recognizeText: jest.fn(),
   deviceStatus: jest.fn(),
@@ -45,6 +46,7 @@ beforeEach(() => {
   mockNative.removed = 0;
   mockNative.addListener.mockClear();
   mockNative.readItems.mockReset();
+  mockNative.extractItems.mockReset();
   mockNative.modelCapabilities.mockReset();
   mockNative.recognizeText.mockReset();
 });
@@ -198,6 +200,50 @@ describe('the native wrapper', () => {
       expect((await a).outcome).toBe('unavailable');
       expect((await b).outcome).toBe('ok');
       expect(mockNative.readItems).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('extractItems (spike #505)', () => {
+    const okResult: ReadItemsResult = { items: [], unreadableCount: 0, outcome: 'ok', elapsedMs: 1 };
+
+    it('sends the OCR text and options to Swift and streams items like readItems', async () => {
+      mockNative.extractItems.mockImplementation(async () => {
+        mockNative.emit(item(0, 'First'));
+        return { items: [item(0, 'First')], unreadableCount: 0, outcome: 'ok', elapsedMs: 400 };
+      });
+      const received: ModelItem[] = [];
+      const result = await visionEngine.extractItems('Dune\nFrank Herbert', options, (i) => received.push(i));
+      expect(mockNative.extractItems).toHaveBeenCalledWith('Dune\nFrank Herbert', options);
+      expect(result.outcome).toBe('ok');
+      expect(received.map((i) => i.title)).toEqual(['First']);
+    });
+
+    it('resolves as unavailable, never throws, when the native call throws', async () => {
+      mockNative.extractItems.mockRejectedValue(new Error('boom'));
+      await expect(visionEngine.extractItems('Dune', options)).resolves.toEqual({
+        items: [],
+        unreadableCount: 0,
+        outcome: 'unavailable',
+        elapsedMs: 0,
+      });
+    });
+
+    it('shares the queue with readItems: no two native model calls overlap', async () => {
+      let resolveFirst!: (r: ReadItemsResult) => void;
+      const first = new Promise<ReadItemsResult>((res) => {
+        resolveFirst = res;
+      });
+      mockNative.readItems.mockReturnValueOnce(first);
+      mockNative.extractItems.mockResolvedValueOnce(okResult);
+      const a = visionEngine.readItems('file:///a.jpg', options);
+      const b = visionEngine.extractItems('Dune', options);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(mockNative.readItems).toHaveBeenCalledTimes(1);
+      expect(mockNative.extractItems).not.toHaveBeenCalled();
+      resolveFirst(okResult);
+      await a;
+      await b;
+      expect(mockNative.extractItems).toHaveBeenCalledTimes(1);
     });
   });
 });
