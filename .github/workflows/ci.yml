@@ -13,7 +13,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
+  # The backend leg, split so the slowest suites stop queueing behind each other (#478). The test matrix, format,
+  # and the pwsh tooling suites each get their own runner and run at the same time. Every dotnet job warms the same
+  # NuGet cache. No app phase anywhere here; the app job owns npm run check.
+  backend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # One red shard cancels its siblings: a broken PR fails in minutes, not after the slowest shard finishes.
+      fail-fast: true
+      matrix:
+        include:
+          # Shards follow the measured lane times (run 40613989293): the two Postgres-heavy Api suites each get
+          # their own runner, the rest share a third. Rebalance when the timings drift.
+          - shard: api
+            projects: CollectionMaxxing.Api.Tests
+          - shard: auth
+            projects: CollectionMaxxing.Api.Tests.Auth
+          - shard: rest
+            projects: >-
+              CollectionMaxxing.Api.Tests.Library
+              CollectionMaxxing.Infrastructure.Tests
+              CollectionMaxxing.Application.Tests
+              CollectionMaxxing.Recognition.Evals
+              CollectionMaxxing.Architecture.Tests
+              CollectionMaxxing.Domain.Tests
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      # One phase per step (#297): timings and failures localize.
+      - name: Restore
+        run: bash scripts/check.sh restore
+      - name: Build
+        run: bash scripts/check.sh build
+      - name: Test (${{ matrix.shard }})
+        env:
+          CM_TEST_ONLY: ${{ matrix.projects }}
+        run: bash scripts/check.sh test
+
+  backend-format:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -21,15 +63,18 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      # One phase per step (#297): timings and failures localize. No app phase here; the app job owns npm run check.
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
       - name: Restore
         run: bash scripts/check.sh restore
-      - name: Build
-        run: bash scripts/check.sh build
       - name: Format
         run: bash scripts/check.sh format
-      - name: Test
-        run: bash scripts/check.sh test
+
+  backend-tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
       - name: Deploy script tests
         run: pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
       # The mutation sampler's own tests (QA-3a): scripts/check doesn't run them, and the nightly sweep relies on them.
