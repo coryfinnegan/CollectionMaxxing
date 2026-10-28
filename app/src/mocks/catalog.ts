@@ -39,9 +39,9 @@ export const seed = (): CatalogSearchResultDto[] => {
   const arrival = work(2, 'film', 'Arrival', 2016);
   const neuromancer = work(3, 'book', 'Neuromancer', 1984);
   return [
-    { work: alien, releases: [release(1, alien, 'dvd'), release(2, alien, 'vhs')], score: 0.95, source: 'local' },
-    { work: arrival, releases: [release(3, arrival, 'bluray')], score: 0.9, source: 'local' },
-    { work: neuromancer, releases: [release(4, neuromancer, 'paperback')], score: 0.9, source: 'local' },
+    { work: alien, releases: [release(1, alien, 'dvd'), release(2, alien, 'vhs')], score: 0.95, source: 'local', ownedReleaseIds: [] },
+    { work: arrival, releases: [release(3, arrival, 'bluray')], score: 0.9, source: 'local', ownedReleaseIds: [] },
+    { work: neuromancer, releases: [release(4, neuromancer, 'paperback')], score: 0.9, source: 'local', ownedReleaseIds: [] },
   ];
 };
 
