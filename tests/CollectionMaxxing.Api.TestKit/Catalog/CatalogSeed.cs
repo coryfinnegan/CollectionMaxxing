@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.TestSupport;
@@ -20,7 +21,9 @@ public static class CatalogSeed
         string? barcode = null,
         IdentifierType barcodeType = IdentifierType.Gtin13,
         Guid? coverAssetId = null,
-        ReleaseFormat format = ReleaseFormat.Dvd)
+        ReleaseFormat format = ReleaseFormat.Dvd,
+        IReadOnlyList<string>? creators = null,
+        string? providerPayloads = null)
     {
         var work = new Work
         {
@@ -30,6 +33,7 @@ public static class CatalogSeed
             SortTitle = title.ToLowerInvariant(),
             NormalizedTitle = TitleNormalizer.Normalize(title),
             OriginalYear = year,
+            CreatorsJson = JsonSerializer.Serialize(creators ?? []),
             CoverAssetId = coverAssetId,
             CreatedAt = Start,
         };
@@ -42,6 +46,7 @@ public static class CatalogSeed
             Source = ownerLibraryId is null ? ReleaseSource.Provider : ReleaseSource.User,
             OwnerLibraryId = ownerLibraryId,
             CoverAssetId = coverAssetId,
+            ProviderPayloadsJson = providerPayloads,
             CreatedAt = Start,
         };
 

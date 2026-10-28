@@ -63,6 +63,18 @@ internal static class CoverOutcome
         return payload.ToJsonString();
     }
 
+    /// <summary>
+    /// The payload with only the cover address filled in: the provider, external id, outcome and failure stay
+    /// exactly as they were, so a same-novel share (#514) never rewrites whose release this is. Missing objects
+    /// are created; anything else is left alone.
+    /// </summary>
+    public static string WithCoverUrl(string? payloadJson, string coverUrl)
+    {
+        var payload = Parse(payloadJson) ?? new JsonObject();
+        payload["coverUrl"] = coverUrl;
+        return payload.ToJsonString();
+    }
+
     private static JsonObject? Parse(string? payloadJson)
     {
         try
