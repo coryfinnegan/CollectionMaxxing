@@ -6515,6 +6515,7 @@
           "score",
           "artDistance",
           "needsArt",
+          "needsCoverVerify",
           "release",
           "inferred",
           "alternatives",
@@ -6618,6 +6619,9 @@
             "format": "double"
           },
           "needsArt": {
+            "type": "boolean"
+          },
+          "needsCoverVerify": {
             "type": "boolean"
           },
           "release": {

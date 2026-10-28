@@ -16,6 +16,17 @@ internal static class ArtworkLinks
         trace.NeedsArt && !IsDecidedByPerson(candidate, CandidateJson.ReadAlternatives(candidate.AlternativesJson), trace);
 
     /// <summary>
+    /// The row still wants its cover verified: it is ambiguous, nobody decided it, and it is either an open close call
+    /// or one whose on-device artwork ran but could not settle it (a recorded artwork step on this still-ambiguous row,
+    /// #486). Unlike <see cref="AsksForArt"/>, this is false once the row resolves: the server only verifies ambiguity.
+    /// A spine or barcode never records an artwork step, so they stay out.
+    /// </summary>
+    public static bool AsksForCoverVerify(ScanCandidate candidate, StoredTrace trace) =>
+        candidate.Resolution == CandidateResolution.Ambiguous
+        && (trace.NeedsArt || trace.Steps.Any(s => s.Provider == ScoreCandidateArtwork.StepName))
+        && !IsDecidedByPerson(candidate, CandidateJson.ReadAlternatives(candidate.AlternativesJson), trace);
+
+    /// <summary>
     /// The person made a decision about this item. The server decides too: a Matched item is accepted (or, when the library owns
     /// it already, rejected) by itself. That decision is the server's own for as long as the candidate is still the one it
     /// made it about and nothing changed it; a decision by the person, or a pick of another release, is theirs.

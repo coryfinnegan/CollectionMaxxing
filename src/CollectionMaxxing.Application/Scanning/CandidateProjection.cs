@@ -140,13 +140,14 @@ internal static class CandidateProjection
     {
         var trace = CandidateJson.ReadTrace(c.TraceJson);
         var needsArt = ArtworkLinks.AsksForArt(c, trace);
+        var needsCoverVerify = ArtworkLinks.AsksForCoverVerify(c, trace);
         var waitingForQuota = c.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(trace.Steps);
         var edits = c.EditedFormat is null && c.EditedPlatform is null && c.EditedEdition is null
             ? null
             : new CandidateEditsDto(c.EditedFormat, c.EditedPlatform, c.EditedEdition);
         var alternatives = AlternativesOf(c.AlternativesJson, needsArt ? artwork : null);
         var coverPick = trace.CoverPick is { } pick ? new CoverPickDto(pick.ReleaseId, pick.Reason) : null;
-        return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives, cropUrl, coverPick);
+        return ToDto(c, release, trace, needsArt, needsCoverVerify, waitingForQuota, edits, alternatives, cropUrl, coverPick);
     }
 
     /// <summary>The stored alternatives as the response lists them; null when the candidate has none stored. A close call gets the artwork link of each.</summary>
@@ -165,7 +166,7 @@ internal static class CandidateProjection
     }
 
     private static CandidateDto ToDto(
-        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, IReadOnlyList<CandidateAlternativeDto>? alternatives, string? cropUrl, CoverPickDto? coverPick) => new(
+        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool needsCoverVerify, bool waitingForQuota, CandidateEditsDto? edits, IReadOnlyList<CandidateAlternativeDto>? alternatives, string? cropUrl, CoverPickDto? coverPick) => new(
         c.Id,
         c.Seq,
         c.Source,
@@ -180,6 +181,7 @@ internal static class CandidateProjection
         c.Score,
         c.ArtDistance,
         needsArt,
+        needsCoverVerify,
         release,
         CandidateJson.ReadElement(c.InferredJson),
         alternatives,

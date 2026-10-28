@@ -89,7 +89,8 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
         string? secondCover = "https://covers.test/2001.jpg",
         CandidateResolution resolution = CandidateResolution.Ambiguous,
         CandidateDecision decision = CandidateDecision.Undecided,
-        bool needsArt = true)
+        bool needsArt = true,
+        bool artCompared = false)
     {
         var library = await TestData.CreateLibraryAsync(Db);
         var sessionId = Guid.CreateVersion7();
@@ -97,6 +98,9 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
         var firstId = Guid.CreateVersion7();
         var secondId = Guid.CreateVersion7();
 
+        // A recorded :art always comes back needsArt=false (CloseCall.NeedsArt with alreadyCompared=true).
+        var steps = artCompared ? """[{"provider":"artwork","outcome":"ambiguous","ms":0,"score":0.7}]""" : "[]";
+        var flag = artCompared ? false : needsArt;
         await using var context = Db.CreateContext();
         context.ScanSessions.Add(new ScanSession
         {
@@ -119,7 +123,7 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
             Tier = ScanTier.T2,
             Score = 0.78125,
             AlternativesJson = AlternativesJson(firstId, secondId, firstCover, secondCover),
-            TraceJson = $$"""{"steps":[],"ownedAt":[],"needsArt":{{(needsArt ? "true" : "false")}} }""",
+            TraceJson = $$"""{"steps":{{steps}},"ownedAt":[],"needsArt":{{(flag ? "true" : "false")}} }""",
             Decision = decision,
             CreatedAt = Now,
         });
@@ -177,6 +181,35 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
         using var trace = await TraceOfAsync(Db, acting, seeded.CandidateId);
         trace.RootElement.GetProperty("coverScores").GetArrayLength().ShouldBe(2);
         trace.RootElement.GetProperty("coverPick").GetProperty("releaseId").GetString().ShouldBe(seeded.SecondId.ToString());
+    }
+
+    [Fact]
+    public async Task An_art_comparison_that_could_not_settle_the_call_escalates_to_cover_verify()
+    {
+        // #486: the on-device :art ran (needsArt=false) but left the tie standing — a recorded artwork step on a
+        // still-ambiguous row. The server compares the capture itself instead of refusing.
+        var seeded = await SeedAsync(needsArt: false, artCompared: true);
+        var covers = new StubCovers(new Dictionary<string, byte[]>
+        {
+            ["https://covers.test/2003.jpg"] = [0x03],
+            ["https://covers.test/2001.jpg"] = [0x01],
+        });
+        var verifier = new StubVerifier((_, cover) => cover[0] == 0x01 ? 120 : 4);
+        var acting = seeded.Library.ActingAs(LibraryRole.Viewer);
+        await using var context = Db.CreateContext(acting);
+
+        var result = await Handler(context, acting, covers, verifier).HandleAsync(
+            new VerifyCoverArtwork.Command(seeded.SessionId, seeded.CandidateId, JpegFixtures.Plain(), null), default);
+
+        result.IsSuccess.ShouldBeTrue();
+        var dto = result.Value;
+        dto.Resolution.ShouldBe(CandidateResolution.Ambiguous);
+        dto.Alternatives!.Select(a => a.Year!.Value).ShouldBe([2001, 2003]);
+        dto.CoverPick.ShouldNotBeNull();
+        dto.CoverPick.ReleaseId.ShouldBe(seeded.SecondId);
+
+        var last = await LastStepOfAsync(Db, acting, seeded.CandidateId);
+        last.GetProperty("provider").GetString().ShouldBe("cover_verify");
     }
 
     [Fact]
@@ -251,6 +284,55 @@ public class VerifyCoverArtworkTests(PostgresFixture db) : DatabaseTest(db)
 
         result.IsSuccess.ShouldBeFalse();
         result.Error!.Code.ShouldBe("scan.cover_not_needed");
+    }
+
+    [Fact]
+    public async Task A_close_call_nothing_compared_is_not_verified()
+    {
+        // Still refused after #486: ambiguous with needsArt=false and no recorded artwork step was never a close
+        // call (a spine, a barcode) — there is no indecisive :art to escalate from.
+        var seeded = await SeedAsync(needsArt: false);
+        var acting = seeded.Library.ActingAs(LibraryRole.Viewer);
+        await using var context = Db.CreateContext(acting);
+        var handler = Handler(context, acting, new StubCovers([]), new StubVerifier((_, _) => 120));
+
+        var result = await handler.HandleAsync(
+            new VerifyCoverArtwork.Command(seeded.SessionId, seeded.CandidateId, JpegFixtures.Plain(), null), default);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("scan.cover_not_needed");
+    }
+
+    [Fact]
+    public async Task A_row_the_art_comparison_settled_is_not_verified()
+    {
+        // Still refused after #486: the recorded :art was decisive (Matched), so there is nothing to escalate.
+        var seeded = await SeedAsync(resolution: CandidateResolution.Matched, needsArt: false, artCompared: true);
+        var acting = seeded.Library.ActingAs(LibraryRole.Viewer);
+        await using var context = Db.CreateContext(acting);
+        var handler = Handler(context, acting, new StubCovers([]), new StubVerifier((_, _) => 120));
+
+        var result = await handler.HandleAsync(
+            new VerifyCoverArtwork.Command(seeded.SessionId, seeded.CandidateId, JpegFixtures.Plain(), null), default);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("scan.cover_not_needed");
+    }
+
+    [Fact]
+    public async Task A_row_the_person_decided_after_art_is_left_alone()
+    {
+        // Still refused after #486: the person's own decision stands even when an :art was recorded first.
+        var seeded = await SeedAsync(decision: CandidateDecision.Accepted, needsArt: false, artCompared: true);
+        var acting = seeded.Library.ActingAs(LibraryRole.Viewer);
+        await using var context = Db.CreateContext(acting);
+        var handler = Handler(context, acting, new StubCovers([]), new StubVerifier((_, _) => 120));
+
+        var result = await handler.HandleAsync(
+            new VerifyCoverArtwork.Command(seeded.SessionId, seeded.CandidateId, JpegFixtures.Plain(), null), default);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error!.Code.ShouldBe("scan.art_candidate_decided");
     }
 
     [Fact]

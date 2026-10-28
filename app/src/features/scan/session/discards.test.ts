@@ -37,6 +37,7 @@ const candidate = (id: string, extra: Partial<CandidateDto> = {}): CandidateDto 
     score: 0,
     artDistance: null,
     needsArt: false,
+    needsCoverVerify: false,
     release: null,
     inferred: null,
     alternatives: null,

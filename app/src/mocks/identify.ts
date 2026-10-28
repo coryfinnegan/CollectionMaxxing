@@ -116,6 +116,7 @@ const resolved = (entry: NonNullable<ReturnType<typeof lookup>>): Partial<Candid
   ownedAt: entry.owned.map((o) => o.locationPath),
   alternatives: null,
   needsArt: false,
+  needsCoverVerify: false,
 });
 
 function emit(sessionId: string, candidate: CandidateDto) {
@@ -173,6 +174,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
     score: null,
     artDistance: null,
     needsArt: false,
+    needsCoverVerify: false,
     release: null,
     inferred,
     alternatives: null,
@@ -195,6 +197,7 @@ function candidateFor(seq: number, item: IdentifyItem, shotKind: CandidateDto['s
       resolution: 'ambiguous',
       score: 0.7,
       needsArt: true,
+      needsCoverVerify: true,
       guidanceCode: 'pick_match',
       alternatives: [
         alternative(CLOSE_CALL.original, 0.7, '/media/covers/aaaaaaaa-0000-4000-8000-000000000001'),
@@ -238,6 +241,7 @@ export const handlers = [
         release: fresh.release,
         alternatives: fresh.alternatives,
         needsArt: fresh.needsArt,
+        needsCoverVerify: fresh.needsCoverVerify,
         guidanceCode: fresh.guidanceCode,
         changeSeq: ++session.seq,
       } satisfies Partial<CandidateDto>);
@@ -276,10 +280,12 @@ export const handlers = [
     const pick = [CLOSE_CALL.original, CLOSE_CALL.rerelease].find((r) => r.id === best?.releaseId);
     // Like the real API: scoring records the artwork step, so needsArt comes back false
     // (CloseCall.NeedsArt with alreadyCompared=true) — even when the distances could not settle
-    // the close call. The phone sends nothing more; a later :verify-cover would be refused.
+    // the close call. While the row stays ambiguous, needsCoverVerify stays true (the recorded
+    // artwork step), so the phone escalates to :verify-cover; a settled row wants nothing more.
     candidate.artDistance = best?.distance ?? null;
     candidate.needsArt = false;
     if (pick && best && best.distance < 0.4) Object.assign(candidate, { resolution: 'matched', score: 0.95, release: pick, alternatives: null });
+    candidate.needsCoverVerify = candidate.resolution === 'ambiguous';
     candidate.changeSeq = ++session.seq;
     emit(session.id, candidate);
     return HttpResponse.json(candidate);
@@ -300,8 +306,14 @@ export const handlers = [
       bytes: file?.size ?? 0,
       quad: quad ?? null,
     });
-    // Like the real endpoint: only an undecided ambiguous close call with alternatives is verified.
-    if (candidate.decision !== 'undecided' || candidate.resolution !== 'ambiguous' || !candidate.alternatives?.length)
+    // Like the real endpoint: only an undecided ambiguous row the server still wants verified
+    // (an open close call, a recorded :art it could not settle, or a verify being corrected).
+    if (
+      candidate.decision !== 'undecided' ||
+      candidate.resolution !== 'ambiguous' ||
+      !candidate.alternatives?.length ||
+      (!candidate.needsArt && !candidate.needsCoverVerify && !candidate.coverPick)
+    )
       return problem(409, 'This item is not a close call.');
     if (!file) return problem(400, 'Send the capture as a multipart part named "file".');
     // The mock always confirms the leading alternative (no reorder); the re-rank is server behavior the API tests cover.

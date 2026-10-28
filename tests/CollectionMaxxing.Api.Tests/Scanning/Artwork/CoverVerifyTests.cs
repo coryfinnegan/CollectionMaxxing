@@ -134,6 +134,39 @@ public class CoverVerifyTests : ArtworkTest
     }
 
     [Fact]
+    public async Task After_an_indecisive_art_post_the_capture_still_verifies()
+    {
+        // #486: the on-device comparison runs but cannot tell the editions apart (equal distances keep the tie), so
+        // the :art answer comes back needsArt=false with needsCoverVerify=true — and the capture escalates to the
+        // server's own SIFT comparison instead of being refused.
+        using var edition2001 = CoverFixtures.Edition2001();
+        using var edition2003 = CoverFixtures.Edition2003();
+        var corners = CoverFixtures.GentleCorners();
+        var capture = CoverFixtures.CaptureOf(edition2001, corners);
+        var (release2001, _) = await SeedEditionsAsync(CoverFixtures.PngOf(edition2001), CoverFixtures.PngOf(edition2003));
+        var library = await CreateLibraryAsync();
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+        var candidate = (await IdentifyOkAsync(
+            editor, sessionId, Read(title: "Suddenly You", kind: "book", creator: "Lisa Kleypas")))[0];
+        Resolution(candidate).ShouldBe("ambiguous");
+        candidate.GetProperty("needsCoverVerify").GetBoolean().ShouldBeTrue();
+
+        var ids = AlternativeIds(candidate);
+        var afterArt = await ReadOkAsync(await editor.PostAsync(
+            ArtUrl(sessionId, Id(candidate)), Json(new { distances = new[] { Distance(ids[0], 0.1), Distance(ids[1], 0.1) } })));
+        Resolution(afterArt).ShouldBe("ambiguous");
+        Decision(afterArt).ShouldBe("undecided");
+        afterArt.GetProperty("needsArt").GetBoolean().ShouldBeFalse();
+        afterArt.GetProperty("needsCoverVerify").GetBoolean().ShouldBeTrue();
+
+        var verified = await ReadOkAsync(await PostCaptureAsync(editor, sessionId, Id(candidate), capture, QuadJson(corners)));
+
+        AlternativeIds(verified)[0].ShouldBe(release2001);
+        verified.GetProperty("coverPick").GetProperty("releaseId").GetGuid().ShouldBe(release2001);
+    }
+
+    [Fact]
     public async Task A_non_jpeg_capture_is_refused()
     {
         using var edition2001 = CoverFixtures.Edition2001();
@@ -164,6 +197,7 @@ public class CoverVerifyTests : ArtworkTest
         var candidate = (await IdentifyOkAsync(
             editor, sessionId, Read(title: "Suddenly You", kind: "book", creator: "Lisa Kleypas")))[0];
         Resolution(candidate).ShouldBe("matched");
+        candidate.GetProperty("needsCoverVerify").GetBoolean().ShouldBeFalse();
         using var edition = CoverFixtures.Edition2001();
         var capture = CoverFixtures.CaptureOf(edition, CoverFixtures.GentleCorners());
 

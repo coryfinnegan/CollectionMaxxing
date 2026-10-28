@@ -143,10 +143,13 @@ public static class VerifyCoverArtwork
                 return CoverVerifyErrors.NotNeeded;
             }
 
-            // A close call the server flagged for artwork (a spine never is: it has no cover to compare), or one
-            // already cover-verified and being corrected. Anything else was settled without pictures.
+            // A close call the server flagged for artwork (a spine never is: it has no cover to compare), one whose
+            // on-device artwork ran but could not settle it (a recorded artwork step on this still-ambiguous row — a
+            // spine or barcode never records one, so they stay refused), or one already cover-verified and being
+            // corrected. Anything else was settled without pictures.
             var alreadyCompared = trace.Steps.Any(s => s.Provider == CoverVerification.StepName);
-            return trace.NeedsArt || alreadyCompared ? null : CoverVerifyErrors.NotNeeded;
+            var artCompared = trace.Steps.Any(s => s.Provider == ScoreCandidateArtwork.StepName);
+            return trace.NeedsArt || artCompared || alreadyCompared ? null : CoverVerifyErrors.NotNeeded;
         }
 
         private sealed record Attempt(StoredAlternative Alternative, CoverComparison? Comparison, string? Failure);
