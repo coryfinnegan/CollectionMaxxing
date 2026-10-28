@@ -31,5 +31,6 @@ The deployer updates the app by itself every 2 minutes. Use this to see why it h
 
 - The log ends with `deployed <12 hex>; smoke test passed` (or, for a rollback, a line naming the commit you went back to) and the exit code is 0.
 - `Invoke-RestMethod http://127.0.0.1:5480/health/ready` prints `Healthy`.
+- `Invoke-RestMethod http://127.0.0.1:5480/health/version` reports the commit you meant (`sha`), matching `current.sha` in the state file — this is the delivery evidence, not the registry.
 - `current.sha` in the state file is the version you meant.
 - No new `ALERT` line appears in the next few minutes.

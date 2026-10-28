@@ -21,6 +21,7 @@ public static class Extensions
 {
     public const string LivenessPath = "/health/live";
     public const string ReadinessPath = "/health/ready";
+    public const string VersionPath = "/health/version";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
         where TBuilder : IHostApplicationBuilder
@@ -72,13 +73,41 @@ public static class Extensions
         return builder;
     }
 
-    /// <summary>Maps <c>/health/live</c> and <c>/health/ready</c>. They answer anonymous callers on purpose.</summary>
+    /// <summary>
+    /// Maps <c>/health/live</c>, <c>/health/ready</c> and <c>/health/version</c>. They answer anonymous callers
+    /// on purpose, and all three stay out of the OpenAPI document.
+    /// </summary>
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
         app.MapHealthChecks(LivenessPath, new HealthCheckOptions { Predicate = check => check.Tags.Contains("live") })
             .AllowAnonymous();
         app.MapHealthChecks(ReadinessPath, new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") })
             .AllowAnonymous();
+        // #491: the commit this build came from, so a merge's delivery can be verified against the running
+        // server. MapHealthChecks stays out of the OpenAPI document by itself; a MapGet needs to be told.
+        app.MapGet(VersionPath, (IConfiguration config) => TypedResults.Ok(BuildVersion.From(config["CM_BUILD_SHA"])))
+            .ExcludeFromDescription()
+            .AllowAnonymous();
         return app;
+    }
+
+    /// <summary>
+    /// The commit the running build came from (the <c>CM_BUILD_SHA</c> the compose file passes in), or
+    /// <c>"unknown"</c> when it was not set or is not a commit hash.
+    /// </summary>
+    public sealed record BuildVersion(string Sha, string ShortSha)
+    {
+        public const string Unknown = "unknown";
+
+        public static BuildVersion From(string? sha)
+        {
+            var clean = sha?.Trim();
+            if (clean is not { Length: 40 } || clean.Any(c => !Uri.IsHexDigit(c)))
+            {
+                return new BuildVersion(Unknown, Unknown);
+            }
+
+            return new BuildVersion(clean, clean[..12]);
+        }
     }
 }
