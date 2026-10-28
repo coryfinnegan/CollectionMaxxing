@@ -13,8 +13,13 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
 
 // Issue #516 (prod 19:30:55Z Suddenly You picture scan): an unowned Sarah
-// Mayberry same-title book ranked first above the twice-owned Lisa Kleypas
-// novel, and the bind took alternatives[0].
+// Mayberry same-title book ranked first above the Lisa Kleypas novel, and the
+// bind took alternatives[0]. The seed below is the visible-owned shape: the
+// learned row reads owned 2. Prod itself read all-0 — the fix-round join
+// (issue #516) pinned DeletedAt: both Kleypas items were deleted before the
+// answer (one 12 s before), so 0 was the true count, and the artwork
+// re-score supplied the 0.75-over-0.734 lead. That shape is pinned as
+// truthful by Copies_deleted_before_the_answer below.
 //
 // Pre-fix, this seed answered (ambiguous, T2, undecided, candidate owned 0):
 //   [0] Mayberry 1.0 owned 0  <- ranked first by scorer-order noise
@@ -152,5 +157,43 @@ public class ScanIdentifyOwnedSameTitleTests(ApiFixture api) : IdentifyTest(api)
         alternatives[0].GetProperty("releaseId").GetGuid().ShouldBe(seed.MayberryId);
         var owned = alternatives.Single(a => a.GetProperty("releaseId").GetGuid() == seed.LearnedId);
         owned.GetProperty("alreadyOwnedCount").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Copies_deleted_before_the_answer_read_unowned_and_keep_scorer_order()
+    {
+        var seed = await SeedSuddenlyYouAsync();
+
+        // Prod #516 read all-0 with the learned row among the options: both of
+        // its items were deleted before the answer (one 12 s before), so 0 was
+        // the true count and the reorder correctly no-ops on it.
+        await using (var seedContext = Db.CreateContext())
+        {
+            var items = await seedContext.Items.IgnoreQueryFilters()
+                .Where(i => i.ReleaseId == seed.LearnedId).ToListAsync();
+            items.Count.ShouldBe(2);
+            foreach (var item in items)
+            {
+                item.DeletedAt = new DateTimeOffset(2026, 10, 28, 19, 30, 39, TimeSpan.Zero);
+            }
+
+            await seedContext.SaveChangesAsync();
+        }
+
+        var candidate = await IdentifyOnceAsync(seed.Client, seed.SessionId, Read(title: Title, kind: "book"));
+
+        Resolution(candidate).ShouldBe("ambiguous");
+        candidate.GetProperty("tier").GetString().ShouldBe("T2");
+        Decision(candidate).ShouldBe("undecided");
+        var alternatives = candidate.GetProperty("alternatives").EnumerateArray().ToList();
+        alternatives.Count.ShouldBe(3);
+        alternatives.Select(a => a.GetProperty("releaseId").GetGuid()).ShouldContain(seed.LearnedId);
+        alternatives.All(a => a.GetProperty("alreadyOwnedCount").GetInt32() == 0).ShouldBeTrue();
+        alternatives[0].GetProperty("releaseId").GetGuid().ShouldBe(seed.MayberryId);
+
+        await using var context = Db.CreateContext();
+        var trace = (await context.ScanCandidates.IgnoreQueryFilters().SingleAsync(c => c.Id == Id(candidate))).TraceJson;
+        trace.ShouldNotBeNull();
+        trace.ShouldNotContain("biased");
     }
 }
