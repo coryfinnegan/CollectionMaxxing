@@ -84,9 +84,12 @@ public sealed class FakeProvider(string name = "fake") : ICatalogProvider, ISear
 
     public Func<CancellationToken, Task>? Behaviour { get; set; }
 
+    /// <summary>False takes the provider out of the race, like a real adapter without its key (#490).</summary>
+    public bool Enabled { get; set; } = true;
+
     public string Name => name;
 
-    public bool Supports(WorkKind kind) => true;
+    public bool Supports(WorkKind kind) => Enabled;
 
     public async Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct)
     {

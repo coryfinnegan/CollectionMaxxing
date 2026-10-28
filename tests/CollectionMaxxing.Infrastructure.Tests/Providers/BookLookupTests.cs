@@ -243,6 +243,20 @@ public class BookLookupTests(PostgresFixture db) : DatabaseTest(db)
         ProviderCalls(host).ShouldBe(callsAfterFirst);
     }
 
+    [Fact]
+    public async Task The_log_names_the_requested_providers_that_were_never_consulted()
+    {
+        using var host = ProviderHost.Create(Db, settings: new() { ["Providers:GoogleBooks:ApiKey"] = null });
+        StubOpenLibraryFound(host);
+        var log = new CapturingLogger();
+
+        var result = await LookupOn(host, log).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        result.Release.ShouldNotBeNull();
+        log.Messages.ShouldContain("Book lookup did not consult googlebooks (no enabled provider by that name).");
+        log.Messages.ShouldAllBe(m => !m.Contains(ProviderHost.ValidIsbn)); // a barcode never goes to the log
+    }
+
     private sealed class CapturingLogger : ILogger<BookLookup>
     {
         public List<string> Messages { get; } = [];
