@@ -285,20 +285,54 @@ describe('a close call', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('sends nothing more after an on-device comparison the server recorded, and the card stays Pick one', async () => {
+  it('escalates to :verify-cover after an on-device comparison that could not settle it, and merges the pick', async () => {
     kit.art.distances.set('0001', 0.5);
     kit.art.distances.set('0002', 0.6);
     await settle();
     await waitFor(() => expect(identifyMock.artRequests).toHaveLength(1));
-    // The recorded :art comes back needsArt=false (like the real API), so the guard blocks the
-    // verify send: the card stays an undecided close call for the person to pick. (#486 tracks
-    // the server allowing verify-after-:art; until then there is nothing more to send.)
+    // The recorded :art comes back needsArt=false with needsCoverVerify=true (like the real API),
+    // so the guard escalates: the cover still goes up for the server's own comparison.
+    await waitFor(() => expect(identifyMock.verifyRequests).toHaveLength(1));
+    expect(identifyMock.artRequests).toHaveLength(1);
+    const [sent] = identifyMock.verifyRequests;
+    expect(sent!.bytes).toBe(100);
+    expect(JSON.parse(sent!.quad!)).toEqual(JSON.parse(quadJsonOf({ x: 0.55, y: 0.1, width: 0.2, height: 0.3 })!));
+    await waitFor(() =>
+      expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.coverPick).toEqual({
+        releaseId: CLOSE_CALL.original.id,
+        reason: 'cover_match',
+      }),
+    );
+    const card = stored().find((c) => c.visibleText === CLOSE_CALL.title);
+    expect(card?.resolution).toBe('ambiguous');
+    expect(card?.needsArt).toBe(false);
+    expect(card?.needsCoverVerify).toBe(true);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('sends nothing more when the recorded comparison wants no cover verification', async () => {
+    kit.art.distances.set('0001', 0.5);
+    kit.art.distances.set('0002', 0.6);
+    server.use(
+      http.post(/\/candidates\/[^/]+:art$/, async ({ request }) => {
+        const match = /\/scan-sessions\/([^/]+)\/candidates\/([^/:]+):art$/.exec(new URL(request.url).pathname);
+        const session = scanMock.sessions.get(match?.[1] ?? '');
+        const candidate = session?.candidates.find((c) => c.id === match?.[2]);
+        if (!session || !candidate) return HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404 });
+        const body = (await request.json()) as { distances?: { releaseId: string; distance: number }[] };
+        identifyMock.artRequests.push({ sessionId: session.id, candidateId: candidate.id, distances: body.distances ?? [] });
+        // The recorded answer comes back with the cover flag off: the guard stays quiet.
+        return HttpResponse.json({ ...candidate, artDistance: 0.5, needsArt: false, needsCoverVerify: false });
+      }),
+    );
+    await settle();
+    await waitFor(() => expect(identifyMock.artRequests).toHaveLength(1));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
     expect(identifyMock.verifyRequests).toEqual([]);
     expect(kit.cover.reads).toEqual([]);
     const card = stored().find((c) => c.visibleText === CLOSE_CALL.title);
     expect(card?.resolution).toBe('ambiguous');
-    expect(card?.needsArt).toBe(false);
+    expect(card?.needsCoverVerify).toBe(false);
     expect(card?.coverPick).toBeUndefined();
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -309,6 +343,8 @@ describe('a close call', () => {
     kit.cover.bytes = MAX_VERIFY_BYTES + 1;
     await settle();
     await waitFor(() => expect(identifyMock.artRequests).toHaveLength(1));
+    // The recorded :art escalates past the guard, but the oversize capture is never sent.
+    await waitFor(() => expect(kit.cover.reads).toHaveLength(1));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
     expect(identifyMock.verifyRequests).toEqual([]);
     expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.resolution).toBe('ambiguous');
@@ -316,8 +352,7 @@ describe('a close call', () => {
   });
 
   it('leaves the answer as it is when the server refuses the verification (409 on :verify-cover)', async () => {
-    // The comparison cannot run, so the capture goes up (a recorded :art would come back
-    // needsArt=false and block the send) and the server refuses it.
+    // The comparison cannot run, so the capture goes up and the server refuses it.
     kit.art.failDownloads = true;
     server.use(
       http.post(/\/candidates\/[^/]+:verify-cover$/, () =>

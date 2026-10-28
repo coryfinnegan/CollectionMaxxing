@@ -171,6 +171,7 @@ const newCandidate = (session: MockSession, code: string, symbology: string | nu
     score: null,
     artDistance: null,
     needsArt: false,
+    needsCoverVerify: false,
     release: null,
     inferred: null,
     alternatives: null,

@@ -379,6 +379,7 @@ export class SnapPipeline {
       score: 1,
       artDistance: null,
       needsArt: false,
+      needsCoverVerify: false,
       release: { id: releaseId, title: item.title || UNKNOWN_ITEM },
       inferred: null,
       alternatives: null,
@@ -482,10 +483,11 @@ export class SnapPipeline {
         // leave the card as it was: Pick one
       }
     }
-    // #438 stage 2: still an ambiguous close call — the on-device comparison could not run (provider
-    // books carry no artwork URLs) or could not settle it. The server compares the cover photo itself;
-    // anything it answers merges, anything else leaves the card as it was.
-    if (current.resolution !== 'ambiguous' || !current.needsArt) return;
+    // #438 stage 2: still an ambiguous close call the server wants verified — the on-device comparison
+    // could not run (provider books carry no artwork URLs) or could not settle it (a recorded :art comes back
+    // needsArt=false with needsCoverVerify=true, #486). The server compares the cover photo itself; anything it
+    // answers merges, anything else leaves the card as it was.
+    if (current.resolution !== 'ambiguous' || !current.needsCoverVerify) return;
     const capture = coverCaptureOf(this.deps.snaps, found.snap, found.item);
     if (!capture) return;
     const verified = await verifyCoverPhoto(this.deps.coverVerify, this.deps.api, sessionId, current, capture);

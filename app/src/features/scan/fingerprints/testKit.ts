@@ -62,6 +62,7 @@ export const candidateOf = (id: string, extra: Partial<CandidateDto> = {}): Cand
     score: 0.9,
     artDistance: null,
     needsArt: false,
+    needsCoverVerify: false,
     release: { id: `00000000-0000-4000-9000-${id.padStart(12, '0')}`, title: 'Dune' },
     inferred: null,
     alternatives: null,

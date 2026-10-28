@@ -37,6 +37,7 @@ export const candidate = (extra: Partial<CandidateDto> = {}): CandidateDto => ({
   score: 1,
   artDistance: null,
   needsArt: false,
+  needsCoverVerify: false,
   release: null,
   inferred: null,
   alternatives: null,

@@ -14,8 +14,12 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// <summary>
 /// One thing the scanner saw, what we think it is, and what the user decided. <c>NeedsArt</c> says the top releases are a close
 /// call: the phone should compare the alternatives' <c>artworkUrl</c>s with the item and post the distances to
-/// <c>POST …/candidates/{id}:art</c>. <c>ShotKind</c> is what the phone's framing said the shot was; <c>SegmentId</c> links the
-/// items of a multi-item snap (#338); <c>GuidanceCode</c> is what this unresolved row tells the person to do next (#344).
+/// <c>POST …/candidates/{id}:art</c>. <c>NeedsCoverVerify</c> says the row still wants its cover verified (#486): it is
+/// ambiguous, nobody decided it, and it is either an open close call or one whose on-device artwork ran but could not
+/// settle it. The phone posts the cover capture to <c>POST …/candidates/{id}:verify-cover</c> when the comparison cannot
+/// run (no <c>artworkUrl</c>s) or cannot settle it. <c>ShotKind</c> is what the phone's framing said the shot was;
+/// <c>SegmentId</c> links the items of a multi-item snap (#338); <c>GuidanceCode</c> is what this unresolved row tells the
+/// person to do next (#344).
 /// <c>Tier</c> is the commit tier (docs/16 §6): null until the candidate resolves.
 /// <c>CropUrl</c> is its kept segment crop, when it has one (#345).
 /// <c>CoverPick</c> is the cover verification's preselected alternative (#438 stage 2): Review shows it checked, and the
@@ -36,6 +40,7 @@ public sealed record CandidateDto(
     double? Score,
     double? ArtDistance,
     bool NeedsArt,
+    bool NeedsCoverVerify,
     ReleaseDto? Release,
     JsonElement? Inferred,
     IReadOnlyList<CandidateAlternativeDto>? Alternatives,
