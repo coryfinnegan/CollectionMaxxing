@@ -1,10 +1,12 @@
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Ownership;
 using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Application.Scanning.Quota;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Scanning;
@@ -94,12 +96,16 @@ public sealed class CandidateResolver(
         var ensured = new List<EnsuredRelease>();
         if (resolution.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
         {
+            var (reunited, donorCovers) = await CollapseSameNovelAsync(resolution, cancellationToken);
+            resolution = reunited;
             foreach (var option in resolution.Options.Take(MaxAlternatives))
             {
                 ensured.Add(option.LocalReleaseId is { } local
                     ? new EnsuredRelease(local, false)
                     : await releases.EnsureAsync(option.Provider!, cancellationToken));
             }
+
+            await ShareSameNovelCoversAsync(ensured, donorCovers, cancellationToken);
         }
 
         var taken = resolution.Options.Take(MaxAlternatives).Zip(ensured, (option, release) => (option, release.Id)).ToList();
@@ -177,6 +183,149 @@ public sealed class CandidateResolver(
         DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
         candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
             resolution.Steps, ownedAt, NeedsArt(candidate, resolution with { Verdict = verdict }), autoDecision, retryAfter));
+    }
+
+    /// <summary>
+    /// Reunites a provider option with the catalogue's own same-novel release (#514): one provider keeps a novel
+    /// under several work keys, and a rescan that matched the confirmed row must not mint a parallel row for the
+    /// same novel beside it. A reunited option points at the rank-first local same-novel release (its score is
+    /// kept) and drops the provider payload; the payload's cover address is kept as a donor for the cover pass,
+    /// by release id in option order. A provider option with no same-novel local release (a first scan, or
+    /// another author's book) is untouched and ensures exactly as before. Saves nothing; the caller saves.
+    /// </summary>
+    private async Task<(BarcodeResolution Resolution, Dictionary<Guid, List<string>> DonorCovers)> CollapseSameNovelAsync(
+        BarcodeResolution resolution, CancellationToken cancellationToken)
+    {
+        var donors = new Dictionary<Guid, List<string>>();
+        var locals = resolution.Options
+            .Where(o => o.LocalReleaseId is not null)
+            .Select(o => o.LocalReleaseId!.Value)
+            .Distinct()
+            .ToList();
+        if (locals.Count == 0 || resolution.Options.All(o => o.Provider is null || o.LocalReleaseId is not null))
+        {
+            return (resolution, donors);
+        }
+
+        var works = new Dictionary<Guid, (WorkKind Kind, string Title, IReadOnlyList<string> Creators)>();
+        foreach (var id in locals)
+        {
+            if (await db.Releases.FindAsync([id], cancellationToken) is { } release
+                && await db.Works.FindAsync([release.WorkId], cancellationToken) is { } work)
+            {
+                works[id] = (work.Kind, work.Title, ItemProjection.Creators(work.CreatorsJson));
+            }
+        }
+
+        var rank = locals.Where(works.ContainsKey).ToList(); // option order: the scorer's preference
+        if (rank.Count == 0)
+        {
+            return (resolution, donors);
+        }
+
+        var rewritten = new List<ResolutionOption>(resolution.Options.Count);
+        var collapsed = false;
+        foreach (var option in resolution.Options)
+        {
+            Guid? target = null;
+            if (option is { Provider: { } provider, LocalReleaseId: null })
+            {
+                foreach (var id in rank)
+                {
+                    if (SameNovel.IsSame(
+                            works[id].Kind, works[id].Title, works[id].Creators,
+                            provider.Kind, provider.Title, provider.Creators))
+                    {
+                        target = id;
+                        break;
+                    }
+                }
+            }
+
+            if (option.Provider is { } donor && target is { } localId)
+            {
+                rewritten.Add(option with { LocalReleaseId = localId, Provider = null });
+                if (donor.CoverUrl is not null)
+                {
+                    if (!donors.TryGetValue(localId, out var covers))
+                    {
+                        donors[localId] = covers = [];
+                    }
+
+                    covers.Add(donor.CoverUrl);
+                }
+
+                collapsed = true;
+            }
+            else
+            {
+                rewritten.Add(option);
+            }
+        }
+
+        return collapsed ? (resolution with { Options = rewritten }, donors) : (resolution, donors);
+    }
+
+    /// <summary>
+    /// Shares covers between the releases one answer ensured when they are the same novel (#514): a coverless
+    /// release gains its same-novel sibling's cover — the sibling's stored asset when it has one (shared, never
+    /// downloaded twice), else the sibling's cover address for the commit to fetch — and a reunited provider
+    /// answer's cover address heals the release it collapsed onto. Only the cover moves: the release keeps its
+    /// own provider and external id, and another author's book never donates. Saves nothing; the caller saves.
+    /// </summary>
+    private async Task ShareSameNovelCoversAsync(
+        List<EnsuredRelease> ensured, Dictionary<Guid, List<string>> donorCovers, CancellationToken cancellationToken)
+    {
+        var ids = ensured.Select(e => e.Id).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var releases = new List<Release>();
+        var works = new Dictionary<Guid, (WorkKind Kind, string Title, IReadOnlyList<string> Creators)>();
+        foreach (var id in ids)
+        {
+            if (await db.Releases.FindAsync([id], cancellationToken) is { } release
+                && await db.Works.FindAsync([release.WorkId], cancellationToken) is { } work)
+            {
+                releases.Add(release);
+                works[release.Id] = (work.Kind, work.Title, ItemProjection.Creators(work.CreatorsJson));
+            }
+        }
+
+        var order = ids.Select((id, index) => (id, index)).ToDictionary(x => x.id, x => x.index);
+        foreach (var recipient in releases)
+        {
+            if (recipient.CoverAssetId is not null || CoverOutcome.CoverUrlOf(recipient.ProviderPayloadsJson) is not null)
+            {
+                continue;
+            }
+
+            var donor = releases
+                .Where(d => d.Id != recipient.Id
+                    && (d.CoverAssetId is not null || CoverOutcome.CoverUrlOf(d.ProviderPayloadsJson) is not null)
+                    && SameNovel.IsSame(
+                        works[recipient.Id].Kind, works[recipient.Id].Title, works[recipient.Id].Creators,
+                        works[d.Id].Kind, works[d.Id].Title, works[d.Id].Creators))
+                .OrderByDescending(d => d.CoverAssetId is not null)
+                .ThenBy(d => order[d.Id])
+                .FirstOrDefault();
+            if (donor?.CoverAssetId is { } asset)
+            {
+                recipient.CoverAssetId = asset;
+                recipient.ProviderPayloadsJson = CoverOutcome.WithOutcome(recipient.ProviderPayloadsJson, CoverOutcome.Fetched, null)
+                    ?? recipient.ProviderPayloadsJson;
+            }
+            else if (donor is not null && CoverOutcome.CoverUrlOf(donor.ProviderPayloadsJson) is { } url)
+            {
+                recipient.ProviderPayloadsJson = CoverOutcome.WithCoverUrl(recipient.ProviderPayloadsJson, url);
+            }
+            else if (donorCovers.TryGetValue(recipient.Id, out var covers) && covers is [var cover, ..])
+            {
+                recipient.ProviderPayloadsJson = CoverOutcome.WithCoverUrl(recipient.ProviderPayloadsJson, cover);
+            }
+        }
     }
 
     /// <summary>
