@@ -4,7 +4,7 @@
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { SearchViewFixture, type SearchViewFixtureState } from '@/features/search/fixture';
 
-const STATES: SearchViewFixtureState[] = ['initial', 'loading', 'results', 'none', 'error'];
+const STATES: SearchViewFixtureState[] = ['initial', 'loading', 'results', 'none', 'error', 'offline'];
 
 export default function Route() {
   const { state } = useLocalSearchParams<{ state?: string }>();
