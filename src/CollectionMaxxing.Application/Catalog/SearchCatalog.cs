@@ -73,19 +73,52 @@ public static class SearchCatalog
                 results.AddRange(await SearchProvidersAsync(title, query, kind, limit, known, cancellationToken));
             }
 
-            var ordered = results.OrderByDescending(r => r.Score).ThenBy(r => r.Work.Title, StringComparer.OrdinalIgnoreCase).ToList();
             var mine = await MyReleaseIdsAsync(
-                ordered.SelectMany(r => r.Releases).Select(r => r.Id).Where(id => id != CatalogProjection.UnsavedId).ToList(), cancellationToken);
-            ordered = ordered
+                results.SelectMany(r => r.Releases).Select(r => r.Id).Where(id => id != CatalogProjection.UnsavedId).ToList(), cancellationToken);
+            var normalizedQuery = TitleNormalizer.Normalize(title);
+
+            // Exact title-or-creator matches first, then what the caller owns, then score; scope=library keeps owned
+            // absolute-first with exactness inside each half. Stable throughout: score order kept inside each group.
+            var ordered = (libraryFirst
+                ? results
+                    .OrderByDescending(r => IsOwned(mine, r))
+                    .ThenByDescending(r => IsExactMatch(normalizedQuery, r))
+                    .ThenByDescending(r => r.Score)
+                    .ThenBy(r => r.Work.Title, StringComparer.OrdinalIgnoreCase)
+                : results
+                    .OrderByDescending(r => IsExactMatch(normalizedQuery, r))
+                    .ThenByDescending(r => IsOwned(mine, r))
+                    .ThenByDescending(r => r.Score)
+                    .ThenBy(r => r.Work.Title, StringComparer.OrdinalIgnoreCase))
                 .Select(r => r with { OwnedReleaseIds = r.Releases.Select(rel => rel.Id).Where(mine.Contains).ToList() })
+                .Take(limit)
                 .ToList();
-            if (libraryFirst)
+
+            return new Page<CatalogSearchResultDto>(ordered);
+        }
+
+        /// <summary>
+        /// An exact match for the query: the work's title or one of its creators is the query once normalised, so
+        /// "Matrix, The" still exactly matches "The Matrix" and "lisa kleypas" matches her books.
+        /// </summary>
+        private static bool IsExactMatch(string normalizedQuery, CatalogSearchResultDto result)
+        {
+            if (normalizedQuery.Length == 0)
             {
-                ordered = ordered.OrderByDescending(r => r.Releases.Any(rel => mine.Contains(rel.Id))).ToList(); // stable: score order kept inside each half
+                return false;
             }
 
-            return new Page<CatalogSearchResultDto>(ordered.Take(limit).ToList());
+            if (TitleNormalizer.Normalize(result.Work.Title) == normalizedQuery)
+            {
+                return true;
+            }
+
+            return result.Work.Creators.Concat(result.Releases.SelectMany(r => r.Creators))
+                .Any(creator => TitleNormalizer.Normalize(creator) == normalizedQuery);
         }
+
+        private static bool IsOwned(HashSet<Guid> mine, CatalogSearchResultDto result) =>
+            result.Releases.Any(r => mine.Contains(r.Id));
 
         /// <summary>
         /// The releases the caller's libraries own (an existing Owned or Lent copy) or made for themselves. The table filters
