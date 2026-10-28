@@ -1,6 +1,6 @@
-// Spike #505: the OCR-text tier behaves like the picture reader, minus the picture.
+// The OCR-text tier behaves like the picture reader, minus the picture.
 import type { ModelCapabilities } from '@/native/cm-vision';
-import { DEFAULT_RECOGNITION_SETTINGS, promptOf } from './defaults';
+import { DEFAULT_RECOGNITION_SETTINGS, extractionPromptOf } from './defaults';
 import { FmTextEngine } from './FmTextEngine';
 import { failedRead, line, modelItem, okRead, RecordingVision, STILL, testIds } from './fakes';
 import { ModelUnusableError } from './types';
@@ -37,17 +37,27 @@ describe('FmTextEngine availability', () => {
 });
 
 describe('FmTextEngine reading', () => {
-  it('sends the cleaned Vision lines as one text with the server-owned prompt and limits', async () => {
+  it('sends the cleaned Vision lines as one text with the server-owned extraction prompt and limits', async () => {
     const vision = new RecordingVision(scene(), { capabilities: TEXT_26 });
     const reading = await new FmTextEngine(deps(vision)).read(STILL, () => {});
     expect(reading.engine).toBe('fm_text');
     expect(vision.extractCalls).toHaveLength(1);
     expect(vision.extractCalls[0].ocrText).toBe('Dune\nFrank Herbert');
     expect(vision.extractCalls[0].options).toEqual({
-      prompt: promptOf(DEFAULT_RECOGNITION_SETTINGS),
+      prompt: extractionPromptOf(DEFAULT_RECOGNITION_SETTINGS),
       timeoutMs: DEFAULT_RECOGNITION_SETTINGS.engine.modelTimeoutMs,
       maxItems: DEFAULT_RECOGNITION_SETTINGS.engine.maxItemsPerSnap,
     });
+  });
+
+  it('asks for one item on a cover shot and the full snap on a shelf shot', async () => {
+    const cover = new RecordingVision(scene(), { capabilities: TEXT_26 });
+    await new FmTextEngine(deps(cover)).read(STILL, () => {}, { shotKind: 'single_cover' });
+    expect(cover.extractCalls[0].options.maxItems).toBe(1);
+
+    const shelf = new RecordingVision(scene(), { capabilities: TEXT_26 });
+    await new FmTextEngine(deps(shelf)).read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    expect(shelf.extractCalls[0].options.maxItems).toBe(DEFAULT_RECOGNITION_SETTINGS.engine.maxItemsPerSnap);
   });
 
   it('returns typed items with boxes from the matched Vision lines', async () => {

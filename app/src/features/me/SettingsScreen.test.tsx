@@ -78,6 +78,14 @@ describe('Settings > Recognition', () => {
     expect(screen.getByText('Apple Intelligence: Off')).toBeTruthy();
   });
 
+  it('shows the Apple text model on a phone whose model cannot see pictures', async () => {
+    recognitionWith({ available: true, vision: false, guidedGeneration: true, contextSize: 4096 });
+    await renderWithProviders(<SettingsScreen />);
+    expect(await screen.findByText('Engine: Apple text model')).toBeTruthy();
+    expect(screen.getByText('Apple Intelligence: On')).toBeTruthy();
+    expect(screen.getByText(/reads the text on covers/)).toBeTruthy();
+  });
+
   it.each([
     ['modelNotReady', 'Apple Intelligence: Still getting ready'],
     ['osTooOld', 'Apple Intelligence: Needs a newer iOS'],

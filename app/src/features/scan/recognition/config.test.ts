@@ -1,6 +1,7 @@
-import { DEFAULT_RECOGNITION_CONFIG as D, DEFAULT_RECOGNITION_SETTINGS, type RecognitionConfig, promptOf } from './defaults';
+import { DEFAULT_RECOGNITION_CONFIG as D, DEFAULT_RECOGNITION_SETTINGS, type RecognitionConfig, extractionPromptOf, promptOf } from './defaults';
 import { type ConfigFetchResult, RecognitionConfigStore } from './config';
 import { EngineSelector } from './EngineSelector';
+import { FmTextEngine } from './FmTextEngine';
 import { line, modelItem, okRead, RecordingVision, STILL, testIds } from './fakes';
 import { maxDistanceOf } from '../fingerprints/matcher';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
@@ -44,6 +45,23 @@ describe('RecognitionConfigStore', () => {
     expect(maxDistanceOf(bad.store.current())).toBe(0.35);
   });
 
+  it('takes the extraction prompt from the server, and keeps the built-in one when an older server sends none', async () => {
+    const tuned = setup([{ status: 'ok', body: { ...v2, extractionPrompt: { template: 'Extract every item.', outputRules: 'Be careful.' } } }]);
+    await tuned.store.refresh();
+    expect(tuned.store.current().extractionPrompt).toEqual({ template: 'Extract every item.', outputRules: 'Be careful.' });
+
+    const { extractionPrompt: _none, ...older } = v2;
+    const old = setup([{ status: 'ok', body: older }]);
+    expect(await old.store.refresh()).toBe('updated');
+    expect(old.store.current().extractionPrompt).toEqual(D.extractionPrompt);
+  });
+
+  it('refuses a config with an extraction prompt that is not two texts', async () => {
+    const bad = setup([{ status: 'ok', body: { ...v2, extractionPrompt: { template: '', outputRules: 'Be careful.' } } }]);
+    expect(await bad.store.refresh()).toBe('kept');
+    expect(bad.store.current().extractionPrompt).toEqual(D.extractionPrompt);
+  });
+
   it('starts on the built-in defaults, so the app never waits on the network', () => {
     expect(setup([]).store.current()).toEqual(DEFAULT_RECOGNITION_SETTINGS);
   });
@@ -66,6 +84,18 @@ describe('RecognitionConfigStore', () => {
     await selector.read(STILL, () => {});
     expect(vision.readCalls[0].options.prompt).toBe(promptOf(D));
     expect(vision.readCalls[1].options).toEqual({ prompt: promptOf(v2), timeoutMs: 3000, maxItems: 10 });
+  });
+
+  it('gives the next extractItems call the new extraction prompt', async () => {
+    const v3: RecognitionConfig = { ...v2, version: 'v3', extractionPrompt: { template: 'Extract every item.', outputRules: 'Be careful.' } };
+    const { store } = setup([{ status: 'ok', etag: '"e3"', body: v3 }]);
+    const vision = new RecordingVision({ [STILL.uri]: { extract: okRead([modelItem('Dune', 'Dune', 0)]), text: [line('Dune', 0.1, 0.1, 0.1, 0.5)] } });
+    const engine = new FmTextEngine({ vision, settings: () => store.current(), newId: testIds });
+    await engine.read(STILL, () => {});
+    await store.refresh();
+    await engine.read(STILL, () => {});
+    expect(vision.extractCalls[0].options.prompt).toBe(extractionPromptOf(D));
+    expect(vision.extractCalls[1].options.prompt).toBe('Extract every item.\n\nBe careful.');
   });
 
   it('sends If-None-Match with the cached tag and keeps the cache on 304', async () => {

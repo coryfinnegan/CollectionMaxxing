@@ -14,7 +14,7 @@ interface Result {
   engine: string;
   outcome: string;
   fellBackFrom?: string;
-  items: { title: string; localId: string; tier?: string; provisional?: boolean; isGuess?: boolean; segmentId?: string }[];
+  items: { title: string; localId: string; resolvedBy?: string; tier?: string; provisional?: boolean; isGuess?: boolean; segmentId?: string }[];
   unreadableCount: number;
   latencyMs: number;
   firstItemMs?: number;
@@ -42,15 +42,15 @@ afterEach(() => {
 });
 
 describe('the eval runner', () => {
-  it('reads each photo with both engines, in order, and sends one run with every declared field', async () => {
+  it('reads each photo with all three engines, in order, and sends one run with every declared field', async () => {
     const kit = makeKit({ photos: 4 });
     await kit.runner.start();
 
     expect(runs()).toHaveLength(1);
     const { results, device, configVersion } = runs()[0];
-    expect(results).toHaveLength(8);
+    expect(results).toHaveLength(12);
     expect(results.map((r) => `${r.photoId}:${r.engine}`)).toEqual(
-      kit.ids.flatMap((id) => [`${id}:apple_model`, `${id}:vision_pipeline`]),
+      kit.ids.flatMap((id) => [`${id}:apple_model`, `${id}:fm_text`, `${id}:vision_pipeline`]),
     );
     for (const r of results) {
       expect(r.outcome).toBe('ok');
@@ -69,19 +69,37 @@ describe('the eval runner', () => {
   it('records why the model fell back, and does not count the fallback reading as the model\'s', async () => {
     const kit = makeKit({ photos: 2, scenes: { 'photo-001': { read: failedRead('declined') }, 'photo-002': { read: failedRead('contextExceeded') } } });
     await kit.runner.start();
-    const [first, , second] = runs()[0].results;
+    const [first, middle, , second] = runs()[0].results;
     expect(first).toMatchObject({ engine: 'apple_model', outcome: 'refused', fellBackFrom: 'declined', items: [] });
     expect(second).toMatchObject({ engine: 'apple_model', outcome: 'error', fellBackFrom: 'context', items: [] });
-    expect(runs()[0].results[1]).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
+    expect(middle).toMatchObject({ engine: 'fm_text', outcome: 'ok' });
+    expect(runs()[0].results[2]).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
   });
 
   it('sends a model timeout as outcome timeout with fellBackFrom timeout, not as an error or an outage', async () => {
     const kit = makeKit({ photos: 1, scenes: { 'photo-001': { read: failedRead('timeout') } } });
     await kit.runner.start();
-    const [model, vision] = runs()[0].results;
+    const [model, , vision] = runs()[0].results;
     expect(model).toMatchObject({ engine: 'apple_model', outcome: 'timeout', fellBackFrom: 'timeout', items: [] });
     expect(model.latencyMs).toBeGreaterThanOrEqual(0);
     expect(vision).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
+  });
+
+  it('sends an extraction refusal and timeout as their own outcomes, not as errors', async () => {
+    const kit = makeKit({ photos: 2, scenes: { 'photo-001': { extract: failedRead('declined') }, 'photo-002': { extract: failedRead('timeout') } } });
+    await kit.runner.start();
+    const fm = runs()[0].results.filter((r) => r.engine === 'fm_text');
+    expect(fm).toHaveLength(2);
+    expect(fm[0]).toMatchObject({ photoId: 'photo-001', outcome: 'refused', fellBackFrom: 'declined', items: [] });
+    expect(fm[1]).toMatchObject({ photoId: 'photo-002', outcome: 'timeout', fellBackFrom: 'timeout', items: [] });
+  });
+
+  it('marks extraction rows as settled by the model', async () => {
+    const kit = makeKit({ photos: 1 });
+    await kit.runner.start();
+    const fm = runs()[0].results.find((r) => r.engine === 'fm_text');
+    expect(fm?.items.length).toBeGreaterThan(0);
+    for (const item of fm?.items ?? []) expect(item.resolvedBy).toBe('model');
   });
 
   it('keeps the screen awake for the run and lets go at the end', async () => {
@@ -95,7 +113,7 @@ describe('the eval runner', () => {
     jest.spyOn(kit.vision, 'deviceStatus').mockResolvedValue({ thermalState: 'serious', osVersion: '26.0' });
     await kit.runner.start();
     expect(kit.runner.getState().keepCool).toBe(true);
-    expect(runs()[0].results).toHaveLength(4);
+    expect(runs()[0].results).toHaveLength(6);
     expect(runs()[0].results.every((r) => r.thermalState === 'serious')).toBe(true);
   });
 
@@ -114,14 +132,14 @@ describe('the eval runner', () => {
 
     expect(runs()).toHaveLength(1);
     expect(runs()[0].partial).toBe(true);
-    expect(runs()[0].results.map((r) => r.photoId)).toEqual(['photo-001', 'photo-001']);
+    expect(runs()[0].results.map((r) => r.photoId)).toEqual(['photo-001', 'photo-001', 'photo-001']);
     expect(kit.runner.getState()).toMatchObject({ phase: 'done', partial: true });
 
     await kit.runner.resume();
 
     expect(runs()).toHaveLength(2);
     expect(runs()[1].partial).toBeFalsy();
-    expect(runs()[1].results).toHaveLength(8);
+    expect(runs()[1].results).toHaveLength(12);
     expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-002', 'photo-003', 'photo-004']);
   });
 
@@ -142,7 +160,7 @@ describe('the eval runner', () => {
     void kit.runner.resume();
     await finished;
     expect(runs()).toHaveLength(1);
-    expect(runs()[0].results).toHaveLength(6);
+    expect(runs()[0].results).toHaveLength(9);
     expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-003']);
   });
 
@@ -151,13 +169,13 @@ describe('the eval runner', () => {
     evalsMock.failNextSubmit = 500;
     await kit.runner.start();
     expect(kit.runner.getState().phase).toBe('upload_failed');
-    expect(kit.runner.getState().resultCount).toBe(4);
+    expect(kit.runner.getState().resultCount).toBe(6);
     expect(evalsMock.runs).toHaveLength(0);
 
     await kit.runner.retryUpload();
     expect(kit.runner.getState().phase).toBe('done');
     expect(runs()).toHaveLength(1);
-    expect(runs()[0].results).toHaveLength(4);
+    expect(runs()[0].results).toHaveLength(6);
   });
 
   it('runs only one run at a time', async () => {
@@ -209,7 +227,7 @@ describe('the eval runner', () => {
   it('skips a photo it cannot download, says so, and sends the rest', async () => {
     const kit = makeKit({ photos: 3, failDownload: ['photo-002'] });
     await kit.runner.start();
-    expect(runs()[0].results.map((r) => r.photoId)).toEqual(['photo-001', 'photo-001', 'photo-003', 'photo-003']);
+    expect(runs()[0].results.map((r) => r.photoId)).toEqual(['photo-001', 'photo-001', 'photo-001', 'photo-003', 'photo-003', 'photo-003']);
     expect(kit.runner.getState().skipped).toEqual(['photo-002']);
   });
 
@@ -244,6 +262,14 @@ describe('the eval runner', () => {
       for (const item of row.items) {
         expect(item).toMatchObject({ provisional: true, isGuess: true });
         expect(item).not.toHaveProperty('tier');
+      }
+    }
+    // the extraction tier is a model read, so its high-confidence rows claim T1 like the Apple's
+    for (const row of runs()[0].results.filter((r) => r.engine === 'fm_text')) {
+      expect(row.items.length).toBeGreaterThan(0);
+      for (const item of row.items) {
+        expect(item).toMatchObject({ tier: 'T1', provisional: false });
+        expect(item).not.toHaveProperty('isGuess');
       }
     }
   });

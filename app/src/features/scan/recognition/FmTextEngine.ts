@@ -1,15 +1,16 @@
-// Spike #505: the OCR-text tier. Vision reads the text (which works on every iPhone back to iOS 26),
+// The OCR-text tier. Vision reads the text (which works on every iPhone back to iOS 26),
 // then the on-device model extracts typed items from that text — no picture reaches the model, so no vision
 // capability is needed. Boxes still come from matching the model's visibleText against the Vision lines, exactly
-// like the picture reader; only the model's input differs. Prototype: the prompt is the same server-owned prompt
-// the picture read uses, and the EngineSelector does not try this engine yet — the lead routes that after the spike.
+// like the picture reader; only the model's input differs. It has its own server-owned prompt: the extraction
+// input is text, so the picture prompt's "in this photo" wording would lie about it.
 import type { ModelItem, TextLine } from '@/native/cm-vision';
+import { isSingleItemShot } from '../shotkind/shotKind';
 import { type EngineDeps, defaultId } from './VisionPipelineEngine';
-import { promptOf } from './defaults';
+import { extractionPromptOf } from './defaults';
 import { readLines } from './lines';
 import { matchBoxes } from './matching';
 import { toReadItem } from './modelReading';
-import { type FellBackFrom, ModelUnusableError, type ReadItem, type RecognitionEngine, type SnapReading, type Still } from './types';
+import { type FellBackFrom, ModelUnusableError, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from './types';
 
 const FAILURES: Record<string, FellBackFrom> = {
   declined: 'declined',
@@ -37,13 +38,13 @@ export class FmTextEngine implements RecognitionEngine {
     return caps.available && caps.guidedGeneration;
   }
 
-  read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
-    const run = this.tail.then(() => this.readOne(still, onItem));
+  read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
+    const run = this.tail.then(() => this.readOne(still, onItem, options));
     this.tail = run.catch(() => undefined);
     return run;
   }
 
-  private async readOne(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
+  private async readOne(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions): Promise<SnapReading> {
     const started = this.now();
     const settings = this.deps.settings();
     const lines = await readLines(this.deps.vision, still.uri, settings.local);
@@ -69,12 +70,10 @@ export class FmTextEngine implements RecognitionEngine {
     };
 
     const modelStarted = this.now();
+    // A cover shot depicts one item, so the model is asked for one (#504); a shelf shot gets the full snap.
+    const maxItems = isSingleItemShot(options.shotKind) ? 1 : settings.engine.maxItemsPerSnap;
     const result = await this.deps.vision
-      .extractItems(
-        ocrTextOf(lines),
-        { prompt: promptOf(settings), timeoutMs: settings.engine.modelTimeoutMs, maxItems: settings.engine.maxItemsPerSnap },
-        onModelItem,
-      )
+      .extractItems(ocrTextOf(lines), { prompt: extractionPromptOf(settings), timeoutMs: settings.engine.modelTimeoutMs, maxItems }, onModelItem)
       .catch(() => undefined);
     const modelMs = this.now() - modelStarted;
     await emitting;

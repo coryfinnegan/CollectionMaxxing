@@ -9,9 +9,8 @@ export function toFallbackReason(from: FellBackFrom): FallbackReason {
   return from === 'contextExceeded' ? 'context' : from;
 }
 
-/** Spike #505: the server has no fm_text engine yet, so those readings stop here until it does. */
+/** The phone's engine names are the server's engine names. */
 export function toScanEngine(engine: EngineName): ScanEngine {
-  if (engine === 'fm_text') throw new Error('fm_text readings cannot be sent to the server yet (spike #505)');
   return engine;
 }
 

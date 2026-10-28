@@ -1,4 +1,4 @@
-// Owner-only dev screen: run the golden photos through both engines on this iPhone and see the PC's gate table when it is done.
+// Owner-only dev screen: run the golden photos through all three engines on this iPhone and see the PC's gate table when it is done.
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '@/theme/tokens';
@@ -45,7 +45,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
   const elapsed = useElapsed(state);
   const [note, setNote] = useState('');
   const working = state.phase === 'starting' || state.phase === 'running' || state.phase === 'paused';
-  const apple = state.step === 'apple' ? 'Apple model' : 'Vision text';
+  const step = state.step === 'apple' ? 'Apple model' : state.step === 'text' ? 'Apple text model' : 'Vision text';
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
@@ -67,7 +67,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
       {working ? (
         <Card>
           <Text variant="heading">
-            {state.phase === 'starting' ? 'Getting the photo list' : `Photo ${state.current} of ${state.total} · ${apple}`}
+            {state.phase === 'starting' ? 'Getting the photo list' : `Photo ${state.current} of ${state.total} · ${step}`}
           </Text>
           <Text>{`Time: ${clock(elapsed)}`}</Text>
           <Text>{`Phone temperature: ${state.thermal ? THERMAL_LABEL[state.thermal] : 'checking…'}`}</Text>

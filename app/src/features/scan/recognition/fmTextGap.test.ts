@@ -8,7 +8,7 @@
 //   accuracy is unmeasurable on this PC (no iPhone, no Foundation Models) and needs the phone run in the report.
 // - Titles are fictional examples, never real collection data.
 import type { WorkKind } from '@/api/generated/models';
-import { DEFAULT_RECOGNITION_SETTINGS, promptOf } from './defaults';
+import { DEFAULT_RECOGNITION_SETTINGS, extractionPromptOf } from './defaults';
 import { FmTextEngine, ocrTextOf } from './FmTextEngine';
 import { line, modelItem, okRead, RecordingVision, testIds, type Scene } from './fakes';
 import { cleanLines, normalize } from './lines';
@@ -289,7 +289,7 @@ describe('spike #505 fixed set', () => {
   });
 
   it('the extraction input fits the 4K context with room to spare', () => {
-    const promptChars = promptOf(DEFAULT_RECOGNITION_SETTINGS).length;
+    const promptChars = extractionPromptOf(DEFAULT_RECOGNITION_SETTINGS).length;
     const ocrChars = IDS.map((id) => ocrTextOf(cleanLines(SET[id].text ?? [], DEFAULT_RECOGNITION_SETTINGS.local)).length);
     const worst = Math.max(...ocrChars);
     // eslint-disable-next-line no-console
