@@ -1,3 +1,5 @@
+using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Ownership;
 using CollectionMaxxing.Application.Scanning.Artwork;
@@ -47,6 +49,34 @@ public sealed class CandidateResolver(
         releaseIds.Take(MaxAlternatives).Select(id => new ResolutionOption(id, null, 1.0)).ToList(),
         null,
         [LocalHit]);
+
+    /// <summary>An answer from the catalogue itself, after a cover re-ask whose steps join the trace (#506).</summary>
+    public static BarcodeResolution LocalResolution(IReadOnlyList<Guid> releaseIds, IReadOnlyList<BookLookupStep> reasked) =>
+        reasked.Count == 0
+            ? LocalResolution(releaseIds)
+            : new(
+                releaseIds.Count == 1 ? ResolutionVerdict.Matched : ResolutionVerdict.Ambiguous,
+                releaseIds.Take(MaxAlternatives).Select(id => new ResolutionOption(id, null, 1.0)).ToList(),
+                null,
+                [LocalHit, .. reasked.Select(s => new TraceStep(s.Source, s.Outcome, s.Ms))]);
+
+    /// <summary>Which of the releases have no cover and name no cover address: the scan re-asks the providers for those (#506).</summary>
+    public async Task<HashSet<Guid>> FindCoverlessAsync(IReadOnlyCollection<Guid> releaseIds, CancellationToken cancellationToken)
+    {
+        if (releaseIds.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = await db.Releases.AsNoTracking()
+            .Where(r => releaseIds.Contains(r.Id))
+            .Select(r => new { r.Id, r.CoverAssetId, r.ProviderPayloadsJson })
+            .ToListAsync(cancellationToken);
+        return rows
+            .Where(r => r.CoverAssetId is null && CoverOutcome.CoverUrlOf(r.ProviderPayloadsJson) is null)
+            .Select(r => r.Id)
+            .ToHashSet();
+    }
 
     /// <summary>
     /// Writes an answer onto the candidate: the resolution, the commit tier (docs/16 §6), the matched release, the top

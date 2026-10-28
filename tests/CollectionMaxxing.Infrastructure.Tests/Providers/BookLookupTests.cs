@@ -233,14 +233,84 @@ public class BookLookupTests(PostgresFixture db) : DatabaseTest(db)
         Stub(host, GooglePath, 200, "googlebooks-empty.json");
 
         var first = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
         first.Release.ShouldNotBeNull();
         first.Release.CoverUrl.ShouldBeNull();
+    }
+
+    // Issue #506: a kept answer without a cover is not terminal — the next lookup asks the providers again, and the
+    // kept answer still serves when nothing better answers.
+    [Fact]
+    public async Task A_kept_answer_without_a_cover_is_asked_again_but_still_answers()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, EditionPath, 200, "openlibrary-isbn-no-cover.json");
+        Stub(host, "/authors/OL34184A.json", 200, "openlibrary-author.json");
+        Stub(host, GooglePath, 200, "googlebooks-empty.json");
+        await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
         var callsAfterFirst = ProviderCalls(host);
 
         var again = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
 
         again.Release.ShouldNotBeNull();
-        ProviderCalls(host).ShouldBe(callsAfterFirst);
+        again.Failed.ShouldBeFalse();
+        ProviderCalls(host).ShouldBeGreaterThan(callsAfterFirst, "a kept answer without a cover is asked again");
+        again.Steps.ShouldContain(s => s.Source == BookSource.LocalCache && s.Outcome == "hit");
+    }
+
+    // Issue #506: when the re-ask consults a provider the kept answer never saw (the key lands after the verdict),
+    // a named cover heals the kept row, not just the answer.
+    [Fact]
+    public async Task A_newly_consulted_provider_heals_the_kept_coverless_answer()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, EditionPath, 200, "openlibrary-isbn-no-cover.json");
+        Stub(host, "/authors/OL34184A.json", 200, "openlibrary-author.json");
+        Stub(host, GooglePath, 200, "googlebooks-found.json");
+
+        // Google Books out of the race, like a missing key: the coverless answer is kept.
+        var kept = await LookupOn(host).LookupAsync(ProviderCase.Isbn, ["openlibrary"], null, default);
+        kept.Release.ShouldNotBeNull();
+        kept.Release.CoverUrl.ShouldBeNull();
+        host.Requests(GooglePath).ShouldBe(0);
+
+        // The key lands: Google Books joins the race and its cover heals the kept row.
+        var healed = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        healed.Release.ShouldNotBeNull();
+        healed.Release.Provider.ShouldBe("googlebooks");
+        healed.Release.CoverUrl.ShouldNotBeNull();
+
+        var callsBeforeThird = ProviderCalls(host);
+        var third = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        third.Release.ShouldNotBeNull();
+        third.Release.CoverUrl.ShouldBe(healed.Release.CoverUrl);
+        ProviderCalls(host).ShouldBe(callsBeforeThird);
+    }
+
+    // Issue #506: the re-ask never turns today's answer into a failure — providers down means the kept answer serves.
+    [Fact]
+    public async Task A_failed_reask_still_serves_the_kept_answer()
+    {
+        using var host = ProviderHost.Create(Db, settings: new() { ["Providers:Resilience:MaxRetryAttempts"] = "1" });
+        Stub(host, EditionPath, 200, "openlibrary-isbn-no-cover.json");
+        Stub(host, "/authors/OL34184A.json", 200, "openlibrary-author.json");
+        Stub(host, GooglePath, 200, "googlebooks-empty.json");
+        var kept = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+        kept.Release.ShouldNotBeNull();
+
+        host.Server.Reset();
+        host.Server.Given(Request.Create().WithPath(EditionPath).UsingGet()).AtPriority(1).RespondWith(Response.Create().WithStatusCode(503));
+        host.Server.Given(Request.Create().WithPath(GooglePath).UsingGet()).AtPriority(1).RespondWith(Response.Create().WithStatusCode(503));
+
+        var again = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        again.Release.ShouldNotBeNull();
+        again.Release.CoverUrl.ShouldBeNull();
+        again.Failed.ShouldBeFalse();
+        again.Steps.ShouldContain(s => s.Source == "openlibrary");
+        again.Steps.ShouldContain(s => s.Source == "googlebooks");
     }
 
     [Fact]
