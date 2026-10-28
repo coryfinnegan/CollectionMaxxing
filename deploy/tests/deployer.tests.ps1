@@ -96,10 +96,12 @@ Test-Case 'deployer: a missing state file and nothing running or pinned is still
     Assert-Equal $script:Sha2 $r.State.current.sha
 }
 
-Test-Case 'deployer: a good deploy ends with the fast-forward of its clone and reads no GitHub release' {
+Test-Case 'deployer: a good deploy fast-forwards its clone at poll start and reads no GitHub release' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState)
-    $lastIndex = $global:CmCalls.Count - 1
-    Assert-Match $global:CmCalls[$lastIndex].Display 'merge --ff-only'
+    $merge = Get-CallIndex 'git * merge --ff-only*'
+    $pull = Get-CallIndex 'docker pull*'
+    Assert-True ($merge -ge 0 -and $pull -gt $merge) "the clone moves before the first pull (merge=$merge pull=$pull)"
+    Assert-Match (Get-Calls 'git' '*merge --ff-only*')[0].Display 'origin/main'
     Assert-Equal 0 (Get-Calls 'gh' 'gh release *').Count 'the iPhone app comes from TestFlight (ADR-024)'
 }
 
@@ -208,11 +210,12 @@ Test-Case 'deployer: a downgrade is refused (judged by commit ancestry; see ops1
     Assert-Equal $script:Sha2 $r.State.current.sha
 }
 
-Test-Case 'deployer: the same image that is already running changes nothing' {
+Test-Case 'deployer: the same image that is already running only moves the clone' {
     $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00Z' } }
     Assert-Equal 'up-to-date' $r.Result.Outcome
     Assert-Equal 0 (Get-MutatingCalls | Where-Object { $_.Display -match 'compose' }).Count
-    Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notmatch '^docker pull' }).Count 'no download, no copy, no merge'
+    Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notmatch '^docker pull|^git ' }).Count 'only the pull and the clone move'
+    Assert-Equal 1 (Get-Calls 'git' '*merge --ff-only*').Count 'the clone still follows main on a quiet run'
 }
 
 Test-Case 'deployer: a failed migration leaves the running api alone and is remembered' {

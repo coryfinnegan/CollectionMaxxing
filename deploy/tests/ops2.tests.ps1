@@ -1,6 +1,7 @@
-# OPS-IPA2, then ADR-024: a good deploy keeps the deployer's own scripts current, and the .ipa the server used to serve
-# (before the iPhone app moved to TestFlight) is removed once from the files volume. Nothing reads GitHub releases now.
-# Dot-sourced by Run-Tests.ps1 after deployer.tests.ps1 and ops1b.tests.ps1 (it uses their helpers).
+# OPS-IPA2, then ADR-024: every poll starts by fast-forwarding the deployer's own clone to origin/main (#499), and
+# the .ipa the server used to serve (before the iPhone app moved to TestFlight) is removed once from the files volume.
+# Nothing reads GitHub releases now. Dot-sourced by Run-Tests.ps1 after deployer.tests.ps1 and ops1b.tests.ps1
+# (it uses their helpers).
 
 # The deployed commit is already the newest main image (a quiet run).
 function Get-QuietState {
@@ -46,7 +47,7 @@ Test-Case 'retired .ipa: once it is gone the next runs do nothing more' {
     $second = Invoke-TestDeploy -State $first.State
     Assert-Equal 'up-to-date' $second.Result.Outcome
     Assert-Equal 0 (Get-IpaRemovals).Count
-    Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notmatch '^docker pull' }).Count 'only the pull'
+    Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notmatch '^docker pull|^git ' }).Count 'only the pull and the clone move'
 }
 
 Test-Case 'retired .ipa: a server that never had one is left alone' {
@@ -78,7 +79,7 @@ Test-Case 'retired .ipa: the old staging folder inside the root goes too' {
     Assert-False $r.Inspected 'state/ipa-stage was removed'
 }
 
-Test-Case 'retired .ipa: a good deploy removes it too, after the smoke test and the fast-forward' {
+Test-Case 'retired .ipa: a good deploy removes it too, after the poll-start fast-forward and the smoke test' {
     $state = Get-OldGoodState
     $state['ipa'] = $script:RetiredIpa['ipa']
     $r = Invoke-TestDeploy -State $state
@@ -87,7 +88,7 @@ Test-Case 'retired .ipa: a good deploy removes it too, after the smoke test and 
     $remove = Get-CallIndex '*rm -rf /data/files/ipa*'
     $merge = Get-CallIndex 'git * merge --ff-only*'
     $smoke = Get-CallIndex 'curl*health/ready'
-    Assert-True ($remove -gt $merge -and $merge -gt $smoke) "smoke=$smoke merge=$merge remove=$remove"
+    Assert-True ($merge -ge 0 -and $merge -lt $smoke -and $smoke -lt $remove) "merge=$merge smoke=$smoke remove=$remove"
     Assert-Match (Get-IpaRemovals)[0].Display "collectionmaxxing-backup:$($script:Sha2) "
     Assert-False $r.State.ContainsKey('ipa')
 }
@@ -106,14 +107,14 @@ Test-Case 'releases: neither a quiet run nor a deploy reads GitHub releases any 
     Assert-Equal 0 (Get-Calls 'gh' 'gh release *').Count
 }
 
-# ---- after a good deploy the deployer's own scripts follow the deployed commit --------------------------------------------
+# ---- every poll starts by fast-forwarding the deployer's own clone to origin/main (#499) --------------------------------
 
-Test-Case 'deploy: a good deploy fast-forwards the deployer clone to the deployed commit, and only that' {
+Test-Case 'deploy: a good deploy starts by fast-forwarding the deployer clone to origin/main, and only that' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState)
     Assert-Equal 'deployed' $r.Result.Outcome
     $merges = Get-RepoMerges
     Assert-Equal 1 $merges.Count
-    Assert-Match $merges[0].Display "merge --ff-only $($script:Sha2)\s*$"
+    Assert-Match $merges[0].Display 'merge --ff-only origin/main\s*$'
     Assert-Match $merges[0].Display '^git -C \S*repo merge'
     Assert-Equal 0 (Get-Calls 'git' '*reset*').Count 'never resets'
     Assert-Equal 0 (Get-Calls 'git' '*checkout*').Count 'never switches or discards'
@@ -122,23 +123,38 @@ Test-Case 'deploy: a good deploy fast-forwards the deployer clone to the deploye
     Assert-Equal 0 (Get-AlertCalls).Count
 }
 
-Test-Case 'deploy: the clone is only touched after the new version passed its smoke test' {
+Test-Case 'deploy: the clone is moved before the first image pull, after a fetch and the clean/on-main checks' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState)
-    $smoke = Get-CallIndex 'curl*health/ready'
-    $merge = Get-CallIndex 'git * merge --ff-only*'
-    Assert-True ($smoke -ge 0 -and $merge -gt $smoke) "smoke=$smoke merge=$merge"
-}
-
-Test-Case 'deploy: it checks the clone is clean and on main before it merges' {
-    $r = Invoke-TestDeploy -State (Get-OldGoodState)
+    $fetch = Get-CallIndex 'git * fetch*'
     $status = Get-CallIndex 'git * status --porcelain*'
     $branch = Get-CallIndex 'git * symbolic-ref*'
     $merge = Get-CallIndex 'git * merge --ff-only*'
+    $pull = Get-CallIndex 'docker pull*'
+    Assert-True ($fetch -ge 0 -and $fetch -lt $merge) "fetch=$fetch merge=$merge"
     Assert-True ($status -ge 0 -and $branch -ge 0 -and $status -lt $merge -and $branch -lt $merge) "status=$status branch=$branch merge=$merge"
+    Assert-True ($merge -ge 0 -and $merge -lt $pull) "merge=$merge pull=$pull"
     Assert-Match (Get-Calls 'git' '*status --porcelain*')[0].Display '--untracked-files=no'
+    Assert-Match $r.Log 'moved the clone at .* to origin/main'
 }
 
-Test-Case 'deploy: a clone with local changes is left alone with a warning, not an alert' {
+Test-Case 'deploy: a quiet run still fast-forwards the clone, so deployer fixes self-deliver with no deploy' {
+    $r = Invoke-TestDeploy -State (Get-QuietState)
+    Assert-Equal 'up-to-date' $r.Result.Outcome
+    Assert-Equal 0 $r.Result.ExitCode
+    Assert-Equal 1 (Get-RepoMerges).Count
+    Assert-Match $r.Log 'moved the clone at .* to origin/main'
+    Assert-Equal 0 (Get-AlertCalls).Count
+}
+
+Test-Case 'deploy: a known-bad run still fast-forwards the clone' {
+    $state = Get-OldGoodState; $state['failedSha'] = $script:Sha2
+    $r = Invoke-TestDeploy -State $state
+    Assert-Equal 'known-bad' $r.Result.Outcome
+    Assert-Equal 1 (Get-RepoMerges).Count
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
+}
+
+Test-Case 'deploy: a clone with local changes is left alone with a warning, not an alert, and the poll continues' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ RepoDirty = $true }
     Assert-Equal 'deployed' $r.Result.Outcome
     Assert-Equal 0 $r.Result.ExitCode
@@ -168,36 +184,48 @@ Test-Case 'deploy: a clone that cannot be fast-forwarded is warned about and not
     Assert-Equal 0 (Get-Calls 'git' '*reset*').Count
 }
 
-Test-Case 'deploy: the first ever deploy has nothing fetched yet, so the clone is only moved if the commit is there' {
-    $r = Invoke-TestDeploy -Machine @{ MergeFails = $true }
+Test-Case 'deploy: a poll whose fetch fails warns about the clone and still deploys' {
+    $r = Invoke-TestDeploy -Machine @{ FetchFails = $true }
     Assert-Equal 'deployed' $r.Result.Outcome
     Assert-Equal 0 $r.Result.ExitCode
+    Assert-Equal 0 (Get-RepoMerges).Count
+    Assert-Match $r.Log 'WARN .*could not fetch main'
+    Assert-Equal 0 (Get-AlertCalls).Count
 }
 
-Test-Case 'deploy: a rolled-back or failed deploy never moves the clone' {
+Test-Case 'deploy: a rolled-back or failed deploy still moved the clone at poll start' {
     $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ UnhealthyTags = @($script:Sha2) }
     Assert-Equal 'rolled-back' $r.Result.Outcome
-    Assert-Equal 0 (Get-RepoMerges).Count
+    Assert-Equal 1 (Get-RepoMerges).Count
+    $global:CmCalls.Clear()
     $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ MigrateExit = 1 }
-    Assert-Equal 0 (Get-RepoMerges).Count
+    Assert-Equal 'migrate-failed' $r.Result.Outcome
+    Assert-Equal 1 (Get-RepoMerges).Count
 }
 
-Test-Case 'deploy: a quiet run and a manual rollback leave the clone alone' {
-    $r = Invoke-TestDeploy -State (Get-QuietState)
-    Assert-Equal 0 (Get-RepoMerges).Count
-    $global:CmCalls.Clear()
+Test-Case 'deploy: a manual rollback leaves the clone alone (only polls move it)' {
     $r = Invoke-TestDeploy -RollbackTo $script:Sha1 -State (Get-StateAt $script:Sha2) -Machine @{ Sha = $script:Sha1 }
     Assert-Equal 'manual-rollback' $r.Result.Outcome
     Assert-Equal 0 (Get-RepoMerges).Count
 }
 
+Test-Case 'deploy: last-good stays in the state file while the clone tracks main across a rollback' {
+    # Rolled back to Sha1 while :main still offers Sha2: the poll is known-bad, the state keeps Sha1 as last good,
+    # and the clone still moves to origin/main. The clone position is never the rollback anchor.
+    $r = Invoke-TestDeploy -State @{ current = @{ sha = $script:Sha1 }; failedSha = $script:Sha2 }
+    Assert-Equal 'known-bad' $r.Result.Outcome
+    Assert-Equal $script:Sha1 $r.State.current.sha 'last good is untouched by the clone move'
+    Assert-Equal 1 (Get-RepoMerges).Count 'the clone still tracks main'
+    Assert-Match (Get-RepoMerges)[0].Display 'merge --ff-only origin/main'
+}
+
 # ---- the dry run and the plan ------------------------------------------------------------------------------------------------
 
-Test-Case 'plan: the dry run lists the fast-forward and the one-time .ipa removal, and no release check' {
+Test-Case 'plan: the dry run lists the poll-start fast-forward and the one-time .ipa removal, and no release check' {
     $root = New-TestRoot
     try {
         $plan = (Get-CmPlan -Ctx (New-TestContext -Root $root)) -join "`n"
-        Assert-Match $plan 'merge --ff-only <sha>'
+        Assert-Match $plan 'merge --ff-only origin/main'
         Assert-Match $plan 'rm -rf /data/files/ipa'
         Assert-False ($plan -match 'release view|Sync-Ipa') 'nothing about releases'
     }
