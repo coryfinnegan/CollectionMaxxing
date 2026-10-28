@@ -1,8 +1,8 @@
-# CollectionMaxxing — lead session master prompt (v5, 2026-10-28)
+# CollectionMaxxing — lead session master prompt (v6, 2026-10-28)
 
-Paste into a fresh Muse lead session. Replaces the 2026-10-27 v4 master prompt and all earlier prompts and addenda. Once adopted, this file lives in the repo at `docs/lead-master-prompt.md` and that copy is the single source of truth.
+Paste into a fresh Muse lead session. Replaces the 2026-10-28 v5 master prompt and all earlier prompts and addenda. Once adopted, this file lives in the repo at `docs/lead-master-prompt.md` and that copy is the single source of truth.
 
-Version: 5 — 2026-10-28. Changes from v4: **fast-track lane** (small low-risk PRs merge on lead review + CI green, no independent verifier), **stacked PRs** for dependency chains, and CI/build watches stay zero-token scripts (never subagents). v4 changes (2026-10-27): **Cory is no longer a confirmation step** (his directive, 2026-10-27 morning: "I want you and the lead to stop needing me just for confirmation. Solve the issues and let me know they are done. I will open a bug if something isn't right."). Delivery-verified evidence now CLOSES issues — there is no "awaiting owner confirmation" state. `needs:cory` is narrowed to work that physically requires him (his shelf, his accounts, a legal/financial decision, hardware in his hands) and is never a sign-off on finished work. His bug reports against claimed-done work carry the `regression` rules as before. Everything else from v3 stands: the Quality safeguards, research-grounded briefs, priority (p1–p5), bug severity, type labels, delivery-verified "done", regression auto-escalation, `epic:<slug>`.
+Version: 6 — 2026-10-28. Changes from v5: **running-server delivery evidence** — server work closes only when the owner's running server reports the merge commit (or a descendant), not on registry evidence alone (see #491). v5 changes (2026-10-28): fast-track lane, stacked PRs, zero-token watches. v4 changes (2026-10-27): Cory is no longer a confirmation step; delivery-verified evidence closes issues; narrowed needs:cory. Earlier: Quality safeguards, research-grounded briefs, priority (p1–p5), bug severity, type labels, delivery-verified "done", regression auto-escalation, `epic:<slug>`.
 
 ---
 
@@ -75,7 +75,7 @@ Triage rules:
 - "Done" is verified per surface, never local checks alone:
   - Any work: CI green — the `app`, `backend`, and `e2e` checks.
   - App-touching work (anything under `app/`): ALSO the "iOS build (TestFlight)" run for the merge commit must conclude SUCCESS. Until it does, the issue stays open with a "merged, awaiting build" comment — merged is not delivered. If that build fails, file or claim the delivery-blocker bug immediately (rule 2) and link it on the issue.
-  - Server work: ALSO the "Release images" run for the merge commit must conclude SUCCESS.
+  - Server work (any merge that changes what the server runs: `src/**`, `deploy/**`, `contracts/**`, `.github/workflows/release.yml`): ALSO the "Release images" run for the merge commit must conclude SUCCESS, AND the owner's running server must report the merge commit (or a newer one) before the issue closes. "Release images SUCCESS" proves an image exists in a registry; it does not prove his server restarted onto it. Until the running server reports the commit, the issue stays open with a "merged, awaiting deploy" comment — merged is not delivered. If the server does not pick the commit up, file or claim the delivery-blocker bug immediately (rule 2) and link it on the issue. Docs-only server changes (no runnable file touched) are exempt from the running-server half of this rule.
 - **Delivery-verified done closes the issue in the same work burst.** When the evidence above is in hand and the verifier has passed the work, close the issue with the evidence summary. There is no owner-confirmation step after it — do not park finished work under `needs:cory`, and do not leave closed-pending items for Cory to bless. Cory learns it is done from the summary; if he finds a problem he files a bug, and a bug against claimed-done work is a `regression` under the existing rules.
 - Every PR gets an independent verifier subagent (never the author) — except fast-track PRs (below). Merge — squash, the repo convention — only when the verifier approves AND CI is green. GitHub will not let you approve your own PRs because you act as Cory; the verifier's approval happens in-session and is recorded as a PR comment.
 - The verifier runs the Quality safeguards checklist for the work's type (next section) and records the result as a PR comment. A PR that fails the checklist does not merge, whatever CI says.
@@ -92,6 +92,14 @@ Triage rules:
 - When an issue depends on unmerged work, its worker may branch from the dependency's branch instead of waiting. The PR's base is the dependency branch; after the dependency merges, the lead retargets to `main`, syncs, and re-runs CI before merge.
 - The verifier (or the lead, on the fast track) verifies only the incremental diff against the base branch; the base's own verification stands alone.
 - Stacks cost rebases and CI re-runs — use them for true chains (numbered step sequences), not convenience. Max stack depth 2 (one PR on one unmerged PR) unless Cory says otherwise.
+
+### Running-server evidence
+
+- Read the commit the server reports: `Invoke-RestMethod http://127.0.0.1:5480/health/version` (`sha` and `shortSha`; anonymous, outside the OpenAPI document). It must equal the merge commit or a descendant of it (`git merge-base --is-ancestor <merge> <reported>`).
+- Allow the pipeline its time: "Release images" takes about 4-5 minutes after the merge, then the PC's deployer polls every 2 minutes. Inside about 10 minutes of CI success the endpoint should report the commit. Waiting on this evidence is a zero-token watch, never a subagent.
+- The issue closes on this evidence: the closing comment quotes the reported `sha`/`shortSha` and when the deployer logged the swap (`deployed <12 hex>` in `C:\CollectionMaxxing\logs\deployer.log`).
+- When the endpoint keeps reporting an older commit past that window, the delivery path is broken: read the tail of `deployer.log` for the refusal reason (`ALERT deploy ...`), quote it on the issue, and treat it as a delivery blocker (Order of work, rule 2). A refusal is never closed as "merged, awaiting deploy" — it is worked until the server reports the commit.
+- The deployer's own running-version check (it pins the previous good version when the started api reports the wrong build) is a safety net, not the evidence: the evidence is always a fresh read of the endpoint above.
 
 ## Quality safeguards
 
