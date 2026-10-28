@@ -13,7 +13,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
+  # The backend leg, split so the slowest suites stop queueing behind each other (#478). The test matrix, format,
+  # and the pwsh tooling suites each get their own runner and run at the same time. Every dotnet job warms the same
+  # NuGet cache. No app phase anywhere here; the app job owns npm run check.
+  backend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # One red shard cancels its siblings: a broken PR fails in minutes, not after the slowest shard finishes.
+      fail-fast: true
+      matrix:
+        include:
+          # Shards follow the measured lane times (run 40613989293): the two Postgres-heavy Api suites each get
+          # their own runner, the rest share a third. Rebalance when the timings drift.
+          - shard: api
+            projects: CollectionMaxxing.Api.Tests
+          - shard: auth
+            projects: CollectionMaxxing.Api.Tests.Auth
+          - shard: rest
+            projects: >-
+              CollectionMaxxing.Api.Tests.Library
+              CollectionMaxxing.Infrastructure.Tests
+              CollectionMaxxing.Application.Tests
+              CollectionMaxxing.Recognition.Evals
+              CollectionMaxxing.Architecture.Tests
+              CollectionMaxxing.Domain.Tests
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      # One phase per step (#297): timings and failures localize.
+      - name: Restore
+        run: bash scripts/check.sh restore
+      - name: Build
+        run: bash scripts/check.sh build
+      - name: Test (${{ matrix.shard }})
+        env:
+          CM_TEST_ONLY: ${{ matrix.projects }}
+        run: bash scripts/check.sh test
+
+  backend-format:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -21,15 +63,18 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      # One phase per step (#297): timings and failures localize. No app phase here; the app job owns npm run check.
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
       - name: Restore
         run: bash scripts/check.sh restore
-      - name: Build
-        run: bash scripts/check.sh build
       - name: Format
         run: bash scripts/check.sh format
-      - name: Test
-        run: bash scripts/check.sh test
+
+  backend-tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
       - name: Deploy script tests
         run: pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
       # The mutation sampler's own tests (QA-3a): scripts/check doesn't run them, and the nightly sweep relies on them.
@@ -40,6 +85,23 @@ jobs:
         run: pwsh -NoProfile -File scripts/perf/tests.ps1 -SkipDocker
       - name: Security scan tooling tests
         run: pwsh -NoProfile -File scripts/security/Run-Tests.ps1
+
+  # Aggregator restoring the `backend` required-check context (ruleset "Require CI on main" requires backend/app/e2e).
+  # Passes only when every backend leg succeeded. `if: always()` keeps this job (and its context) present even when a
+  # leg fails, is skipped, or is cancelled, and the step fails closed on any non-success result so skips/cancels can
+  # never silently pass. `needs.backend-test.result` aggregates across matrix shards: success only if every shard
+  # succeeded, failure if any shard failed (fail-fast cancels the siblings, which still yields failure, never success).
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [backend-test, backend-format, backend-tooling]
+    if: always()
+    steps:
+      - name: Verify all backend legs succeeded
+        run: |
+          test "${{ needs.backend-test.result }}" = success || { echo "backend-test: ${{ needs.backend-test.result }}"; exit 1; }
+          test "${{ needs.backend-format.result }}" = success || { echo "backend-format: ${{ needs.backend-format.result }}"; exit 1; }
+          test "${{ needs.backend-tooling.result }}" = success || { echo "backend-tooling: ${{ needs.backend-tooling.result }}"; exit 1; }
 
   app:
     runs-on: ubuntu-latest
