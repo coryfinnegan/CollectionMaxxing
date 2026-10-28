@@ -184,6 +184,133 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
     }
 
     [Fact]
+    public async Task Provider_editions_of_one_book_arrive_as_one_work_with_every_edition()
+    {
+        // The Suddenly You shape (#438): one title and author, two years, different publishers.
+        var provider = new FakeProvider("googlebooks");
+        provider.Results.Add(new ProviderRelease { Provider = "googlebooks", ExternalId = "v1", Title = "Suddenly You", Kind = WorkKind.Book, Year = 2001, Creators = ["Lisa Kleypas"], Publisher = "Avon", Format = ReleaseFormat.Paperback });
+        provider.Results.Add(new ProviderRelease { Provider = "googlebooks", ExternalId = "v2", Title = "Suddenly You", Kind = WorkKind.Book, Year = 2003, Creators = ["Lisa Kleypas"], Publisher = "St. Martin's Press", Format = ReleaseFormat.MassMarket });
+        var client = ClientWith(await SomeUserAsync(), provider);
+
+        var items = await ReadItemsAsync(client, "q=suddenly you");
+
+        items.Count.ShouldBe(1);
+        items[0].GetProperty("work").GetProperty("title").GetString().ShouldBe("Suddenly You");
+        items[0].GetProperty("releases").EnumerateArray().Select(r => r.GetProperty("year").GetInt32()).Order().ShouldBe([2001, 2003]);
+    }
+
+    [Fact]
+    public async Task The_same_book_from_two_providers_groups_into_one_work()
+    {
+        var openLibrary = new FakeProvider("openlibrary");
+        openLibrary.Results.Add(new ProviderRelease { Provider = "openlibrary", ExternalId = "OL123W", WorkKey = "OL123W", Title = "Suddenly You", Kind = WorkKind.Book, Year = 2001, Creators = ["Lisa Kleypas"], Publisher = "Avon" });
+        var google = new FakeProvider("googlebooks");
+        google.Results.Add(new ProviderRelease { Provider = "googlebooks", ExternalId = "v9", Title = "Suddenly You", Kind = WorkKind.Book, Year = 2003, Creators = ["Lisa Kleypas"], Publisher = "St. Martin's Press", Format = ReleaseFormat.Paperback });
+        var client = ClientWith(await SomeUserAsync(), openLibrary, google);
+
+        var items = await ReadItemsAsync(client, "q=suddenly you");
+
+        items.Count.ShouldBe(1);
+        items[0].GetProperty("releases").GetArrayLength().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Provider_hits_sharing_a_provider_work_key_group_into_one_work()
+    {
+        var provider = new FakeProvider("igdb");
+        provider.Results.Add(new ProviderRelease { Provider = "igdb", ExternalId = "1074-n64", WorkKey = "1074", Title = "Super Mario 64", Kind = WorkKind.Game, Platform = "Nintendo 64", Year = 1996, Creators = ["Nintendo EAD"] });
+        provider.Results.Add(new ProviderRelease { Provider = "igdb", ExternalId = "1074-switch", WorkKey = "1074", Title = "Super Mario 64", Kind = WorkKind.Game, Platform = "Nintendo Switch", Year = 1996, Creators = ["Nintendo EAD"] });
+        var client = ClientWith(await SomeUserAsync(), provider);
+
+        var items = await ReadItemsAsync(client, "q=super mario 64");
+
+        items.Count.ShouldBe(1);
+        items[0].GetProperty("releases").GetArrayLength().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Provider_hits_with_different_work_keys_from_one_provider_stay_apart()
+    {
+        var provider = new FakeProvider("igdb");
+        provider.Results.Add(new ProviderRelease { Provider = "igdb", ExternalId = "1", WorkKey = "1", Title = "Doom", Kind = WorkKind.Game, Year = 1993, Creators = ["id Software"] });
+        provider.Results.Add(new ProviderRelease { Provider = "igdb", ExternalId = "2", WorkKey = "2", Title = "Doom", Kind = WorkKind.Game, Year = 2016, Creators = ["id Software"] });
+        var client = ClientWith(await SomeUserAsync(), provider);
+
+        var items = await ReadItemsAsync(client, "q=doom");
+
+        items.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Same_title_films_from_different_years_stay_apart()
+    {
+        var provider = new FakeProvider("tmdb");
+        provider.Results.Add(new ProviderRelease { Provider = "tmdb", ExternalId = "a", Title = "Total Recall", Kind = WorkKind.Film, Year = 1990 });
+        provider.Results.Add(new ProviderRelease { Provider = "tmdb", ExternalId = "b", Title = "Total Recall", Kind = WorkKind.Film, Year = 2012 });
+        var client = ClientWith(await SomeUserAsync(), provider);
+
+        var items = await ReadItemsAsync(client, "q=total recall");
+
+        items.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Local_editions_of_one_work_arrive_as_one_result_with_every_edition()
+    {
+        var (workId, _) = await CatalogSeed.AddAsync(Db, "Alien", WorkKind.Film, 1979);
+        await using (var context = Db.CreateContext())
+        {
+            context.Releases.Add(new Release
+            {
+                Id = Guid.CreateVersion7(),
+                WorkId = workId,
+                Format = ReleaseFormat.Vhs,
+                Source = ReleaseSource.Provider,
+                CreatedAt = DateTimeOffset.UnixEpoch,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var items = await ReadItemsAsync(ClientWith(await SomeUserAsync()), "q=alien");
+
+        items.Count.ShouldBe(1);
+        items[0].GetProperty("releases").GetArrayLength().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Search_results_carry_the_releases_you_own()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Jurassic Park");
+        var (_, ownedReleaseId) = await CatalogSeed.AddAsync(Db, "Jurassic Park III", year: 2001);
+        await TestData.CreateItemAsync(Db, library, ownedReleaseId);
+        var client = ClientWith(library.ViewerId);
+
+        var items = await ReadItemsAsync(client, "q=jurassic park");
+
+        items.Count.ShouldBe(2);
+        var owned = items.Single(i => i.GetProperty("work").GetProperty("title").GetString() == "Jurassic Park III");
+        owned.GetProperty("ownedReleaseIds").EnumerateArray().Select(g => g.GetGuid()).ShouldBe([ownedReleaseId]);
+        items.Where(i => i.GetProperty("work").GetProperty("title").GetString() != "Jurassic Park III")
+            .SelectMany(i => i.GetProperty("ownedReleaseIds").EnumerateArray()).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Owned_ids_never_carry_what_another_library_owns()
+    {
+        var mine = await CreateLibraryAsync();
+        var theirs = await CreateLibraryAsync();
+        var (_, releaseId) = await CatalogSeed.AddAsync(Db, "Jurassic Park");
+        await TestData.CreateItemAsync(Db, theirs, releaseId);
+
+        var mineItems = await ReadItemsAsync(ClientWith(mine.ViewerId), "q=jurassic park");
+        var theirsItems = await ReadItemsAsync(ClientWith(theirs.ViewerId), "q=jurassic park");
+
+        mineItems.Single().GetProperty("ownedReleaseIds").GetArrayLength().ShouldBe(0);
+        theirsItems.Single().GetProperty("ownedReleaseIds").EnumerateArray().Select(g => g.GetGuid()).ShouldBe([releaseId]);
+    }
+
+    [Fact]
     public async Task Another_librarys_manual_title_is_never_returned_by_search()
     {
         var mine = await CreateLibraryAsync();

@@ -13,6 +13,12 @@ public sealed record ProviderRelease
     /// <summary>The provider's own id for the release; unique within <see cref="Provider"/>.</summary>
     public required string ExternalId { get; init; }
 
+    /// <summary>
+    /// The provider's id for the work (the novel, the film, the game) when it names one apart from the release:
+    /// Open Library work keys, TMDB ids, IGDB game ids. Null when the provider names only releases (Google Books volumes).
+    /// </summary>
+    public string? WorkKey { get; init; }
+
     public required string Title { get; init; }
 
     public WorkKind Kind { get; init; } = WorkKind.Other;

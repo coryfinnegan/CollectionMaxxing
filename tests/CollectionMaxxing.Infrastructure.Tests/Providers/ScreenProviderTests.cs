@@ -27,6 +27,7 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
 
         results.Count.ShouldBe(2);
         results[0].ExternalId.ShouldBe("movie/289");
+        results[0].WorkKey.ShouldBe("movie/289");
         results[0].Title.ShouldBe("Casablanca");
         results[0].Kind.ShouldBe(WorkKind.Film);
         results[0].Year.ShouldBe(1943);
@@ -126,6 +127,7 @@ public class IgdbProviderTests(PostgresFixture db) : DatabaseTest(db)
         results.Count.ShouldBe(2);
         var game = results[0];
         game.ExternalId.ShouldBe("1074");
+        game.WorkKey.ShouldBe("1074");
         game.Title.ShouldBe("Super Mario 64");
         game.Kind.ShouldBe(WorkKind.Game);
         game.Platform.ShouldBe("Nintendo 64");

@@ -135,6 +135,7 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
 
         results.Count.ShouldBe(2);
         results[0].ExternalId.ShouldBe("OL45883W");
+        results[0].WorkKey.ShouldBe("OL45883W");
         results[0].Creators.ShouldBe(["Roald Dahl"]);
         results[0].Year.ShouldBe(1970);
         results[0].CoverUrl.ShouldBe("https://covers.openlibrary.org/b/id/8739161-L.jpg");
@@ -200,6 +201,7 @@ public class GoogleBooksProviderTests(PostgresFixture db) : DatabaseTest(db)
 
         release.ShouldNotBeNull();
         release.ExternalId.ShouldBe("Zk9bAwAAQBAJ");
+        release.WorkKey.ShouldBeNull(); // Google Books names volumes, never works
         release.Title.ShouldBe("Fantastic Mr Fox");
         release.Creators.ShouldBe(["Roald Dahl"]);
         release.Publisher.ShouldBe("Penguin");

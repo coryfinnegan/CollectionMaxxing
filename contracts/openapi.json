@@ -6715,7 +6715,8 @@
           "work",
           "releases",
           "score",
-          "source"
+          "source",
+          "ownedReleaseIds"
         ],
         "type": "object",
         "properties": {
@@ -6734,6 +6735,13 @@
           },
           "source": {
             "type": "string"
+          },
+          "ownedReleaseIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },

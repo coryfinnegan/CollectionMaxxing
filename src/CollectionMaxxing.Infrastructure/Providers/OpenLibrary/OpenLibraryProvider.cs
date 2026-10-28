@@ -171,6 +171,7 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
         {
             Provider = ProviderName,
             ExternalId = key,
+            WorkKey = key, // a /search.json doc is a work, so its key is the work key
             Title = title,
             Kind = WorkKind.Book,
             Year = doc.Num("first_publish_year") is { } year ? (int)year : null,

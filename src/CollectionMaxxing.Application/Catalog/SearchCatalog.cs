@@ -74,9 +74,13 @@ public static class SearchCatalog
             }
 
             var ordered = results.OrderByDescending(r => r.Score).ThenBy(r => r.Work.Title, StringComparer.OrdinalIgnoreCase).ToList();
+            var mine = await MyReleaseIdsAsync(
+                ordered.SelectMany(r => r.Releases).Select(r => r.Id).Where(id => id != CatalogProjection.UnsavedId).ToList(), cancellationToken);
+            ordered = ordered
+                .Select(r => r with { OwnedReleaseIds = r.Releases.Select(rel => rel.Id).Where(mine.Contains).ToList() })
+                .ToList();
             if (libraryFirst)
             {
-                var mine = await MyReleaseIdsAsync(ordered.SelectMany(r => r.Releases).Select(r => r.Id).ToList(), cancellationToken);
                 ordered = ordered.OrderByDescending(r => r.Releases.Any(rel => mine.Contains(rel.Id))).ToList(); // stable: score order kept inside each half
             }
 
@@ -166,7 +170,7 @@ public static class SearchCatalog
 
                 var ordered = scored.OrderByDescending(s => s.Score).ToList();
                 results.Add(new CatalogSearchResultDto(
-                    ItemProjection.ToWorkDto(work), ordered.Select(s => s.Dto).ToList(), ordered[0].Score, CatalogProjection.LocalSource));
+                    ItemProjection.ToWorkDto(work), ordered.Select(s => s.Dto).ToList(), ordered[0].Score, CatalogProjection.LocalSource, []));
             }
 
             return results;
@@ -207,25 +211,30 @@ public static class SearchCatalog
                 provider, token => provider.SearchAsync(catalogQuery, token), options.ProviderTimeout, logger, cancellationToken)));
 
             var read = new ReadItem { Title = title, Kind = kind, Platform = query.Platform, Year = query.Year };
-            var best = new Dictionary<string, (ProviderRelease Release, double Score)>(StringComparer.Ordinal);
+            var scored = new List<(ProviderRelease Release, double Score)>();
             foreach (var found in answers.Where(a => a is not null).SelectMany(a => a!))
             {
-                var key = CatalogProjection.DuplicateKey(found.Title, found.Year, found.Platform);
-                if (known.Contains(key))
+                if (known.Contains(CatalogProjection.DuplicateKey(found.Title, found.Year, found.Platform)))
                 {
                     continue; // the catalogue already has it
                 }
 
-                var score = MatchScorer.Score(read, found.ToCandidate(), CatalogProjection.Profile);
-                if (!best.TryGetValue(key, out var existing) || score > existing.Score)
-                {
-                    best[key] = (found, score);
-                }
+                scored.Add((found, MatchScorer.Score(read, found.ToCandidate(), CatalogProjection.Profile)));
             }
 
-            return best.Values
-                .Select(b => new CatalogSearchResultDto(
-                    CatalogProjection.ToWorkDto(b.Release), [CatalogProjection.ToReleaseDto(b.Release)], b.Score, b.Release.Provider))
+            return CatalogProjection.GroupProviderReleases(scored)
+                .Select(g =>
+                {
+                    var face = g.Releases[0];
+                    var work = CatalogProjection.ToWorkDto(face.Release);
+                    var cover = face.Release.CoverUrl ?? g.Releases.Select(r => r.Release.CoverUrl).FirstOrDefault(c => c is not null);
+                    return new CatalogSearchResultDto(
+                        cover == work.CoverUrl ? work : work with { CoverUrl = cover },
+                        g.Releases.Select(r => CatalogProjection.ToReleaseDto(r.Release)).ToList(),
+                        face.Score,
+                        face.Release.Provider,
+                        []);
+                })
                 .ToList();
         }
     }
