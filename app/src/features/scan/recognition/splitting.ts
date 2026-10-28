@@ -1,7 +1,7 @@
 // Splitting what Vision saw into items, with no model: rectangles first, then spine columns, else the whole frame.
 import type { Rect, TextLine } from '@/native/cm-vision';
 import type { LocalTuning, RecognitionConfig } from './defaults';
-import { bottom, centerX, centerY, contains, right, union } from './geometry';
+import { bottom, centerX, centerY, contains, overlapShare, right, union, yOverlapShare } from './geometry';
 
 export interface Piece {
   lines: TextLine[];
@@ -21,8 +21,19 @@ function piece(lines: TextLine[], box?: Rect): Piece {
   return { lines: ordered, box: box ?? union(ordered.map((l) => l.box)) };
 }
 
-function byRectangles(lines: TextLine[], rectangles: Rect[]): Split {
-  const sorted = [...rectangles].sort((a, b) => a.x - b.x || a.y - b.y);
+/** Rectangles that largely overlap depict one surface (a cover's nested quads); disjoint spine quads pass through. */
+function mergeSurfaces(rectangles: Rect[], minOverlap: number): Rect[] {
+  const groups: Rect[][] = [];
+  for (const rect of [...rectangles].sort((a, b) => a.x - b.x || a.y - b.y)) {
+    const group = groups.find((g) => g.some((r) => overlapShare(r, rect) >= minOverlap));
+    if (group) group.push(rect);
+    else groups.push([rect]);
+  }
+  return groups.map(union);
+}
+
+function byRectangles(lines: TextLine[], rectangles: Rect[], tuning: LocalTuning): Split {
+  const sorted = mergeSurfaces(rectangles, tuning.rectangleMergeOverlap);
   const pieces: Piece[] = [];
   let unreadableCount = 0;
   for (const rect of sorted) {
@@ -47,10 +58,19 @@ function byColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Sp
   }
   const wide = columns.filter((c) => c.box.width >= minWidth);
   if (wide.length < tuning.minSpineColumns) return undefined;
+  // Spines stand in one row: neighbors share their vertical band. Scattered cover lines do not, so they are not split.
+  const inOneRow = wide.every((c, i) => i === 0 || yOverlapShare(wide[i - 1].box, c.box) >= tuning.spineRowOverlap);
+  if (!inOneRow) return undefined;
   return { pieces: wide.map((c) => piece(c.lines)), unreadableCount: 0 };
 }
 
 const isTall = (l: TextLine) => bottom(l.box) - l.box.y > l.box.width;
+
+/** One item for the whole frame: the cover path, never segmented. Empty when there is no text. */
+export function wholeFrame(lines: TextLine[]): Split {
+  if (lines.length === 0) return { pieces: [], unreadableCount: 0 };
+  return { pieces: [piece(lines)], unreadableCount: 0 };
+}
 
 export function splitIntoPieces(
   lines: TextLine[],
@@ -60,7 +80,7 @@ export function splitIntoPieces(
 ): Split {
   if (lines.length === 0) return { pieces: [], unreadableCount: 0 };
   if (rectangles.length > 0) {
-    const split = byRectangles(lines, rectangles);
+    const split = byRectangles(lines, rectangles, tuning);
     if (split.pieces.length > 0) return split;
   }
   const tallShare = lines.filter(isTall).length / lines.length;
@@ -68,5 +88,5 @@ export function splitIntoPieces(
     const split = byColumns(lines, tuning, splitting.minSpineColumnWidth);
     if (split) return split;
   }
-  return { pieces: [piece(lines)], unreadableCount: 0 };
+  return wholeFrame(lines);
 }

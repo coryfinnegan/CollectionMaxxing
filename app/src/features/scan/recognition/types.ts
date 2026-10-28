@@ -1,6 +1,7 @@
 // The shapes the recognition engines share. Nothing here carries picture data: only text and fields.
 import type { ItemCompleteness, ReleaseFormat, WorkKind } from '@/api/generated/models';
 import type { ModelConfidence, Rect } from '@/native/cm-vision';
+import type { ShotKind } from '../shotkind/shotKind';
 
 /** A still the camera took. `uri` stays on the phone and is only ever handed to the native module. */
 export interface Still {
@@ -47,10 +48,16 @@ export interface SnapReading {
   timings: SnapTimings;
 }
 
+/** What the reader knows about the shot beyond the still itself. */
+export interface ReadOptions {
+  /** What the framing said this shot was; absent on re-reads of snaps stored before classification. */
+  shotKind?: ShotKind;
+}
+
 export interface RecognitionEngine {
   readonly name: EngineName;
   isAvailable(): Promise<boolean>;
-  read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading>;
+  read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading>;
 }
 
 /** Cuts a region (normalized, origin top-left) out of a still and returns the new still. Only the halves of a wide shot use it. */

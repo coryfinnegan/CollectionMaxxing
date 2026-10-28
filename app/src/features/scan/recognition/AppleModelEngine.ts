@@ -1,12 +1,13 @@
 // The Apple on-device model reads the picture; Vision text then gives each item a box. The model is a hint:
 // what comes out is read fields and a confidence, and the server decides what it matches.
 import type { ModelItem, TextLine } from '@/native/cm-vision';
+import { isSingleItemShot } from '../shotkind/shotKind';
 import { type EngineDeps, defaultId } from './VisionPipelineEngine';
 import { promptOf } from './defaults';
 import { readLines, normalize } from './lines';
 import { mapCompleteness, mapKind } from './mapping';
 import { matchBoxes, type BoxMatch } from './matching';
-import { type FellBackFrom, ModelUnusableError, type ReadItem, type RecognitionEngine, type SnapReading, type Still } from './types';
+import { type FellBackFrom, ModelUnusableError, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from './types';
 
 const FAILURES: Record<string, FellBackFrom> = {
   declined: 'declined',
@@ -31,13 +32,13 @@ export class AppleModelEngine implements RecognitionEngine {
     return caps.available && caps.vision;
   }
 
-  read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
-    const run = this.tail.then(() => this.readOne(still, onItem));
+  read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
+    const run = this.tail.then(() => this.readOne(still, onItem, options));
     this.tail = run.catch(() => undefined);
     return run;
   }
 
-  private async readOne(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
+  private async readOne(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions): Promise<SnapReading> {
     const started = this.now();
     const settings = this.deps.settings();
     const linesPromise = readLines(this.deps.vision, still.uri, settings.local);
@@ -59,12 +60,10 @@ export class AppleModelEngine implements RecognitionEngine {
     };
 
     const modelStarted = this.now();
+    // A cover shot depicts one item, so the model is asked for one (#504); a shelf shot gets the full snap.
+    const maxItems = isSingleItemShot(options.shotKind) ? 1 : settings.engine.maxItemsPerSnap;
     const result = await this.deps.vision
-      .readItems(
-        still.uri,
-        { prompt: promptOf(settings), timeoutMs: settings.engine.modelTimeoutMs, maxItems: settings.engine.maxItemsPerSnap },
-        onModelItem,
-      )
+      .readItems(still.uri, { prompt: promptOf(settings), timeoutMs: settings.engine.modelTimeoutMs, maxItems }, onModelItem)
       .catch(() => undefined);
     const modelMs = this.now() - modelStarted;
     await emitting;

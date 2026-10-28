@@ -62,6 +62,10 @@ const isCoverShaped = (signals: ShotSignals, t: ShotKindThresholds): boolean =>
   signals.dominantAspect >= t.singleCoverAspectMin &&
   signals.dominantAspect <= t.singleCoverAspectMax;
 
+/** Shots that depict one item: the reader takes the cover path (one item, no segmentation) instead of the shelf path (#504). */
+export const isSingleItemShot = (shotKind: ShotKind | undefined): boolean =>
+  shotKind === 'single_cover' || shotKind === 'loose_item';
+
 /** What the framing says this shot is. Barcode wins; loose refines single-cover; the gate firing reads as a shelf. */
 export function classifyShot(signals: ShotSignals, thresholds: ShotKindThresholds = DEFAULT_SHOT_KIND_THRESHOLDS): ShotKind {
   if (signals.barcodesInView >= 1) return 'barcode';

@@ -19,6 +19,13 @@ export function overlapShare(a: Rect, b: Rect): number {
   return (w * h) / Math.min(a.width * a.height, b.width * b.height);
 }
 
+/** Shared vertical span over the smaller box's height; 0 when they do not overlap. */
+export function yOverlapShare(a: Rect, b: Rect): number {
+  const h = Math.min(bottom(a), bottom(b)) - Math.max(a.y, b.y);
+  if (h <= 0) return 0;
+  return h / Math.min(a.height, b.height);
+}
+
 export function contains(outer: Rect, x: number, y: number): boolean {
   return x >= outer.x && x <= right(outer) && y >= outer.y && y <= bottom(outer);
 }
