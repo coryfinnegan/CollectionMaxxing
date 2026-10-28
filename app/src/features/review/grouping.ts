@@ -62,12 +62,8 @@ export function alternativesOf(c: Pick<CandidateDto, 'alternatives'>): ReleaseDt
   return raw.map(asRelease).filter((r): r is ReleaseDto => !!r).slice(0, MAX_ALTERNATIVES);
 }
 
-/** The platform's name, whichever shape the alternative arrived in (a full release object or a flat wire name). */
-export function platformNameOf(r: ReleaseDto): string | null {
-  if (r.platform && typeof r.platform === 'object') return r.platform.name ?? null;
-  const extra = r as unknown as Record<string, unknown>;
-  return typeof extra.platformName === 'string' ? extra.platformName : null;
-}
+// The platform's name lives with the release labels (#457); review keeps the import path.
+export { platformNameOf } from '@/features/library/labels';
 
 /** The catalog art for the option row: the release cover first, the provider artwork next. */
 export function alternativeCoverOf(r: ReleaseDto): string | null {

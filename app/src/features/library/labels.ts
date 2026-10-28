@@ -3,9 +3,17 @@ import type {
   ItemCompleteness,
   ItemCondition,
   ItemStatus,
+  ReleaseDto,
   ReleaseFormat,
   WorkKind,
 } from '@/api/generated/models';
+
+/** The platform's name, whichever shape the release arrived in (a full release object or review's flat wire name). */
+export function platformNameOf(r: ReleaseDto): string | null {
+  if (r.platform && typeof r.platform === 'object') return r.platform.name ?? null;
+  const extra = r as unknown as Record<string, unknown>;
+  return typeof extra.platformName === 'string' ? extra.platformName : null;
+}
 
 export const kindLabels: Record<WorkKind, string> = {
   game: 'Games',

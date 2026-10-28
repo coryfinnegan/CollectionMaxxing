@@ -143,6 +143,26 @@ test.describe('visual', () => {
       });
     });
   });
+
+  // The shared work and edition rows (#457): an owned multi-edition work, an
+  // unowned single, an unowned multi with no art, then the owned work's editions.
+  test.describe('search rows seeded', () => {
+    test.use({ viewport: { width: 1280, height: 1500 } });
+
+    test('search rows', async ({ page, open }) => {
+      await openSearchRows(page, open);
+      await expectShot(page, 'search-rows');
+    });
+
+    test.describe('dark', () => {
+      test.use({ colorScheme: 'dark' });
+
+      test('search rows dark', async ({ page, open }) => {
+        await openSearchRows(page, open);
+        await expectShot(page, 'search-rows-dark');
+      });
+    });
+  });
 });
 
 async function openDeleteToast(page: Page, open: (path: string) => Promise<void>) {
@@ -161,6 +181,16 @@ async function openCommitToast(page: Page, open: (path: string) => Promise<void>
   // The celebration dismisses itself; the toast below keeps the words and the Undo.
   await expect(page.getByTestId('commit-celebration')).toBeHidden({ timeout: 10_000 });
   await page.getByRole('button', { name: 'Undo' }).scrollIntoViewIfNeeded();
+}
+
+async function openSearchRows(page: Page, open: (path: string) => Promise<void>) {
+  await open('/search-rows');
+  await expect(page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' })).toBeVisible();
+  await expect(page.getByText('In your library')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Arrival, Denis Villeneuve · 2016 · 1 edition' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dune, Frank Herbert · 1990–2019 · 2 editions' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Alien (1979), VHS' })).toBeVisible();
+  await expect(page.getByText('You own 1')).toBeVisible();
 }
 
 async function openSeededReview(page: Page, open: (path: string) => Promise<void>) {
