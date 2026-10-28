@@ -30,7 +30,9 @@ public interface IIsbnStore
 /// Looks a book up by ISBN: the local store first, then every book provider that is switched on at once, taking whichever
 /// answers first with a book. A slow Open Library does not hold up a quick Google Books answer, and one provider failing does
 /// not stop the other — except that a first answer without a cover waits for the rest, so a slower provider's picture wins
-/// over a quicker one's none. A found book is saved for good; "not found" and failures are never saved.
+/// over a quicker one's none. A found book is saved for good; "not found" and failures are never saved. A kept answer
+/// without a cover is asked again, not served blindly (#506): provider availability changes (a key lands), so the kept
+/// answer becomes the fallback while the providers are raced, and a cover answer replaces the kept row.
 /// </summary>
 public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnStore store, ILogger<BookLookup> logger)
 {
@@ -44,17 +46,28 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
     {
         var steps = new List<BookLookupStep>();
         var started = Stopwatch.GetTimestamp();
+        ProviderRelease? kept = null;
 
         try
         {
             if (await store.FindAsync(id.Value, cancellationToken) is { } cached)
             {
                 steps.Add(new BookLookupStep(BookSource.LocalCache, "hit", Elapsed(started)));
-                logger.LogInformation("Book lookup served from the local cache, no provider called.");
-                return new BookLookupResult(cached, false, steps);
-            }
+                if (cached.CoverUrl is not null)
+                {
+                    logger.LogInformation("Book lookup served from the local cache, no provider called.");
+                    return new BookLookupResult(cached, false, steps);
+                }
 
-            steps.Add(new BookLookupStep(BookSource.LocalCache, "miss", Elapsed(started)));
+                // A kept answer without a cover is a first answer without a cover: kept as the fallback while the
+                // providers are asked again (#506). Whatever they say, the scan still succeeds as it does today.
+                logger.LogInformation("Book lookup found a kept answer without a cover; asking the providers again.");
+                kept = cached;
+            }
+            else
+            {
+                steps.Add(new BookLookupStep(BookSource.LocalCache, "miss", Elapsed(started)));
+            }
         }
 #pragma warning disable CA1031 // A broken local store must not stop the providers from answering.
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -86,7 +99,9 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
         using var race = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
         var pending = asked.Select(p => AskAsync(p, id, race.Token)).ToList();
         var anyFailed = false;
-        Attempt? fallback = null; // the first found book, kept while the rest are waited out for a cover
+        // The first found book, kept while the rest are waited out for a cover — or the kept coverless answer, which
+        // the re-ask must never lose (#506).
+        Attempt? fallback = kept is null ? null : new Attempt(kept, false, steps[^1]);
         while (pending.Count > 0)
         {
             var done = await Task.WhenAny(pending);
@@ -117,6 +132,12 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
 
         if (fallback?.Release is { } found)
         {
+            if (kept is not null)
+            {
+                // The re-ask found nothing better: the kept answer serves on, unchanged (#506).
+                return new BookLookupResult(found, false, steps);
+            }
+
             if (logger.IsEnabled(LogLevel.Information))
             {
                 logger.LogInformation("Book lookup answered by provider {Provider}.", fallback.Step.Source);

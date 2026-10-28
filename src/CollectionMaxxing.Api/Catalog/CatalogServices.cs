@@ -18,6 +18,7 @@ public static class CatalogServices
         services.AddScoped<SearchCatalog.Handler>();
         services.AddScoped<LookupCatalog.Handler>();
         services.AddScoped<BookLookup>(); // ISBN lookups: the permanent local copy, then the book providers
+        services.AddScoped<CoverReResolver>(); // cover re-resolves: the nightly backfill and the sync scan path (#506)
         services.AddScoped<GetRelease.Handler>();
         services.AddScoped<ListReleaseArtwork.Handler>();
         services.AddScoped<ListPlatforms.Handler>();
