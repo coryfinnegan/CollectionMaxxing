@@ -67,6 +67,20 @@ public static class RecognitionConfigRules
         CheckRange("scoring.art.distanceScale", art.DistanceScale, 0.001, 1000, problems);
         CheckRange("scoring.art.maxDistance", art.MaxDistance, 0.001, 100000, problems);
 
+        var cover = options.CoverVerify;
+        CheckRange("scoring.coverVerify.loweRatio", cover.LoweRatio, 0.5, 0.95, problems);
+        CheckRange("scoring.coverVerify.ransacReprojThreshold", cover.RansacReprojThreshold, 1, 10, problems);
+        CheckRange("scoring.coverVerify.weakInliers", cover.WeakInliers, 1, 1000, problems);
+        CheckRange("scoring.coverVerify.strongInliers", cover.StrongInliers, 2, 10000, problems);
+        if (cover.StrongInliers <= cover.WeakInliers)
+        {
+            problems.Add("scoring.coverVerify.strongInliers must be above scoring.coverVerify.weakInliers.");
+        }
+
+        CheckRange("scoring.coverVerify.preselectMargin", cover.PreselectMargin, 0, 1, problems);
+        CheckRange("scoring.coverVerify.visualWeight", cover.VisualWeight, 0, 1, problems);
+        CheckRange("scoring.coverVerify.maxDimension", cover.MaxDimension, 256, 4096, problems);
+
         foreach (var (name, weights) in Profiles(options))
         {
             var terms = new (string Term, double Value)[]

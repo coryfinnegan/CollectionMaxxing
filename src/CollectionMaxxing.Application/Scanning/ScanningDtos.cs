@@ -18,6 +18,8 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// items of a multi-item snap (#338); <c>GuidanceCode</c> is what this unresolved row tells the person to do next (#344).
 /// <c>Tier</c> is the commit tier (docs/16 §6): null until the candidate resolves.
 /// <c>CropUrl</c> is its kept segment crop, when it has one (#345).
+/// <c>CoverPick</c> is the cover verification's preselected alternative (#438 stage 2): Review shows it checked, and the
+/// person can still pick another. Null unless a verification preselected one.
 /// </summary>
 public sealed record CandidateDto(
     Guid Id,
@@ -50,7 +52,14 @@ public sealed record CandidateDto(
     ShotKind ShotKind,
     string? SegmentId,
     GuidanceCode? GuidanceCode,
-    string? CropUrl);
+    string? CropUrl,
+    CoverPickDto? CoverPick = null);
+
+/// <summary>
+/// The cover verification's preselected alternative (#438 stage 2): the release Review shows checked, and why.
+/// <c>Reason</c> is a stable code the app maps to its own copy (<c>cover_match</c>: the cover matched the capture).
+/// </summary>
+public sealed record CoverPickDto(Guid ReleaseId, string Reason);
 
 /// <summary>Why a candidate is still Pending: <c>Quota</c> (today's UPC allowance is spent, so it waits for the nightly drain) or <c>Lookup</c> (a provider was slow or down, so it is tried again shortly).</summary>
 public enum PendingReason
