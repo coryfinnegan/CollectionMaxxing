@@ -60,12 +60,23 @@ public sealed class ScanSession : ILibraryScoped, IConcurrencyVersioned
     /// <summary>
     /// Which tiers auto-add in this session (docs/16 §6), spelled as <see cref="EnumText"/> spells them: none unless
     /// the session says otherwise (#452 — nothing enters the library straight from a scan; every capture waits for the
-    /// Review commit). An empty list turns auto-add off entirely. Use <see cref="AutoCommits"/> to ask.
+    /// Review commit). An empty list turns auto-add off entirely, and so does predating the #452 cutover (#489:
+    /// pre-cutover rows kept the old T0 default, which silently kept auto-adding after the fix). Use
+    /// <see cref="AutoCommits"/> to ask.
     /// </summary>
     public string[] AutoCommitTiers { get; set; } = [];
 
-    /// <summary>Whether <paramref name="tier"/> auto-adds in this session.</summary>
-    public bool AutoCommits(ScanTier tier) => AutoCommitTiers.Contains(EnumText.ToText(tier));
+    /// <summary>
+    /// The #452 cutover: #469 merged 2026-10-27T22:17:11Z, moving the session default to no auto-add. Sessions
+    /// created before that instant follow the no-auto-add rule whatever their stored tiers say (#489).
+    /// </summary>
+    public static readonly DateTimeOffset AutoCommitCutover = new(2026, 10, 27, 22, 17, 11, TimeSpan.Zero);
+
+    /// <summary>
+    /// Whether <paramref name="tier"/> auto-adds in this session: named in <see cref="AutoCommitTiers"/> and created
+    /// after the #452 cutover. Pre-cutover sessions never auto-add (#489).
+    /// </summary>
+    public bool AutoCommits(ScanTier tier) => CreatedAt >= AutoCommitCutover && AutoCommitTiers.Contains(EnumText.ToText(tier));
 
     /// <summary>
     /// Whether an exact-owned release still auto-adds (as another copy). Off by default: re-scanning an owned shelf

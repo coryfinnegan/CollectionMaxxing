@@ -7,7 +7,11 @@
 #
 # Run from anywhere:  bash scripts/check.sh [phase ...]
 # Phases are restore, build, format, test and app; with no arguments all of them run. CI runs one phase per step so
-# timings and failures localize (the backend job skips the app phase; the app job owns npm run check).
+# timings and failures localize (the backend jobs skip the app phase; the app job owns npm run check).
+#
+# CM_TEST_ONLY limits the test phase to the named test projects (whitespace-separated basenames, e.g.
+# CM_TEST_ONLY="CollectionMaxxing.Domain.Tests"). CI's backend-test matrix sets it so each shard runs its own
+# projects; unset, every test project runs. All the usual guards still apply to the lanes that run.
 #
 # The full output of the failing step is kept in the file named in the failure message.
 set -u
@@ -135,6 +139,20 @@ for proj in tests/*/*.csproj; do
     *) lanes+=("$(basename "$proj" .csproj):$proj");;
   esac
 done
+if [ -n "${CM_TEST_ONLY:-}" ]; then
+  keep=()
+  for lane in "${lanes[@]}"; do
+    name="${lane%%:*}"
+    for want_name in $CM_TEST_ONLY; do
+      if [ "$want_name" = "$name" ]; then keep+=("$lane"); break; fi
+    done
+  done
+  if [ "${#keep[@]}" -eq 0 ]; then
+    echo "test: CM_TEST_ONLY matched no test projects ('$CM_TEST_ONLY')" >&2
+    exit 2
+  fi
+  lanes=("${keep[@]}")
+fi
 test_wall_start=$SECONDS
 export CM_PERF_LOG="$log_dir/postgres-perf.log"
 rm -f "$CM_PERF_LOG"
