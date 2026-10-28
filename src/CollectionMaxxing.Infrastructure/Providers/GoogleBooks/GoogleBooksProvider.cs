@@ -39,6 +39,8 @@ public sealed class GoogleBooksProvider(HttpClient http, IOptions<GoogleBooksOpt
             return null;
         }
 
+        // q=isbn: stays: bare digit strings answer 0 too (#511), so there is no fallback to try, and an empty
+        // lookup is never cached, so a GB recovery heals this with no deploy.
         var result = await FetchAsync(
             $"lookup:isbn:{id.Value}",
             _ => Task.FromResult(Get($"books/v1/volumes?q=isbn:{id.Value}&maxResults=1")),
@@ -61,7 +63,9 @@ public sealed class GoogleBooksProvider(HttpClient http, IOptions<GoogleBooksOpt
             return [];
         }
 
-        var q = $"intitle:{query.Title}" + (string.IsNullOrWhiteSpace(query.Creator) ? string.Empty : $" inauthor:{query.Creator}");
+        // GB's field operators (intitle:/inauthor:) currently answer totalItems 0 while bare word search works (#511):
+        // send bare words and let the scorer match client-side.
+        var q = query.Title.Trim() + (string.IsNullOrWhiteSpace(query.Creator) ? string.Empty : $" {query.Creator.Trim()}");
         var url = $"books/v1/volumes?q={Uri.EscapeDataString(q)}&maxResults={Math.Clamp(query.Limit, 1, 40)}";
         var result = await FetchAsync(
             SearchKey("title", query.Title, query.Creator, query.Limit),
