@@ -19,9 +19,13 @@ test.describe('keyboard only', () => {
   test('the library table moves between rows with the arrow keys and keeps a sensible tab order', async ({ page, open }) => {
     await open('/library');
     const all = page.getByRole('checkbox', { name: 'Select all loaded items' });
-    await all.focus();
-    await page.keyboard.press('ArrowDown');
     const rows = page.getByRole('row').filter({ has: page.getByRole('checkbox', { name: /^Select (?!all)/ }) });
+    // The header (and its Select-all checkbox) renders before the items query resolves, so an ArrowDown
+    // pressed too early has no neighbor row to move to and focus never lands (#482). Wait for the rows first.
+    await expect(rows.nth(1)).toBeVisible();
+    await all.focus();
+    await expect(all).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     const first = rows.nth(0).getByRole('checkbox');
     const second = rows.nth(1).getByRole('checkbox');
     await expect(first).toBeFocused();
