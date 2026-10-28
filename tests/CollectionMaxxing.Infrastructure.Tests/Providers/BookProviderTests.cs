@@ -238,6 +238,31 @@ public class GoogleBooksProviderTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task Searches_with_bare_title_and_author_words_because_gb_operators_answer_nothing()
+    {
+        // Live 2026-10-28 (#511): q=intitle:Dune -> totalItems 0 while q=Dune -> 363;
+        // q=intitle:Home -> 0 while q=Home -> 646; q=inauthor:Herbert -> 0. The scorer matches client-side.
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "googlebooks-found.json");
+
+        await host.Get<GoogleBooksProvider>().SearchAsync(
+            new CatalogQuery { Title = "Fantastic Mr Fox", Creator = "Dahl" }, default);
+
+        host.Server.LogEntries.Single().RequestMessage!.Query!["q"].ToString().ShouldBe("Fantastic Mr Fox Dahl");
+    }
+
+    [Fact]
+    public async Task Searches_with_a_bare_title_when_there_is_no_author()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "googlebooks-found.json");
+
+        await host.Get<GoogleBooksProvider>().SearchAsync(new CatalogQuery { Title = "Dune" }, default);
+
+        host.Server.LogEntries.Single().RequestMessage!.Query!["q"].ToString().ShouldBe("Dune");
+    }
+
+    [Fact]
     public async Task Drops_a_cover_that_is_not_on_an_allow_listed_host()
     {
         using var host = ProviderHost.Create(Db);
