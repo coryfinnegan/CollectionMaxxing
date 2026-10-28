@@ -40,8 +40,13 @@ public sealed record ReleaseDto(
 /// <summary>A games platform (reference data).</summary>
 public sealed record PlatformDto(Guid Id, string Name, string ShortName, string? Manufacturer);
 
-/// <summary>One work found by a catalogue search, with its releases, from the local catalogue or a provider.</summary>
-public sealed record CatalogSearchResultDto(WorkDto Work, IReadOnlyList<ReleaseDto> Releases, double Score, string Source);
+/// <summary>
+/// One work found by a catalogue search, with its releases, from the local catalogue or a provider.
+/// <see cref="OwnedReleaseIds"/> names the caller's own releases among them (an owned or lent copy, or one the
+/// caller's library made), so rows render the owned badge without a second round trip; provider releases are never owned.
+/// </summary>
+public sealed record CatalogSearchResultDto(
+    WorkDto Work, IReadOnlyList<ReleaseDto> Releases, double Score, string Source, IReadOnlyList<Guid> OwnedReleaseIds);
 
 /// <summary>The releases a barcode or catalogue number resolves to. Usually one; a reused UPC can be more.</summary>
 public sealed record CatalogLookupDto(string Code, IReadOnlyList<ReleaseDto> Releases);

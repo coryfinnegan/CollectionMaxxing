@@ -40,6 +40,81 @@ internal static class CatalogProjection
         string.Join(",", creators.Select(TitleNormalizer.Normalize).OrderBy(c => c, StringComparer.Ordinal));
 
     /// <summary>
+    /// A provider hit's work identity within its own provider: two hits with different keys from the same provider are
+    /// different works (two IGDB games sharing a title). Null when the provider names only releases.
+    /// </summary>
+    public static string? ProviderWorkKey(ProviderRelease p) =>
+        p.WorkKey is null ? null : $"{p.Provider}:{p.WorkKey}";
+
+    /// <summary>
+    /// The cross-provider work fallback (memo 18, "Data mapping"): kind plus the normalized title and creators, so the
+    /// same book from Open Library and Google Books lands in one work. Films and TV add the year, so remakes stay apart.
+    /// </summary>
+    public static string ProviderFallbackKey(ProviderRelease p)
+    {
+        var creators = string.Join(
+            '|', p.Creators.Select(TitleNormalizer.Normalize).Where(c => c.Length > 0).OrderBy(c => c, StringComparer.Ordinal));
+        var title = TitleNormalizer.Normalize(p.Title);
+        return p.Kind is WorkKind.Film or WorkKind.Tv
+            ? $"{p.Kind}|{title}|{p.Year}|{creators}"
+            : $"{p.Kind}|{title}|{creators}";
+    }
+
+    /// <summary>
+    /// Per-type edition identity within one work (memo 18): books are format plus publisher plus year, games are
+    /// platform plus format, films and TV are format plus label plus year. Hits sharing a key are the same edition.
+    /// </summary>
+    public static string ProviderEditionKey(ProviderRelease p) => p.Kind switch
+    {
+        WorkKind.Game => $"g|{PlatformNames.Canonicalize(p.Platform)}|{p.Format}|{TitleNormalizer.Normalize(p.Edition)}",
+        WorkKind.Book => $"b|{p.Format}|{TitleNormalizer.Normalize(p.Publisher)}|{p.Year}|{TitleNormalizer.Normalize(p.Edition)}",
+        WorkKind.Film or WorkKind.Tv => $"f|{p.Format}|{TitleNormalizer.Normalize(p.Publisher)}|{p.Year}|{TitleNormalizer.Normalize(p.Edition)}",
+        _ => $"o|{p.Format}|{TitleNormalizer.Normalize(p.Publisher)}|{p.Year}|{TitleNormalizer.Normalize(p.Edition)}|{PlatformNames.Canonicalize(p.Platform)}",
+    };
+
+    /// <summary>
+    /// Groups scored provider hits into works: by the fallback key across providers, split only when one provider's
+    /// own work keys disagree, with duplicate editions keeping their best score. Releases arrive best-scored first.
+    /// </summary>
+    public static IReadOnlyList<ProviderWorkGroup> GroupProviderReleases(IEnumerable<(ProviderRelease Release, double Score)> scored)
+    {
+        var groups = new List<ProviderWorkGroup>();
+        foreach (var fallback in scored.GroupBy(s => ProviderFallbackKey(s.Release)))
+        {
+            var keyed = fallback.Where(s => ProviderWorkKey(s.Release) is not null).GroupBy(s => ProviderWorkKey(s.Release)!).ToList();
+            if (keyed.Count <= 1)
+            {
+                groups.Add(ToWorkGroup(fallback));
+            }
+            else
+            {
+                // One provider says these are different works: each keeps its own, and hits without a work key join the best-scored.
+                var unkeyed = fallback.Where(s => ProviderWorkKey(s.Release) is null);
+                var ordered = keyed.OrderByDescending(g => g.Max(s => s.Score)).ToList();
+                groups.Add(ToWorkGroup(ordered[0].Concat(unkeyed)));
+                groups.AddRange(ordered.Skip(1).Select(ToWorkGroup));
+            }
+        }
+
+        return groups;
+    }
+
+    private static ProviderWorkGroup ToWorkGroup(IEnumerable<(ProviderRelease Release, double Score)> hits)
+    {
+        var best = new Dictionary<string, (ProviderRelease Release, double Score)>(StringComparer.Ordinal);
+        foreach (var hit in hits)
+        {
+            var key = ProviderEditionKey(hit.Release);
+            if (!best.TryGetValue(key, out var existing) || hit.Score > existing.Score)
+            {
+                best[key] = hit;
+            }
+        }
+
+        return new ProviderWorkGroup(best.Values.OrderByDescending(v => v.Score).ToList());
+    }
+
+    /// <summary>
     /// Asks one provider, bounded by the timeout. A provider that throws, times out or ignores cancellation yields nothing
     /// and never fails the request; only the caller's own cancellation propagates.
     /// </summary>
@@ -65,3 +140,6 @@ internal static class CatalogProjection
         }
     }
 }
+
+/// <summary>One work's share of scored provider hits, best-scored first; the first release is the work's face.</summary>
+internal sealed record ProviderWorkGroup(IReadOnlyList<(ProviderRelease Release, double Score)> Releases);

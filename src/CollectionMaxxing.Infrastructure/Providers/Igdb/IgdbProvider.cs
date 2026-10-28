@@ -195,10 +195,12 @@ public sealed class IgdbProvider(HttpClient http, IOptions<IgdbOptions> options,
             : platforms.FirstOrDefault(p => PlatformNames.Canonicalize(p) == wantedPlatform);
         var companies = game.Items("involved_companies").ToList();
 
+        var externalId = id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         return new ProviderRelease
         {
             Provider = ProviderName,
-            ExternalId = id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ExternalId = externalId,
+            WorkKey = externalId, // an IGDB game entry is a work; its platforms are editions
             Title = title,
             Kind = WorkKind.Game,
             Platform = platform,
