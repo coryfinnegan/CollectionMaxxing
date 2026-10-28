@@ -59,6 +59,7 @@ const alien: CatalogSearchResultDto = {
   ],
   score: 0.95,
   source: 'local',
+  ownedReleaseIds: [],
 };
 
 const arrival: CatalogSearchResultDto = {
@@ -66,6 +67,7 @@ const arrival: CatalogSearchResultDto = {
   releases: [ed(4, 'e1000000-0000-4000-8000-000000000002', { title: 'Arrival', format: 'bluray', year: 2016, creators: ['Denis Villeneuve'], coverUrl: thumb(ART.arrival!) })],
   score: 0.9,
   source: 'local',
+  ownedReleaseIds: [],
 };
 
 const dune: CatalogSearchResultDto = {
@@ -76,6 +78,7 @@ const dune: CatalogSearchResultDto = {
   ],
   score: 0.85,
   source: 'local',
+  ownedReleaseIds: [],
 };
 
 const nop = () => undefined;

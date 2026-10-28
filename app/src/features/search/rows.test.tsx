@@ -40,6 +40,7 @@ const result = (releases: ReleaseDto[], overrides: Partial<WorkDto> = {}): Catal
   releases,
   score: 0.9,
   source: 'local',
+  ownedReleaseIds: [],
 });
 
 const fakeHaptics = () => {
