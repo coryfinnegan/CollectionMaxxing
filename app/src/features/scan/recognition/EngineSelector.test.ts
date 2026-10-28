@@ -23,7 +23,7 @@ describe('EngineSelector', () => {
 
   it.each([
     ['the model is off', { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' }, ok, 'unavailable'],
-    ['the model has no vision', { available: true, vision: false, guidedGeneration: true, contextSize: 4096 }, ok, 'unavailable'],
+    ['guided generation is off', { available: true, vision: false, guidedGeneration: false, contextSize: 4096 }, ok, 'unavailable'],
     ['the model declines', undefined, { ...ok, read: failedRead('declined') }, 'declined'],
     ['the model times out', undefined, { ...ok, read: failedRead('timeout', [books[0]]) }, 'timeout'],
     ['the context is exceeded', undefined, { ...ok, read: failedRead('contextExceeded') }, 'contextExceeded'],
@@ -64,6 +64,49 @@ describe('EngineSelector', () => {
     await Promise.all([s.read(STILL, (i) => streamed.push(i)), s.read(STILL, () => {})]);
     expect(streamed.map((i) => i.title)).toEqual(['Dune', 'Emma']);
     expect(vision.maxConcurrentReads).toBe(1);
+  });
+});
+
+describe('EngineSelector with the OCR-text tier', () => {
+  const textOnly = { available: true, vision: false, guidedGeneration: true, contextSize: 4096 };
+  const extracted: Scene = { ...ok, extract: okRead(books) };
+
+  it('reads with the text tier first on a phone whose model cannot see pictures', async () => {
+    const { vision, selector: s } = selector(extracted, textOnly);
+    const reading = await s.read(STILL, () => {});
+    expect(reading.engine).toBe('fm_text');
+    expect(reading.fellBackFrom).toBeUndefined();
+    expect(reading.items.map((i) => i.title)).toEqual(['Dune', 'Emma']);
+    expect(vision.readCalls).toHaveLength(0);
+    expect(vision.extractCalls).toHaveLength(1);
+  });
+
+  it('falls back to Vision text when extraction fails on a text-only phone, and says why', async () => {
+    const { selector: s } = selector({ ...ok, extract: failedRead('declined') }, textOnly);
+    const reading = await s.read(STILL, () => {});
+    expect(reading.engine).toBe('vision_pipeline');
+    expect(reading.fellBackFrom).toBe('declined');
+    expect(reading.items.length).toBeGreaterThan(0);
+  });
+
+  it('tries the text tier when the picture read fails, and keeps the picture failure as the reason', async () => {
+    const { selector: s } = selector({ ...ok, read: failedRead('declined'), extract: okRead(books) });
+    const reading = await s.read(STILL, () => {});
+    expect(reading.engine).toBe('fm_text');
+    expect(reading.fellBackFrom).toBe('declined');
+    expect(reading.items.map((i) => i.title)).toEqual(['Dune', 'Emma']);
+  });
+
+  it('falls back to Vision text with the picture failure when extraction fails too', async () => {
+    const { selector: s } = selector({ ...ok, read: failedRead('timeout'), extract: failedRead('declined') });
+    const reading = await s.read(STILL, () => {});
+    expect(reading.engine).toBe('vision_pipeline');
+    expect(reading.fellBackFrom).toBe('timeout');
+    expect(reading.items.length).toBeGreaterThan(0);
+  });
+
+  it('reports the text tier for Settings on a text-only phone', async () => {
+    expect(await selector(ok, textOnly).selector.state()).toEqual({ engine: 'fm_text', appleIntelligence: 'on' });
   });
 });
 

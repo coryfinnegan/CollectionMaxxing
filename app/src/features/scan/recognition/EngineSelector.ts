@@ -1,8 +1,10 @@
-// Picks the engine for each snap. The Apple model when it can see pictures; Vision text for that one snap when the
-// model declines, runs out of time or room, or is not there. The next snap tries the model again.
+// Picks the engine for each snap. The Apple model when it can see pictures; the OCR-text extraction tier when the
+// model can only read text, or when the picture read declines, runs out of time or room; Vision text for that one snap
+// when neither model tier answers. The next snap tries the model again.
 import type { ModelCapabilities, ModelUnavailableReason, Rect, VisionEngine } from '@/native/cm-vision';
 import { discardPicture, trackPicture } from '../pictureFiles';
 import { AppleModelEngine } from './AppleModelEngine';
+import { FmTextEngine } from './FmTextEngine';
 import { VisionPipelineEngine, type EngineDeps } from './VisionPipelineEngine';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
@@ -21,15 +23,18 @@ export interface SelectorDeps extends EngineDeps {
   cropper?: StillCropper;
 }
 
-const usable = (caps: ModelCapabilities) => caps.available && caps.vision;
+const seesPictures = (caps: ModelCapabilities) => caps.available && caps.vision;
+const extractsText = (caps: ModelCapabilities) => caps.available && caps.guidedGeneration;
 
 export class EngineSelector {
   private readonly apple: AppleModelEngine;
+  private readonly text: FmTextEngine;
   private readonly pipeline: VisionPipelineEngine;
   private readonly now: () => number;
 
   constructor(private readonly deps: SelectorDeps) {
     this.apple = new AppleModelEngine(deps);
+    this.text = new FmTextEngine(deps);
     this.pipeline = new VisionPipelineEngine(deps);
     this.now = deps.now ?? Date.now;
   }
@@ -49,19 +54,35 @@ export class EngineSelector {
   /** For Settings → Recognition. */
   async state(): Promise<RecognitionState> {
     const caps = await this.capabilities();
-    if (caps && usable(caps)) return { engine: 'apple_model', appleIntelligence: 'on' };
+    if (caps && seesPictures(caps)) return { engine: 'apple_model', appleIntelligence: 'on' };
+    if (caps && extractsText(caps)) return { engine: 'fm_text', appleIntelligence: 'on' };
     return { engine: 'vision_pipeline', appleIntelligence: caps ? (caps.reason ?? 'notSupported') : 'unknown' };
   }
 
   async read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
     const started = this.now();
     const caps = await this.capabilities();
-    if (!caps || !usable(caps)) return this.fallBack(still, onItem, 'unavailable', options);
+    if (!caps || !extractsText(caps)) return this.fallBack(still, onItem, 'unavailable', options);
+    if (!seesPictures(caps)) return this.readText(still, onItem, options);
     try {
       const reading = await this.apple.read(still, onItem, options);
       return await this.maybeHalves(still, reading, started, options);
     } catch (error) {
-      return this.fallBack(still, onItem, error instanceof ModelUnusableError ? error.reason : 'unavailable', options);
+      return this.readText(still, onItem, options, error instanceof ModelUnusableError ? error.reason : 'unavailable');
+    }
+  }
+
+  /**
+   * The middle tier. When the picture read failed first, its reason is the snap's fellBackFrom: that says why the
+   * preferred engine wasn't used, and a failed extraction on top changes nothing about it.
+   */
+  private async readText(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions, fellBackFrom?: FellBackFrom): Promise<SnapReading> {
+    try {
+      const reading = await this.text.read(still, onItem, options);
+      return fellBackFrom === undefined ? reading : { ...reading, fellBackFrom };
+    } catch (error) {
+      const reason = fellBackFrom ?? (error instanceof ModelUnusableError ? error.reason : 'unavailable');
+      return this.fallBack(still, onItem, reason, options);
     }
   }
 

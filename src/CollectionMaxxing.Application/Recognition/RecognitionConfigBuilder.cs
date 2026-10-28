@@ -40,6 +40,7 @@ public sealed record RecognitionScoringWeights(
 /// <summary>The whole config file: the defaults file and an override file have this shape (the override may name any subset).</summary>
 public sealed record RecognitionFile(
     RecognitionPrompt Prompt,
+    RecognitionPrompt ExtractionPrompt,
     RecognitionAutoSnap AutoSnap,
     RecognitionEngine Engine,
     RecognitionSplitting Splitting,
@@ -116,7 +117,7 @@ public static class RecognitionConfigBuilder
         }
 
         var scoring = file.Scoring.ToOptions();
-        var unversioned = new RecognitionConfig(string.Empty, file.Prompt, file.AutoSnap, file.Engine, file.Splitting, file.Fingerprints);
+        var unversioned = new RecognitionConfig(string.Empty, file.Prompt, file.ExtractionPrompt, file.AutoSnap, file.Engine, file.Splitting, file.Fingerprints);
         var problems = RecognitionConfigRules.Check(unversioned);
         problems.AddRange(RecognitionConfigRules.CheckScoring(scoring));
         if (problems.Count > 0)
@@ -130,7 +131,7 @@ public static class RecognitionConfigBuilder
     /// <summary>A hash of the served content (everything but the version itself), so the version changes whenever the content does.</summary>
     public static string VersionOf(RecognitionConfig config)
     {
-        var content = new { config.Prompt, config.AutoSnap, config.Engine, config.Splitting, config.Fingerprints };
+        var content = new { config.Prompt, config.ExtractionPrompt, config.AutoSnap, config.Engine, config.Splitting, config.Fingerprints };
         var hash = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(content, Strict));
         return Convert.ToHexStringLower(hash.AsSpan(0, 16));
     }

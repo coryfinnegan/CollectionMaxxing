@@ -9792,6 +9792,7 @@
         "required": [
           "version",
           "prompt",
+          "extractionPrompt",
           "autoSnap",
           "engine",
           "splitting",
@@ -9803,6 +9804,9 @@
             "type": "string"
           },
           "prompt": {
+            "$ref": "#/components/schemas/RecognitionPrompt"
+          },
+          "extractionPrompt": {
             "$ref": "#/components/schemas/RecognitionPrompt"
           },
           "autoSnap": {
@@ -10207,6 +10211,7 @@
         "enum": [
           "apple_model",
           "vision_pipeline",
+          "fm_text",
           null
         ]
       },

@@ -34,8 +34,8 @@ public sealed record EvalReadItem(
     string? SegmentId = null);
 
 /// <summary>
-/// Reads an engine as its API name only (<c>apple_model</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number
-/// (7 would become an engine nobody has) or a C# member name; a result file's engine key must be one of the two real engines. The run endpoint puts it first in its reader's converters.
+/// Reads an engine as its API name only (<c>apple_model</c>, <c>fm_text</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number
+/// (7 would become an engine nobody has) or a C# member name; a result file's engine key must be one of the three real engines. The run endpoint puts it first in its reader's converters.
 /// </summary>
 public sealed class StrictScanEngineConverter : JsonConverter<ScanEngine>
 {
@@ -53,7 +53,7 @@ public sealed class StrictScanEngineConverter : JsonConverter<ScanEngine>
             }
         }
 
-        throw new JsonException("The engine must be apple_model or vision_pipeline.");
+        throw new JsonException("The engine must be apple_model, fm_text or vision_pipeline.");
     }
 
     public override void Write(Utf8JsonWriter writer, ScanEngine value, JsonSerializerOptions options) =>

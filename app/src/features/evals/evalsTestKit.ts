@@ -5,6 +5,7 @@ import { createEvalRunner, type EvalRunner } from './runner';
 import { RecognitionConfigStore } from '@/features/scan/recognition/config';
 import { DEFAULT_RECOGNITION_CONFIG, type RecognitionConfig } from '@/features/scan/recognition/defaults';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
+import { FmTextEngine } from '@/features/scan/recognition/FmTextEngine';
 import { failedRead, line, modelItem, okRead, RecordingVision, testIds, type Scene } from '@/features/scan/recognition/fakes';
 import { VisionPipelineEngine } from '@/features/scan/recognition/VisionPipelineEngine';
 import { setPictureFiles, trackPicture } from '@/features/scan/pictureFiles';
@@ -13,9 +14,10 @@ import { evalsMock, goldenPhotos } from '@/mocks/evals';
 
 export const uriOf = (id: string) => `file:///cache/cm-evals/${id}.jpg`;
 
-/** What the fake vision engine sees for a golden photo: two items by the model, two lines of text for Vision. */
+/** What the fake vision engine sees for a golden photo: two items by the model, two lines of text for Vision, and the same two items extracted from that text. */
 export const sceneFor = (id: string, overrides: Partial<Scene> = {}): Scene => ({
   read: okRead([modelItem(`Title of ${id}`, `Title of ${id}`, 0), modelItem(`Other of ${id}`, `Other of ${id}`, 1)]),
+  extract: okRead([modelItem(`Title of ${id}`, `Title of ${id}`, 0), modelItem(`Other of ${id}`, `Other of ${id}`, 1)]),
   text: [line(`Title of ${id}`, 0.1, 0.1, 0.1, 0.5), line(`Other of ${id}`, 0.5, 0.1, 0.1, 0.5)],
   ...overrides,
 });
@@ -97,6 +99,7 @@ export function makeKit(options: KitOptions = {}) {
           },
         }
       : new EngineSelector({ vision, settings, newId: testIds }),
+    fmText: new FmTextEngine({ vision, settings, newId: testIds }),
     pipeline: new VisionPipelineEngine({ vision, settings, newId: testIds }),
     config: store,
     vision,

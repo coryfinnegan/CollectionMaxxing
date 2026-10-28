@@ -1,10 +1,11 @@
 // The on-phone eval runner (EVAL-1b). It downloads the golden photos one at a time, reads each through the Apple model (the scanner's own
-// selector) and through the Vision text engine, and uploads the readings. It does no scoring and no grounding: the PC does. It never touches
-// the library: the only requests are the eval routes and the config fetch, and a photo file is deleted the moment it has been read.
+// selector), through the OCR-text extraction tier and through the Vision text engine, and uploads the readings. It does no scoring and no
+// grounding: the PC does. It never touches the library: the only requests are the eval routes and the config fetch, and a photo file is
+// deleted the moment it has been read.
 import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, GoldenPhotoDto, ScanTier } from '@/api/generated/models';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
-import type { ReadItem, RecognitionEngine, SnapReading, Still } from '@/features/scan/recognition/types';
+import { ModelUnusableError, type EngineName, type ReadItem, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ThermalState } from '@/native/cm-vision';
 import type { EvalApi } from './api';
 
@@ -12,12 +13,12 @@ import type { EvalApi } from './api';
 export const MAX_BODY_CHARS = 1_500_000;
 
 export type EvalPhase = 'idle' | 'starting' | 'running' | 'paused' | 'uploading' | 'done' | 'upload_failed' | 'error';
-export type EvalStep = 'apple' | 'vision';
+export type EvalStep = 'apple' | 'text' | 'vision';
 
 export interface EvalState {
   phase: EvalPhase;
   total: number;
-  /** Photos fully read (both engines). */
+  /** Photos fully read (all three engines). */
   photosDone: number;
   /** The photo being read, 1-based; 0 before the first. */
   current: number;
@@ -44,8 +45,10 @@ export interface EvalRunnerDeps {
     download(id: string): Promise<string>;
     sizeOf(uri: string): Promise<{ width: number; height: number }>;
   };
-  /** The scanner's own selector: the Apple model, and the Vision text engine when the model gives no reading. */
+  /** The scanner's own selector: the Apple model, then the tiers below it when the model gives no reading. */
   selector: { read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> };
+  /** The OCR-text extraction tier on its own, forced. */
+  fmText: RecognitionEngine;
   /** The Vision text engine on its own, forced. */
   pipeline: RecognitionEngine;
   config: { refresh(): Promise<unknown>; current(): RecognitionSettings };
@@ -87,7 +90,7 @@ const defaultSegmentId = () =>
 
 const FELL_BACK = { unavailable: 'unavailable', declined: 'declined', timeout: 'timeout', contextExceeded: 'context' } as const;
 
-const toItem = (item: ReadItem, engine: 'apple_model' | 'vision_pipeline', segmentId: string): EvalReadItem => ({
+const toItem = (item: ReadItem, engine: EngineName, segmentId: string): EvalReadItem => ({
   localId: item.localId,
   text: item.text,
   title: item.title,
@@ -97,7 +100,7 @@ const toItem = (item: ReadItem, engine: 'apple_model' | 'vision_pipeline', segme
   kind: item.kind,
   format: item.format,
   platform: item.platform,
-  resolvedBy: engine === 'apple_model' ? 'model' : 'vision_text',
+  resolvedBy: engine === 'vision_pipeline' ? 'vision_text' : 'model',
   segmentId,
   // The phone cannot ground a read, so it claims the commit from confidence: a high-confidence read would
   // auto-commit (T1) and the PC judges whether it was right; anything less is kept as a guess for a human.
@@ -123,7 +126,7 @@ export class EvalRunner {
   private pauseRequested = false;
   private release: (() => void) | undefined;
   private active: Promise<void> | undefined;
-  /** The photo whose first step is done but not its second, kept across a pause. */
+  /** The photo whose first steps are done but the photo unfinished, kept across a pause. */
   private inFlight: EvalPhotoResult[] = [];
 
   constructor(private readonly deps: EvalRunnerDeps) {
@@ -246,7 +249,7 @@ export class EvalRunner {
     return !this.cancelRequested;
   }
 
-  /** Reads one photo with both engines. False when cancelled before it was finished (it is read again on resume). */
+  /** Reads one photo with all three engines. False when cancelled before it was finished (it is read again on resume). */
   private async readPhoto(photo: GoldenPhotoDto): Promise<boolean> {
     let uri: string;
     this.set({ current: this.next + 1, step: 'apple' });
@@ -262,6 +265,9 @@ export class EvalRunner {
       const still: Still = { uri, ...size };
       if (this.inFlight.length === 0) this.inFlight = [await this.readWith('apple_model', photo.id, still)];
       if (!(await this.checkpoint())) return false;
+      this.set({ step: 'text' });
+      if (this.inFlight.length === 1) this.inFlight.push(await this.readWith('fm_text', photo.id, still));
+      if (!(await this.checkpoint())) return false;
       this.set({ step: 'vision' });
       const vision = await this.readWith('vision_pipeline', photo.id, still);
       this.results.push(...this.inFlight, vision);
@@ -274,7 +280,7 @@ export class EvalRunner {
     }
   }
 
-  private async readWith(engine: 'apple_model' | 'vision_pipeline', photoId: string, still: Still): Promise<EvalPhotoResult> {
+  private async readWith(engine: EngineName, photoId: string, still: Still): Promise<EvalPhotoResult> {
     const started = this.now();
     const segmentId = this.newId();
     const capturedAt = new Date(started).toISOString();
@@ -284,7 +290,12 @@ export class EvalRunner {
     };
     let result: EvalPhotoResult;
     try {
-      const reading = engine === 'apple_model' ? await this.deps.selector.read(still, onItem) : await this.deps.pipeline.read(still, onItem);
+      const reading =
+        engine === 'apple_model'
+          ? await this.deps.selector.read(still, onItem)
+          : engine === 'fm_text'
+            ? await this.deps.fmText.read(still, onItem)
+            : await this.deps.pipeline.read(still, onItem);
       const modelFailed = engine === 'apple_model' && reading.engine !== 'apple_model';
       const reason = reading.fellBackFrom;
       result = modelFailed
@@ -293,7 +304,7 @@ export class EvalRunner {
             engine,
             outcome: reason === 'declined' ? 'refused' : reason === 'timeout' ? 'timeout' : 'error',
             fellBackFrom: FELL_BACK[reason ?? 'unavailable'],
-            items: [], // what the fallback read is the Vision row's to report
+            items: [], // what a fallback tier read is the fm_text and Vision rows' to report
             unreadableCount: 0,
           }
         : {
@@ -304,8 +315,20 @@ export class EvalRunner {
             unreadableCount: reading.unreadableCount,
             firstItemMs,
           };
-    } catch {
-      result = { photoId, engine, outcome: 'error', items: [], unreadableCount: 0 };
+    } catch (error) {
+      // The forced extraction tier reports why it gave no reading, like the Apple row does.
+      const reason = engine === 'fm_text' && error instanceof ModelUnusableError ? error.reason : undefined;
+      result =
+        reason === undefined
+          ? { photoId, engine, outcome: 'error', items: [], unreadableCount: 0 }
+          : {
+              photoId,
+              engine,
+              outcome: reason === 'declined' ? 'refused' : reason === 'timeout' ? 'timeout' : 'error',
+              fellBackFrom: FELL_BACK[reason],
+              items: [],
+              unreadableCount: 0,
+            };
     }
     const thermal = (await this.deps.vision.deviceStatus().catch(() => undefined))?.thermalState;
     if (thermal) {

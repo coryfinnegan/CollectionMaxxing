@@ -52,6 +52,15 @@ export class FakeVisionEngine implements VisionEngine {
   /** Streams each fixture item to `onItem` in `order`, then resolves. Never throws for a recorded outcome. */
   async readItems(imageUri: string, _options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
     const result = this.replay('readItems', { imageUri });
+    return this.stream(result, onItem);
+  }
+
+  /** Same replay as `readItems`, keyed by the exact OCR text instead of a picture. */
+  async extractItems(ocrText: string, _options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
+    return this.stream(this.replay('extractItems', { ocrText }), onItem);
+  }
+
+  private stream(result: ReadItemsResult, onItem?: (item: ModelItem) => void): ReadItemsResult {
     const items = [...result.items].sort((a, b) => a.order - b.order);
     for (const item of items) onItem?.(item);
     return { ...result, items };

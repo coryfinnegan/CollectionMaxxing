@@ -28,10 +28,13 @@ export function parseConfig(body: unknown): RecognitionConfig | undefined {
   if (!allPositive(autoSnap, Object.keys(DEFAULT_RECOGNITION_CONFIG.autoSnap))) return undefined;
   if (!allPositive(engine, Object.keys(DEFAULT_RECOGNITION_CONFIG.engine))) return undefined;
   if (!allPositive(splitting, Object.keys(DEFAULT_RECOGNITION_CONFIG.splitting))) return undefined;
-  // A server from before fingerprints.maxDistance sends none: the built-in value stands. A bad one refuses the whole config.
-  if (body.fingerprints === undefined) return { ...(body as unknown as RecognitionConfig), fingerprints: DEFAULT_RECOGNITION_CONFIG.fingerprints };
-  if (!allPositive(body.fingerprints, Object.keys(DEFAULT_RECOGNITION_CONFIG.fingerprints))) return undefined;
-  return body as unknown as RecognitionConfig;
+  // A server from before a section sends none: the built-in value stands. A bad one refuses the whole config.
+  let { fingerprints, extractionPrompt } = body;
+  if (fingerprints === undefined) fingerprints = DEFAULT_RECOGNITION_CONFIG.fingerprints;
+  else if (!allPositive(fingerprints, Object.keys(DEFAULT_RECOGNITION_CONFIG.fingerprints))) return undefined;
+  if (extractionPrompt === undefined) extractionPrompt = DEFAULT_RECOGNITION_CONFIG.extractionPrompt;
+  else if (!isObj(extractionPrompt) || !text(extractionPrompt.template) || !text(extractionPrompt.outputRules)) return undefined;
+  return { ...(body as unknown as RecognitionConfig), fingerprints, extractionPrompt } as RecognitionConfig;
 }
 
 interface Cached {

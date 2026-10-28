@@ -88,7 +88,7 @@ describe('EvalsScreen', () => {
     await act(async () => {
       fireEvent.press(screen.getByRole('button', { name: 'Start the run' }));
     });
-    const retry = await screen.findByRole('button', { name: 'Send 2 results again' });
+    const retry = await screen.findByRole('button', { name: 'Send 3 results again' });
     await act(async () => {
       fireEvent.press(retry);
     });

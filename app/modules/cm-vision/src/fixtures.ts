@@ -1,6 +1,7 @@
 import barcodeScenes from '../fixtures/barcodeScenes.json';
 import detectBarcodes from '../fixtures/detectBarcodes.json';
 import detectRectangles from '../fixtures/detectRectangles.json';
+import extractItems from '../fixtures/extractItems.json';
 import featurePrint from '../fixtures/featurePrint.json';
 import featurePrintDistance from '../fixtures/featurePrintDistance.json';
 import readItems from '../fixtures/readItems.json';
@@ -11,6 +12,8 @@ export interface FixtureSet {
   /** `orientation` absent means 0. */
   recognizeText: FixtureRecord<{ imageUri: string; orientation?: 90 | 270 }, TextLine[]>[];
   readItems: FixtureRecord<{ imageUri: string }, ReadItemsResult>[];
+  /** Keyed by the exact OCR text the engine sends (lines joined with `\n`). */
+  extractItems: FixtureRecord<{ ocrText: string }, ReadItemsResult>[];
   detectRectangles: FixtureRecord<{ imageUri: string }, Rect[]>[];
   detectBarcodes: FixtureRecord<{ imageUri: string }, DetectedCode[]>[];
   featurePrint: FixtureRecord<{ imageUri: string; cropBox?: Rect }, FeaturePrint>[];
@@ -23,6 +26,7 @@ export interface FixtureSet {
 export const fixtures = {
   recognizeText,
   readItems,
+  extractItems,
   detectRectangles,
   detectBarcodes,
   featurePrint,

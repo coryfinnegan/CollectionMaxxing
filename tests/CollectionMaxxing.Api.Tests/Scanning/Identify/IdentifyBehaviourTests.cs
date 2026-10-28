@@ -267,6 +267,27 @@ public class IdentifyBehaviourTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task An_fm_text_snap_is_stored_with_its_engine_and_text_candidates()
+    {
+        var library = await CreateLibraryAsync();
+        using var viewer = As(library, LibraryRole.Viewer);
+        var sessionId = await StartSessionAsync(viewer, library.Id);
+        var snapId = Guid.NewGuid();
+        var body = Body(snapId, [Read(title: "One", kind: "game")]);
+        body["engine"] = "fm_text";
+
+        var response = await viewer.PostAsync(IdentifyUrl(sessionId), Json(body));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        await using var context = Db.CreateContext();
+        var snap = await context.ScanSnaps.IgnoreQueryFilters().SingleAsync(s => s.Id == snapId);
+        snap.Engine.ShouldBe(ScanEngine.FmText);
+        snap.FellBack.ShouldBeFalse();
+        var candidates = await context.ScanCandidates.IgnoreQueryFilters().Where(c => c.SessionId == sessionId).ToListAsync();
+        candidates.ShouldAllBe(c => c.SnapId == snapId && c.Source == CandidateSource.PictureText);
+    }
+
+    [Fact]
     public async Task The_apple_model_engine_makes_apple_model_candidates_and_a_clean_snap_did_not_fall_back()
     {
         var library = await CreateLibraryAsync();

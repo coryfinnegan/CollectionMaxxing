@@ -28,7 +28,7 @@ export interface ReadItem {
   confidence: ModelConfidence;
 }
 
-export type EngineName = 'apple_model' | 'vision_pipeline';
+export type EngineName = 'apple_model' | 'vision_pipeline' | 'fm_text';
 export type FellBackFrom = 'unavailable' | 'declined' | 'timeout' | 'contextExceeded';
 
 export interface SnapTimings {
@@ -65,7 +65,7 @@ export interface StillCropper {
   crop(still: Still, region: Rect): Promise<Still>;
 }
 
-/** Thrown by `AppleModelEngine` when the model gave no usable reading; the selector reads that snap with Vision text. */
+/** Thrown by the model engines when the model gave no usable reading; the selector reads that snap with the next tier down. */
 export class ModelUnusableError extends Error {
   constructor(readonly reason: FellBackFrom) {
     super(`The on-device model gave no reading (${reason}).`);
