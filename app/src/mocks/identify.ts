@@ -274,8 +274,11 @@ export const handlers = [
     if (candidate.decision !== 'undecided' || !candidate.needsArt) return problem(409, 'This item has been decided already.');
     const best = [...distances].sort((a, b) => a.distance - b.distance)[0];
     const pick = [CLOSE_CALL.original, CLOSE_CALL.rerelease].find((r) => r.id === best?.releaseId);
-    // Like the real API, which only records the artwork step: needsArt stays set and the phone tries once.
+    // Like the real API: scoring records the artwork step, so needsArt comes back false
+    // (CloseCall.NeedsArt with alreadyCompared=true) — even when the distances could not settle
+    // the close call. The phone sends nothing more; a later :verify-cover would be refused.
     candidate.artDistance = best?.distance ?? null;
+    candidate.needsArt = false;
     if (pick && best && best.distance < 0.4) Object.assign(candidate, { resolution: 'matched', score: 0.95, release: pick, alternatives: null });
     candidate.changeSeq = ++session.seq;
     emit(session.id, candidate);

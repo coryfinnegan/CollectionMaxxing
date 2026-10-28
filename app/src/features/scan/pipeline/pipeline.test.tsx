@@ -285,19 +285,22 @@ describe('a close call', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('verifies after an on-device comparison that could not settle it', async () => {
+  it('sends nothing more after an on-device comparison the server recorded, and the card stays Pick one', async () => {
     kit.art.distances.set('0001', 0.5);
     kit.art.distances.set('0002', 0.6);
     await settle();
     await waitFor(() => expect(identifyMock.artRequests).toHaveLength(1));
-    await waitFor(() => expect(identifyMock.verifyRequests).toHaveLength(1));
-    await waitFor(() =>
-      expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.coverPick).toEqual({
-        releaseId: CLOSE_CALL.original.id,
-        reason: 'cover_match',
-      }),
-    );
-    expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.resolution).toBe('ambiguous');
+    // The recorded :art comes back needsArt=false (like the real API), so the guard blocks the
+    // verify send: the card stays an undecided close call for the person to pick. (#486 tracks
+    // the server allowing verify-after-:art; until then there is nothing more to send.)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
+    expect(identifyMock.verifyRequests).toEqual([]);
+    expect(kit.cover.reads).toEqual([]);
+    const card = stored().find((c) => c.visibleText === CLOSE_CALL.title);
+    expect(card?.resolution).toBe('ambiguous');
+    expect(card?.needsArt).toBe(false);
+    expect(card?.coverPick).toBeUndefined();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('leaves the answer undecided, and verifies nothing, when the still reads too big', async () => {
@@ -313,18 +316,19 @@ describe('a close call', () => {
   });
 
   it('leaves the answer as it is when the server refuses the verification (409 on :verify-cover)', async () => {
-    kit.art.distances.set('0001', 0.5);
-    kit.art.distances.set('0002', 0.6);
+    // The comparison cannot run, so the capture goes up (a recorded :art would come back
+    // needsArt=false and block the send) and the server refuses it.
+    kit.art.failDownloads = true;
     server.use(
       http.post(/\/candidates\/[^/]+:verify-cover$/, () =>
         HttpResponse.json({ title: 'Not a close call', status: 409 }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } }),
       ),
     );
     await settle();
-    await waitFor(() => expect(identifyMock.artRequests).toHaveLength(1));
     // The override answers, so the default handler records nothing: the capture going out is the signal instead.
     await waitFor(() => expect(kit.cover.reads).toHaveLength(1));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+    expect(identifyMock.artRequests).toEqual([]);
     expect(identifyMock.verifyRequests).toEqual([]);
     expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.resolution).toBe('ambiguous');
     expect(stored().find((c) => c.visibleText === CLOSE_CALL.title)?.coverPick).toBeUndefined();
