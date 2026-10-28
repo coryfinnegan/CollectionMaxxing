@@ -44,19 +44,22 @@ function Get-CmImageRef {
 }
 
 function Get-CmImageInfo {
-    <# Reads what is known locally about an image: digest, build revision and build time. $null if it is not there. #>
+    <# Reads what is known locally about an image: every digest, build revision and build time. $null if it is not there. #>
     param($Ctx, [string]$Ref)
     $r = Invoke-Cm -Command 'docker' -Arguments @('image', 'inspect', $Ref, '--format', '{{json .}}')
     if ($r.ExitCode -ne 0 -or -not $r.Output) { return $null }
     try { $o = ($r.Output -join "`n") | ConvertFrom-Json } catch { return $null }
     $repo = $Ref.Substring(0, $Ref.LastIndexOf(':'))
-    $full = @($o.RepoDigests) | Where-Object { $_ -like "$repo@sha256:*" } | Select-Object -First 1
-    if (-not $full) { return $null }
+    # Every digest, not just the first: a pulled image carries one per tag that resolved to it (the :main index
+    # digest and the :sha manifest digest), and Docker sorts the list, so the first is a coin flip (#491).
+    $digests = @(@($o.RepoDigests) | Where-Object { $_ -like "$repo@sha256:*" } | ForEach-Object { $_.Substring($repo.Length + 1) })
+    if ($digests.Count -eq 0) { return $null }
     $created = ConvertTo-CmUtc $o.Created
     [pscustomobject]@{
         Ref      = $Ref
         Repo     = $repo
-        Digest   = $full.Substring($repo.Length + 1)
+        Digest   = $digests[0]
+        Digests  = $digests
         Revision = "$($o.Config.Labels.'org.opencontainers.image.revision')"
         Created  = if ($created) { $created.ToString('o') } else { '' }
     }
@@ -64,28 +67,37 @@ function Get-CmImageInfo {
 
 function Test-CmAttestation {
     <#
-      True only if `gh attestation verify` accepts the image AND the certificate says this repo built it from
-      refs/heads/main at the expected commit. Anything else (including output we cannot read) is a no.
+      True only if one of the image's digests carries an attestation AND the certificate says this repo built it
+      from refs/heads/main at the expected commit. Every local digest is tried (see Get-CmImageInfo): the check is
+      no weaker for it, because the certificate still has to name this repo, main and the commit. Anything else
+      (including output we cannot read) is a no.
     #>
     param($Ctx, $Info, [string]$Sha)
     $workflow = "$($Ctx.Repo)/.github/workflows/release.yml"
-    $r = Invoke-Cm -Command 'gh' -Arguments @(
-        'attestation', 'verify', "oci://$($Info.Repo)@$($Info.Digest)",
-        '--repo', $Ctx.Repo, '--signer-workflow', $workflow, '--format', 'json')
-    if ($r.ExitCode -ne 0) { return [pscustomobject]@{ Ok = $false; Reason = "attestation check failed for $($Info.Ref)" } }
-    try { $results = @(($r.Output -join "`n") | ConvertFrom-Json) } catch {
-        return [pscustomobject]@{ Ok = $false; Reason = "attestation output for $($Info.Ref) is not readable" }
+    $candidates = @($Info.Digests)
+    if ($candidates.Count -eq 0 -and $Info.Digest) { $candidates = @($Info.Digest) }
+    $reason = "attestation check failed for $($Info.Ref)"
+    foreach ($digest in $candidates) {
+        $r = Invoke-Cm -Command 'gh' -Arguments @(
+            'attestation', 'verify', "oci://$($Info.Repo)@$digest",
+            '--repo', $Ctx.Repo, '--signer-workflow', $workflow, '--format', 'json')
+        if ($r.ExitCode -ne 0) { continue }
+        try { $results = @(($r.Output -join "`n") | ConvertFrom-Json) } catch {
+            $reason = "attestation output for $($Info.Ref) is not readable"
+            continue
+        }
+        foreach ($res in $results) {
+            $cert = $res.verificationResult.signature.certificate
+            if (-not $cert) { continue }
+            $ref = if ($cert.sourceRepositoryRef) { $cert.sourceRepositoryRef } else { $cert.githubWorkflowRef }
+            if ($ref -ne 'refs/heads/main') { continue }
+            if ($cert.sourceRepositoryDigest -ne $Sha) { continue }
+            if ($cert.sourceRepositoryURI -and -not "$($cert.sourceRepositoryURI)".EndsWith($Ctx.Repo, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            return [pscustomobject]@{ Ok = $true; Reason = ''; VerifiedDigest = $digest }
+        }
+        $reason = "$($Info.Ref) was not built from refs/heads/main of $($Ctx.Repo) at $Sha"
     }
-    foreach ($res in $results) {
-        $cert = $res.verificationResult.signature.certificate
-        if (-not $cert) { continue }
-        $ref = if ($cert.sourceRepositoryRef) { $cert.sourceRepositoryRef } else { $cert.githubWorkflowRef }
-        if ($ref -ne 'refs/heads/main') { continue }
-        if ($cert.sourceRepositoryDigest -ne $Sha) { continue }
-        if ($cert.sourceRepositoryURI -and -not "$($cert.sourceRepositoryURI)".EndsWith($Ctx.Repo, [StringComparison]::OrdinalIgnoreCase)) { continue }
-        return [pscustomobject]@{ Ok = $true; Reason = '' }
-    }
-    [pscustomobject]@{ Ok = $false; Reason = "$($Info.Ref) was not built from refs/heads/main of $($Ctx.Repo) at $Sha" }
+    [pscustomobject]@{ Ok = $false; Reason = $reason; VerifiedDigest = '' }
 }
 
 function Invoke-CmSmokeTest {
@@ -160,6 +172,22 @@ function Test-CmStackHealthy {
     [pscustomobject]@{ Ok = $true; Note = '' }
 }
 
+function Get-CmRunningApiRevision {
+    <#
+      The build revision label of the api container that is actually running. $null when there is no api container
+      or its label cannot be read: the caller fails closed. Read after a deploy to prove the new containers are the
+      ones answering (#491); the label is stamped by CI on every image.
+    #>
+    param($Ctx)
+    $ps = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = 'version-check' } -Arguments (Get-CmComposeArgs $Ctx @('ps', '-q', 'api'))
+    if ($ps.ExitCode -ne 0) { return $null }
+    $id = $ps.Output | Where-Object { "$_".Trim() } | Select-Object -First 1
+    if (-not "$id".Trim()) { return $null }
+    $r = Invoke-Cm -Command 'docker' -Arguments @('inspect', $id, '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+    if ($r.ExitCode -ne 0 -or -not $r.Output) { return $null }
+    ("$($r.Output -join '')").Trim()
+}
+
 function New-CmCtxAtCommit {
     <#
       A copy of Ctx whose compose file is the one AT commit Sha (git show), so a release starts with its own compose file
@@ -206,10 +234,15 @@ function Get-CmPlan {
         $plan += Format-CmCommand 'gh' @('attestation', 'verify', "oci://$($Ctx.ImagePrefix)$name@<digest>", '--repo', $Ctx.Repo,
             '--signer-workflow', "$($Ctx.Repo)/.github/workflows/release.yml", '--format', 'json')
     }
+    $plan += Format-CmCommand 'docker' @('pull', (Get-CmImageRef $Ctx 'api' 'main'))
+    $plan += '(a second look at :main: when its revision moved while the images were checked, the stale commit is not deployed)'
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('run', '--rm', 'migrate')) @{ CM_TAG = $tag }
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services)) @{ CM_TAG = $tag }
     $plan += Format-CmCommand 'curl' @('-s', '-m', '5', '-w', '%{http_code}', $Ctx.SmokeUrl)
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('ps', '--format', 'json')) @{ CM_TAG = 'health-check' }
+    $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('ps', '-q', 'api')) @{ CM_TAG = $tag }
+    $plan += Format-CmCommand 'docker' @('inspect', '<api container>', '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+    $plan += '(the running api must report the deployed commit, or the previous good version is pinned again)'
     $plan += '(if the smoke test or the service check fails: the same up -d with CM_TAG=<previous good sha>)'
     $plan += '(then, if the clone is clean and on main, it is fast-forwarded to the deployed commit so the deployer scripts on disk match the running build)'
     $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'merge', '--ff-only', $tag)
@@ -454,6 +487,7 @@ function Get-CmVerifiedImages {
         }
         $check = Test-CmAttestation -Ctx $Ctx -Info $info -Sha $Sha
         if (-not $check.Ok) { return [pscustomobject]@{ Ok = $false; Reason = "$($check.Reason); nothing deployed"; Infos = $null } }
+        $info | Add-Member -NotePropertyName VerifiedDigest -NotePropertyValue $check.VerifiedDigest -Force
         $infos[$name] = $info
     }
     [pscustomobject]@{ Ok = $true; Reason = ''; Infos = $infos }
@@ -594,7 +628,11 @@ function Invoke-CmDeployCore {
             return New-CmResult 'refused' 4 $verified.Reason
         }
         $infos = $verified.Infos
-        if ($infos['api'].Digest -ne $api.Digest) {
+        # :main may have moved while the images were pulled and checked. Compare revisions, not digests: the local
+        # digest list grows as tags are pulled, so a digest comparison trips on the first look at a new commit (#491).
+        $repull = Invoke-Cm -Mutating -Command 'docker' -Arguments @('pull', '--quiet', $apiMain)
+        $latest = if ($repull.ExitCode -eq 0) { Get-CmImageInfo -Ctx $Ctx -Ref $apiMain } else { $null }
+        if (-not $latest -or $latest.Revision -cne $sha) {
             $message = 'the main tag moved while checking; nothing deployed, will retry'
             Write-CmLog $message 'WARN'
             return New-CmResult 'refused' 4 $message
@@ -629,11 +667,21 @@ function Invoke-CmDeployCore {
         $health = if ($up.ExitCode -eq 0) { Test-CmStackHealthy -Ctx $Ctx } else { [pscustomobject]@{ Ok = $false; Note = 'starting the containers failed' } }
 
         if ($health.Ok) {
+            # The containers are up; prove they are the ones just deployed (#491). The revision label is stamped by CI
+            # on every image, so this works for any release, old or new.
+            $running = Get-CmRunningApiRevision -Ctx $Ctx
+            if ($running -cne $sha) {
+                $seen = if ($running -cmatch '^[0-9a-f]{40}$') { $running.Substring(0, 12) } elseif ($running) { "'$running'" } else { 'unknown' }
+                $health = [pscustomobject]@{ Ok = $false; Note = "the api that started reports build $seen instead of $($sha.Substring(0, 12))" }
+            }
+        }
+
+        if ($health.Ok) {
             $state['current'] = @{
                 sha        = $sha
                 created    = $api.Created
                 deployedAt = [DateTime]::UtcNow.ToString('o')
-                digests    = @{ api = $infos['api'].Digest; migrate = $infos['migrate'].Digest; backup = $infos['backup'].Digest }
+                digests    = @{ api = $infos['api'].VerifiedDigest; migrate = $infos['migrate'].VerifiedDigest; backup = $infos['backup'].VerifiedDigest }
             }
             $state.Remove('failedSha')
             Write-CmState -Path $Ctx.StateFile -State $state
@@ -734,7 +782,7 @@ function Invoke-CmRollbackCore {
             created      = $verified.Infos['api'].Created
             deployedAt   = [DateTime]::UtcNow.ToString('o')
             rolledBackFrom = $from
-            digests      = @{ api = $verified.Infos['api'].Digest; migrate = $verified.Infos['migrate'].Digest; backup = $verified.Infos['backup'].Digest }
+            digests      = @{ api = $verified.Infos['api'].VerifiedDigest; migrate = $verified.Infos['migrate'].VerifiedDigest; backup = $verified.Infos['backup'].VerifiedDigest }
         }
         $state['failedSha'] = $from
         Write-CmState -Path $Ctx.StateFile -State $state
