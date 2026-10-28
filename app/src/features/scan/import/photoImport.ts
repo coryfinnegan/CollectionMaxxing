@@ -6,7 +6,7 @@ import { prepareSnapPhoto, type Resizer } from '../autosnap/snapPhoto';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { discardPicture, trackPicture } from '../pictureFiles';
 import type { Reader } from '../pipeline/SnapPipeline';
-import type { ReadItem, SnapReading, Still } from '../recognition/types';
+import type { ReadItem, ReadOptions, SnapReading, Still } from '../recognition/types';
 import type { SeenCode } from '../scanner/ScannerSource';
 
 /** The most pictures one pick can bring in. */
@@ -68,9 +68,9 @@ export function summaryOf(counts: { empty: number; failed: number; skipped: numb
 function watched(inner: Reader) {
   const seen = { items: 0, failed: false };
   const reader: Reader = {
-    async read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
+    async read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading> {
       try {
-        const reading = await inner.read(still, onItem);
+        const reading = await inner.read(still, onItem, options);
         seen.items = reading.items.length;
         return reading;
       } catch (error) {

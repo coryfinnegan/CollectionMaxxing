@@ -1,11 +1,12 @@
 // The fallback engine: Vision text and rectangles, split in TypeScript, no model. Its titles are guesses, so every
 // item says low confidence and leaves the finding to the server.
 import type { VisionEngine } from '@/native/cm-vision';
+import { isSingleItemShot } from '../shotkind/shotKind';
 import { creatorOf } from './creators';
 import type { RecognitionSettings } from './defaults';
 import { readLines } from './lines';
-import { splitIntoPieces } from './splitting';
-import type { ReadItem, RecognitionEngine, SnapReading, Still } from './types';
+import { splitIntoPieces, wholeFrame, type Split } from './splitting';
+import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
 
 export interface EngineDeps {
   vision: VisionEngine;
@@ -31,13 +32,20 @@ export class VisionPipelineEngine implements RecognitionEngine {
     return this.deps.vision.isAvailable();
   }
 
-  async read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> {
+  async read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
     const started = this.now();
     const settings = this.deps.settings();
     const lines = await readLines(this.deps.vision, still.uri, settings.local);
+    // A cover shot is one item: the whole frame, never segmented (#504). Anything else may be a shelf row.
+    if (isSingleItemShot(options.shotKind)) {
+      return this.reading(wholeFrame(lines), settings, started, onItem);
+    }
     const rectangles = await this.deps.vision.detectRectangles(still.uri).catch(() => []);
-    const { pieces, unreadableCount } = splitIntoPieces(lines, rectangles, settings.splitting, settings.local);
+    return this.reading(splitIntoPieces(lines, rectangles, settings.splitting, settings.local), settings, started, onItem);
+  }
 
+  private reading(split: Split, settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void): SnapReading {
+    const { pieces, unreadableCount } = split;
     const items = pieces.map((p, order): ReadItem => {
       const titleLine = p.lines.reduce((best, l) =>
         l.confidence * l.text.length > best.confidence * best.text.length ? l : best,
