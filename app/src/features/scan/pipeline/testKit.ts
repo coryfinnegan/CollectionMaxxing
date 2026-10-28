@@ -11,6 +11,7 @@ import { setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
 import type { ReadItem, SnapReading, Still } from '../recognition/types';
 import type { ArtDeps } from './artStep';
+import type { CoverVerifyDeps } from './coverVerify';
 import { restPipelineApi } from './pipelineApi';
 import { createPipelineStore, setPipelineStore } from './pipelineStore';
 import { MemorySnapFiles, setSnapStore, SnapStore } from './snapStore';
@@ -144,6 +145,34 @@ export class FakeCrops implements CropMaker {
   }
 }
 
+/** Cover stills that read as small real JPEG blobs, and shrinks that make new files on the fake file system. */
+export class FakeCoverFiles {
+  readonly reads: string[] = [];
+  readonly shrinks: { width: number; height: number }[] = [];
+  readonly discarded: string[] = [];
+  /** Bytes the stills read as. */
+  bytes = 100;
+  private count = 0;
+  constructor(private readonly fs?: FakeFileSystem) {}
+  readonly deps: CoverVerifyDeps = {
+    readFile: async (uri) => {
+      this.reads.push(uri);
+      return new Blob([new Uint8Array(this.bytes)], { type: 'image/jpeg' });
+    },
+    shrink: async (photo, target) => {
+      const width = target?.width ?? photo.width;
+      const height = target?.height ?? photo.height;
+      this.shrinks.push({ width, height });
+      const uri = `file:///cache/ImageManipulator/verify-${++this.count}.jpg`;
+      return { uri: this.fs ? this.fs.create(uri) : uri, width, height };
+    },
+    discard: async (uri) => {
+      this.discarded.push(uri);
+      await this.fs?.remove(uri);
+    },
+  };
+}
+
 let ids = 0;
 const nextSnapId = () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}`;
 
@@ -160,6 +189,7 @@ export function makeKit(overrides: Partial<PipelineDeps> = {}) {
   const reader = new FakeReader();
   const art = new FakeArt();
   const crops = new FakeCrops(fs);
+  const cover = new FakeCoverFiles(fs);
   const deps: PipelineDeps = {
     libraryId: MOCK_LIBRARY_ID,
     tray,
@@ -169,6 +199,7 @@ export function makeKit(overrides: Partial<PipelineDeps> = {}) {
     api: restPipelineApi,
     crops,
     art: art.deps,
+    coverVerify: cover.deps,
     newId: nextSnapId,
     ...overrides,
   };
@@ -183,7 +214,7 @@ export function makeKit(overrides: Partial<PipelineDeps> = {}) {
     const raw = fs.create(`file:///tmp/Camera/capture-${shots + 1}.jpg`);
     return { photo: await prepareSnapPhoto({ uri: raw, width: PHOTO.width, height: PHOTO.height, orientation: 1 }, resize), trigger, shotKind };
   };
-  return { deps, tray, store, files, fs, snaps, reader, art, crops, snapEvent };
+  return { deps, tray, store, files, fs, snaps, reader, art, crops, cover, snapEvent };
 }
 
 export function resetKit() {

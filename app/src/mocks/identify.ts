@@ -1,7 +1,8 @@
-// Mock picture endpoints (docs/04): POST /scan-sessions/{id}/identify, POST …/candidates/{cid}:art and the artwork route.
-// Like the real API: one call per snap, idempotent on `snapId` (a retry gets the same candidates and creates none), what is
-// settled comes back at once and the rest arrives over the session's event stream, a close call carries its alternatives'
-// `artworkUrl`s, and `:art` answers 409 once the person has decided. The body is JSON text only.
+// Mock picture endpoints (docs/04): POST /scan-sessions/{id}/identify, POST …/candidates/{cid}:art,
+// POST …/candidates/{cid}:verify-cover and the artwork route. Like the real API: one call per snap, idempotent
+// on `snapId` (a retry gets the same candidates and creates none), what is settled comes back at once and the rest
+// arrives over the session's event stream, a close call carries its alternatives' `artworkUrl`s, and `:art` answers
+// 409 once the person has decided. Identify and `:art` take JSON text; `:verify-cover` takes multipart like the photo.
 // This file also re-exports the barcode handlers, so `handlers.ts` needs one line to pick up both.
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto, IdentifyItem, IdentifyRequest, ReleaseDto } from '@/api/generated/models';
@@ -44,6 +45,8 @@ type Mock = {
   requests: { sessionId: string; body: IdentifyRequest }[];
   /** Every `:art` request. */
   artRequests: { sessionId: string; candidateId: string; distances: { releaseId: string; distance: number }[] }[];
+  /** Every `:verify-cover` request: the capture bytes and the quad JSON, if any. */
+  verifyRequests: { sessionId: string; candidateId: string; bytes: number; quad: string | null }[];
   /** Every artwork download: the path and the Authorization header it carried. */
   coverRequests: { path: string; authorization: string | null }[];
   /** Set to a promise to hold every identify answer until it settles. */
@@ -65,6 +68,7 @@ type Mock = {
 export const identifyMock: Mock = {
   requests: [],
   artRequests: [],
+  verifyRequests: [],
   coverRequests: [],
   hold: null,
   failWith: null,
@@ -75,6 +79,7 @@ export const identifyMock: Mock = {
   reset() {
     this.requests = [];
     this.artRequests = [];
+    this.verifyRequests = [];
     this.coverRequests = [];
     this.hold = null;
     this.failWith = null;
@@ -269,9 +274,35 @@ export const handlers = [
     if (candidate.decision !== 'undecided' || !candidate.needsArt) return problem(409, 'This item has been decided already.');
     const best = [...distances].sort((a, b) => a.distance - b.distance)[0];
     const pick = [CLOSE_CALL.original, CLOSE_CALL.rerelease].find((r) => r.id === best?.releaseId);
-    candidate.needsArt = false;
+    // Like the real API, which only records the artwork step: needsArt stays set and the phone tries once.
     candidate.artDistance = best?.distance ?? null;
     if (pick && best && best.distance < 0.4) Object.assign(candidate, { resolution: 'matched', score: 0.95, release: pick, alternatives: null });
+    candidate.changeSeq = ++session.seq;
+    emit(session.id, candidate);
+    return HttpResponse.json(candidate);
+  }),
+
+  http.post(/\/api\/v1\/scan-sessions\/([^/]+)\/candidates\/([^/]+):verify-cover$/, async ({ request }) => {
+    const match = /\/scan-sessions\/([^/]+)\/candidates\/([^/:]+):verify-cover$/.exec(new URL(request.url).pathname);
+    const session = scanMock.sessions.get(match?.[1] ?? '');
+    const candidate = session?.candidates.find((c) => c.id === match?.[2]);
+    if (!session || !candidate) return problem(404, 'Not found');
+    const form = await request.formData().catch(() => null);
+    // The React Native types do not describe the file parts; the mock server sees web Files.
+    const file = (form?.getAll('file') as unknown[] | undefined)?.find((v): v is Blob => typeof v !== 'string');
+    const quad = (form?.getAll('quad') as unknown[] | undefined)?.find((v): v is string => typeof v === 'string');
+    identifyMock.verifyRequests.push({
+      sessionId: session.id,
+      candidateId: candidate.id,
+      bytes: file?.size ?? 0,
+      quad: quad ?? null,
+    });
+    // Like the real endpoint: only an undecided ambiguous close call with alternatives is verified.
+    if (candidate.decision !== 'undecided' || candidate.resolution !== 'ambiguous' || !candidate.alternatives?.length)
+      return problem(409, 'This item is not a close call.');
+    if (!file) return problem(400, 'Send the capture as a multipart part named "file".');
+    // The mock always confirms the leading alternative (no reorder); the re-rank is server behavior the API tests cover.
+    candidate.coverPick = { releaseId: candidate.alternatives[0]!.releaseId, reason: 'cover_match' };
     candidate.changeSeq = ++session.seq;
     emit(session.id, candidate);
     return HttpResponse.json(candidate);

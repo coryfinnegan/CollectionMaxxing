@@ -82,19 +82,23 @@ export function ownedCountOf(r: ReleaseDto): number {
   return typeof extra.alreadyOwnedCount === 'number' ? extra.alreadyOwnedCount : 0;
 }
 
+/** The cover verification's reason codes, as the short caption shown beside the suggested row. */
+const COVER_REASONS: Record<string, string> = { cover_match: 'Cover match' };
+
 /**
- * The matching engine's preselected edition (#438): its release id plus the short reason
- * shown beside the row ("Cover match"). Tolerant by design: absent, blank, or naming no
- * listed alternative means no preselection, and the person taps as usual.
+ * The matching engine's preselected edition (#438 stage 2): its release id plus the short reason
+ * shown beside the row ("Cover match"). Tolerant by design: absent, blank, or naming no listed
+ * alternative means no preselection, and the person taps as usual. An unknown reason still checks
+ * the row, just without a caption.
  */
 export type Preselection = { releaseId: string; reason: string | null };
 
-export function preselectedOf(c: Pick<CandidateDto, 'alternatives'>): Preselection | null {
-  const extra = c as unknown as Record<string, unknown>;
-  const releaseId = typeof extra.suggestedReleaseId === 'string' && extra.suggestedReleaseId ? extra.suggestedReleaseId : null;
+export function preselectedOf(c: Pick<CandidateDto, 'alternatives' | 'coverPick'>): Preselection | null {
+  const pick = (c.coverPick ?? {}) as { releaseId?: unknown; reason?: unknown };
+  const releaseId = typeof pick.releaseId === 'string' && pick.releaseId ? pick.releaseId : null;
   if (!releaseId) return null;
   if (!alternativesOf(c).some((r) => r.id === releaseId)) return null;
-  const reason = typeof extra.suggestionReason === 'string' && extra.suggestionReason.trim() ? extra.suggestionReason.trim() : null;
+  const reason = typeof pick.reason === 'string' ? (COVER_REASONS[pick.reason] ?? null) : null;
   return { releaseId, reason };
 }
 

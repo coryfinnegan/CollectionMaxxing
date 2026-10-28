@@ -146,13 +146,13 @@ describe('grouping', () => {
 
   it('reads the engine preselection only when it names a real alternative (#440)', () => {
     const wire = wireAlternatives(['Suddenly You', 'Suddenly You']);
-    const suggested = candidate({ alternatives: wire as never, suggestedReleaseId: wire[1]!.releaseId, suggestionReason: 'Cover match' } as never);
+    const suggested = candidate({ alternatives: wire as never, coverPick: { releaseId: wire[1]!.releaseId, reason: 'cover_match' } });
     expect(preselectedOf(suggested)).toEqual({ releaseId: wire[1]!.releaseId, reason: 'Cover match' });
-    const noReason = candidate({ alternatives: wire as never, suggestedReleaseId: wire[0]!.releaseId } as never);
-    expect(preselectedOf(noReason)).toEqual({ releaseId: wire[0]!.releaseId, reason: null });
+    const future = candidate({ alternatives: wire as never, coverPick: { releaseId: wire[0]!.releaseId, reason: 'cover_match_v2' } });
+    expect(preselectedOf(future)).toEqual({ releaseId: wire[0]!.releaseId, reason: null });
     expect(preselectedOf(candidate({ alternatives: wire as never }))).toBeNull();
-    expect(preselectedOf(candidate({ alternatives: wire as never, suggestedReleaseId: '8098d60b-a5a8-4ff1-9942-f0a1fdfd6024' } as never))).toBeNull();
-    expect(preselectedOf(candidate({ alternatives: null, suggestedReleaseId: wire[0]!.releaseId } as never))).toBeNull();
+    expect(preselectedOf(candidate({ alternatives: wire as never, coverPick: { releaseId: '8098d60b-a5a8-4ff1-9942-f0a1fdfd6024', reason: 'cover_match' } }))).toBeNull();
+    expect(preselectedOf(candidate({ alternatives: null, coverPick: { releaseId: wire[0]!.releaseId, reason: 'cover_match' } }))).toBeNull();
   });
 
   it('names an unresolved candidate from the catalog first, the read guess next, never the raw text (#435)', () => {

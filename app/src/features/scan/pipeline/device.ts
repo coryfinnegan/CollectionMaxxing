@@ -2,9 +2,11 @@
 // artwork downloads by expo-file-system and feature prints by cm-vision. Tests build their own pieces; nothing here runs on
 // the web build.
 import { discardPicture, trackPicture } from '../pictureFiles';
+import { manipulatorResizer } from '../autosnap/snapPhoto';
 import { getRecognition } from '../recognition/device';
 import { getTrayStore } from '../tray/storage';
 import type { ArtDeps } from './artStep';
+import type { CoverVerifyDeps } from './coverVerify';
 import { restPipelineApi } from './pipelineApi';
 import { getPipelineStore } from './pipelineStore';
 import { localMatch } from './localMatch';
@@ -52,6 +54,15 @@ function deviceArt(): ArtDeps {
   };
 }
 
+const deviceCoverVerify: CoverVerifyDeps = {
+  readFile: async (uri) => (await fetch(uri)).blob(),
+  shrink: async (photo, target) => {
+    const shrunk = await manipulatorResizer(photo, target);
+    return { ...shrunk, uri: trackPicture(shrunk.uri) }; // deleted once sent; a clear finds it if the app stops in between
+  },
+  discard: (uri) => discardPicture(uri),
+};
+
 /** Built when the scanner opens. Everything native is loaded on first use. */
 export function createDevicePipelineDeps(libraryId: string): PipelineDeps {
   let art: ArtDeps | undefined;
@@ -63,6 +74,7 @@ export function createDevicePipelineDeps(libraryId: string): PipelineDeps {
     recognition: { read: (still, onItem) => getRecognition().selector.read(still, onItem) },
     api: restPipelineApi,
     crops: deviceCrops,
+    coverVerify: deviceCoverVerify,
     localMatch, // CAM-3e: items confirmed before are sent with their release
     art: {
       get vision() {

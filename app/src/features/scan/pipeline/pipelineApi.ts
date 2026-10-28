@@ -1,6 +1,6 @@
-// The pipeline's calls to the API, through the generated client. Both are JSON: the one place a picture could leave
-// the phone (the photo upload) is CAM-3c's and is not here.
-import { identifyItems, scoreCandidateArtwork } from '@/api/generated/scanning/scanning';
+// The pipeline's calls to the API, through the generated client. Identify and :art are JSON; :verify-cover posts the
+// cover capture (multipart), the one picture that leaves the phone from the pipeline.
+import { identifyItems, scoreCandidateArtwork, verifyCoverArtwork } from '@/api/generated/scanning/scanning';
 import type { CandidateDto, IdentifyRequest } from '@/api/generated/models';
 import { ApiError } from '@/lib/http';
 import { createSessionOnce } from '../session/sessionApi';
@@ -16,6 +16,8 @@ export interface PipelineApi {
   identify(sessionId: string, request: IdentifyRequest): Promise<CandidateDto[]>;
   /** The artwork distances for one close call. Resolves to the re-scored candidate, or undefined when the server leaves it as it is (409). */
   scoreArt(sessionId: string, candidateId: string, distances: ArtDistance[]): Promise<CandidateDto | undefined>;
+  /** The cover capture for one ambiguous close call. Resolves to the re-ranked candidate, or undefined when the server refuses it (409). */
+  verifyCover(sessionId: string, candidateId: string, file: Blob, quad?: string): Promise<CandidateDto | undefined>;
 }
 
 export const restPipelineApi: PipelineApi = {
@@ -32,6 +34,17 @@ export const restPipelineApi: PipelineApi = {
       return response.data;
     } catch (error) {
       // 409: the person decided it, or it is not a close call any more. The card stays as it is; this is not an error.
+      if (error instanceof ApiError && error.status === 409) return undefined;
+      throw error;
+    }
+  },
+  async verifyCover(sessionId, candidateId, file, quad) {
+    try {
+      const response = await verifyCoverArtwork(sessionId, candidateId, { file, quad });
+      if (response.status !== 200) throw new ApiError(response.status, {});
+      return response.data;
+    } catch (error) {
+      // 409: decided, re-answered, not a close call, or nothing with a cover to compare. The card stays as it is.
       if (error instanceof ApiError && error.status === 409) return undefined;
       throw error;
     }

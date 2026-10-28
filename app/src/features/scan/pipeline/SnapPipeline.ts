@@ -1,7 +1,8 @@
 // The client end of the recognition pipeline (docs/02 "Per snap"). A snap's still is read on the phone, its items appear on
-// the receipt as they are read, and one `identify` call per snap sends only their text and fields. The picture, the crops
-// and the boxes stay on the phone. A close call has its candidates' artwork compared here and only the distances go back.
-// Offline, the read still happens and the call waits; the read results are saved, so a killed app loses nothing.
+// the receipt as they are read, and one `identify` call per snap sends only their text and fields. A close call has its
+// candidates' artwork compared here and only the distances go back; when it stays ambiguous, :verify-cover compares the
+// cover still itself (#438 stage 2). Offline, the read still happens and the call waits; the read results are saved, so a
+// killed app loses nothing.
 //
 // Scanning never adds anything: no item is created and no candidate is accepted here. Add, Wishlist and Review do that.
 import type { StoreApi } from 'zustand/vanilla';
@@ -17,6 +18,7 @@ import { flushDiscardOutbox, getDiscardOutbox } from '../session/discards';
 import type { TrayStore } from '../tray/trayStore';
 import type { ReadItem, SnapReading, Still } from '../recognition/types';
 import { compareArtwork, type ArtDeps, type ItemPicture } from './artStep';
+import { coverCaptureOf, verifyCoverPhoto, type CoverVerifyDeps } from './coverVerify';
 import { identifyRequestOf, picItemOf } from './payload';
 import type { PipelineApi } from './pipelineApi';
 import type { PicItem, PicSnap, PipelineStore } from './pipelineStore';
@@ -40,6 +42,8 @@ export interface PipelineDeps {
   api: PipelineApi;
   crops: CropMaker;
   art: ArtDeps;
+  /** #438 stage 2: posts the cover still to :verify-cover when a close call stays ambiguous. */
+  coverVerify: CoverVerifyDeps;
   /** CAM-3e: a release id when this crop is something the person has confirmed before. Leave it out and sending never waits for a crop. */
   localMatch?: (crop: { uri: string }) => Promise<string | undefined>;
   newId?: () => string;
@@ -466,12 +470,25 @@ export class SnapPipeline {
     const picture = await this.pictureOf(found.snap, found.item);
     if (!picture) return;
     const distances = await compareArtwork(this.deps.art, card, picture);
-    if (!distances) return;
-    try {
-      const updated = await this.deps.api.scoreArt(sessionId, candidateId, distances);
-      if (updated) announce(useCardsStore.getState().merge([updated]));
-    } catch {
-      // leave the card as it was: Pick one
+    let current = card;
+    if (distances) {
+      try {
+        const updated = await this.deps.api.scoreArt(sessionId, candidateId, distances);
+        if (updated) {
+          announce(useCardsStore.getState().merge([updated]));
+          current = useCardsStore.getState().byId[candidateId] ?? updated;
+        }
+      } catch {
+        // leave the card as it was: Pick one
+      }
     }
+    // #438 stage 2: still an ambiguous close call — the on-device comparison could not run (provider
+    // books carry no artwork URLs) or could not settle it. The server compares the cover photo itself;
+    // anything it answers merges, anything else leaves the card as it was.
+    if (current.resolution !== 'ambiguous' || !current.needsArt) return;
+    const capture = coverCaptureOf(this.deps.snaps, found.snap, found.item);
+    if (!capture) return;
+    const verified = await verifyCoverPhoto(this.deps.coverVerify, this.deps.api, sessionId, current, capture);
+    if (verified) announce(useCardsStore.getState().merge([verified]));
   }
 }
