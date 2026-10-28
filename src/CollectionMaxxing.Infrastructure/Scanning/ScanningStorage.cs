@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using CollectionMaxxing.Application.Accounts.Deletion;
 using CollectionMaxxing.Application.Scanning;
+using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Application.Scanning.Photo;
 using CollectionMaxxing.Infrastructure.Catalog;
 using CollectionMaxxing.Infrastructure.Persistence;
@@ -20,6 +21,7 @@ public static class ScanningStorage
     {
         services.AddScoped<ISessionLock, PostgresSessionLock>();
         services.AddScoped<IProductLookup, UpcProductLookup>();
+        services.TryAddSingleton<ICoverVerifier, SiftCoverVerifier>();
 
         // Uploaded photos live in the cover folder. Deleting uses IAccountFiles (registered by AddAccountPurge, over the same folder).
         services.TryAddSingleton<IPhotoStore>(provider => new FilePhotoStore(

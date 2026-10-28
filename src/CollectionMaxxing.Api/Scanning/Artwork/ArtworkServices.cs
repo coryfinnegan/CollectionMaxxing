@@ -8,6 +8,7 @@ public static class ArtworkServices
     public static IServiceCollection AddArtwork(this IServiceCollection services)
     {
         services.AddScoped<ScoreCandidateArtwork.Handler>();
+        services.AddScoped<VerifyCoverArtwork.Handler>();
         return services;
     }
 }

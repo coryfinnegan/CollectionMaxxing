@@ -132,9 +132,22 @@ public sealed class TextSearchResolver(
     /// <summary>
     /// Asks the providers that know the query's kind, until <paramref name="budgetToken"/> is cancelled. A provider that fails or
     /// runs out of time is recorded, not thrown; only <paramref name="callerToken"/> cancelling escapes. Touches no database,
-    /// so reads can be asked in parallel.
+    /// so reads can be asked in parallel. An author-qualified query that ran fine and found nothing is asked again with the
+    /// title alone (#438 stage 1): the title-only query is the fallback, never the default. The steps keep both rounds.
     /// </summary>
     public async Task<ProviderAnswers> AskProvidersAsync(CatalogQuery query, CancellationToken callerToken, CancellationToken budgetToken)
+    {
+        var first = await AskRoundAsync(query, callerToken, budgetToken);
+        if (string.IsNullOrWhiteSpace(query.Creator) || first.Found.Count > 0 || first.AnyFailed || budgetToken.IsCancellationRequested)
+        {
+            return first;
+        }
+
+        var second = await AskRoundAsync(query with { Creator = null }, callerToken, budgetToken);
+        return new ProviderAnswers(second.Found, [.. first.Steps, .. second.Steps], second.AnyFailed);
+    }
+
+    private async Task<ProviderAnswers> AskRoundAsync(CatalogQuery query, CancellationToken callerToken, CancellationToken budgetToken)
     {
         var steps = new List<TraceStep>();
         var asked = _providers.Where(p => query.Kind is { } kind ? p.Supports(kind) : Enum.GetValues<WorkKind>().Any(p.Supports)).ToList();
@@ -166,10 +179,10 @@ public sealed class TextSearchResolver(
         steps.AddRange(answers.Steps);
 
         var pool = found.Items.ToList();
-        var known = pool.Select(o => CatalogProjection.DuplicateKey(o.Scoring.Title, o.Scoring.Year, o.Scoring.Platform)).ToHashSet(StringComparer.Ordinal);
+        var known = pool.Select(o => CatalogProjection.DuplicateKey(o.Scoring.Title, o.Scoring.Year, o.Scoring.Platform, o.Scoring.Creators)).ToHashSet(StringComparer.Ordinal);
         foreach (var release in answers.Found)
         {
-            if (known.Add(CatalogProjection.DuplicateKey(release.Title, release.Year, release.Platform)))
+            if (known.Add(CatalogProjection.DuplicateKey(release.Title, release.Year, release.Platform, release.Creators)))
             {
                 pool.Add((release.ToCandidate(), new ResolutionOption(null, release, 0)));
             }
