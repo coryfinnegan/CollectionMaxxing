@@ -43,6 +43,10 @@ export interface LocalTuning {
   cutSearchRadius: number;
   /** Items from the two halves count as one when their centers are this close (share of the picture's width). */
   seamTolerance: number;
+  /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
+  creatorMaxWords: number;
+  /** A Vision line with fewer letters than this is not an author either. */
+  creatorMinLetters: number;
 }
 
 export interface RecognitionSettings extends RecognitionConfig {
@@ -82,6 +86,8 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,
+  creatorMaxWords: 5,
+  creatorMinLetters: 3,
 };
 
 export const DEFAULT_RECOGNITION_SETTINGS: RecognitionSettings = {

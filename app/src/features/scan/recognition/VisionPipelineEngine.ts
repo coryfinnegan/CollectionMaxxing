@@ -1,6 +1,7 @@
 // The fallback engine: Vision text and rectangles, split in TypeScript, no model. Its titles are guesses, so every
 // item says low confidence and leaves the finding to the server.
 import type { VisionEngine } from '@/native/cm-vision';
+import { creatorOf } from './creators';
 import type { RecognitionSettings } from './defaults';
 import { readLines } from './lines';
 import { splitIntoPieces } from './splitting';
@@ -38,11 +39,15 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const { pieces, unreadableCount } = splitIntoPieces(lines, rectangles, settings.splitting, settings.local);
 
     const items = pieces.map((p, order): ReadItem => {
-      const title = p.lines.reduce((best, l) => (l.confidence * l.text.length > best.confidence * best.text.length ? l : best)).text;
+      const titleLine = p.lines.reduce((best, l) =>
+        l.confidence * l.text.length > best.confidence * best.text.length ? l : best,
+      );
+      const creator = creatorOf(p.lines, titleLine, settings.local);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),
-        title,
+        title: titleLine.text,
+        ...(creator ? { creator } : {}),
         kind: 'other',
         box: p.box,
         order,

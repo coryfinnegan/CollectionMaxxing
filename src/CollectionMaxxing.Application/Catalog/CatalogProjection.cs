@@ -26,9 +26,18 @@ internal static class CatalogProjection
             p.Creators, null, null, p.CoverUrl, ReleaseSource.Provider,
             p.Identifiers.Select(i => new ReleaseIdentifierDto(i.Type, i.Value)).ToList());
 
-    /// <summary>A key under which a provider result and a catalogue release of the same product collide.</summary>
-    public static string DuplicateKey(string title, int? year, string? platform) =>
-        $"{TitleNormalizer.Normalize(title)}|{year}|{PlatformNames.Canonicalize(platform)}";
+    /// <summary>
+    /// A key under which a provider result and a catalogue release of the same product collide. Callers that know the
+    /// creators pass them, so two books sharing a title but not an author do not collapse into one (#438 stage 1).
+    /// </summary>
+    public static string DuplicateKey(string title, int? year, string? platform, IReadOnlyList<string>? creators = null)
+    {
+        var key = $"{TitleNormalizer.Normalize(title)}|{year}|{PlatformNames.Canonicalize(platform)}";
+        return creators is null ? key : $"{key}|{CreatorsKey(creators)}";
+    }
+
+    private static string CreatorsKey(IReadOnlyList<string> creators) =>
+        string.Join(",", creators.Select(TitleNormalizer.Normalize).OrderBy(c => c, StringComparer.Ordinal));
 
     /// <summary>
     /// A provider hit's work identity within its own provider: two hits with different keys from the same provider are

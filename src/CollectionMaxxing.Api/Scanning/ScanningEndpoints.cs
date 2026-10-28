@@ -77,6 +77,19 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireScanSessionRole(LibraryRole.Viewer);
 
+        // A cover capture for a close call; the server compares it against the alternatives' covers and preselects a
+        // clear match. Multipart, read from the stream by hand like the photo upload (see CoverVerifyEndpoint).
+        sessions.MapPost("/{id:guid}/candidates/{cid:guid}:verify-cover", Artwork.CoverVerifyEndpoint.HandleAsync)
+            .WithName("VerifyCoverArtwork").WithTags("Scanning")
+            .Accepts<Artwork.CoverVerifyForm>("multipart/form-data")
+            .Produces<CandidateDto>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .RequireScanSessionRole(LibraryRole.Viewer)
+            .WithRequestTimeout(Security.SecurityHeaders.UploadTimeoutPolicy);
+
         // Multipart crop, used as the item's cover ("Use my photo"). JPEG only, at most 4 MB; stored without EXIF. Read from the stream
         // by hand (see CandidatePhotoEndpoint), so there is no form binding and no antiforgery token: the usual bearer / X-CSRF rules protect it.
         sessions.MapPost("/{id:guid}/candidates/{cid:guid}/photo", CandidatePhotoEndpoint.UploadAsync)

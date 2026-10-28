@@ -15,14 +15,18 @@ namespace CollectionMaxxing.Application.Scanning;
 /// What is stored in a candidate's <c>trace</c>: the steps taken and where the library already has the release. Never a code or
 /// a key. <paramref name="NeedsArt"/> is the close-call flag (SCAN-2b), <paramref name="AutoDecision"/> the decision the
 /// server made by itself (so that a person's own decision can be told from it), and <paramref name="RetryAfter"/> when a code
-/// that found the UPC allowance spent will next be tried.
+/// that found the UPC allowance spent will next be tried. <paramref name="CoverScores"/> and <paramref name="CoverPick"/> are
+/// the last cover verification (#438 stage 2): every alternative's visual score and the preselected pick, if any. Any fresh
+/// answer rewrites the trace and clears them.
 /// </summary>
 internal sealed record StoredTrace(
     IReadOnlyList<TraceStep> Steps,
     IReadOnlyList<string> OwnedAt,
     bool NeedsArt = false,
     CandidateDecision? AutoDecision = null,
-    DateTimeOffset? RetryAfter = null);
+    DateTimeOffset? RetryAfter = null,
+    IReadOnlyList<CoverScore>? CoverScores = null,
+    StoredCoverPick? CoverPick = null);
 
 /// <summary>One entry of a candidate's <c>alternatives</c>: a release the person can pick, with its own ownership.</summary>
 public sealed record StoredAlternative(
@@ -141,7 +145,8 @@ internal static class CandidateProjection
             ? null
             : new CandidateEditsDto(c.EditedFormat, c.EditedPlatform, c.EditedEdition);
         var alternatives = AlternativesOf(c.AlternativesJson, needsArt ? artwork : null);
-        return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives, cropUrl);
+        var coverPick = trace.CoverPick is { } pick ? new CoverPickDto(pick.ReleaseId, pick.Reason) : null;
+        return ToDto(c, release, trace, needsArt, waitingForQuota, edits, alternatives, cropUrl, coverPick);
     }
 
     /// <summary>The stored alternatives as the response lists them; null when the candidate has none stored. A close call gets the artwork link of each.</summary>
@@ -160,7 +165,7 @@ internal static class CandidateProjection
     }
 
     private static CandidateDto ToDto(
-        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, IReadOnlyList<CandidateAlternativeDto>? alternatives, string? cropUrl) => new(
+        ScanCandidate c, ReleaseDto? release, StoredTrace trace, bool needsArt, bool waitingForQuota, CandidateEditsDto? edits, IReadOnlyList<CandidateAlternativeDto>? alternatives, string? cropUrl, CoverPickDto? coverPick) => new(
         c.Id,
         c.Seq,
         c.Source,
@@ -191,7 +196,8 @@ internal static class CandidateProjection
         c.ShotKind,
         c.SegmentId,
         c.GuidanceCode,
-        cropUrl);
+        cropUrl,
+        coverPick);
 
     /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>
     public static async Task<Dictionary<Guid, ReleaseDto>> LoadReleasesAsync(
