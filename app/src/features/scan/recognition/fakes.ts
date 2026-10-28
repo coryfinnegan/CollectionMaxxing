@@ -1,6 +1,9 @@
 // Test doubles for the engines: a FakeVisionEngine fed from small fixture sets, and a cropper that makes up still names.
 import { FakeVisionEngine } from '../../../../modules/cm-vision/src/FakeVisionEngine';
 import type { ModelItem, ReadItemsOptions, ReadItemsResult, Rect, TextLine } from '../../../../modules/cm-vision/src/types';
+import { DEFAULT_LOCAL_TUNING } from './defaults';
+import { ocrTextOf } from './FmTextEngine';
+import { cleanLines } from './lines';
 import type { Still, StillCropper } from './types';
 
 type FixtureSet = NonNullable<ConstructorParameters<typeof FakeVisionEngine>[0]>;
@@ -10,6 +13,8 @@ const record = <I, O>(input: I, output: O) => ({ capturedAt: '2026-01-01T00:00:0
 export interface Scene {
   /** What the model returns for this picture. */
   read?: ReadItemsResult;
+  /** What the model extracts from this picture's OCR text (spike #505). */
+  extract?: ReadItemsResult;
   /** Lines Vision reads upright. */
   text?: TextLine[];
   /** Lines Vision reads with the picture turned 90 degrees clockwise. */
@@ -50,6 +55,7 @@ export const modelItem = (title: string, visibleText: string, order: number, ext
 /** A FakeVisionEngine that also remembers what `readItems` was asked, and can hold a read open to test ordering. */
 export class RecordingVision extends FakeVisionEngine {
   readonly readCalls: { imageUri: string; options: ReadItemsOptions }[] = [];
+  readonly extractCalls: { ocrText: string; options: ReadItemsOptions }[] = [];
   private active = 0;
   maxConcurrentReads = 0;
 
@@ -57,6 +63,9 @@ export class RecordingVision extends FakeVisionEngine {
     const entries = Object.entries(scenes);
     const set = {
       readItems: entries.flatMap(([uri, s]) => (s.read ? [record({ imageUri: uri }, s.read)] : [])),
+      extractItems: entries.flatMap(([uri, s]) =>
+        s.extract ? [record({ ocrText: ocrTextOf(cleanLines([...(s.text ?? []), ...(s.text90 ?? []), ...(s.text270 ?? [])], DEFAULT_LOCAL_TUNING)) }, s.extract)] : [],
+      ),
       recognizeText: entries.flatMap(([uri, s]) => [
         record({ imageUri: uri }, s.text ?? []),
         record({ imageUri: uri, orientation: 90 as const }, s.text90 ?? []),
@@ -81,6 +90,11 @@ export class RecordingVision extends FakeVisionEngine {
     } finally {
       this.active -= 1;
     }
+  }
+
+  override async extractItems(ocrText: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void) {
+    this.extractCalls.push({ ocrText, options });
+    return super.extractItems(ocrText, options, onItem);
   }
 }
 

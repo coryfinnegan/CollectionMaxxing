@@ -1,0 +1,61 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "ocrText": "Dune\nFrank Herbert\nAce Books"
+    },
+    "output": {
+      "items": [
+        {
+          "visibleText": "Dune Frank Herbert Ace Books",
+          "title": "Dune",
+          "kind": "book",
+          "order": 0,
+          "confidence": "high",
+          "creator": "Frank Herbert"
+        }
+      ],
+      "unreadableCount": 0,
+      "outcome": "ok",
+      "elapsedMs": 400
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "ocrText": "THE MATRIX\nALIEN Collector's Edition\nDun"
+    },
+    "output": {
+      "items": [
+        {
+          "visibleText": "THE MATRIX",
+          "title": "The Matrix",
+          "kind": "dvd",
+          "order": 0,
+          "confidence": "high"
+        },
+        {
+          "visibleText": "ALIEN Collector's Edition",
+          "title": "Alien",
+          "kind": "bluray",
+          "order": 1,
+          "confidence": "medium",
+          "editionMarks": "Collector's Edition"
+        },
+        {
+          "visibleText": "Dun",
+          "title": "Dune",
+          "kind": "book",
+          "order": 2,
+          "confidence": "low",
+          "creator": "Frank Herbert"
+        }
+      ],
+      "unreadableCount": 1,
+      "outcome": "ok",
+      "elapsedMs": 1500
+    }
+  }
+]

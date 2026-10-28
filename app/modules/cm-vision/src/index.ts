@@ -33,6 +33,8 @@ interface NativeCmVision {
   modelCapabilities(): Promise<ModelCapabilities>;
   /** Emits `onItem` events (payload: a ModelItem) while running, then resolves. */
   readItems(imageUri: string, options: ReadItemsOptions): Promise<ReadItemsResult>;
+  /** Same events and result shape as `readItems`, from OCR text instead of a picture. */
+  extractItems(ocrText: string, options: ReadItemsOptions): Promise<ReadItemsResult>;
   deviceStatus(): Promise<DeviceStatus>;
   addListener(event: 'onItem', listener: (item: ModelItem) => void): { remove(): void };
 }
@@ -74,21 +76,30 @@ class NativeVisionEngine implements VisionEngine {
       return { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'notSupported' };
     }
   }
-  // onItem events carry no call id, so native reads must not overlap: each call waits for the one before it.
+  // onItem events carry no call id, so native model calls must not overlap: each call waits for the one before it.
   private readQueue: Promise<unknown> = Promise.resolve();
 
   readItems(imageUri: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
-    const run = this.readQueue.then(() => this.readOne(imageUri, options, onItem));
+    const run = this.readQueue.then(() => this.readOne((native) => native.readItems(imageUri, options), onItem));
     this.readQueue = run; // readOne never rejects, so a failed call cannot block the next
     return run;
   }
 
-  private async readOne(imageUri: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
+  extractItems(ocrText: string, options: ReadItemsOptions, onItem?: (item: ModelItem) => void): Promise<ReadItemsResult> {
+    const run = this.readQueue.then(() => this.readOne((native) => native.extractItems(ocrText, options), onItem));
+    this.readQueue = run;
+    return run;
+  }
+
+  private async readOne(
+    call: (native: NativeCmVision) => Promise<ReadItemsResult>,
+    onItem?: (item: ModelItem) => void,
+  ): Promise<ReadItemsResult> {
     let subscription: { remove(): void } | undefined;
     try {
       const native = this.native();
       subscription = onItem ? native.addListener('onItem', onItem) : undefined;
-      return await native.readItems(imageUri, options);
+      return await call(native);
     } catch {
       return { items: [], unreadableCount: 0, outcome: 'unavailable', elapsedMs: 0 };
     } finally {

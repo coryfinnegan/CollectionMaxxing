@@ -28,7 +28,7 @@ export interface ReadItem {
   confidence: ModelConfidence;
 }
 
-export type EngineName = 'apple_model' | 'vision_pipeline';
+export type EngineName = 'apple_model' | 'vision_pipeline' | 'fm_text';
 export type FellBackFrom = 'unavailable' | 'declined' | 'timeout' | 'contextExceeded';
 
 export interface SnapTimings {
