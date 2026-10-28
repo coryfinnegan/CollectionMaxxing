@@ -129,16 +129,31 @@ public sealed class CandidateResolver(
         CandidateDecision? autoDecision = null;
         var firstOwned = 0;
 
+        var ownershipBiased = false;
         if (verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
         {
             var alternatives = new List<StoredAlternative>();
             var known = await CandidateProjection.LoadReleasesAsync(
                 db, ensured.Where(e => !e.IsNew).Select(e => e.Id).ToList(), cancellationToken);
-            for (var i = 0; i < ensured.Count; i++)
+            var ownership = new List<OwnershipDto>(ensured.Count);
+            foreach (var release in ensured)
             {
+                ownership.Add(await OwnedAsync(libraryId, release, cancellationToken));
+            }
+
+            // #516: a close call lists what the library already owns first, so a
+            // same-title book the owner holds is never buried under an unowned one
+            // by scoring noise. Only the order changes; the verdict and every
+            // score stay exactly as the scorer computed them.
+            var order = BiasTowardOwned(resolution.Options, ownership, verdict);
+            ownershipBiased = order is not null;
+            order ??= Enumerable.Range(0, ensured.Count).ToList();
+            for (var rank = 0; rank < order.Count; rank++)
+            {
+                var i = order[rank];
                 var option = resolution.Options[i];
-                var owned = await OwnedAsync(libraryId, ensured[i], cancellationToken);
-                if (i == 0 && verdict == ResolutionVerdict.Matched)
+                var owned = ownership[i];
+                if (rank == 0 && verdict == ResolutionVerdict.Matched)
                 {
                     candidate.MatchedReleaseId = ensured[i].Id;
                     candidate.Score = option.Score;
@@ -154,7 +169,7 @@ public sealed class CandidateResolver(
                     }
                 }
 
-                if (i == 0 && verdict == ResolutionVerdict.Ambiguous)
+                if (rank == 0 && verdict == ResolutionVerdict.Ambiguous)
                 {
                     candidate.Score = option.Score;
                 }
@@ -181,8 +196,38 @@ public sealed class CandidateResolver(
 
         // A code that found the UPC allowance spent waits for the nightly drain: say when it will next be tried.
         DateTimeOffset? retryAfter = UpcQuotaWindow.IsSpent(resolution) ? UpcQuotaWindow.NextResetAfter(clock.GetUtcNow()) : null;
+        var steps = ownershipBiased
+            ? (IReadOnlyList<TraceStep>)[.. resolution.Steps, new TraceStep("ownership", "biased", 0)]
+            : resolution.Steps;
         candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
-            resolution.Steps, ownedAt, NeedsArt(candidate, resolution with { Verdict = verdict }), autoDecision, retryAfter));
+            steps, ownedAt, NeedsArt(candidate, resolution with { Verdict = verdict }), autoDecision, retryAfter));
+    }
+
+    /// <summary>
+    /// How much higher an exactly-owned release sorts in a close call, in score units. Small on purpose: it settles
+    /// close calls, never landslides — and it can never promote past a Matched lead (0.08 by default), so a sure
+    /// thing stays sure. Like the context bias, the verdict and every score stay exactly as the scorer computed
+    /// them; only the order changes.
+    /// </summary>
+    public const double OwnedBias = 0.05;
+
+    /// <summary>
+    /// The display order of a close call's options: exactly-owned releases sort higher by <see cref="OwnedBias"/>,
+    /// stable (a gap the bonus exactly closes keeps scorer order). Null when the verdict is not Ambiguous, nothing
+    /// is owned, or the bias changes nothing, so the caller keeps scorer order. Pure.
+    /// </summary>
+    internal static List<int>? BiasTowardOwned(
+        IReadOnlyList<ResolutionOption> options, IReadOnlyList<OwnershipDto> ownership, ResolutionVerdict verdict)
+    {
+        if (verdict != ResolutionVerdict.Ambiguous || ownership.All(o => o.Count == 0))
+        {
+            return null;
+        }
+
+        var order = Enumerable.Range(0, ownership.Count)
+            .OrderByDescending(i => options[i].Score + (ownership[i].Count > 0 ? OwnedBias : 0))
+            .ToList();
+        return order.SequenceEqual(Enumerable.Range(0, ownership.Count)) ? null : order;
     }
 
     /// <summary>
