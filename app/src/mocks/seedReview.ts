@@ -42,22 +42,19 @@ const suddenly = (['Y1', null] as const).map((art, i) => ({
 /** One row per Review state: pick, not found, owned, ready, and two still looking up (quota + identifying). */
 function reviewRows(): CandidateDto[] {
   return [
-    {
-      ...candidate({
-        id: 'e2e00000-0000-4000-8000-000000000011',
-        seq: 1,
-        changeSeq: 1,
-        source: 'picture_text',
-        visibleText: 'Suddenly You',
-        localId: 'seed-pick',
-        resolution: 'ambiguous',
-        release: release(11, 'Suddenly You', { year: 2001, format: 'other' }),
-        alternatives: suddenly as never,
-        guidanceCode: 'pick_match',
-      }),
-      suggestedReleaseId: suddenly[1]!.releaseId,
-      suggestionReason: 'Cover match',
-    } as CandidateDto,
+    candidate({
+      id: 'e2e00000-0000-4000-8000-000000000011',
+      seq: 1,
+      changeSeq: 1,
+      source: 'picture_text',
+      visibleText: 'Suddenly You',
+      localId: 'seed-pick',
+      resolution: 'ambiguous',
+      release: release(11, 'Suddenly You', { year: 2001, format: 'other' }),
+      alternatives: suddenly as never,
+      guidanceCode: 'pick_match',
+      coverPick: { releaseId: suddenly[1]!.releaseId, reason: 'cover_match' },
+    }),
     candidate({
       id: 'e2e00000-0000-4000-8000-000000000012',
       seq: 2,

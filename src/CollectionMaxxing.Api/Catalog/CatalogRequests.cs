@@ -5,8 +5,9 @@ namespace CollectionMaxxing.Api.Catalog;
 
 /// <summary>
 /// Query of <c>GET /api/v1/catalog/search</c>. <c>kind</c> and <c>scope</c> are text (minimal APIs bind enums case-sensitively;
-/// the API spells them lower snake_case); the handler validates them. <c>scope=library</c> ranks what the caller's libraries
-/// own or made for themselves first (the scanner's typed search).
+/// the API spells them lower snake_case); the handler validates them. Results rank exact title-or-creator matches first,
+/// then what the caller's libraries own or made for themselves, then score. <c>scope=library</c> keeps owned
+/// absolute-first (the scanner's typed search), with exact matches first inside each half.
 /// </summary>
 public sealed record CatalogSearchQuery(
     [FromQuery(Name = "q")] string Q,

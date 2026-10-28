@@ -110,6 +110,94 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
     }
 
     [Fact]
+    public async Task An_exact_title_match_outranks_a_higher_scored_fuzzy_match()
+    {
+        // The exact hit is miscategorised at the provider (a film row for a game query), so the kind term drags
+        // its score below the fuzzy hit's; exactness still wins, with and without the library scope (#460).
+        var provider = new FakeProvider("igdb");
+        provider.Results.Add(new ProviderRelease { Provider = "igdb", ExternalId = "e1", Title = "Doom", Kind = WorkKind.Film, Year = 1993 });
+        provider.Results.Add(new ProviderRelease { Provider = "igdb", ExternalId = "f1", Title = "Dooom", Kind = WorkKind.Game, Year = 2016 });
+        var client = ClientWith(await SomeUserAsync(), provider);
+
+        var items = await ReadItemsAsync(client, "q=doom&kind=game");
+        var scoped = await ReadItemsAsync(client, "q=doom&kind=game&scope=library");
+
+        items.Select(i => i.GetProperty("work").GetProperty("title").GetString()).ShouldBe(["Doom", "Dooom"]);
+        scoped.Select(i => i.GetProperty("work").GetProperty("title").GetString()).ShouldBe(["Doom", "Dooom"]);
+        items[0].GetProperty("score").GetDouble().ShouldBeLessThan(items[1].GetProperty("score").GetDouble());
+    }
+
+    [Fact]
+    public async Task An_exact_creator_match_outranks_a_higher_scored_fuzzy_title()
+    {
+        var provider = new FakeProvider("googlebooks");
+        provider.Results.Add(new ProviderRelease { Provider = "googlebooks", ExternalId = "v1", Title = "Suddenly You", Kind = WorkKind.Book, Year = 2001, Creators = ["Lisa Kleypas"] });
+        provider.Results.Add(new ProviderRelease { Provider = "googlebooks", ExternalId = "v2", Title = "Lisa Kleypas Stories", Kind = WorkKind.Book, Year = 2010, Creators = ["Various Authors"] });
+        var client = ClientWith(await SomeUserAsync(), provider);
+
+        var items = await ReadItemsAsync(client, "q=lisa kleypas");
+
+        items.Select(i => i.GetProperty("work").GetProperty("title").GetString()).ShouldBe(["Suddenly You", "Lisa Kleypas Stories"]);
+        items[0].GetProperty("score").GetDouble().ShouldBeLessThan(items[1].GetProperty("score").GetDouble());
+    }
+
+    [Fact]
+    public async Task An_owned_work_outranks_an_unowned_one_at_equal_score()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Alien");
+        var (_, ownedReleaseId) = await CatalogSeed.AddAsync(Db, "Alien");
+        await TestData.CreateItemAsync(Db, library, ownedReleaseId);
+
+        var items = await ReadItemsAsync(ClientWith(library.ViewerId), "q=alien");
+
+        items.Count.ShouldBe(2);
+        items[0].GetProperty("score").GetDouble().ShouldBe(items[1].GetProperty("score").GetDouble());
+        items[0].GetProperty("ownedReleaseIds").EnumerateArray().Select(g => g.GetGuid()).ShouldBe([ownedReleaseId]);
+        items[1].GetProperty("ownedReleaseIds").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Owned_matches_outrank_higher_scored_unowned_ones_with_score_order_kept_inside_each_half()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Jurassic Park");
+        var (_, ownedHigh) = await CatalogSeed.AddAsync(Db, "Jurassic Park X");
+        var (_, ownedLow) = await CatalogSeed.AddAsync(Db, "Jurassic Park 2");
+        await CatalogSeed.AddAsync(Db, "Jurassic Parks");
+        await CatalogSeed.AddAsync(Db, "Jurassic World");
+        await TestData.CreateItemAsync(Db, library, ownedHigh);
+        await TestData.CreateItemAsync(Db, library, ownedLow);
+
+        var items = await ReadItemsAsync(ClientWith(library.ViewerId), "q=jurassic park");
+
+        items.Select(i => i.GetProperty("work").GetProperty("title").GetString())
+            .ShouldBe(["Jurassic Park", "Jurassic Park X", "Jurassic Park 2", "Jurassic Parks", "Jurassic World"]);
+        var scores = items.Select(i => i.GetProperty("score").GetDouble()).ToList();
+        scores[1].ShouldBeGreaterThan(scores[2]); // the owned half keeps score order
+        scores[3].ShouldBeGreaterThan(scores[4]); // the unowned half keeps score order
+        scores[1].ShouldBeLessThan(scores[3]); // owned still wins from below the unowned score
+    }
+
+    [Fact]
+    public async Task Scope_library_keeps_owned_first_with_exact_matches_first_inside_each_half()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Jurassic Park");
+        var (_, ownedHigh) = await CatalogSeed.AddAsync(Db, "Jurassic Park X");
+        var (_, ownedLow) = await CatalogSeed.AddAsync(Db, "Jurassic Park 2");
+        await CatalogSeed.AddAsync(Db, "Jurassic Parks");
+        await CatalogSeed.AddAsync(Db, "Jurassic World");
+        await TestData.CreateItemAsync(Db, library, ownedHigh);
+        await TestData.CreateItemAsync(Db, library, ownedLow);
+
+        var items = await ReadItemsAsync(ClientWith(library.ViewerId), "q=jurassic park&scope=library");
+
+        items.Select(i => i.GetProperty("work").GetProperty("title").GetString())
+            .ShouldBe(["Jurassic Park X", "Jurassic Park 2", "Jurassic Park", "Jurassic Parks", "Jurassic World"]);
+    }
+
+    [Fact]
     public async Task An_unknown_scope_is_a_validation_problem_on_scope()
     {
         var response = await ClientWith(await SomeUserAsync()).GetAsync("/api/v1/catalog/search?q=alien&scope=galaxy");

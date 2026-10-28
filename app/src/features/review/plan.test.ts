@@ -44,9 +44,8 @@ describe('review plan', () => {
       resolution: 'ambiguous',
       release: release(9, 'Guess'),
       alternatives: editions as never,
-      suggestedReleaseId: editions[0]!.id,
-      suggestionReason: 'Cover match',
-    } as never);
+      coverPick: { releaseId: editions[0]!.id, reason: 'cover_match' },
+    });
     expect(selectedPick(emptyDraft(), row)).toBe(editions[0]);
     expect(addCount([row], emptyDraft())).toBe(1);
     const changed: Draft = { ...emptyDraft(), picks: { p: editions[1]!.id } };

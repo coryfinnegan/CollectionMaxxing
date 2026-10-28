@@ -386,9 +386,8 @@ describe('Review screen', () => {
         resolution: 'ambiguous',
         release: alien[0],
         alternatives: alien as never,
-        suggestedReleaseId: alien[1]!.id,
-        suggestionReason: 'Cover match',
-      } as never),
+        coverPick: { releaseId: alien[1]!.id, reason: 'cover_match' },
+      }),
     ]);
     await open();
     await screen.findByText('Pick one · 1');
