@@ -86,6 +86,23 @@ jobs:
       - name: Security scan tooling tests
         run: pwsh -NoProfile -File scripts/security/Run-Tests.ps1
 
+  # Aggregator restoring the `backend` required-check context (ruleset "Require CI on main" requires backend/app/e2e).
+  # Passes only when every backend leg succeeded. `if: always()` keeps this job (and its context) present even when a
+  # leg fails, is skipped, or is cancelled, and the step fails closed on any non-success result so skips/cancels can
+  # never silently pass. `needs.backend-test.result` aggregates across matrix shards: success only if every shard
+  # succeeded, failure if any shard failed (fail-fast cancels the siblings, which still yields failure, never success).
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [backend-test, backend-format, backend-tooling]
+    if: always()
+    steps:
+      - name: Verify all backend legs succeeded
+        run: |
+          test "${{ needs.backend-test.result }}" = success || { echo "backend-test: ${{ needs.backend-test.result }}"; exit 1; }
+          test "${{ needs.backend-format.result }}" = success || { echo "backend-format: ${{ needs.backend-format.result }}"; exit 1; }
+          test "${{ needs.backend-tooling.result }}" = success || { echo "backend-tooling: ${{ needs.backend-tooling.result }}"; exit 1; }
+
   app:
     runs-on: ubuntu-latest
     timeout-minutes: 30
