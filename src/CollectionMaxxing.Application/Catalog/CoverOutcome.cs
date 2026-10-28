@@ -4,8 +4,8 @@ namespace CollectionMaxxing.Application.Catalog;
 
 /// <summary>
 /// What the last cover attempt for a release found, kept in the release's provider payload so "why does this book have
-/// no picture?" is answerable from the record: <c>fetched</c>, <c>no-cover</c> (no provider named one) or <c>failed</c>
-/// with a <see cref="CoverFailure"/> reason in <c>coverFailure</c>. The payload's other fields are left alone.
+/// no picture?" is answerable from the record: <c>fetched</c>, <c>no-cover</c> (no consulted provider named one) or
+/// <c>failed</c> with a <see cref="CoverFailure"/> reason in <c>coverFailure</c>. The payload's other fields are left alone.
 /// </summary>
 internal static class CoverOutcome
 {
