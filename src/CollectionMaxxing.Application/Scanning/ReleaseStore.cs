@@ -14,9 +14,10 @@ public sealed record EnsuredRelease(Guid Id, bool IsNew);
 
 /// <summary>
 /// Saves what a provider told us as global catalogue rows, so a candidate (and its alternatives) can point at real releases.
-/// It reuses what is there: a release with the same barcode, else one of the same work in the same format and platform, else
-/// a new release on the same work, else a new work. Nothing is saved until the caller saves. One instance serves one
-/// request, and remembers what it added so two candidates for the same game share one release.
+/// It reuses what is there: a release with the same barcode, else one of the same work (the same title and creators)
+/// in the same format and platform, else a new release on the same work, else a new work. Nothing is saved until the
+/// caller saves. One instance serves one request, and remembers what it added so two candidates for the same game share
+/// one release.
 /// </summary>
 public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvider clock)
 {
@@ -43,7 +44,8 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
         var normalized = TitleNormalizer.Normalize(provider.Title);
         var format = provider.Format ?? ReleaseFormat.Unknown;
         var platformId = await PlatformIdAsync(provider.Platform, cancellationToken);
-        var key = $"{normalized}|{provider.Kind}|{format}|{platformId}|{provider.Year}";
+        var creators = NormalizedCreators(provider.Creators);
+        var key = $"{normalized}|{provider.Kind}|{format}|{platformId}|{provider.Year}|{string.Join(",", creators.OrderBy(c => c, StringComparer.Ordinal))}";
         if (_added.TryGetValue(key, out var already))
         {
             await FillMissingCoverAsync(already.Id, provider, cancellationToken);
@@ -59,22 +61,25 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
                                    && r.Format == format
                                    && r.PlatformId == platformId
                                orderby r.CreatedAt, r.Id
-                               select (Guid?)r.Id).FirstOrDefaultAsync(cancellationToken);
-        if (sameShape is { } release)
+                               select new { r.Id, w.CreatorsJson }).ToListAsync(cancellationToken);
+        var compatible = sameShape.FirstOrDefault(c => CreatorsCompatible(c.CreatorsJson, creators));
+        if (compatible is not null)
         {
-            await FillMissingCoverAsync(release, provider, cancellationToken);
-            return _added[key] = new EnsuredRelease(release, false);
+            await FillMissingCoverAsync(compatible.Id, provider, cancellationToken);
+            return _added[key] = new EnsuredRelease(compatible.Id, false);
         }
 
         // Only a work that has a global release is shared: a library's hand-typed work is not reused.
-        var workId = await (from w in db.Works.AsNoTracking()
-                            join r in db.Releases.AsNoTracking() on w.Id equals r.WorkId
-                            where r.OwnerLibraryId == null
-                                && w.NormalizedTitle == normalized
-                                && w.Kind == provider.Kind
-                                && w.OriginalYear == provider.Year
-                            orderby w.CreatedAt, w.Id
-                            select (Guid?)w.Id).FirstOrDefaultAsync(cancellationToken);
+        // A same-title work by a different author is never reused: it is a different work (#518).
+        var candidates = await (from w in db.Works.AsNoTracking()
+                                join r in db.Releases.AsNoTracking() on w.Id equals r.WorkId
+                                where r.OwnerLibraryId == null
+                                    && w.NormalizedTitle == normalized
+                                    && w.Kind == provider.Kind
+                                    && w.OriginalYear == provider.Year
+                                orderby w.CreatedAt, w.Id
+                                select new { w.Id, w.CreatorsJson }).ToListAsync(cancellationToken);
+        var workId = candidates.FirstOrDefault(c => CreatorsCompatible(c.CreatorsJson, creators))?.Id;
 
         var now = clock.GetUtcNow();
         if (workId is null)
@@ -117,6 +122,32 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
         }
 
         return _added[key] = new EnsuredRelease(added.Id, true);
+    }
+
+    /// <summary>
+    /// True when a provider answer may reuse a stored work: the creators match, or one side names none (unverifiable,
+    /// so today's reuse stands). A same-title answer naming a different author never reuses (#518).
+    /// </summary>
+    private static bool CreatorsCompatible(string storedCreatorsJson, HashSet<string> providerCreators)
+    {
+        var stored = NormalizedCreators(ItemProjection.Creators(storedCreatorsJson));
+        return stored.Count == 0 || providerCreators.Count == 0 || stored.SetEquals(providerCreators);
+    }
+
+    /// <summary>The creators as a comparison set: normalized like titles, blanks dropped.</summary>
+    private static HashSet<string> NormalizedCreators(IEnumerable<string> creators)
+    {
+        var normalized = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var creator in creators)
+        {
+            var key = TitleNormalizer.Normalize(creator);
+            if (key.Length > 0)
+            {
+                normalized.Add(key);
+            }
+        }
+
+        return normalized;
     }
 
     /// <summary>
