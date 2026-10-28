@@ -4,15 +4,14 @@ import '@/theme/unistyles';
 import { useRef, useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
-import { useSearchCatalog } from '@/api/generated/catalog/catalog';
 import type { CreateItemRequest, ReleaseFormat, WorkKind } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useItemMutations } from '@/features/item/useItem';
+import { SearchView } from '@/features/search/SearchView';
 import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
-import { Button, Chip, ListRow, Sheet, Text, TextField } from '@/ui';
+import { Button, Chip, Sheet, Text, TextField } from '@/ui';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
-import { useDebounced } from './useItems';
 
 type Props = { libraryId: string; onClose: () => void };
 
@@ -50,7 +49,9 @@ export function AddItemPanel({ libraryId, onClose }: Props) {
 
   return (
     <Sheet title="Add an item" onClose={onClose}>
-      {mode === 'search' ? <SearchStep onPick={(releaseId) => submit({ releaseId, addedVia: 'search' })} /> : null}
+      {mode === 'search' ? (
+        <SearchStep onPick={(releaseId) => submit({ releaseId, addedVia: 'search' })} onManual={() => setMode('manual')} />
+      ) : null}
       {mode === 'manual' ? <ManualStep busy={create.isPending} onSubmit={submit} /> : null}
       {error ? (
         <Text tone="danger" accessibilityRole="alert">
@@ -66,44 +67,8 @@ export function AddItemPanel({ libraryId, onClose }: Props) {
   );
 }
 
-function SearchStep({ onPick }: { onPick: (releaseId: string) => void }) {
-  const [text, setText] = useState('');
-  const q = useDebounced(text.trim());
-  const search = useSearchCatalog({ q }, { query: { enabled: q.length >= 2 } });
-  const results = search.data?.status === 200 ? search.data.data.items : [];
-  return (
-    <View style={styles.step}>
-      <TextField
-        label="Search the catalog"
-        value={text}
-        onChangeText={setText}
-        placeholder="Title, author or barcode"
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      {search.isError ? (
-        <Text tone="danger" accessibilityRole="alert">
-          {"Couldn't search the catalog. Check your connection, or add it yourself below."}
-        </Text>
-      ) : q.length >= 2 && !search.isLoading && results.length === 0 ? (
-        <Text variant="caption" tone="muted">No matches yet.</Text>
-      ) : null}
-      {results.flatMap((result) =>
-        result.releases.map((release) => {
-          const detail = [formatLabels[release.format], release.year].filter(Boolean).join(' · ');
-          return (
-            <ListRow
-              key={release.id}
-              title={result.work.title}
-              subtitle={detail}
-              onPress={() => onPick(release.id)}
-              testID={`result-${release.id}`}
-            />
-          );
-        }),
-      )}
-    </View>
-  );
+function SearchStep({ onPick, onManual }: { onPick: (releaseId: string) => void; onManual: () => void }) {
+  return <SearchView onPick={onPick} onManual={onManual} />;
 }
 
 function ManualStep({ busy, onSubmit }: { busy: boolean; onSubmit: (data: CreateItemRequest) => void }) {

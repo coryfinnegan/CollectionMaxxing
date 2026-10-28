@@ -163,6 +163,110 @@ test.describe('visual', () => {
       });
     });
   });
+
+  // The Search view states (#458): the initial view with its recent searches,
+  // the loading, results, no-matches, error and offline states, and a work's
+  // editions one tap down from the results. The offline state is the
+  // scanner's owned-cache answers with the stale line (#459).
+  test.describe('search view seeded', () => {
+    test.use({ viewport: { width: 1280, height: 1500 } });
+
+    test('search initial', async ({ page, open }) => {
+      await open('/search?state=initial');
+      await expect(page.getByRole('button', { name: 'Search again for alien' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Search again for dune' })).toBeVisible();
+      await expectShot(page, 'search-initial');
+    });
+
+    test('search loading', async ({ page, open }) => {
+      await open('/search?state=loading');
+      await expect(page.getByText('Searching the catalog')).toBeVisible();
+      await expectShot(page, 'search-loading');
+    });
+
+    test('search results', async ({ page, open }) => {
+      await openSearchResults(page, open);
+      await expectShot(page, 'search-results');
+    });
+
+    test('search editions', async ({ page, open }) => {
+      await openSearchResults(page, open);
+      await page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' }).click();
+      await expect(page.getByRole('button', { name: 'Back to results' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Alien' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Alien (1979), VHS' })).toBeVisible();
+      await expectShot(page, 'search-editions');
+    });
+
+    test('search no matches', async ({ page, open }) => {
+      await open('/search?state=none');
+      await expect(page.getByRole('heading', { name: 'No matches' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Add it yourself' })).toBeVisible();
+      await expectShot(page, 'search-none');
+    });
+
+    test('search error', async ({ page, open }) => {
+      await open('/search?state=error');
+      await expect(page.getByRole('heading', { name: "Couldn't search the catalog" })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+      await expectShot(page, 'search-error');
+    });
+
+    test('search offline', async ({ page, open }) => {
+      await open('/search?state=offline');
+      await expect(page.getByText('Based on your last sync, 2 h ago')).toBeVisible();
+      await expect(page.getByText('DVD · Living room › Shelf B')).toBeVisible();
+      await expect(page.getByText('Blu-ray · Living room › Shelf B')).toBeVisible();
+      await expectShot(page, 'search-offline');
+    });
+
+    test.describe('dark', () => {
+      test.use({ colorScheme: 'dark' });
+
+      test('search initial dark', async ({ page, open }) => {
+        await open('/search?state=initial');
+        await expect(page.getByRole('button', { name: 'Search again for alien' })).toBeVisible();
+        await expectShot(page, 'search-initial-dark');
+      });
+
+      test('search loading dark', async ({ page, open }) => {
+        await open('/search?state=loading');
+        await expect(page.getByText('Searching the catalog')).toBeVisible();
+        await expectShot(page, 'search-loading-dark');
+      });
+
+      test('search results dark', async ({ page, open }) => {
+        await openSearchResults(page, open);
+        await expectShot(page, 'search-results-dark');
+      });
+
+      test('search editions dark', async ({ page, open }) => {
+        await openSearchResults(page, open);
+        await page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' }).click();
+        await expect(page.getByRole('button', { name: 'Back to results' })).toBeVisible();
+        await expectShot(page, 'search-editions-dark');
+      });
+
+      test('search no matches dark', async ({ page, open }) => {
+        await open('/search?state=none');
+        await expect(page.getByRole('heading', { name: 'No matches' })).toBeVisible();
+        await expectShot(page, 'search-none-dark');
+      });
+
+      test('search error dark', async ({ page, open }) => {
+        await open('/search?state=error');
+        await expect(page.getByRole('heading', { name: "Couldn't search the catalog" })).toBeVisible();
+        await expectShot(page, 'search-error-dark');
+      });
+
+      test('search offline dark', async ({ page, open }) => {
+        await open('/search?state=offline');
+        await expect(page.getByText('Based on your last sync, 2 h ago')).toBeVisible();
+        await expect(page.getByText('DVD · Living room › Shelf B')).toBeVisible();
+        await expectShot(page, 'search-offline-dark');
+      });
+    });
+  });
 });
 
 async function openDeleteToast(page: Page, open: (path: string) => Promise<void>) {
@@ -181,6 +285,14 @@ async function openCommitToast(page: Page, open: (path: string) => Promise<void>
   // The celebration dismisses itself; the toast below keeps the words and the Undo.
   await expect(page.getByTestId('commit-celebration')).toBeHidden({ timeout: 10_000 });
   await page.getByRole('button', { name: 'Undo' }).scrollIntoViewIfNeeded();
+}
+
+async function openSearchResults(page: Page, open: (path: string) => Promise<void>) {
+  await open('/search?state=results');
+  await expect(page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' })).toBeVisible();
+  await expect(page.getByText('In your library')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Arrival, Denis Villeneuve · 2016 · 1 edition' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dune, Frank Herbert · 1990–2019 · 2 editions' })).toBeVisible();
 }
 
 async function openSearchRows(page: Page, open: (path: string) => Promise<void>) {
