@@ -21,6 +21,7 @@ const pages: { name: string; path: string; heading: string | RegExp | null }[] =
   { name: 'scanner (web stand-in)', path: '/scanner', heading: 'Scanner' },
   { name: 'review', path: '/review', heading: /Review/ },
   { name: 'result detail', path: '/result/c1000000-0000-4000-8000-000000000001', heading: null },
+  { name: 'search results (fixture)', path: '/search?state=results', heading: null },
 ];
 
 test.describe('accessibility of every page', () => {

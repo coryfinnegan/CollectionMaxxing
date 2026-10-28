@@ -2,6 +2,8 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
+import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
+import { setRecentStorage } from '@/features/search/recent';
 import { renderWithProviders } from '@/test/render';
 import { searchPlaceholder } from './LibraryGrid';
 import { LibraryView } from './LibraryView';
@@ -16,8 +18,11 @@ beforeEach(() => {
   resetItems();
   requests = [];
   mockRouter.push.mockClear();
+  setRecentStorage(new MemoryKeyValueStore());
   server.events.on('request:start', ({ request }) => requests.push(new URL(request.url)));
 });
+
+afterAll(() => setRecentStorage(undefined));
 afterEach(() => server.events.removeAllListeners());
 
 describe('the Library header', () => {
@@ -218,14 +223,15 @@ describe('content title', () => {
 });
 
 describe('Add item', () => {
-  it('adds a catalog match straight from search', async () => {
+  it('adds a catalog match through the Search view editions pick', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
     await fireEvent.press(screen.getByLabelText('Add item'));
     await fireEvent.changeText(screen.getByLabelText('Search the catalog'), 'alien');
-    // Alien has a DVD and a VHS release; pick the DVD.
-    await fireEvent.press(await screen.findByTestId('result-f1000000-0000-4000-8000-000000000001'));
+    // Alien has a DVD and a VHS release; open the work and pick the DVD.
+    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1979), DVD' }));
 
     await waitFor(() => expect(screen.queryByText('Add an item')).toBeNull());
     await fireEvent.changeText(screen.getByLabelText('Search'), 'alien');

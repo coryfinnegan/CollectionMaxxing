@@ -72,6 +72,7 @@ export default function RootLayout() {
             <Stack.Screen name="review" options={{ title: 'Review' }} />
             <Stack.Screen name="evals" options={{ title: 'Run evals' }} />
             <Stack.Screen name="search-rows" options={{ title: 'Search rows' }} />
+            <Stack.Screen name="search" options={{ title: 'Search' }} />
             <Stack.Screen name="result/[id]" options={{ title: 'Result' }} />
           </Stack>
         </View>

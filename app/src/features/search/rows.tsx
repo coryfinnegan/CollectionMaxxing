@@ -2,8 +2,8 @@
 // cover, title, creator, year span, edition count, owned badge) and the
 // edition row (thumbnail, title, catalog facts). Review's pick-one options
 // (#440) render through EditionRow, so the edition-row shape is identical in
-// both places. Owned state arrives as props from local data until #456 lands
-// its grouped provider data and owned ids in the response.
+// both places. Owned state arrives as props: each result's ownedReleaseIds
+// (#456) decides the badge and the winning cover.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { Pressable, View } from 'react-native';
@@ -140,7 +140,7 @@ export function WorkRow({
   testID,
 }: {
   result: CatalogSearchResultDto;
-  /** The owned edition ids, from local data until #456 exposes them in the response. */
+  /** The owned edition ids, from the result's ownedReleaseIds. */
   ownedReleaseIds: ReadonlySet<string>;
   onPress(): void;
   testID?: string;
