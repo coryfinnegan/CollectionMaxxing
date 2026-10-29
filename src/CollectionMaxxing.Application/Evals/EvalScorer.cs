@@ -209,8 +209,9 @@ public static class EvalScorer
         !item.Provisional && (TierOf(item) == Tier0 || TierOf(item) == Tier1);
 
     /// <summary>
-    /// The tier the server would give the item. The phone claims T1 for a confident read, but the server commits only what it
-    /// matched (<c>CandidateResolver</c>): a read it narrowed down or found nothing for goes to the person, T2.
+    /// The item's tier with the server's first gate applied. The phone claims T1 for a confident read, but the server commits
+    /// only what it matched (<c>CandidateResolver</c>), so a read it narrowed down or found nothing for counts as T2. The
+    /// server's other gates (owned copies, series volumes, the artwork re-score) are not modelled here.
     /// </summary>
     private static string? TierOf(GroundedItem item) =>
         (item.Tier == Tier0 || item.Tier == Tier1) && item.Verdict != Matched ? Tier2 : item.Tier;
