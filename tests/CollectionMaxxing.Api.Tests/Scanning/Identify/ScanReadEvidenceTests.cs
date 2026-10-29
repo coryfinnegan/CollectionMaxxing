@@ -109,4 +109,29 @@ public class ScanReadEvidenceTests(ApiFixture api) : IdentifyTest(api)
         stored.ShouldNotContain("cart_only");
         stored.ShouldNotContain("BESTSELLING");
     }
+
+    [Theory]
+    [InlineData("Lantern Road")]
+    [InlineData("the authors")]
+    public async Task A_book_whose_author_was_read_as_its_series_line_or_a_placeholder_is_matched_on_its_title(string creator)
+    {
+        // Fourth eval run: a spine's series line read as the author scored 0.18 against the real author and held an exact
+        // title at 0.79, under the Matched line.
+        var (_, client, sessionId) = await StartAsync();
+        Books.Results.Add(new ProviderRelease
+        {
+            Provider = "openlibrary",
+            ExternalId = "OL998W",
+            WorkKey = "OL998W",
+            Title = "The Lantern Road Cookbook",
+            Kind = WorkKind.Book,
+            Year = 2010,
+            Creators = ["Mara Odell"],
+        });
+
+        var candidate = (await IdentifyOkAsync(client, sessionId, Read(title: "the lantern road cookbook", creator: creator, kind: "book"))).Single();
+
+        Resolution(candidate).ShouldBe("matched");
+        candidate.GetProperty("score").GetDouble().ShouldBe(1.0);
+    }
 }
