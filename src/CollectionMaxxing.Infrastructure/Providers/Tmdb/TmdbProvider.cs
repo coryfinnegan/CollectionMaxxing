@@ -49,11 +49,11 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
             return [];
         }
 
-        var films = query.Kind is null or WorkKind.Film ? await SearchKindAsync(WorkKind.Film, query, ct) : [];
-        var shows = query.Kind is null or WorkKind.Tv ? await SearchKindAsync(WorkKind.Tv, query, ct) : [];
-
-        // Round-robin before the limit cuts: appending a full film page first would starve television (#292).
-        return Interleave(films, shows).Take(query.Limit).ToList();
+        // A DVD or a tape holds a film or a show, and the reader can't tell which from the case: both are searched, the
+        // kind it named first. Round-robin before the limit cuts: appending a full page of one would starve the other (#292).
+        var films = await SearchKindAsync(WorkKind.Film, query, ct);
+        var shows = await SearchKindAsync(WorkKind.Tv, query, ct);
+        return (query.Kind == WorkKind.Tv ? Interleave(shows, films) : Interleave(films, shows)).Take(query.Limit).ToList();
     }
 
     private static IEnumerable<ProviderRelease> Interleave(IReadOnlyList<ProviderRelease> first, IReadOnlyList<ProviderRelease> second)
@@ -72,7 +72,17 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
         }
     }
 
+    /// <summary>
+    /// TMDB's year is a filter, and a year read off a case or a product name is often the disc's year, not the film's
+    /// (a 2008 Blu-ray of a 1979 film). A year that finds nothing is asked again without it; the scorer still weighs it.
+    /// </summary>
     private async Task<IReadOnlyList<ProviderRelease>> SearchKindAsync(WorkKind kind, CatalogQuery query, CancellationToken ct)
+    {
+        var found = await SearchKindOnceAsync(kind, query, ct);
+        return found.Count == 0 && query.Year is not null ? await SearchKindOnceAsync(kind, query with { Year = null }, ct) : found;
+    }
+
+    private async Task<IReadOnlyList<ProviderRelease>> SearchKindOnceAsync(WorkKind kind, CatalogQuery query, CancellationToken ct)
     {
         var film = kind == WorkKind.Film;
         var url = $"3/search/{(film ? "movie" : "tv")}?query={Uri.EscapeDataString(query.Title)}&include_adult=false";

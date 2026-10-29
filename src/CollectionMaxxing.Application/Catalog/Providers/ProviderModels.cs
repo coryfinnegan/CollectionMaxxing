@@ -42,6 +42,16 @@ public sealed record ProviderRelease
 
     public IReadOnlyList<Identifier> Identifiers { get; init; } = [];
 
+    /// <summary>
+    /// This release in the format the item was read as, when the provider named none and the format fits the work: TMDB
+    /// answers a film and IGDB a game with no format at all, so a DVD cover would otherwise be stored as format Unknown.
+    /// A format the provider did name is kept.
+    /// </summary>
+    public ProviderRelease WithReadFormat(ReleaseFormat? read) =>
+        !ReleaseFormats.IsKnown(Format) && ReleaseFormats.IsKnown(read) && ReleaseFormats.Fits(read!.Value, Kind)
+            ? this with { Format = read }
+            : this;
+
     /// <summary>This release as a candidate for the scorer, keyed by <c>provider:externalId</c>.</summary>
     public CandidateRelease ToCandidate() => new()
     {

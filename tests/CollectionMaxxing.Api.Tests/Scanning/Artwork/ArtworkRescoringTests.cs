@@ -63,12 +63,14 @@ public class ArtworkRescoringTests(ApiFixture api) : ArtworkTest(api)
         var scan = await ScanOriginalAndPlayersChoiceAsync();
         var ids = AlternativeIds(scan.Candidate);
 
-        // Only the first is compared, and it is a poor match: the other must not profit from the missing number.
+        // Only the first is compared, and it is a poor match: the other must not profit from the missing number. It is
+        // worth no more than the weakest picture compared (a neutral 0.5 let a coverless wrong book win in prod, #519), so
+        // the art term can't separate them, the text decides, and the person picks.
         var candidate = await ReadOkAsync(await PostArtAsync(scan.Client, scan, Distance(ids[0], 1.4)));
 
         Resolution(candidate).ShouldBe("ambiguous");
-        AlternativeIds(candidate)[0].ShouldBe(ids[1]); // neutral (0.5) beats a bad match
-        Alternatives(candidate)[0].GetProperty("score").GetDouble().ShouldBeGreaterThan(Alternatives(candidate)[1].GetProperty("score").GetDouble());
+        AlternativeIds(candidate).ShouldBe(ids, ignoreOrder: true);
+        Alternatives(candidate)[0].GetProperty("score").GetDouble().ShouldBe(Alternatives(candidate)[1].GetProperty("score").GetDouble());
     }
 
     [Fact]

@@ -128,7 +128,7 @@ public static class IdentifyItems
                         SessionId = session.Id,
                         Seq = nextSeq++,
                         Source = source,
-                        ShotKind = input.ShotKind ?? ShotKind.Unknown,
+                        ShotKind = ShotReading.Of(input.ShotKind, items.Count), // one item read is a cover shot, whatever the framing said
                         SegmentId = item.SegmentId,
                         VisibleText = item.Facts.Text ?? item.Facts.Title,
                         SnapId = snapId,
@@ -212,7 +212,7 @@ public static class IdentifyItems
 
                 // ShotKind, SegmentId and LocalId are init-only (history, not state), so the bound read is written through EF.
                 var entry = db.ScanCandidates.Attach(candidate);
-                entry.Property(c => c.ShotKind).CurrentValue = input.ShotKind ?? ShotKind.Unknown;
+                entry.Property(c => c.ShotKind).CurrentValue = ShotReading.Of(input.ShotKind, 1); // a bound cover is one item
                 entry.Property(c => c.SegmentId).CurrentValue = item.SegmentId;
                 entry.Property(c => c.LocalId).CurrentValue = item.LocalId;
                 entry.Property(c => c.SnapId).CurrentValue = snapId;
@@ -302,7 +302,7 @@ public static class IdentifyItems
                     SessionId = session.Id,
                     Seq = nextSeq,
                     Source = source,
-                    ShotKind = input.ShotKind ?? ShotKind.Unknown,
+                    ShotKind = ShotReading.Of(input.ShotKind, 1), // an edition proof is one item
                     SegmentId = proof.SegmentId,
                     VisibleText = proof.Facts.Text ?? proof.Facts.Title,
                     SnapId = snapId,

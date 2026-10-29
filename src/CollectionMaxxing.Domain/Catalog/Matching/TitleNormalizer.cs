@@ -81,14 +81,76 @@ public static partial class TitleNormalizer
     }
 
     /// <summary>
+    /// What a title that is only the other one's main title is worth: "Kitchen Confidential" read off a cover against
+    /// "Kitchen Confidential: Adventures in the Culinary Underbelly" from a provider, or the other way round. Close, never
+    /// the same: a missing subtitle can tell two releases apart ("Metroid Prime 2" is pinned Ambiguous against "Metroid
+    /// Prime 2: Echoes"), so it stays under 0.845.
+    /// </summary>
+    public const double MainTitleCredit = 0.8;
+
+    /// <summary>
     /// How alike two titles are, from 0 (nothing in common) to 1 (the same after normalising). Takes the better of an
     /// edit-distance ratio (forgives misreads and plurals) and a word-overlap ratio (forgives word order). A sequel
     /// number that only one side has costs a quarter of the score, so "Metroid Prime" does not match "Metroid Prime 2".
     /// A trailing year ("Alien 1979") is ignored if that gives a better match, unless both titles carry a year and the
     /// years differ: then the year is part of each title's identity ("Madden NFL 2005" is not "Madden NFL 2004") and is
-    /// compared like any other word.
+    /// compared like any other word. A title compared with the other's main title (the part before a colon, a spaced dash
+    /// or a bracket) earns <see cref="MainTitleCredit"/> of that comparison when it is the better one; two main titles are
+    /// never compared with each other, so two subtitles of one series ("Zelda: Ocarina of Time", "Zelda: Majora's Mask")
+    /// stay apart.
     /// </summary>
     public static double Similarity(string? a, string? b)
+    {
+        var whole = WholeSimilarity(a, b);
+        if (whole >= 1.0)
+        {
+            return whole;
+        }
+
+        var best = whole;
+        if (MainTitle(a) is { } mainA)
+        {
+            best = Math.Max(best, MainTitleCredit * WholeSimilarity(mainA, b));
+        }
+
+        if (MainTitle(b) is { } mainB)
+        {
+            best = Math.Max(best, MainTitleCredit * WholeSimilarity(a, mainB));
+        }
+
+        return best;
+    }
+
+    /// <summary>The part before a subtitle, or null when the title has none (or nothing would be left of it).</summary>
+    private static string? MainTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return null;
+        }
+
+        var cut = title.Length;
+        foreach (var marker in SubtitleMarkers)
+        {
+            var at = title.IndexOf(marker, StringComparison.Ordinal);
+            if (at > 0 && at < cut)
+            {
+                cut = at;
+            }
+        }
+
+        if (cut == title.Length)
+        {
+            return null;
+        }
+
+        var main = title[..cut];
+        return Normalize(main).Length == 0 ? null : main;
+    }
+
+    private static readonly string[] SubtitleMarkers = [":", " - ", " – ", " — ", "("];
+
+    private static double WholeSimilarity(string? a, string? b)
     {
         var left = Normalize(a);
         var right = Normalize(b);

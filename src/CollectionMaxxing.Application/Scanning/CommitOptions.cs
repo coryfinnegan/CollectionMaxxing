@@ -56,7 +56,17 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
         ScanSession session, IReadOnlyList<ScanCandidate> accepted, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var result = accepted.ToDictionary(c => c.Id, c => c.MatchedReleaseId!.Value);
-        var edited = accepted.Where(c => c.EditedFormat is not null || c.EditedPlatform is not null || c.EditedEdition is not null).ToList();
+
+        // The format the item was read as (a DVD cover, a VHS sleeve) fills in a matched release the catalogue keeps with
+        // format Unknown, which is how every provider film and game is stored. It never overrides a known format.
+        var readFormats = accepted
+            .Where(c => c.EditedFormat is null && c.Source != CandidateSource.Barcode)
+            .Select(c => (c.Id, Format: Identify.StoredRead.From(c).Facts.Format))
+            .Where(r => ReleaseFormats.IsKnown(r.Format))
+            .ToDictionary(r => r.Id, r => r.Format!.Value);
+        var edited = accepted
+            .Where(c => c.EditedFormat is not null || c.EditedPlatform is not null || c.EditedEdition is not null || readFormats.ContainsKey(c.Id))
+            .ToList();
         if (edited.Count == 0)
         {
             return new ResolvedReleases(result, []);
@@ -64,6 +74,8 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
 
         var baseIds = edited.Select(c => c.MatchedReleaseId!.Value).Distinct().ToList();
         var bases = await db.Releases.AsNoTracking().Where(r => baseIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
+        var workIds = bases.Values.Select(r => r.WorkId).Distinct().ToList();
+        var kinds = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.Kind, cancellationToken);
         var platforms = await db.Platforms.AsNoTracking().ToListAsync(cancellationToken);
         var added = new Dictionary<(Guid Work, ReleaseFormat Format, Guid? Platform, string Edition), Guid>();
         var origins = new HashSet<Guid>();
@@ -71,7 +83,13 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
         foreach (var candidate in edited)
         {
             var origin = bases[candidate.MatchedReleaseId!.Value];
-            var format = candidate.EditedFormat ?? origin.Format;
+            var format = candidate.EditedFormat
+                ?? (origin.Format == ReleaseFormat.Unknown
+                    && readFormats.TryGetValue(candidate.Id, out var read)
+                    && kinds.TryGetValue(origin.WorkId, out var kind)
+                    && ReleaseFormats.Fits(read, kind)
+                        ? read
+                        : origin.Format);
             var platformId = PlatformOf(platforms, candidate.EditedPlatform) ?? origin.PlatformId;
             var edition = candidate.EditedEdition ?? origin.Edition;
             if (format == origin.Format && platformId == origin.PlatformId && SameEdition(edition, origin.Edition))

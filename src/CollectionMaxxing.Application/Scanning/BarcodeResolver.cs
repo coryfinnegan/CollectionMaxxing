@@ -150,8 +150,9 @@ public sealed class BarcodeResolver(
             return new BarcodeResolution(ResolutionVerdict.NotFound, [], product.Title, steps);
         }
 
+        // The product name said the format ("[DVD]", "Blu-ray"); the film or game it found names none.
         var ranked = result.Ranked.Take(Alternatives)
-            .Select(r => new ResolutionOption(null, byKey[r.Release.Key], r.Score))
+            .Select(r => new ResolutionOption(null, byKey[r.Release.Key].WithReadFormat(product.Format), r.Score))
             .ToList();
         return new BarcodeResolution(
             result.Outcome == MatchOutcome.Matched ? ResolutionVerdict.Matched : ResolutionVerdict.Ambiguous, ranked, product.Title, steps);

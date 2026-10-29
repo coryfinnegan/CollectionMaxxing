@@ -214,16 +214,21 @@ public class ScanIdentifyOwnedSameTitleTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
-    public async Task A_shelf_shot_is_text_only_so_artwork_is_refused_and_the_covered_novel_stays_first()
+    public async Task A_shelf_shot_of_several_spines_is_text_only_so_artwork_is_refused_and_the_covered_novel_stays_first()
     {
         var seed = await SeedSuddenlyYouAsync();
         await DeleteLearnedItemsAsync(seed.LearnedId);
 
-        var candidate = await IdentifyOnceAsync(seed.Client, seed.SessionId, Read(title: Title, kind: "book"));
+        var body = Body(Guid.NewGuid(), [Read(title: Title, kind: "book"), Read(title: "Dreaming of You", kind: "book")]);
+        body["kind"] = "shelf";
+        body["shotKind"] = "shelf_segment";
+        var response = await seed.Client.PostAsync(IdentifyUrl(seed.SessionId), Json(body));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var candidate = (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().First();
 
-        // A shelf photo shows spines, not covers: comparing it against cover
-        // art is what ranked prod's wrong book first, so a shelf shot is
+        // A shelf photo shows spines, not covers: comparing it against cover art misranks, so a shelf of spines is
         // never a close call for artwork.
+        candidate.GetProperty("shotKind").GetString().ShouldBe("shelf_segment");
         candidate.GetProperty("needsArt").GetBoolean().ShouldBeFalse();
         var alternatives = candidate.GetProperty("alternatives").EnumerateArray().ToList();
         alternatives[0].GetProperty("releaseId").GetGuid().ShouldBe(seed.SiblingId);
@@ -242,11 +247,39 @@ public class ScanIdentifyOwnedSameTitleTests(ApiFixture api) : IdentifyTest(api)
             }));
         art.StatusCode.ShouldBe(HttpStatusCode.Conflict, await art.Content.ReadAsStringAsync());
         (await art.Content.ReadAsStringAsync()).ShouldContain("scan.art_not_needed");
+    }
+
+    [Fact]
+    public async Task A_one_item_shot_framed_as_a_shelf_is_a_cover_and_weak_artwork_cannot_lift_the_coverless_impostor()
+    {
+        // Prod #519 exactly: a cover held up to the camera (framed as a shelf, read as one item), both Kleypas covers
+        // compared below neutral, coverless Mayberry not compared. Pre-fix it rode a neutral 0.5 to the top (0.75 vs
+        // 0.734); now a candidate the phone could not compare is worth no more than the weakest compared picture.
+        var seed = await SeedSuddenlyYouAsync();
+        await DeleteLearnedItemsAsync(seed.LearnedId);
+
+        var candidate = await IdentifyOnceAsync(seed.Client, seed.SessionId, Read(title: Title, kind: "book"));
+
+        candidate.GetProperty("shotKind").GetString().ShouldBe("single_cover");
+        candidate.GetProperty("needsArt").GetBoolean().ShouldBeTrue();
+
+        var art = await seed.Client.PostAsync(
+            $"{SessionUrl(seed.SessionId)}/candidates/{Id(candidate)}:art",
+            Json(new
+            {
+                distances = new[]
+                {
+                    new { releaseId = seed.LearnedId, distance = 1.1 },
+                    new { releaseId = seed.SiblingId, distance = 1.1 },
+                },
+            }));
+        art.StatusCode.ShouldBe(HttpStatusCode.OK, await art.Content.ReadAsStringAsync());
 
         var reread = (await GetSessionAsync(seed.Client, seed.SessionId)).GetProperty("candidates").EnumerateArray()
             .Single(c => c.GetProperty("id").GetGuid() == Id(candidate));
-        reread.GetProperty("alternatives").EnumerateArray().First()
-            .GetProperty("releaseId").GetGuid().ShouldBe(seed.SiblingId);
+        var first = reread.GetProperty("alternatives").EnumerateArray().First().GetProperty("releaseId").GetGuid();
+        first.ShouldNotBe(seed.MayberryId);
+        first.ShouldBe(seed.SiblingId);
     }
 
     [Fact]

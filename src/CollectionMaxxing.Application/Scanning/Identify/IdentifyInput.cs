@@ -157,7 +157,8 @@ internal static class IdentifyCleaning
     public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind = IdentifyKind.Shelf) =>
         items.Select(item =>
         {
-            var facts = new ReadFacts(
+            // What the model put in a field that cannot hold it is dropped before anything scores or stores it.
+            var facts = ReadSanitizer.Sanitize(new ReadFacts(
                 Text(item.Title, MaxFieldLength),
                 Text(item.Text, MaxTextLength),
                 Text(item.Creator, MaxFieldLength),
@@ -166,8 +167,8 @@ internal static class IdentifyCleaning
                 item.Kind,
                 item.Format,
                 item.Year is >= MinYear and <= MaxYear ? item.Year : null,
-                Text(item.Platform, MaxPlatformLength));
-            var profile = ScoringProfileSelector.Choose(item.Completeness, item.Kind, item.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
+                Text(item.Platform, MaxPlatformLength)));
+            var profile = ScoringProfileSelector.Choose(facts.Completeness, facts.Kind, facts.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
             return new CleanItem(Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile);
         }).ToList();
 

@@ -173,9 +173,13 @@ public sealed class UpcItemDbProvider(
             return WorkKind.Film;
         }
 
-        return cleaned.Platform is not null
-            || cleaned.Format is ReleaseFormat.GameCartridge or ReleaseFormat.GameDisc or ReleaseFormat.GameCard
-            ? WorkKind.Game
-            : WorkKind.Other;
+        if (cleaned.Platform is not null
+            || cleaned.Format is ReleaseFormat.GameCartridge or ReleaseFormat.GameDisc or ReleaseFormat.GameCard)
+        {
+            return WorkKind.Game;
+        }
+
+        // "The Matrix [Blu-ray]" filed under a vague category is still a film: an Other product is never searched at TMDB.
+        return ReleaseFormats.IsVideo(cleaned.Format) ? WorkKind.Film : WorkKind.Other;
     }
 }

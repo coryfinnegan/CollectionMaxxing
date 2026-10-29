@@ -177,11 +177,40 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
 
         (await host.Get<OpenLibraryProvider>().SearchAsync(query, default)).ShouldBeEmpty();
         (await host.Get<OpenLibraryProvider>().SearchAsync(query, default)).ShouldBeEmpty();
-        host.Requests("/search.json").ShouldBe(1); // remembered for a day, not a month
+        host.Requests("/search.json").ShouldBe(2); // the title search and its general fallback, remembered for a day, not a month
 
         host.Fake.Advance(TimeSpan.FromHours(25));
         (await host.Get<OpenLibraryProvider>().SearchAsync(query, default)).ShouldBeEmpty();
-        host.Requests("/search.json").ShouldBe(2);
+        host.Requests("/search.json").ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task A_title_search_that_finds_nothing_falls_back_to_the_general_search_with_the_author()
+    {
+        // A spine read can run the author into the title ("DUNE FRANK HERBERT"); the title field finds nothing for that.
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath("/search.json").WithParam("title").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(ProviderHost.Fixture("openlibrary-search-empty.json")));
+        host.Server.Given(Request.Create().WithPath("/search.json").WithParam("q").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(ProviderHost.Fixture("openlibrary-search.json")));
+
+        var results = await host.Get<OpenLibraryProvider>().SearchAsync(
+            new CatalogQuery { Title = "FANTASTIC MR FOX ROALD", Creator = "Dahl", Kind = WorkKind.Book }, default);
+
+        results.Count.ShouldBe(2);
+        var general = host.Server.LogEntries.Select(e => e.RequestMessage!.Query!).Single(q => q.ContainsKey("q"));
+        general["q"].ToString().ShouldBe("FANTASTIC MR FOX ROALD Dahl");
+    }
+
+    [Fact]
+    public async Task A_title_search_that_finds_something_asks_nothing_more()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/search.json", "openlibrary-search.json");
+
+        await host.Get<OpenLibraryProvider>().SearchAsync(new CatalogQuery { Title = "Fantastic Mr Fox", Kind = WorkKind.Book }, default);
+
+        host.Requests("/search.json").ShouldBe(1);
     }
 }
 

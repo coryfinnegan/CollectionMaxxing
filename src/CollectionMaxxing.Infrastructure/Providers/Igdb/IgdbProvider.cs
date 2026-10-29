@@ -172,10 +172,13 @@ public sealed class IgdbProvider(HttpClient http, IOptions<IgdbOptions> options,
             return [];
         }
 
+        // The platform read is a hint, never a filter: a game not on it is kept under its own platform, after the ones
+        // that are, and the scorer weighs the difference. A box read as "Nintendo Switch" that is really a Switch 2 game
+        // was dropped here and came back "not in the catalogue" every time.
         return json.RootElement.EnumerateArray()
             .Select(g => FromGame(g, wantedPlatform))
             .OfType<ProviderRelease>()
-            .Where(r => wantedPlatform is null || r.Platform is not null)
+            .OrderBy(r => wantedPlatform is null || PlatformNames.Canonicalize(r.Platform) == wantedPlatform ? 0 : 1)
             .Take(query.Limit)
             .ToList();
     }
@@ -190,9 +193,8 @@ public sealed class IgdbProvider(HttpClient http, IOptions<IgdbOptions> options,
         }
 
         var platforms = game.Items("platforms").Select(p => p.Str("name")).OfType<string>().ToList();
-        var platform = wantedPlatform is null
-            ? platforms.FirstOrDefault()
-            : platforms.FirstOrDefault(p => PlatformNames.Canonicalize(p) == wantedPlatform);
+        var platform = (wantedPlatform is null ? null : platforms.FirstOrDefault(p => PlatformNames.Canonicalize(p) == wantedPlatform))
+            ?? platforms.FirstOrDefault();
         var companies = game.Items("involved_companies").ToList();
 
         var externalId = id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);

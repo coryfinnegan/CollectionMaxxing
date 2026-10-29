@@ -13,9 +13,19 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// </para>
 /// <para>
 /// When the read supplied a datum but the release does not have it (no year, no platform on file), the term scores a
-/// neutral 0.5: it neither counts as agreement nor as a mismatch. The art term follows the same rule once any candidate
-/// of an <see cref="Evaluate"/> run has a distance: a candidate the phone did not compare is neutral on art, so it can
-/// not beat a compared one just because the art term was dropped for it alone.
+/// neutral 0.5 when the release is scored on its own (<see cref="Score"/>): it neither counts as agreement nor as a
+/// mismatch. In an <see cref="Evaluate"/> run the term stays neutral only while some other candidate can answer it, so a
+/// release that confirms the datum still beats one that cannot; a term no candidate can answer is no evidence about any of
+/// them and drops out for all, instead of dragging a perfect title and author down toward 0.5. The art term follows the
+/// same rule: once any candidate has a distance, one the phone did not compare scores no better than the weakest picture
+/// that was compared (and never above neutral), so a coverless candidate can not win on art because the picture matched
+/// nothing well (#519).
+/// </para>
+/// <para>
+/// A format read agrees with a release that has no format on file through the release's kind: a DVD with a film or a
+/// show, a cartridge with a game, a paperback with a book (providers answer films and games with no format at all).
+/// A read kind of Other says nothing, and a platform name the console table does not know can agree with the same name
+/// but can never be a mismatch.
 /// </para>
 /// <para>
 /// Three guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
@@ -33,6 +43,16 @@ public static class MatchScorer
     private const int MinimumComparedSignals = 2;
 
     /// <summary>
+    /// Which terms some candidate of the run can answer (so a candidate that can not is neutral on them rather than left
+    /// out), and what the art term gives a candidate the phone did not compare (null leaves the term out for it).
+    /// </summary>
+    private sealed record Answerable(bool Type, bool Platform, bool Year, bool Creator, bool Edition, double? ArtStandIn)
+    {
+        /// <summary>A release scored on its own: every unanswered term is neutral; art needs a distance of its own.</summary>
+        public static Answerable Alone { get; } = new(true, true, true, true, true, null);
+    }
+
+    /// <summary>
     /// The score of one release, from 0 to 1, rounded to nine decimals so that exact boundaries compare exactly. An exact
     /// identifier match is 1.0 whatever the title says. A known platform mismatch caps the score at
     /// <see cref="ScoringThresholds.PlatformMismatchCap"/>, and different years in the two titles at
@@ -41,9 +61,9 @@ public static class MatchScorer
     /// distance as neutral once another has one.
     /// </summary>
     public static double Score(ReadItem read, CandidateRelease release, ScoringProfile profile) =>
-        ScoreCore(read, release, profile, otherCandidatesWereCompared: false).Score;
+        ScoreCore(read, release, profile, Answerable.Alone).Score;
 
-    private static ScoredRelease ScoreCore(ReadItem read, CandidateRelease release, ScoringProfile profile, bool otherCandidatesWereCompared)
+    private static ScoredRelease ScoreCore(ReadItem read, CandidateRelease release, ScoringProfile profile, Answerable answerable)
     {
         ArgumentNullException.ThrowIfNull(read);
         ArgumentNullException.ThrowIfNull(release);
@@ -60,31 +80,47 @@ public static class MatchScorer
         double weighted = 0;
         var compared = 0;
 
-        // A term takes part when its weight is positive. It counts as a compared signal only when the release could
-        // answer it too; a neutral score is no evidence either way.
-        void Add(double weight, double similarity, bool bothSidesPresent)
+        // A term takes part when its weight is positive. A similarity is a compared signal: the release could answer it
+        // too. Null means the release could not: the term is then neutral if another candidate can answer it (no
+        // evidence either way for this one), else it is left out (no evidence about anyone).
+        void Add(double weight, double? similarity, bool othersAnswer, double neutral = Neutral)
         {
-            if (weight > 0)
+            if (weight <= 0)
+            {
+                return;
+            }
+
+            if (similarity is { } value)
             {
                 weightSum += weight;
-                weighted += weight * similarity;
-                if (bothSidesPresent)
-                {
-                    compared++;
-                }
+                weighted += weight * value;
+                compared++;
+            }
+            else if (othersAnswer)
+            {
+                weightSum += weight;
+                weighted += weight * neutral;
             }
         }
 
         var titleYearConflict = false;
         if (!string.IsNullOrWhiteSpace(read.Title))
         {
-            Add(weights.Title, TitleNormalizer.Similarity(read.Title, release.Title), !string.IsNullOrWhiteSpace(release.Title));
+            if (!string.IsNullOrWhiteSpace(release.Title))
+            {
+                Add(weights.Title, TitleNormalizer.Similarity(read.Title, release.Title), othersAnswer: true);
+            }
+            else if (weights.Title > 0)
+            {
+                weightSum += weights.Title; // a release with no title scores nothing on it, and it is not a compared signal
+            }
+
             titleYearConflict = TitleNormalizer.TitleYearsConflict(read.Title, release.Title);
         }
 
         if (read.Format is not null || read.Kind is not null)
         {
-            Add(weights.Type, TypeAgreement(read, release), TypeIsCompared(read, release));
+            Add(weights.Type, TypeAgreement(read, release), answerable.Type);
         }
 
         var platformMismatch = false;
@@ -92,32 +128,35 @@ public static class MatchScorer
         {
             var agreement = PlatformAgreement(read.Platform, release.Platform);
             platformMismatch = agreement == 0.0;
-            Add(weights.Platform, agreement, PlatformNames.Canonicalize(release.Platform) is not null);
+            Add(weights.Platform, agreement, answerable.Platform);
         }
 
         // Only a year that was read as a year: the year inside a title belongs to the title (see TitleNormalizer).
         if (read.Year is { } readYear)
         {
-            Add(weights.Year, YearProximity(readYear, release.Year), release.Year is not null);
+            Add(weights.Year, release.Year is { } year ? YearProximity(readYear, year) : null, answerable.Year);
         }
 
         if (!string.IsNullOrWhiteSpace(read.Creator))
         {
-            Add(weights.Creator, CreatorSimilarity(read.Creator, release.Creators), release.Creators.Count > 0);
+            Add(weights.Creator, release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators) : null, answerable.Creator);
         }
 
         if (!string.IsNullOrWhiteSpace(read.Edition))
         {
-            Add(weights.Edition, EditionSimilarity(read.Edition, release.Edition), !string.IsNullOrWhiteSpace(release.Edition));
+            Add(
+                weights.Edition,
+                string.IsNullOrWhiteSpace(release.Edition) ? null : TitleNormalizer.Similarity(read.Edition, release.Edition),
+                answerable.Edition);
         }
 
         if (VisualSimilarity(read, release) is { } visual)
         {
-            Add(weights.Art, visual, bothSidesPresent: true);
+            Add(weights.Art, visual, othersAnswer: true);
         }
-        else if (otherCandidatesWereCompared)
+        else if (answerable.ArtStandIn is { } standIn)
         {
-            Add(weights.Art, Neutral, bothSidesPresent: false);
+            Add(weights.Art, null, othersAnswer: true, neutral: standIn);
         }
 
         if (weightSum <= 0)
@@ -154,11 +193,9 @@ public static class MatchScorer
         ArgumentNullException.ThrowIfNull(releases);
         ArgumentNullException.ThrowIfNull(profile);
 
-        // Once the phone compared the picture with any candidate, one it did not compare is neutral, not exempt.
-        var anyArtCompared = releases.Any(release => VisualSimilarity(read, release) is not null);
-
+        var answerable = AnswerableIn(read, releases);
         var ranked = releases
-            .Select(release => ScoreCore(read, release, profile, anyArtCompared))
+            .Select(release => ScoreCore(read, release, profile, answerable))
             .OrderByDescending(scored => scored.Score)
             .ToList();
 
@@ -215,20 +252,33 @@ public static class MatchScorer
         return false;
     }
 
-    // Whether the type term set two real values against each other. A format is compared when the release has one; a kind
-    // when neither side says Other, which is also the "unknown" default of a candidate that has no kind.
-    private static bool TypeIsCompared(ReadItem read, CandidateRelease release) =>
-        read.Format is not null
-            ? release.Format is not null
-            : read.Kind is { } kind && kind != WorkKind.Other && release.Kind != WorkKind.Other;
-
-    private static double TypeAgreement(ReadItem read, CandidateRelease release)
+    /// <summary>
+    /// Which terms at least one candidate can answer, and the art term's value for a candidate the phone did not compare:
+    /// the weakest compared picture, never above neutral (null when no candidate was compared).
+    /// </summary>
+    private static Answerable AnswerableIn(ReadItem read, IReadOnlyList<CandidateRelease> releases)
     {
-        if (read.Format is { } readFormat)
+        var visuals = releases.Select(release => VisualSimilarity(read, release)).OfType<double>().ToList();
+        return new Answerable(
+            Type: releases.Any(release => TypeAgreement(read, release) is not null),
+            Platform: !string.IsNullOrWhiteSpace(read.Platform) && releases.Any(release => PlatformAgreement(read.Platform, release.Platform) is not null),
+            Year: releases.Any(release => release.Year is not null),
+            Creator: releases.Any(release => release.Creators.Count > 0),
+            Edition: releases.Any(release => !string.IsNullOrWhiteSpace(release.Edition)),
+            ArtStandIn: visuals.Count > 0 ? Math.Min(Neutral, visuals.Min()) : null);
+    }
+
+    // The type term, or null when it can not set two real values against each other: a format against the release's
+    // format, else against the release's kind; a kind against a kind when neither says Other (which is also the
+    // "unknown" default of a candidate that has no kind).
+    private static double? TypeAgreement(ReadItem read, CandidateRelease release)
+    {
+        // Unknown is the catalogue saying it has no format on file (every provider film and game is stored so), not a format.
+        if (read.Format is { } readFormat && readFormat != ReleaseFormat.Unknown)
         {
-            if (release.Format is not { } releaseFormat)
+            if (release.Format is not { } releaseFormat || releaseFormat == ReleaseFormat.Unknown)
             {
-                return Neutral;
+                return KindAgreement(Family(readFormat), release.Kind);
             }
 
             if (readFormat == releaseFormat)
@@ -239,7 +289,29 @@ public static class MatchScorer
             return Family(readFormat) == Family(releaseFormat) && Family(readFormat) != FormatFamily.Other ? 0.5 : 0.0;
         }
 
-        return read.Kind == release.Kind ? 1.0 : 0.0;
+        if (read.Kind is not { } kind || kind == WorkKind.Other || release.Kind == WorkKind.Other)
+        {
+            return null;
+        }
+
+        return kind == release.Kind ? 1.0 : 0.0;
+    }
+
+    // A release with no format on file still has a kind: providers answer films, shows and games with none.
+    private static double? KindAgreement(FormatFamily family, WorkKind kind)
+    {
+        if (family == FormatFamily.Other || kind == WorkKind.Other)
+        {
+            return null;
+        }
+
+        var agrees = family switch
+        {
+            FormatFamily.Book => kind == WorkKind.Book,
+            FormatFamily.Video => kind is WorkKind.Film or WorkKind.Tv,
+            _ => kind == WorkKind.Game,
+        };
+        return agrees ? 1.0 : 0.0;
     }
 
     private enum FormatFamily
@@ -260,33 +332,30 @@ public static class MatchScorer
         _ => FormatFamily.Other,
     };
 
-    private static double PlatformAgreement(string readPlatform, string? releasePlatform)
+    // Null when the release names no platform, or when one of the two names is not a console the table knows and they
+    // differ: "boxed" or a typo agrees with nothing, but it is no proof of the wrong console either.
+    private static double? PlatformAgreement(string? readPlatform, string? releasePlatform)
     {
         var release = PlatformNames.Canonicalize(releasePlatform);
         if (release is null)
         {
-            return Neutral;
+            return null;
         }
 
-        return string.Equals(PlatformNames.Canonicalize(readPlatform), release, StringComparison.Ordinal) ? 1.0 : 0.0;
+        if (string.Equals(PlatformNames.Canonicalize(readPlatform), release, StringComparison.Ordinal))
+        {
+            return 1.0;
+        }
+
+        return PlatformNames.IsKnown(readPlatform) && PlatformNames.IsKnown(releasePlatform) ? 0.0 : null;
     }
 
     // One point for the same year, a quarter less for each year apart, nothing from four years apart.
-    private static double YearProximity(int readYear, int? releaseYear) =>
-        releaseYear is null ? Neutral : Math.Max(0.0, 1.0 - (0.25 * Math.Abs(readYear - releaseYear.Value)));
+    private static double YearProximity(int readYear, int releaseYear) =>
+        Math.Max(0.0, 1.0 - (0.25 * Math.Abs(readYear - releaseYear)));
 
-    private static double CreatorSimilarity(string readCreator, IReadOnlyList<string> creators)
-    {
-        if (creators.Count == 0)
-        {
-            return Neutral;
-        }
-
-        return creators.Max(creator => TitleNormalizer.Similarity(readCreator, creator));
-    }
-
-    private static double EditionSimilarity(string readEdition, string? releaseEdition) =>
-        string.IsNullOrWhiteSpace(releaseEdition) ? Neutral : TitleNormalizer.Similarity(readEdition, releaseEdition);
+    private static double CreatorSimilarity(string readCreator, IReadOnlyList<string> creators) =>
+        creators.Max(creator => TitleNormalizer.Similarity(readCreator, creator));
 
     // The phone reports a feature-print distance. Treating the print as a unit vector, the cosine similarity is
     // 1 - d^2 / 2: identical pictures (d = 0) give 1, unrelated ones about 0, and anything beyond d = sqrt(2) would be a
