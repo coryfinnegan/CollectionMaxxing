@@ -17,7 +17,8 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// <c>POST …/candidates/{id}:art</c>. <c>NeedsCoverVerify</c> says the row still wants its cover verified (#486): it is
 /// ambiguous, nobody decided it, and it is either an open close call or one whose on-device artwork ran but could not
 /// settle it. The phone posts the cover capture to <c>POST …/candidates/{id}:verify-cover</c> when the comparison cannot
-/// run (no <c>artworkUrl</c>s) or cannot settle it. <c>ShotKind</c> is what the phone's framing said the shot was;
+/// run (no <c>artworkUrl</c>s) or cannot settle it. <c>ShotKind</c> is what the phone's framing said the shot was, except
+/// that a shelf-framed shot that read exactly one item is a single cover (<see cref="Identify.ShotReading"/>);
 /// <c>SegmentId</c> links the items of a multi-item snap (#338); <c>GuidanceCode</c> is what this unresolved row tells the
 /// person to do next (#344).
 /// <c>Tier</c> is the commit tier (docs/16 §6): null until the candidate resolves.
