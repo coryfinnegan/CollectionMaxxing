@@ -47,6 +47,15 @@ public static class ReadSanitizer
         "none", "null",
     };
 
+    /// <summary>
+    /// Words that put a title, tagline or blurb in the author field ("the quickest way to make ..."): a person's name,
+    /// or a pair of names joined by "and", does not carry them. Single letters are left alone (initials).
+    /// </summary>
+    private static readonly HashSet<string> NotInAName = new(StringComparer.Ordinal) { "the", "for", "to", "with", "your", "how" };
+
+    /// <summary>The most words an author credit has; two authors with a middle name each still fit.</summary>
+    private const int MaxNameWords = 5;
+
     public static ReadFacts Sanitize(ReadFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
@@ -90,12 +99,19 @@ public static class ReadSanitizer
         _ => completeness,
     };
 
-    // An author is a claim of its own only when it says something the title does not: the model also copies a series line
-    // or brand off the spine (a series' name for a book of that series) as the author. A real author the title carries (a
-    // spine's "DUNE FRANK HERBERT") is still found: the scorer looks for each release's own author in the title.
+    // An author is a claim of its own only when it reads as a name and says something the title does not: the model also
+    // copies a series line or brand off the spine (a series' name for a book of that series), and a neighbour's title or
+    // tagline, as the author. A real author the title carries (a spine's "DUNE FRANK HERBERT") is still found: the scorer
+    // looks for each release's own author in the title.
     private static bool IsCreator(string? creator, string? title)
     {
         if (string.IsNullOrWhiteSpace(creator) || NotACreator.Contains(PlatformNames.Normalize(creator)))
+        {
+            return false;
+        }
+
+        var asWritten = PlatformNames.Normalize(creator).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (asWritten.Length > MaxNameWords || asWritten.Any(NotInAName.Contains))
         {
             return false;
         }
