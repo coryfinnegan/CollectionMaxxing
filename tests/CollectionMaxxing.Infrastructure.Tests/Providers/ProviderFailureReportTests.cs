@@ -22,7 +22,6 @@ public class ProviderFailureReportTests(PostgresFixture db) : DatabaseTest(db)
     {
         ["Providers:Resilience:MaxRetryAttempts"] = "1",
         ["Providers:Resilience:RetryDelay"] = "00:00:00.050",
-        ["Providers:Resilience:AttemptTimeout"] = "00:00:00.300",
     };
 
     private static async Task<bool> FailedAsync(Func<Task> ask)
@@ -47,7 +46,10 @@ public class ProviderFailureReportTests(PostgresFixture db) : DatabaseTest(db)
     [MemberData(nameof(ProviderCase.Names), MemberType = typeof(ProviderCase))]
     public async Task A_provider_that_never_answers_in_time_marks_the_report(string name)
     {
-        using var host = ProviderHost.Create(Db, settings: OneRetry());
+        // The short attempt timeout is this test's alone: on a busy machine it would fail the tests that expect an answer.
+        var settings = OneRetry();
+        settings["Providers:Resilience:AttemptTimeout"] = "00:00:00.300";
+        using var host = ProviderHost.Create(Db, settings: settings);
         var provider = ProviderCase.Named(name);
         provider.RespondWith(host, 200, provider.FoundFixture, delay: TimeSpan.FromSeconds(3));
 
