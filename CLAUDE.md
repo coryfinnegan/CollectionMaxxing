@@ -2,6 +2,8 @@
 
 A self-hosted collection tracker: a .NET 10 API and Postgres on the owner's Windows PC, plus an Expo app (iOS + web). The plan is in `docs/`. Read **only** the sections your brief links. `docs/13-agent-orchestration.md` explains how agents work together.
 
+This project is a "software factory" experiment: agents build, verify and ship everything. The owner writes no code and is never a review or merge step.
+
 Lead sessions: operate per docs/lead-master-prompt.md.
 
 ## Hard rules (this runs on the owner's personal PC; don't break anything)
@@ -41,7 +43,7 @@ Lead sessions: operate per docs/lead-master-prompt.md.
 - Use Grep and Glob before you read; read the part of a file you need, not the whole file.
 - Never read `bin/`, `obj/`, `node_modules/`, generated code or lockfiles.
 - Run the quiet gate script (`scripts/check.ps1` or `scripts/check.sh`, created in Wave 0), not verbose test output. It takes phases (`restore build format test app`); CI runs one phase per backend step, without the app phase.
-- Stop once your PR is open. Fix rounds are capped at 2; after that, report to the lead.
+- Builders stop once their PR is open (the lead merges it, see "Merging"). Fix rounds are capped at 2; after that, report to the lead.
 
 ## Branches, commits, PRs
 
@@ -55,6 +57,7 @@ Lead sessions: operate per docs/lead-master-prompt.md.
   - "Notes for the lead" (packages, hot files, follow-ups);
   - "Check at the next checkpoint", if anything.
 - End the PR body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+- **Merging (owner's standing rule, 2026-10-29):** once CI is green and an independent verifier (an agent that did not write the change) has approved the PR, squash-merge it without asking the owner, then follow it to delivery (the deploy, the TestFlight build). Still ask about product decisions, money, or anything that needs the owner's hands.
 
 ## Releasing the iPhone app
 
