@@ -169,16 +169,20 @@ public sealed class BarcodeResolver(
     private sealed record Attempt<T>(T? Value, bool Failed, TraceStep Step);
 
     /// <summary>
-    /// Asks one provider and times it. A provider that throws or times out counts as failed; the log gets the provider's
-    /// name and the kind of failure, never the message (which can carry the URL, and so the code or a key).
+    /// Asks one provider and times it. A provider that throws, times out or reports a failure (an adapter that cannot reach
+    /// its provider answers "nothing" without throwing) counts as failed; the log gets the provider's name and the kind of
+    /// failure, never the message (which can carry the URL, and so the code or a key).
     /// </summary>
     private async Task<Attempt<T>> AskAsync<T>(string provider, Func<CancellationToken, Task<T>> ask, CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
         try
         {
+            using var report = ProviderCalls.Observe(); // one per ask: the title searches run at the same time
             var value = await ask(cancellationToken);
-            return new Attempt<T>(value, false, new TraceStep(provider, value is null ? "miss" : "hit", Elapsed(started)));
+            return report.Failed
+                ? new Attempt<T>(value, true, new TraceStep(provider, "failed", Elapsed(started)))
+                : new Attempt<T>(value, false, new TraceStep(provider, value is null ? "miss" : "hit", Elapsed(started)));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

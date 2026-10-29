@@ -131,7 +131,8 @@ public sealed class TextSearchResolver(
 
     /// <summary>
     /// Asks the providers that know the query's kind, until <paramref name="budgetToken"/> is cancelled. A provider that fails or
-    /// runs out of time is recorded, not thrown; only <paramref name="callerToken"/> cancelling escapes. Touches no database,
+    /// runs out of time (thrown, or reported by the provider layer) is recorded, not thrown, and not asked down the rest of its
+    /// ladder; only <paramref name="callerToken"/> cancelling escapes. Touches no database,
     /// so reads can be asked in parallel. Each provider goes down <see cref="Ladder"/> on its own, keeping every release it
     /// found, until it answers with a title close to the one it was asked. "Close", not "anything": a bare-words search with a
     /// misread author still answers, with unrelated books. "On its own": one provider's close companion volume says nothing
@@ -304,8 +305,12 @@ public sealed class TextSearchResolver(
         IReadOnlyList<ProviderRelease> found = [];
         try
         {
+            // An adapter that cannot reach its provider answers "nothing" without throwing; the report tells that from "not
+            // known". One report per call: the providers are asked at the same time, and each must hear only its own failures.
+            using var report = ProviderCalls.Observe();
             found = await provider.SearchAsync(query, budget);
-            outcome = found.Count > 0 ? "hit" : "miss";
+            failed = report.Failed;
+            outcome = failed ? "failed" : found.Count > 0 ? "hit" : "miss";
         }
         catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
         {

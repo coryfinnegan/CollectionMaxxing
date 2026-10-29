@@ -155,4 +155,93 @@ public class BarcodeResolverTests
 
         resolution.Verdict.ShouldBe(ResolutionVerdict.NotFound);
     }
+
+    /// <summary>A valid ISBN-13 (an invented one) that only the book providers could answer.</summary>
+    private const string BookCode = "9780000000002";
+
+    private static Identifier BookId()
+    {
+        Identifier.TryParse(BookCode, out var id).ShouldBeTrue();
+        return id!;
+    }
+
+    /// <summary>
+    /// A provider that cannot be reached, the way the real adapters have one: it reports the failure and answers nothing,
+    /// never throws. <paramref name="kind"/> is the one kind it knows.
+    /// </summary>
+    private sealed class DownProvider(string name, WorkKind kind) : ICatalogProvider, ISearchableCatalogProvider
+    {
+        public string Name => name;
+
+        public bool Supports(WorkKind asked) => asked == kind;
+
+        public async Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct)
+        {
+            await Task.Yield();
+            ProviderCalls.ReportFailure();
+            return null;
+        }
+
+        public async Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct)
+        {
+            await Task.Yield();
+            ProviderCalls.ReportFailure();
+            return [];
+        }
+    }
+
+    private static BarcodeResolver BookResolver(IProductLookup products, params ICatalogProvider[] bookProviders) => new(
+        bookProviders,
+        new BookLookup(bookProviders, new EmptyIsbnStore(), NullLogger<BookLookup>.Instance),
+        products,
+        new ScanningOptions(),
+        NullLogger<BarcodeResolver>.Instance);
+
+    [Fact]
+    public async Task A_title_search_whose_provider_could_not_be_reached_stays_pending()
+    {
+        var product = HyruleProduct();
+        var resolver = Resolver(
+            new StubProducts(_ => ProductLookupResult.Found(product)), new LookupOnlyProvider(), new DownProvider("igdb", WorkKind.Game));
+
+        var resolution = await resolver.ResolveAsync(HyruleId(), CancellationToken.None);
+
+        resolution.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        resolution.Steps.ShouldContain(s => s.Provider == "igdb" && s.Outcome == "failed");
+    }
+
+    [Fact]
+    public async Task A_book_code_no_book_provider_could_reach_stays_pending()
+    {
+        var resolver = BookResolver(
+            new StubProducts(_ => ProductLookupResult.NotFound), new DownProvider("openlibrary", WorkKind.Book), new DownProvider("googlebooks", WorkKind.Book));
+
+        var resolution = await resolver.ResolveAsync(BookId(), CancellationToken.None);
+
+        resolution.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        resolution.Steps.Where(s => s.Provider is "openlibrary" or "googlebooks").Select(s => s.Outcome).ShouldBe(["failed", "failed"]);
+    }
+
+    [Fact]
+    public async Task A_book_code_the_book_providers_answered_but_do_not_know_is_not_found()
+    {
+        var resolver = BookResolver(new StubProducts(_ => ProductLookupResult.NotFound), new LookupOnlyBookProvider());
+
+        var resolution = await resolver.ResolveAsync(BookId(), CancellationToken.None);
+
+        resolution.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
+    /// <summary>A book provider that is up and does not know the code.</summary>
+    private sealed class LookupOnlyBookProvider : ICatalogProvider
+    {
+        public string Name => "openlibrary";
+
+        public bool Supports(WorkKind kind) => kind == WorkKind.Book;
+
+        public Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct) => Task.FromResult<ProviderRelease?>(null);
+
+        public Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ProviderRelease>>([]);
+    }
 }
