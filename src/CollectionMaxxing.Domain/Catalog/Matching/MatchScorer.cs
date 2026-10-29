@@ -71,7 +71,7 @@ public static class MatchScorer
 
         if (SharesAnIdentifier(read, release))
         {
-            return new ScoredRelease(release, 1.0) { IsExactIdentifierMatch = true };
+            return new ScoredRelease(release, 1.0) { IsExactIdentifierMatch = true, Terms = [new ScoreTerm("identifier", 1.0, 1.0, true)] };
         }
 
         var weights = profile.Weights;
@@ -79,11 +79,12 @@ public static class MatchScorer
         double weightSum = 0;
         double weighted = 0;
         var compared = 0;
+        var terms = new List<ScoreTerm>();
 
         // A term takes part when its weight is positive. A similarity is a compared signal: the release could answer it
         // too. Null means the release could not: the term is then neutral if another candidate can answer it (no
         // evidence either way for this one), else it is left out (no evidence about anyone).
-        void Add(double weight, double? similarity, bool othersAnswer, double neutral = Neutral)
+        void Add(string name, double weight, double? similarity, bool othersAnswer, double neutral = Neutral)
         {
             if (weight <= 0)
             {
@@ -95,11 +96,13 @@ public static class MatchScorer
                 weightSum += weight;
                 weighted += weight * value;
                 compared++;
+                terms.Add(new ScoreTerm(name, weight, value, true));
             }
             else if (othersAnswer)
             {
                 weightSum += weight;
                 weighted += weight * neutral;
+                terms.Add(new ScoreTerm(name, weight, neutral, false));
             }
         }
 
@@ -121,11 +124,12 @@ public static class MatchScorer
                     }
                 }
 
-                Add(weights.Title, similarity, othersAnswer: true);
+                Add("title", weights.Title, similarity, othersAnswer: true);
             }
             else if (weights.Title > 0)
             {
                 weightSum += weights.Title; // a release with no title scores nothing on it, and it is not a compared signal
+                terms.Add(new ScoreTerm("title", weights.Title, 0.0, false));
             }
 
             titleYearConflict = TitleNormalizer.TitleYearsConflict(read.Title, release.Title);
@@ -133,7 +137,7 @@ public static class MatchScorer
 
         if (read.Format is not null || read.Kind is not null)
         {
-            Add(weights.Type, TypeAgreement(read, release), answerable.Type);
+            Add("type", weights.Type, TypeAgreement(read, release), answerable.Type);
         }
 
         var platformMismatch = false;
@@ -141,27 +145,28 @@ public static class MatchScorer
         {
             var agreement = PlatformAgreement(read.Platform, release.Platform);
             platformMismatch = agreement == 0.0;
-            Add(weights.Platform, agreement, answerable.Platform);
+            Add("platform", weights.Platform, agreement, answerable.Platform);
         }
 
         // Only a year that was read as a year: the year inside a title belongs to the title (see TitleNormalizer).
         if (read.Year is { } readYear)
         {
-            Add(weights.Year, release.Year is { } year ? YearProximity(readYear, year) : null, answerable.Year);
+            Add("year", weights.Year, release.Year is { } year ? YearProximity(readYear, year) : null, answerable.Year);
         }
 
         if (!string.IsNullOrWhiteSpace(read.Creator))
         {
-            Add(weights.Creator, release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators) : null, answerable.Creator);
+            Add("creator", weights.Creator, release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators) : null, answerable.Creator);
         }
         else if (creatorInTitle)
         {
-            Add(weights.Creator, 1.0, othersAnswer: true);
+            Add("creator", weights.Creator, 1.0, othersAnswer: true);
         }
 
         if (!string.IsNullOrWhiteSpace(read.Edition))
         {
             Add(
+                "edition",
                 weights.Edition,
                 string.IsNullOrWhiteSpace(release.Edition) ? null : TitleNormalizer.Similarity(read.Edition, release.Edition),
                 answerable.Edition);
@@ -169,16 +174,16 @@ public static class MatchScorer
 
         if (VisualSimilarity(read, release) is { } visual)
         {
-            Add(weights.Art, visual, othersAnswer: true);
+            Add("art", weights.Art, visual, othersAnswer: true);
         }
         else if (answerable.ArtStandIn is { } standIn)
         {
-            Add(weights.Art, null, othersAnswer: true, neutral: standIn);
+            Add("art", weights.Art, null, othersAnswer: true, neutral: standIn);
         }
 
         if (weightSum <= 0)
         {
-            return new ScoredRelease(release, 0.0);
+            return new ScoredRelease(release, 0.0) { Terms = terms };
         }
 
         var score = weighted / weightSum;
@@ -196,6 +201,7 @@ public static class MatchScorer
         {
             ComparedSignals = compared,
             HasKnownConflict = platformMismatch || titleYearConflict,
+            Terms = terms,
         };
     }
 

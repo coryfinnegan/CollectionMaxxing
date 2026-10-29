@@ -1,6 +1,8 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -53,17 +55,28 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 items[i].Tier is { } tier ? EnumText.ToText(tier) : null,
                 items[i].Provisional,
                 items[i].IsGuess,
-                cleaned[i].SegmentId));
+                cleaned[i].SegmentId,
+                ReadOf(cleaned[i].Facts, cleaned[i].Profile)));
         }
 
         return grounded;
     }
 
+    /// <summary>What the read claimed besides its title, as it was scored, and the profile it was scored with.</summary>
+    private static GroundedRead ReadOf(ReadFacts facts, ScoringProfileKind profile) => new(
+        facts.Creator,
+        facts.Kind is { } kind ? EnumText.ToText(kind) : null,
+        facts.Format is { } format ? EnumText.ToText(format) : null,
+        facts.Year,
+        facts.Platform,
+        facts.Edition,
+        EnumText.ToText(profile));
+
     private static GroundedCandidate? Candidate(ResolutionOption option, Dictionary<Guid, GroundedCandidate> local)
     {
         if (option.LocalReleaseId is { } id)
         {
-            return local.TryGetValue(id, out var found) ? found with { Score = option.Score } : null;
+            return local.TryGetValue(id, out var found) ? found with { Score = option.Score, Terms = option.Terms } : null;
         }
 
         var provider = option.Provider;
@@ -75,7 +88,9 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 provider.Format is { } format ? EnumText.ToText(format) : null,
                 provider.Platform,
                 provider.Year,
-                option.Score);
+                option.Score,
+                provider.Creators,
+                option.Terms);
     }
 
     private async Task<Dictionary<Guid, GroundedCandidate>> LoadLocalAsync(List<BarcodeResolution> answers, CancellationToken cancellationToken)
@@ -102,6 +117,7 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 EnumText.ToText(r.Format),
                 r.PlatformId is { } platformId && platforms.TryGetValue(platformId, out var platform) ? platform.Name : null,
                 r.ReleaseDate?.Year ?? works[r.WorkId].OriginalYear,
-                0));
+                0,
+                ItemProjection.Creators(works[r.WorkId].CreatorsJson)));
     }
 }

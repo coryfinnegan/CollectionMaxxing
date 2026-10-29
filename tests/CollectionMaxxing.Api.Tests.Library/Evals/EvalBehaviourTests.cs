@@ -409,6 +409,31 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         grounded.GetProperty("items")[0].GetProperty("segmentId").GetString().ShouldBe("seg-1");
     }
 
+    [Fact]
+    public async Task The_kept_run_records_what_was_read_and_the_terms_behind_each_release_score()
+    {
+        // Third eval run: right releases scored about 0.8 and the kept run could not say which term pulled them down.
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [ReadItem("Star Fox 64", platform: "Nintendo 64", year: 1997)])));
+
+        var item = (await LatestRunFileAsync()).GetProperty("photos")[0].GetProperty("items")[0];
+        var read = item.GetProperty("read");
+        read.GetProperty("kind").GetString().ShouldBe("game");
+        read.GetProperty("format").GetString().ShouldBe("game_cartridge");
+        read.GetProperty("platform").GetString().ShouldBe("Nintendo 64");
+        read.GetProperty("year").GetInt32().ShouldBe(1997);
+        read.GetProperty("profile").GetString().ShouldNotBeNullOrWhiteSpace();
+        var terms = item.GetProperty("candidates")[0].GetProperty("terms").EnumerateArray()
+            .ToDictionary(t => t.GetProperty("name").GetString()!);
+        terms.Keys.ShouldBe(["title", "type", "platform", "year"], ignoreOrder: true);
+        terms["title"].GetProperty("value").GetDouble().ShouldBe(1.0);
+        terms["title"].GetProperty("compared").GetBoolean().ShouldBeTrue();
+        terms["title"].GetProperty("weight").GetDouble().ShouldBeGreaterThan(0);
+    }
+
     [Theory]
     [InlineData("\"tier\":7", "evals.tier_invalid")]
     [InlineData("\"tier\":\"T9\"", "evals.body_invalid")]
