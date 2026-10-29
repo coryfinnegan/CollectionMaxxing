@@ -9,8 +9,8 @@ namespace CollectionMaxxing.Api.Tests.Security;
 
 /// <summary>
 /// <c>/api/admin/**</c> belongs to the platform administrator, who is the person who set the server up (docs/07, layer 4). Library roles are
-/// not platform roles: an invited editor is not an admin, and neither is anyone's phone (a paired phone carries no platform role at all).
-/// Every admin route in the routing table is tried, with real sign-in.
+/// not platform roles: an invited editor is not an admin. A phone carries the role when its account holds it (#523), so the platform admin's
+/// phone gets in and anyone else's phone doesn't. Every admin route in the routing table is tried, with real sign-in.
 /// </summary>
 public class AdminAccessTests(ApiFixture api) : InviteTest(api)
 {
@@ -30,7 +30,7 @@ public class AdminAccessTests(ApiFixture api) : InviteTest(api)
     }
 
     [Fact]
-    public async Task Only_the_platform_admin_gets_into_any_admin_route_and_members_of_every_role_and_phones_get_403()
+    public async Task Only_the_platform_admin_gets_into_any_admin_route_over_either_way_in_and_everyone_else_gets_403()
     {
         var (owner, account) = await SetUpOwnerAsync();
         var libraryId = account.LibraryId!.Value;
@@ -66,11 +66,16 @@ public class AdminAccessTests(ApiFixture api) : InviteTest(api)
                 failures.Add($"{method} {url}: the admin was refused ({asAdmin})");
             }
 
+            var asAdminPhone = await StatusAsync(() => AsPhone(ownerPhone.AccessToken));
+            if (asAdminPhone is 401 or 403)
+            {
+                failures.Add($"{method} {url}: the admin's phone was refused ({asAdminPhone})");
+            }
+
             foreach (var (who, status) in new[]
             {
                 ("an editor", await StatusAsync(() => AsBrowser(editor))),
                 ("a viewer", await StatusAsync(() => AsBrowser(viewer))),
-                ("the owner's phone", await StatusAsync(() => AsPhone(ownerPhone.AccessToken))),
                 ("an editor's phone", await StatusAsync(() => AsPhone(editorPhone.AccessToken))),
             })
             {

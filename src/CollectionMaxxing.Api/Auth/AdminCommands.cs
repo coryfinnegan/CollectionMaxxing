@@ -97,8 +97,8 @@ public static class AdminCommands
             }
 
             await output.WriteLineAsync(grant
-                ? $"Developer tools granted to {done.Value}. They show the next time that person signs in."
-                : $"Developer tools revoked from {done.Value}. Any browser that was signed in with it was signed out, so the role is gone now.");
+                ? $"Developer tools granted to {done.Value}. They show in a browser the next time that person signs in, and on a phone on its next call."
+                : $"Developer tools revoked from {done.Value}. Any browser that was signed in with it was signed out; a phone loses it on its next call.");
             return 0;
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
