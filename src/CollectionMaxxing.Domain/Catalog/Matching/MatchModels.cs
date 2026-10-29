@@ -92,7 +92,19 @@ public sealed record ScoredRelease(CandidateRelease Release, double Score)
 
     /// <summary>A known conflict (the wrong platform, or a different year in the title) capped the score.</summary>
     public bool HasKnownConflict { get; init; }
+
+    /// <summary>
+    /// The terms that made the score, in scoring order (title, type, platform, year, creator, edition, art): the score is
+    /// their weighted mean, before any conflict cap. An exact identifier match lists only <c>identifier</c>.
+    /// </summary>
+    public IReadOnlyList<ScoreTerm> Terms { get; init; } = [];
 }
+
+/// <summary>
+/// One term of a score: its profile weight and the value it scored, from 0 to 1. <paramref name="Compared"/> is false when
+/// the release could not answer it and it stood at a neutral value (or a release with no title scored nothing on it).
+/// </summary>
+public sealed record ScoreTerm(string Name, double Weight, double Value, bool Compared);
 
 /// <summary>The verdict and every candidate, best first. Take the first three for the "Pick one" list.</summary>
 public sealed record MatchResult(MatchOutcome Outcome, IReadOnlyList<ScoredRelease> Ranked);

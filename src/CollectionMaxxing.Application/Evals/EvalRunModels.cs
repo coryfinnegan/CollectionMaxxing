@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Scanning;
 
 namespace CollectionMaxxing.Application.Evals;
@@ -82,8 +83,26 @@ public sealed record EvalRunInput(
 
 // ---- What the server keeps of a run, after grounding ----------------------------------------------------------------------
 
-/// <summary>A release the server found for a read: the title and the fields that are compared with the truth.</summary>
-public sealed record GroundedCandidate(string Title, string? Kind, string? Format, string? Platform, int? Year, double Score);
+/// <summary>
+/// A release the server found for a read: the title and the fields that are compared with the truth, its creators, and the
+/// terms that made its score (why a right release fell short of Matched). Older runs have neither.
+/// </summary>
+public sealed record GroundedCandidate(
+    string Title,
+    string? Kind,
+    string? Format,
+    string? Platform,
+    int? Year,
+    double Score,
+    IReadOnlyList<string>? Creators = null,
+    IReadOnlyList<ScoreTerm>? Terms = null);
+
+/// <summary>
+/// The read the server scored, after cleaning: what besides the title the phone claimed, and the scoring profile chosen
+/// for it. Kept on the PC only, with the run.
+/// </summary>
+public sealed record GroundedRead(
+    string? Creator, string? Kind, string? Format, int? Year, string? Platform, string? Edition, string Profile);
 
 /// <summary>
 /// One read item after grounding: what the phone read, the verdict the live scorer gave and the top three releases (best first).
@@ -99,7 +118,8 @@ public sealed record GroundedItem(
     string? Tier = null,
     bool Provisional = false,
     bool? IsGuess = null,
-    string? SegmentId = null)
+    string? SegmentId = null,
+    GroundedRead? Read = null)
 {
     /// <summary>The best release, or null when there is none.</summary>
     [JsonIgnore]

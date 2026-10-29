@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
@@ -27,7 +28,12 @@ public enum ResolutionVerdict
 public sealed record TraceStep(string Provider, string Outcome, long Ms, double? Score = null);
 
 /// <summary>A release that answers a code: one the catalogue already has, or one a provider just told us about.</summary>
-public sealed record ResolutionOption(Guid? LocalReleaseId, ProviderRelease? Provider, double Score);
+public sealed record ResolutionOption(Guid? LocalReleaseId, ProviderRelease? Provider, double Score)
+{
+    /// <summary>The terms that made <see cref="Score"/>, when a text search scored it. For the eval results only; never stored.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<ScoreTerm> Terms { get; init; } = [];
+}
 
 /// <summary>How a code resolved (docs/02 section 3): the verdict, up to three options best first, and the steps taken.</summary>
 public sealed record BarcodeResolution(

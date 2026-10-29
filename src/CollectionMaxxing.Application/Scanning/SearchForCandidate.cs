@@ -252,7 +252,7 @@ public sealed class TextSearchResolver(
             steps.Add(new TraceStep("context", "biased", 0));
         }
 
-        var options = ranked.Take(Alternatives).Select(r => byKey[r.Release.Key] with { Score = r.Score }).ToList();
+        var options = ranked.Take(Alternatives).Select(r => byKey[r.Release.Key] with { Score = r.Score, Terms = r.Terms }).ToList();
         return new BarcodeResolution(
             result.Outcome == MatchOutcome.Matched ? ResolutionVerdict.Matched : ResolutionVerdict.Ambiguous, options, null, steps);
     }
