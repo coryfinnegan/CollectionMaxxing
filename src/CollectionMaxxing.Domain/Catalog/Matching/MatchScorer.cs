@@ -104,11 +104,24 @@ public static class MatchScorer
         }
 
         var titleYearConflict = false;
+        var creatorInTitle = false;
         if (!string.IsNullOrWhiteSpace(read.Title))
         {
             if (!string.IsNullOrWhiteSpace(release.Title))
             {
-                Add(weights.Title, TitleNormalizer.Similarity(read.Title, release.Title), othersAnswer: true);
+                // A spine reads title and author as one line: this release's own author, found in the read, is not part of
+                // its title, and finding it there is the creator signal a separate author field would have been.
+                var similarity = TitleNormalizer.Similarity(read.Title, release.Title);
+                foreach (var creator in release.Creators)
+                {
+                    if (TitleNormalizer.WithoutCreator(read.Title, creator) is { } bare)
+                    {
+                        creatorInTitle = true;
+                        similarity = Math.Max(similarity, TitleNormalizer.Similarity(bare, release.Title));
+                    }
+                }
+
+                Add(weights.Title, similarity, othersAnswer: true);
             }
             else if (weights.Title > 0)
             {
@@ -140,6 +153,10 @@ public static class MatchScorer
         if (!string.IsNullOrWhiteSpace(read.Creator))
         {
             Add(weights.Creator, release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators) : null, answerable.Creator);
+        }
+        else if (creatorInTitle)
+        {
+            Add(weights.Creator, 1.0, othersAnswer: true);
         }
 
         if (!string.IsNullOrWhiteSpace(read.Edition))

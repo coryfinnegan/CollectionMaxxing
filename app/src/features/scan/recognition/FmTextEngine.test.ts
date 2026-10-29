@@ -111,6 +111,16 @@ describe('FmTextEngine reading', () => {
     },
   );
 
+  it('keeps what it had extracted when the extraction runs out of time', async () => {
+    const vision = new RecordingVision(
+      { [STILL.uri]: { text: [line('Dune', 0.3, 0.2, 0.4, 0.1)], extract: failedRead('timeout', [modelItem('Dune', 'Dune', 0)]) } },
+      { capabilities: TEXT_26 },
+    );
+    const reading = await new FmTextEngine(deps(vision)).read(STILL, () => {});
+    expect(reading.engine).toBe('fm_text');
+    expect(reading.items.map((i) => i.title)).toEqual(['Dune']);
+  });
+
   it('throws ModelUnusableError when the native call itself fails', async () => {
     const vision = new RecordingVision({ [STILL.uri]: { text: [line('Dune', 0.3, 0.2, 0.4, 0.1)] } }, { capabilities: TEXT_26 });
     vision.extractItems = async () => {

@@ -132,20 +132,30 @@ public sealed class TextSearchResolver(
     /// <summary>
     /// Asks the providers that know the query's kind, until <paramref name="budgetToken"/> is cancelled. A provider that fails or
     /// runs out of time is recorded, not thrown; only <paramref name="callerToken"/> cancelling escapes. Touches no database,
-    /// so reads can be asked in parallel. An author-qualified query that ran fine and found nothing is asked again with the
-    /// title alone (#438 stage 1): the title-only query is the fallback, never the default. The steps keep both rounds.
+    /// so reads can be asked in parallel. An author-qualified query that ran fine and found nothing close to the title is asked
+    /// again with the title alone (#438 stage 1), and both rounds' releases are kept: the title-only query is the fallback, never
+    /// the default. "Nothing close", not "nothing": a bare-words search with a misread author still answers, with unrelated
+    /// books, and that used to stop the fallback. The steps keep both rounds.
     /// </summary>
     public async Task<ProviderAnswers> AskProvidersAsync(CatalogQuery query, CancellationToken callerToken, CancellationToken budgetToken)
     {
         var first = await AskRoundAsync(query, callerToken, budgetToken);
-        if (string.IsNullOrWhiteSpace(query.Creator) || first.Found.Count > 0 || first.AnyFailed || budgetToken.IsCancellationRequested)
+        if (string.IsNullOrWhiteSpace(query.Creator) || first.AnyFailed || budgetToken.IsCancellationRequested
+            || first.Found.Any(found => TitleNormalizer.Similarity(query.Title, found.Title) >= CloseTitle))
         {
             return first;
         }
 
         var second = await AskRoundAsync(query with { Creator = null }, callerToken, budgetToken);
-        return new ProviderAnswers(second.Found, [.. first.Steps, .. second.Steps], second.AnyFailed);
+        var seen = first.Found.Select(Key).ToHashSet(StringComparer.Ordinal);
+        return new ProviderAnswers(
+            [.. first.Found, .. second.Found.Where(found => seen.Add(Key(found)))], [.. first.Steps, .. second.Steps], second.AnyFailed);
+
+        static string Key(ProviderRelease release) => $"{release.Provider}:{release.ExternalId}";
     }
+
+    /// <summary>A found title at least this similar to the query's is close: the Ambiguous line of the default thresholds.</summary>
+    private const double CloseTitle = 0.6;
 
     private async Task<ProviderAnswers> AskRoundAsync(CatalogQuery query, CancellationToken callerToken, CancellationToken budgetToken)
     {

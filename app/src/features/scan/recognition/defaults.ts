@@ -81,7 +81,7 @@ export const DEFAULT_RECOGNITION_CONFIG: RecognitionConfig = {
     cooldownHashDistance: 10,
     misfireRaise: 0.15,
   },
-  engine: { modelTimeoutMs: 8000, maxItemsPerSnap: 40 },
+  engine: { modelTimeoutMs: 30000, maxItemsPerSnap: 40 },
   splitting: { halvesWhenItemsOver: 14, minSpineColumnWidth: 0.02 },
   fingerprints: { maxDistance: 0.35 },
 };
