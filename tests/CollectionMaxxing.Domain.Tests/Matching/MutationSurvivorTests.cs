@@ -119,25 +119,36 @@ public class MutationSurvivorTests
         result.Ranked[0].ComparedSignals.ShouldBe(1);
     }
 
+    // A term no candidate can answer drops out (it used to average in at 0.5 and cap perfect reads near 0.75); next to a
+    // candidate that can answer it, it is neutral, which is neither a match nor a mismatch.
     [Fact]
     public void A_release_with_an_unknown_platform_is_neither_a_match_nor_a_mismatch_on_platform()
     {
         var read = new ReadItem { Title = "Alpha", Platform = "N64" };
+        var onN64 = new CandidateRelease { Key = "r2", Title = "Alpha", Platform = "Nintendo 64" };
 
-        var result = MatchScorer.Evaluate(read, [Release("Alpha")], Cover);
+        var alone = MatchScorer.Evaluate(read, [Release("Alpha")], Cover);
+        var beside = MatchScorer.Evaluate(read, [Release("Alpha"), onN64], Cover).Ranked.Single(r => r.Release.Key == "r1");
 
-        result.Ranked[0].HasKnownConflict.ShouldBeFalse();
-        result.Ranked[0].Score.ShouldBeInRange(0.84, 0.86);
+        alone.Ranked[0].HasKnownConflict.ShouldBeFalse();
+        alone.Ranked[0].ComparedSignals.ShouldBe(1);
+        alone.Ranked[0].Score.ShouldBe(1.0);
+        beside.HasKnownConflict.ShouldBeFalse();
+        beside.Score.ShouldBeInRange(0.84, 0.86);
     }
 
     [Fact]
     public void A_release_with_no_format_is_neither_a_match_nor_a_mismatch_on_format()
     {
         var read = new ReadItem { Title = "Alpha", Format = ReleaseFormat.Dvd };
+        var onDvd = new CandidateRelease { Key = "r2", Title = "Alpha", Format = ReleaseFormat.Dvd };
 
-        var result = MatchScorer.Evaluate(read, [Release("Alpha")], Cover);
+        var alone = MatchScorer.Evaluate(read, [Release("Alpha")], Cover);
+        var beside = MatchScorer.Evaluate(read, [Release("Alpha"), onDvd], Cover).Ranked.Single(r => r.Release.Key == "r1");
 
-        result.Ranked[0].Score.ShouldBeInRange(0.88, 0.90);
+        alone.Ranked[0].ComparedSignals.ShouldBe(1);
+        alone.Ranked[0].Score.ShouldBe(1.0);
+        beside.Score.ShouldBeInRange(0.88, 0.90);
     }
 
     [Fact]
