@@ -118,9 +118,9 @@ public class ScanEvidenceTests
     [Fact]
     public void A_read_kind_of_other_is_no_evidence_against_a_real_kind()
     {
-        var read = new ReadItem { Title = "Nigella Bites", Kind = WorkKind.Other };
+        var read = new ReadItem { Title = "Lantern Road", Kind = WorkKind.Other };
 
-        MatchScorer.Evaluate(read, [Release("r", "Nigella Bites", WorkKind.Book)], Profile(ScoringProfileKind.Cover))
+        MatchScorer.Evaluate(read, [Release("r", "Lantern Road", WorkKind.Book)], Profile(ScoringProfileKind.Cover))
             .Ranked[0].Score.ShouldBe(1.0);
     }
 

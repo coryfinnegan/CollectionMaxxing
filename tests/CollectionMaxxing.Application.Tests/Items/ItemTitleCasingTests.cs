@@ -38,13 +38,13 @@ public class ItemTitleCasingTests(PostgresFixture db) : DatabaseTest(db)
     public async Task The_detail_shows_the_work_and_release_titles_headline_cased()
     {
         var library = await TestData.CreateLibraryAsync(Db);
-        var releaseId = await TestData.CreateReleaseAsync(Db, title: "nigella bites: from family meals to elegant dinners");
+        var releaseId = await TestData.CreateReleaseAsync(Db, title: "lantern road: from harbor towns to mountain passes");
         var itemId = await TestData.CreateItemAsync(Db, library, releaseId);
 
         var result = await new GetItem.Handler(Db.CreateContext(library.ActingAs(LibraryRole.Viewer)))
             .HandleAsync(new GetItem.Query(library.Id, itemId), CancellationToken.None);
 
-        result.Value!.Value.Work.Title.ShouldBe("Nigella Bites: From Family Meals to Elegant Dinners");
-        result.Value.Value.Release.Title.ShouldBe("Nigella Bites: From Family Meals to Elegant Dinners");
+        result.Value!.Value.Work.Title.ShouldBe("Lantern Road: From Harbor Towns to Mountain Passes");
+        result.Value.Value.Release.Title.ShouldBe("Lantern Road: From Harbor Towns to Mountain Passes");
     }
 }

@@ -123,7 +123,7 @@ public static partial class TitleNormalizer
 
     /// <summary>
     /// A read title with this creator's name taken out, when the read carries it: a spine reads title and author as one line
-    /// ("DUNE FRANK HERBERT", "PERELMAN smitten kitchen keepers"). The surname must be there (publishers often print it alone);
+    /// ("DUNE FRANK HERBERT", "ODELL harbor light keepers"). The surname must be there (publishers often print it alone);
     /// then it and any other word of the name are removed, the last time each appears. Null when the surname isn't in the read,
     /// or when nothing of the title would be left (a book titled after its author keeps its words). Normalised.
     /// </summary>

@@ -10,9 +10,9 @@ import { VisionPipelineEngine } from './VisionPipelineEngine';
 // frame, a photo inset, a title block, a quote block, a badge).
 const coverLines = [
   line('Author of How to Be a Domestic Goddess', 0.2, 0.08, 0.6, 0.06),
-  line('NIGELLA', 0.35, 0.2, 0.3, 0.08),
+  line('LANTERN', 0.35, 0.2, 0.3, 0.08),
   line('LAVSON', 0.36, 0.28, 0.28, 0.07),
-  line('NIGELLA BITES', 0.25, 0.35, 0.5, 0.1),
+  line('LANTERN ROAD', 0.25, 0.35, 0.5, 0.1),
   line('Potter', 0.3, 0.55, 0.4, 0.06),
   line('ELOST LSOT', 0.4, 0.7, 0.2, 0.05),
 ];
@@ -62,7 +62,7 @@ describe('the Vision pipeline routes on the shot kind', () => {
   it('#504: a shelf-labelled cover collapses to one item instead of one shard per quad', async () => {
     const reading = await pipelineOf(coverScene).read(STILL, () => {}, { shotKind: 'shelf_segment' });
     expect(reading.items).toHaveLength(1);
-    expect(reading.items[0].text).toContain('NIGELLA BITES');
+    expect(reading.items[0].text).toContain('LANTERN ROAD');
   });
 });
 

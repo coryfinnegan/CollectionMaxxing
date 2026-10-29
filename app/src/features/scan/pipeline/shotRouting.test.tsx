@@ -19,7 +19,7 @@ afterEach(() => {
 describe('routing a snap to its reader', () => {
   it('hands a cover shot to the reader as a cover', async () => {
     const kit = makeKit();
-    kit.reader.script(readingOf([readItem('NIGELLA BITES')]));
+    kit.reader.script(readingOf([readItem('LANTERN ROAD')]));
     await new SnapPipeline(kit.deps).onSnap(await kit.snapEvent('shutter', 'single_cover'));
     expect(kit.reader.options).toEqual([{ shotKind: 'single_cover' }]);
   });
