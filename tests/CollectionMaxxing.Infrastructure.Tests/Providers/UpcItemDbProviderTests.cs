@@ -80,6 +80,24 @@ public class UpcItemDbProviderTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task A_blu_ray_filed_under_a_vague_category_is_still_a_film()
+    {
+        // An Other product is never searched at TMDB, so this barcode used to end "not found".
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath(Path).UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(
+                """{"code":"OK","total":1,"items":[{"ean":"0883929106233","title":"The Matrix [Blu-ray]","category":"Media","brand":"Warner"}]}"""));
+
+        Identifier.TryParse("883929106233", out var code).ShouldBeTrue();
+        var release = await host.Get<UpcItemDbProvider>().LookupAsync(code!, default);
+
+        release.ShouldNotBeNull();
+        release.Title.ShouldBe("The Matrix");
+        release.Kind.ShouldBe(WorkKind.Film);
+        release.Format.ShouldBe(ReleaseFormat.Bluray);
+    }
+
+    [Fact]
     public async Task Sends_no_key_header_in_free_mode_and_uses_the_trial_endpoint()
     {
         using var host = ProviderHost.Create(Db);

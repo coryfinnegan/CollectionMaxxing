@@ -101,11 +101,28 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
             return [];
         }
 
-        var url = $"search.json?title={Uri.EscapeDataString(query.Title)}&limit={query.Limit}"
-            + "&fields=key,title,author_name,first_publish_year,isbn,cover_i,publisher"
-            + (string.IsNullOrWhiteSpace(query.Creator) ? string.Empty : $"&author={Uri.EscapeDataString(query.Creator)}");
+        var byTitle = await SearchDocsAsync(
+            "title",
+            $"title={Uri.EscapeDataString(query.Title)}"
+                + (string.IsNullOrWhiteSpace(query.Creator) ? string.Empty : $"&author={Uri.EscapeDataString(query.Creator)}"),
+            query,
+            ct);
+        if (byTitle.Count > 0)
+        {
+            return byTitle;
+        }
+
+        // The title field wants the title alone; a read that ran the author or a series line into it ("DUNE FRANK HERBERT"
+        // off a spine) finds nothing there. The general search takes that soup, so it is the fallback.
+        var words = string.IsNullOrWhiteSpace(query.Creator) ? query.Title : $"{query.Title} {query.Creator}";
+        return await SearchDocsAsync("q", $"q={Uri.EscapeDataString(words)}", query, ct);
+    }
+
+    private async Task<IReadOnlyList<ProviderRelease>> SearchDocsAsync(string field, string terms, CatalogQuery query, CancellationToken ct)
+    {
+        var url = $"search.json?{terms}&limit={query.Limit}&fields=key,title,author_name,first_publish_year,isbn,cover_i,publisher";
         var result = await FetchAsync(
-            SearchKey("title", query.Title, query.Creator, query.Limit),
+            SearchKey(field, query.Title, query.Creator, query.Limit),
             _ => Task.FromResult(Get(url)),
             ct,
             isEmpty: doc => !doc.RootElement.Items("docs").Any());

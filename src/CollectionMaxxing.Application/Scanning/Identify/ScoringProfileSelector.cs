@@ -20,6 +20,13 @@ public static class ScoringProfileSelector
     // Order matters: what the item physically is beats how many items share the picture (a pile of 8 loose carts is not a shelf).
     private static readonly Rule[] Rules =
     [
+        // A book is never a cartridge or a bare label, whatever completeness came with it.
+        new("a book among many in a picture: a spine on a shelf",
+            (_, kind, _, itemsInSnap, coverRead) => kind == WorkKind.Book && !coverRead && itemsInSnap >= ShelfMinimum,
+            ScoringProfileKind.ShelfSpine),
+        new("a book on its own: its cover",
+            (_, kind, _, _, _) => kind == WorkKind.Book,
+            ScoringProfileKind.Cover),
         new("a bare tape: its label is all there is",
             (completeness, _, format, _, _) => IsTape(format) && completeness is ItemCompleteness.CartOnly or ItemCompleteness.DiscOnly,
             ScoringProfileKind.BareLabel),

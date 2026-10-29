@@ -273,9 +273,10 @@ public static class MatchScorer
     // "unknown" default of a candidate that has no kind).
     private static double? TypeAgreement(ReadItem read, CandidateRelease release)
     {
-        if (read.Format is { } readFormat)
+        // Unknown is the catalogue saying it has no format on file (every provider film and game is stored so), not a format.
+        if (read.Format is { } readFormat && readFormat != ReleaseFormat.Unknown)
         {
-            if (release.Format is not { } releaseFormat)
+            if (release.Format is not { } releaseFormat || releaseFormat == ReleaseFormat.Unknown)
             {
                 return KindAgreement(Family(readFormat), release.Kind);
             }

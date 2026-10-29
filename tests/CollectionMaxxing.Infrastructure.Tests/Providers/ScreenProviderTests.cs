@@ -34,9 +34,54 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
         results[0].CoverUrl.ShouldBe("https://image.tmdb.org/t/p/w500/5K7cOHoay2mZusSLezBOY0Qxh8a.jpg");
         results[1].CoverUrl.ShouldBeNull();
 
-        var query = host.Server.LogEntries.Single().RequestMessage!.Query!;
+        var query = MovieRequest(host).Query!;
         query["query"].ToString().ShouldBe("Casablanca");
         query["year"].ToString().ShouldBe("1943");
+    }
+
+    private static WireMock.IRequestMessage MovieRequest(ProviderHost host) =>
+        host.Server.LogEntries.Single(e => e.RequestMessage!.Path == "/3/search/movie").RequestMessage!;
+
+    [Fact]
+    public async Task Searches_television_too_for_a_film_read_because_a_dvd_can_hold_either()
+    {
+        // The phone reads a DVD, a VHS tape or a Blu-ray as a film; a season box set is a show.
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/3/search/movie", "tmdb-movie-search.json");
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        var results = await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Fantasy", Kind = WorkKind.Film, Limit = 10 }, default);
+
+        results.Select(r => r.Kind).ShouldBe([WorkKind.Film, WorkKind.Tv, WorkKind.Film]);
+    }
+
+    [Fact]
+    public async Task A_show_read_lists_shows_first()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/3/search/movie", "tmdb-movie-search.json");
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        var results = await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Fantasy", Kind = WorkKind.Tv, Limit = 10 }, default);
+
+        results[0].Kind.ShouldBe(WorkKind.Tv);
+    }
+
+    [Fact]
+    public async Task A_year_that_finds_nothing_is_asked_again_without_it()
+    {
+        // A year read off a case is often the disc's (a 2008 Blu-ray of a 1942 film), and TMDB's year is a filter.
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath("/3/search/movie").WithParam("year", "2008").UsingGet()).AtPriority(1)
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody("""{"page":1,"results":[]}"""));
+        host.Server.Given(Request.Create().WithPath("/3/search/movie").UsingGet()).AtPriority(2)
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(ProviderHost.Fixture("tmdb-movie-search.json")));
+
+        var results = await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Casablanca", Year = 2008, Kind = WorkKind.Film }, default);
+
+        results.ShouldContain(r => r.Title == "Casablanca" && r.Year == 1943);
+        host.Server.LogEntries.Where(e => e.RequestMessage!.Path == "/3/search/movie")
+            .Select(e => e.RequestMessage!.Query!.ContainsKey("year")).ShouldBe([true, false]);
     }
 
     [Fact]
@@ -75,7 +120,7 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
 
         await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Casablanca", Kind = WorkKind.Film }, default);
 
-        var request = host.Server.LogEntries.Single().RequestMessage!;
+        var request = MovieRequest(host);
         request.Headers!["Authorization"].ToString().ShouldBe("Bearer eyJ-test-read-token");
         request.Query!.Keys.ShouldNotContain("api_key");
     }
@@ -88,7 +133,7 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
 
         await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Casablanca", Kind = WorkKind.Film }, default);
 
-        host.Server.LogEntries.Single().RequestMessage!.Query!["api_key"].ToString().ShouldBe("tmdb-test-key");
+        MovieRequest(host).Query!["api_key"].ToString().ShouldBe("tmdb-test-key");
     }
 
     [Fact]
@@ -143,16 +188,17 @@ public class IgdbProviderTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
-    public async Task Prefers_the_platform_that_was_asked_for_and_drops_games_not_on_it()
+    public async Task Prefers_the_platform_that_was_asked_for_and_keeps_games_on_other_platforms_after_it()
     {
+        // The platform read is a hint: "Nintendo Switch" read off a Switch 2 box must still find the game (#383).
         using var host = ProviderHost.Create(Db);
         ProviderCase.Named("igdb").RespondWith(host, 200, "igdb-games.json");
 
-        var switchOnly = await host.Get<IgdbProvider>().SearchAsync(Mario with { Platform = "Switch" }, default);
+        var onSwitch = await host.Get<IgdbProvider>().SearchAsync(Mario with { Platform = "Switch" }, default);
         var wii = await host.Get<IgdbProvider>().SearchAsync(Mario with { Platform = "Wii" }, default);
 
-        switchOnly.Select(r => (r.Title, r.Platform)).ShouldBe([("Super Mario 64", "Nintendo Switch")]);
-        wii.ShouldBeEmpty();
+        onSwitch.Select(r => (r.Title, r.Platform)).ShouldBe([("Super Mario 64", "Nintendo Switch"), ("Mario Kart 64", "Nintendo 64")]);
+        wii.Select(r => (r.Title, r.Platform)).ShouldBe([("Super Mario 64", "Nintendo 64"), ("Mario Kart 64", "Nintendo 64")]);
     }
 
     [Fact]

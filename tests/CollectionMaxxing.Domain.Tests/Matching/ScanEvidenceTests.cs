@@ -77,6 +77,19 @@ public class ScanEvidenceTests
     }
 
     [Fact]
+    public void A_release_stored_with_an_unknown_format_is_formatless_not_a_different_format()
+    {
+        // Every film and game a provider answered is stored with format Unknown.
+        var read = new ReadItem { Title = "The Matrix", Format = ReleaseFormat.Dvd };
+        var stored = Release("r", "The Matrix", WorkKind.Film, format: ReleaseFormat.Unknown);
+
+        var result = MatchScorer.Evaluate(read, [stored], Profile(ScoringProfileKind.Cover));
+
+        result.Ranked[0].Score.ShouldBe(1.0);
+        result.Outcome.ShouldBe(MatchOutcome.Matched);
+    }
+
+    [Fact]
     public void A_dvd_read_does_not_agree_with_a_formatless_game()
     {
         var read = new ReadItem { Title = "The Matrix", Format = ReleaseFormat.Dvd };

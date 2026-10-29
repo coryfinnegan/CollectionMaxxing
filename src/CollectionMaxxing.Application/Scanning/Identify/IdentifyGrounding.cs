@@ -74,7 +74,12 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         var resolution = TextSearchResolver.Score(facts.ToReadItem(), ProfileFor(profile), local, providers, pendingWhenProvidersFailed: true);
-        return resolution with { Steps = [.. resolution.Steps, new TraceStep("profile", profile.ToString(), 0)] };
+        return resolution with
+        {
+            // A provider film or game names no format: the one the cover was read as is the release's (a DVD, a VHS tape).
+            Options = [.. resolution.Options.Select(o => o.Provider is { } p ? o with { Provider = p.WithReadFormat(facts.Format) } : o)],
+            Steps = [.. resolution.Steps, new TraceStep("profile", profile.ToString(), 0)],
+        };
     }
 
     /// <summary>The whole grounding for one read, one step after the other, within <paramref name="budget"/> for the providers.</summary>
