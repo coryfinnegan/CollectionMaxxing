@@ -7,7 +7,7 @@ namespace CollectionMaxxing.Domain.Tests.Matching;
 public class TitleCaserTests
 {
     [Theory]
-    [InlineData("Nigella bites: from family meals to elegant dinners", "Nigella Bites: From Family Meals to Elegant Dinners")]
+    [InlineData("Lantern road: from harbor towns to mountain passes", "Lantern Road: From Harbor Towns to Mountain Passes")]
     [InlineData("So you want to be a wizard", "So You Want to Be a Wizard")]
     [InlineData("the lord of the rings: the fellowship of the ring", "The Lord of the Rings: The Fellowship of the Ring")]
     public void Sentence_case_provider_titles_come_out_headline_cased(string input, string expected)
@@ -48,7 +48,7 @@ public class TitleCaserTests
     [Theory]
     [InlineData("The Lord of the Rings: The Fellowship of the Ring")]
     [InlineData("So You Want to Be a Wizard")]
-    [InlineData("Nigella Bites: From Family Meals to Elegant Dinners")]
+    [InlineData("Lantern Road: From Harbor Towns to Mountain Passes")]
     [InlineData("Spider-Man: Into the Spider-Verse")]
     [InlineData("Ratchet & Clank")]
     [InlineData("2001: A Space Odyssey")]

@@ -19,9 +19,9 @@ public class ScanAutoCommitCoverTests : ScanTest
     private const string CoverUrl = "https://covers.openlibrary.org/b/id/42-L.jpg";
     private const string GoogleCoverUrl = "https://books.google.com/books/content?id=abc&img=1&zoom=1";
 
-    // The owner's repro from the issue: Open Library knows the edition but names no cover for it.
-    private const string ReproIsbn = "9780063450882";
-    private const string ReproTitle = "Warriors Graphic Novel: The New Prophecy, Part One of Three";
+    // The issue's repro, with an invented book in place of the owner's: Open Library knows the edition but names no cover for it.
+    private const string ReproIsbn = "9781234567880";
+    private const string ReproTitle = "Lantern Road Graphic Novel: The Long Winter, Part One of Three";
 
     private readonly FakeCoverFetcher _covers = new();
     private readonly FakeProvider _google = new("googlebooks");

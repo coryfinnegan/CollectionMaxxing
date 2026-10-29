@@ -19,10 +19,10 @@ namespace CollectionMaxxing.Api.Tests.Scanning;
 // the next night's backfill heals the release, and later scans land on the healed release.
 public class ScanBarcodeCoverHealingTests : ScanTest
 {
-    // The owner's repro from the issue, pinned.
-    private const string ReproIsbn = "9780316323888";
-    private const string ReproTitle = "Home: recipes to cook with family and friends";
-    private const string GoogleCoverUrl = "https://books.google.com/books/content?id=YcDgoQEACAAJ&img=1&zoom=1";
+    // The issue's repro, with an invented book in place of the owner's (their own books stay off the public repo).
+    private const string ReproIsbn = "9781234567897";
+    private const string ReproTitle = "Lantern road: recipes for long winter evenings";
+    private const string GoogleCoverUrl = "https://books.google.com/books/content?id=LanternRoad0AAJ&img=1&zoom=1";
 
     private readonly FakeCoverFetcher _covers = new();
     private readonly FakeProvider _google = new("googlebooks") { Enabled = false };
@@ -106,7 +106,7 @@ public class ScanBarcodeCoverHealingTests : ScanTest
 
         // The key lands and the night passes: the backfill re-asks and the release gains Google's cover.
         _google.Enabled = true;
-        _google.LookupResult = Book("googlebooks", "YcDgoQEACAAJ", GoogleCoverUrl);
+        _google.LookupResult = Book("googlebooks", "LanternRoad0AAJ", GoogleCoverUrl);
         _clock.Advance(TimeSpan.FromHours(25));
         await BackfillAsync();
 
@@ -158,7 +158,7 @@ public class ScanBarcodeCoverHealingTests : ScanTest
 
         // The key lands. No night passes and no backfill runs: the rescan itself re-asks the providers.
         _google.Enabled = true;
-        _google.LookupResult = Book("googlebooks", "YcDgoQEACAAJ", GoogleCoverUrl);
+        _google.LookupResult = Book("googlebooks", "LanternRoad0AAJ", GoogleCoverUrl);
         var rescanSession = await StartSessionWithoutAutoCommitAsync(client, library.Id);
         var rescan = (await ScanAsync(client, rescanSession, ReproIsbn))[0];
         Resolution(rescan).ShouldBe("matched");

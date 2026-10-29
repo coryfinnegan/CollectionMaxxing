@@ -44,12 +44,12 @@ describe('splitting Vision text into items', () => {
 
   it('#504: nested rectangles on a cover read as one item, never one shard per quad', () => {
     const lines = [
-      line('Author of How to Be a Domestic Goddess', 0.2, 0.08, 0.6, 0.06),
-      line('NIGELLA', 0.35, 0.2, 0.3, 0.08),
-      line('LAVSON', 0.36, 0.28, 0.28, 0.07),
-      line('NIGELLA BITES', 0.25, 0.35, 0.5, 0.1),
-      line('Potter', 0.3, 0.55, 0.4, 0.06),
-      line('ELOST LSOT', 0.4, 0.7, 0.2, 0.05),
+      line('Author of A Winter at the Lighthouse', 0.2, 0.08, 0.6, 0.06),
+      line('LANTERN', 0.35, 0.2, 0.3, 0.08),
+      line('MARSH', 0.36, 0.28, 0.28, 0.07),
+      line('LANTERN ROAD', 0.25, 0.35, 0.5, 0.1),
+      line('Weaver', 0.3, 0.55, 0.4, 0.06),
+      line('QRLT VSOT', 0.4, 0.7, 0.2, 0.05),
     ];
     const rects = [
       { x: 0.05, y: 0.05, width: 0.9, height: 0.9 },
@@ -78,12 +78,12 @@ describe('splitting Vision text into items', () => {
 
   it('#504: tall lines scattered over several heights read as the whole frame, not spine columns', () => {
     const lines = [
-      line('NIGELLA', 0.02, 0.05, 0.1, 0.25),
-      line('BITES', 0.18, 0.5, 0.1, 0.25),
+      line('LANTERN', 0.02, 0.05, 0.1, 0.25),
+      line('ROAD', 0.18, 0.5, 0.1, 0.25),
       line('Author of', 0.34, 0.1, 0.1, 0.25),
-      line('How to Be', 0.5, 0.55, 0.1, 0.25),
-      line('Potter', 0.66, 0.05, 0.1, 0.25),
-      line('ELOST', 0.82, 0.5, 0.1, 0.25),
+      line('A Winter at', 0.5, 0.55, 0.1, 0.25),
+      line('Weaver', 0.66, 0.05, 0.1, 0.25),
+      line('QRLT', 0.82, 0.5, 0.1, 0.25),
     ];
     const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
     expect(pieces).toHaveLength(1);

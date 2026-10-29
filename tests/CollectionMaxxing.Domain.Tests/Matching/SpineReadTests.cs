@@ -28,14 +28,14 @@ public class SpineReadTests
     }
 
     [Theory]
-    [InlineData("PERELMAN DEB smitten kitchen keepers")]
-    [InlineData("smitten kitchen keepers deb perelman")]
-    [InlineData("smitten kitchen keepers PERELMAN")]
+    [InlineData("ODELL MARA harbor light keepers")]
+    [InlineData("harbor light keepers mara odell")]
+    [InlineData("harbor light keepers ODELL")]
     public void The_author_can_stand_before_or_after_the_title_or_as_a_surname_alone(string spine)
     {
         var read = new ReadItem { Title = spine };
 
-        MatchScorer.Evaluate(read, [Book("k", "Smitten Kitchen Keepers", "Deb Perelman")], Spine).Ranked[0].Score.ShouldBe(1.0);
+        MatchScorer.Evaluate(read, [Book("k", "Harbor Light Keepers", "Mara Odell")], Spine).Ranked[0].Score.ShouldBe(1.0);
     }
 
     [Fact]
@@ -62,8 +62,8 @@ public class SpineReadTests
     public void A_title_that_is_only_the_authors_name_is_not_emptied()
     {
         // A book titled after its author must not lose every word and score as a match on nothing.
-        var read = new ReadItem { Title = "Nigella" };
+        var read = new ReadItem { Title = "Marisol" };
 
-        MatchScorer.Evaluate(read, [Book("n", "Nigella Express", "Nigella Lawson")], Spine).Ranked[0].Score.ShouldBeLessThan(0.9);
+        MatchScorer.Evaluate(read, [Book("n", "Marisol Express", "Marisol Varga")], Spine).Ranked[0].Score.ShouldBeLessThan(0.9);
     }
 }
