@@ -132,37 +132,69 @@ public sealed class TextSearchResolver(
     /// <summary>
     /// Asks the providers that know the query's kind, until <paramref name="budgetToken"/> is cancelled. A provider that fails or
     /// runs out of time is recorded, not thrown; only <paramref name="callerToken"/> cancelling escapes. Touches no database,
-    /// so reads can be asked in parallel. An author-qualified query that ran fine and found nothing close to the title is asked
-    /// again with the title alone (#438 stage 1), and both rounds' releases are kept: the title-only query is the fallback, never
-    /// the default. "Nothing close", not "nothing": a bare-words search with a misread author still answers, with unrelated
-    /// books, and that used to stop the fallback. The steps keep both rounds.
+    /// so reads can be asked in parallel. Each provider goes down <see cref="Ladder"/> on its own, keeping every release it
+    /// found, until it answers with a title close to the one it was asked. "Close", not "anything": a bare-words search with a
+    /// misread author still answers, with unrelated books. "On its own": one provider's close companion volume says nothing
+    /// about whether another, stricter one needs the plainer query (second eval run). The steps keep every rung.
     /// </summary>
     public async Task<ProviderAnswers> AskProvidersAsync(CatalogQuery query, CancellationToken callerToken, CancellationToken budgetToken)
     {
-        var first = await AskRoundAsync(query, callerToken, budgetToken);
-        if (string.IsNullOrWhiteSpace(query.Creator) || first.AnyFailed || budgetToken.IsCancellationRequested
-            || first.Found.Any(found => TitleNormalizer.Similarity(query.Title, found.Title) >= CloseTitle))
-        {
-            return first;
-        }
-
-        var second = await AskRoundAsync(query with { Creator = null }, callerToken, budgetToken);
-        var seen = first.Found.Select(Key).ToHashSet(StringComparer.Ordinal);
-        return new ProviderAnswers(
-            [.. first.Found, .. second.Found.Where(found => seen.Add(Key(found)))], [.. first.Steps, .. second.Steps], second.AnyFailed);
-
-        static string Key(ProviderRelease release) => $"{release.Provider}:{release.ExternalId}";
+        var steps = new List<TraceStep>();
+        var asked = _providers.Where(p => query.Kind is { } kind ? p.Supports(kind) : Enum.GetValues<WorkKind>().Any(p.Supports)).ToList();
+        var answers = await Task.WhenAll(asked.Select(p => AskUntilCloseAsync(p, query, steps, callerToken, budgetToken)));
+        return new ProviderAnswers(answers.SelectMany(a => a.Found).ToList(), steps, answers.Any(a => a.Failed));
     }
 
     /// <summary>A found title at least this similar to the query's is close: the Ambiguous line of the default thresholds.</summary>
     private const double CloseTitle = 0.6;
 
-    private async Task<ProviderAnswers> AskRoundAsync(CatalogQuery query, CancellationToken callerToken, CancellationToken budgetToken)
+    /// <summary>The most trailing words a retry drops, and the fewest it leaves.</summary>
+    private const int MaxDroppedWords = 2;
+
+    private const int MinWordsLeft = 2;
+
+    /// <summary>
+    /// The queries to try, plainest last: as read; with the title alone, when the read named a creator (#438 stage 1: the
+    /// fallback, never the default); then without the title's last word, and its last two, while two words are left. A spine
+    /// read by OCR often runs other print into the title ("... NIGHT QXRTVZ"), and a title search finds nothing with it.
+    /// </summary>
+    private static IEnumerable<CatalogQuery> Ladder(CatalogQuery query)
     {
-        var steps = new List<TraceStep>();
-        var asked = _providers.Where(p => query.Kind is { } kind ? p.Supports(kind) : Enum.GetValues<WorkKind>().Any(p.Supports)).ToList();
-        var answers = await Task.WhenAll(asked.Select(p => AskAsync(p, query, steps, callerToken, budgetToken)));
-        return new ProviderAnswers(answers.SelectMany(a => a.Found).ToList(), steps, answers.Any(a => a.Failed));
+        yield return query;
+        var titleOnly = query with { Creator = null };
+        if (!string.IsNullOrWhiteSpace(query.Creator))
+        {
+            yield return titleOnly;
+        }
+
+        var words = query.Title.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (var drop = 1; drop <= MaxDroppedWords && words.Length - drop >= MinWordsLeft; drop++)
+        {
+            yield return titleOnly with { Title = string.Join(' ', words[..^drop]) };
+        }
+    }
+
+    private async Task<Attempt> AskUntilCloseAsync(
+        ICatalogProvider provider, CatalogQuery query, List<TraceStep> steps, CancellationToken callerToken, CancellationToken budgetToken)
+    {
+        var found = new List<ProviderRelease>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rung in Ladder(query))
+        {
+            var attempt = await AskAsync(provider, rung, steps, callerToken, budgetToken);
+            found.AddRange(attempt.Found.Where(release => seen.Add($"{release.Provider}:{release.ExternalId}")));
+            if (attempt.Failed)
+            {
+                return new Attempt(found, Failed: true);
+            }
+
+            if (budgetToken.IsCancellationRequested || attempt.Found.Any(release => TitleNormalizer.Similarity(rung.Title, release.Title) >= CloseTitle))
+            {
+                break;
+            }
+        }
+
+        return new Attempt(found, Failed: false);
     }
 
     /// <summary>
