@@ -132,11 +132,29 @@ public class DevToolsRoleTests(ApiFixture api) : OnboardingTest(api)
         output.ShouldContain("Ana");
         await SignInAgainAsync(ana);
         (await AdminStatusAsync(ana)).ShouldBe(HttpStatusCode.OK);
-        (await App.NewPhone(ana.Identity.Subject).GetAsync(AdminUrl)).StatusCode.ShouldBe(HttpStatusCode.Forbidden); // a phone carries no platform role
         await SignInAgainAsync(sam);
         (await AdminStatusAsync(sam)).ShouldBe(HttpStatusCode.Forbidden);
         await using var context = Db.CreateContext();
         (await context.UserRoles.SingleAsync()).UserId.ShouldBe(account.UserId);
+    }
+
+    [Fact]
+    public async Task Grant_shows_on_the_phone_at_once_and_revoke_is_gone_on_its_next_call()
+    {
+        var (ana, _) = await NewAccountAsync("Ana");
+        var (sam, _) = await NewAccountAsync("Sam");
+        var phone = App.NewPhone(ana.Identity.Subject); // the token is minted before the grant: no re-sign-in
+        var samsPhone = App.NewPhone(sam.Identity.Subject);
+
+        (await phone.GetAsync(AdminUrl)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await RunAsync("grant", ana.Identity.Email)).ExitCode.ShouldBe(0);
+
+        (await phone.GetAsync(AdminUrl)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await samsPhone.GetAsync(AdminUrl)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await RunAsync("revoke", ana.Identity.Email)).ExitCode.ShouldBe(0);
+
+        (await phone.GetAsync(AdminUrl)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await phone.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -163,6 +181,7 @@ public class DevToolsRoleTests(ApiFixture api) : OnboardingTest(api)
         exit.ShouldBe(0, error);
         (await CountRoleGrantsAsync()).ShouldBe(0);
         (await AdminStatusAsync(ana)).ShouldBe(HttpStatusCode.Unauthorized); // the browser that held the role is signed out
+        (await App.NewPhone(ana.Identity.Subject).GetAsync(AdminUrl)).StatusCode.ShouldBe(HttpStatusCode.Forbidden); // and the phone loses it on its next call
         await SignInAgainAsync(ana);
         (await AdminStatusAsync(ana)).ShouldBe(HttpStatusCode.Forbidden);
         (await ana.GetAsync("/api/v1/me")).StatusCode.ShouldBe(HttpStatusCode.OK);

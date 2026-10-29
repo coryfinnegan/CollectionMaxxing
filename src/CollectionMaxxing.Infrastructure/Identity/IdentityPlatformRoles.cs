@@ -1,10 +1,12 @@
 using CollectionMaxxing.Application.Accounts;
+using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Infrastructure.Identity;
 
 /// <summary>The platform roles of accounts, on ASP.NET Core Identity's roles. The role is made the first time anyone is given it.</summary>
-internal sealed class IdentityPlatformRoles(UserManager<AppUser> users, RoleManager<IdentityRole<Guid>> roles) : IPlatformRoles
+internal sealed class IdentityPlatformRoles(UserManager<AppUser> users, RoleManager<IdentityRole<Guid>> roles, AppDbContext db) : IPlatformRoles
 {
     public async Task GrantDevToolsAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -34,6 +36,15 @@ internal sealed class IdentityPlatformRoles(UserManager<AppUser> users, RoleMana
 
         Check(await users.RemoveFromRoleAsync(user, PlatformRoles.DevTools));
         return true;
+    }
+
+    // One untracked query: this runs on every phone request (#523), so no user entity is loaded or tracked. A deleted account has
+    // no role rows left, so it is false.
+    public Task<bool> HasDevToolsAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var role = roles.NormalizeKey(PlatformRoles.DevTools);
+        return db.UserRoles.AsNoTracking()
+            .AnyAsync(ur => ur.UserId == userId && db.Roles.Any(r => r.Id == ur.RoleId && r.NormalizedName == role), cancellationToken);
     }
 
     private async Task<AppUser> FindAsync(Guid userId) =>

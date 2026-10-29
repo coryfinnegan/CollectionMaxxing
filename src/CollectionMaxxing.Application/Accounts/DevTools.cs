@@ -23,6 +23,9 @@ public interface IPlatformRoles
 
     /// <summary>Takes the role away. Returns false, and changes nothing, when the account didn't have it.</summary>
     Task<bool> RevokeDevToolsAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>Whether the account holds the developer-tools role now. False when the account is gone.</summary>
+    Task<bool> HasDevToolsAsync(Guid userId, CancellationToken cancellationToken);
 }
 
 /// <summary>Why a developer-tools command did nothing.</summary>
@@ -47,7 +50,8 @@ public static class SetDevTools
         /// Gives (<paramref name="grant"/>) or takes away the developer-tools role of the one account with <paramref name="email"/> (its own
         /// email or one of its sign-ins', ignoring case) and returns its display name. An unknown email, or one that two accounts share, is an
         /// error and nothing changes. Revoking a role the account had also signs its browsers out, because a browser's sign-in carries the
-        /// roles it was made with; granting needs a new sign-in to show.
+        /// roles it was made with; granting needs a new browser sign-in to show. A phone reads the role on every call instead, so a grant
+        /// shows and a revoke disappears on its next call, with no sign-in or sign-out (#523).
         /// </summary>
         public async Task<Result<string>> HandleAsync(bool grant, string? email, CancellationToken cancellationToken)
         {

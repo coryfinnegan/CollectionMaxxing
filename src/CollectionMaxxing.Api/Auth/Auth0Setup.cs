@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Accounts.Devices;
 using CollectionMaxxing.Application.Accounts.IdentityProvider;
 using CollectionMaxxing.Application.Common;
@@ -126,7 +127,8 @@ public static class Auth0Setup
     /// <summary>
     /// After the token checks out: find who its <c>sub</c> is linked to, and build the principal from scratch, so nothing in the token
     /// but <c>sub</c> can say who the caller is. An unlinked <c>sub</c> keeps only <c>sub</c>; the next middleware makes its account. A phone
-    /// carries no platform role: the admin routes are for the web session (as they were with paired phones).
+    /// carries the developer-tools role when its account holds it (read here, on every call, so a grant shows and a revoke disappears on
+    /// the next call with no re-sign-in); the grant itself stays host-CLI-only (#523).
     /// </summary>
     private static async Task LinkBearerAsync(Microsoft.AspNetCore.Authentication.JwtBearer.TokenValidatedContext context)
     {
@@ -160,6 +162,10 @@ public static class Auth0Setup
 
             claims.Add(new Claim(ClaimTypes.NameIdentifier, login.UserId.ToString()));
             claims.Add(new Claim(CurrentSession.LoginIdClaim, login.Id.ToString()));
+            if (await services.GetRequiredService<IPlatformRoles>().HasDevToolsAsync(login.UserId, context.HttpContext.RequestAborted))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, PlatformRoles.DevTools));
+            }
         }
 
         context.Principal = new ClaimsPrincipal(new ClaimsIdentity(claims, BearerScheme, ClaimTypes.Name, ClaimTypes.Role));
