@@ -113,6 +113,7 @@ public class ScanReadEvidenceTests(ApiFixture api) : IdentifyTest(api)
     [Theory]
     [InlineData("Lantern Road")]
     [InlineData("the authors")]
+    [InlineData("THE LANTERN PRESS")]
     public async Task A_book_whose_author_was_read_as_its_series_line_or_a_placeholder_is_matched_on_its_title(string creator)
     {
         // Fourth eval run: a spine's series line read as the author scored 0.18 against the real author and held an exact

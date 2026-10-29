@@ -47,6 +47,19 @@ public static class ReadSanitizer
         "none", "null",
     };
 
+    /// <summary>
+    /// Words that put a title, tagline or blurb in the author field ("the quickest way to make ..."): a person's name, a
+    /// pair of names joined by "and" or "&amp;", or a ghostwriter credit ("X with Y") does not carry them. The cost, accepted:
+    /// the rare name written with "the" ("Pliny the Elder") is not used, which is the same as no author read.
+    /// </summary>
+    private static readonly HashSet<string> NotInAName = new(StringComparer.Ordinal) { "the", "for", "your" };
+
+    /// <summary>
+    /// The most words an author credit has, counted as written ("and" and each initial count; "&amp;" does not): two authors
+    /// with a middle name or an initial each still fit.
+    /// </summary>
+    private const int MaxNameWords = 7;
+
     public static ReadFacts Sanitize(ReadFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
@@ -77,7 +90,7 @@ public static class ReadSanitizer
             Platform = string.IsNullOrWhiteSpace(platform) ? null : platform,
             Completeness = CompletenessFor(kind, format, facts.Completeness),
             Edition = IsEditionMark(facts.Edition) ? facts.Edition : null,
-            Creator = IsCreator(facts.Creator, facts.SearchText) ? facts.Creator : null,
+            Creator = IsCreator(facts.Creator, facts.SearchText, kind) ? facts.Creator : null,
         };
     }
 
@@ -90,12 +103,20 @@ public static class ReadSanitizer
         _ => completeness,
     };
 
-    // An author is a claim of its own only when it says something the title does not: the model also copies a series line
-    // or brand off the spine (a series' name for a book of that series) as the author. A real author the title carries (a
-    // spine's "DUNE FRANK HERBERT") is still found: the scorer looks for each release's own author in the title.
-    private static bool IsCreator(string? creator, string? title)
+    // An author is a claim of its own only when it reads as a name and says something the title does not: the model also
+    // copies a series line or brand off the spine (a series' name for a book of that series), and a neighbour's title or
+    // tagline, as the author. A real author the title carries (a spine's "DUNE FRANK HERBERT") is still found: the scorer
+    // looks for each release's own author in the title. A game's creator is a studio, whose name may well carry "the"
+    // ("The ... Room"), so the name test is not applied to games.
+    private static bool IsCreator(string? creator, string? title, WorkKind? kind)
     {
         if (string.IsNullOrWhiteSpace(creator) || NotACreator.Contains(PlatformNames.Normalize(creator)))
+        {
+            return false;
+        }
+
+        var asWritten = PlatformNames.Normalize(creator).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (kind != WorkKind.Game && (asWritten.Length > MaxNameWords || asWritten.Any(NotInAName.Contains)))
         {
             return false;
         }

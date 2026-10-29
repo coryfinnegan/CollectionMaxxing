@@ -139,7 +139,7 @@ public class ReadSanitizerTests
     [InlineData("The Lantern Road Cookbook", "Mara Odell")]
     [InlineData("ODELL lantern road cookbook", "Mara Odell")]
     [InlineData("Mara Odell's Lantern Road", "Mara Odell")]
-    [InlineData("Lantern Road", "The Editors of Lantern Magazine")]
+    [InlineData("Lantern Road", "Lantern Magazine Test Kitchen")]
     public void A_creator_with_a_word_the_title_lacks_is_kept(string title, string creator)
     {
         ReadSanitizer.Sanitize(Read(title, creator: creator)).Creator.ShouldBe(creator);
@@ -154,6 +154,46 @@ public class ReadSanitizerTests
     public void A_placeholder_creator_is_dropped(string creator)
     {
         ReadSanitizer.Sanitize(Read(creator: creator)).Creator.ShouldBeNull();
+    }
+
+    // Fifth eval run: the picture model filled the author with other print from the shelf, often a neighbour's title
+    // or tagline ("THE LANTERN PRESS", "the quickest way to make a perfect supper" stand in for them here). Scored
+    // against the real author, it held exact titles around 0.75. The cost, accepted: a corporate credit written with
+    // "the" ("The Editors of ...") is not used either.
+
+    [Theory]
+    [InlineData("THE LANTERN PRESS")]
+    [InlineData("the quickest way to make a perfect supper")]
+    [InlineData("Quiet Suppers For Long Winter Nights")]
+    [InlineData("Your Kitchen Made Simple")]
+    [InlineData("Simple Everyday Comfort Meals Made Easy Tonight Again")]
+    [InlineData("The Editors of Lantern Magazine")]
+    public void A_creator_that_cannot_be_a_name_is_dropped(string creator)
+    {
+        ReadSanitizer.Sanitize(Read(creator: creator)).Creator.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Mara Odell")]
+    [InlineData("A. A. Odell")]
+    [InlineData("J. R. R. Odell")]
+    [InlineData("Mara de la Vega")]
+    [InlineData("Mara Odell & Jon Vale")]
+    [InlineData("Mara Odell and Jon Vale")]
+    [InlineData("Martin Luther Odell Jr.")]
+    [InlineData("Mara Ann Odell & Jon Lee Vale")]
+    [InlineData("Tom Vale and Jerry B. Odell")]
+    [InlineData("Mara Odell with Jon Vale")]
+    [InlineData("Anh To")]
+    public void A_creator_that_reads_as_a_name_is_kept(string creator)
+    {
+        ReadSanitizer.Sanitize(Read(creator: creator)).Creator.ShouldBe(creator);
+    }
+
+    [Fact]
+    public void A_game_studio_named_with_the_is_kept()
+    {
+        ReadSanitizer.Sanitize(Read("Lantern Quest", WorkKind.Game, creator: "The Lantern Room")).Creator.ShouldBe("The Lantern Room");
     }
 
     // ---- what the shot was --------------------------------------------------------------------
