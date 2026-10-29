@@ -14,7 +14,7 @@ public static class BookSource
 /// <summary>One step of a book lookup: the local store or one provider, how it ended, and how long it took.</summary>
 public sealed record BookLookupStep(string Source, string Outcome, long Ms);
 
-/// <summary>The answer of <see cref="BookLookup"/>. <see cref="Failed"/> is true when a provider threw or timed out and nothing was found.</summary>
+/// <summary>The answer of <see cref="BookLookup"/>. <see cref="Failed"/> is true when a provider could not be reached (it threw, timed out or reported a failure) and nothing was found.</summary>
 public sealed record BookLookupResult(ProviderRelease? Release, bool Failed, IReadOnlyList<BookLookupStep> Steps);
 
 /// <summary>The permanent local copy of every ISBN that has been found, so it is never looked up outside again.</summary>
@@ -172,8 +172,13 @@ public sealed class BookLookup(IEnumerable<ICatalogProvider> providers, IIsbnSto
         var started = Stopwatch.GetTimestamp();
         try
         {
+            // A provider that could not be reached answers null without throwing; the report tells that from "not known". A
+            // book found while a lesser call failed (one author's name) is still found.
+            using var report = ProviderCalls.Observe();
             var release = await provider.LookupAsync(id, cancellationToken);
-            return new Attempt(release, false, new BookLookupStep(provider.Name, release is null ? "miss" : "hit", Elapsed(started)));
+            var failed = release is null && report.Failed;
+            return new Attempt(
+                release, failed, new BookLookupStep(provider.Name, release is not null ? "hit" : failed ? "failed" : "miss", Elapsed(started)));
         }
         catch (OperationCanceledException)
         {

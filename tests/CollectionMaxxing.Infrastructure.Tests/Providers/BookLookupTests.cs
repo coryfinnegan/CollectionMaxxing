@@ -124,6 +124,34 @@ public class BookLookupTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task A_lookup_no_book_provider_could_reach_is_failed_so_the_code_is_asked_again()
+    {
+        // The adapters give up quietly on a 503 (they answer "nothing"), but this is an outage, not a book nobody knows.
+        using var host = ProviderHost.Create(Db, settings: new() { ["Providers:Resilience:MaxRetryAttempts"] = "1" });
+        Stub(host, EditionPath, 503);
+        Stub(host, GooglePath, 503);
+
+        var result = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        result.Release.ShouldBeNull();
+        result.Failed.ShouldBeTrue();
+        result.Steps.Where(s => s.Source is "openlibrary" or "googlebooks").Select(s => s.Outcome).ShouldBe(["failed", "failed"]);
+    }
+
+    [Fact]
+    public async Task A_book_found_while_one_of_its_authors_could_not_be_fetched_is_found_not_failed()
+    {
+        using var host = ProviderHost.Create(Db, settings: new() { ["Providers:GoogleBooks:ApiKey"] = null, ["Providers:Resilience:MaxRetryAttempts"] = "1" });
+        Stub(host, EditionPath, 200, "openlibrary-isbn-found.json");
+        Stub(host, "/authors/OL34184A.json", 503);
+
+        var result = await LookupOn(host).LookupAsync(ProviderCase.Isbn, Books, null, default);
+
+        result.Release.ShouldNotBeNull();
+        result.Failed.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Google_books_is_skipped_without_a_key_and_open_library_still_answers()
     {
         using var host = ProviderHost.Create(Db, settings: new() { ["Providers:GoogleBooks:ApiKey"] = null });

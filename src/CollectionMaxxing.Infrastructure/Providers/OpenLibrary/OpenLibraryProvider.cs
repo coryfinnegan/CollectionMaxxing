@@ -107,6 +107,11 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
                 + (string.IsNullOrWhiteSpace(query.Creator) ? string.Empty : $"&author={Uri.EscapeDataString(query.Creator)}"),
             query,
             ct);
+        if (byTitle is null)
+        {
+            return []; // the same endpoint would not answer the general search either
+        }
+
         if (byTitle.Count > 0)
         {
             return byTitle;
@@ -115,10 +120,11 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
         // The title field wants the title alone; a read that ran the author or a series line into it ("DUNE FRANK HERBERT"
         // off a spine) finds nothing there. The general search takes that soup, so it is the fallback.
         var words = string.IsNullOrWhiteSpace(query.Creator) ? query.Title : $"{query.Title} {query.Creator}";
-        return await SearchDocsAsync("q", $"q={Uri.EscapeDataString(words)}", query, ct);
+        return await SearchDocsAsync("q", $"q={Uri.EscapeDataString(words)}", query, ct) ?? [];
     }
 
-    private async Task<IReadOnlyList<ProviderRelease>> SearchDocsAsync(string field, string terms, CatalogQuery query, CancellationToken ct)
+    /// <summary>The docs of one search.json call; null when Open Library could not be had (the failure is already reported).</summary>
+    private async Task<IReadOnlyList<ProviderRelease>?> SearchDocsAsync(string field, string terms, CatalogQuery query, CancellationToken ct)
     {
         var url = $"search.json?{terms}&limit={query.Limit}&fields=key,title,author_name,first_publish_year,isbn,cover_i,publisher";
         var result = await FetchAsync(
@@ -126,6 +132,11 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
             _ => Task.FromResult(Get(url)),
             ct,
             isEmpty: doc => !doc.RootElement.Items("docs").Any());
+        if (result.Status == FetchStatus.Failed)
+        {
+            return null;
+        }
+
         if (result.Json is null)
         {
             return [];

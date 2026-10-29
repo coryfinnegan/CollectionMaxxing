@@ -56,7 +56,8 @@ public readonly record struct FetchResult(FetchStatus Status, JsonDocument? Json
 
 /// <summary>
 /// The common path of every adapter: cache first, then the rate limiter, then the HTTP call through the resilience
-/// pipeline, then the cache write. A failure never throws and is never cached: the provider simply "did not answer".
+/// pipeline, then the cache write. A failure never throws and is never cached: the provider simply "did not answer", and the
+/// caller's failure report says so (<see cref="ProviderCalls.ReportFailure"/>), so an outage is not taken for "not known".
 /// Messages never contain a request URL or header, so keys stay out of the logs.
 /// </summary>
 public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runtime, string name, TimeSpan minInterval)
@@ -81,7 +82,7 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
     /// <paramref name="isEmpty"/> calls empty) is not remembered, so the same code is asked again next time. Otherwise
     /// an empty answer is remembered for a day and a full answer for 30 days.
     /// </summary>
-    protected Task<FetchResult> FetchAsync(
+    protected async Task<FetchResult> FetchAsync(
         string cacheKey,
         Func<CancellationToken, Task<HttpRequestMessage>> buildRequest,
         CancellationToken ct,
@@ -91,8 +92,16 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
         Func<JsonDocument, bool>? isEmpty = null)
     {
         // Concurrent identical lookups share one upstream call: the first runs the fetch, the rest see what it cached.
-        return Runtime.Coalescer.RunAsync($"{Name}:{cacheKey}", token =>
+        var result = await Runtime.Coalescer.RunAsync($"{Name}:{cacheKey}", token =>
             FetchUncoalescedAsync(cacheKey, buildRequest, admit, refreshAuth, cacheNotFound, isEmpty, token), ct);
+
+        // One place for every way a fetch fails. A 404, an empty answer and a spent quota are answers, not failures.
+        if (result.Status == FetchStatus.Failed)
+        {
+            ProviderCalls.ReportFailure();
+        }
+
+        return result;
     }
 
     private async Task<FetchResult> FetchUncoalescedAsync(
