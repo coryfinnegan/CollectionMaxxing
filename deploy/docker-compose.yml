@@ -63,6 +63,10 @@ services:
       # use: register an app at dev.twitch.tv/console, then put the client id and secret in .env. Secrets: never commit.
       Providers__Igdb__ClientId: ${CM_IGDB_CLIENT_ID:-}
       Providers__Igdb__ClientSecret: ${CM_IGDB_CLIENT_SECRET:-}
+      # TMDB (films and shows): title search and posters for every DVD, VHS and Blu-ray read. Empty = switched off,
+      # silently, and every movie cover then finds nothing. Free for non-commercial use: create an API key at
+      # themoviedb.org/settings/api and paste the "API Read Access Token" (or the v3 API key) into .env. Secret: never commit.
+      Providers__Tmdb__ApiKey: ${CM_TMDB_API_KEY:-}
       # Sign-in through Auth0 (docs/07, docs/14). deploy/auth0/Apply-Auth0.ps1 writes these values to <secrets>\auth0\api.env;
       # copy them into .env. All six are required: without the Management credentials "Sign out all iPhones" would
       # silently do nothing at Auth0.

@@ -445,7 +445,7 @@ function Initialize-CmRun {
     <# Reads .env, sets the log file and the secrets to mask, points the smoke test at the configured port. Returns the .env table. #>
     param($Ctx)
     $envMap = Read-CmEnvFile -Path $Ctx.EnvFile
-    Initialize-Cm -Apply $global:CmApply -LogFile $Ctx.LogFile -Secrets @($envMap['POSTGRES_PASSWORD'], $envMap['CM_HEARTBEAT_URL'])
+    Initialize-Cm -Apply $global:CmApply -LogFile $Ctx.LogFile -Secrets @($envMap['POSTGRES_PASSWORD'], $envMap['CM_HEARTBEAT_URL'], $envMap['CM_GOOGLE_BOOKS_API_KEY'], $envMap['CM_IGDB_CLIENT_SECRET'], $envMap['CM_TMDB_API_KEY'])
     $apiPort = 0
     if ([int]::TryParse("$($envMap['CM_API_PORT'])", [ref]$apiPort) -and -not (Test-CmPort 'CM_API_PORT' $apiPort)) {
         $Ctx.SmokeUrl = "http://127.0.0.1:$apiPort/health/ready"
