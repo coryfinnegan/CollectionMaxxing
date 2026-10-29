@@ -25,7 +25,7 @@ describe('EngineSelector', () => {
     ['the model is off', { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' }, ok, 'unavailable'],
     ['guided generation is off', { available: true, vision: false, guidedGeneration: false, contextSize: 4096 }, ok, 'unavailable'],
     ['the model declines', undefined, { ...ok, read: failedRead('declined') }, 'declined'],
-    ['the model times out', undefined, { ...ok, read: failedRead('timeout', [books[0]]) }, 'timeout'],
+    ['the model times out before reading anything', undefined, { ...ok, read: failedRead('timeout') }, 'timeout'],
     ['the context is exceeded', undefined, { ...ok, read: failedRead('contextExceeded') }, 'contextExceeded'],
     ['the call reports it is unavailable', undefined, { ...ok, read: failedRead('unavailable') }, 'unavailable'],
   ])('falls back to Vision text when %s, and says why', async (_name, caps, scene, why) => {
@@ -34,6 +34,15 @@ describe('EngineSelector', () => {
     expect(reading.engine).toBe('vision_pipeline');
     expect(reading.fellBackFrom).toBe(why);
     expect(reading.items.length).toBeGreaterThan(0);
+  });
+
+  it('keeps what the model had read when a shelf runs out of time, as the Apple reading', async () => {
+    // First eval run: a dense shelf streamed for longer than the budget and every spine it had read was thrown away.
+    const { selector: s } = selector({ ...ok, read: failedRead('timeout', [books[0]]) });
+    const reading = await s.read(STILL, () => {});
+    expect(reading.engine).toBe('apple_model');
+    expect(reading.fellBackFrom).toBeUndefined();
+    expect(reading.items.map((i) => i.title)).toEqual(['Dune']);
   });
 
   it('falls back for that snap only: the next snap tries the model again', async () => {

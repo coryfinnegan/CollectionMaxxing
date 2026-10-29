@@ -121,6 +121,36 @@ public static partial class TitleNormalizer
         return best;
     }
 
+    /// <summary>
+    /// A read title with this creator's name taken out, when the read carries it: a spine reads title and author as one line
+    /// ("DUNE FRANK HERBERT", "PERELMAN smitten kitchen keepers"). The surname must be there (publishers often print it alone);
+    /// then it and any other word of the name are removed, the last time each appears. Null when the surname isn't in the read,
+    /// or when nothing of the title would be left (a book titled after its author keeps its words). Normalised.
+    /// </summary>
+    internal static string? WithoutCreator(string? readTitle, string? creator)
+    {
+        var read = Tokenize(Normalize(readTitle));
+        var name = Tokenize(Normalize(creator));
+        if (read.Count < 2 || name.Count == 0 || name[^1] is not { Length: >= MinSurnameLength } surname
+            || surname.All(char.IsAsciiDigit) || !read.Contains(surname))
+        {
+            return null;
+        }
+
+        foreach (var word in name.Distinct(StringComparer.Ordinal))
+        {
+            var at = read.LastIndexOf(word);
+            if (at >= 0)
+            {
+                read.RemoveAt(at);
+            }
+        }
+
+        return read.Count == 0 ? null : string.Join(' ', read);
+    }
+
+    private const int MinSurnameLength = 3;
+
     /// <summary>The part before a subtitle, or null when the title has none (or nothing would be left of it).</summary>
     private static string? MainTitle(string? title)
     {

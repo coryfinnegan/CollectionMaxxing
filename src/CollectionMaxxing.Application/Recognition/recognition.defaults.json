@@ -16,7 +16,7 @@
     "misfireRaise": 0.15
   },
   "engine": {
-    "modelTimeoutMs": 8000,
+    "modelTimeoutMs": 30000,
     "maxItemsPerSnap": 40
   },
   "splitting": {

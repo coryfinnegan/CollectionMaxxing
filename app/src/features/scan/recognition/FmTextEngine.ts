@@ -78,8 +78,10 @@ export class FmTextEngine implements RecognitionEngine {
     const modelMs = this.now() - modelStarted;
     await emitting;
     if (!result || result.outcome === 'unavailable') throw new ModelUnusableError('unavailable');
+    // A read that ran out of time keeps what it had read: a dense shelf streams for longer than the budget, and the items
+    // that finished are real reads (the first eval run threw a whole shelf away). With nothing read, it falls back.
     const failure = FAILURES[result.outcome];
-    if (failure) throw new ModelUnusableError(failure);
+    if (failure && !(result.outcome === 'timeout' && result.items.length > 0)) throw new ModelUnusableError(failure);
 
     // The reading itself is matched all at once, so lines go to the item they fit best.
     const matches = matchBoxes(

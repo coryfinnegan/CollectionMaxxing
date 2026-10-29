@@ -79,6 +79,24 @@ public class TextSearchFallbackTests
     }
 
     [Fact]
+    public async Task An_author_qualified_search_that_finds_only_unrelated_books_falls_back_to_title_only_and_keeps_both()
+    {
+        // A bare-words search with a misread author (Google Books) still answers, with books that have nothing to do with the
+        // title; that used to stop the fallback, so a spine whose author was misread found nothing (first eval run).
+        var book = KleypasBook();
+        var unrelated = KleypasBook() with { ExternalId = "OL1M", Title = "A Field Guide to North American Birds" };
+        var provider = new RecordingProvider(query => query.Creator is null ? [book] : [unrelated]);
+        var resolver = Resolver(provider);
+
+        var answers = await resolver.AskProvidersAsync(
+            new CatalogQuery { Title = Title, Creator = "LISA KLEYPAs NOVEL", Kind = WorkKind.Book }, CancellationToken.None, CancellationToken.None);
+
+        answers.Found.ShouldBe([unrelated, book]);
+        provider.Queries.Count.ShouldBe(2);
+        provider.Queries[1].Creator.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task A_failed_provider_is_not_asked_twice()
     {
         var provider = new RecordingProvider(_ => throw new InvalidOperationException("the provider is down"));
