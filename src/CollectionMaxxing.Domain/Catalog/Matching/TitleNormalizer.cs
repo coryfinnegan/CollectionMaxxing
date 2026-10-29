@@ -81,9 +81,10 @@ public static partial class TitleNormalizer
     }
 
     /// <summary>
-    /// What a title that is only the other one's main title is worth: "Good Eats" read off a cover against "Good Eats: The
-    /// Early Years" from a provider, or the other way round. Close, never the same: a missing subtitle can tell two
-    /// releases apart ("Metroid Prime 2" is pinned Ambiguous against "Metroid Prime 2: Echoes"), so it stays under 0.845.
+    /// What a title that is only the other one's main title is worth: "Kitchen Confidential" read off a cover against
+    /// "Kitchen Confidential: Adventures in the Culinary Underbelly" from a provider, or the other way round. Close, never
+    /// the same: a missing subtitle can tell two releases apart ("Metroid Prime 2" is pinned Ambiguous against "Metroid
+    /// Prime 2: Echoes"), so it stays under 0.845.
     /// </summary>
     public const double MainTitleCredit = 0.8;
 

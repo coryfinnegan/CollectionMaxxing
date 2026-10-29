@@ -23,8 +23,8 @@ public class ScanEvidenceTests
             Title = "Suddenly You",
             Creator = "Lisa Kleypas",
             Kind = WorkKind.Book,
-            Edition = "Avon Historical Romance",
-            Platform = "Avon",
+            Edition = "Historical Romance Imprint",
+            Platform = "Imprint",
         };
         var right = Release("right", "Suddenly You", WorkKind.Book, creators: ["Lisa Kleypas"]);
         var other = Release("other", "Suddenly You", WorkKind.Book, creators: ["Someone Else Entirely"]);

@@ -7,7 +7,7 @@ namespace CollectionMaxxing.Domain.Tests.Matching;
 public class SubtitleAndPlatformTests
 {
     [Theory]
-    [InlineData("Good Eats", "Good Eats: The Early Years")]
+    [InlineData("Kitchen Confidential", "Kitchen Confidential: Adventures in the Culinary Underbelly")]
     [InlineData("Sapiens: A Brief History of Humankind", "Sapiens")]
     [InlineData("Dune", "Dune (Dune Chronicles, Book 1)")]
     [InlineData("Halo", "Halo - Combat Evolved")]
@@ -20,7 +20,8 @@ public class SubtitleAndPlatformTests
     [Fact]
     public void A_missing_subtitle_never_scores_as_the_same_title()
     {
-        TitleNormalizer.Similarity("Good Eats", "Good Eats: The Early Years").ShouldBeLessThan(TitleNormalizer.Similarity("Good Eats", "Good Eats"));
+        TitleNormalizer.Similarity("Kitchen Confidential", "Kitchen Confidential: Adventures in the Culinary Underbelly")
+            .ShouldBeLessThan(TitleNormalizer.Similarity("Kitchen Confidential", "Kitchen Confidential"));
     }
 
     [Theory]

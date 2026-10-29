@@ -80,7 +80,7 @@ public class ReadSanitizerTests
     [Theory]
     [InlineData("NEW YORK TIMES BESTSELLING AUTHOR")]
     [InlineData("#1 New York Times Bestseller")]
-    [InlineData("ISBN 0-7686-8694-7 9789768686668")]
+    [InlineData("ISBN 0-00-000000-0 9780000000002")]
     [InlineData("E10+")]
     [InlineData("T")]
     [InlineData("PG-13")]
