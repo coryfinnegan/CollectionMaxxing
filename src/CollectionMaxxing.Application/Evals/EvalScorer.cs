@@ -27,6 +27,10 @@ public static class EvalScorer
     private const string Refused = "refused";
     private const string Error = "error";
     private const string Timeout = "timeout";
+    private const string Matched = "matched";
+
+    /// <summary>How alike a read must be to a missed truth title before the report names it as the closest read.</summary>
+    private const double CloseRead = 0.5;
 
     private static readonly string Tier0 = EnumText.ToText(ScanTier.T0);
     private static readonly string Tier1 = EnumText.ToText(ScanTier.T1);
@@ -202,7 +206,14 @@ public static class EvalScorer
 
     /// <summary>An auto-commit: tiered T0 or T1 by the pipeline. A provisional is kept for a human, never auto-added, whatever else it claims.</summary>
     private static bool IsAutoAdd(GroundedItem item) =>
-        !item.Provisional && (item.Tier == Tier0 || item.Tier == Tier1);
+        !item.Provisional && (TierOf(item) == Tier0 || TierOf(item) == Tier1);
+
+    /// <summary>
+    /// The tier the server would give the item. The phone claims T1 for a confident read, but the server commits only what it
+    /// matched (<c>CandidateResolver</c>): a read it narrowed down or found nothing for goes to the person, T2.
+    /// </summary>
+    private static string? TierOf(GroundedItem item) =>
+        (item.Tier == Tier0 || item.Tier == Tier1) && item.Verdict != Matched ? Tier2 : item.Tier;
 
     private static List<TruthItem> TruthItemsOf(TruthEntry truth) => truth.Set == GoldenSets.Shelf
         ? [.. truth.Shelf!.Items.Select(i => new TruthItem(i.Title, i.Platform, i.MediaType.ToLowerInvariant(), null, EvalKinds.Key(i.MediaType)))]
@@ -240,15 +251,15 @@ public static class EvalScorer
             {
                 tally.ProvisionalItems++;
             }
-            else if (item.Tier == Tier0)
+            else if (TierOf(item) == Tier0)
             {
                 tally.T0Auto++;
             }
-            else if (item.Tier == Tier1)
+            else if (TierOf(item) == Tier1)
             {
                 tally.T1Auto++;
             }
-            else if (item.Tier == Tier2)
+            else if (TierOf(item) == Tier2)
             {
                 tally.T2Review++;
             }
@@ -386,8 +397,10 @@ public static class EvalScorer
             tally.TouchTruth += clean.Contains(t) ? 0 : 1;
             if (!top1[t])
             {
+                var others = pairOfItem.Where(p => p.Value.Full).Select(p => (object)claimers[p.Key]).ToHashSet(ReferenceEqualityComparer.Instance);
                 misses.Add(new EvalMiss(
-                    photo.PhotoId, truth.Set, photo.Engine, photo.Outcome == Ok ? "miss" : photo.Outcome, truthItems[t].Title, ReadSummary(photo, items)));
+                    photo.PhotoId, truth.Set, photo.Engine, photo.Outcome == Ok ? "miss" : photo.Outcome, truthItems[t].Title,
+                    items.Count == 0 ? ReadSummary(photo, items, truthItems[t].Title) : ReadSummary(photo, [.. items.Where(i => !others.Contains(i))], truthItems[t].Title, readSomething: true)));
             }
         }
 
@@ -405,7 +418,7 @@ public static class EvalScorer
                 tally.Invented++;
                 misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, item.Best?.Title ?? item.ReadTitle));
             }
-            else if (item.Verdict == "matched" && item.Best is { } best && !truthItems.Any(t => TitleMatch(t, best)))
+            else if (item.Verdict == Matched && item.Best is { } best && !truthItems.Any(t => TitleMatch(t, best)))
             {
                 tally.Invented++;
                 misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, best.Title));
@@ -416,15 +429,32 @@ public static class EvalScorer
     /// <summary>A provisional with a guessed title must carry <c>IsGuess</c>; without it the guess scores as invented.</summary>
     private static bool IsUnguessedProvisional(GroundedItem item) => item.Provisional && item.IsGuess != true;
 
-    private static string ReadSummary(GroundedPhoto photo, IReadOnlyList<GroundedItem> items)
+    /// <summary>
+    /// The read closest to a missed truth title, as "best release [what was read, verdict]", so the report says whether the engine
+    /// never read the item or read it and the catalogue let it down. Reads that are another truth item's right answer are left out.
+    /// </summary>
+    private static string ReadSummary(GroundedPhoto photo, IReadOnlyList<GroundedItem> items, string truthTitle, bool readSomething = false)
     {
         if (photo.Outcome != Ok)
         {
             return "(" + photo.Outcome + ")";
         }
 
-        var read = items.Select(i => i.Best?.Title ?? i.ReadTitle).Where(t => !string.IsNullOrWhiteSpace(t)).Take(3).ToList();
-        return read.Count == 0 ? "(nothing read)" : string.Join(" | ", read);
+        if (items.Count == 0)
+        {
+            return readSomething ? "(nothing close)" : "(nothing read)";
+        }
+
+        var closest = items
+            .Select(i => (Item: i, Similarity: Math.Max(TitleNormalizer.Similarity(truthTitle, i.ReadTitle), TitleNormalizer.Similarity(truthTitle, i.Best?.Title))))
+            .MaxBy(c => c.Similarity);
+        if (closest.Similarity < CloseRead)
+        {
+            return "(nothing close)";
+        }
+
+        var read = $"[{closest.Item.ReadTitle}, {closest.Item.Verdict}]";
+        return closest.Item.Best is { } best ? $"{best.Title} {read}" : read;
     }
 
     private static int? FirstUnclaimed(List<TruthItem> truthItems, bool[] claimed, Func<TruthItem, bool> test)
