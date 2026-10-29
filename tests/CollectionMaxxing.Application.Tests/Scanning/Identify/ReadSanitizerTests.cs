@@ -121,6 +121,41 @@ public class ReadSanitizerTests
         ScoringProfileSelector.Choose(ItemCompleteness.DiscOnly, WorkKind.Book, null, 1).ShouldBe(ScoringProfileKind.Cover);
     }
 
+    // ---- the creator ------------------------------------------------------------------------------
+    // Fourth eval run: the model filled the author with the series line or brand off the spine (a series' name for a
+    // book of that series) and with placeholders ("the authors"). Scored against the real author, that sank exact
+    // titles under the Matched line; asked of the providers, it found nothing.
+
+    [Theory]
+    [InlineData("The Lantern Road Cookbook", "Lantern Road")]
+    [InlineData("THE Lantern COOKBOOK", "THE Lantern")]
+    [InlineData("lantern road cookbook", "LANTERN ROAD COOKBOOK")]
+    public void A_creator_that_only_repeats_words_of_the_title_is_dropped(string title, string creator)
+    {
+        ReadSanitizer.Sanitize(Read(title, creator: creator)).Creator.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("The Lantern Road Cookbook", "Mara Odell")]
+    [InlineData("ODELL lantern road cookbook", "Mara Odell")]
+    [InlineData("Mara Odell's Lantern Road", "Mara Odell")]
+    [InlineData("Lantern Road", "The Editors of Lantern Magazine")]
+    public void A_creator_with_a_word_the_title_lacks_is_kept(string title, string creator)
+    {
+        ReadSanitizer.Sanitize(Read(title, creator: creator)).Creator.ShouldBe(creator);
+    }
+
+    [Theory]
+    [InlineData("the authors")]
+    [InlineData("Author")]
+    [InlineData("Unknown")]
+    [InlineData("various authors")]
+    [InlineData("N/A")]
+    public void A_placeholder_creator_is_dropped(string creator)
+    {
+        ReadSanitizer.Sanitize(Read(creator: creator)).Creator.ShouldBeNull();
+    }
+
     // ---- what the shot was --------------------------------------------------------------------
 
     [Fact]

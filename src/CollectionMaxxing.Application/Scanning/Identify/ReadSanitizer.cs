@@ -7,8 +7,8 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <summary>
 /// Drops what the on-device model put in a field that cannot hold it, before the read is scored or stored. Real reads
 /// carried the model's own enum words as the platform ("boxed", "looseCart", "book"), a loose-cart completeness on a book
-/// cover (which scored the book as a cartridge), and ratings, bestseller lines and ISBNs as the edition. A field that is
-/// dropped is simply not a claim; nothing is invented in its place. Pure.
+/// cover (which scored the book as a cartridge), ratings, bestseller lines and ISBNs as the edition, and a series line,
+/// brand or placeholder as the author. A field that is dropped is simply not a claim; nothing is invented in its place. Pure.
 /// </summary>
 public static class ReadSanitizer
 {
@@ -40,6 +40,13 @@ public static class ReadSanitizer
 
     private const int IsbnDigits = 9;
 
+    /// <summary>What the model writes as the author when it read none.</summary>
+    private static readonly HashSet<string> NotACreator = new(StringComparer.Ordinal)
+    {
+        "author", "authors", "the author", "the authors", "unknown", "unknown author", "various", "various authors", "n a", "na",
+        "none", "null",
+    };
+
     public static ReadFacts Sanitize(ReadFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
@@ -70,6 +77,7 @@ public static class ReadSanitizer
             Platform = string.IsNullOrWhiteSpace(platform) ? null : platform,
             Completeness = CompletenessFor(kind, format, facts.Completeness),
             Edition = IsEditionMark(facts.Edition) ? facts.Edition : null,
+            Creator = IsCreator(facts.Creator, facts.SearchText) ? facts.Creator : null,
         };
     }
 
@@ -81,6 +89,21 @@ public static class ReadSanitizer
             && ReleaseFormats.IsKnown(format) && format is not (ReleaseFormat.Vhs or ReleaseFormat.Betamax) => null,
         _ => completeness,
     };
+
+    // An author is a claim of its own only when it says something the title does not: the model also copies a series line
+    // or brand off the spine (a series' name for a book of that series) as the author. A real author the title carries (a
+    // spine's "DUNE FRANK HERBERT") is still found: the scorer looks for each release's own author in the title.
+    private static bool IsCreator(string? creator, string? title)
+    {
+        if (string.IsNullOrWhiteSpace(creator) || NotACreator.Contains(PlatformNames.Normalize(creator)))
+        {
+            return false;
+        }
+
+        var titleWords = TitleNormalizer.Normalize(title).Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+        var creatorWords = TitleNormalizer.Normalize(creator).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return creatorWords.Length > 0 && !creatorWords.All(titleWords.Contains);
+    }
 
     private static bool IsEditionMark(string? edition)
     {
