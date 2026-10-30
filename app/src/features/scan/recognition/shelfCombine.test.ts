@@ -288,7 +288,7 @@ describe('a model item on a Vision item fills in what Vision lacks', () => {
 });
 
 describe('a game\'s product code on a shelf (ADR-031)', () => {
-  // PlayStation spines print the disc's code under the title. The code is read from the spine's own lines, so a neighbour's never lands here.
+  // PlayStation spines print the disc's code under the title. The code is read from the spine's own lines, so a neighbor's never lands here.
   const codeOn = (code: string, x: number) => line(code, x + 0.01, 0.72, 0.04, 0.03);
   const games: Scene = {
     read: okRead([modelItem('Gran Turismo 3', 'GRAN TURISMO 3', 0, { kind: 'game', platform: 'PlayStation 2' }), modelItem('Emma', 'Emma', 1)]),
