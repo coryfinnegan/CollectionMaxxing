@@ -65,6 +65,42 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         dryRun.ShouldBe(AlternativeTitles(identified[0]));
     }
 
+    // ---- one candidate per book per photo ----------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_repeat_read_of_one_book_in_a_photo_is_kept_once_with_the_stronger_read(bool repeatFirst)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+        var repeat = ReadItem("Star Fox 64 FREDEROCKSOH", "game", "game_cartridge", "Nintendo 64", "cart_only");
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", repeatFirst ? [repeat, StarFoxRead()] : [StarFoxRead(), repeat])));
+
+        var items = (await LatestRunFileAsync()).GetProperty("photos")[0].GetProperty("items");
+        items.GetArrayLength().ShouldBe(1, "the same release read twice is one book");
+        items[0].GetProperty("verdict").GetString().ShouldBe("matched");
+        items[0].GetProperty("readTitle").GetString().ShouldBe("Star Fox 64");
+    }
+
+    [Fact]
+    public async Task Reads_of_two_different_books_in_a_photo_are_both_kept()
+    {
+        Golden.AddShelf("s1", [new("Star Fox 64", "game_cartridge", "Nintendo 64"), new("Wave Race 64", "game_cartridge", "Nintendo 64")]);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        Games.Results.Add(ScanData.Game("Wave Race 64", "Nintendo 64", 1996, "g2"));
+        using var admin = AdminClient();
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("s1", "apple_model", [
+            StarFoxRead(),
+            ReadItem("Wave Race 64", "game", "game_cartridge", "Nintendo 64", "cart_only")])));
+
+        var items = (await LatestRunFileAsync()).GetProperty("photos")[0].GetProperty("items");
+        items.GetArrayLength().ShouldBe(2);
+    }
+
     [Fact]
     public async Task A_run_scores_the_grounded_reading_against_the_truth_and_reports_the_gate_and_the_regression_check()
     {
