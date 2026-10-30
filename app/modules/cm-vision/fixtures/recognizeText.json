@@ -114,5 +114,25 @@
         }
       }
     ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://book-cover-1",
+      "orientation": 180
+    },
+    "output": [
+      {
+        "text": "enuD",
+        "confidence": 0.2,
+        "box": {
+          "x": 0.3,
+          "y": 0.2,
+          "width": 0.4,
+          "height": 0.1
+        }
+      }
+    ]
   }
 ]

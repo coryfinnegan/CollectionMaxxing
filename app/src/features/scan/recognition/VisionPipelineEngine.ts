@@ -37,7 +37,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
   async read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
     const started = this.now();
     const settings = this.deps.settings();
-    const lines = await readLines(this.deps.vision, still.uri, settings.local);
+    const lines = await readLines(this.deps.vision, still.uri, settings.local, { shelf: !isSingleItemShot(options.shotKind) });
     // A cover shot is one item: the whole frame, never segmented (#504), and its title is its biggest text. Anything else may be a shelf row.
     if (isSingleItemShot(options.shotKind)) {
       return this.reading(wholeFrame(lines), lines, settings, started, onItem, still);
@@ -63,7 +63,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),
-        title: titleLine.text,
+        title: p.title ?? titleLine.text,
         ...(creator ? { creator } : {}),
         ...(productCode ? { productCode } : {}),
         kind: 'other',

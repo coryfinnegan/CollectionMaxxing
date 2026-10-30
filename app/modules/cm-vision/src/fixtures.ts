@@ -10,7 +10,7 @@ import type { DetectedCode, FeaturePrint, FixtureRecord, ReadItemsResult, Rect, 
 
 export interface FixtureSet {
   /** `orientation` absent means 0. */
-  recognizeText: FixtureRecord<{ imageUri: string; orientation?: 90 | 270 }, TextLine[]>[];
+  recognizeText: FixtureRecord<{ imageUri: string; orientation?: 90 | 180 | 270 }, TextLine[]>[];
   readItems: FixtureRecord<{ imageUri: string }, ReadItemsResult>[];
   /** Keyed by the exact OCR text the engine sends (lines joined with `\n`). */
   extractItems: FixtureRecord<{ ocrText: string }, ReadItemsResult>[];
