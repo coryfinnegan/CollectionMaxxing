@@ -133,6 +133,27 @@ describe('enrichedItems: the same item read by the model fills in what Vision la
     expect(enrichedItems(items, [], T)[0]).toBe(items[0]);
     expect(enrichedItems(items, [modelFilm({ kind: 'other', format: undefined })], T)[0]).toBe(items[0]);
   });
+
+  describe('a game\'s product code (ADR-031)', () => {
+    const modelGame = (extra: Partial<ReadItem> = {}) => modelFilm({ kind: 'game', format: undefined, platform: 'PlayStation', ...extra });
+
+    it('stays on the Vision item when the model\'s fields fill in around it', () => {
+      const [out] = enrichedItems([visionItem({ productCode: 'SLUS-00594' })], [modelGame()], T);
+      expect(out).toMatchObject({ title: 'SPACE MUTINY', kind: 'game', platform: 'PlayStation', productCode: 'SLUS-00594' });
+    });
+
+    it('stays on the Vision item whatever kind the model gives it, and is not replaced by the model\'s code', () => {
+      const [book] = enrichedItems([visionItem({ productCode: 'SLUS-00594' })], [modelFilm({ kind: 'book', format: undefined })], T);
+      expect(book).toMatchObject({ kind: 'book', productCode: 'SLUS-00594' });
+      const [own] = enrichedItems([visionItem({ productCode: 'SLUS-00594' })], [modelGame({ productCode: 'SLUS-00001' })], T);
+      expect(own.productCode).toBe('SLUS-00594');
+    });
+
+    it('is taken from the model item when the Vision item has none', () => {
+      const [out] = enrichedItems([visionItem()], [modelGame({ productCode: 'SLUS-00594' })], T);
+      expect(out).toMatchObject({ kind: 'game', productCode: 'SLUS-00594' });
+    });
+  });
 });
 
 describe('addableItems', () => {

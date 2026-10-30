@@ -6,6 +6,7 @@ import { coverTitleOf } from './coverTitle';
 import { creatorOf } from './creators';
 import type { RecognitionSettings } from './defaults';
 import { readLines } from './lines';
+import { productCodeOf } from './productCode';
 import { splitIntoPieces, wholeFrame, type Split } from './splitting';
 import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
 
@@ -56,11 +57,15 @@ export class VisionPipelineEngine implements RecognitionEngine {
       // A cover's creator is only the name the name rule found (an author printed bigger than the title). The lines left over are noise, and
       // the server weighs a read's creator against each candidate's, so a wrong one costs a right title. A shelf piece guesses as it always did.
       const creator = cover ? biggest?.creator?.text : creatorOf(p.lines, titleLine, settings.local);
+      // A shelf piece is one spine, and a PlayStation spine prints its disc's code; the server settles which game the code names. A cover's code
+      // is the cover cue's (coverCue.ts), which keeps it off a book or a film that the cover's own text shows the item to be.
+      const productCode = cover ? undefined : productCodeOf(p.lines);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),
         title: titleLine.text,
         ...(creator ? { creator } : {}),
+        ...(productCode ? { productCode } : {}),
         kind: 'other',
         box: p.box,
         order,
