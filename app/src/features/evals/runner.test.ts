@@ -134,6 +134,23 @@ describe('the eval runner', () => {
     ]);
   });
 
+  it('corrects a single cover in every engine\'s row the way the scanner does, and a shelf in none', async () => {
+    // photo-001 is a shelf and photo-002 a single. Both model tiers read the Criterion film as a book; the Vision engine says "other".
+    const criterion = {
+      read: okRead([modelItem('RUSHMORE', 'RUSHMORE', 0, { kind: 'book' })]),
+      extract: okRead([modelItem('RUSHMORE', 'RUSHMORE', 0, { kind: 'book' })]),
+      text: [line('RUSHMORE', 0.2, 0.2, 0.5, 0.1), line('THE CRITERION COLLECTION', 0.1, 0.8, 0.3, 0.04)],
+    };
+    const kit = makeKit({ photos: 2, scenes: { 'photo-001': criterion, 'photo-002': criterion } });
+    await kit.runner.start();
+    const kinds = (photoId: string) =>
+      Object.fromEntries(
+        runs()[0].results.filter((r) => r.photoId === photoId).map((r) => [r.engine, (r.items as { kind?: string }[]).map((i) => i.kind)]),
+      );
+    expect(kinds('photo-002')).toEqual({ apple_model: ['film'], fm_text: ['film'], vision_pipeline: ['film'] });
+    expect(kinds('photo-001')).toEqual({ apple_model: ['book'], fm_text: ['book'], vision_pipeline: ['other'] });
+  });
+
   it('sends the OCR lines the Vision engine split and the pieces it made, on its row only', async () => {
     const kit = makeKit({ photos: 1 });
     await kit.runner.start();

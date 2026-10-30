@@ -64,18 +64,15 @@ export function getEvalRunner(): EvalRunner {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getRecognition } = require('@/features/scan/recognition/device') as typeof import('@/features/scan/recognition/device');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { VisionPipelineEngine } = require('@/features/scan/recognition/VisionPipelineEngine') as typeof import('@/features/scan/recognition/VisionPipelineEngine');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { FmTextEngine } = require('@/features/scan/recognition/FmTextEngine') as typeof import('@/features/scan/recognition/FmTextEngine');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { visionEngine } = require('@/native/cm-vision') as typeof import('@/native/cm-vision');
     const { store, selector } = getRecognition();
     current = new EvalRunner({
       api: evalApi,
       files: deviceFiles,
       selector,
-      fmText: new FmTextEngine({ vision: visionEngine, settings: () => store.current() }),
-      pipeline: new VisionPipelineEngine({ vision: visionEngine, settings: () => store.current() }),
+      // The two lower tiers are the selector's own, cover cue and all: the eval measures what the scanner does.
+      fmText: selector.tiers.fmText,
+      pipeline: selector.tiers.pipeline,
       config: store,
       vision: visionEngine,
       device: deviceInfo(),

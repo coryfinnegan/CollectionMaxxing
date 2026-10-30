@@ -334,16 +334,57 @@ describe('EngineSelector with a single cover: the case says the format', () => {
     expect(formats(reading.items)).toEqual(['film/dvd']);
   });
 
-  it('does not touch the OCR-text tier or the Vision-only tier', async () => {
+  describe('the lower tiers get the same correction', () => {
     const textOnly = { available: true, vision: false, guidedGeneration: true, contextSize: 4096 };
-    const scene = cover('dvd', { extract: okRead([modelItem('Casablanca', 'CASABLANCA', 0, { kind: 'dvd' })]), rectangles: [slipcase] });
-    const viaText = new EngineSelector({ vision: new RecordingVision({ [STILL.uri]: scene }, { capabilities: textOnly as never }), settings: () => S, newId: testIds });
-    expect(formats((await viaText.read(STILL, () => {}, COVER)).items)).toEqual(['film/dvd']);
     const off = { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' };
-    const viaVision = new EngineSelector({ vision: new RecordingVision({ [STILL.uri]: scene }, { capabilities: off as never }), settings: () => S, newId: testIds });
-    const reading = await viaVision.read(STILL, () => {}, COVER);
-    expect(reading.engine).toBe('vision_pipeline');
-    expect(reading.items.every((i) => i.format !== 'vhs')).toBe(true);
+    const casablanca = (kind: ModelItem['kind']) => okRead([modelItem('Casablanca', 'CASABLANCA', 0, { kind })]);
+    const select = (scene: Scene, capabilities?: object, deps: Partial<SelectorDeps> = {}) =>
+      new EngineSelector({ vision: new RecordingVision({ [STILL.uri]: scene }, capabilities ? { capabilities: capabilities as never } : undefined), settings: () => S, newId: testIds, ...deps });
+
+    it('corrects the OCR-text tier on a phone whose model cannot see pictures', async () => {
+      const streamed: ReadItem[] = [];
+      const reading = await select(cover('dvd', { extract: casablanca('dvd'), rectangles: [slipcase] }), textOnly).read(STILL, (i) => streamed.push(i), COVER);
+      expect(reading.engine).toBe('fm_text');
+      expect(formats(streamed)).toEqual(['film/vhs']);
+      expect(formats(reading.items)).toEqual(['film/vhs']);
+    });
+
+    it('corrects the OCR-text tier when the picture model could not read the cover, and still says why it fell back', async () => {
+      const scene = cover('dvd', { read: failedRead('timeout'), extract: casablanca('book'), text: [line('CASABLANCA', 0.2, 0.2, 0.5, 0.1), line('Blu-ray Disc', 0.1, 0.8, 0.3, 0.04)] });
+      const reading = await select(scene).read(STILL, () => {}, COVER);
+      expect(reading.engine).toBe('fm_text');
+      expect(reading.fellBackFrom).toBe('timeout');
+      expect(formats(reading.items)).toEqual(['film/bluray']);
+    });
+
+    it('corrects the Vision-only tier', async () => {
+      const scene = cover('dvd', { text: [line('CASABLANCA', 0.2, 0.2, 0.5, 0.1), line('DVD VIDEO', 0.1, 0.8, 0.3, 0.04)] });
+      const streamed: ReadItem[] = [];
+      const reading = await select(scene, off).read(STILL, (i) => streamed.push(i), COVER);
+      expect(reading.engine).toBe('vision_pipeline');
+      expect(formats(streamed)).toEqual(['film/dvd']);
+      expect(formats(reading.items)).toEqual(['film/dvd']);
+    });
+
+    it('corrects the kind the picture model read from the text on the cover too', async () => {
+      const scene = cover('book', { text: [line('RUSHMORE', 0.2, 0.2, 0.5, 0.1), line('THE CRITERION COLLECTION', 0.1, 0.8, 0.3, 0.04)] });
+      const reading = await select(scene).read(STILL, () => {}, COVER);
+      expect(formats(reading.items)).toEqual(['film/undefined']);
+    });
+
+    it('hands the eval runner the same tiers, so what it measures is what the scanner does', async () => {
+      const selector = select(cover('dvd', { extract: casablanca('dvd'), rectangles: [slipcase] }), textOnly);
+      expect(selector.tiers.fmText.name).toBe('fm_text');
+      expect(selector.tiers.pipeline.name).toBe('vision_pipeline');
+      expect(formats((await selector.tiers.fmText.read(STILL, () => {}, COVER)).items)).toEqual(['film/vhs']);
+      expect(formats((await selector.tiers.fmText.read(STILL, () => {}, { shotKind: 'shelf_segment' })).items)).toEqual(['film/dvd']);
+    });
+
+    it('reads the case for the Vision tier the same way as for the picture model', async () => {
+      const scene = cover('dvd', { rectangles: [slipcase], text: [line('CASABLANCA', 0.2, 0.2, 0.5, 0.1), line('VHS', 0.1, 0.8, 0.1, 0.04), line('HI-FI', 0.3, 0.8, 0.1, 0.04)] });
+      const reading = await select(scene).tiers.pipeline.read(STILL, () => {}, COVER);
+      expect(formats(reading.items)).toEqual(['film/vhs']);
+    });
   });
 });
 
