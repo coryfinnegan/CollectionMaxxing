@@ -20,7 +20,7 @@
     "maxItemsPerSnap": 40
   },
   "splitting": {
-    "halvesWhenItemsOver": 14,
+    "halvesWhenItemsOver": 40,
     "minSpineColumnWidth": 0.02
   },
   "fingerprints": {
