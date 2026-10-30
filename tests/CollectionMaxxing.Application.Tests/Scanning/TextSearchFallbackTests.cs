@@ -159,7 +159,7 @@ public class TextSearchFallbackTests
     }
 
     [Fact]
-    public async Task At_most_two_words_are_dropped_from_either_end_and_at_least_two_are_left()
+    public async Task At_most_two_words_are_dropped_and_at_least_two_are_left()
     {
         var provider = new RecordingProvider(_ => []);
         var resolver = Resolver(provider);
@@ -170,8 +170,23 @@ public class TextSearchFallbackTests
         provider.Queries.Select(q => q.Title).ShouldBe(
         [
             "one two three four five", "one two three four", "one two three", "two three four five", "three four five",
-            "one two three", "one two", "two three",
+            "one two three", "one two",
         ]);
+    }
+
+    [Fact]
+    public async Task A_three_word_read_is_not_asked_without_its_first_word_but_a_four_word_read_is()
+    {
+        // On a short read, dropping the first word finds a different title ("TNX for EVERYONE" gives "for EVERYONE"), and most
+        // junk reads are three to five words that never find anything: the leading-word rungs wait for four words.
+        (await TitlesAskedAsync("TNX for EVERYONE")).ShouldBe(["TNX for EVERYONE", "TNX for"]);
+        (await TitlesAskedAsync("TNX for EVERYONE now")).ShouldBe(["TNX for EVERYONE now", "TNX for EVERYONE", "TNX for", "for EVERYONE now", "EVERYONE now"]);
+    }
+
+    [Fact]
+    public async Task A_three_word_read_with_a_number_is_still_asked_with_the_number_written_the_other_way()
+    {
+        (await TitlesAskedAsync("Camp 3 Wasteland")).ShouldBe(["Camp 3 Wasteland", "Camp 3", "Camp III Wasteland"]);
     }
 
     [Fact]
@@ -183,7 +198,7 @@ public class TextSearchFallbackTests
         await resolver.AskProvidersAsync(
             new CatalogQuery { Title = Title + " AVON", Creator = Author, Kind = WorkKind.Book }, CancellationToken.None, CancellationToken.None);
 
-        provider.Queries.Select(q => (q.Title, q.Creator)).ShouldBe([(Title + " AVON", Author), (Title + " AVON", null), (Title, null), ("You AVON", null)]);
+        provider.Queries.Select(q => (q.Title, q.Creator)).ShouldBe([(Title + " AVON", Author), (Title + " AVON", null), (Title, null)]);
     }
 
     [Fact]
@@ -294,7 +309,7 @@ public class TextSearchFallbackTests
         (await TitlesAskedAsync("Final Fantasy 10")).ShouldContain("Final Fantasy X");
         (await TitlesAskedAsync("Resident Evil 1")).ShouldContain("Resident Evil I");
 
-        (await TitlesAskedAsync("I Am Legend")).ShouldBe(["I Am Legend", "I Am", "Am Legend"]);
+        (await TitlesAskedAsync("I Am Legend")).ShouldBe(["I Am Legend", "I Am"]);
         (await TitlesAskedAsync("Malcolm X")).ShouldBe(["Malcolm X"]);
         (await TitlesAskedAsync("Mega Man X Legacy")).ShouldBe(["Mega Man X Legacy", "Mega Man X", "Mega Man", "Man X Legacy", "X Legacy"]);
     }

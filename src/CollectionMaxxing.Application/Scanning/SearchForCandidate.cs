@@ -155,13 +155,21 @@ public sealed class TextSearchResolver(
     private const int MinWordsLeft = 2;
 
     /// <summary>
+    /// The fewest words a read has before a retry drops its leading words. On a short read the first word is usually part of
+    /// the title (dropping it from "TNX for EVERYONE" finds "For Everyone"), and most junk reads are three to five words that
+    /// never find anything, so each extra rung is a wasted call.
+    /// </summary>
+    private const int MinWordsForLeadingDrop = 4;
+
+    /// <summary>
     /// The queries to try, plainest last, none twice, and every one with the title's accents stripped (an accent an OCR read
     /// puts on an English word, "TÉENAGE", is noise): as read; with the title alone, when the read named a creator (#438
     /// stage 1: the fallback, never the default); without the title's last word, and its last two, while two words are left (a
     /// spine read by OCR often runs other print into the title, "... NIGHT QXRTVZ", and a title search finds nothing with it);
     /// with its numbers written the other way, 3 as III and III as 3 (the catalogue may spell a sequel the other way than the
-    /// cover); then without its first word, and its first two, while two words are left, each also with the numbers swapped (a
-    /// misread first word, "SLEEP AWAY" for "Sleepaway", sinks a search the rest of the title would find).
+    /// cover); then, when the read has at least four words, without its first word, and its first two, while two words are left,
+    /// each also with the numbers swapped (a misread first word, "SLEEP AWAY" for "Sleepaway", sinks a search the rest of the
+    /// title would find).
     /// </summary>
     private static IEnumerable<CatalogQuery> Ladder(CatalogQuery asRead)
     {
@@ -182,7 +190,7 @@ public sealed class TextSearchResolver(
         }
 
         rungs.AddRange(TitleNumerals.Swapped(words));
-        for (var skip = 1; skip <= MaxDroppedWords && words.Length - skip >= MinWordsLeft; skip++)
+        for (var skip = 1; words.Length >= MinWordsForLeadingDrop && skip <= MaxDroppedWords && words.Length - skip >= MinWordsLeft; skip++)
         {
             var rest = words[skip..];
             rungs.Add(rest);
