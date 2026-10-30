@@ -205,6 +205,11 @@ describe('FakeVisionEngine model reading', () => {
     expect(lines.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert', 'Ace Books', 'ECUD', 'Dune']);
   });
 
+  it('recognizeText replays the upside-down pass when asked for 180', async () => {
+    const lines = await new FakeVisionEngine().recognizeText('fixture://book-cover-1', { orientations: [0, 180] });
+    expect(lines.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert', 'Ace Books', 'enuD']);
+  });
+
   it('recognizeText fails loudly for an orientation with no fixture', async () => {
     await expect(new FakeVisionEngine().recognizeText('fixture://dvd-spine-1', { orientations: [90] })).rejects.toThrow(/no recognizeText fixture/);
   });

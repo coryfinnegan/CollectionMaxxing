@@ -148,6 +148,12 @@ describe('the native wrapper', () => {
     ]);
   });
 
+  it('sends 180 to Swift when the caller asks for upside-down text', async () => {
+    mockNative.recognizeText.mockResolvedValue([]);
+    await visionEngine.recognizeText('file:///a.jpg', { orientations: [180] });
+    expect(mockNative.recognizeText.mock.calls).toEqual([['file:///a.jpg', [180]]]);
+  });
+
   describe('detectRectangles', () => {
     const rect = { x: 0.1, y: 0.1, width: 0.5, height: 0.8 };
 
