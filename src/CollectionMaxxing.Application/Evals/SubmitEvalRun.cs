@@ -79,11 +79,13 @@ public static class SubmitEvalRun
                 }
             }
 
+            // One memo per run, made here and passed down (not injected): what is grounded is known for this run only.
+            var memo = new EvalGroundingMemo();
             var photos = new List<GroundedPhoto>();
             foreach (var result in input.Results!.Where(r => listing.ContainsKey(r.PhotoId!)))
             {
                 var items = result.Outcome == EvalOutcome.Ok
-                    ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], cancellationToken)
+                    ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, cancellationToken)
                     : [];
                 photos.Add(new GroundedPhoto(
                     result.PhotoId!,
@@ -102,6 +104,11 @@ public static class SubmitEvalRun
                         : null,
                     result.Engine == ScanEngine.VisionPipeline ? result.OcrLines?.Select(l => new GroundedOcrLine(l.Text!, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value)).ToList() : null,
                     result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null));
+            }
+
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("Eval run grounded {Grounded} distinct reads and reused {Reused} repeats.", memo.Grounded, memo.Reused);
             }
 
             var run = new GroundedRun(

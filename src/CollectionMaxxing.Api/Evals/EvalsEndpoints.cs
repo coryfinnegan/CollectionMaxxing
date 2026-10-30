@@ -86,6 +86,7 @@ public static class EvalsEndpoints
         IGoldenSet golden,
         IOptions<JsonOptions> json,
         SubmitEvalRun.Handler handler,
+        IHostApplicationLifetime lifetime,
         CancellationToken cancellationToken)
     {
         // Off means 404 before anything about the body is looked at.
@@ -172,7 +173,11 @@ public static class EvalsEndpoints
             parsed.Partial == true,
             parsed.BaselineNote);
 
-        var result = await handler.HandleAsync(input, cancellationToken);
+        // Grounding a big run takes minutes (a 19-photo run took five and a half), and the phone locks or drops the connection
+        // meanwhile, which cancelled the request token and threw the whole run away, unsaved. The body is read; from here the work
+        // belongs to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the
+        // upload timeout, which cancels the same token, no longer cuts it short either).
+        var result = await handler.HandleAsync(input, lifetime.ApplicationStopping);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
     }
 
