@@ -1,4 +1,5 @@
 // Splitting what Vision saw into items, with no model: rectangles first, then spine columns (found from the tall lines), else the whole frame.
+// Spine columns also split a rectangle that holds several spines, and read the lines that sit outside every rectangle (#509).
 import type { Rect, TextLine } from '@/native/cm-vision';
 import type { LocalTuning, RecognitionConfig } from './defaults';
 import { bottom, centerX, centerY, contains, overlapShare, right, union, yOverlapShare } from './geometry';
@@ -32,16 +33,19 @@ function mergeSurfaces(rectangles: Rect[], minOverlap: number): Rect[] {
   return groups.map(union);
 }
 
-function byRectangles(lines: TextLine[], rectangles: Rect[], tuning: LocalTuning): Split {
+/** One item per rectangle, or one per spine when the text inside forms spine columns in one row. `outside` holds the lines in no rectangle. */
+function byRectangles(lines: TextLine[], rectangles: Rect[], tuning: LocalTuning, minWidth: number): Split & { outside: TextLine[] } {
   const sorted = mergeSurfaces(rectangles, tuning.rectangleMergeOverlap);
   const pieces: Piece[] = [];
+  const taken = new Set<TextLine>();
   let unreadableCount = 0;
   for (const rect of sorted) {
     const inside = lines.filter((l) => contains(rect, centerX(l.box), centerY(l.box)));
+    inside.forEach((l) => taken.add(l));
     if (inside.length === 0) unreadableCount += 1;
-    else pieces.push(piece(inside, rect));
+    else pieces.push(...(bySpineColumns(inside, tuning, minWidth)?.pieces ?? [piece(inside, rect)]));
   }
-  return { pieces, unreadableCount };
+  return { pieces, unreadableCount, outside: lines.filter((l) => !taken.has(l)) };
 }
 
 const isTall = (l: TextLine) => bottom(l.box) - l.box.y > l.box.width;
@@ -80,13 +84,16 @@ function inOneRow(columns: Column[], tuning: LocalTuning): boolean {
 /**
  * Spine columns come from the tall lines alone, so books lying flat in the frame do not hide the spines. A short line whose center
  * sits across a column inside the row's band joins that column; every other line (a flat stack below the row) becomes one more piece.
+ * A tall line in a column too narrow to be a spine is treated like a short line, so no line is dropped.
  */
 function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Split | undefined {
-  const columns = columnsOf(lines.filter(isTall), tuning).filter((c) => c.box.width >= minWidth);
+  const tallColumns = columnsOf(lines.filter(isTall), tuning);
+  const columns = tallColumns.filter((c) => c.box.width >= minWidth);
   if (columns.length < tuning.minSpineColumns || !inOneRow(columns, tuning)) return undefined;
   const band = union(columns.map((c) => c.box));
+  const narrow = tallColumns.filter((c) => !columns.includes(c)).flatMap((c) => c.lines);
   const rest: TextLine[] = [];
-  for (const l of lines.filter((l) => !isTall(l))) {
+  for (const l of [...lines.filter((l) => !isTall(l)), ...narrow]) {
     const x = centerX(l.box);
     const across = centerY(l.box) >= band.y && centerY(l.box) <= bottom(band) ? columns.filter((c) => x >= c.box.x && x <= right(c.box)) : [];
     if (across.length === 0) rest.push(l);
@@ -110,9 +117,11 @@ export function splitIntoPieces(
   tuning: LocalTuning,
 ): Split {
   if (lines.length === 0) return { pieces: [], unreadableCount: 0 };
+  const withoutRectangles = (rest: TextLine[]) => bySpineColumns(rest, tuning, splitting.minSpineColumnWidth) ?? wholeFrame(rest);
   if (rectangles.length > 0) {
-    const split = byRectangles(lines, rectangles, tuning);
-    if (split.pieces.length > 0) return split;
+    const { outside, ...split } = byRectangles(lines, rectangles, tuning, splitting.minSpineColumnWidth);
+    // Vision may box only some of the books: the lines outside every rectangle still become items.
+    if (split.pieces.length > 0) return { ...split, pieces: [...split.pieces, ...withoutRectangles(outside).pieces] };
   }
-  return bySpineColumns(lines, tuning, splitting.minSpineColumnWidth) ?? wholeFrame(lines);
+  return withoutRectangles(lines);
 }
