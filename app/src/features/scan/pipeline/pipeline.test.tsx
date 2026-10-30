@@ -92,7 +92,7 @@ describe('a snap read as three items', () => {
     expect(statusBar()).toMatch(/^3 items/);
   });
 
-  it('puts the read text and fields in the request, with the engine and trigger, and nothing else', async () => {
+  it('puts the read text, fields and position in the request, with the engine and trigger, and nothing else', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([dune, mutiny]));
     await open(kit);
@@ -104,8 +104,8 @@ describe('a snap read as three items', () => {
     expect(body.fellBackFrom).toBeUndefined();
     const segmentId = kit.store.getState().snaps[0]!.segmentId;
     expect(body.items).toEqual([
-      { localId: dune.localId, segmentId, text: 'Dune', title: 'Dune', kind: 'book' },
-      { localId: mutiny.localId, segmentId, text: 'Space Mutiny', title: 'Space Mutiny', kind: 'film', format: 'vhs' },
+      { localId: dune.localId, segmentId, text: 'Dune', title: 'Dune', kind: 'book', box: dune.box },
+      { localId: mutiny.localId, segmentId, text: 'Space Mutiny', title: 'Space Mutiny', kind: 'film', format: 'vhs', box: mutiny.box },
     ]);
   });
 });

@@ -287,6 +287,63 @@ describe('a model item on a Vision item fills in what Vision lacks', () => {
   });
 });
 
+describe('a game\'s product code on a shelf (ADR-031)', () => {
+  // PlayStation spines print the disc's code under the title. The code is read from the spine's own lines, so a neighbor's never lands here.
+  const codeOn = (code: string, x: number) => line(code, x + 0.01, 0.72, 0.04, 0.03);
+  const games: Scene = {
+    read: okRead([modelItem('Gran Turismo 3', 'GRAN TURISMO 3', 0, { kind: 'game', platform: 'PlayStation 2' }), modelItem('Emma', 'Emma', 1)]),
+    text: [spine('GRAN TURISMO 3', 0.1), codeOn('SLUS-20034', 0.1), spine('Emma', 0.4)],
+    rectangles: [column(0.1), column(0.4)],
+  };
+
+  it('puts the code on the Vision item of the spine that prints it, and on no other', async () => {
+    const reading = await selectorFor(games, { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' }).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    expect(reading.engine).toBe('vision_pipeline');
+    expect(reading.items.map((i) => [i.title, i.productCode])).toEqual([
+      ['GRAN TURISMO 3', 'SLUS-20034'],
+      ['Emma', undefined],
+    ]);
+  });
+
+  it('leaves the kind Vision gave the spine, for the server to settle: it makes any read with a known code a game', async () => {
+    const reading = await selectorFor(games, { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' }).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    expect(reading.items[0].kind).toBe('other');
+  });
+
+  it('keeps the code on the Vision item when the picture model\'s fields fill in, streamed again under the same localId', async () => {
+    const streamed: ReadItem[] = [];
+    const reading = await selectorFor(games).selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+    expect(reading.items[0]).toMatchObject({ title: 'GRAN TURISMO 3', kind: 'game', platform: 'PlayStation 2', productCode: 'SLUS-20034' });
+    const again = streamed.filter((i) => i.localId === reading.items[0].localId);
+    expect(again.map((i) => [i.kind, i.productCode])).toEqual([['other', 'SLUS-20034'], ['game', 'SLUS-20034']]);
+    expect(reading.items[1].productCode).toBeUndefined();
+  });
+
+  it('puts no code on a piece that prints two different ones', async () => {
+    const scene: Scene = { ...games, text: [spine('GRAN TURISMO 3', 0.1), codeOn('SLUS-20034', 0.1), codeOn('SLUS-20035', 0.1)], rectangles: [column(0.1)] };
+    const reading = await selectorFor(scene, { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' }).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    expect(reading.items.map((i) => i.productCode)).toEqual([undefined]);
+  });
+
+  it('updates the row in place with the code: the pipeline store sends it', async () => {
+    const store = createPipelineStore({ storage: new MemoryKeyValueStore() });
+    store.getState().addSnap({ snapId: 'snap-1', libraryId: 'library-1', trigger: 'auto', createdAt: 1, thumbUri: 'thumb', phase: 'reading', sent: false, items: [], unreadableCount: 0 });
+    await selectorFor(games).selector.read(STILL, (item) => store.getState().upsertItem('snap-1', picItemOf(item)), { shotKind: 'shelf_segment' });
+    expect(store.getState().snaps[0].items.map((i) => [i.title, i.payload.productCode])).toEqual([['GRAN TURISMO 3', 'SLUS-20034'], ['Emma', undefined]]);
+  });
+
+  it('reads the code the same when the framing is not known (a snap stored before classification)', async () => {
+    const reading = await selectorFor(games).selector.read(STILL, () => {});
+    expect(reading.items.map((i) => i.productCode)).toEqual(['SLUS-20034', undefined]);
+  });
+
+  it('leaves a single cover\'s code to the cover cue, which keeps it off books and films: the engine alone puts none there', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: games });
+    const reading = await new VisionPipelineEngine({ vision, settings: () => S, newId: testIds }).read(STILL, () => {}, { shotKind: 'single_cover' });
+    expect(reading.items.map((i) => i.productCode)).toEqual([undefined]);
+  });
+});
+
 describe('a shelf shot where the model adds nothing new', () => {
   it('returns the Vision reading as it is when the model found only what Vision had, and knew no more about it', async () => {
     const { selector } = selectorFor({ ...shelf, read: okRead([modelItem('Dune', 'Dune', 0, { kind: 'other' }), modelItem('Emma', 'Emma', 1, { kind: 'other' })]) });

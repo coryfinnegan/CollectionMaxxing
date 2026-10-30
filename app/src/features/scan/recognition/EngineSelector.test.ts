@@ -334,6 +334,64 @@ describe('EngineSelector with a single cover: the case says the format', () => {
     expect(formats(reading.items)).toEqual(['film/dvd']);
   });
 
+  describe('a cartridge\'s product code (ADR-031)', () => {
+    const textOnly = { available: true, vision: false, guidedGeneration: true, contextSize: 4096 };
+    const off = { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' };
+    const label = [line('SUPER MARIO WORLD', 0.2, 0.2, 0.5, 0.1), line('SNS-8C-USA', 0.1, 0.85, 0.3, 0.04)];
+    const mario = (kind: ModelItem['kind']) => okRead([modelItem('Super Mario World', 'SUPER MARIO WORLD', 0, { kind })]);
+    const cartridge = (kind: ModelItem['kind'], extra: Scene = {}): Scene => ({ read: mario(kind), extract: mario(kind), text: label, ...extra });
+    const select = (scene: Scene, capabilities?: object) =>
+      new EngineSelector({ vision: new RecordingVision({ [STILL.uri]: scene }, capabilities ? { capabilities: capabilities as never } : undefined), settings: () => S, newId: testIds });
+    const coded = (items: ReadItem[]) => items.map((i) => `${i.kind}/${i.productCode}`);
+
+    it.each([['game'], ['other']] as const)('goes on the picture model\'s %s read, streamed and in the reading, and makes it a game', async (kind) => {
+      const streamed: ReadItem[] = [];
+      const reading = await select(cartridge(kind)).read(STILL, (i) => streamed.push(i), COVER);
+      expect(reading.engine).toBe('apple_model');
+      expect(coded(streamed)).toEqual(['game/SNS-8C-USA']);
+      expect(coded(reading.items)).toEqual(['game/SNS-8C-USA']);
+      expect(reading.items[0]).toMatchObject({ title: 'Super Mario World', confidence: 'high' });
+    });
+
+    it('does not change a book or a film read, and gives it no code', async () => {
+      expect(coded((await select(cartridge('book')).read(STILL, () => {}, COVER)).items)).toEqual(['book/undefined']);
+      expect(coded((await select(cartridge('dvd')).read(STILL, () => {}, COVER)).items)).toEqual(['film/undefined']);
+      expect(coded((await select(cartridge('vhs')).read(STILL, () => {}, COVER)).items)).toEqual(['film/undefined']);
+    });
+
+    it('goes on the OCR-text tier\'s read, and on the Vision-only tier\'s', async () => {
+      const text = await select(cartridge('other'), textOnly).read(STILL, () => {}, COVER);
+      expect(text.engine).toBe('fm_text');
+      expect(coded(text.items)).toEqual(['game/SNS-8C-USA']);
+      const vision = await select(cartridge('other'), off).read(STILL, () => {}, COVER);
+      expect(vision.engine).toBe('vision_pipeline');
+      expect(coded(vision.items)).toEqual(['game/SNS-8C-USA']);
+    });
+
+    it('goes on the OCR-text tier\'s read when the picture model could not read the cover, and still says why it fell back', async () => {
+      const reading = await select(cartridge('other', { read: failedRead('declined') })).read(STILL, () => {}, COVER);
+      expect(reading.engine).toBe('fm_text');
+      expect(reading.fellBackFrom).toBe('declined');
+      expect(coded(reading.items)).toEqual(['game/SNS-8C-USA']);
+    });
+
+    it('is on the tiers the eval runner reads, the same as the scanner\'s', async () => {
+      const selector = select(cartridge('other'), textOnly);
+      expect(coded((await selector.tiers.fmText.read(STILL, () => {}, COVER)).items)).toEqual(['game/SNS-8C-USA']);
+      expect(coded((await selector.tiers.pipeline.read(STILL, () => {}, COVER)).items)).toEqual(['game/SNS-8C-USA']);
+    });
+
+    it('is not read from a shelf shot by the cue', async () => {
+      const reading = await select(cartridge('game')).read(STILL, () => {}, { shotKind: 'shelf_segment', combine: false });
+      expect(coded(reading.items)).toEqual(['game/undefined']);
+    });
+
+    it('is not on a cover that prints none', async () => {
+      const reading = await select(cartridge('other', { text: [line('SUPER MARIO WORLD', 0.2, 0.2, 0.5, 0.1)] })).read(STILL, () => {}, COVER);
+      expect(coded(reading.items)).toEqual(['other/undefined']);
+    });
+  });
+
   describe('the lower tiers get the same correction', () => {
     const textOnly = { available: true, vision: false, guidedGeneration: true, contextSize: 4096 };
     const off = { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' };

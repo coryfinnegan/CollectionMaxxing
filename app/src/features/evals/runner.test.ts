@@ -7,14 +7,25 @@ import { evalsMock } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import { failedRead, makeKit, uriOf } from './evalsTestKit';
-import { line, modelItem, okRead } from '@/features/scan/recognition/fakes';
+import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
 
 interface Result {
   photoId: string;
   engine: string;
   outcome: string;
   fellBackFrom?: string;
-  items: { title: string; localId: string; resolvedBy?: string; tier?: string; provisional?: boolean; isGuess?: boolean; segmentId?: string }[];
+  items: {
+    title: string;
+    localId: string;
+    resolvedBy?: string;
+    tier?: string;
+    provisional?: boolean;
+    isGuess?: boolean;
+    segmentId?: string;
+    kind?: string;
+    box?: { x: number; y: number; width: number; height: number };
+    productCode?: string;
+  }[];
   unreadableCount: number;
   latencyMs: number;
   firstItemMs?: number;
@@ -556,6 +567,100 @@ describe('the eval runner', () => {
       expect(requests.length).toBeGreaterThan(0);
       expect(requests.filter((r) => !allowed.test(r))).toEqual([]);
       expect(requests.filter((r) => r.startsWith('POST'))).toEqual(['POST /api/admin/evals/runs']);
+    });
+  });
+
+  describe('where each read sits, and the product code it printed', () => {
+    const rows = (engine: string) => runs()[0].results.filter((r) => r.engine === engine);
+    /** A box as the engines compute it (a box's far edge minus its near one), so to the last digit but a rounding error. */
+    const boxesOf = (items: Result['items']) => items.map((i) => (i.box ? [i.box.x, i.box.y, i.box.width, i.box.height] : undefined));
+    const expectBoxes = (items: Result['items'], expected: ([number, number, number, number] | undefined)[]) => {
+      const boxes = boxesOf(items);
+      expect(boxes.map((b) => b === undefined)).toEqual(expected.map((b) => b === undefined));
+      boxes.forEach((b, i) => b?.forEach((value, k) => expect(value).toBeCloseTo(expected[i]?.[k] ?? Number.NaN, 9)));
+    };
+
+    it('sends the box of every read that has one, so reads of one release in different places stay apart', async () => {
+      const kit = makeKit({ photos: 2 });
+      await kit.runner.start();
+      for (const row of runs()[0].results) {
+        for (const item of row.items) {
+          expect(item.box).toBeDefined();
+          const { x, y, width, height } = item.box ?? { x: -1, y: -1, width: 0, height: 0 };
+          expect([x, y].every((v) => v >= 0 && v <= 1)).toBe(true);
+          expect([width, height].every((v) => v > 0 && v <= 1)).toBe(true);
+        }
+      }
+      // the scene's two lines: the model's items sit on them
+      expectBoxes(rows('apple_model')[0].items, [
+        [0.1, 0.1, 0.1, 0.5],
+        [0.5, 0.1, 0.1, 0.5],
+      ]);
+    });
+
+    it('pulls a box a hair outside the picture into it, and leaves out a box with no area', async () => {
+      const kit = makeKit({
+        photos: 2,
+        scenes: {
+          'photo-001': {
+            text: [line('Title of photo-001', -0.004, 0.1, 0.1, 0.5), line('Other of photo-001', 0.5, -0.01, 0.1, 1.02)],
+          },
+          'photo-002': {
+            text: [line('Title of photo-002', 0.1, 0.1, 0, 0.5), line('Other of photo-002', 0.5, 0.1, 0.1, 0.5)],
+          },
+        },
+      });
+      await kit.runner.start();
+      const [first, second] = rows('apple_model');
+      expectBoxes(first.items, [
+        [0, 0.1, 0.1, 0.5],
+        [0.5, 0, 0.1, 1],
+      ]);
+      expect(second.items.map((i) => i.title)).toEqual(['Title of photo-002', 'Other of photo-002']);
+      expectBoxes(second.items, [undefined, [0.5, 0.1, 0.1, 0.5]]);
+      expect(second.items[0]).not.toHaveProperty('box');
+    });
+
+    const cartridge: Partial<Scene> = {
+      read: okRead([modelItem('Super Mario World', 'SUPER MARIO WORLD', 0, { kind: 'other' })]),
+      extract: okRead([modelItem('Super Mario World', 'SUPER MARIO WORLD', 0, { kind: 'other' })]),
+      text: [line('SUPER MARIO WORLD', 0.2, 0.2, 0.5, 0.1), line('SNS-8C-USA', 0.1, 0.85, 0.3, 0.04)],
+    };
+
+    it('sends a single cover\'s product code from all three engines, as a game', async () => {
+      const kit = makeKit({ photos: 2, scenes: { 'photo-002': cartridge } });
+      await kit.runner.start();
+      for (const engine of ['apple_model', 'fm_text', 'vision_pipeline']) {
+        const [, single] = rows(engine);
+        expect([engine, single.photoId, single.items.map((i) => [i.kind, i.productCode])]).toEqual([engine, 'photo-002', [['game', 'SNS-8C-USA']]]);
+      }
+    });
+
+    it('sends a shelf spine\'s product code from the Vision engine, on that spine only', async () => {
+      const kit = makeKit({
+        photos: 2,
+        scenes: {
+          'photo-001': {
+            text: [line('GRAN TURISMO 3', 0.1, 0.1, 0.05, 0.6), line('SLUS-20034', 0.11, 0.72, 0.04, 0.03), line('EMMA', 0.5, 0.1, 0.05, 0.6)],
+            rectangles: [
+              { x: 0.08, y: 0.05, width: 0.09, height: 0.7 },
+              { x: 0.48, y: 0.05, width: 0.09, height: 0.7 },
+            ],
+          },
+        },
+      });
+      await kit.runner.start();
+      const [shelf] = rows('vision_pipeline');
+      expect(shelf.photoId).toBe('photo-001');
+      expect(shelf.items.map((i) => i.productCode)).toEqual(['SLUS-20034', undefined]);
+    });
+
+    it('leaves the product code out of every read that printed none', async () => {
+      const kit = makeKit({ photos: 4 });
+      await kit.runner.start();
+      for (const row of runs()[0].results) {
+        for (const item of row.items) expect(item).not.toHaveProperty('productCode');
+      }
     });
   });
 });

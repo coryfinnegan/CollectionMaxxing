@@ -1,4 +1,4 @@
-import { COMPLETENESS_TABLE, KIND_TABLE, mapCompleteness, mapKind, toIdentifyItem } from './mapping';
+import { COMPLETENESS_TABLE, KIND_TABLE, mapCompleteness, mapKind, toIdentifyItem, toItemBox } from './mapping';
 import type { ReadItem } from './types';
 
 describe('mapping the model words to the server words', () => {
@@ -54,5 +54,57 @@ describe('mapping the model words to the server words', () => {
       edition: "Player's Choice",
       completeness: 'cart_only',
     });
+  });
+
+  it('sends a game\'s product code when the read has one, and nothing when it has none', () => {
+    const game: ReadItem = { localId: 'a', text: 'SNS-8C-USA', title: 'Super Mario World', kind: 'game', order: 0, confidence: 'low' };
+    expect(toIdentifyItem({ ...game, productCode: 'SNS-8C-USA' })).toEqual({
+      localId: 'a',
+      text: 'SNS-8C-USA',
+      title: 'Super Mario World',
+      kind: 'game',
+      productCode: 'SNS-8C-USA',
+    });
+    expect(toIdentifyItem(game)).not.toHaveProperty('productCode');
+  });
+});
+
+describe('toItemBox: where a read sits, as the server takes it', () => {
+  it('passes a box inside the picture through as it is', () => {
+    expect(toItemBox({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 })).toEqual({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
+    expect(toItemBox({ x: 0, y: 0, width: 1, height: 1 })).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+  });
+
+  it('pulls a value a hair outside the picture in, as Vision\'s boxes sometimes are', () => {
+    expect(toItemBox({ x: -0.004, y: 0.2, width: 1.003, height: 0.4 })).toEqual({ x: 0, y: 0.2, width: 1, height: 0.4 });
+    expect(toItemBox({ x: 0.5, y: -0.01, width: 0.5, height: 1.2 })).toEqual({ x: 0.5, y: 0, width: 0.5, height: 1 });
+  });
+
+  it.each([
+    ['no width', { x: 0.1, y: 0.1, width: 0, height: 0.5 }],
+    ['no height', { x: 0.1, y: 0.1, width: 0.5, height: 0 }],
+    ['a negative width', { x: 0.1, y: 0.1, width: -0.2, height: 0.5 }],
+    ['a negative height', { x: 0.1, y: 0.1, width: 0.5, height: -0.2 }],
+    ['an x that is not a number', { x: Number.NaN, y: 0.1, width: 0.5, height: 0.5 }],
+    ['a y that is infinite', { x: 0.1, y: Number.POSITIVE_INFINITY, width: 0.5, height: 0.5 }],
+    ['a width that is not a number', { x: 0.1, y: 0.1, width: Number.NaN, height: 0.5 }],
+    ['a height that is infinite', { x: 0.1, y: 0.1, width: 0.5, height: Number.NEGATIVE_INFINITY }],
+  ])('leaves the box out: %s', (_why, box) => {
+    expect(toItemBox(box)).toBeUndefined();
+  });
+
+  it('leaves the box out when there is none', () => {
+    expect(toItemBox(undefined)).toBeUndefined();
+  });
+
+  it('leaves the box out when pulling it into the picture would leave nothing of it', () => {
+    expect(toItemBox({ x: 0.1, y: 1.4, width: 0.5, height: 0.5 })).toBeUndefined();
+    expect(toItemBox({ x: 2, y: 0.1, width: 0.5, height: 0.5 })).toBeUndefined();
+  });
+
+  it('does not change the box it is given', () => {
+    const box = { x: -0.1, y: 0.2, width: 1.5, height: 0.4 };
+    toItemBox(box);
+    expect(box).toEqual({ x: -0.1, y: 0.2, width: 1.5, height: 0.4 });
   });
 });

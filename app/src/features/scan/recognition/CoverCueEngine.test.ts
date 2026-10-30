@@ -135,6 +135,72 @@ describe('the Vision tier on a single cover', () => {
   });
 });
 
+describe('a game cartridge\'s product code on a single cover (ADR-031)', () => {
+  // Last eval: neither SNES cartridge was read by any engine, yet Vision read both codes exactly.
+  const codes = (items: ReadItem[]) => items.map((i) => `${i.kind}/${i.productCode}`);
+
+  it('puts the code on the Vision tier\'s item and makes it a game', async () => {
+    const first = realCover('game-cartridge-01');
+    const second = realCover('game-cartridge-02');
+    const { pipeline } = engines({ [first.still.uri]: first.scene, [second.still.uri]: second.scene });
+    const one = await readWith(pipeline, first.still);
+    expect(codes(one.streamed)).toEqual(['game/SNS-8C-USA']);
+    expect(codes(one.reading.items)).toEqual(['game/SNS-8C-USA']);
+    expect(codes((await readWith(pipeline, second.still)).reading.items)).toEqual(['game/SNS-ADNE-USA']);
+  });
+
+  it.each([['game'], ['other']] as const)('puts the code on the picture model\'s %s read', async (kind) => {
+    const { still, scene } = realCover('game-cartridge-01', { read: okRead([modelItem('Super Mario World', 'SUPER MARIO WORLD', 0, { kind })]) });
+    const { model } = engines({ [still.uri]: scene });
+    const { streamed, reading } = await readWith(model, still);
+    expect(codes(streamed)).toEqual(['game/SNS-8C-USA']);
+    expect(codes(reading.items)).toEqual(['game/SNS-8C-USA']);
+    expect(reading.items[0]).toMatchObject({ title: 'Super Mario World', confidence: 'high', order: 0 });
+  });
+
+  it('puts the code on the OCR-text tier\'s read', async () => {
+    const { still, scene } = realCover('game-cartridge-02', { extract: okRead([modelItem('Donkey Kong Country', 'DONKEY KONG', 0, { kind: 'other' })]) });
+    const { text } = engines({ [still.uri]: scene });
+    const { streamed, reading } = await readWith(text, still);
+    expect(codes(streamed)).toEqual(['game/SNS-ADNE-USA']);
+    expect(codes(reading.items)).toEqual(['game/SNS-ADNE-USA']);
+  });
+
+  it('puts the code on a game the model called a book, once the console\'s name has made it a game', async () => {
+    const { still, scene } = realCover('game-cartridge-01', { read: okRead([modelItem('Super Mario World', 'SUPER MARIO WORLD', 0, { kind: 'book' })]) });
+    const { model } = engines({ [still.uri]: scene });
+    expect(codes((await readWith(model, still)).reading.items)).toEqual(['game/SNS-8C-USA']);
+  });
+
+  it('gives a book or a film no code and changes neither, however code-like a line on the cover is', async () => {
+    const book = realCover('paperback-01', { read: okRead([modelItem('My Friends', 'MY FRIENDS', 0, { kind: 'book' })]) });
+    const film = realCover('dvd-01', { read: okRead([modelItem('The Hunt for Red October', 'THE HUNT FOR RED OCTOBER', 0, { kind: 'dvd' })]) });
+    const stray = line('SNS-8C-USA', 0.1, 0.95, 0.2, 0.03);
+    const { model } = engines({
+      [book.still.uri]: { ...book.scene, text: [...(book.scene.text ?? []), stray] },
+      [film.still.uri]: { ...film.scene, text: [...(film.scene.text ?? []), stray] },
+    });
+    expect(codes((await readWith(model, book.still)).reading.items)).toEqual(['book/undefined']);
+    expect(codes((await readWith(model, film.still)).reading.items)).toEqual(['film/undefined']);
+  });
+
+  it('gives no code to a cover that prints none', async () => {
+    const ids = Object.keys(recorded).filter((id) => !id.startsWith('game-cartridge'));
+    const { pipeline } = engines(Object.fromEntries(ids.map((id) => [`fixture://${id}`, realCover(id).scene])));
+    for (const id of ids) {
+      const { reading } = await readWith(pipeline, realCover(id).still);
+      expect([id, reading.items.map((i) => i.productCode)]).toEqual([id, reading.items.map(() => undefined)]);
+    }
+  });
+
+  it('leaves a shelf shot to the shelf path: the cue does not put a code on a model item there', async () => {
+    const { still, scene } = realCover('game-cartridge-01', { read: okRead([modelItem('Super Mario World', 'SUPER MARIO WORLD', 0, { kind: 'game' })]) });
+    const { model } = engines({ [still.uri]: scene });
+    const { reading } = await readWith(model, still, { shotKind: 'shelf_segment' });
+    expect(reading.items.map((i) => i.productCode)).toEqual([undefined]);
+  });
+});
+
 describe('the cue beside the read', () => {
   const slipcase = (still: Still) => caseOn(still, 0.55);
 

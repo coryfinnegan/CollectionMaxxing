@@ -66,7 +66,8 @@ export function placeOf(candidate: ReadItem, items: ReadItem[], tuning: LocalTun
 /**
  * `item` with what it lacks taken from `other`, the same item read by another engine. `item` keeps its title, box, localId, order, text and
  * confidence, and everything it already has. It takes the kind only when its own is `other` (it was not told), and the fields that belong
- * to a kind (format, platform, completeness) only when the kinds then agree. The same object comes back when there is nothing to take.
+ * to a kind (format, platform, completeness, a game's product code) only when the kinds then agree. A code the item already has is never
+ * replaced. The same object comes back when there is nothing to take.
  */
 export function filledFrom(item: ReadItem, other: ReadItem): ReadItem {
   const fill: Partial<ReadItem> = {};
@@ -76,6 +77,7 @@ export function filledFrom(item: ReadItem, other: ReadItem): ReadItem {
   if (agree && !item.format && other.format) fill.format = other.format;
   if (agree && !item.platform && other.platform) fill.platform = other.platform;
   if (agree && !item.completeness && other.completeness) fill.completeness = other.completeness;
+  if (agree && !item.productCode && other.productCode) fill.productCode = other.productCode;
   if (!item.creator && other.creator) fill.creator = other.creator;
   if (!item.edition && other.edition) fill.edition = other.edition;
   return Object.keys(fill).length === 0 ? item : { ...item, ...fill };
