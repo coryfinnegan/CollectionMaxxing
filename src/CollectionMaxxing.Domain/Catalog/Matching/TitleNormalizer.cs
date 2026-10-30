@@ -121,6 +121,14 @@ public static partial class TitleNormalizer
     public const double MainTitleCredit = 0.8;
 
     /// <summary>
+    /// What the same words in another order are worth as a title: "kitchen orchard" against "The Orchard Kitchen". Close,
+    /// never the same. Word order is the one thing that tells these titles apart, and a reader that misorders lines or
+    /// words (a spine read bottom to top) has not read the title. A match that rests on this alone must not be added
+    /// automatically.
+    /// </summary>
+    public const double ReorderedWordsCredit = 0.9;
+
+    /// <summary>
     /// How alike two titles are, from 0 (nothing in common) to 1 (the same after normalising). Takes the better of an
     /// edit-distance ratio (forgives misreads and plurals) and a word-overlap ratio (forgives word order). A sequel
     /// number that only one side has costs a quarter of the score, so "Metroid Prime" does not match "Metroid Prime 2".
@@ -129,11 +137,21 @@ public static partial class TitleNormalizer
     /// compared like any other word. A title compared with the other's main title (the part before a colon, a spaced dash
     /// or a bracket) earns <see cref="MainTitleCredit"/> of that comparison when it is the better one; two main titles are
     /// never compared with each other, so two subtitles of one series ("Zelda: Ocarina of Time", "Zelda: Majora's Mask")
-    /// stay apart.
+    /// stay apart. The same words in any order are the same here, which suits names ("Odell, Mara" is "Mara Odell");
+    /// <see cref="TitleSimilarity"/> is the stricter comparison for titles.
     /// </summary>
-    public static double Similarity(string? a, string? b)
+    public static double Similarity(string? a, string? b) => TitlesAlike(a, b, wordOrderCredit: 1.0);
+
+    /// <summary>
+    /// <see cref="Similarity"/> for two titles: the same words in another order score <see cref="ReorderedWordsCredit"/>
+    /// at most, so only a title that is the same once the article, case, accents, punctuation, numerals and "&amp;" are
+    /// set aside (and a year on one side only) scores 1.
+    /// </summary>
+    public static double TitleSimilarity(string? a, string? b) => TitlesAlike(a, b, ReorderedWordsCredit);
+
+    private static double TitlesAlike(string? a, string? b, double wordOrderCredit)
     {
-        var whole = WholeSimilarity(a, b);
+        var whole = WholeSimilarity(a, b, wordOrderCredit);
         if (whole >= 1.0)
         {
             return whole;
@@ -142,12 +160,12 @@ public static partial class TitleNormalizer
         var best = whole;
         if (MainTitle(a) is { } mainA)
         {
-            best = Math.Max(best, MainTitleCredit * WholeSimilarity(mainA, b));
+            best = Math.Max(best, MainTitleCredit * WholeSimilarity(mainA, b, wordOrderCredit));
         }
 
         if (MainTitle(b) is { } mainB)
         {
-            best = Math.Max(best, MainTitleCredit * WholeSimilarity(a, mainB));
+            best = Math.Max(best, MainTitleCredit * WholeSimilarity(a, mainB, wordOrderCredit));
         }
 
         return best;
@@ -212,7 +230,7 @@ public static partial class TitleNormalizer
 
     private static readonly string[] SubtitleMarkers = [":", " - ", " – ", " — ", "("];
 
-    private static double WholeSimilarity(string? a, string? b)
+    private static double WholeSimilarity(string? a, string? b, double wordOrderCredit)
     {
         var left = Normalize(a);
         var right = Normalize(b);
@@ -223,25 +241,25 @@ public static partial class TitleNormalizer
 
         if (YearsConflict(left, right))
         {
-            return Core(left, right);
+            return Core(left, right, wordOrderCredit);
         }
 
         var leftNoYear = WithoutTrailingYear(left);
         var rightNoYear = WithoutTrailingYear(right);
-        var best = Core(left, right);
+        var best = Core(left, right, wordOrderCredit);
         if (leftNoYear != left)
         {
-            best = Math.Max(best, Core(leftNoYear, right));
+            best = Math.Max(best, Core(leftNoYear, right, wordOrderCredit));
         }
 
         if (rightNoYear != right)
         {
-            best = Math.Max(best, Core(left, rightNoYear));
+            best = Math.Max(best, Core(left, rightNoYear, wordOrderCredit));
         }
 
         if (leftNoYear != left && rightNoYear != right)
         {
-            best = Math.Max(best, Core(leftNoYear, rightNoYear));
+            best = Math.Max(best, Core(leftNoYear, rightNoYear, wordOrderCredit));
         }
 
         return best;
@@ -300,7 +318,7 @@ public static partial class TitleNormalizer
         return year is >= 1900 and <= 2099;
     }
 
-    private static double Core(string left, string right)
+    private static double Core(string left, string right, double wordOrderCredit)
     {
         if (left == right)
         {
@@ -316,6 +334,12 @@ public static partial class TitleNormalizer
         var shared = leftSet.Count(rightSet.Contains);
         var union = leftSet.Count + rightSet.Count - shared;
         var overlap = union == 0 ? 0.0 : (double)shared / union;
+        if (overlap >= 1.0)
+        {
+            // Every word is shared but the two strings are not the same (that returned above): the order differs, or a word
+            // is repeated on one side. Names read in either order; a title is credited less.
+            overlap = wordOrderCredit;
+        }
 
         var score = Math.Max(edit, overlap);
 
