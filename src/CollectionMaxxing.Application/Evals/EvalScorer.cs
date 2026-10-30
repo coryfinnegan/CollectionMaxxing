@@ -18,7 +18,7 @@ public sealed record ScoredEngines(IReadOnlyDictionary<string, EngineSummary> En
 /// <remarks>
 /// A read item is <b>correct</b> when its best release has the truth item's title (normalised the way the live scorer does) and,
 /// when the truth names a platform, the same platform and, on a single picture, the same format and a kind of work that format can be (a VHS is not the novel of
-/// the same name). <b>Top-3</b> also accepts the second and third releases. An
+/// the same name); on a shelf, a kind of work the truth item's media type can be (a shelf's film is not the book of the same title). <b>Top-3</b> also accepts the second and third releases. An
 /// <b>invented title</b> is a Matched item whose best release has the title of no truth item of the photo (a right title on the
 /// wrong console is a platform error, measured on its own). In a single-item picture only
 /// the first item read is the answer; any others only count against precision.
@@ -60,6 +60,15 @@ public static class EvalScorer
         [EnumText.ToText(ReleaseFormat.MassMarket)] = BookKinds,
         [EnumText.ToText(ReleaseFormat.BoardBook)] = BookKinds,
         [EnumText.ToText(ReleaseFormat.SpiralBound)] = BookKinds,
+    };
+
+    /// <summary>The kinds of work a shelf truth item of each media type can be. <c>other</c> and any media type not listed fit any kind.</summary>
+    private static readonly Dictionary<string, HashSet<string>> KindsByMediaType = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [EnumText.ToText(WorkKind.Book)] = BookKinds,
+        [EnumText.ToText(WorkKind.Film)] = FilmKinds,
+        [EnumText.ToText(WorkKind.Tv)] = FilmKinds,
+        [EnumText.ToText(WorkKind.Game)] = GameKinds,
     };
 
     /// <summary>
@@ -520,22 +529,28 @@ public static class EvalScorer
         || string.Equals(truth.Format, candidate.Format, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// A single picture's format also says what kind of item it is: a VHS is a film (or a TV show), never the novel with the same
-    /// title, and a game cartridge is never a film. A release with no kind is not held against it; a shelf truth has no format and
-    /// is unchanged; <c>other</c> and any format not listed fit every kind.
+    /// What kind of item the truth says it is, and the candidate has to be. A single picture's format says it: a VHS is a film (or a
+    /// TV show), never the novel with the same title, and a game cartridge is never a film. A shelf truth item says it with its media
+    /// type: book fits book, game fits game, film and tv fit each other (a shelf label cannot always tell a TV tape from a film),
+    /// and <c>other</c> fits anything. A release with no kind is not held against it; a format or media type not listed fits every kind.
     /// </summary>
-    private static bool KindFitsFormat(TruthItem truth, GroundedCandidate candidate)
+    private static bool KindFits(TruthItem truth, GroundedCandidate candidate)
     {
-        if (truth.Format is null || candidate.Kind is null || !KindsByFormat.TryGetValue(truth.Format, out var kinds))
+        if (candidate.Kind is null)
         {
             return true;
         }
 
-        return kinds.Contains(candidate.Kind);
+        if (truth.Format is not null)
+        {
+            return !KindsByFormat.TryGetValue(truth.Format, out var byFormat) || byFormat.Contains(candidate.Kind);
+        }
+
+        return truth.MediaType is null || !KindsByMediaType.TryGetValue(truth.MediaType, out var byMediaType) || byMediaType.Contains(candidate.Kind);
     }
 
     private static bool FullMatch(TruthItem truth, GroundedCandidate candidate) =>
-        TitleMatch(truth, candidate) && PlatformMatches(truth, candidate) && FormatAgrees(truth, candidate) && KindFitsFormat(truth, candidate);
+        TitleMatch(truth, candidate) && PlatformMatches(truth, candidate) && FormatAgrees(truth, candidate) && KindFits(truth, candidate);
 
     private static bool TypeMatches(TruthItem truth, GroundedCandidate candidate) =>
         truth.Format is not null

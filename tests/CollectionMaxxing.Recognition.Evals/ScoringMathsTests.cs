@@ -275,6 +275,84 @@ public sealed class ScoringMathsTests : IDisposable
         single.Top1Pct.ShouldBe(100);
     }
 
+    // ---- a shelf truth item's kind -----------------------------------------------------------------------------------------
+
+    private int _kindPhotos;
+
+    private SliceMetrics ScoreShelfTruth(string mediaType, GroundedCandidate release, string? platform = null)
+    {
+        var id = $"k{++_kindPhotos}";
+        _golden.AddShelf(id, [new SyntheticGolden.ShelfItem("The Marsh Lantern", mediaType, platform, 1997)]);
+        var read = new GroundedItem("the marsh lantern", null, "model", "matched", [release]);
+        return EvalScorer.Score([Photo(id, Apple, [read])], TruthsOf(_golden)).ShelfOf();
+    }
+
+    private static GroundedCandidate Marsh(string? kind, string? format = null) => new("The Marsh Lantern", kind, format, null, 1997, 0.95);
+
+    [Fact]
+    public void A_shelf_film_truth_is_not_matched_by_a_same_titled_book_but_a_film_is()
+    {
+        var book = ScoreShelfTruth("film", Marsh("book", "hardcover"));
+        book.Top1Hits.ShouldBe(0);
+        book.Top3Hits.ShouldBe(0);
+        book.TypeAccuracyPct.ShouldBe(0);
+
+        var film = ScoreShelfTruth("film", Marsh("film", "vhs"));
+        film.Top1Hits.ShouldBe(1);
+        film.Top3Hits.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("film", "film", true)]
+    [InlineData("film", "tv", true)]
+    [InlineData("tv", "film", true)]
+    [InlineData("tv", "tv", true)]
+    [InlineData("film", "book", false)]
+    [InlineData("tv", "book", false)]
+    [InlineData("film", "game", false)]
+    [InlineData("book", "book", true)]
+    [InlineData("book", "film", false)]
+    [InlineData("book", "game", false)]
+    [InlineData("game", "game", true)]
+    [InlineData("game", "film", false)]
+    [InlineData("game", "book", false)]
+    [InlineData("other", "book", true)]
+    [InlineData("other", "film", true)]
+    [InlineData("other", "game", true)]
+    [InlineData("other", "other", true)]
+    [InlineData("book", null, true)]
+    [InlineData("film", null, true)]
+    [InlineData("game", null, true)]
+    public void A_shelf_truth_is_matched_only_by_a_release_of_a_kind_that_fits_it(string truthKind, string? releaseKind, bool top1)
+    {
+        var scored = ScoreShelfTruth(truthKind, Marsh(releaseKind));
+
+        scored.Top1Hits.ShouldBe(top1 ? 1 : 0);
+        scored.Top3Hits.ShouldBe(top1 ? 1 : 0);
+    }
+
+    [Fact]
+    public void A_shelf_truth_with_a_kind_nobody_listed_fits_every_release()
+    {
+        ScoreShelfTruth("comic", Marsh("book")).Top1Hits.ShouldBe(1);
+        ScoreShelfTruth("comic", Marsh("film")).Top1Hits.ShouldBe(1);
+    }
+
+    [Fact]
+    public void A_wrong_kind_on_a_shelf_is_still_a_title_hit_and_a_type_miss_and_the_second_release_can_still_make_top_3()
+    {
+        var id = $"k{++_kindPhotos}";
+        _golden.AddShelf(id, [new SyntheticGolden.ShelfItem("The Marsh Lantern", "film", null, 1997)]);
+        var read = new GroundedItem("the marsh lantern", null, "model", "ambiguous", [Marsh("book", "hardcover"), Marsh("film", "vhs") with { Score = 0.9 }]);
+
+        var shelf = EvalScorer.Score([Photo(id, Apple, [read])], TruthsOf(_golden)).ShelfOf();
+
+        shelf.Top1Hits.ShouldBe(0);
+        shelf.Top3Hits.ShouldBe(1);
+        shelf.TitleAccuracyPct.ShouldBe(100);
+        shelf.TypeAccuracyPct.ShouldBe(0);
+    }
+
     [Fact]
     public void In_a_single_picture_only_the_first_item_is_the_answer_and_the_others_only_cost_precision()
     {
