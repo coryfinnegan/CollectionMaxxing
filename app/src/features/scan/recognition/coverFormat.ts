@@ -75,7 +75,7 @@ const LOGOS: readonly Logo[] = [
 ];
 
 /** Letters OCR trades for digits and capital I, so "VIDE0", "B1u-ray" and "BIu-ray" still read. Applied to both sides. */
-const fold = (text: string): string => normalize(text).replace(/[01i]/g, (c) => (c === '0' ? 'o' : 'l'));
+export const fold = (text: string): string => normalize(text).replace(/[01i]/g, (c) => (c === '0' ? 'o' : 'l'));
 
 function oneEditApart(a: string, b: string): boolean {
   if (Math.abs(a.length - b.length) > 1) return false;
@@ -135,7 +135,15 @@ export function coverFormat({ still, rectangles, lines, tuning = DEFAULT_COVER_F
 // ---- Correcting a read --------------------------------------------------------------------------------------------
 
 const FILM_RELEASE_FORMATS = new Set((['vhs', 'dvd', 'bluray', 'uhdBluray'] as const).flatMap((f) => mapKind(f).format ?? []));
-const hasFilmFormat = (item: ReadItem) => item.kind === 'film' && item.format !== undefined && FILM_RELEASE_FORMATS.has(item.format);
+/** Whether the read says a film in one of the formats a case can be in. */
+export const hasFilmFormat = (item: ReadItem): boolean => item.kind === 'film' && item.format !== undefined && FILM_RELEASE_FORMATS.has(item.format);
+
+/** The item as a film in `format`; the same object when it already is. */
+export function asFilmIn(item: ReadItem, format: FilmFormat): ReadItem {
+  const target = mapKind(format);
+  if (item.kind === target.kind && item.format === target.format) return item;
+  return { ...item, kind: target.kind, format: target.format };
+}
 
 /**
  * The item with the format the case says.
@@ -148,7 +156,5 @@ const hasFilmFormat = (item: ReadItem) => item.kind === 'film' && item.format !=
 export function correctFormat(item: ReadItem, cue: FormatCue): ReadItem {
   if (item.kind === 'game') return item;
   if (cue.source === 'shape' && !hasFilmFormat(item)) return item;
-  const target = mapKind(cue.format);
-  if (item.kind === target.kind && item.format === target.format) return item;
-  return { ...item, kind: target.kind, format: target.format };
+  return asFilmIn(item, cue.format);
 }
