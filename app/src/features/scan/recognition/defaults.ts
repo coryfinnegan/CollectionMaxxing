@@ -159,6 +159,14 @@ export interface CoverFormatTuning {
   /** The least share of the frame a rectangle must cover to be taken for the case, not a poster, a shelf edge or a label. */
   minCaseCoverage: number;
   /**
+   * A rectangle that comes within this share of the picture's side of the picture's edge is touching that edge. One that touches
+   * `frameHuggingSides` edges or more is the crop of the photo (or its own border), not the case: the shape cue ignores it. A 3:4 phone
+   * still is shaped like a DVD case, so a cover shot so close that the case fills the frame would otherwise always read as a DVD.
+   */
+  frameEdgeMargin: number;
+  /** How many edges a rectangle must touch (see `frameEdgeMargin`) to be taken for the frame. A case at the photo's side touches one or two. */
+  frameHuggingSides: number;
+  /**
    * Short side over long side of the case, in pixels. Measured on real cases: a VHS slipcase is about 0.55, a clamshell 0.60
    * to 0.63, a DVD keepcase 0.71, a Blu-ray or Ultra HD keepcase 0.86. The bands leave room for a case that is tilted or cut
    * off at the edge. The gaps between them (0.65 to 0.66, 0.77 to 0.80) and everything above 0.92 are left empty: a ratio
@@ -185,6 +193,8 @@ export interface CoverFormatTuning {
 
 export const DEFAULT_COVER_FORMAT_TUNING: CoverFormatTuning = {
   minCaseCoverage: 0.3,
+  frameEdgeMargin: 0.02,
+  frameHuggingSides: 3,
   vhs: { min: 0.45, max: 0.65 },
   dvd: { min: 0.66, max: 0.77 },
   bluray: { min: 0.8, max: 0.92 },
