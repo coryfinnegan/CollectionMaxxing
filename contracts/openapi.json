@@ -7845,6 +7845,12 @@
               "null",
               "string"
             ]
+          },
+          "productCode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -8296,6 +8302,12 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "productCode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
