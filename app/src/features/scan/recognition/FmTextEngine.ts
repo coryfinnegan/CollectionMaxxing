@@ -5,11 +5,11 @@
 // input is text, so the picture prompt's "in this photo" wording would lie about it.
 import type { ModelItem, TextLine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
-import { type EngineDeps, defaultId } from './VisionPipelineEngine';
+import { defaultId } from './VisionPipelineEngine';
 import { extractionPromptOf } from './defaults';
 import { readLines } from './lines';
 import { matchBoxes } from './matching';
-import { toReadItem } from './modelReading';
+import { type ModelEngineDeps, modelTimeoutMs, toReadItem } from './modelReading';
 import { type FellBackFrom, ModelUnusableError, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from './types';
 
 const FAILURES: Record<string, FellBackFrom> = {
@@ -28,7 +28,7 @@ export class FmTextEngine implements RecognitionEngine {
   /** The native stream carries no call id, so only one extraction runs at a time. */
   private tail: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly deps: EngineDeps) {
+  constructor(private readonly deps: ModelEngineDeps) {
     this.now = deps.now ?? Date.now;
     this.newId = deps.newId ?? defaultId;
   }
@@ -70,10 +70,10 @@ export class FmTextEngine implements RecognitionEngine {
     };
 
     const modelStarted = this.now();
-    // A cover shot depicts one item, so the model is asked for one (#504); a shelf shot gets the full snap.
+    // A cover shot depicts one item, so the model is asked for one (#504), and given a shorter time to answer; a shelf shot gets the full snap.
     const maxItems = isSingleItemShot(options.shotKind) ? 1 : settings.engine.maxItemsPerSnap;
     const result = await this.deps.vision
-      .extractItems(ocrTextOf(lines), { prompt: extractionPromptOf(settings), timeoutMs: settings.engine.modelTimeoutMs, maxItems }, onModelItem)
+      .extractItems(ocrTextOf(lines), { prompt: extractionPromptOf(settings), timeoutMs: modelTimeoutMs(settings, options, this.deps.singleShotTuning), maxItems }, onModelItem)
       .catch(() => undefined);
     const modelMs = this.now() - modelStarted;
     await emitting;
