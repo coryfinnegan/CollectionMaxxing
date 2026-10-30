@@ -1,5 +1,5 @@
 import type { Rect } from '@/native/cm-vision';
-import { addableItems, isSameItem, titleCoverage } from './combine';
+import { addableItems, enrichedItems, isSameItem, titleCoverage } from './combine';
 import { DEFAULT_LOCAL_TUNING as T } from './defaults';
 import type { ReadItem } from './types';
 
@@ -83,6 +83,55 @@ describe('isSameItem: the same place is the same item', () => {
     const b = item('B', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } });
     expect(isSameItem(a, b, { ...T, sameItemOverlap: 0.6 })).toBe(false);
     expect(isSameItem(a, b, { ...T, sameItemOverlap: 0.4 })).toBe(true);
+  });
+});
+
+describe('enrichedItems: the same item read by the model fills in what Vision lacks', () => {
+  const visionItem = (extra: Partial<ReadItem> = {}) =>
+    item('SPACE MUTINY', 3, { localId: 'v-1', text: 'SPACE MUTINY', kind: 'other', confidence: 'low', box: spineAt(0.1), ...extra });
+  const modelFilm = (extra: Partial<ReadItem> = {}) =>
+    item('Space Mutiny', 0, { localId: 'm-1', kind: 'film', format: 'vhs', box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 }, ...extra });
+
+  it('keeps Vision\'s title, box, localId, order, text and confidence, and takes the model\'s kind and format', () => {
+    const vision = visionItem();
+    const [out] = enrichedItems([vision], [modelFilm()], T);
+    expect(out).toEqual({ ...vision, kind: 'film', format: 'vhs' });
+  });
+
+  it('fills in the creator, platform, edition and completeness Vision does not have', () => {
+    const [out] = enrichedItems([visionItem()], [modelFilm({ kind: 'game', platform: 'Nintendo 64', creator: 'Rare', edition: "Player's Choice", completeness: 'complete', format: undefined })], T);
+    expect(out).toMatchObject({ title: 'SPACE MUTINY', kind: 'game', platform: 'Nintendo 64', creator: 'Rare', edition: "Player's Choice", completeness: 'complete' });
+  });
+
+  it('keeps what Vision already has: its own kind, format and creator', () => {
+    const vision = visionItem({ kind: 'book', creator: 'Vision Author' });
+    const [out] = enrichedItems([vision], [modelFilm({ creator: 'Model Author', edition: 'Director\'s Cut' })], T);
+    expect(out).toMatchObject({ kind: 'book', creator: 'Vision Author', edition: 'Director\'s Cut' });
+    expect(out.format).toBeUndefined(); // a format that belongs to the model's kind is not put on Vision's
+  });
+
+  it('does not take a kind from the model when the model has none either', () => {
+    expect(enrichedItems([visionItem()], [modelFilm({ kind: 'other', format: undefined })], T)[0]).toEqual(visionItem());
+  });
+
+  it('does not fill in from an item in another place, or one with no box', () => {
+    const vision = visionItem();
+    expect(enrichedItems([vision], [modelFilm({ box: spineAt(0.5) })], T)[0]).toBe(vision);
+    expect(enrichedItems([vision], [modelFilm({ box: undefined, title: 'SPACE MUTINY' })], T)[0]).toBe(vision);
+    expect(enrichedItems([visionItem({ box: undefined })], [modelFilm()], T)[0].kind).toBe('other');
+  });
+
+  it('gives a model item to the one Vision item it overlaps the most, not to every one it touches', () => {
+    const left = visionItem({ localId: 'v-left', box: spineAt(0.1) });
+    const right = visionItem({ localId: 'v-right', box: spineAt(0.13) });
+    const out = enrichedItems([right, left], [modelFilm({ box: { x: 0.12, y: 0.2, width: 0.03, height: 0.3 } })], T);
+    expect(out.map((i) => [i.localId, i.kind])).toEqual([['v-right', 'other'], ['v-left', 'film']]);
+  });
+
+  it('leaves the Vision items as they are, the same objects, when there is nothing to add', () => {
+    const items = [visionItem()];
+    expect(enrichedItems(items, [], T)[0]).toBe(items[0]);
+    expect(enrichedItems(items, [modelFilm({ kind: 'other', format: undefined })], T)[0]).toBe(items[0]);
   });
 });
 
