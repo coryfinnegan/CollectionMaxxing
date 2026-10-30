@@ -34,7 +34,7 @@ export interface CoverFormatInput {
 const positive = (n: number) => Number.isFinite(n) && n > 0;
 
 /** A rectangle against 3 or more of the picture's edges is the crop of the photo, not the case in it (see `CoverFormatTuning.frameEdgeMargin`). */
-function hugsFrame(r: Rect, tuning: CoverFormatTuning): boolean {
+export function hugsFrame(r: Rect, tuning: Pick<CoverFormatTuning, 'frameEdgeMargin' | 'frameHuggingSides'>): boolean {
   const gaps = [r.x, r.y, 1 - (r.x + r.width), 1 - (r.y + r.height)];
   return gaps.filter((gap) => gap <= tuning.frameEdgeMargin).length >= tuning.frameHuggingSides;
 }

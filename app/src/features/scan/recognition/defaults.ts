@@ -280,3 +280,65 @@ export interface SingleShotTuning {
 export const DEFAULT_SINGLE_SHOT_TUNING: SingleShotTuning = {
   modelTimeoutMs: 12000,
 };
+
+/**
+ * Several covers lying side by side in one shot, each read as an item of its own (multiCover.ts). Local tuning: the server does not own it, and
+ * it is not part of RecognitionSettings. Every share below is of the picture, in pixels, and every aspect ratio is a short side over a long side.
+ */
+export interface MultiCoverTuning {
+  /**
+   * The rectangle search asks for shapes up to this aspect ratio. Vision's own limit is 0.5 (twice as tall as wide), which a game case
+   * (about 0.6) never fits. 1 is a square.
+   */
+  maxAspectRatio: number;
+  /** The least share of the frame a rectangle must cover to be a cover and not a label, a logo or the art panel inside one. */
+  minCoverage: number;
+  /** A cover's own shape: a game case is about 0.6, a keepcase 0.71 to 0.86. A spine, a shelf edge or a table top is outside it. */
+  minCoverAspect: number;
+  maxCoverAspect: number;
+  /**
+   * Two rectangles that overlap by more than this share of the smaller one are one thing, and the bigger stands: a cover's art panel inside
+   * its case, a box inside a box. The share is `overlapShare`'s, so a rectangle wholly inside another is 1.
+   */
+  maxOverlap: number;
+  /** A photo is several covers only from this many rectangles that hold text; one is a single cover, which the cover shot reads. */
+  minCovers: number;
+  /**
+   * A cover holds at least this many lines (a title, a console, a rating, a blurb). A wide rectangle around one or two lines is a stretch of
+   * shelf that happened to be boxed, and the splitter reads it as it always did.
+   */
+  minCoverLines: number;
+  /** The covers together must hold at least this share of the lines Vision read; the lines outside them go to the spine splitter. */
+  minTextShare: number;
+  /**
+   * A rectangle whose lines are mostly upright (taller than wide, as the text on spines is) is a block of spines or a bookcase section, not a
+   * cover. More than this share of upright lines rules it out.
+   */
+  maxUprightLineShare: number;
+  /**
+   * A cover whose own text names no kind takes the kind the others name, when at least this many of them name it and none names another:
+   * covers photographed together are nearly always the same kind, and a game box often prints "Nintendo" on one and not on its neighbor (in
+   * the eval photo of three Switch boxes, one of the three does). 1 lets a single cover speak for the rest; raise it to ask for agreement.
+   */
+  kindAgreeingCovers: number;
+  /**
+   * How a game's title is read from its box, over the local tuning. A game prints a stylised logo (a big word with its subtitle set small, and
+   * lines over each other that are different words, not rereads) and no author. So lines are rereads only when one all but lies inside the other,
+   * the name rule is off (a title is never "2 or more words and at most 1"), and a line a quarter as high as the biggest still joins its title.
+   */
+  gameTitle: Pick<LocalTuning, 'duplicateLineOverlap' | 'coverNameMaxWords' | 'coverTitleSimilarHeight'>;
+}
+
+export const DEFAULT_MULTI_COVER_TUNING: MultiCoverTuning = {
+  maxAspectRatio: 1,
+  minCoverage: 0.04,
+  minCoverAspect: 0.5,
+  maxCoverAspect: 0.95,
+  maxOverlap: 0.3,
+  minCovers: 2,
+  minCoverLines: 3,
+  minTextShare: 0.6,
+  maxUprightLineShare: 0.5,
+  kindAgreeingCovers: 1,
+  gameTitle: { duplicateLineOverlap: 0.9, coverNameMaxWords: 1, coverTitleSimilarHeight: 0.25 },
+};
