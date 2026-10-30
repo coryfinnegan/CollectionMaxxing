@@ -25,7 +25,9 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// A format read agrees with a release that has no format on file through the release's kind: a DVD with a film or a
 /// show, a cartridge with a game, a paperback with a book (providers answer films and games with no format at all).
 /// A read kind of Other says nothing, and a platform name the console table does not know can agree with the same name
-/// but can never be a mismatch.
+/// but can never be a mismatch. A film read and a TV release (or the reverse) agree only a quarter: the kind that was
+/// read wins a tie between two releases of one title, the other kind stays a candidate, and a lone one is never Matched
+/// on its title and the kind alone.
 /// </para>
 /// <para>
 /// Four guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
@@ -119,13 +121,13 @@ public static class MatchScorer
             {
                 // A spine reads title and author as one line: this release's own author, found in the read, is not part of
                 // its title, and finding it there is the creator signal a separate author field would have been.
-                var similarity = TitleNormalizer.Similarity(read.Title, release.Title);
+                var similarity = TitleNormalizer.TitleSimilarity(read.Title, release.Title);
                 foreach (var creator in release.Creators)
                 {
                     if (TitleNormalizer.WithoutCreator(read.Title, creator) is { } bare)
                     {
                         creatorInTitle = true;
-                        similarity = Math.Max(similarity, TitleNormalizer.Similarity(bare, release.Title));
+                        similarity = Math.Max(similarity, TitleNormalizer.TitleSimilarity(bare, release.Title));
                     }
                 }
 
@@ -257,7 +259,8 @@ public static class MatchScorer
     /// <summary>
     /// The score rests on a title that is close but not the same, with nothing compared besides it and the kind (no author,
     /// year, platform, edition or picture): in the sixth eval run a made-up spine read matched an old pamphlet with a
-    /// near title at 0.94, as "lantern road dinners" would match "A Lantern Road Dinner".
+    /// near title at 0.94, as "lantern road dinners" would match "A Lantern Road Dinner". The same words in another order
+    /// are a near title too ("kitchen orchard" is not "The Orchard Kitchen"): the title term is under 1 for them.
     /// </summary>
     private static bool RestsOnANearTitleAlone(ScoredRelease best) =>
         best.Terms.Where(t => t.Compared).All(t => t.Name is TitleTerm or TypeTerm)
@@ -320,8 +323,23 @@ public static class MatchScorer
 
     // The type term, or null when it can not set two real values against each other: a format against the release's
     // format, else against the release's kind; a kind against a kind when neither says Other (which is also the
-    // "unknown" default of a candidate that has no kind).
+    // "unknown" default of a candidate that has no kind). A film and a show are both video, but a film read agrees only a
+    // little with a TV release (and the reverse) however the rest of the term came out: the format a provider's TV
+    // release is stored with is the one that was read, which would otherwise rank it level with the film of the same title.
     private static double? TypeAgreement(ReadItem read, CandidateRelease release)
+    {
+        var agreement = FormatOrKindAgreement(read, release);
+        return agreement is { } value && FilmAgainstTv(read.Kind, release.Kind) ? Math.Min(value, FilmAgainstTvAgreement) : agreement;
+    }
+
+    // Low enough that a lone same-titled release of the other kind (title + type only) stays under the Matched score in
+    // every profile: (0.5 + 0.1 * 0.25) / 0.6 is 0.875 for a shelf spine.
+    private const double FilmAgainstTvAgreement = 0.25;
+
+    private static bool FilmAgainstTv(WorkKind? readKind, WorkKind releaseKind) =>
+        (readKind, releaseKind) is (WorkKind.Film, WorkKind.Tv) or (WorkKind.Tv, WorkKind.Film);
+
+    private static double? FormatOrKindAgreement(ReadItem read, CandidateRelease release)
     {
         // Unknown is the catalogue saying it has no format on file (every provider film and game is stored so), not a format.
         if (read.Format is { } readFormat && readFormat != ReleaseFormat.Unknown)
@@ -344,7 +362,12 @@ public static class MatchScorer
             return null;
         }
 
-        return kind == release.Kind ? 1.0 : 0.0;
+        if (kind == release.Kind)
+        {
+            return 1.0;
+        }
+
+        return FilmAgainstTv(kind, release.Kind) ? FilmAgainstTvAgreement : 0.0;
     }
 
     // A release with no format on file still has a kind: providers answer films, shows and games with none.
