@@ -6,6 +6,8 @@ import type { ReadItem } from './types';
 const books = [modelItem('Dune', 'Dune', 0), modelItem('Emma', 'Emma', 1)];
 const text = [line('Dune', 0.1, 0.1, 0.1, 0.5), line('Emma', 0.5, 0.1, 0.1, 0.5)];
 const ok: Scene = { read: okRead(books), text };
+/** These tests are about the model's own reading (timeouts, halves); the Vision items a shelf shot adds are tested in shelfCombine.test.ts. */
+const ALONE = { combine: false };
 
 function selector(scene: Scene, caps?: object, settings: RecognitionSettings = S, cropper?: FakeCropper) {
   const vision = new RecordingVision({ [STILL.uri]: scene }, caps ? { capabilities: caps as never } : undefined);
@@ -39,7 +41,7 @@ describe('EngineSelector', () => {
   it('keeps what the model had read when a shelf runs out of time, as the Apple reading', async () => {
     // First eval run: a dense shelf streamed for longer than the budget and every spine it had read was thrown away.
     const { selector: s } = selector({ ...ok, read: failedRead('timeout', [books[0]]) });
-    const reading = await s.read(STILL, () => {});
+    const reading = await s.read(STILL, () => {}, ALONE);
     expect(reading.engine).toBe('apple_model');
     expect(reading.fellBackFrom).toBeUndefined();
     expect(reading.items.map((i) => i.title)).toEqual(['Dune']);
@@ -157,7 +159,7 @@ describe('EngineSelector with a wide shot', () => {
     const { cropper, scenes } = wide();
     const vision = new RecordingVision(scenes);
     const s = new EngineSelector({ vision, settings: () => S, newId: testIds, cropper });
-    const reading = await s.read(STILL, () => {});
+    const reading = await s.read(STILL, () => {}, ALONE);
     expect(cropper.regions).toHaveLength(0);
     expect(reading.items).toHaveLength(4);
   });
@@ -167,7 +169,7 @@ describe('EngineSelector with a wide shot', () => {
     scenes[`${STILL.uri}#crop2`] = { read: failedRead('declined') };
     const vision = new RecordingVision(scenes);
     const s = new EngineSelector({ vision, settings: () => smallLimit, newId: testIds, cropper });
-    const reading = await s.read(STILL, () => {});
+    const reading = await s.read(STILL, () => {}, ALONE);
     expect(reading.engine).toBe('apple_model');
     expect(reading.items).toHaveLength(4);
   });

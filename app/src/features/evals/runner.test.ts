@@ -94,6 +94,26 @@ describe('the eval runner', () => {
     expect(fm[1]).toMatchObject({ photoId: 'photo-002', outcome: 'timeout', fellBackFrom: 'timeout', items: [] });
   });
 
+  it('uploads the model\'s own reading as its row, not the scanner\'s model-plus-Vision combination', async () => {
+    // Vision finds a third spine the model missed. The scanner would add it to the model's items; the eval keeps the two engines apart
+    // and the PC builds the combination, so the model's row must hold the model's items only.
+    const third = { text: [
+      { text: 'Title of photo-001', confidence: 0.9, box: { x: 0.1, y: 0.1, width: 0.05, height: 0.6 } },
+      { text: 'Other of photo-001', confidence: 0.9, box: { x: 0.4, y: 0.1, width: 0.05, height: 0.6 } },
+      { text: 'Third of photo-001', confidence: 0.9, box: { x: 0.7, y: 0.1, width: 0.05, height: 0.6 } },
+    ], rectangles: [
+      { x: 0.08, y: 0.05, width: 0.09, height: 0.7 },
+      { x: 0.38, y: 0.05, width: 0.09, height: 0.7 },
+      { x: 0.68, y: 0.05, width: 0.09, height: 0.7 },
+    ] };
+    const kit = makeKit({ photos: 1, scenes: { 'photo-001': third } });
+    await kit.runner.start();
+    const rows = runs()[0].results;
+    expect(rows.find((r) => r.engine === 'apple_model')?.items.map((i) => i.title)).toEqual(['Title of photo-001', 'Other of photo-001']);
+    expect(rows.find((r) => r.engine === 'vision_pipeline')?.items.map((i) => i.title)).toEqual(['Title of photo-001', 'Other of photo-001', 'Third of photo-001']);
+    for (const item of rows.find((r) => r.engine === 'apple_model')?.items ?? []) expect(item.resolvedBy).toBe('model');
+  });
+
   it('marks extraction rows as settled by the model', async () => {
     const kit = makeKit({ photos: 1 });
     await kit.runner.start();

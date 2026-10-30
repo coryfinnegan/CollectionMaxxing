@@ -18,7 +18,7 @@ interface Pair {
   specificity: number;
 }
 
-function wordsMatch(a: string, b: string, tuning: LocalTuning): boolean {
+export function wordsMatch(a: string, b: string, tuning: LocalTuning): boolean {
   if (a === b) return true;
   const shorter = a.length < b.length ? a : b;
   const longer = shorter === a ? b : a;
