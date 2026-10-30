@@ -1,6 +1,7 @@
-// What goes to /identify: JSON text and fields only. A box, a crop or a path never appears in a request.
+// What goes to /identify: JSON text and fields only. A crop or a path never appears in a request; a read's box goes as a position (where on the
+// picture it sits), so two reads of one release in different places stay two items.
 import type { FallbackReason, IdentifyItem, IdentifyRequest, ScanEngine } from '@/api/generated/models';
-import { toIdentifyItem } from '../recognition/mapping';
+import { toIdentifyItem, toItemBox } from '../recognition/mapping';
 import type { EngineName, FellBackFrom, ReadItem } from '../recognition/types';
 import type { PicItem, PicSnap } from './pipelineStore';
 
@@ -14,10 +15,12 @@ export function toScanEngine(engine: EngineName): ScanEngine {
   return engine;
 }
 
-/** `IdentifyItem` plus the format the engines read (a VHS tape is a film in the VHS format). */
+/** `IdentifyItem` plus the format the engines read (a VHS tape is a film in the VHS format) and where the read sits on the picture. */
 export function identifyItemOf(item: ReadItem): IdentifyItem {
   const out = toIdentifyItem(item);
   if (item.format) out.format = item.format;
+  const box = toItemBox(item.box);
+  if (box) out.box = box;
   return out;
 }
 

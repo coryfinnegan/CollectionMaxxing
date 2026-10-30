@@ -1,7 +1,7 @@
 // The one table from the model's words to the server's words, and the shape /identify takes.
-// Only text and fields go out: no box, no order, no picture.
-import type { IdentifyItem, ItemCompleteness, ReleaseFormat, WorkKind } from '@/api/generated/models';
-import type { ModelCompleteness, ModelKind } from '@/native/cm-vision';
+// Only text and fields go out: no order, no picture. A box goes out as a position (`toItemBox`), never as a crop.
+import type { IdentifyItem, ItemBox, ItemCompleteness, ReleaseFormat, WorkKind } from '@/api/generated/models';
+import type { ModelCompleteness, ModelKind, Rect } from '@/native/cm-vision';
 import type { ReadItem } from './types';
 
 export interface KindMapping {
@@ -40,12 +40,28 @@ export function mapCompleteness(completeness: ModelCompleteness | string | undef
   return has(COMPLETENESS_TABLE, completeness) ? COMPLETENESS_TABLE[completeness] : undefined;
 }
 
-/** Exactly what `IdentifyItem` takes. */
+const unit = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * Where a read sits in the picture, as the server takes it (normalized 0..1, origin top-left): the server keeps two reads of one release
+ * in different places as two items. Each value is pulled into 0..1, since Vision's boxes overshoot the picture by a hair. A box with no
+ * area, a value that is not a number, or none of it inside the picture is left out: a box is a hint, never a reason to lose a read.
+ */
+export function toItemBox(box: Rect | undefined): ItemBox | undefined {
+  if (!box) return undefined;
+  const { x, y, width, height } = box;
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return undefined;
+  if (x >= 1 || y >= 1 || x + width <= 0 || y + height <= 0) return undefined;
+  return { x: unit(x), y: unit(y), width: unit(width), height: unit(height) };
+}
+
+/** The fields of `IdentifyItem` a read's words fill. Its position is added where the request is made (pipeline/payload.ts). */
 export function toIdentifyItem(item: ReadItem): IdentifyItem {
   const out: IdentifyItem = { localId: item.localId, text: item.text, title: item.title, kind: item.kind };
   if (item.creator) out.creator = item.creator;
   if (item.edition) out.edition = item.edition;
   if (item.completeness) out.completeness = item.completeness;
   if (item.platform) out.platform = item.platform;
+  if (item.productCode) out.productCode = item.productCode;
   return out;
 }

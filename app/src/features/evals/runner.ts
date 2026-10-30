@@ -5,6 +5,7 @@
 import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, GoldenPhotoDto, ScanTier } from '@/api/generated/models';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
+import { toItemBox } from '@/features/scan/recognition/mapping';
 import { ModelUnusableError, type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { ThermalState } from '@/native/cm-vision';
@@ -94,24 +95,30 @@ const shotKindOf = (set: string): ShotKind | undefined => (set === 'single' ? 's
 
 const FELL_BACK = { unavailable: 'unavailable', declined: 'declined', timeout: 'timeout', contextExceeded: 'context' } as const;
 
-const toItem = (item: ReadItem, engine: EngineName, segmentId: string): EvalReadItem => ({
-  localId: item.localId,
-  text: item.text,
-  title: item.title,
-  creator: item.creator,
-  edition: item.edition,
-  completeness: item.completeness,
-  kind: item.kind,
-  format: item.format,
-  platform: item.platform,
-  resolvedBy: engine === 'vision_pipeline' ? 'vision_text' : 'model',
-  segmentId,
-  // The phone cannot ground a read, so it claims the commit from confidence: a high-confidence read would
-  // auto-commit (T1) and the PC judges whether it was right; anything less is kept as a guess for a human.
-  ...(item.confidence === 'high'
-    ? { tier: 'T1' as ScanTier, provisional: false }
-    : { provisional: true, isGuess: true }),
-});
+const toItem = (item: ReadItem, engine: EngineName, segmentId: string): EvalReadItem => {
+  const box = toItemBox(item.box);
+  return {
+    localId: item.localId,
+    text: item.text,
+    title: item.title,
+    creator: item.creator,
+    edition: item.edition,
+    completeness: item.completeness,
+    kind: item.kind,
+    format: item.format,
+    platform: item.platform,
+    resolvedBy: engine === 'vision_pipeline' ? 'vision_text' : 'model',
+    segmentId,
+    // Where the read sits and the game code it printed, as the scanner sends them: the PC groups reads by place and looks the code up.
+    ...(box ? { box } : {}),
+    ...(item.productCode ? { productCode: item.productCode } : {}),
+    // The phone cannot ground a read, so it claims the commit from confidence: a high-confidence read would
+    // auto-commit (T1) and the PC judges whether it was right; anything less is kept as a guess for a human.
+    ...(item.confidence === 'high'
+      ? { tier: 'T1' as ScanTier, provisional: false }
+      : { provisional: true, isGuess: true }),
+  };
+};
 
 /** What the server accepts of the Vision engine's OCR record: at most this many lines, each with text up to this long. */
 export const MAX_OCR_LINES = 1000;
