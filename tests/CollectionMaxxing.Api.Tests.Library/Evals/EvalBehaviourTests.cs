@@ -417,7 +417,8 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
         using var admin = AdminClient();
 
-        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "apple_model", [ReadItem("Star Fox 64", platform: "Nintendo 64", year: 1997)])));
+        await PostRunOkAsync(
+            admin, RunBody(PhotoResult("c1", "apple_model", [ReadItem("Star Fox 64", platform: "Nintendo 64", year: 1997, creator: "STAR FOX")])));
 
         var item = (await LatestRunFileAsync()).GetProperty("photos")[0].GetProperty("items")[0];
         var read = item.GetProperty("read");
@@ -426,6 +427,8 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         read.GetProperty("platform").GetString().ShouldBe("Nintendo 64");
         read.GetProperty("year").GetInt32().ShouldBe(1997);
         read.GetProperty("profile").GetString().ShouldNotBeNullOrWhiteSpace();
+        read.GetProperty("creator").ValueKind.ShouldBe(JsonValueKind.Null); // cleaned: it only repeats the title
+        read.GetProperty("creatorAsRead").GetString().ShouldBe("STAR FOX");
         var terms = item.GetProperty("candidates")[0].GetProperty("terms").EnumerateArray()
             .ToDictionary(t => t.GetProperty("name").GetString()!);
         terms.Keys.ShouldBe(["title", "type", "platform", "year"], ignoreOrder: true);

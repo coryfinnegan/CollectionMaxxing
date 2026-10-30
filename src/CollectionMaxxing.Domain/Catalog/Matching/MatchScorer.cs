@@ -28,10 +28,12 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// but can never be a mismatch.
 /// </para>
 /// <para>
-/// Three guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
+/// Four guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
 /// 2005" is not "Madden NFL 2004"), and the year in a title is never taken for the release year. A known platform or
-/// title-year conflict caps the score below the Matched threshold. And Matched needs at least two signals that were
-/// actually compared (both sides present), or an exact barcode match; thinner evidence is at most Ambiguous.
+/// title-year conflict caps the score below the Matched threshold. Matched needs at least two signals that were
+/// actually compared (both sides present), or an exact barcode match; thinner evidence is at most Ambiguous. And when
+/// the title and the kind are the only signals compared, only an exact title (after normalising) can match: the
+/// providers asked for a book answer only books, so the kind agrees with every candidate and is no evidence for one.
 /// </para>
 /// </remarks>
 public static class MatchScorer
@@ -41,6 +43,9 @@ public static class MatchScorer
 
     /// <summary>A Match needs this many signals compared on both sides, unless a barcode matched exactly.</summary>
     private const int MinimumComparedSignals = 2;
+
+    private const string TitleTerm = "title";
+    private const string TypeTerm = "type";
 
     /// <summary>
     /// Which terms some candidate of the run can answer (so a candidate that can not is neutral on them rather than left
@@ -124,12 +129,12 @@ public static class MatchScorer
                     }
                 }
 
-                Add("title", weights.Title, similarity, othersAnswer: true);
+                Add(TitleTerm, weights.Title, similarity, othersAnswer: true);
             }
             else if (weights.Title > 0)
             {
                 weightSum += weights.Title; // a release with no title scores nothing on it, and it is not a compared signal
-                terms.Add(new ScoreTerm("title", weights.Title, 0.0, false));
+                terms.Add(new ScoreTerm(TitleTerm, weights.Title, 0.0, false));
             }
 
             titleYearConflict = TitleNormalizer.TitleYearsConflict(read.Title, release.Title);
@@ -137,7 +142,7 @@ public static class MatchScorer
 
         if (read.Format is not null || read.Kind is not null)
         {
-            Add("type", weights.Type, TypeAgreement(read, release), answerable.Type);
+            Add(TypeTerm, weights.Type, TypeAgreement(read, release), answerable.Type);
         }
 
         var platformMismatch = false;
@@ -208,7 +213,8 @@ public static class MatchScorer
     /// <summary>
     /// Scores every candidate, orders them best first (ties keep their input order) and decides the outcome from the best
     /// score and its lead over the second. No candidates is NotFound. A best score that rests on fewer than two compared
-    /// signals (and is not an exact barcode match), or on a known conflict, is at most Ambiguous.
+    /// signals (and is not an exact barcode match), on a known conflict, or on a near title with only the kind compared
+    /// besides it, is at most Ambiguous.
     /// </summary>
     public static MatchResult Evaluate(ReadItem read, IReadOnlyList<CandidateRelease> releases, ScoringProfile profile)
     {
@@ -229,13 +235,25 @@ public static class MatchScorer
 
         var best = ranked[0];
         var outcome = Classify(best.Score, ranked.Count > 1 ? ranked[1].Score : null, profile.Thresholds);
-        if (outcome == MatchOutcome.Matched && !best.IsExactIdentifierMatch && (best.ComparedSignals < MinimumComparedSignals || best.HasKnownConflict))
+        if (outcome == MatchOutcome.Matched
+            && !best.IsExactIdentifierMatch
+            && (best.ComparedSignals < MinimumComparedSignals || best.HasKnownConflict || RestsOnANearTitleAlone(best)))
         {
             outcome = MatchOutcome.Ambiguous;
         }
 
         return new MatchResult(outcome, ranked);
     }
+
+    /// <summary>
+    /// The score rests on a title that is close but not the same, with nothing compared besides it and the kind (no author,
+    /// year, platform, edition or picture): in the sixth eval run a made-up spine read matched an old pamphlet with a
+    /// near title at 0.94, as "lantern road dinners" would match "A Lantern Road Dinner".
+    /// </summary>
+    private static bool RestsOnANearTitleAlone(ScoredRelease best) =>
+        best.Terms.Where(t => t.Compared).All(t => t.Name is TitleTerm or TypeTerm)
+        && best.Terms.FirstOrDefault(t => t.Name == TitleTerm) is { } title
+        && Math.Round(title.Value, Decimals) < 1.0;
 
     /// <summary>
     /// The outcome rules: Matched when the best score is at least <see cref="ScoringThresholds.MatchedScore"/> and its
