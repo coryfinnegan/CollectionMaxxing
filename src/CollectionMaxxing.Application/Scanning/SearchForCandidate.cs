@@ -236,7 +236,9 @@ public sealed class TextSearchResolver(
     /// Scores everything found against the read and decides. Pure. With <paramref name="pendingWhenProvidersFailed"/>, a read
     /// that found nothing good while a provider was down or slow is Pending (worth asking again) instead of NotFound.
     /// <paramref name="contextWorkIds"/> biases the ranking toward the segment neighbours' works (design §8(d)): the verdict
-    /// and every score stay exactly as the scorer computed them.
+    /// and every score stay exactly as the scorer computed them. <paramref name="kindContext"/> is the kind the rest of the
+    /// read's snap agreed on (<see cref="Identify.KindContext"/>): for a read that names no kind, a close call lists releases of
+    /// that kind's family first when they score within <see cref="KindBias"/> of the others — the same bias, the same rules.
     /// </summary>
     public static BarcodeResolution Score(
         ReadItem read,
@@ -245,7 +247,8 @@ public sealed class TextSearchResolver(
         ProviderAnswers answers,
         bool pendingWhenProvidersFailed,
         IReadOnlyCollection<Guid>? contextWorkIds = null,
-        IReadOnlyDictionary<string, Guid>? workIdsByKey = null)
+        IReadOnlyDictionary<string, Guid>? workIdsByKey = null,
+        WorkKind? kindContext = null)
     {
         var steps = new List<TraceStep>();
         if (found.Step is { } localStep)
@@ -281,10 +284,18 @@ public sealed class TextSearchResolver(
             return nothing;
         }
 
-        var ranked = BiasRanking(result.Ranked, contextWorkIds, workIdsByKey, out var boosted);
+        // The snap's kind speaks only for a read that named none, and only in a close call: a Matched top has a lead far beyond
+        // the bias (KindBias is under MatchedLead by default), but a profile may be tuned, and the verdict is about the top.
+        var kindFamily = (read.Kind is null or WorkKind.Other) && result.Outcome == MatchOutcome.Ambiguous ? kindContext : null;
+        var ranked = BiasRanking(result.Ranked, contextWorkIds, workIdsByKey, kindFamily, out var boosted, out var kindMoved);
         if (boosted > 0)
         {
             steps.Add(new TraceStep("context", "biased", 0));
+        }
+
+        if (kindMoved)
+        {
+            steps.Add(new TraceStep("kind", "biased", 0));
         }
 
         var options = ranked.Take(Alternatives).Select(r => byKey[r.Release.Key] with { Score = r.Score, Terms = r.Terms }).ToList();
@@ -296,28 +307,58 @@ public sealed class TextSearchResolver(
     public const double ContextBias = 0.05;
 
     /// <summary>
-    /// Reorders a scored ranking toward the neighbours' works. The scores are untouched — only the order changes — and the
-    /// unbiased best is pinned into the top three, so the bias reorders but can never hide the globally-best match.
-    /// <paramref name="boosted"/> counts the ranked releases that got the bonus. Pure.
+    /// How much higher a release of the snap's kind sorts for a read that named none, in score units: a quarter of the Matched
+    /// lead (0.08 by default), so it settles a tie, or a gap of a hair, and nothing more. Smaller than <see cref="ContextBias"/>:
+    /// a neighbour is a work the person is known to be scanning, while the snap's kind is only what most of its other reads say.
+    /// </summary>
+    public const double KindBias = 0.02;
+
+    /// <summary>
+    /// Reorders a scored ranking toward the neighbours' works and, for a read that names no kind, toward the snap's kind
+    /// (<paramref name="kindContext"/>, null for none). The scores are untouched — only the order changes — and the unbiased best
+    /// is pinned into the top three, so the bias reorders but can never hide the globally-best match. A release's sort key is
+    /// its score plus its bonuses, rounded to the scorer's nine decimals so that a gap a bonus exactly closes is a tie (the
+    /// scorer's order stands). <paramref name="boosted"/> counts the ranked releases that got the neighbour bonus;
+    /// <paramref name="kindMoved"/> says the kind bonus changed which releases are offered, or in which order. Pure.
     /// </summary>
     private static List<ScoredRelease> BiasRanking(
-        IReadOnlyList<ScoredRelease> ranked, IReadOnlyCollection<Guid>? contextWorkIds, IReadOnlyDictionary<string, Guid>? workIdsByKey, out int boosted)
+        IReadOnlyList<ScoredRelease> ranked,
+        IReadOnlyCollection<Guid>? contextWorkIds,
+        IReadOnlyDictionary<string, Guid>? workIdsByKey,
+        WorkKind? kindContext,
+        out int boosted,
+        out bool kindMoved)
     {
         boosted = 0;
-        if (ranked.Count == 0 || contextWorkIds is not { Count: > 0 } || workIdsByKey is null)
+        kindMoved = false;
+        var neighbours = contextWorkIds is { Count: > 0 } && workIdsByKey is not null
+            ? contextWorkIds as IReadOnlySet<Guid> ?? contextWorkIds.ToHashSet()
+            : null;
+        if (ranked.Count == 0 || (neighbours is null && kindContext is null))
         {
             return ranked.ToList();
         }
 
-        var context = contextWorkIds as IReadOnlySet<Guid> ?? contextWorkIds.ToHashSet();
-        var order = ranked
-            .Select(entry => (Entry: entry, Boosted: workIdsByKey.TryGetValue(entry.Release.Key, out var workId) && context.Contains(workId)))
-            .OrderByDescending(x => x.Entry.Score + (x.Boosted ? ContextBias : 0))
-            .Select(x => x.Entry)
-            .ToList();
-        boosted = order.Count(entry => workIdsByKey.TryGetValue(entry.Release.Key, out var workId) && context.Contains(workId));
+        double NeighbourBonus(ScoredRelease entry) =>
+            neighbours is not null && workIdsByKey!.TryGetValue(entry.Release.Key, out var workId) && neighbours.Contains(workId) ? ContextBias : 0;
 
-        // The unbiased best stays selectable whatever the neighbours say: at worst it slides to third.
+        boosted = ranked.Count(entry => NeighbourBonus(entry) > 0);
+        var neighbourOrder = Ordered(ranked, NeighbourBonus);
+        if (kindContext is not { } kind)
+        {
+            return neighbourOrder;
+        }
+
+        var order = Ordered(ranked, entry => NeighbourBonus(entry) + (Identify.KindContext.InFamily(entry.Release.Kind, kind) ? KindBias : 0));
+        kindMoved = !order.Take(Alternatives).Select(entry => entry.Release.Key).SequenceEqual(neighbourOrder.Take(Alternatives).Select(entry => entry.Release.Key));
+        return order;
+    }
+
+    private static List<ScoredRelease> Ordered(IReadOnlyList<ScoredRelease> ranked, Func<ScoredRelease, double> bonus)
+    {
+        var order = ranked.OrderByDescending(entry => Math.Round(entry.Score + bonus(entry), 9)).ToList();
+
+        // The unbiased best stays selectable whatever the bonuses say: at worst it slides to third.
         var best = ranked[0].Release.Key;
         if (order.FindIndex(entry => entry.Release.Key == best) > Alternatives - 1)
         {
