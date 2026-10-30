@@ -398,7 +398,7 @@ describe('a shelf shot where the model gives no reading', () => {
     expect(reading.fellBackFrom).toBe('timeout');
     expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
     expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Neuromancer']);
-    expect(detect).toHaveBeenCalledTimes(1);
+    expect(detect).toHaveBeenCalledTimes(2); // one read of the Vision pipeline: the splitter's search and the wide one for covers (multiCover.ts)
     expect(reading.timings.totalMs).toBeGreaterThanOrEqual(reading.timings.visionMs);
   });
 
@@ -466,6 +466,6 @@ describe('shots and engines the combination leaves alone', () => {
     expect(reading.engine).toBe('vision_pipeline');
     expect(reading.fellBackFrom).toBe('unavailable');
     expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
-    expect(detect).toHaveBeenCalledTimes(1);
+    expect(detect).toHaveBeenCalledTimes(2); // one read of the Vision pipeline: the splitter's search and the wide one for covers (multiCover.ts)
   });
 });

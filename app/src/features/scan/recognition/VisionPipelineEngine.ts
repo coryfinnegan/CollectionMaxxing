@@ -1,6 +1,6 @@
 // The fallback engine: Vision text and rectangles, split in TypeScript, no model. Its titles are guesses, so every
 // item says low confidence and leaves the finding to the server.
-import type { Rect, TextLine, VisionEngine } from '@/native/cm-vision';
+import type { DetectRectanglesOptions, Rect, TextLine, VisionEngine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
 import type { CueKind } from './coverKind';
 import { coverTitleOf, type CoverTitle } from './coverTitle';
@@ -46,17 +46,18 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const started = this.now();
     const settings = this.deps.settings();
     const single = isSingleItemShot(options.shotKind);
-    // Rectangles are asked for while the text is read, so looking for covers costs no extra time. A cover shot never looks: it is one item.
-    const looking = single ? undefined : this.rectanglesOf(still);
+    // Both rectangle searches start with the text read, so looking for covers costs no extra time. A cover shot never looks: it is one item.
+    const looking = single ? undefined : Promise.all([this.rectanglesOf(still), this.rectanglesOf(still, { maximumAspectRatio: DEFAULT_MULTI_COVER_TUNING.maxAspectRatio })]);
     const lines = await readLines(this.deps.vision, still.uri, settings.local);
     // A cover shot is one item: the whole frame, never segmented (#504), and its title is its biggest text. Anything else may be a shelf row.
     if (single) {
       const whole = wholeFrame(lines);
       return this.reading(whole, lines, settings, started, onItem, new Map(whole.pieces.map((p) => [p, { title: coverTitleOf(p.lines, still, settings.local) }])));
     }
-    const rectangles = (await looking) ?? [];
+    // The splitter gets the default search's rectangles, as it always did; the covers are found in the wide search's, which it never sees.
+    const [rectangles, wide] = (await looking) ?? [[], []];
     // Several covers lying side by side are an item each; whatever lies outside them is a shelf as it always was.
-    const several = multipleCovers(lines, rectangles, still, settings.local);
+    const several = multipleCovers(lines, wide, still, settings.local);
     const rest = splitIntoPieces(several?.rest ?? lines, rectangles, settings.splitting, settings.local);
     const covers = several?.covers ?? [];
     return this.reading(
@@ -69,10 +70,10 @@ export class VisionPipelineEngine implements RecognitionEngine {
     );
   }
 
-  /** The rectangle search, asked for shapes as wide as a case (Vision's default would never return a game's). Never throws: no rectangles is a reading too. */
-  private async rectanglesOf(still: Still): Promise<Rect[]> {
+  /** One rectangle search: with no options, the splitter's; with `maximumAspectRatio`, as wide as a case (Vision's default would never return a game's). Never throws: no rectangles is a reading too. */
+  private async rectanglesOf(still: Still, options?: DetectRectanglesOptions): Promise<Rect[]> {
     try {
-      return await this.deps.vision.detectRectangles(still.uri, { maximumAspectRatio: DEFAULT_MULTI_COVER_TUNING.maxAspectRatio });
+      return await (options ? this.deps.vision.detectRectangles(still.uri, options) : this.deps.vision.detectRectangles(still.uri));
     } catch {
       return [];
     }

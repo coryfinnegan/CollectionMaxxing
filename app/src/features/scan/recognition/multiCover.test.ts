@@ -263,6 +263,8 @@ describe('the title of a cover', () => {
 const engineFor = (scene: Scene, still = STILL) => new VisionPipelineEngine({ vision: new RecordingVision({ [still.uri]: scene }), settings: () => S, newId: testIds });
 const readShelf = (scene: Scene, onItem: (item: ReadItem) => void = () => {}) => engineFor(scene).read(STILL, onItem, { shotKind: 'shelf_segment' });
 const titles = (items: ReadItem[]) => items.map((i) => i.title);
+/** A rectangle the splitter has merged and unioned, which can be off in the last digit. */
+const near = (r: Rect) => ({ x: expect.closeTo(r.x), y: expect.closeTo(r.y), width: expect.closeTo(r.width), height: expect.closeTo(r.height) });
 const withoutIds = (items: ReadItem[]) => items.map((i) => ({ ...i, localId: '' }));
 
 describe('the Vision engine on a shelf shot', () => {
@@ -301,13 +303,13 @@ describe('the Vision engine on a shelf shot', () => {
     expect(reading.items[2].kind).toBe('other');
   });
 
-  it('asks for the rectangles as wide as a case, while it reads the text, not after', async () => {
+  it('asks twice, both before the text read has answered: the default search for the splitter, and the wide one for the covers', async () => {
     const vision = new RecordingVision({ [STILL.uri]: { text: two, rectangles: [LEFT, RIGHT] } });
     const events: string[] = [];
     const rectangles = vision.detectRectangles.bind(vision);
     const text = vision.recognizeText.bind(vision);
     const detect = jest.spyOn(vision, 'detectRectangles').mockImplementation(async (uri, options) => {
-      events.push('rectangles asked');
+      events.push(options ? 'wide asked' : 'default asked');
       return rectangles(uri, options);
     });
     jest.spyOn(vision, 'recognizeText').mockImplementation(async (uri, options) => {
@@ -317,27 +319,70 @@ describe('the Vision engine on a shelf shot', () => {
       return text(uri, options);
     });
     await new VisionPipelineEngine({ vision, settings: () => S, newId: testIds }).read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(detect).toHaveBeenCalledTimes(1);
+    expect(detect).toHaveBeenCalledTimes(2);
+    expect(detect).toHaveBeenCalledWith(STILL.uri); // exactly as before: no options
     expect(detect).toHaveBeenCalledWith(STILL.uri, { maximumAspectRatio: M.maxAspectRatio });
-    expect(events.indexOf('rectangles asked')).toBeLessThan(events.indexOf('text answered'));
+    expect(events.indexOf('default asked')).toBeLessThan(events.indexOf('text answered'));
+    expect(events.indexOf('wide asked')).toBeLessThan(events.indexOf('text answered'));
   });
 
-  it('is today\'s reading when there are no rectangles, or the search throws', async () => {
-    const today = await readShelf({ text: two, rectangles: [] });
-    const vision = new RecordingVision({ [STILL.uri]: { text: two, rectangles: [LEFT, RIGHT] } });
-    jest.spyOn(vision, 'detectRectangles').mockRejectedValue(new Error('Vision failed'));
-    const thrown = await new VisionPipelineEngine({ vision, settings: () => S, newId: testIds }).read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(withoutIds(thrown.items)).toEqual(withoutIds(today.items));
-    expect(thrown.items.length).toBeGreaterThan(0);
-  });
+  describe('the two rectangle searches are independent', () => {
+    type Answer = Rect[] | Error;
+    /** An engine whose default search (no options) and wide search (`maximumAspectRatio`) answer as told, or throw. */
+    const searched = (text: TextLine[], { narrow = [], wide = [] }: { narrow?: Answer; wide?: Answer }) => {
+      const vision = new RecordingVision({ [STILL.uri]: { text } });
+      jest.spyOn(vision, 'detectRectangles').mockImplementation(async (_uri, options) => {
+        const answer = options ? wide : narrow;
+        if (answer instanceof Error) throw answer;
+        return answer;
+      });
+      return new VisionPipelineEngine({ vision, settings: () => S, newId: testIds }).read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    };
+    const spines = [0.1, 0.2].map((x): Rect => ({ x, y: 0.5, width: 0.06, height: 0.4 })); // 180 by 1600 pixels
+    const shelf = ['Dune', 'Emma'].map((title, i) => line(title, spines[i].x + 0.01, 0.6, 0.04, 0.2));
+    const failure = new Error('Vision failed');
 
-  it('is today\'s reading when the search throws before it answers, as an exception and not a rejection', async () => {
-    const vision = new RecordingVision({ [STILL.uri]: { text: two } });
-    jest.spyOn(vision, 'detectRectangles').mockImplementation(() => {
-      throw new Error('Vision failed');
+    it('gives the splitter the rectangles of the default search and only those, and the covers those of the wide one', async () => {
+      // The covers are in the wide search only; the spines in the default one only. Handed the covers' rectangles, the splitter would count two empty ones.
+      const reading = await searched([...two, ...shelf], { narrow: spines, wide: [LEFT, RIGHT] });
+      expect(titles(reading.items)).toEqual(['DUNE', 'EMMA', 'Dune', 'Emma']);
+      expect(reading.items.slice(2).map((i) => i.box)).toEqual(spines);
+      expect(reading.unreadableCount).toBe(0);
     });
-    const reading = await new VisionPipelineEngine({ vision, settings: () => S, newId: testIds }).read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(reading.items.length).toBeGreaterThan(0);
+
+    it('does not hand the covers a rectangle only the default search found', async () => {
+      const reading = await searched(two, { narrow: [LEFT, RIGHT], wide: [] });
+      expect(reading.items.map((i) => i.box)).toEqual([near(LEFT), near(RIGHT)]); // as before: the splitter boxed them, one item each
+      expect(reading.items.map((i) => i.kind)).toEqual(['other', 'other']);
+      const covers = await searched(two, { narrow: [], wide: [LEFT, RIGHT] });
+      expect(covers.items.map((i) => i.box)).toEqual([LEFT, RIGHT]);
+    });
+
+    it('is no covers, and the splitter unaffected, when the wide search throws', async () => {
+      const reading = await searched([...two, ...shelf], { narrow: spines, wide: failure });
+      const today = await searched([...two, ...shelf], { narrow: spines });
+      expect(withoutIds(reading.items)).toEqual(withoutIds(today.items));
+      expect(reading.items.length).toBeGreaterThan(0);
+      expect(titles(reading.items)).not.toContain('DUNE');
+    });
+
+    it('is the covers, and no rectangles for the splitter, when the default search throws', async () => {
+      const stray = line('Neuromancer', 0.4, 0.8, 0.05, 0.1);
+      const reading = await searched([...two, stray], { narrow: failure, wide: [LEFT, RIGHT] });
+      expect(titles(reading.items)).toEqual(['DUNE', 'EMMA', 'Neuromancer']);
+    });
+
+    it.each([
+      ['rejects', () => Promise.reject(new Error('Vision failed'))],
+      ['throws before it answers', () => { throw new Error('Vision failed'); }],
+    ])('is the reading from before when every search %s', async (_how, fail) => {
+      const vision = new RecordingVision({ [STILL.uri]: { text: two } });
+      jest.spyOn(vision, 'detectRectangles').mockImplementation(fail);
+      const reading = await new VisionPipelineEngine({ vision, settings: () => S, newId: testIds }).read(STILL, () => {}, { shotKind: 'shelf_segment' });
+      const today = await readShelf({ text: two, rectangles: [] });
+      expect(withoutIds(reading.items)).toEqual(withoutIds(today.items));
+      expect(reading.items.length).toBeGreaterThan(0);
+    });
   });
 
   it('splits a shelf of spines as before: one item per spine rectangle', async () => {
@@ -351,7 +396,7 @@ describe('the Vision engine on a shelf shot', () => {
   it('leaves one cover-shaped rectangle to the splitter, which boxes the one item with it as it always did', async () => {
     const reading = await readShelf({ text: coverText(LEFT, 'DUNE'), rectangles: [LEFT] });
     expect(reading.items).toHaveLength(1);
-    expect(reading.items[0].box).toMatchObject({ x: expect.closeTo(LEFT.x), y: expect.closeTo(LEFT.y), width: expect.closeTo(LEFT.width), height: expect.closeTo(LEFT.height) });
+    expect(reading.items[0].box).toEqual(near(LEFT));
     expect(reading.items[0].kind).toBe('other');
   });
 
