@@ -1,7 +1,8 @@
 // Picks the engine for each snap. The Apple model when it can see pictures; the OCR-text extraction tier when the
 // model can only read text, or when the picture read declines, runs out of time or room; Vision text for that one snap
 // when neither model tier answers. The next snap tries the model again. A shelf shot the picture model read also gets
-// the Vision pipeline's items the model did not find: the two engines find different spines.
+// the Vision pipeline's items the model did not find: the two engines find different spines. A single cover the picture
+// model read has its film format checked against the case's shape and logos, which the model often gets wrong.
 import type { ModelCapabilities, ModelUnavailableReason, Rect, VisionEngine } from '@/native/cm-vision';
 import { discardPicture, trackPicture } from '../pictureFiles';
 import { isSingleItemShot } from '../shotkind/shotKind';
@@ -9,6 +10,8 @@ import { AppleModelEngine } from './AppleModelEngine';
 import { FmTextEngine } from './FmTextEngine';
 import { VisionPipelineEngine, type EngineDeps } from './VisionPipelineEngine';
 import { addableItems } from './combine';
+import { correctFormat, coverFormat, type FormatCue } from './coverFormat';
+import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING } from './defaults';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
 import { type EngineName, type FellBackFrom, ModelUnusableError, type ReadItem, type ReadOptions, type SnapReading, type Still, type StillCropper } from './types';
@@ -24,6 +27,66 @@ export interface RecognitionState {
 export interface SelectorDeps extends EngineDeps {
   /** Needed to read a wide shot in halves; without it a wide shot is read whole. */
   cropper?: StillCropper;
+  /** What a cover's case says about its format, and how long to wait for it; `DEFAULT_COVER_FORMAT_TUNING` unless given. */
+  coverFormatTuning?: CoverFormatTuning;
+}
+
+/**
+ * The format cue from the case, held by the one snap. It is looked for while the model reads; each item the model streams
+ * waits for it (or for it to be given up on) and goes out corrected, in the order it came. It never rejects, and never
+ * holds a snap for longer than `waitMs` after the model's read ended.
+ */
+class CaseCue {
+  private readonly cue: Promise<FormatCue | undefined>;
+  private emitting: Promise<void> = Promise.resolve();
+  private giveUp: () => void = () => {};
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private arrived = false;
+
+  constructor(found: Promise<FormatCue | undefined>, private readonly waitMs: number) {
+    this.cue = new Promise((resolve) => {
+      this.giveUp = () => resolve(undefined);
+      found.then(resolve, () => resolve(undefined));
+    });
+    void this.cue.then(() => {
+      this.arrived = true;
+      clearTimeout(this.timer);
+    });
+  }
+
+  /** The model's read is over: from here the cue has `waitMs` to arrive. */
+  modelFinished(): void {
+    if (this.arrived || this.timer !== undefined) return;
+    this.timer = setTimeout(this.giveUp, this.waitMs);
+  }
+
+  /** `onItem` for the model engine: each item goes on once the cue is known, corrected by it, in order. */
+  stream(onItem: (item: ReadItem) => void): (item: ReadItem) => void {
+    return (item) => {
+      const next = this.emitting.then(async () => onItem(await this.correct(item)));
+      next.catch(() => {}); // a failing onItem surfaces when the snap awaits `finish`, as it did when the engine emitted directly
+      this.emitting = next;
+    };
+  }
+
+  /** The streamed items have gone out and the reading's items carry the same correction. */
+  async finish(reading: SnapReading): Promise<SnapReading> {
+    this.modelFinished();
+    await this.emitting;
+    const cue = await this.cue;
+    return cue ? { ...reading, items: reading.items.map((item) => correctFormat(item, cue)) } : reading;
+  }
+
+  /** The model's read failed: whatever was streamed goes out as it is, now. */
+  async abandon(): Promise<void> {
+    this.giveUp();
+    await this.emitting.catch(() => {});
+  }
+
+  private async correct(item: ReadItem): Promise<ReadItem> {
+    const cue = await this.cue;
+    return cue ? correctFormat(item, cue) : item;
+  }
 }
 
 const seesPictures = (caps: ModelCapabilities) => caps.available && caps.vision;
@@ -67,15 +130,32 @@ export class EngineSelector {
     const caps = await this.capabilities();
     if (!caps || !extractsText(caps)) return this.fallBack(still, onItem, 'unavailable', options);
     if (!seesPictures(caps)) return this.readText(still, onItem, options);
+    // A single cover's case is looked at while the model reads, so the cue is ready (or nearly) when the model's items are.
+    const cue = this.startCue(still, options);
     try {
-      const reading = await this.apple.read(still, onItem, options);
+      const reading = await this.apple.read(still, cue ? cue.stream(onItem) : onItem, options);
+      cue?.modelFinished();
       // The Vision read starts once the model's items have streamed, so it never competes with them, and runs while a wide shot is re-read in halves.
       const vision = this.readVision(still, options);
       const whole = await this.maybeHalves(still, reading, started, options);
-      return await this.withVisionItems(whole, vision, onItem, started);
+      return await this.withVisionItems(cue ? await cue.finish(whole) : whole, vision, onItem, started);
     } catch (error) {
+      await cue?.abandon();
       return this.readText(still, onItem, options, error instanceof ModelUnusableError ? error.reason : 'unavailable');
     }
+  }
+
+  /** The case's format cue for a single-item shot, looked for now; nothing for a shelf shot or a read of unknown framing. */
+  private startCue(still: Still, options: ReadOptions): CaseCue | undefined {
+    if (!isSingleItemShot(options.shotKind)) return undefined;
+    const tuning = this.deps.coverFormatTuning ?? DEFAULT_COVER_FORMAT_TUNING;
+    return new CaseCue(this.findFormatCue(still, tuning), tuning.cueWaitMs);
+  }
+
+  /** Rectangles and text, read together; if either read throws there is no cue (the model's items stand). */
+  private async findFormatCue(still: Still, tuning: CoverFormatTuning): Promise<FormatCue | undefined> {
+    const [rectangles, lines] = await Promise.all([this.vision.detectRectangles(still.uri), readLines(this.vision, still.uri, this.deps.settings().local)]);
+    return coverFormat({ still, rectangles, lines, tuning });
   }
 
   /**

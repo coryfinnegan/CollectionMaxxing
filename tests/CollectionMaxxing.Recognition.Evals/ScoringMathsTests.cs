@@ -229,6 +229,53 @@ public sealed class ScoringMathsTests : IDisposable
     }
 
     [Fact]
+    public void A_single_picture_match_must_be_the_kind_of_item_the_truth_format_says_so_a_same_titled_book_is_not_the_vhs_but_the_film_is()
+    {
+        _golden.AddSingle("v1", new SyntheticGolden.SingleItem("The Marsh Lantern", "vhs", "complete", EvalKinds.VhsSleeve));
+        _golden.AddSingle("v2", new SyntheticGolden.SingleItem("The Marsh Lantern", "vhs", "complete", EvalKinds.VhsSleeve));
+
+        var photos = new[]
+        {
+            Photo("v1", Apple, [new GroundedItem("the marsh lantern", null, "model", "matched", [new GroundedCandidate("The Marsh Lantern", "book", null, null, 1997, 0.95)])]),
+            Photo("v2", Apple, [new GroundedItem("the marsh lantern", null, "model", "matched", [Release("The Marsh Lantern", null, "film", "vhs")])]),
+        };
+        var single = EvalScorer.Score(photos, TruthsOf(_golden)).SoloOf();
+
+        single.TruthItems.ShouldBe(2);
+        single.Top1Pct.ShouldBe(50); // only the film
+        single.Top3Pct.ShouldBe(50);
+    }
+
+    [Fact]
+    public void A_single_picture_game_truth_is_not_matched_by_a_same_titled_film()
+    {
+        _golden.AddSingle("g1", new SyntheticGolden.SingleItem("Tide Runner", "game_cartridge", "cart_only", EvalKinds.LooseCartridge, "Nintendo 64"));
+
+        var single = EvalScorer.Score(
+            [Photo("g1", Apple, [new GroundedItem("tide runner", "cart_only", "model", "matched", [new GroundedCandidate("Tide Runner", "film", null, "Nintendo 64", 1997, 0.95)])])],
+            TruthsOf(_golden)).SoloOf();
+
+        single.Top1Pct.ShouldBe(0);
+        single.Top3Pct.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_tv_release_fits_a_film_format_and_a_release_with_no_kind_is_not_held_against_a_single_picture_match()
+    {
+        _golden.AddSingle("t1", new SyntheticGolden.SingleItem("Harbour Lights Season One", "dvd", "complete", EvalKinds.DiscCover));
+        _golden.AddSingle("t2", new SyntheticGolden.SingleItem("Paper Moon Orchard", "dvd", "complete", EvalKinds.DiscCover));
+
+        var photos = new[]
+        {
+            Photo("t1", Apple, [new GroundedItem("harbour lights season one", null, "model", "matched", [Release("Harbour Lights Season One", null, "tv", "dvd")])]),
+            Photo("t2", Apple, [new GroundedItem("paper moon orchard", null, "model", "matched", [new GroundedCandidate("Paper Moon Orchard", null, "dvd", null, 1997, 0.95)])]),
+        };
+        var single = EvalScorer.Score(photos, TruthsOf(_golden)).SoloOf();
+
+        single.Top1Pct.ShouldBe(100);
+    }
+
+    [Fact]
     public void In_a_single_picture_only_the_first_item_is_the_answer_and_the_others_only_cost_precision()
     {
         _golden.AddSingle("c1", new SyntheticGolden.SingleItem("Star Fox 64", "game_cartridge", "cart_only", EvalKinds.LooseCartridge, "Nintendo 64"));
