@@ -80,13 +80,17 @@ public class CmVisionModule: Module {
         osVersion: CmDevice.osVersion())
     }
 
-    AsyncFunction("detectRectangles") { (imageUri: String) -> [[String: Any]] in
+    // With no options the request is exactly the shelf splitter's: Vision's own limit on how wide a shape may be (0.5, short side over
+    // long side) still applies. A caller that wants a case, which is wider than that, names a higher `maximumAspectRatio`.
+    AsyncFunction("detectRectangles") { (imageUri: String, options: [String: Double]?) -> [[String: Any]] in
       let request = VNDetectRectanglesRequest()
       request.maximumObservations = 0
       request.minimumConfidence = 0.5
       request.minimumSize = 0.1
       request.minimumAspectRatio = 0.1
       request.quadratureTolerance = 30
+      if let minimumSize = options?["minimumSize"] { request.minimumSize = Float(minimumSize) }
+      if let maximumAspectRatio = options?["maximumAspectRatio"] { request.maximumAspectRatio = Float(maximumAspectRatio) }
       try CmVisionRunner.perform(request, imageUri: imageUri)
       let observations: [VNRectangleObservation] = request.results ?? []
       return observations.map { CmContract.rect($0.boundingBox) }

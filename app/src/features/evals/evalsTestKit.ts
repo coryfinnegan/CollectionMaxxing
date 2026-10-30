@@ -1,13 +1,11 @@
-// Test pieces shared by the eval runner and screen tests: the real selector and Vision text engine over a fake vision engine,
+// Test pieces shared by the eval runner and screen tests: the real selector and its tiers over a fake vision engine,
 // a fake file system that records every download and delete, and a config store whose server answer the test can change.
 import { evalApi } from './api';
 import { createEvalRunner, type EvalRunner } from './runner';
 import { RecognitionConfigStore } from '@/features/scan/recognition/config';
 import { DEFAULT_RECOGNITION_CONFIG, type RecognitionConfig } from '@/features/scan/recognition/defaults';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
-import { FmTextEngine } from '@/features/scan/recognition/FmTextEngine';
 import { failedRead, line, modelItem, okRead, RecordingVision, testIds, type Scene } from '@/features/scan/recognition/fakes';
-import { VisionPipelineEngine } from '@/features/scan/recognition/VisionPipelineEngine';
 import { setPictureFiles, trackPicture } from '@/features/scan/pictureFiles';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { evalsMock, goldenPhotos } from '@/mocks/evals';
@@ -89,6 +87,7 @@ export function makeKit(options: KitOptions = {}) {
     },
   });
   const settings = () => store.current();
+  const realSelector = new EngineSelector({ vision, settings, newId: testIds });
   /** How often the phone was told to stay awake and to let go, and whether it is being held awake right now. */
   const awake = { on: 0, off: 0, held: false };
 
@@ -107,9 +106,10 @@ export function makeKit(options: KitOptions = {}) {
             throw new Error('the reader broke');
           },
         }
-      : new EngineSelector({ vision, settings, newId: testIds }),
-    fmText: new FmTextEngine({ vision, settings, newId: testIds }),
-    pipeline: new VisionPipelineEngine({ vision, settings, newId: testIds }),
+      : realSelector,
+    // as on the phone (device.ts): the two lower tiers are the selector's own
+    fmText: realSelector.tiers.fmText,
+    pipeline: realSelector.tiers.pipeline,
     config: store,
     vision,
     device: { model: 'iPhone16,1', appVersion: '1.2.3' },

@@ -33,16 +33,23 @@ export interface CoverFormatInput {
 
 const positive = (n: number) => Number.isFinite(n) && n > 0;
 
+/** A rectangle against 3 or more of the picture's edges is the crop of the photo, not the case in it (see `CoverFormatTuning.frameEdgeMargin`). */
+function hugsFrame(r: Rect, tuning: CoverFormatTuning): boolean {
+  const gaps = [r.x, r.y, 1 - (r.x + r.width), 1 - (r.y + r.height)];
+  return gaps.filter((gap) => gap <= tuning.frameEdgeMargin).length >= tuning.frameHuggingSides;
+}
+
 /**
  * The format the largest big-enough rectangle is shaped like: its short side over its long side, in pixels (Vision's
- * rectangles are 0..1 of each side, so a 0.5 by 0.5 rectangle on a 3:4 still is not a square). A ratio between the bands
- * or outside them is no cue. Ultra HD shares Blu-ray's case, so only a logo says Ultra HD.
+ * rectangles are 0..1 of each side, so a 0.5 by 0.5 rectangle on a 3:4 still is not a square). A rectangle that hugs the
+ * frame is never taken for the case. A ratio between the bands or outside them is no cue. Ultra HD shares Blu-ray's case,
+ * so only a logo says Ultra HD.
  */
 function formatFromShape(still: CoverFormatInput['still'], rectangles: Rect[], tuning: CoverFormatTuning): FilmFormat | undefined {
   if (!positive(still.width) || !positive(still.height)) return undefined;
   let largest: Rect | undefined;
   for (const r of rectangles) {
-    if (positive(r.width) && positive(r.height) && (!largest || r.width * r.height > largest.width * largest.height)) largest = r;
+    if (positive(r.width) && positive(r.height) && !hugsFrame(r, tuning) && (!largest || r.width * r.height > largest.width * largest.height)) largest = r;
   }
   if (!largest || largest.width * largest.height < tuning.minCaseCoverage) return undefined;
   const sides = [largest.width * still.width, largest.height * still.height];
@@ -75,7 +82,7 @@ const LOGOS: readonly Logo[] = [
 ];
 
 /** Letters OCR trades for digits and capital I, so "VIDE0", "B1u-ray" and "BIu-ray" still read. Applied to both sides. */
-const fold = (text: string): string => normalize(text).replace(/[01i]/g, (c) => (c === '0' ? 'o' : 'l'));
+export const fold = (text: string): string => normalize(text).replace(/[01i]/g, (c) => (c === '0' ? 'o' : 'l'));
 
 function oneEditApart(a: string, b: string): boolean {
   if (Math.abs(a.length - b.length) > 1) return false;
@@ -135,7 +142,15 @@ export function coverFormat({ still, rectangles, lines, tuning = DEFAULT_COVER_F
 // ---- Correcting a read --------------------------------------------------------------------------------------------
 
 const FILM_RELEASE_FORMATS = new Set((['vhs', 'dvd', 'bluray', 'uhdBluray'] as const).flatMap((f) => mapKind(f).format ?? []));
-const hasFilmFormat = (item: ReadItem) => item.kind === 'film' && item.format !== undefined && FILM_RELEASE_FORMATS.has(item.format);
+/** Whether the read says a film in one of the formats a case can be in. */
+export const hasFilmFormat = (item: ReadItem): boolean => item.kind === 'film' && item.format !== undefined && FILM_RELEASE_FORMATS.has(item.format);
+
+/** The item as a film in `format`; the same object when it already is. */
+export function asFilmIn(item: ReadItem, format: FilmFormat): ReadItem {
+  const target = mapKind(format);
+  if (item.kind === target.kind && item.format === target.format) return item;
+  return { ...item, kind: target.kind, format: target.format };
+}
 
 /**
  * The item with the format the case says.
@@ -148,7 +163,5 @@ const hasFilmFormat = (item: ReadItem) => item.kind === 'film' && item.format !=
 export function correctFormat(item: ReadItem, cue: FormatCue): ReadItem {
   if (item.kind === 'game') return item;
   if (cue.source === 'shape' && !hasFilmFormat(item)) return item;
-  const target = mapKind(cue.format);
-  if (item.kind === target.kind && item.format === target.format) return item;
-  return { ...item, kind: target.kind, format: target.format };
+  return asFilmIn(item, cue.format);
 }

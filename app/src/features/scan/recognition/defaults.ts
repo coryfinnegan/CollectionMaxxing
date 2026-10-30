@@ -162,12 +162,20 @@ export interface RatioBand {
 }
 
 /**
- * What a single cover's case says about its film format (coverFormat.ts). Local tuning: the server does not own it, and it is
- * not part of RecognitionSettings.
+ * What a single cover's case and printed text say about its film format and its kind (coverFormat.ts, coverKind.ts). Local tuning: the
+ * server does not own it, and it is not part of RecognitionSettings.
  */
 export interface CoverFormatTuning {
   /** The least share of the frame a rectangle must cover to be taken for the case, not a poster, a shelf edge or a label. */
   minCaseCoverage: number;
+  /**
+   * A rectangle that comes within this share of the picture's side of the picture's edge is touching that edge. One that touches
+   * `frameHuggingSides` edges or more is the crop of the photo (or its own border), not the case: the shape cue ignores it. A 3:4 phone
+   * still is shaped like a DVD case, so a cover shot so close that the case fills the frame would otherwise always read as a DVD.
+   */
+  frameEdgeMargin: number;
+  /** How many edges a rectangle must touch (see `frameEdgeMargin`) to be taken for the frame. A case at the photo's side touches one or two. */
+  frameHuggingSides: number;
   /**
    * Short side over long side of the case, in pixels. Measured on real cases: a VHS slipcase is about 0.55, a clamshell 0.60
    * to 0.63, a DVD keepcase 0.71, a Blu-ray or Ultra HD keepcase 0.86. The bands leave room for a case that is tilted or cut
@@ -182,13 +190,44 @@ export interface CoverFormatTuning {
   fuzzyLogoMinLength: number;
   /** How long after the model's read a cover's format cue may still arrive before the model's items go out as they are. */
   cueWaitMs: number;
+  /**
+   * The rectangle search for the case asks for shapes up to this short side over long side. Vision's own limit is 0.5 (a shape twice as tall
+   * as wide), which a DVD case (0.71) and a Blu-ray case (0.86) are both over, so without this the shape cue never sees a case. 1 is a square.
+   */
+  maxCaseAspectRatio: number;
+  /** A line of text with more words than this is a blurb, never a console's name ("Licensed by Nintendo of America" is five). */
+  consoleLineMaxWords: number;
+  /** A bestseller line ("A novel", "National bestseller") is matched whole, with one wrong character allowed for every this many characters of the phrase. */
+  bookLineCharsPerEdit: number;
 }
 
 export const DEFAULT_COVER_FORMAT_TUNING: CoverFormatTuning = {
   minCaseCoverage: 0.3,
+  frameEdgeMargin: 0.02,
+  frameHuggingSides: 3,
   vhs: { min: 0.45, max: 0.65 },
   dvd: { min: 0.66, max: 0.77 },
   bluray: { min: 0.8, max: 0.92 },
   fuzzyLogoMinLength: 7,
   cueWaitMs: 1500,
+  maxCaseAspectRatio: 1,
+  consoleLineMaxWords: 5,
+  bookLineCharsPerEdit: 8,
+};
+
+/**
+ * How long the model may take to read a single cover (a cover shot or a loose item). Local tuning: the server does not own it, and it is not
+ * part of RecognitionSettings. A shelf shot keeps the server's `engine.modelTimeoutMs`.
+ */
+export interface SingleShotTuning {
+  /**
+   * A single cover normally reads in 3 to 5 seconds. The picture model has timed out, at about 34 seconds, twice in a row on one DVD cover,
+   * and every one of those seconds is the scanner stuck on one snap. The server's own budget still caps this from above, so a shorter
+   * server value wins.
+   */
+  modelTimeoutMs: number;
+}
+
+export const DEFAULT_SINGLE_SHOT_TUNING: SingleShotTuning = {
+  modelTimeoutMs: 12000,
 };

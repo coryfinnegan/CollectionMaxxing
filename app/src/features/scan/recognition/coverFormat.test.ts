@@ -1,5 +1,6 @@
 import type { Rect } from '@/native/cm-vision';
 import { correctFormat, coverFormat, type FormatCue } from './coverFormat';
+import { DEFAULT_COVER_FORMAT_TUNING } from './defaults';
 import { line } from './fakes';
 import type { ReadItem } from './types';
 
@@ -147,6 +148,61 @@ describe('coverFormat: the shape of the case', () => {
 
   it('skips a rectangle with no size', () => {
     expect(cueOf([{ x: 0.1, y: 0.1, width: 0, height: 0.8 }])).toBeUndefined();
+  });
+});
+
+describe('coverFormat: a rectangle that hugs the frame is the crop, not the case', () => {
+  // On a 3000 x 4000 still, a rectangle as wide as it is tall in 0..1 is 3:4 (0.75), which is the DVD band. A rectangle that fills the frame
+  // says how the photo was cropped (or the photo's own border), never what case is in it.
+  const hugging = { x: 0, y: 0, width: 1, height: 1 };
+
+  it('gives no shape cue for a rectangle that fills the frame', () => {
+    expect(cueOf([hugging])).toBeUndefined();
+  });
+
+  it('gives no shape cue for a rectangle a hair inside every edge', () => {
+    expect(cueOf([{ x: 0.01, y: 0.01, width: 0.98, height: 0.98 }])).toBeUndefined();
+  });
+
+  it('ignores a rectangle that is within the margin of three edges, however it is shaped', () => {
+    // 0.9467 x 1 of a 3000 x 4000 still is 0.71 in pixels: a DVD keepcase, if it were not pushed against the left, top and bottom edges.
+    const threeEdges = { x: 0, y: 0, width: 0.9467, height: 1 };
+    expect(cueOf([threeEdges])).toBeUndefined();
+    expect(cueOf([{ x: 0.019, y: 0.019, width: 0.9467, height: 0.962 }])).toBeUndefined();
+  });
+
+  it('still counts a rectangle that touches only two edges', () => {
+    expect(cueOf([{ x: 0, y: 0, width: 0.852, height: 0.9 }])).toEqual({ format: 'dvd', source: 'shape' });
+  });
+
+  it('still counts a case at the photo\'s side, touching one edge', () => {
+    expect(cueOf([{ x: 0, y: 0.1, width: 0.757, height: 0.8 }])).toEqual({ format: 'dvd', source: 'shape' });
+  });
+
+  it('counts a rectangle just outside the margin as inside the picture', () => {
+    expect(cueOf([{ x: 0.03, y: 0.03, width: 0.9467 * 0.94, height: 0.94 }])).toEqual({ format: 'dvd', source: 'shape' });
+  });
+
+  it('measures a smaller real case when the frame-hugging rectangle is ignored', () => {
+    expect(cueOf([hugging, caseWith(0.55, 0.8)])).toEqual({ format: 'vhs', source: 'shape' });
+  });
+
+  it('takes the margin and the number of edges from the tuning', () => {
+    const tuning = { ...DEFAULT_COVER_FORMAT_TUNING, frameEdgeMargin: 0.1, frameHuggingSides: 2 };
+    const near = { x: 0.05, y: 0.05, width: 0.852, height: 0.9 }; // within 0.1 of the left and top edges
+    expect(coverFormat({ still: STILL, rectangles: [near], lines: [], tuning })).toBeUndefined();
+    expect(coverFormat({ still: STILL, rectangles: [near], lines: [] })).toEqual({ format: 'dvd', source: 'shape' });
+  });
+
+  it('does not touch a logo', () => {
+    expect(cueOf([hugging], ['Blu-ray Disc'])).toEqual({ format: 'bluray', source: 'logo' });
+    expect(cueOf([hugging], ['DVD VIDEO'])).toEqual({ format: 'dvd', source: 'logo' });
+  });
+
+  it('no longer lets the ignored shape settle a case that names two formats', () => {
+    const vhsShaped = { x: 0, y: 0, width: 0.8, height: 1 }; // 0.6 in pixels, against the left, top and bottom edges
+    expect(cueOf([vhsShaped], ['Now on DVD', 'VHS'])).toEqual({ format: 'dvd', source: 'logo' });
+    expect(cueOf([caseWith(0.6)], ['Now on DVD', 'VHS'])?.format).toBe('vhs');
   });
 });
 
