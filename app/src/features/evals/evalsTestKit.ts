@@ -34,6 +34,8 @@ export interface KitOptions {
   selectorThrows?: boolean;
   /** Called each time the fake vision engine is asked to read, to pause or cancel in the middle of a run. */
   onRead?: (uri: string) => void | Promise<void>;
+  /** Called each time the run is sent to the PC, before the request goes out: hold the promise to keep the send pending, reject it to fail the send. */
+  onSubmit?: () => void | Promise<void>;
 }
 
 export function makeKit(options: KitOptions = {}) {
@@ -87,10 +89,17 @@ export function makeKit(options: KitOptions = {}) {
     },
   });
   const settings = () => store.current();
-  const awake = { on: 0, off: 0 };
+  /** How often the phone was told to stay awake and to let go, and whether it is being held awake right now. */
+  const awake = { on: 0, off: 0, held: false };
 
   const runner: EvalRunner = createEvalRunner({
-    api: evalApi,
+    api: {
+      list: () => evalApi.list(),
+      submit: async (body) => {
+        await options.onSubmit?.();
+        return evalApi.submit(body);
+      },
+    },
     files,
     selector: options.selectorThrows
       ? {
@@ -107,9 +116,11 @@ export function makeKit(options: KitOptions = {}) {
     keepAwake: {
       on: async () => {
         awake.on += 1;
+        awake.held = true;
       },
       off: async () => {
         awake.off += 1;
+        awake.held = false;
       },
     },
   });

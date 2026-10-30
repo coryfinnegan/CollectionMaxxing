@@ -173,7 +173,93 @@ describe('the eval runner', () => {
   it('keeps the screen awake for the run and lets go at the end', async () => {
     const kit = makeKit({ photos: 2 });
     await kit.runner.start();
-    expect(kit.awake).toEqual({ on: 1, off: 1 });
+    expect(kit.awake).toEqual({ on: 1, off: 1, held: false });
+  });
+
+  describe('keeping the phone awake until the run is sent', () => {
+    it('holds the screen awake while the send is still pending, without turning it on a second time', async () => {
+      const send = deferred();
+      let sending = false;
+      const kit = makeKit({
+        photos: 2,
+        onSubmit: () => {
+          sending = true;
+          return send.promise;
+        },
+      });
+      const finished = kit.runner.start();
+      await waitFor(() => sending);
+
+      expect(kit.runner.getState().phase).toBe('uploading');
+      expect(kit.awake).toEqual({ on: 1, off: 0, held: true });
+
+      send.resolve();
+      await finished;
+      expect(kit.runner.getState().phase).toBe('done');
+      expect(kit.awake).toEqual({ on: 1, off: 1, held: false });
+    });
+
+    it('lets go of the screen once the send has failed, while the results wait for a retry', async () => {
+      const kit = makeKit({
+        photos: 2,
+        onSubmit: () => Promise.reject(new Error('the connection dropped')),
+      });
+      await kit.runner.start();
+
+      expect(kit.runner.getState().phase).toBe('upload_failed');
+      expect(kit.awake).toEqual({ on: 1, off: 1, held: false });
+    });
+
+    it('lets go of the screen when the run was canceled before anything was read', async () => {
+      const kit = makeKit({
+        photos: 2,
+        onRead: () => {
+          if (kit.awake.held) kit.runner.cancel();
+        },
+      });
+      await kit.runner.start();
+
+      expect(kit.runner.getState()).toMatchObject({ phase: 'done', message: 'Canceled before anything was read.' });
+      expect(evalsMock.runs).toHaveLength(0);
+      expect(kit.awake).toEqual({ on: 1, off: 1, held: false });
+    });
+
+    it('holds the screen awake again while a retry sends the results, and lets go afterwards', async () => {
+      const retry = deferred();
+      let submits = 0;
+      const kit = makeKit({
+        photos: 2,
+        onSubmit: () => {
+          submits += 1;
+          return submits === 1 ? Promise.reject(new Error('the connection dropped')) : retry.promise;
+        },
+      });
+      await kit.runner.start();
+      expect(kit.runner.getState().phase).toBe('upload_failed');
+      expect(kit.awake).toEqual({ on: 1, off: 1, held: false });
+
+      const retried = kit.runner.retryUpload();
+      await waitFor(() => submits === 2);
+      expect(kit.runner.getState().phase).toBe('uploading');
+      expect(kit.awake).toEqual({ on: 2, off: 1, held: true });
+
+      retry.resolve();
+      await retried;
+      expect(kit.runner.getState().phase).toBe('done');
+      expect(kit.awake).toEqual({ on: 2, off: 2, held: false });
+    });
+
+    it('lets go of the screen when a retry fails too', async () => {
+      const kit = makeKit({
+        photos: 1,
+        onSubmit: () => Promise.reject(new Error('the connection dropped')),
+      });
+      await kit.runner.start();
+      await kit.runner.retryUpload();
+
+      expect(kit.runner.getState().phase).toBe('upload_failed');
+      expect(kit.awake).toEqual({ on: 2, off: 2, held: false });
+    });
   });
 
   it('records a serious thermal state, tells the owner to keep the phone cool and keeps going', async () => {
@@ -438,6 +524,15 @@ describe('the eval runner', () => {
     });
   });
 });
+
+/** A promise the test settles itself, to hold a step of the run open. */
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 async function waitFor(condition: () => boolean) {
   for (let i = 0; i < 400 && !condition(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
