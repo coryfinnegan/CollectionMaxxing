@@ -116,6 +116,24 @@ describe('the eval runner', () => {
     for (const item of rows.find((r) => r.engine === 'apple_model')?.items ?? []) expect(item.resolvedBy).toBe('model');
   });
 
+  it('tells every engine what kind of shot a photo is, so a single reads like the scanner reads a cover and a shelf like a shelf', async () => {
+    // photo-001 and photo-002 are in the shelf set, photo-003 and photo-004 in the single set, and the runner reads the shelves first.
+    const kit = makeKit({ photos: 4 });
+    await kit.runner.start();
+    const asked = (calls: { options: { maxItems?: number } }[]) => calls.map((c) => c.options.maxItems);
+    // A cover is one item to both model tiers (the kit's config allows 17 on a shelf).
+    expect(asked(kit.vision.readCalls)).toEqual([17, 17, 1, 1]);
+    expect(asked(kit.vision.extractCalls)).toEqual([17, 17, 1, 1]);
+    // A cover is the whole frame to the Vision engine; a shelf is still split per spine (the kit's two lines are two spines).
+    const vision = runs()[0].results.filter((r) => r.engine === 'vision_pipeline');
+    expect(vision.map((r) => [r.photoId, r.items.length])).toEqual([
+      ['photo-001', 2],
+      ['photo-002', 2],
+      ['photo-003', 1],
+      ['photo-004', 1],
+    ]);
+  });
+
   it('sends the OCR lines the Vision engine split and the pieces it made, on its row only', async () => {
     const kit = makeKit({ photos: 1 });
     await kit.runner.start();

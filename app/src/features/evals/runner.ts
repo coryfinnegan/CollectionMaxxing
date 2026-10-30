@@ -6,6 +6,7 @@ import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, Gold
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
 import { ModelUnusableError, type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
+import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { ThermalState } from '@/native/cm-vision';
 import type { EvalApi } from './api';
 
@@ -87,6 +88,9 @@ const defaultSegmentId = () =>
     const r = Math.floor(Math.random() * 16);
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
+
+/** What the scanner's framing would call a golden photo of this set; a set the runner doesn't know stays unclassified, like a snap stored before classification. */
+const shotKindOf = (set: string): ShotKind | undefined => (set === 'single' ? 'single_cover' : set === 'shelf' ? 'shelf_segment' : undefined);
 
 const FELL_BACK = { unavailable: 'unavailable', declined: 'declined', timeout: 'timeout', contextExceeded: 'context' } as const;
 
@@ -319,13 +323,14 @@ export class EvalRunner {
     try {
       const size = await this.deps.files.sizeOf(uri).catch(() => ({ width: 0, height: 0 }));
       const still: Still = { uri, ...size };
-      if (this.inFlight.length === 0) this.inFlight = [await this.readWith('apple_model', photo.id, still)];
+      const shotKind = shotKindOf(photo.set);
+      if (this.inFlight.length === 0) this.inFlight = [await this.readWith('apple_model', photo.id, still, shotKind)];
       if (!(await this.checkpoint())) return false;
       this.set({ step: 'text' });
-      if (this.inFlight.length === 1) this.inFlight.push(await this.readWith('fm_text', photo.id, still));
+      if (this.inFlight.length === 1) this.inFlight.push(await this.readWith('fm_text', photo.id, still, shotKind));
       if (!(await this.checkpoint())) return false;
       this.set({ step: 'vision' });
-      const vision = await this.readWith('vision_pipeline', photo.id, still);
+      const vision = await this.readWith('vision_pipeline', photo.id, still, shotKind);
       this.results.push(...this.inFlight, vision);
       this.inFlight = [];
       this.next += 1;
@@ -336,8 +341,10 @@ export class EvalRunner {
     }
   }
 
-  private async readWith(engine: EngineName, photoId: string, still: Still): Promise<EvalPhotoResult> {
+  private async readWith(engine: EngineName, photoId: string, still: Still, shotKind?: ShotKind): Promise<EvalPhotoResult> {
     const started = this.now();
+    // Every engine is told what the scanner's framing would have told it, so a single is read as a cover and a shelf as a shelf.
+    const options: ReadOptions = shotKind ? { shotKind } : {};
     const segmentId = this.newId();
     const capturedAt = new Date(started).toISOString();
     let firstItemMs: number | undefined;
@@ -348,10 +355,10 @@ export class EvalRunner {
     try {
       const reading =
         engine === 'apple_model'
-          ? await this.deps.selector.read(still, onItem, { combine: false }) // the Vision engine is read and scored on its own; the PC builds the combination
+          ? await this.deps.selector.read(still, onItem, { ...options, combine: false }) // the Vision engine is read and scored on its own; the PC builds the combination
           : engine === 'fm_text'
-            ? await this.deps.fmText.read(still, onItem)
-            : await this.deps.pipeline.read(still, onItem);
+            ? await this.deps.fmText.read(still, onItem, options)
+            : await this.deps.pipeline.read(still, onItem, options);
       const modelFailed = engine === 'apple_model' && reading.engine !== 'apple_model';
       const reason = reading.fellBackFrom;
       result = modelFailed

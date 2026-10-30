@@ -1,0 +1,218 @@
+{
+  "bluray-01": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"R REN","x":0,"y":0,"width":0.099,"height":0.0868},
+      {"text":"Usd å","x":0,"y":0,"width":0.0919,"height":0.0823},
+      {"text":"LECTION","x":0.1044,"y":0.6655,"width":0.0173,"height":0.0615},
+      {"text":"THE CRITERION CO","x":0.1057,"y":0.5299,"width":0.0272,"height":0.1305},
+      {"text":"EC","x":0.1066,"y":0.6744,"width":0.0136,"height":0.016},
+      {"text":"THE CRITERION","x":0.1066,"y":0.5299,"width":0.0243,"height":0.1043},
+      {"text":"DEG","x":0.1163,"y":0.4869,"width":0.0155,"height":0.0218},
+      {"text":"1998","x":0.1163,"y":0.484,"width":0.0174,"height":0.0276},
+      {"text":"RUSHMORE","x":0.1449,"y":0.2485,"width":0.6734,"height":0.0889},
+      {"text":"5","x":0.1783,"y":0.1599,"width":0.064,"height":0.061}
+    ]
+  },
+  "dvd-01": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"BER","x":0,"y":0.076,"width":0.1147,"height":0.0725},
+      {"text":"THE HUNT FOR RED OCTOBER","x":0.0427,"y":0.0009,"width":0.2245,"height":0.2469},
+      {"text":"SLEEP AWAY","x":0.1522,"y":0.6504,"width":0.6273,"height":0.096},
+      {"text":"CAMP 3","x":0.1998,"y":0.7466,"width":0.3801,"height":0.1107},
+      {"text":"CAMP З","x":0.2018,"y":0.7444,"width":0.3845,"height":0.1116},
+      {"text":"DICITAY","x":0.2449,"y":0.1679,"width":0.0951,"height":0.0305},
+      {"text":"D DOLBY","x":0.2481,"y":0.1701,"width":0.0891,"height":0.0218},
+      {"text":"DO DoLBY","x":0.2487,"y":0.1682,"width":0.0876,"height":0.0201},
+      {"text":"way back!","x":0.2508,"y":0.2965,"width":0.2314,"height":0.059},
+      {"text":"found her","x":0.2521,"y":0.2626,"width":0.2226,"height":0.0582},
+      {"text":"way","x":0.2572,"y":0.3188,"width":0.0884,"height":0.0285},
+      {"text":"Angela's","x":0.262,"y":0.2187,"width":0.2002,"height":0.0747},
+      {"text":"GITAL","x":0.2694,"y":0.186,"width":0.0659,"height":0.0073},
+      {"text":"argela s","x":0.2804,"y":0.2298,"width":0.1759,"height":0.0561},
+      {"text":"TTAI","x":0.2829,"y":0.1846,"width":0.0504,"height":0.0087},
+      {"text":"ITA","x":0.2907,"y":0.1831,"width":0.0368,"height":0.0131},
+      {"text":"backl","x":0.3585,"y":0.2965,"width":0.1202,"height":0.048},
+      {"text":"backı","x":0.3605,"y":0.2965,"width":0.1163,"height":0.048},
+      {"text":"WASTELAND","x":0.5766,"y":0.8026,"width":0.2557,"height":0.0647},
+      {"text":"TÉỂNAGÉ","x":0.5859,"y":0.7527,"width":0.214,"height":0.0722},
+      {"text":"pye","x":0.7248,"y":0.1599,"width":0.0678,"height":0.0407}
+    ]
+  },
+  "dvd-02": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"CONGO","x":0.1482,"y":0.1562,"width":0.7093,"height":0.1264},
+      {"text":"From the best-selling novel by the author of JURASSIC PARK","x":0.199,"y":0.0965,"width":0.6116,"height":0.0317},
+      {"text":"LAURA LINNEY DYLAN WALSH","x":0.2571,"y":0.1191,"width":0.4895,"height":0.0312},
+      {"text":"Good Morning America","x":0.6622,"y":0.8544,"width":0.2124,"height":0.0213},
+      {"text":"special effects!\"","x":0.6667,"y":0.8125,"width":0.1996,"height":0.019},
+      {"text":"special effectsỊẠỊ","x":0.6686,"y":0.8125,"width":0.1996,"height":0.0189},
+      {"text":"action! Amezing","x":0.6719,"y":0.7896,"width":0.1853,"height":0.0218},
+      {"text":"action: Amazing","x":0.6719,"y":0.791,"width":0.1853,"height":0.0218},
+      {"text":"\"Breathtaking","x":0.677,"y":0.7682,"width":0.1674,"height":0.0266},
+      {"text":"-Joel Siegel,","x":0.7049,"y":0.8364,"width":0.125,"height":0.0169}
+    ]
+  },
+  "game-box-01": {
+    "width": 2048, "height": 1536,
+    "lines": [
+      {"text":"ORIGIN","x":0.2621,"y":0.7846,"width":0.015,"height":0.0879},
+      {"text":"E PlayStationlie","x":0.2657,"y":0.1583,"width":0.4602,"height":0.105},
+      {"text":"PlayStationJ|{","x":0.3168,"y":0.1604,"width":0.3643,"height":0.1044},
+      {"text":"tPlayStationi","x":0.3182,"y":0.166,"width":0.3578,"height":0.0944},
+      {"text":"FHE PRICE EF FREEDON*","x":0.6347,"y":0.4007,"width":0.0315,"height":0.3323},
+      {"text":"TNE","x":0.6381,"y":0.3953,"width":0.016,"height":0.0504},
+      {"text":"ANICE EF FREEDAN*","x":0.6399,"y":0.4489,"width":0.0281,"height":0.2805},
+      {"text":"FREEDEN™","x":0.6427,"y":0.5868,"width":0.0206,"height":0.1427},
+      {"text":"WING CONNANDER","x":0.6525,"y":0.3493,"width":0.052,"height":0.4395}
+    ]
+  },
+  "game-cartridge-01": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"ASSEMOLED IN MEXICO","x":0.2789,"y":0.3853,"width":0.0838,"height":0.0103},
+      {"text":"SNS-8C-USA","x":0.281,"y":0.3794,"width":0.0581,"height":0.0073},
+      {"text":"Nintendo","x":0.2965,"y":0.2629,"width":0.0563,"height":0.009},
+      {"text":"LICENSED","x":0.2965,"y":0.2441,"width":0.0582,"height":0.0089},
+      {"text":"BY","x":0.3159,"y":0.2515,"width":0.0194,"height":0.0087},
+      {"text":"My Fofoter »","x":0.371,"y":0.2446,"width":0.1941,"height":0.0448},
+      {"text":"Nayigkier i","x":0.3778,"y":0.2458,"width":0.1889,"height":0.0417},
+      {"text":"SUPER NINTENDO.","x":0.6583,"y":0.3789,"width":0.1524,"height":0.0262},
+      {"text":"SUPER A","x":0.6589,"y":0.3808,"width":0.0717,"height":0.022},
+      {"text":"SUPER I","x":0.6628,"y":0.3808,"width":0.0659,"height":0.0203},
+      {"text":"Tatiplay","x":0.6802,"y":0.2485,"width":0.1143,"height":0.0349},
+      {"text":"NIENDOL","x":0.7384,"y":0.3837,"width":0.0698,"height":0.016}
+    ]
+  },
+  "game-cartridge-02": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"MADE IN JAPAN","x":0.2343,"y":0.3551,"width":0.0778,"height":0.0099},
+      {"text":"SADEIN JAR","x":0.2345,"y":0.3474,"width":0.0795,"height":0.0189},
+      {"text":"SNS ADNE-USA","x":0.2361,"y":0.3482,"width":0.0762,"height":0.0104},
+      {"text":"Nintendo","x":0.25,"y":0.2137,"width":0.0523,"height":0.0087},
+      {"text":"BIDDY'S K","x":0.4834,"y":0.2588,"width":0.0872,"height":0.036},
+      {"text":"BIBDY'S AUNG QUES","x":0.4895,"y":0.2591,"width":0.1472,"height":0.0337},
+      {"text":"PIUAR","x":0.4909,"y":0.2369,"width":0.08,"height":0.0275},
+      {"text":"DANKE","x":0.4922,"y":0.2137,"width":0.0775,"height":0.0174},
+      {"text":"DONKEY LO.","x":0.4922,"y":0.2151,"width":0.126,"height":0.016},
+      {"text":"SOPER","x":0.6045,"y":0.3427,"width":0.0623,"height":0.0195},
+      {"text":"ENTERTAIAMERI","x":0.6066,"y":0.3619,"width":0.0911,"height":0.0087},
+      {"text":"NENDO","x":0.6899,"y":0.3445,"width":0.0601,"height":0.0174}
+    ]
+  },
+  "paperback-01": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"N","x":0.0484,"y":0,"width":0.0271,"height":0.0247},
+      {"text":"ES/ PICADOR","x":0.0988,"y":0,"width":0.06,"height":0.0995},
+      {"text":"BACKMAN","x":0.1888,"y":0.5181,"width":0.6071,"height":0.15},
+      {"text":"MY FRIENDS","x":0.2348,"y":0.71,"width":0.5338,"height":0.1091},
+      {"text":"#I NEW YORK IIMES BESTSELLER","x":0.2354,"y":0.1983,"width":0.5178,"height":0.0458},
+      {"text":"HI NEW YORK TIMES BESTSELLER","x":0.2373,"y":0.1985,"width":0.5079,"height":0.0447},
+      {"text":"\"This is Backman at the height of his empathy and resonance.*-NPR","x":0.2394,"y":0.8304,"width":0.5239,"height":0.0484},
+      {"text":"\"This is Backman at the height of his empathy and resonance.\"","x":0.2395,"y":0.8323,"width":0.4812,"height":0.0452},
+      {"text":"HI NEW YORK TIMES BESTSELLER™","x":0.2427,"y":0.1979,"width":0.5092,"height":0.0554},
+      {"text":"ÉREDRIK","x":0.2638,"y":0.3381,"width":0.4789,"height":0.1755},
+      {"text":"en","x":0.2674,"y":0,"width":0.0252,"height":0.0305},
+      {"text":"FREDRIK","x":0.2782,"y":0.3718,"width":0.4262,"height":0.127},
+      {"text":"evı","x":0.3676,"y":0,"width":0.0228,"height":0.0285},
+      {"text":"evi","x":0.3702,"y":0,"width":0.0233,"height":0.0262},
+      {"text":"A NOVEL","x":0.4608,"y":0.6735,"width":0.0783,"height":0.0206},
+      {"text":"ald D[","x":0.5666,"y":0,"width":0.0433,"height":0.0967},
+      {"text":"ald","x":0.5678,"y":0,"width":0.0291,"height":0.0334},
+      {"text":"pie","x":0.5698,"y":0.0015,"width":0.0291,"height":0.032},
+      {"text":"-NPR","x":0.7171,"y":0.8343,"width":0.0465,"height":0.0174}
+    ]
+  },
+  "paperback-02": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"Stórýßoök","x":0.2163,"y":0.1242,"width":0.5937,"height":0.1667},
+      {"text":"Moira Macdonald","x":0.2492,"y":0.7724,"width":0.546,"height":0.0548},
+      {"text":"Endino","x":0.2545,"y":0.2638,"width":0.4468,"height":0.087},
+      {"text":"Endingz","x":0.2634,"y":0.2663,"width":0.4997,"height":0.1002},
+      {"text":"Ending","x":0.3182,"y":0.2578,"width":0.3873,"height":0.0917},
+      {"text":"\"Absolutely charming.\"","x":0.5969,"y":0.6526,"width":0.1938,"height":0.0189},
+      {"text":"-Annabel Monaghan,","x":0.6082,"y":0.6693,"width":0.1732,"height":0.0163},
+      {"text":"bestselling author of","x":0.6084,"y":0.702,"width":0.1728,"height":0.014},
+      {"text":"New York Times","x":0.626,"y":0.686,"width":0.1357,"height":0.0132},
+      {"text":"It's a Love Story","x":0.6274,"y":0.7155,"width":0.1327,"height":0.0159},
+      {"text":"Aronel","x":0.668,"y":0.4852,"width":0.1399,"height":0.0593}
+    ]
+  },
+  "paperback-03": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"Theo of Golden","x":0.1414,"y":0.1431,"width":0.646,"height":0.117},
+      {"text":"Theo f Golden","x":0.1442,"y":0.1586,"width":0.6366,"height":0.0891},
+      {"text":"NATIONAL","x":0.2289,"y":0.0806,"width":0.2067,"height":0.0323},
+      {"text":"NATIONAL BESTSELLER","x":0.2291,"y":0.0688,"width":0.4583,"height":0.0436},
+      {"text":"Allen Levi","x":0.3769,"y":0.838,"width":0.2966,"height":0.0462},
+      {"text":"BESTSELLER","x":0.4505,"y":0.0704,"width":0.2368,"height":0.0298},
+      {"text":"praun l","x":0.4512,"y":0.7148,"width":0.1217,"height":0.0505},
+      {"text":"PeroAl","x":0.4753,"y":0.716,"width":0.0897,"height":0.032},
+      {"text":"noval","x":0.4857,"y":0.7179,"width":0.0786,"height":0.0264}
+    ]
+  },
+  "paperback-04": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"Strangers","x":0.1189,"y":0.071,"width":0.6704,"height":0.1063},
+      {"text":"Belle Burden","x":0.143,"y":0.8193,"width":0.7079,"height":0.0836},
+      {"text":"- Joyce Carol","x":0.1537,"y":0.7462,"width":0.1993,"height":0.0401},
+      {"text":"eintersie","x":0.155,"y":0.6134,"width":0.2171,"height":0.0756},
+      {"text":"examines the","x":0.1596,"y":0.6546,"width":0.2055,"height":0.0296},
+      {"text":"very mature","x":0.1723,"y":0.6815,"width":0.1802,"height":0.0441},
+      {"text":"very hature","x":0.1724,"y":0.682,"width":0.1716,"height":0.0421},
+      {"text":"Jintimacy.\"","x":0.1741,"y":0.6983,"width":0.2041,"height":0.0667},
+      {"text":"pintimacyẠạẠạ","x":0.1741,"y":0.6985,"width":0.2023,"height":0.0635},
+      {"text":"yintimacy\"!","x":0.1768,"y":0.7019,"width":0.199,"height":0.0579},
+      {"text":"Riveting","x":0.1769,"y":0.617,"width":0.1532,"height":0.0464},
+      {"text":"Kivetie","x":0.1787,"y":0.6241,"width":0.121,"height":0.0302},
+      {"text":"#1 NowYork Times bestseller","x":0.2153,"y":0.0361,"width":0.5027,"height":0.0565},
+      {"text":"#1 Naw York Times bestseller","x":0.2207,"y":0.0272,"width":0.4978,"height":0.0613},
+      {"text":"#1 New York Times bestseller","x":0.2225,"y":0.0268,"width":0.4903,"height":0.0601},
+      {"text":"Dates","x":0.2282,"y":0.7746,"width":0.0821,"height":0.026},
+      {"text":"a Menor","x":0.5499,"y":0.1929,"width":0.2453,"height":0.0436},
+      {"text":"a Memoir","x":0.5514,"y":0.1908,"width":0.2463,"height":0.0468},
+      {"text":"Marriage","x":0.5655,"y":0.2904,"width":0.2386,"height":0.0611},
+      {"text":"a Menoir","x":0.5789,"y":0.1914,"width":0.2143,"height":0.0434},
+      {"text":"COPHIL IORE","x":0.8916,"y":0.2353,"width":0.0718,"height":0.0754},
+      {"text":"O NHJOS","x":0.8968,"y":0.2348,"width":0.0685,"height":0.0658},
+      {"text":"SOPHIE","x":0.907,"y":0.2343,"width":0.053,"height":0.0521}
+    ]
+  },
+  "vhs-01": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"OCTOBER","x":0.4958,"y":0.3705,"width":0.1868,"height":0.0436},
+      {"text":"UCIUBER","x":0.4989,"y":0.3728,"width":0.1788,"height":0.0389},
+      {"text":"BALDVIN","x":0.5271,"y":0.4128,"width":0.1202,"height":0.0465},
+      {"text":"CONNERY","x":0.529,"y":0.2207,"width":0.1106,"height":0.0236},
+      {"text":"RED","x":0.5291,"y":0.3081,"width":0.1182,"height":0.0669},
+      {"text":"BALDWIN","x":0.5348,"y":0.4229,"width":0.1125,"height":0.0365},
+      {"text":"SEAN","x":0.5542,"y":0.2092,"width":0.0621,"height":0.0146},
+      {"text":"ALEC","x":0.5543,"y":0.4201,"width":0.0659,"height":0.016}
+    ]
+  },
+  "vhs-02": {
+    "width": 1536, "height": 2048,
+    "lines": [
+      {"text":"·380100","x":0.197,"y":0,"width":0.1247,"height":0.089},
+      {"text":"CTOBER","x":0.2042,"y":0,"width":0.1013,"height":0.0732},
+      {"text":"OСТOBER","x":0.2043,"y":0,"width":0.109,"height":0.0799},
+      {"text":"ФINOCCHIO","x":0.2248,"y":0.1584,"width":0.5775,"height":0.1134},
+      {"text":"PINOCCHIO","x":0.2248,"y":0.157,"width":0.5756,"height":0.1163},
+      {"text":"MASTERPIECE","x":0.3868,"y":0.1397,"width":0.2826,"height":0.0266},
+      {"text":"WAL DiSNEp'S","x":0.3986,"y":0.0977,"width":0.2591,"height":0.0458},
+      {"text":"WAL DiSNEY'S","x":0.4007,"y":0.0986,"width":0.2588,"height":0.0415},
+      {"text":"To Its Origiaal","x":0.7887,"y":0.8588,"width":0.1106,"height":0.0165},
+      {"text":"To Its Original","x":0.7907,"y":0.859,"width":0.1124,"height":0.0145},
+      {"text":"Brilliance!","x":0.8197,"y":0.8735,"width":0.0795,"height":0.0132},
+      {"text":"Restored","x":0.8292,"y":0.8435,"width":0.0683,"height":0.0138}
+    ]
+  }
+}
