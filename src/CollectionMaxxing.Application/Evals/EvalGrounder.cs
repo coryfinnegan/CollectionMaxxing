@@ -56,21 +56,22 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 items[i].Provisional,
                 items[i].IsGuess,
                 cleaned[i].SegmentId,
-                ReadOf(cleaned[i].Facts, cleaned[i].Profile)));
+                ReadOf(cleaned[i].Facts, cleaned[i].Profile, items[i].Read.Creator)));
         }
 
         return grounded;
     }
 
-    /// <summary>What the read claimed besides its title, as it was scored, and the profile it was scored with.</summary>
-    private static GroundedRead ReadOf(ReadFacts facts, ScoringProfileKind profile) => new(
+    /// <summary>What the read claimed besides its title, as it was scored, the profile it was scored with, and the author as read.</summary>
+    private static GroundedRead ReadOf(ReadFacts facts, ScoringProfileKind profile, string? creatorAsRead) => new(
         facts.Creator,
         facts.Kind is { } kind ? EnumText.ToText(kind) : null,
         facts.Format is { } format ? EnumText.ToText(format) : null,
         facts.Year,
         facts.Platform,
         facts.Edition,
-        EnumText.ToText(profile));
+        EnumText.ToText(profile),
+        creatorAsRead);
 
     private static GroundedCandidate? Candidate(ResolutionOption option, Dictionary<Guid, GroundedCandidate> local)
     {

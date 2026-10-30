@@ -99,10 +99,11 @@ public sealed record GroundedCandidate(
 
 /// <summary>
 /// The read the server scored, after cleaning: what besides the title the phone claimed, and the scoring profile chosen
-/// for it. Kept on the PC only, with the run.
+/// for it. <c>CreatorAsRead</c> is the author before cleaning, so a run shows what the cleaning dropped. Kept on the PC
+/// only, with the run.
 /// </summary>
 public sealed record GroundedRead(
-    string? Creator, string? Kind, string? Format, int? Year, string? Platform, string? Edition, string Profile);
+    string? Creator, string? Kind, string? Format, int? Year, string? Platform, string? Edition, string Profile, string? CreatorAsRead = null);
 
 /// <summary>
 /// One read item after grounding: what the phone read, the verdict the live scorer gave and the top three releases (best first).

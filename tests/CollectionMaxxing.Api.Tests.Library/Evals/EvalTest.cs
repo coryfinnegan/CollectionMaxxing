@@ -42,10 +42,11 @@ public abstract class EvalTest : IdentifyTest
 
     protected static object ReadItem(
         string title, string? kind = "game", string? format = "game_cartridge", string? platform = null, string? completeness = null,
-        int? year = null, string? resolvedBy = null) => new
+        int? year = null, string? resolvedBy = null, string? creator = null) => new
         {
             title,
             text = title,
+            creator,
             kind,
             format,
             platform,
