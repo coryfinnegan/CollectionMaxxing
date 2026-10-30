@@ -31,12 +31,22 @@ public sealed record ScannedCode(string? Value = null, string? Symbology = null,
 public sealed record BarcodeBatchRequest(IReadOnlyList<ScannedCode>? Codes = null, Guid? CandidateId = null);
 
 /// <summary>
+/// Where a read sits in its picture: <c>X</c>, <c>Y</c>, <c>Width</c> and <c>Height</c>, each a fraction of the picture from 0 to 1,
+/// the origin at the top left (the phone's <c>Rect</c>). The width and height are above 0 and the box ends inside the picture. A box
+/// is a hint and is never a reason to refuse a read: a value only just outside 0 to 1 (by 0.01) is moved into range, and a box that
+/// is incomplete or further out than that is read as no box.
+/// </summary>
+public sealed record ItemBox(double? X = null, double? Y = null, double? Width = null, double? Height = null);
+
+/// <summary>
 /// One item the phone read in a photo. At most 16 KB. No image is ever sent. <c>Format</c> and <c>Year</c> are deliberate
 /// additions to the original contract (SCAN-2a): without the format a VHS and a DVD of one film are indistinguishable.
 /// <c>SegmentId</c> is the phone's own id for the segment the item belongs to, so the items of a multi-item snap stay linked (#338).
 /// Every field is a claim to check against the catalogue, never a verdict: the server decides the match.
 /// <c>ProductCode</c> is the code printed on a game cartridge or disc (<c>SNS-ADNE-USA</c>, <c>SLUS-00594</c>), at most 32
 /// characters: when the server's table says it belongs to one game, the read is identified as that game (ADR-031).
+/// <c>Box</c> is where the read sits in the picture (optional): two reads of one release in one place are one item read twice,
+/// in two places they are two items. Without a box (an older phone) two reads of one release are one item.
 /// </summary>
 public sealed record IdentifyItem(
     string? LocalId = null,
@@ -51,7 +61,8 @@ public sealed record IdentifyItem(
     int? Year = null,
     string? Platform = null,
     Guid? LocalMatchReleaseId = null,
-    string? ProductCode = null);
+    string? ProductCode = null,
+    ItemBox? Box = null);
 
 /// <summary>
 /// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 40 items, 256 KB). <c>FellBackFrom</c> says why

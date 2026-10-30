@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Scanning;
 
@@ -116,6 +117,8 @@ public sealed record GroundedRead(
 /// One read item after grounding: what the phone read, the verdict the live scorer gave and the top three releases (best first).
 /// Kept on the PC only: it has titles. <c>Tier</c> is the commit tier the pipeline assigned (<c>T0</c>, <c>T1</c> or <c>T2</c>),
 /// null when the run predates tiers; <c>Provisional</c> marks a kept guess, which must carry <c>IsGuess</c> (docs/16 §17).
+/// <c>Box</c> is where the read sat in the photo (normalised 0 to 1, origin top left), null when the phone sent none or the run
+/// predates boxes; the combined engine uses it to tell one spine read by both engines from two spines that read alike.
 /// </summary>
 public sealed record GroundedItem(
     string? ReadTitle,
@@ -127,7 +130,8 @@ public sealed record GroundedItem(
     bool Provisional = false,
     bool? IsGuess = null,
     string? SegmentId = null,
-    GroundedRead? Read = null)
+    GroundedRead? Read = null,
+    ReadBox? Box = null)
 {
     /// <summary>The best release, or null when there is none.</summary>
     [JsonIgnore]

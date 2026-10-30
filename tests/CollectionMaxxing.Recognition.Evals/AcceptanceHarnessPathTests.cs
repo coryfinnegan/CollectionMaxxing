@@ -37,6 +37,9 @@ public sealed class AcceptanceHarnessPathTests : IDisposable
         return TruthsOf(_golden);
     }
 
+    /// <summary>An item the live scorer matched to a sample title: the acceptance template is a shelf of books, and a shelf item must be matched by a book.</summary>
+    private static GroundedItem Sample(string title) => Matched(title, platform: null, kind: "book", format: "hardcover");
+
     private static GroundedPhoto AcceptancePhoto(IEnumerable<GroundedItem> items, DuplicateRescan? rescan = null)
     {
         var read = items.ToList();
@@ -74,9 +77,9 @@ public sealed class AcceptanceHarnessPathTests : IDisposable
     public void The_full_metric_set_comes_out_of_the_harness_for_a_filled_template()
     {
         // 27 correct auto-adds, one reviewed read, one kept provisional, one miss, clean duplicate evidence.
-        var reads = Enumerable.Range(1, 27).Select(n => T1(Matched($"Acceptance Sample {n:00}"))).ToList();
-        reads.Add(T2(Matched("Acceptance Sample 28")));
-        reads.Add(Kept(Matched("Acceptance Sample 29")));
+        var reads = Enumerable.Range(1, 27).Select(n => T1(Sample($"Acceptance Sample {n:00}"))).ToList();
+        reads.Add(T2(Sample("Acceptance Sample 28")));
+        reads.Add(Kept(Sample("Acceptance Sample 29")));
         var metrics = AcceptanceMetrics(AcceptancePhoto(reads, Rescan(30, 30, 0)));
 
         metrics["apple_model.shelf.recall"].ShouldBe(96.67);
@@ -91,9 +94,9 @@ public sealed class AcceptanceHarnessPathTests : IDisposable
     [Fact]
     public void The_acceptance_lines_read_pass_from_a_passing_run()
     {
-        var reads = Enumerable.Range(1, 27).Select(n => T1(Matched($"Acceptance Sample {n:00}"))).ToList();
-        reads.Add(T2(Matched("Acceptance Sample 28")));
-        reads.Add(Kept(Matched("Acceptance Sample 29")));
+        var reads = Enumerable.Range(1, 27).Select(n => T1(Sample($"Acceptance Sample {n:00}"))).ToList();
+        reads.Add(T2(Sample("Acceptance Sample 28")));
+        reads.Add(Kept(Sample("Acceptance Sample 29")));
         var metrics = AcceptanceMetrics(AcceptancePhoto(reads, Rescan(30, 30, 0)));
 
         metrics["apple_model.shelf.recall"].ShouldBeGreaterThanOrEqualTo(90, "PASS needs recall >= 90%.");
@@ -108,7 +111,7 @@ public sealed class AcceptanceHarnessPathTests : IDisposable
     [Fact]
     public void The_acceptance_lines_read_fail_when_recall_misses()
     {
-        var reads = Enumerable.Range(1, 20).Select(n => T1(Matched($"Acceptance Sample {n:00}")));
+        var reads = Enumerable.Range(1, 20).Select(n => T1(Sample($"Acceptance Sample {n:00}")));
         var metrics = AcceptanceMetrics(AcceptancePhoto(reads, Rescan(30, 30, 0)));
 
         metrics["apple_model.shelf.recall"].ShouldBe(66.67);
@@ -119,9 +122,9 @@ public sealed class AcceptanceHarnessPathTests : IDisposable
     public void The_acceptance_lines_read_fail_on_any_silent_false_positive()
     {
         // 29 right auto-adds and one invented title the pipeline auto-added: no human saw it.
-        var reads = Enumerable.Range(1, 28).Select(n => T1(Matched($"Acceptance Sample {n:00}"))).ToList();
-        reads.Add(T1(Matched("Acceptance Sample 99")));
-        reads.Add(T1(Matched("Acceptance Sample 30")));
+        var reads = Enumerable.Range(1, 28).Select(n => T1(Sample($"Acceptance Sample {n:00}"))).ToList();
+        reads.Add(T1(Sample("Acceptance Sample 99")));
+        reads.Add(T1(Sample("Acceptance Sample 30")));
         var metrics = AcceptanceMetrics(AcceptancePhoto(reads, Rescan(30, 30, 0)));
 
         metrics["apple_model.shelf.precision"].ShouldBeGreaterThanOrEqualTo(95);

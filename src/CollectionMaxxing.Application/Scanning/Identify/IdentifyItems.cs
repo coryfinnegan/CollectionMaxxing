@@ -420,8 +420,9 @@ public static class IdentifyItems
                 answers[candidate.Id] = grounding.Score(item.Facts, item.Profile, local[candidate.Id], providers);
             }
 
-            // One book, one candidate per picture: a read that repeats a stronger read of the same release is skipped.
-            var repeats = RepeatReads.Of([.. fresh.Select(f => answers[f.Candidate.Id])]).ToHashSet();
+            // One book in one place, one candidate per picture: a read that repeats a stronger read of the same release in the same
+            // place is skipped. The same release read in another place is another item, each kept.
+            var repeats = RepeatReads.Of([.. fresh.Select(f => answers[f.Candidate.Id])], [.. fresh.Select(f => f.Item.Box)]).ToHashSet();
 
             // The answers land under the session's lock: the session is reloaded inside it (another request may
             // have auto-added while the providers were being asked), and two auto-adds landing together both append

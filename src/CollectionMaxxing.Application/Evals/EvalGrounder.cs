@@ -42,9 +42,10 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 item.Facts, item.Profile, () => grounding.GroundAsync(item.Facts, item.Profile, options.JobResolveBudget, cancellationToken)));
         }
 
-        // One book, one item per photo and engine: a read that repeats a stronger read of the same release is not scored, the same
-        // rule /identify applies, so the scorer sees what a person scanning this photo would have been shown.
-        var repeats = RepeatReads.Of(answers).ToHashSet();
+        // One book in one place, one item per photo and engine: a read that repeats a stronger read of the same release in the same
+        // place is not scored, the same rule /identify applies, so the scorer sees what a person scanning this photo would have been
+        // shown. The same release read in another place is another item, and each is kept.
+        var repeats = RepeatReads.Of(answers, [.. cleaned.Select(c => c.Box)]).ToHashSet();
         var local = await LoadLocalAsync(answers, cancellationToken);
         var grounded = new List<GroundedItem>(items.Count - repeats.Count);
         for (var i = 0; i < items.Count; i++)
@@ -70,7 +71,8 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 items[i].Provisional,
                 items[i].IsGuess,
                 cleaned[i].SegmentId,
-                ReadOf(cleaned[i].Facts, cleaned[i].Profile, items[i].Read.Creator)));
+                ReadOf(cleaned[i].Facts, cleaned[i].Profile, items[i].Read.Creator),
+                cleaned[i].Box));
         }
 
         return grounded;

@@ -6,8 +6,9 @@ using static CollectionMaxxing.Recognition.Evals.EvalFixtures;
 namespace CollectionMaxxing.Recognition.Evals;
 
 /// <summary>
-/// The scanner reads a shelf with the picture model and then adds what the Vision text engine found that the model did not. The
-/// eval scores that as a report-only engine, <c>apple_vision</c>, built on the server from the two rows the phone uploaded.
+/// The scanner shows a shelf's Vision items first and the picture model adds what Vision missed. The eval scores that as a
+/// report-only engine, <c>apple_vision</c>, built on the server from the two rows the phone uploaded. Two reads are the same item
+/// when their boxes overlap (so the same title on two spines is two items); with no boxes, when their best release is the same.
 /// </summary>
 public sealed class CombinedEngineTests : IDisposable
 {
@@ -64,7 +65,7 @@ public sealed class CombinedEngineTests : IDisposable
         both.Top1Hits.ShouldBe(2);
         both.CorrectItems.ShouldBe(2);
         both.PredictedItems.ShouldBe(2);
-        both.ProvisionalItems.ShouldBe(0);
+        both.ProvisionalItems.ShouldBe(2); // Vision's reads stand where both found it, and Vision's are guesses
         both.PrecisionPct.ShouldBe(100);
     }
 
@@ -92,14 +93,15 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
-    public void A_Vision_item_with_no_release_is_not_added_and_a_model_item_with_none_is_kept()
+    public void Every_Vision_item_is_kept_and_a_model_item_with_no_release_is_added_because_nothing_shows_Vision_read_it()
     {
         var scored = Score(
             ArrangeShelf("Star Fox 64"),
             ModelRead(T1(Matched("Star Fox 64")), NotFound("smudged")),
             VisionRead(Kept(NotFound("also smudged")), GuessedByVision("Star Fox 64")));
 
-        scored.ShelfOf(Combined).PredictedItems.ShouldBe(2); // the model's two; Vision adds nothing
+        scored.ShelfOf(Combined).PredictedItems.ShouldBe(3); // Vision's two, and the model's smudged one; its Star Fox is Vision's
+        scored.ShelfOf(Combined).Top1Hits.ShouldBe(1);
         scored.ShelfOf(Vision).PredictedItems.ShouldBe(2);
     }
 
@@ -138,17 +140,51 @@ public sealed class CombinedEngineTests : IDisposable
     // ---- time, outcome and the rows it needs -----------------------------------------------------------------------------
 
     [Fact]
-    public void The_combined_read_takes_the_models_time_plus_Visions_and_starts_with_the_models_first_item()
+    public void The_combined_read_takes_Visions_time_plus_the_models_and_shows_its_first_item_when_Vision_does()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64"),
+            ModelRead(T1(Matched("Star Fox 64"))),
+            Photo("s1", Vision, [GuessedByVision("Star Fox 64")], latencyMs: 700, firstItemMs: 300));
+
+        var both = scored.ShelfOf(Combined);
+        both.LatencyP50Ms.ShouldBe(4700, "Vision reads and then the model does, so the total is both");
+        both.FirstItemP50Ms.ShouldBe(300, "Vision's items show first, so the first item is Vision's");
+        scored.ShelfOf(Apple).LatencyP50Ms.ShouldBe(4000);
+        scored.ShelfOf(Apple).FirstItemP50Ms.ShouldBe(900);
+    }
+
+    [Fact]
+    public void When_Vision_sent_no_first_item_time_the_first_item_is_the_end_of_its_whole_read()
     {
         var scored = Score(
             ArrangeShelf("Star Fox 64"),
             ModelRead(T1(Matched("Star Fox 64"))),
             VisionRead(GuessedByVision("Star Fox 64")));
 
+        scored.ShelfOf(Combined).FirstItemP50Ms.ShouldBe(700);
+    }
+
+    [Fact]
+    public void When_Vision_found_nothing_the_first_item_is_the_models_after_Visions_whole_read()
+    {
+        var scored = Score(ArrangeShelf("Star Fox 64"), ModelRead(T1(Matched("Star Fox 64"))), VisionRead());
+
         var both = scored.ShelfOf(Combined);
+        both.FirstItemP50Ms.ShouldBe(1600); // Vision's 700 and then the model's first item at 900
         both.LatencyP50Ms.ShouldBe(4700);
-        both.FirstItemP50Ms.ShouldBe(900);
-        scored.ShelfOf(Apple).LatencyP50Ms.ShouldBe(4000);
+        both.PredictedItems.ShouldBe(1);
+    }
+
+    [Fact]
+    public void When_Vision_failed_the_first_item_time_is_the_models_own()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64"),
+            ModelRead(T1(Matched("Star Fox 64"))),
+            Photo("s1", Vision, [], latencyMs: 300, firstItemMs: 100, outcome: "error"));
+
+        scored.ShelfOf(Combined).FirstItemP50Ms.ShouldBe(900);
     }
 
     [Fact]
@@ -268,6 +304,8 @@ public sealed class CombinedEngineTests : IDisposable
         run.Summary.Metrics[$"{Combined}.shelf.top1"].ShouldBe(100);
         run.ReportMarkdown.ShouldContain($"## {Combined}");
         run.ReportMarkdown.ShouldContain("Report only");
+        run.ReportMarkdown.ShouldContain("the Vision text items first, then the Apple model's items Vision did not read");
+        run.ReportMarkdown.ShouldContain("the first item is Vision's");
         run.Summary.ScoredPhotos.ShouldBe(2); // the rows the phone uploaded, not the one built from them
     }
 
@@ -338,22 +376,108 @@ public sealed class CombinedEngineTests : IDisposable
         built.Count.ShouldBe(1);
         built[0].Engine.ShouldBe(Combined);
         built[0].Items.Count.ShouldBe(2);
-        built[0].Items.Select(i => i.ResolvedBy).ShouldBe(["model", "vision_text"]);
-        built[0].Items[1].IsGuess.ShouldBe(true);
-        built[0].Items[1].Provisional.ShouldBeTrue();
+        built[0].Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text", "model"]); // Vision's items first
+        built[0].Items[0].IsGuess.ShouldBe(true);
+        built[0].Items[0].Provisional.ShouldBeTrue();
     }
 
     [Fact]
-    public void The_model_wins_where_both_found_a_book_so_its_tier_is_kept()
+    public void Vision_wins_where_both_found_a_book_so_its_read_is_the_one_shown()
     {
         var built = EvalCombination.Of(
             [ModelRead(T2(Matched("Star Fox 64"))), VisionRead(GuessedByVision("Star Fox 64"))],
             ArrangeShelf("Star Fox 64"));
 
         var item = built.Single().Items.Single();
-        item.Tier.ShouldBe(EnumTextOf(ScanTier.T2));
-        item.Provisional.ShouldBeFalse();
-        item.ResolvedBy.ShouldBe("model");
+        item.ResolvedBy.ShouldBe("vision_text");
+        item.Provisional.ShouldBeTrue();
+        item.Tier.ShouldBeNull();
+    }
+
+    // ---- where a read sits decides what the same item is -----------------------------------------------------------------
+
+    [Fact]
+    public void Vision_items_come_first_and_a_model_item_at_a_new_position_is_added_after_them()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Mario Kart 64")).At(0.60)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.10)),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64", "Mario Kart 64"]);
+        built.Single().Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text", "model"]);
+    }
+
+    [Fact]
+    public void A_model_item_whose_box_overlaps_a_Vision_item_is_the_same_item_and_is_not_added_whatever_it_read()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Mario Kart 64")).At(0.31)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.30)),
+            ],
+            ArrangeShelf("Star Fox 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
+    }
+
+    [Fact]
+    public void The_same_title_on_two_spines_is_two_items_when_both_engines_report_where_each_sat()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64", "Star Fox 64"),
+            ModelRead(T1(Matched("Star Fox 64")).At(0.60)),
+            VisionRead(GuessedByVision("Star Fox 64").At(0.10)));
+
+        var both = scored.ShelfOf(Combined);
+        both.PredictedItems.ShouldBe(2);
+        both.Top1Hits.ShouldBe(2);
+    }
+
+    [Fact]
+    public void The_same_title_in_the_same_place_is_one_item()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64"),
+            ModelRead(T1(Matched("Star Fox 64")).At(0.30)),
+            VisionRead(GuessedByVision("Star Fox 64").At(0.31)));
+
+        scored.ShelfOf(Combined).PredictedItems.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void With_a_box_missing_on_either_side_the_title_rule_decides(bool modelHasBox, bool visionHasBox)
+    {
+        var model = T1(Matched("Star Fox 64"));
+        var vision = GuessedByVision("Star Fox 64");
+        var otherModel = T1(Matched("Mario Kart 64"));
+
+        var sameTitle = EvalCombination.Of(
+            [ModelRead(modelHasBox ? model.At(0.60) : model), VisionRead(visionHasBox ? vision.At(0.10) : vision)],
+            ArrangeShelf("Star Fox 64"));
+        var differentTitle = EvalCombination.Of(
+            [ModelRead(modelHasBox ? otherModel.At(0.60) : otherModel), VisionRead(visionHasBox ? vision.At(0.10) : vision)],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64"));
+
+        sameTitle.Single().Items.Count.ShouldBe(1, "the same release with a box missing is one item, as it was before boxes");
+        differentTitle.Single().Items.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void Captured_segments_still_reconcile_when_two_spines_share_a_title()
+    {
+        var capturedAt = new DateTimeOffset(2026, 10, 17, 9, 0, 0, TimeSpan.Zero);
+        var model = Photo("s1", Apple, [T1(Matched("Star Fox 64")).At(0.60) with { SegmentId = "m" }], capturedCount: 1, capturedAt: capturedAt);
+        var vision = Photo("s1", Vision, [GuessedByVision("Star Fox 64").At(0.10) with { SegmentId = "v" }], capturedCount: 1, capturedAt: capturedAt);
+
+        var scored = Score(ArrangeShelf("Star Fox 64", "Star Fox 64"), model, vision);
+
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
     }
 
     private static string EnumTextOf(ScanTier tier) => CollectionMaxxing.Domain.Common.EnumText.ToText(tier);
