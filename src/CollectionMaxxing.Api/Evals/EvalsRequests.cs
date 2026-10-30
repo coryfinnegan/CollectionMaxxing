@@ -63,10 +63,15 @@ public sealed class StrictScanEngineConverter : JsonConverter<ScanEngine>
 /// <summary>What a duplicate re-scan of the photo's shelf showed: owned hits, how many answered on-card, unsolicited new items.</summary>
 public sealed record EvalDuplicateRescan(int OwnedHits = 0, int AnsweredOnCard = 0, int UnsolicitedAdds = 0);
 
+/// <summary>One cleaned OCR line the Vision engine split: its text (up to 200 characters) and its box, each value 0 to 1 with the origin at the top left.</summary>
+public sealed record EvalOcrLine(string? Text = null, double? X = null, double? Y = null, double? Width = null, double? Height = null);
+
 /// <summary>
 /// One golden photo run through one engine on the phone. <c>CapturedCount</c> is how many segments the phone captured (reads plus
 /// unreadable must reconcile to it); <c>CapturedAt</c> stamps the capture for the wall-clock metrics; <c>DuplicateRescan</c> carries
-/// a duplicate re-scan's evidence, when the photo was one (docs/16 §17).
+/// a duplicate re-scan's evidence, when the photo was one (docs/16 §17). <c>OcrLines</c> (at most 1000) and <c>OcrPieces</c> (for each
+/// piece the Vision engine made, the indexes of its lines) come from the <c>vision_pipeline</c> photo only, so a later fix can use the
+/// real lines; the PC keeps them with the grounded run and ignores them on any other engine's photo.
 /// </summary>
 public sealed record EvalPhotoResult(
     string? PhotoId = null,
@@ -80,7 +85,9 @@ public sealed record EvalPhotoResult(
     ThermalState? ThermalState = null,
     int? CapturedCount = null,
     DateTimeOffset? CapturedAt = null,
-    EvalDuplicateRescan? DuplicateRescan = null);
+    EvalDuplicateRescan? DuplicateRescan = null,
+    IReadOnlyList<EvalOcrLine>? OcrLines = null,
+    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null);
 
 /// <summary>Body of <c>POST /api/admin/evals/runs</c>: at most 2 MB. Nothing in it is an image. <c>Partial</c> is true when the phone cancelled the run part way. <c>BaselineNote</c> explains a deliberate threshold move (docs/16 §17).</summary>
 public sealed record EvalRunRequest(

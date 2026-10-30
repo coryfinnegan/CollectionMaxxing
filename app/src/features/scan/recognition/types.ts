@@ -1,6 +1,6 @@
 // The shapes the recognition engines share. Nothing here carries picture data: only text and fields.
 import type { ItemCompleteness, ReleaseFormat, WorkKind } from '@/api/generated/models';
-import type { ModelConfidence, Rect } from '@/native/cm-vision';
+import type { ModelConfidence, Rect, TextLine } from '@/native/cm-vision';
 import type { ShotKind } from '../shotkind/shotKind';
 
 /** A still the camera took. `uri` stays on the phone and is only ever handed to the native module. */
@@ -39,8 +39,18 @@ export interface SnapTimings {
   visionMs: number;
 }
 
+/** What the Vision text engine saw and how it split it, kept for the eval record. The scanner never sends it anywhere. */
+export interface OcrReading {
+  /** The cleaned lines the engine split, as it split them (box normalized 0..1, origin top-left). */
+  lines: TextLine[];
+  /** For each piece the engine made, the indexes of its lines in `lines`. */
+  pieces: number[][];
+}
+
 export interface SnapReading {
   items: ReadItem[];
+  /** The Vision text engine's lines and pieces; only its own reading has them. */
+  ocr?: OcrReading;
   /** Items that were there but could not be read; the scanner shows its "Get closer" chip when above 0. */
   unreadableCount: number;
   engine: EngineName;

@@ -537,4 +537,131 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         (await response.Content.ReadAsStringAsync()).ShouldContain("evals.note_too_long");
         SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
     }
+
+    // ---- the OCR lines the Vision engine split ---------------------------------------------------------------------------------
+
+    private static bool Absent(JsonElement photo, string name) => !photo.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null;
+
+    [Fact]
+    public async Task The_Vision_engines_OCR_lines_and_the_pieces_it_made_are_kept_in_the_grounded_run()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult(
+            "c1", "vision_pipeline", [StarFoxRead()],
+            ocrLines: [OcrLine("Star Fox 64", 0.2, 0.1, 0.05, 0.6), OcrLine("Nintendo", 0.3, 0.7, 0.4, 0.05)],
+            ocrPieces: [[0, 1]])));
+
+        var photo = (await LatestRunFileAsync()).GetProperty("photos")[0];
+        var lines = photo.GetProperty("ocrLines");
+        lines.GetArrayLength().ShouldBe(2);
+        lines[0].GetProperty("text").GetString().ShouldBe("Star Fox 64");
+        lines[0].GetProperty("x").GetDouble().ShouldBe(0.2);
+        lines[0].GetProperty("y").GetDouble().ShouldBe(0.1);
+        lines[0].GetProperty("width").GetDouble().ShouldBe(0.05);
+        lines[0].GetProperty("height").GetDouble().ShouldBe(0.6);
+        lines[1].GetProperty("text").GetString().ShouldBe("Nintendo");
+        photo.GetProperty("ocrPieces").EnumerateArray().Select(p => p.EnumerateArray().Select(i => i.GetInt32()).ToArray()).ShouldBe([[0, 1]]);
+    }
+
+    [Fact]
+    public async Task OCR_lines_stay_out_of_the_dated_result_file_that_is_safe_to_commit()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "vision_pipeline", [StarFoxRead()], ocrLines: [OcrLine("Zebra Quartz Lantern")], ocrPieces: [[0]])));
+
+        (await File.ReadAllTextAsync(Path.Combine(Golden.Results, "latest-run.json"))).ShouldContain("Zebra Quartz Lantern");
+        foreach (var file in ResultFiles().Append(Path.Combine(Golden.Results, "latest.json")))
+        {
+            (await File.ReadAllTextAsync(file)).ShouldNotContain("Zebra Quartz Lantern");
+        }
+    }
+
+    [Theory]
+    [InlineData("apple_model")]
+    [InlineData("fm_text")]
+    public async Task OCR_lines_sent_with_another_engines_photo_are_ignored(string engine)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+        object[] tooMany = [.. Enumerable.Range(0, 1001).Select(i => OcrLine($"Line {i}"))];
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", engine, [StarFoxRead()], ocrLines: tooMany, ocrPieces: [[0]])));
+
+        var photo = (await LatestRunFileAsync()).GetProperty("photos")[0];
+        Absent(photo, "ocrLines").ShouldBeTrue();
+        Absent(photo, "ocrPieces").ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_Vision_photo_without_OCR_lines_is_accepted_as_before()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "vision_pipeline", [StarFoxRead()])));
+
+        Absent((await LatestRunFileAsync()).GetProperty("photos")[0], "ocrLines").ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_thousand_OCR_lines_are_kept()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        using var admin = AdminClient();
+        object[] lines = [.. Enumerable.Range(0, 1000).Select(i => OcrLine($"Line {i}"))];
+
+        await PostRunOkAsync(admin, RunBody(PhotoResult("c1", "vision_pipeline", [], ocrLines: lines, ocrPieces: [[0, 999]])));
+
+        (await LatestRunFileAsync()).GetProperty("photos")[0].GetProperty("ocrLines").GetArrayLength().ShouldBe(1000);
+    }
+
+    [Theory]
+    [InlineData("evals.ocr_too_many_lines", "count")]
+    [InlineData("evals.ocr_line_invalid", "long_text")]
+    [InlineData("evals.ocr_line_invalid", "x_over_one")]
+    [InlineData("evals.ocr_line_invalid", "y_below_zero")]
+    [InlineData("evals.ocr_line_invalid", "width_over_one")]
+    [InlineData("evals.ocr_line_invalid", "no_height")]
+    [InlineData("evals.ocr_line_invalid", "no_text")]
+    [InlineData("evals.ocr_piece_invalid", "piece_past_the_lines")]
+    [InlineData("evals.ocr_piece_invalid", "piece_negative")]
+    [InlineData("evals.ocr_piece_invalid", "piece_without_lines")]
+    public async Task OCR_lines_over_the_limits_are_refused_and_nothing_is_written(string code, string problem)
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        using var admin = AdminClient();
+        object[] lines = problem switch
+        {
+            "count" => [.. Enumerable.Range(0, 1001).Select(i => OcrLine($"Line {i}"))],
+            "long_text" => [OcrLine(new string('t', 201))],
+            "x_over_one" => [OcrLine("Dune", x: 1.01)],
+            "y_below_zero" => [OcrLine("Dune", y: -0.01)],
+            "width_over_one" => [OcrLine("Dune", width: 2)],
+            "no_height" => [new { text = "Dune", x = 0.1, y = 0.1, width = 0.1 }],
+            "no_text" => [new { x = 0.1, y = 0.1, width = 0.1, height = 0.1 }],
+            "piece_without_lines" => [],
+            _ => [OcrLine("Dune")],
+        };
+        int[][] pieces = problem switch
+        {
+            "piece_past_the_lines" => [[0, 1]],
+            "piece_negative" => [[-1]],
+            "piece_without_lines" => [[0]],
+            _ => [],
+        };
+
+        using var response = await PostRunAsync(admin, RunBody(PhotoResult("c1", "vision_pipeline", [], ocrLines: lines, ocrPieces: pieces)));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain(code);
+        SyntheticGolden.Files(Golden.Results).ShouldBeEmpty();
+    }
 }

@@ -166,7 +166,9 @@ public static class EvalsEndpoints
                     r.ThermalState,
                     r.CapturedCount,
                     r.CapturedAt,
-                    r.DuplicateRescan is { } evidence ? new DuplicateRescanInput(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds) : null)).ToList(),
+                    r.DuplicateRescan is { } evidence ? new DuplicateRescanInput(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds) : null,
+                    r.OcrLines?.Select(l => l is null ? null! : new EvalOcrLineInput(l.Text, l.X, l.Y, l.Width, l.Height)).ToList(),
+                    r.OcrPieces)).ToList(),
             parsed.Partial == true,
             parsed.BaselineNote);
 

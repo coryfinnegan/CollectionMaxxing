@@ -5,7 +5,7 @@
 import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, GoldenPhotoDto, ScanTier } from '@/api/generated/models';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
-import { ModelUnusableError, type EngineName, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
+import { ModelUnusableError, type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ThermalState } from '@/native/cm-vision';
 import type { EvalApi } from './api';
 
@@ -108,6 +108,31 @@ const toItem = (item: ReadItem, engine: EngineName, segmentId: string): EvalRead
     ? { tier: 'T1' as ScanTier, provisional: false }
     : { provisional: true, isGuess: true }),
 });
+
+/** What the server accepts of the Vision engine's OCR record: at most this many lines, each with text up to this long. */
+export const MAX_OCR_LINES = 1000;
+export const MAX_OCR_TEXT = 200;
+
+const unit = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * The lines the Vision engine split and the pieces it made of them, shaped for the upload. The server refuses a whole run for a line
+ * over its limits, so the record is cut to them here (a box a hair outside the frame is pulled in) instead of losing the run.
+ */
+export function ocrRecord(ocr: OcrReading | undefined): Pick<EvalPhotoResult, 'ocrLines' | 'ocrPieces'> {
+  if (!ocr) return {};
+  const lines = ocr.lines.slice(0, MAX_OCR_LINES);
+  return {
+    ocrLines: lines.map((l) => ({
+      text: l.text.slice(0, MAX_OCR_TEXT),
+      x: unit(l.box.x),
+      y: unit(l.box.y),
+      width: unit(l.box.width),
+      height: unit(l.box.height),
+    })),
+    ocrPieces: ocr.pieces.map((piece) => piece.filter((index) => index >= 0 && index < lines.length)).filter((piece) => piece.length > 0),
+  };
+}
 
 export class EvalRunner {
   private state: EvalState = initial();
@@ -314,6 +339,7 @@ export class EvalRunner {
             items: reading.items.map((i) => toItem(i, engine, segmentId)),
             unreadableCount: reading.unreadableCount,
             firstItemMs,
+            ...(engine === 'vision_pipeline' ? ocrRecord(reading.ocr) : {}),
           };
     } catch (error) {
       // The forced extraction tier reports why it gave no reading, like the Apple row does.

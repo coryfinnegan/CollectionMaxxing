@@ -23,6 +23,8 @@ public static class SubmitEvalRun
     private const int MaxText = 100;
     private const int MaxNote = 500;
     private const int MaxCounted = 1000;
+    private const int MaxOcrLines = 1000;
+    private const int MaxOcrText = 200;
     private const long MaxMillis = 3_600_000;
 
     public sealed class Handler(
@@ -97,7 +99,9 @@ public static class SubmitEvalRun
                     result.CapturedAt,
                     result.DuplicateRescan is { } evidence
                         ? new DuplicateRescan(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds)
-                        : null));
+                        : null,
+                    result.Engine == ScanEngine.VisionPipeline ? result.OcrLines?.Select(l => new GroundedOcrLine(l.Text!, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value)).ToList() : null,
+                    result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null));
             }
 
             var run = new GroundedRun(
@@ -298,6 +302,11 @@ public static class SubmitEvalRun
                     $"{at}.duplicateRescan");
             }
 
+            if (photo.Engine == ScanEngine.VisionPipeline && ValidateOcr(photo, at) is { } ocrProblem)
+            {
+                return ocrProblem;
+            }
+
             if (photo.Items is not { Count: > 0 })
             {
                 return null; // a refusal, a failure or an empty reading carries no items
@@ -321,6 +330,37 @@ public static class SubmitEvalRun
             return IdentifyCleaning.Validate(check) is { } problem
                 ? EvalErrors.Invalid(problem.Code, problem.Message, $"{at}.items")
                 : null;
+        }
+
+        /// <summary>The Vision photo's OCR lines: at most 1000, text up to 200 characters, box values 0 to 1; each piece points at lines that exist.</summary>
+        private static DomainError? ValidateOcr(EvalPhotoInput photo, string at)
+        {
+            var lines = photo.OcrLines;
+            if (lines is { Count: > MaxOcrLines })
+            {
+                return EvalErrors.Invalid("evals.ocr_too_many_lines", $"Send at most {MaxOcrLines} OCR lines per photo.", $"{at}.ocrLines");
+            }
+
+            for (var i = 0; i < (lines?.Count ?? 0); i++)
+            {
+                if (lines![i] is not { Text.Length: <= MaxOcrText, X: >= 0 and <= 1, Y: >= 0 and <= 1, Width: >= 0 and <= 1, Height: >= 0 and <= 1 })
+                {
+                    return EvalErrors.Invalid(
+                        "evals.ocr_line_invalid",
+                        $"An OCR line is its text (up to {MaxOcrText} characters) and a box with x, y, width and height, each from 0 to 1.",
+                        $"{at}.ocrLines[{i}]");
+                }
+            }
+
+            var available = lines?.Count ?? 0;
+            if (photo.OcrPieces is { } pieces
+                && (pieces.Count > MaxOcrLines || pieces.Any(piece => piece is null || piece.Count > MaxOcrLines || piece.Any(index => index < 0 || index >= available))))
+            {
+                return EvalErrors.Invalid(
+                    "evals.ocr_piece_invalid", "A piece is the indexes of OCR lines that were sent with it.", $"{at}.ocrPieces");
+            }
+
+            return null;
         }
 
         private static bool Text(string? value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= MaxText;

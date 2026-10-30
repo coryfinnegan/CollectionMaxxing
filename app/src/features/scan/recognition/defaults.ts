@@ -44,12 +44,15 @@ export interface LocalTuning {
   spineColumnOverlap: number;
   /** Rectangles overlapping by at least this share of the smaller one depict one surface and merge before splitting (a cover's nested quads are one item; disjoint spines still split, #504). */
   rectangleMergeOverlap: number;
-  /** Consecutive spine columns must share this much of their vertical span, else they are not one shelf row (scattered cover lines read as the whole frame, #504). */
+  /** Two neighboring spine columns share a band when they share this much of the shorter one's vertical span. */
   spineRowOverlap: number;
+  /**
+   * The spine columns stand in one shelf row when at least this share of neighboring pairs share a band (spineRowOverlap), so one short
+   * book beside tall ones does not undo the split. Scattered cover lines share almost none and read as the whole frame (#504).
+   */
+  spineRowShare: number;
   /** A shelf needs this many columns before it is read as spines. */
   minSpineColumns: number;
-  /** Share of lines taller than wide for a picture to count as spines. */
-  spineTallShare: number;
   /** How far either side of the cut the two halves of a wide shot reach, as a share of the picture's width. */
   halfOverlap: number;
   /** The cut is looked for within this distance of the middle. */
@@ -103,8 +106,8 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   spineColumnOverlap: 0.5,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
+  spineRowShare: 0.6,
   minSpineColumns: 2,
-  spineTallShare: 0.5,
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,
