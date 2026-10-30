@@ -418,6 +418,9 @@ public static class IdentifyItems
                 answers[candidate.Id] = grounding.Score(item.Facts, item.Profile, local[candidate.Id], providers);
             }
 
+            // One book, one candidate per picture: a read that repeats a stronger read of the same release is skipped.
+            var repeats = RepeatReads.Of([.. fresh.Select(f => answers[f.Candidate.Id])]).ToHashSet();
+
             // The answers land under the session's lock: the session is reloaded inside it (another request may
             // have auto-added while the providers were being asked), and two auto-adds landing together both append
             // instead of one overwriting the other.
@@ -430,9 +433,16 @@ public static class IdentifyItems
                 }
 
                 var coverFiles = new List<string>();
-                foreach (var (candidate, _) in fresh)
+                for (var i = 0; i < fresh.Count; i++)
                 {
+                    var candidate = fresh[i].Candidate;
                     await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken);
+                    if (repeats.Contains(i))
+                    {
+                        SkipRepeat(candidate);
+                        continue; // never auto-added
+                    }
+
                     await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken, coverFiles);
                 }
 
@@ -448,6 +458,24 @@ public static class IdentifyItems
             }
 
             await EnqueueResolveJobsAsync(session, fresh.Select(f => f.Candidate), userId, null, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// The server's own skip for a read that repeats a stronger read of the same book in the same picture
+        /// (<see cref="RepeatReads"/>). The row stays, with its answer, so the phone's line for the read has a card and the
+        /// person can still un-skip it to add a second copy; but it defaults to skipped, in review and at commit, and is
+        /// never T0 or T1, so nothing adds it by itself. Saves nothing; the caller saves.
+        /// </summary>
+        private static void SkipRepeat(ScanCandidate candidate)
+        {
+            candidate.Decision = CandidateDecision.Rejected;
+            candidate.Tier = ScanTier.T2;
+            var trace = CandidateJson.ReadTrace(candidate.TraceJson);
+            candidate.TraceJson = CandidateJson.Serialize(trace with
+            {
+                Steps = [.. trace.Steps, new TraceStep(RepeatReads.StepName, "skipped", 0)],
+                AutoDecision = CandidateDecision.Rejected,
+            });
         }
 
         /// <summary>

@@ -36,10 +36,18 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
             answers.Add(await grounding.GroundAsync(item.Facts, item.Profile, options.JobResolveBudget, cancellationToken));
         }
 
+        // One book, one item per photo and engine: a read that repeats a stronger read of the same release is not scored, the same
+        // rule /identify applies, so the scorer sees what a person scanning this photo would have been shown.
+        var repeats = RepeatReads.Of(answers).ToHashSet();
         var local = await LoadLocalAsync(answers, cancellationToken);
-        var grounded = new List<GroundedItem>(items.Count);
+        var grounded = new List<GroundedItem>(items.Count - repeats.Count);
         for (var i = 0; i < items.Count; i++)
         {
+            if (repeats.Contains(i))
+            {
+                continue;
+            }
+
             var answer = answers[i];
             var candidates = answer.Options
                 .Take(Alternatives)
