@@ -1,7 +1,8 @@
-import { DEFAULT_RECOGNITION_SETTINGS as S, promptOf, type RecognitionSettings } from './defaults';
-import { EngineSelector } from './EngineSelector';
+import type { ModelItem, Rect } from '@/native/cm-vision';
+import { DEFAULT_COVER_FORMAT_TUNING, DEFAULT_RECOGNITION_SETTINGS as S, promptOf, type RecognitionSettings } from './defaults';
+import { EngineSelector, type SelectorDeps } from './EngineSelector';
 import { failedRead, FakeCropper, line, modelItem, okRead, RecordingVision, STILL, testIds, type Scene } from './fakes';
-import type { ReadItem } from './types';
+import type { ReadItem, ReadOptions } from './types';
 
 const books = [modelItem('Dune', 'Dune', 0), modelItem('Emma', 'Emma', 1)];
 const text = [line('Dune', 0.1, 0.1, 0.1, 0.5), line('Emma', 0.5, 0.1, 0.1, 0.5)];
@@ -172,6 +173,177 @@ describe('EngineSelector with a wide shot', () => {
     const reading = await s.read(STILL, () => {}, ALONE);
     expect(reading.engine).toBe('apple_model');
     expect(reading.items).toHaveLength(4);
+  });
+});
+
+describe('EngineSelector with a single cover: the case says the format', () => {
+  // Last eval: the model called a Criterion Blu-ray a DVD, a Disney VHS clamshell a DVD, and a VHS slipcase a book.
+  const COVER = { shotKind: 'single_cover' as const, combine: false };
+  const STILL_RATIO = STILL.width / STILL.height; // 0.75: the sizes below are in pixels of this still
+  /** A case standing upright, `ratio` wide for its height, 80% of the picture tall. */
+  const caseWith = (ratio: number): Rect => {
+    const width = (ratio * 0.8) / STILL_RATIO;
+    return { x: (1 - width) / 2, y: 0.1, width, height: 0.8 };
+  };
+  const slipcase = caseWith(0.55);
+  const keepcase = caseWith(0.71);
+
+  const cover = (kind: ModelItem['kind'], extra: Scene = {}): Scene => ({
+    read: okRead([modelItem('Casablanca', 'CASABLANCA', 0, { kind })]),
+    text: [line('CASABLANCA', 0.2, 0.2, 0.5, 0.1)],
+    ...extra,
+  });
+  const readCover = async (scene: Scene, options: ReadOptions = COVER, deps: Partial<SelectorDeps> = {}) => {
+    const vision = new RecordingVision({ [STILL.uri]: scene });
+    const s = new EngineSelector({ vision, settings: () => S, newId: testIds, ...deps });
+    const streamed: ReadItem[] = [];
+    const reading = await s.read(STILL, (i) => streamed.push(i), options);
+    return { vision, streamed, reading };
+  };
+  const formats = (items: ReadItem[]) => items.map((i) => `${i.kind}/${i.format}`);
+
+  it('streams and returns VHS when the model called a tall narrow cover a DVD', async () => {
+    const { streamed, reading } = await readCover(cover('dvd', { rectangles: [slipcase] }));
+    expect(formats(streamed)).toEqual(['film/vhs']);
+    expect(formats(reading.items)).toEqual(['film/vhs']);
+    expect(reading.items[0]).toMatchObject({ title: 'Casablanca', confidence: 'high', order: 0 });
+  });
+
+  it('corrects DVD to Blu-ray when the cover says Blu-ray, whatever its shape', async () => {
+    const { streamed, reading } = await readCover(cover('dvd', { rectangles: [keepcase], text: [line('Blu-ray Disc', 0.1, 0.8, 0.3, 0.04)] }));
+    expect(formats(streamed)).toEqual(['film/bluray']);
+    expect(formats(reading.items)).toEqual(['film/bluray']);
+  });
+
+  it('corrects a book read to the film format a logo names', async () => {
+    const { streamed, reading } = await readCover(cover('book', { text: [line('VHS', 0.1, 0.8, 0.1, 0.04), line('HI-FI', 0.3, 0.8, 0.1, 0.04)] }));
+    expect(formats(streamed)).toEqual(['film/vhs']);
+    expect(formats(reading.items)).toEqual(['film/vhs']);
+  });
+
+  it('does not turn a book into a film because of the shape of the case', async () => {
+    const { reading } = await readCover(cover('book', { rectangles: [keepcase] }));
+    expect(formats(reading.items)).toEqual(['book/undefined']);
+  });
+
+  it('leaves a game alone, whatever the logo or the shape', async () => {
+    const scene = cover('game', { rectangles: [slipcase], text: [line('DVD VIDEO', 0.1, 0.8, 0.3, 0.04)] });
+    const { streamed, reading } = await readCover(scene);
+    expect(formats(streamed)).toEqual(['game/undefined']);
+    expect(formats(reading.items)).toEqual(['game/undefined']);
+  });
+
+  it('corrects a loose item shot the same way', async () => {
+    const { reading } = await readCover(cover('dvd', { rectangles: [slipcase] }), { shotKind: 'loose_item', combine: false });
+    expect(formats(reading.items)).toEqual(['film/vhs']);
+  });
+
+  it('corrects the cover whatever the combine option says', async () => {
+    const { reading } = await readCover(cover('dvd', { rectangles: [slipcase] }), { shotKind: 'single_cover' });
+    expect(formats(reading.items)).toEqual(['film/vhs']);
+  });
+
+  it('keeps the order of the items it streams', async () => {
+    const read = okRead([modelItem('Casablanca', 'CASABLANCA', 0, { kind: 'dvd' }), modelItem('Gigi', 'GIGI', 1, { kind: 'dvd' })]);
+    const { streamed, reading } = await readCover(cover('dvd', { read, rectangles: [slipcase] }));
+    expect(streamed.map((i) => `${i.title}/${i.format}`)).toEqual(['Casablanca/vhs', 'Gigi/vhs']);
+    expect(reading.items.map((i) => `${i.title}/${i.format}`)).toEqual(['Casablanca/vhs', 'Gigi/vhs']);
+  });
+
+  it('leaves a shelf shot as the model read it, and does not even look at the case', async () => {
+    const scene = cover('dvd', { rectangles: [slipcase], text: [line('Blu-ray', 0.1, 0.8, 0.3, 0.04)] });
+    const vision = new RecordingVision({ [STILL.uri]: scene });
+    const rectangles = jest.spyOn(vision, 'detectRectangles');
+    const s = new EngineSelector({ vision, settings: () => S, newId: testIds });
+    const streamed: ReadItem[] = [];
+    const reading = await s.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment', combine: false });
+    expect(formats(streamed)).toEqual(['film/dvd']);
+    expect(formats(reading.items)).toEqual(['film/dvd']);
+    expect(rectangles).not.toHaveBeenCalled();
+  });
+
+  it('leaves a read with no shot kind as the model read it', async () => {
+    const { reading } = await readCover(cover('dvd', { rectangles: [slipcase] }), { combine: false });
+    expect(formats(reading.items)).toEqual(['film/dvd']);
+  });
+
+  it('leaves an item as it was when the case gives no cue', async () => {
+    const { reading } = await readCover(cover('dvd'));
+    expect(formats(reading.items)).toEqual(['film/dvd']);
+  });
+
+  it('starts looking at the case while the model reads, not after it', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: cover('dvd', { rectangles: [slipcase] }) });
+    const order: string[] = [];
+    const model = vision.readItems.bind(vision);
+    jest.spyOn(vision, 'readItems').mockImplementation(async (...args) => {
+      const result = await model(...args);
+      order.push('model done');
+      return result;
+    });
+    const rectangles = vision.detectRectangles.bind(vision);
+    jest.spyOn(vision, 'detectRectangles').mockImplementation(async (uri) => {
+      order.push('rectangles asked');
+      return rectangles(uri);
+    });
+    const s = new EngineSelector({ vision, settings: () => S, newId: testIds });
+    await s.read(STILL, () => {}, COVER);
+    expect(order).toEqual(['rectangles asked', 'model done']);
+  });
+
+  it('waits a moment for a cue that is a little late, and uses it', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: cover('dvd') });
+    jest.spyOn(vision, 'detectRectangles').mockImplementation(() => new Promise<Rect[]>((resolve) => setTimeout(() => resolve([slipcase]), 30)));
+    const s = new EngineSelector({ vision, settings: () => S, newId: testIds, coverFormatTuning: { ...DEFAULT_COVER_FORMAT_TUNING, cueWaitMs: 2000 } });
+    const reading = await s.read(STILL, () => {}, COVER);
+    expect(formats(reading.items)).toEqual(['film/vhs']);
+  });
+
+  it('sends the model items as they were when the cue is slower than the cap, and does not wait for it', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: cover('dvd', { rectangles: [slipcase] }) });
+    jest.spyOn(vision, 'detectRectangles').mockReturnValue(new Promise<Rect[]>(() => {})); // never answers
+    const s = new EngineSelector({ vision, settings: () => S, newId: testIds, coverFormatTuning: { ...DEFAULT_COVER_FORMAT_TUNING, cueWaitMs: 20 } });
+    const streamed: ReadItem[] = [];
+    const started = Date.now();
+    const reading = await s.read(STILL, (i) => streamed.push(i), COVER);
+    expect(formats(streamed)).toEqual(['film/dvd']);
+    expect(formats(reading.items)).toEqual(['film/dvd']);
+    expect(reading.engine).toBe('apple_model');
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('sends the model items as they were when Vision throws looking at the case', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: cover('dvd', { rectangles: [slipcase] }) });
+    jest.spyOn(vision, 'detectRectangles').mockRejectedValue(new Error('Vision failed'));
+    const s = new EngineSelector({ vision, settings: () => S, newId: testIds });
+    const streamed: ReadItem[] = [];
+    const reading = await s.read(STILL, (i) => streamed.push(i), COVER);
+    expect(formats(streamed)).toEqual(['film/dvd']);
+    expect(formats(reading.items)).toEqual(['film/dvd']);
+    expect(reading.engine).toBe('apple_model');
+    expect(reading.fellBackFrom).toBeUndefined();
+  });
+
+  it('sends the model items as they were when Vision throws before it even returns a promise', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: cover('dvd', { rectangles: [slipcase] }) });
+    jest.spyOn(vision, 'detectRectangles').mockImplementation(() => {
+      throw new Error('Vision failed');
+    });
+    const s = new EngineSelector({ vision, settings: () => S, newId: testIds });
+    const reading = await s.read(STILL, () => {}, COVER);
+    expect(formats(reading.items)).toEqual(['film/dvd']);
+  });
+
+  it('does not touch the OCR-text tier or the Vision-only tier', async () => {
+    const textOnly = { available: true, vision: false, guidedGeneration: true, contextSize: 4096 };
+    const scene = cover('dvd', { extract: okRead([modelItem('Casablanca', 'CASABLANCA', 0, { kind: 'dvd' })]), rectangles: [slipcase] });
+    const viaText = new EngineSelector({ vision: new RecordingVision({ [STILL.uri]: scene }, { capabilities: textOnly as never }), settings: () => S, newId: testIds });
+    expect(formats((await viaText.read(STILL, () => {}, COVER)).items)).toEqual(['film/dvd']);
+    const off = { available: false, vision: false, guidedGeneration: false, contextSize: null, reason: 'appleIntelligenceOff' };
+    const viaVision = new EngineSelector({ vision: new RecordingVision({ [STILL.uri]: scene }, { capabilities: off as never }), settings: () => S, newId: testIds });
+    const reading = await viaVision.read(STILL, () => {}, COVER);
+    expect(reading.engine).toBe('vision_pipeline');
+    expect(reading.items.every((i) => i.format !== 'vhs')).toBe(true);
   });
 });
 

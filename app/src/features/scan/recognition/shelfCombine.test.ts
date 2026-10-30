@@ -165,7 +165,7 @@ describe('shots and engines the combination leaves alone', () => {
     const { vision, selector } = selectorFor(shelf);
     const detect = jest.spyOn(vision, 'detectRectangles');
     const reading = await selector.read(STILL, () => {}, { shotKind });
-    expect(detect).not.toHaveBeenCalled();
+    expect(detect).toHaveBeenCalledTimes(1); // the look at the case's shape (coverFormat); the pipeline would ask again
     expect(reading.engine).toBe('apple_model');
     expect(reading.items.map((i) => i.title)).toEqual(['Dune', 'Emma']); // the model's items alone, no Neuromancer
   });
