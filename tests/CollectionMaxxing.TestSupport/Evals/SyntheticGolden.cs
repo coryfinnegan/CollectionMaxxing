@@ -98,9 +98,10 @@ public sealed class SyntheticGolden : IDisposable
     }
 
     /// <summary>One item on a shelf, as the truth file spells it.</summary>
-    public sealed record ShelfItem(string Title, string MediaType, string? Platform = null, int? Year = null);
+    public sealed record ShelfItem(string Title, string MediaType, string? Platform = null, int? Year = null, IReadOnlyList<string>? AlsoTitled = null);
 
     /// <summary>The truth of a single-item picture, as the truth file spells it.</summary>
     public sealed record SingleItem(
-        string Title, string Format, string Completeness, string Kind, string? Platform = null, string? Edition = null, string? ShotKind = null);
+        string Title, string Format, string Completeness, string Kind, string? Platform = null, string? Edition = null, string? ShotKind = null,
+        IReadOnlyList<string>? AlsoTitled = null);
 }

@@ -186,7 +186,7 @@ Kent Beck-style test list. Each line becomes one red test.
 **Golden set (built in M3):**
 
 - 40–60 photos of **your real shelves**, in deliberately varied conditions: book spines (vertical, horizontal, stacked), DVD/Blu-ray spines, VHS clamshells, game cases (N64 boxes, PS2 cases, cartridges), mixed piles, a floor spread of covers, glare, low light, an angled shot.
-- Each photo gets a `truth.json`: an ordered list of `{ title, media_type, platform?, year? }`, plus how many items are visible but unreadable.
+- Each photo gets a `truth.json`: an ordered list of `{ title, media_type, platform?, year? }`, plus how many items are visible but unreadable. A truth names an item as it reads on the spine or box ("The Staub Cookbook"), but a provider often answers with the full title and subtitle. An item may list those answers in `alsoTitled` (up to 10 strings; `also_titled` works too), and a release titled with any of them counts as the item. An unlisted subtitle is still a miss, so a look-alike product that shares the main title is never accepted by accident. A single-item truth takes the same field.
 - **Single-item set (60–100 photos):**
   - loose cartridges for each platform you collect, including at least one worn/faded label each
   - VHS sleeves, clamshells and bare tapes
