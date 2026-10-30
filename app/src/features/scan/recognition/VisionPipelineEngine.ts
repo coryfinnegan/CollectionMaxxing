@@ -2,6 +2,7 @@
 // item says low confidence and leaves the finding to the server.
 import type { TextLine, VisionEngine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
+import { coverTitleOf } from './coverTitle';
 import { creatorOf } from './creators';
 import type { RecognitionSettings } from './defaults';
 import { readLines } from './lines';
@@ -36,21 +37,24 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const started = this.now();
     const settings = this.deps.settings();
     const lines = await readLines(this.deps.vision, still.uri, settings.local);
-    // A cover shot is one item: the whole frame, never segmented (#504). Anything else may be a shelf row.
+    // A cover shot is one item: the whole frame, never segmented (#504), and its title is its biggest text. Anything else may be a shelf row.
     if (isSingleItemShot(options.shotKind)) {
-      return this.reading(wholeFrame(lines), lines, settings, started, onItem);
+      return this.reading(wholeFrame(lines), lines, settings, started, onItem, still);
     }
     const rectangles = await this.deps.vision.detectRectangles(still.uri).catch(() => []);
     return this.reading(splitIntoPieces(lines, rectangles, settings.splitting, settings.local), lines, settings, started, onItem);
   }
 
-  private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void): SnapReading {
+  /** `cover` is the still of a single-cover shot: its pieces take the biggest text as the title. A shelf piece takes its longest, surest line. */
+  private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void, cover?: Still): SnapReading {
     const { pieces, unreadableCount } = split;
     const items = pieces.map((p, order): ReadItem => {
-      const titleLine = p.lines.reduce((best, l) =>
-        l.confidence * l.text.length > best.confidence * best.text.length ? l : best,
-      );
-      const creator = creatorOf(p.lines, titleLine, settings.local);
+      const biggest = cover && coverTitleOf(p.lines, cover, settings.local);
+      const titleLine =
+        biggest?.line ??
+        p.lines.reduce((best, l) => (l.confidence * l.text.length > best.confidence * best.text.length ? l : best));
+      // The creator is never a line of the title, nor a second reading of one.
+      const creator = creatorOf(biggest ? p.lines.filter((l) => !biggest.used.includes(l)) : p.lines, titleLine, settings.local);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),

@@ -59,6 +59,18 @@ export interface LocalTuning {
   cutSearchRadius: number;
   /** Items from the two halves count as one when their centers are this close (share of the picture's width). */
   seamTolerance: number;
+  /**
+   * On a single cover, a line joins the title when its letters are at least this share of the biggest line's height and it sits next to the
+   * title in reading order ("SLEEP AWAY" over "CAMP 3"). A subtitle, set smaller, stays out.
+   */
+  coverTitleSimilarHeight: number;
+  /** A line joins the title only when it is no further from it than this many letter heights of the biggest line. */
+  coverTitleMaxGap: number;
+  /**
+   * A straight line's long side is at least this many short sides for each of its characters. A box squarer than that holds a slanted line,
+   * whose box says nothing about its letter height, so it is never taken for the title.
+   */
+  coverTitleLineAspect: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
   creatorMaxWords: number;
   /** A Vision line with fewer letters than this is not an author either. */
@@ -111,6 +123,9 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,
+  coverTitleSimilarHeight: 0.7,
+  coverTitleMaxGap: 1,
+  coverTitleLineAspect: 0.15,
   creatorMaxWords: 5,
   creatorMinLetters: 3,
 };
