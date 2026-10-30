@@ -5,7 +5,7 @@
 import type { EvalPhotoResult, EvalReadItem, EvalRunRequest, EvalRunResult, GoldenPhotoDto, ScanTier } from '@/api/generated/models';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
-import { ModelUnusableError, type EngineName, type ReadItem, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
+import { ModelUnusableError, type EngineName, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ThermalState } from '@/native/cm-vision';
 import type { EvalApi } from './api';
 
@@ -46,7 +46,7 @@ export interface EvalRunnerDeps {
     sizeOf(uri: string): Promise<{ width: number; height: number }>;
   };
   /** The scanner's own selector: the Apple model, then the tiers below it when the model gives no reading. */
-  selector: { read(still: Still, onItem: (item: ReadItem) => void): Promise<SnapReading> };
+  selector: { read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading> };
   /** The OCR-text extraction tier on its own, forced. */
   fmText: RecognitionEngine;
   /** The Vision text engine on its own, forced. */
@@ -292,7 +292,7 @@ export class EvalRunner {
     try {
       const reading =
         engine === 'apple_model'
-          ? await this.deps.selector.read(still, onItem)
+          ? await this.deps.selector.read(still, onItem, { combine: false }) // the Vision engine is read and scored on its own; the PC builds the combination
           : engine === 'fm_text'
             ? await this.deps.fmText.read(still, onItem)
             : await this.deps.pipeline.read(still, onItem);

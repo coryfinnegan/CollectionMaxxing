@@ -52,6 +52,11 @@ export interface SnapReading {
 export interface ReadOptions {
   /** What the framing said this shot was; absent on re-reads of snaps stored before classification. */
   shotKind?: ShotKind;
+  /**
+   * A shelf shot read by the picture model also gets the Vision pipeline's items the model missed. `false` reads with the model
+   * alone; the eval runner does, because it reads and scores the Vision pipeline as its own engine.
+   */
+  combine?: boolean;
 }
 
 export interface RecognitionEngine {
