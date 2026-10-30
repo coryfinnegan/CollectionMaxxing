@@ -25,12 +25,6 @@ const BESIDE_THE_TITLE: readonly RegExp[] = [
 /** A line a cover prints beside its title and never as it: a bestseller line, praise, a format logo, a licence. */
 export const isBoilerplate = (text: string): boolean => PRAISE.test(text.trim()) || BESIDE_THE_TITLE.some((pattern) => pattern.test(normalize(text)));
 
-/** One word of a boilerplate line that Vision split over lines ("NATIONAL" over "BESTSELLER"): alone it is not boilerplate, yet it names nobody. */
-const BOILERPLATE_FRAGMENT = /^(national|bestseller|bestselling|licensed|nintendo|memoir|novel|edition|collection)$/;
-
-/** Whether a line of a single cover may name its creator: it is not a line a cover prints beside its title, nor one word of such a line. */
-export const mayBeCreator = (text: string): boolean => !isBoilerplate(text) && !BOILERPLATE_FRAGMENT.test(normalize(text));
-
 /** Words a title uses and a name never does ("MY FRIENDS", "Theo of Golden"). */
 const FUNCTION_WORDS = new Set(['the', 'a', 'an', 'of', 'my', 'your', 'our', 'his', 'her', 'for', 'and', 'in', 'on', 'to', 'with', 'at', 'by', 'from', 'is', 'it']);
 

@@ -1,7 +1,7 @@
 // A single cover's title is its biggest text, not its longest line: the longest line on a cover is nearly always a blurb.
 import type { TextLine } from '@/native/cm-vision';
 import coverReads from './coverReads.json';
-import { coverTitleOf, isBoilerplate, isNameLike, mayBeCreator } from './coverTitle';
+import { coverTitleOf, isBoilerplate, isNameLike } from './coverTitle';
 import { DEFAULT_LOCAL_TUNING as T, DEFAULT_RECOGNITION_SETTINGS as S } from './defaults';
 import { line, RecordingVision, testIds, type Scene } from './fakes';
 import type { Still } from './types';
@@ -160,34 +160,6 @@ describe('what a cover prints beside its title', () => {
   );
 });
 
-describe('a line that may name the creator of a single cover', () => {
-  it.each(['Belle Burden', 'Peter Benchley', 'LISA KLEYPAs', 'Marriage'])('can be: %s', (text) => {
-    expect(mayBeCreator(text)).toBe(true);
-  });
-
-  it.each([
-    'LICENSED',
-    'a Memoir',
-    'Nintendo',
-    'NATIONAL BESTSELLER',
-    // One word of a boilerplate line that Vision split across lines.
-    'NATIONAL',
-    'BESTSELLER',
-    'bestselling',
-    'LICENSED',
-    'MEMOIR',
-    'novel',
-    'Edition',
-    'COLLECTION',
-  ])('cannot be: %s', (text) => {
-    expect(mayBeCreator(text)).toBe(false);
-  });
-
-  it('keeps a name that only contains one of those words', () => {
-    expect(mayBeCreator('Edition Hawthorne')).toBe(true);
-  });
-});
-
 describe('a name, as an author is printed', () => {
   it.each(['FREDRIK BACKMAN', 'Charlotte Brontë', "Flannery O'Connor", 'JANE EYRE', 'Gabriel García Márquez', 'Jo Nesbø'])('is name-like: %s', (text) => {
     expect(isNameLike(text, T)).toBe(true);
@@ -343,58 +315,24 @@ describe('the Vision engine on twelve real covers', () => {
   });
 });
 
-describe('the creator the engine picks on the twelve real covers', () => {
-  // Every line gets the same confidence in the record, so the first name-like line in reading order wins: the real authors (Allen Levi, Belle Burden,
-  // Moira Macdonald) lose to a line above them. What matters here is the junk that is gone: LICENSED, NATIONAL, Nintendo, "E PlayStationlie". A
-  // line Vision misread so badly that it is no longer boilerplate ("a Menoir") still comes out, and so does a title that is not this cover's.
-  it.each([
-    ['bluray-01', 'R REN'],
-    ['dvd-01', 'THE HUNT FOR RED OCTOBER'], // a slanted line at the top, another film's title
-    ['dvd-02', 'LAURA LINNEY DYLAN WALSH'], // the cast
-    ['game-box-01', 'TNE'],
-    ['game-cartridge-01', 'Tatiplay'],
-    ['game-cartridge-02', 'DANKE'],
-    ['paperback-01', 'FREDRIK BACKMAN'], // the author, printed bigger than the title
-    ['paperback-02', 'Ending'],
-    ['paperback-03', 'praun l'],
-    ['paperback-04', 'a Menoir'],
-    ['vhs-01', 'SEAN'],
-    ['vhs-02', 'CTOBER'],
-  ])('gives %s the creator %s', async (id, creator) => {
-    expect((await readCover(id)).items[0].creator).toBe(creator);
+describe('the creator the engine sends for the twelve real covers', () => {
+  // A cover's creator is only the name the name rule found: the leftover lines gave "Tatiplay", "DANKE", "praun l", "TNE", "a Menoir", the cast of
+  // CONGO. The server compares a read's creator with each candidate's, so a wrong one costs a right title score and a search rung.
+  it.each(Object.keys(covers).filter((id) => id !== 'paperback-01'))('sends no creator for %s', async (id) => {
+    expect((await readCover(id)).items[0].creator).toBeUndefined();
   });
 
-  it.each(Object.keys(covers))('is never boilerplate nor a word of it on %s', async (id) => {
-    const creator = (await readCover(id)).items[0].creator;
-    if (creator !== undefined) expect(mayBeCreator(creator)).toBe(true);
+  it('sends FREDRIK BACKMAN for paperback-01, whose author is printed bigger than the title', async () => {
+    expect((await readCover('paperback-01')).items[0].creator).toBe('FREDRIK BACKMAN');
   });
 });
 
-describe('the creator beside a cover title', () => {
+describe('the creator of a single cover', () => {
   const readLines = async (lines: TextLine[]) => {
     const still: Still = { uri: 'fixture://creator', ...PAGE };
     const engine = new VisionPipelineEngine({ vision: new RecordingVision({ [still.uri]: { text: lines } }), settings: () => S, newId: testIds });
     return (await engine.read(still, () => {}, { shotKind: 'single_cover' })).items[0];
   };
-
-  it('is still the name-like line beside the title', async () => {
-    const item = await readLines([line('JAWS', 0.3, 0.3, 0.4, 0.2), line('Peter Benchley', 0.3, 0.8, 0.4, 0.05)]);
-    expect(item.title).toBe('JAWS');
-    expect(item.creator).toBe('Peter Benchley');
-  });
-
-  it('is never a line the cover prints beside the title, nor one word of such a line', async () => {
-    const title = line('JAWS', 0.3, 0.3, 0.4, 0.2);
-    for (const junk of ['LICENSED', 'a Memoir', 'Nintendo', 'NATIONAL', 'BESTSELLER', 'novel', 'Edition']) {
-      const item = await readLines([line(junk, 0.05, 0.1, 0.2, 0.04), title]);
-      expect([junk, item.creator]).toEqual([junk, undefined]);
-    }
-  });
-
-  it('is the name beside the junk, wherever the junk stands', async () => {
-    const item = await readLines([line('NATIONAL', 0.05, 0.05, 0.2, 0.04), line('JAWS', 0.3, 0.3, 0.4, 0.2), line('Peter Benchley', 0.3, 0.8, 0.4, 0.05)]);
-    expect(item.creator).toBe('Peter Benchley');
-  });
 
   it('is the name printed bigger than the title when the title is the smaller run', async () => {
     const item = await readLines([line('FREDRIK', 0.26, 0.1, 0.43, 0.13), line('BACKMAN', 0.19, 0.25, 0.6, 0.15), line('MY FRIENDS', 0.23, 0.7, 0.53, 0.11)]);
@@ -402,13 +340,23 @@ describe('the creator beside a cover title', () => {
     expect(item.creator).toBe('FREDRIK BACKMAN');
   });
 
-  it('is never a line of the title itself, nor a second reading of one', async () => {
+  it('is nothing when a name-like author line is smaller than the title, so the title is not swapped', async () => {
+    const item = await readLines([line('JAWS', 0.3, 0.3, 0.4, 0.2), line('Peter Benchley', 0.3, 0.8, 0.4, 0.05)]);
+    expect(item.title).toBe('JAWS');
+    expect(item.creator).toBeUndefined();
+  });
+
+  it('is nothing for a title of several lines with a name-like line beside it', async () => {
     const title = [line('SLEEP AWAY', 0.15, 0.65, 0.63, 0.1), line('CAMP 3', 0.2, 0.75, 0.38, 0.11), line('CAMP B', 0.2, 0.745, 0.39, 0.115, 0.5)];
-    const alone = await readLines(title);
-    expect(alone.title).toBe('SLEEP AWAY CAMP 3');
-    expect(alone.creator).toBeUndefined();
-    const withAuthor = await readLines([...title, line('Jane Roe', 0.3, 0.9, 0.3, 0.04)]);
-    expect(withAuthor.creator).toBe('Jane Roe');
+    const item = await readLines([...title, line('Jane Roe', 0.3, 0.9, 0.3, 0.04)]);
+    expect(item.title).toBe('SLEEP AWAY CAMP 3');
+    expect(item.creator).toBeUndefined();
+  });
+
+  it('is nothing when no line can be the title (a bestseller line, a slanted name), so the title falls back to the longest line', async () => {
+    const item = await readLines([line('#1 New York Times bestseller', 0.1, 0.1, 0.8, 0.1), line('Peter Benchley', 0.05, 0, 0.2, 0.3)]);
+    expect(item.title).toBe('#1 New York Times bestseller');
+    expect(item.creator).toBeUndefined();
   });
 });
 
@@ -436,8 +384,8 @@ describe('a shelf shot still picks each piece title as it did: the most confiden
     expect(reading.items.map((i) => i.title)).toEqual(['A very long tagline set in tiny type', 'Short sure']);
   });
 
-  it('and still offers every name-like line as the creator, even one a cover would skip', async () => {
-    const lines = [line('THE GREAT GATSBY', 0.1, 0.3, 0.8, 0.2), line('NATIONAL', 0.05, 0.05, 0.2, 0.04)];
+  it('and still offers a name-like line as the creator, where a single cover sends none', async () => {
+    const lines = [line('THE GREAT GATSBY', 0.1, 0.3, 0.8, 0.2), line('NATIONAL', 0.05, 0.05, 0.2, 0.04), line('Francis Scott', 0.1, 0.8, 0.5, 0.05)];
     const shelf = new VisionPipelineEngine({ vision: new RecordingVision({ [spineStill.uri]: { text: lines } }), settings: () => S, newId: testIds });
     expect((await shelf.read(spineStill, () => {}, { shotKind: 'shelf_segment' })).items[0].creator).toBe('NATIONAL');
     expect((await shelf.read(spineStill, () => {}, { shotKind: 'single_cover' })).items[0].creator).toBeUndefined();
