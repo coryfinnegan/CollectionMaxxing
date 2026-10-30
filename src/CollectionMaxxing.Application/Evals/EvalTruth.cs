@@ -10,14 +10,14 @@ namespace CollectionMaxxing.Application.Evals;
 /// <summary>One picture in the golden folder, as the list endpoint shows it.</summary>
 public sealed record GoldenPhotoDto(string Id, string Set, bool HasTruth, long Bytes);
 
-/// <summary>One item the owner says is on a shelf picture.</summary>
-public sealed record ShelfTruthItem(string Title, string MediaType, string? Platform, int? Year);
+/// <summary>One item the owner says is on a shelf picture. <c>AlsoTitled</c> lists full titles (a title with its subtitle) that name the same item as <c>Title</c>; null when the truth lists none.</summary>
+public sealed record ShelfTruthItem(string Title, string MediaType, string? Platform, int? Year, IReadOnlyList<string>? AlsoTitled = null);
 
 /// <summary>The truth of a shelf picture (docs/09): the readable items in order, and how many are visible but unreadable.</summary>
 public sealed record ShelfTruth(IReadOnlyList<ShelfTruthItem> Items, int Unreadable);
 
-/// <summary>The truth of a single-item picture (docs/09). <c>Kind</c> is one of <see cref="EvalKinds"/>.</summary>
-public sealed record SingleTruth(string Title, string? Platform, string Format, string Completeness, string? Edition, string Kind);
+/// <summary>The truth of a single-item picture (docs/09). <c>Kind</c> is one of <see cref="EvalKinds"/>. <c>AlsoTitled</c> lists full titles that name the same item as <c>Title</c>; null when the truth lists none.</summary>
+public sealed record SingleTruth(string Title, string? Platform, string Format, string Completeness, string? Edition, string Kind, IReadOnlyList<string>? AlsoTitled = null);
 
 /// <summary>The truth for one picture: exactly one of <see cref="Shelf"/> and <see cref="Single"/> is set, matching <see cref="Set"/>. <see cref="ShotKind"/> is the optional label of what the shot is, for slicing; null when the truth file does not label it.</summary>
 public sealed record TruthEntry(string PhotoId, string Set, ShelfTruth? Shelf, SingleTruth? Single, string? ShotKind);
@@ -90,6 +90,7 @@ public static class TruthFiles
     public const int MaxFileBytes = 256 * 1024;
     private const int MaxItems = 200;
     private const int MaxText = 500;
+    private const int MaxAlsoTitled = 10;
 
     private static readonly JsonDocumentOptions Parsing = new() { MaxDepth = 8, AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
 
@@ -140,7 +141,12 @@ public static class TruthFiles
                 return null;
             }
 
-            items.Add(new ShelfTruthItem(title, Text(element, "mediaType", "media_type") ?? "other", Text(element, "platform"), Year(element)));
+            if (!TryAlsoTitled(element, out var alsoTitled))
+            {
+                return null;
+            }
+
+            items.Add(new ShelfTruthItem(title, Text(element, "mediaType", "media_type") ?? "other", Text(element, "platform"), Year(element), alsoTitled));
         }
 
         var unreadable = 0;
@@ -162,13 +168,19 @@ public static class TruthFiles
             return null;
         }
 
+        if (!TryAlsoTitled(root, out var alsoTitled))
+        {
+            return null;
+        }
+
         var single = new SingleTruth(
             title,
             Text(root, "platform"),
             Text(root, "format") ?? "other",
             Text(root, "completeness") ?? "n_a",
             Text(root, "edition"),
-            EvalKinds.Key(Text(root, "kind")));
+            EvalKinds.Key(Text(root, "kind")),
+            alsoTitled);
         return new TruthEntry(photoId, GoldenSets.Single, null, single, ShotKindOf(root));
     }
 
@@ -177,6 +189,55 @@ public static class TruthFiles
     {
         var text = Text(root, "shotKind", "shot_kind");
         return text is null ? null : EvalKinds.Key(text);
+    }
+
+    /// <summary>
+    /// Reads the optional <c>alsoTitled</c> (or <c>also_titled</c>) list: at most <see cref="MaxAlsoTitled"/> strings, each at most
+    /// <see cref="MaxText"/> characters. False when it is present but malformed, so the whole file is invalid; a JSON null, an empty
+    /// list and blank entries all mean "nothing listed" (<paramref name="titles"/> is then null).
+    /// </summary>
+    private static bool TryAlsoTitled(JsonElement element, out IReadOnlyList<string>? titles)
+    {
+        titles = null;
+        foreach (var name in new[] { "alsoTitled", "also_titled" })
+        {
+            if (!element.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+            {
+                continue;
+            }
+
+            if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() > MaxAlsoTitled)
+            {
+                return false;
+            }
+
+            var list = new List<string>();
+            foreach (var entry in value.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.String)
+                {
+                    return false;
+                }
+
+                var text = entry.GetString()?.Trim();
+                if (string.IsNullOrEmpty(text))
+                {
+                    continue;
+                }
+
+                if (text.Length > MaxText)
+                {
+                    return false;
+                }
+
+                list.Add(text);
+            }
+
+            titles = list.Count == 0 ? null : list;
+            return true;
+        }
+
+        return true;
     }
 
     private static string? Text(JsonElement element, params string[] names)

@@ -42,7 +42,7 @@ public static class EvalScorer
     /// </summary>
     public const long ModelTimeoutBudgetMs = 8000;
 
-    private sealed record TruthItem(string Title, string? Platform, string? MediaType, string? Format, string Kind);
+    private sealed record TruthItem(string Title, string? Platform, string? MediaType, string? Format, string Kind, IReadOnlyList<string>? AlsoTitled = null);
 
     private sealed class Tally
     {
@@ -220,8 +220,8 @@ public static class EvalScorer
         (item.Tier == Tier0 || item.Tier == Tier1) && item.Verdict != Matched ? Tier2 : item.Tier;
 
     private static List<TruthItem> TruthItemsOf(TruthEntry truth) => truth.Set == GoldenSets.Shelf
-        ? [.. truth.Shelf!.Items.Select(i => new TruthItem(i.Title, i.Platform, i.MediaType.ToLowerInvariant(), null, EvalKinds.Key(i.MediaType)))]
-        : [new TruthItem(truth.Single!.Title, truth.Single.Platform, null, truth.Single.Format.ToLowerInvariant(), truth.Single.Kind)];
+        ? [.. truth.Shelf!.Items.Select(i => new TruthItem(i.Title, i.Platform, i.MediaType.ToLowerInvariant(), null, EvalKinds.Key(i.MediaType), i.AlsoTitled))]
+        : [new TruthItem(truth.Single!.Title, truth.Single.Platform, null, truth.Single.Format.ToLowerInvariant(), truth.Single.Kind, truth.Single.AlsoTitled)];
 
     private static void ScorePhoto(GroundedPhoto photo, TruthEntry truth, Tally tally, List<EvalMiss> misses)
     {
@@ -474,10 +474,11 @@ public static class EvalScorer
         return null;
     }
 
+    /// <summary>The candidate's title is the truth title or one of the full titles the truth lists as also naming the item (compared after normalising). Nothing looser: a subtitle that is not listed is a different title.</summary>
     private static bool TitleMatch(TruthItem truth, GroundedCandidate candidate)
     {
-        var wanted = TitleNormalizer.Normalize(truth.Title);
-        return wanted.Length > 0 && wanted == TitleNormalizer.Normalize(candidate.Title);
+        var found = TitleNormalizer.Normalize(candidate.Title);
+        return found.Length > 0 && (found == TitleNormalizer.Normalize(truth.Title) || (truth.AlsoTitled?.Any(t => found == TitleNormalizer.Normalize(t)) ?? false));
     }
 
     private static bool PlatformMatches(TruthItem truth, GroundedCandidate candidate)
