@@ -6,7 +6,9 @@ using CollectionMaxxing.Domain.Catalog;
 namespace CollectionMaxxing.Application.Tests.Scanning.Identify;
 
 // One book, one candidate per photo: a spine the engine read twice (once clean, once with OCR junk on the end) points at
-// one release both times, and only the strongest of those reads stands. Neutral titles throughout.
+// one release both times, and only the strongest of those reads stands. Reads carry the box they sit in, so the same release
+// read in two different places (a shelf of copies, or a series of tapes with one title on every spine) is two items.
+// Neutral titles throughout.
 public class RepeatReadsTests
 {
     private static readonly Guid BookA = Guid.Parse("00000000-0000-0000-0000-00000000000a");
@@ -154,5 +156,90 @@ public class RepeatReadsTests
     public void Nothing_to_compare_is_no_repeats()
     {
         RepeatReads.Of([]).ShouldBeEmpty();
+    }
+
+    // ---- position: the same release in two places is two items --------------------------------------------------------------
+
+    private static ReadBox Spine(double x, double width = 0.05) => new(x, 0.1, width, 0.8);
+
+    [Fact]
+    public void Two_reads_of_one_release_in_the_same_place_are_a_repeat()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.Of(answers, [Spine(0.30), Spine(0.31)]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void Two_reads_of_one_release_in_separate_places_are_two_items_and_both_are_kept()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.Of(answers, [Spine(0.10), Spine(0.60)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Spines_that_only_touch_edge_to_edge_are_separate_places()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.Of(answers, [Spine(0.10), Spine(0.15)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_small_box_inside_a_big_one_is_the_same_place_because_the_smaller_box_is_what_counts()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Matched, BookA, 0.90) };
+
+        RepeatReads.Of(answers, [new ReadBox(0.1, 0.1, 0.5, 0.8), new ReadBox(0.2, 0.2, 0.1, 0.3)]).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void Boxes_that_overlap_by_less_than_half_of_the_smaller_one_are_separate_places()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.Of(answers, [new ReadBox(0.10, 0.1, 0.10, 0.8), new ReadBox(0.17, 0.1, 0.10, 0.8)]).ShouldBeEmpty();
+        RepeatReads.Of(answers, [new ReadBox(0.10, 0.1, 0.10, 0.8), new ReadBox(0.15, 0.1, 0.10, 0.8)]).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void A_read_with_no_box_is_compared_the_way_reads_always_were_so_it_is_a_repeat_of_the_same_release()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Ambiguous, BookA, 0.7) };
+
+        RepeatReads.Of(answers, [Spine(0.10), null]).ShouldBe([1]);
+        RepeatReads.Of(answers, [null, Spine(0.60)]).ShouldBe([1]);
+        RepeatReads.Of(answers, [null, null]).ShouldBe([1]);
+        RepeatReads.Of(answers).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void The_stronger_of_two_reads_in_one_place_stands_and_a_read_elsewhere_stands_too()
+    {
+        var answers = new[]
+        {
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.7),
+            Local(ResolutionVerdict.Matched, BookA, 0.95),
+            Local(ResolutionVerdict.Matched, BookA, 0.92),
+        };
+
+        RepeatReads.Of(answers, [Spine(0.10), Spine(0.11), Spine(0.60)]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_stronger_read_in_the_second_place_does_not_displace_the_read_in_the_first()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.6), Local(ResolutionVerdict.Matched, BookA, 0.99) };
+
+        RepeatReads.Of(answers, [Spine(0.10), Spine(0.60)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Positions_do_not_make_reads_of_different_releases_repeats_even_in_the_same_place()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Matched, BookB, 0.95) };
+
+        RepeatReads.Of(answers, [Spine(0.10), Spine(0.10)]).ShouldBeEmpty();
     }
 }

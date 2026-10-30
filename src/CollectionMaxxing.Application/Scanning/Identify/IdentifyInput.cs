@@ -12,7 +12,10 @@ using CollectionMaxxing.Domain.Scanning;
 
 namespace CollectionMaxxing.Application.Scanning.Identify;
 
-/// <summary>One item as the phone sent it (the API maps its request to this). Nothing here is an image.</summary>
+/// <summary>
+/// One item as the phone sent it (the API maps its request to this). Nothing here is an image. <c>Box</c> is where the read sits in
+/// the picture (x, y, width, height, each 0 to 1, origin top left); an older phone, or a read with no position, sends none.
+/// </summary>
 public sealed record IdentifyItemInput(
     string? LocalId,
     string? SegmentId,
@@ -26,7 +29,8 @@ public sealed record IdentifyItemInput(
     int? Year,
     string? Platform,
     Guid? LocalMatchReleaseId,
-    string? ProductCode = null);
+    string? ProductCode = null,
+    ReadBoxInput? Box = null);
 
 /// <summary>
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
@@ -51,8 +55,8 @@ public static class IdentifyErrors
         new(ErrorKind.Conflict, "scan.snap_in_use", "That snapId was already used. Send a new snapId for a new picture.");
 }
 
-/// <summary>An item after cleaning: the facts to ground, the phone's claim about a known release, and the profile chosen for it.</summary>
-internal sealed record CleanItem(string? LocalId, string? SegmentId, ReadFacts Facts, Guid? LocalMatchReleaseId, ScoringProfileKind Profile);
+/// <summary>An item after cleaning: the facts to ground, the phone's claim about a known release, the profile chosen for it, and where it sits (null when the phone said nothing).</summary>
+internal sealed record CleanItem(string? LocalId, string? SegmentId, ReadFacts Facts, Guid? LocalMatchReleaseId, ScoringProfileKind Profile, ReadBox? Box = null);
 
 /// <summary>Validates and cleans what the phone sent: limits, control characters, lengths.</summary>
 internal static class IdentifyCleaning
@@ -155,6 +159,14 @@ internal static class IdentifyCleaning
                     $"A product code is at most {ProductCode.MaxInputLength} characters, shaped like SNS-ADNE-USA or SLUS-00594.",
                     $"items[{i}].productCode");
             }
+
+            if (item.Box is { } box && box.Checked() is null)
+            {
+                return ScanningErrors.Invalid(
+                    "scan.box_invalid",
+                    "A box is x, y, width and height as fractions of the picture: each from 0 to 1, the width and height above 0, and the box inside the picture.",
+                    $"items[{i}].box");
+            }
         }
 
         return null;
@@ -188,7 +200,8 @@ internal static class IdentifyCleaning
             // What the model put in a field that cannot hold it is dropped before anything scores or stores it.
             var facts = ReadSanitizer.Sanitize(read);
             var profile = ScoringProfileSelector.Choose(facts.Completeness, facts.Kind, facts.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
-            return new CleanItem(Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile);
+            return new CleanItem(
+                Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile, item.Box?.Checked());
         }).ToList();
 
     /// <summary>Strips control and invisible formatting characters (a newline or tab becomes a space), trims, and cuts to length. Empty becomes null.</summary>

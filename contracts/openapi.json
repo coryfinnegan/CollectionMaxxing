@@ -7851,6 +7851,16 @@
               "null",
               "string"
             ]
+          },
+          "box": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemBox"
+              }
+            ]
           }
         }
       },
@@ -8308,6 +8318,16 @@
               "null",
               "string"
             ]
+          },
+          "box": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemBox"
+              }
+            ]
           }
         }
       },
@@ -8490,6 +8510,39 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ItemBox": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "y": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "width": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "height": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
           }
         }
       },

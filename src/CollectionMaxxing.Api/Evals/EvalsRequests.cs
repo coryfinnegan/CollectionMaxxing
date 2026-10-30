@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CollectionMaxxing.Api.Scanning;
 using CollectionMaxxing.Application.Evals;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
@@ -16,6 +17,7 @@ public sealed record EvalDeviceRequest(string? Model = null, string? OsVersion =
 /// plus <c>ResolvedBy</c>, the step that settled it (model, vision_text, artwork or fix_it). When it is left out, the engine's own step is assumed.
 /// <c>Tier</c> is the commit tier the pipeline assigned (T0, T1, T2); <c>Provisional</c> with <c>IsGuess</c> marks a kept guess (docs/16 §17).
 /// <c>ProductCode</c> is the code the phone found printed on a game (as in <c>/identify</c>, ADR-031), grounded the same way.
+/// <c>Box</c> is where the read sat in the photo (as in <c>/identify</c>): the same release read in two places is two items.
 /// </summary>
 public sealed record EvalReadItem(
     string? LocalId = null,
@@ -33,7 +35,8 @@ public sealed record EvalReadItem(
     bool? Provisional = null,
     bool? IsGuess = null,
     string? SegmentId = null,
-    string? ProductCode = null);
+    string? ProductCode = null,
+    ItemBox? Box = null);
 
 /// <summary>
 /// Reads an engine as its API name only (<c>apple_model</c>, <c>fm_text</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number
