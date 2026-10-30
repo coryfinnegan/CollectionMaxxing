@@ -135,4 +135,50 @@ public class ScanReadEvidenceTests(ApiFixture api) : IdentifyTest(api)
         Resolution(candidate).ShouldBe("matched");
         candidate.GetProperty("score").GetDouble().ShouldBe(1.0);
     }
+
+    private static ProviderRelease LanternBook(string externalId, string title, params string[] creators) => new()
+    {
+        Provider = "openlibrary",
+        ExternalId = externalId,
+        WorkKey = externalId,
+        Title = title,
+        Kind = WorkKind.Book,
+        Year = 2012,
+        Creators = creators,
+    };
+
+    [Theory]
+    [InlineData("DWN")]
+    [InlineData("FRE")]
+    [InlineData("AB")]
+    public async Task A_spine_whose_author_read_is_a_fragment_picks_the_book_with_an_author_over_a_near_title_with_none(string fragment)
+    {
+        // Eval run of 2026-10-30: a fragment read as the author scored 0.18 against the real author, and a release with no
+        // author on file took the neutral 0.5 instead, so a near title with no author ranked above the exact one.
+        var (_, client, sessionId) = await StartAsync();
+        Books.Results.Add(LanternBook("OL801W", "Harbor Light Keeper"));
+        Books.Results.Add(LanternBook("OL802W", "Harbor Light Keepers", "Mara Odell"));
+
+        var candidate = (await IdentifyOkAsync(client, sessionId, Read(title: "Harbor Light Keepers", creator: fragment, kind: "book"))).First();
+
+        // The two titles are a letter apart, so the person is still asked; the exact title with its author comes first.
+        var best = candidate.GetProperty("alternatives")[0];
+        best.GetProperty("title").GetString().ShouldBe("Harbor Light Keepers");
+        best.GetProperty("creators")[0].GetString().ShouldBe("Mara Odell");
+        best.GetProperty("score").GetDouble().ShouldBe(1.0);
+    }
+
+    [Fact]
+    public async Task A_spine_whose_author_read_is_other_print_is_matched_on_the_author_found_in_its_title_line()
+    {
+        // The read author is not a name the sanitizer can drop ("Zinging" is a word), but the title line carries the real
+        // author, and that is the stronger evidence.
+        var (_, client, sessionId) = await StartAsync();
+        Books.Results.Add(LanternBook("OL803W", "Harbor Light Keepers", "Mara Odell"));
+
+        var candidate = (await IdentifyOkAsync(client, sessionId, Read(title: "Harbor Light Keepers MARA ODELL", creator: "Zinging", kind: "book"))).Single();
+
+        Resolution(candidate).ShouldBe("matched");
+        candidate.GetProperty("score").GetDouble().ShouldBe(1.0);
+    }
 }

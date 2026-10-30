@@ -196,6 +196,39 @@ public class ReadSanitizerTests
         ReadSanitizer.Sanitize(Read("Lantern Quest", WorkKind.Game, creator: "The Lantern Room")).Creator.ShouldBe("The Lantern Room");
     }
 
+    // Eval run of 2026-10-30: the Vision engine sent fragments of the spine's small print ("DWN" from a cut-off name, "FRE")
+    // as the author. A single word of three letters or fewer, or initials alone, is not a name; scored against the real
+    // author it sank the right book, and against a release with no author on file it lost to it.
+
+    [Theory]
+    [InlineData("DWN")]
+    [InlineData("FRE")]
+    [InlineData("AB")]
+    [InlineData("Kim")]
+    [InlineData("A B")]
+    [InlineData("A. B.")]
+    [InlineData("J. R. R.")]
+    public void A_creator_that_is_a_short_fragment_or_bare_initials_is_dropped(string creator)
+    {
+        ReadSanitizer.Sanitize(Read(creator: creator)).Creator.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Kim Odell")]
+    [InlineData("A. A. Odell")]
+    [InlineData("Odell")]
+    [InlineData("Ann Lee")]
+    public void A_creator_with_a_longer_word_or_a_second_name_is_kept(string creator)
+    {
+        ReadSanitizer.Sanitize(Read(creator: creator)).Creator.ShouldBe(creator);
+    }
+
+    [Fact]
+    public void A_short_studio_name_is_kept_for_a_game()
+    {
+        ReadSanitizer.Sanitize(Read("Lantern Quest", WorkKind.Game, creator: "THQ")).Creator.ShouldBe("THQ");
+    }
+
     // ---- what the shot was --------------------------------------------------------------------
 
     [Fact]
