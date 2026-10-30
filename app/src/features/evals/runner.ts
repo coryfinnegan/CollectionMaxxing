@@ -149,6 +149,8 @@ export class EvalRunner {
   private uploadedChunks = 0;
   private cancelRequested = false;
   private pauseRequested = false;
+  /** Whether the phone is being held awake right now, so it is turned on once and let go once. */
+  private awake = false;
   private release: (() => void) | undefined;
   private active: Promise<void> | undefined;
   /** The photo whose first steps are done but the photo unfinished, kept across a pause. */
@@ -211,10 +213,34 @@ export class EvalRunner {
   /** Sends the results again after a failed upload. */
   retryUpload(): Promise<void> {
     if (this.active || this.state.phase !== 'upload_failed') return Promise.resolve();
-    this.active = this.upload().finally(() => {
+    this.active = this.sendAwake().finally(() => {
       this.active = undefined;
     });
     return this.active;
+  }
+
+  /** Keeps the phone awake for as long as the run is held; a second call while it is already held does nothing. */
+  private async holdAwake(): Promise<void> {
+    if (this.awake) return;
+    this.awake = true;
+    await this.deps.keepAwake.on().catch(() => undefined);
+  }
+
+  /** Lets the phone sleep again. Does nothing when it is not being held. */
+  private async letGo(): Promise<void> {
+    if (!this.awake) return;
+    this.awake = false;
+    await this.deps.keepAwake.off().catch(() => undefined);
+  }
+
+  /** Sends the results with the phone held awake, so a long send is not cut off by the auto-lock. */
+  private async sendAwake(): Promise<void> {
+    await this.holdAwake();
+    try {
+      await this.upload();
+    } finally {
+      await this.letGo();
+    }
   }
 
   private launch(fresh: boolean): Promise<void> {
@@ -226,7 +252,17 @@ export class EvalRunner {
     return this.active;
   }
 
+  /** The phone stays awake from the start of the run until the results are sent (or the run ended without any), not only while reading. */
   private async execute(fresh: boolean): Promise<void> {
+    await this.holdAwake();
+    try {
+      await this.run(fresh);
+    } finally {
+      await this.letGo();
+    }
+  }
+
+  private async run(fresh: boolean): Promise<void> {
     if (fresh) {
       this.set({ phase: 'starting', startedAt: this.now() });
       try {
@@ -242,14 +278,9 @@ export class EvalRunner {
       this.set({ total: this.photos.length });
     }
     this.set({ phase: 'running', partial: false, endedAt: null });
-    await this.deps.keepAwake.on().catch(() => undefined);
-    try {
-      while (this.next < this.photos.length) {
-        if (!(await this.checkpoint())) break;
-        if (!(await this.readPhoto(this.photos[this.next]))) break;
-      }
-    } finally {
-      await this.deps.keepAwake.off().catch(() => undefined);
+    while (this.next < this.photos.length) {
+      if (!(await this.checkpoint())) break;
+      if (!(await this.readPhoto(this.photos[this.next]))) break;
     }
     const cancelled = this.cancelRequested;
     this.set({ partial: cancelled && this.next < this.photos.length, step: null, endedAt: this.now() });
