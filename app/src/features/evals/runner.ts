@@ -385,6 +385,8 @@ export class EvalRunner {
             unreadableCount: reading.unreadableCount,
             firstItemMs,
             ...(engine === 'vision_pipeline' ? ocrRecord(reading.ocr) : {}),
+            // What the cover cue saw on a single cover (rects found and why each was left out, the format it gave, whether it was in time): the PC shows it beside the miss.
+            ...(reading.coverCue ? { coverCue: reading.coverCue } : {}),
           };
     } catch (error) {
       // The forced extraction tier reports why it gave no reading, like the Apple row does.

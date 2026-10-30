@@ -4,7 +4,7 @@
 // the same way. A shelf shot passes straight through.
 import type { Rect, VisionEngine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
-import { type CoverCue, correctRead, coverCue } from './coverCue';
+import { type CoverLook, type CueArrival, correctRead, coverCue, describeCue } from './coverCue';
 import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING, type RecognitionSettings } from './defaults';
 import { readLines } from './lines';
 import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
@@ -19,24 +19,34 @@ export interface CoverCueDeps {
 /**
  * The cue held by the one read. It is looked for while the engine reads; each item the engine streams waits for it (or for it to be given up
  * on) and goes out corrected, in the order it came. It never rejects, and never holds a read for longer than `waitMs` after the engine's
- * read ended.
+ * read ended. It also remembers how the wait ended, for the record the reading carries (`describeCue`).
  */
 class PendingCue {
-  private readonly cue: Promise<CoverCue | undefined>;
+  private readonly look: Promise<CoverLook | undefined>;
   private emitting: Promise<void> = Promise.resolve();
   private giveUp: () => void = () => {};
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private arrived = false;
+  /** `waiting` until the search answers, fails, or is given up on; whichever comes first settles it. */
+  private state: 'waiting' | 'arrived' | 'timeout' | 'failed' = 'waiting';
 
-  constructor(found: Promise<CoverCue | undefined>, private readonly waitMs: number) {
-    this.cue = new Promise((resolve) => {
-      this.giveUp = () => resolve(undefined);
-      found.then(resolve, () => resolve(undefined));
+  constructor(found: Promise<CoverLook | undefined>, private readonly waitMs: number) {
+    this.look = new Promise((resolve) => {
+      this.giveUp = () => {
+        if (this.state === 'waiting') this.state = 'timeout';
+        resolve(undefined);
+      };
+      found.then(
+        (look) => {
+          if (this.state === 'waiting') this.state = 'arrived';
+          resolve(look);
+        },
+        () => {
+          if (this.state === 'waiting') this.state = 'failed';
+          resolve(undefined);
+        },
+      );
     });
-    void this.cue.then(() => {
-      this.arrived = true;
-      clearTimeout(this.timer);
-    });
+    void this.look.then(() => clearTimeout(this.timer));
   }
 
   /** `onItem` for the engine: each item goes on once the cue is known, corrected by it, in order. */
@@ -48,12 +58,18 @@ class PendingCue {
     };
   }
 
-  /** The engine's read is over: from here the cue has `waitMs` to arrive. The streamed items have gone out and the reading's items carry the same correction. */
+  /**
+   * The engine's read is over: from here the cue has `waitMs` to arrive. The streamed items have gone out and the reading's items carry the same
+   * correction. The reading also says what the cue saw and whether it came in time (`describeCue`): for the eval record, ignored by the scanner.
+   */
   async finish(reading: SnapReading): Promise<SnapReading> {
-    if (!this.arrived && this.timer === undefined) this.timer = setTimeout(this.giveUp, this.waitMs);
+    const readyInTime = this.state === 'arrived';
+    if (this.state === 'waiting' && this.timer === undefined) this.timer = setTimeout(this.giveUp, this.waitMs);
     await this.emitting;
-    const cue = await this.cue;
-    return cue ? { ...reading, items: reading.items.map((item) => correctRead(item, cue)) } : reading;
+    const look = await this.look;
+    const arrival: CueArrival = look ? (readyInTime ? 'ready' : 'late') : this.state === 'failed' ? 'failed' : 'timeout';
+    const cue = look?.cue;
+    return { ...reading, ...(cue ? { items: reading.items.map((item) => correctRead(item, cue)) } : {}), coverCue: describeCue(arrival, look) };
   }
 
   /** The engine's read failed: whatever was streamed goes out as it is, now. */
@@ -63,7 +79,7 @@ class PendingCue {
   }
 
   private async correct(item: ReadItem): Promise<ReadItem> {
-    const cue = await this.cue;
+    const cue = (await this.look)?.cue;
     return cue ? correctRead(item, cue) : item;
   }
 }
@@ -96,9 +112,10 @@ class CoverCuedEngine implements RecognitionEngine {
   }
 
   /** Rectangles and text, asked together. A failed rectangle search leaves the text cues; Vision text never throws (no text is no cue). */
-  private async findCue(still: Still, tuning: CoverFormatTuning): Promise<CoverCue | undefined> {
+  private async findCue(still: Still, tuning: CoverFormatTuning): Promise<CoverLook> {
     const [rectangles, lines] = await Promise.all([this.rectanglesOf(still, tuning), readLines(this.deps.vision, still.uri, this.deps.settings().local)]);
-    return coverCue({ still, rectangles, lines, tuning });
+    const input = { still, rectangles, lines, tuning };
+    return { input, cue: coverCue(input) };
   }
 
   /** The search is asked for shapes as wide as a case: Vision's default would never return a DVD or a Blu-ray one. */

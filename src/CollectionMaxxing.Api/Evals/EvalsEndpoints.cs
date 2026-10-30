@@ -172,7 +172,8 @@ public static class EvalsEndpoints
                     r.CapturedAt,
                     r.DuplicateRescan is { } evidence ? new DuplicateRescanInput(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds) : null,
                     r.OcrLines?.Select(l => l is null ? null! : new EvalOcrLineInput(l.Text, l.X, l.Y, l.Width, l.Height)).ToList(),
-                    r.OcrPieces)).ToList(),
+                    r.OcrPieces,
+                    r.CoverCue)).ToList(),
             parsed.Partial == true,
             parsed.BaselineNote);
 

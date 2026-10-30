@@ -267,7 +267,9 @@ describe('the cue beside the read', () => {
     const innerReading = jest.spyOn(inner, 'read');
     const cued = withCoverCue(inner, { vision, settings: () => S });
     const { reading } = await readWith(cued, still);
-    expect(reading).toBe(await innerReading.mock.results[0].value);
+    const given = await innerReading.mock.results[0].value;
+    expect(reading.items).toBe(given.items); // the items are the ones it was given; only the record of what the cue saw is added
+    expect(reading).toEqual({ ...given, coverCue: expect.stringContaining('fmt=none') });
   });
 
   describe('when the cue is late', () => {
@@ -298,6 +300,86 @@ describe('the cue beside the read', () => {
       void text.read(still, () => {}, COVER).then((r) => (reading = r));
       await jest.advanceTimersByTimeAsync(1000);
       expect(asRead(reading?.items ?? [])).toEqual(['RED OCTOBER: film/vhs']);
+    });
+  });
+
+  describe('the record of what the cue saw, for the eval', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('says a Blu-ray-shaped case was found: the shape, its ratio, and that the cue was ready', async () => {
+      const { still, scene } = realCover('bluray-01', { extract: rushmore('dvd') });
+      const { text } = engines({ [still.uri]: { ...scene, rectangles: [caseOn(still, 0.86)] } });
+      const { reading } = await readWith(text, still);
+      expect(reading.coverCue).toMatch(/^cue=ready fmt=shape:bluray r=0\.86 cov=0\.\d\d rects=1 kind=film code=none$/);
+    });
+
+    it('says no rectangle was found', async () => {
+      const { still, scene } = realCover('bluray-01', { extract: rushmore('dvd') });
+      const { text } = engines({ [still.uri]: scene });
+      expect((await readWith(text, still)).reading.coverCue).toContain('rects=0');
+    });
+
+    it('says a rectangle that hugs the frame was left out', async () => {
+      const { still, scene } = realCover('bluray-01', { extract: rushmore('dvd') });
+      const frame: Rect = { x: 0, y: 0, width: 1, height: 1 };
+      const { text } = engines({ [still.uri]: { ...scene, rectangles: [frame] } });
+      expect((await readWith(text, still)).reading.coverCue).toContain('rects=1 (1 frame-hugging)');
+    });
+
+    it('says the product code a game cover printed', async () => {
+      const { still, scene } = realCover('game-cartridge-01', { extract: okRead([modelItem('Super Mario World', 'SUPER NINTENDO', 0, { kind: 'book' })]) });
+      const { text } = engines({ [still.uri]: scene });
+      expect((await readWith(text, still)).reading.coverCue).toMatch(/kind=game code=\S+/);
+    });
+
+    it('is on the picture model, the OCR-text tier and the Vision tier alike', async () => {
+      const { still, scene } = realCover('bluray-01', { read: rushmore('dvd'), extract: rushmore('dvd') });
+      const { model, text, pipeline } = engines({ [still.uri]: { ...scene, rectangles: [caseOn(still, 0.86)] } });
+      for (const engine of [model, text, pipeline]) {
+        expect((await readWith(engine, still)).reading.coverCue).toContain('fmt=shape:bluray');
+      }
+    });
+
+    it('is there when the cover gave no cue at all', async () => {
+      const { still, scene } = realCover('dvd-02', { extract: rushmore('dvd') });
+      const { text } = engines({ [still.uri]: scene });
+      expect((await readWith(text, still)).reading.coverCue).toBe('cue=ready fmt=none rects=0 kind=none code=none');
+    });
+
+    it('says the cue was late when it arrived after the read ended, inside the cap', async () => {
+      jest.useFakeTimers();
+      const { still, scene } = realCover('vhs-01', { extract: okRead([modelItem('RED OCTOBER', 'RED OCTOBER', 0, { kind: 'dvd' })]) });
+      const { text, vision } = engines({ [still.uri]: scene }, { ...DEFAULT_COVER_FORMAT_TUNING, cueWaitMs: 1500 });
+      jest.spyOn(vision, 'detectRectangles').mockImplementation(() => new Promise<Rect[]>((resolve) => setTimeout(() => resolve([slipcase(still)]), 1000)));
+      let reading: Awaited<ReturnType<typeof text.read>> | undefined;
+      void text.read(still, () => {}, COVER).then((r) => (reading = r));
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(reading?.coverCue).toMatch(/^cue=late fmt=shape:vhs r=0\.55 /);
+    });
+
+    it('says the cue was given up on when it never came inside the cap', async () => {
+      jest.useFakeTimers();
+      const { still, scene } = realCover('vhs-01', { extract: okRead([modelItem('RED OCTOBER', 'RED OCTOBER', 0, { kind: 'dvd' })]) });
+      const { text, vision } = engines({ [still.uri]: scene }, { ...DEFAULT_COVER_FORMAT_TUNING, cueWaitMs: 1500 });
+      jest.spyOn(vision, 'detectRectangles').mockReturnValue(new Promise<Rect[]>(() => {})); // never answers
+      let reading: Awaited<ReturnType<typeof text.read>> | undefined;
+      void text.read(still, () => {}, COVER).then((r) => (reading = r));
+      await jest.advanceTimersByTimeAsync(1500);
+      expect(reading?.coverCue).toBe('cue=timeout');
+    });
+
+    it('is not on a shelf shot, which the cue does not look at', async () => {
+      const { still, scene } = realCover('bluray-01', { extract: rushmore('book') });
+      const { text } = engines({ [still.uri]: scene });
+      expect((await readWith(text, still, { shotKind: 'shelf_segment' })).reading.coverCue).toBeUndefined();
+    });
+
+    it('does not change the items: the reading is what it was without the record', async () => {
+      const { still, scene } = realCover('bluray-01', { extract: rushmore('dvd') });
+      const { text } = engines({ [still.uri]: { ...scene, rectangles: [caseOn(still, 0.86)] } });
+      const { streamed, reading } = await readWith(text, still);
+      expect(reading.items).toEqual(streamed);
+      expect(asRead(reading.items)).toEqual(['RUSHMORE: film/bluray']);
     });
   });
 

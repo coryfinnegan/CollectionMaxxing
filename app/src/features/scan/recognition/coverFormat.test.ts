@@ -1,5 +1,5 @@
 import type { Rect } from '@/native/cm-vision';
-import { correctFormat, coverFormat, type FormatCue } from './coverFormat';
+import { correctFormat, coverFormat, measureShape, type FormatCue } from './coverFormat';
 import { DEFAULT_COVER_FORMAT_TUNING } from './defaults';
 import { line } from './fakes';
 import type { ReadItem } from './types';
@@ -259,5 +259,61 @@ describe('correctFormat', () => {
     const before = structuredClone(item);
     expect(correctFormat(item, shape('vhs'))).toEqual({ ...before, format: 'vhs' });
     expect(item).toEqual(before);
+  });
+});
+
+describe('measureShape: what the shape search saw', () => {
+  const measure = (rectangles: Rect[], still = STILL) => measureShape(still, rectangles, DEFAULT_COVER_FORMAT_TUNING);
+  const frame: Rect = { x: 0, y: 0, width: 1, height: 1 };
+
+  it('has seen nothing when Vision found no rectangle', () => {
+    expect(measure([])).toEqual({ seen: 0, unusable: 0, frame: 0, small: 0, outOfBand: 0 });
+  });
+
+  it('measures the largest rectangle that is not the frame, and the format it is shaped like', () => {
+    const seen = measure([caseWith(0.86)]);
+    expect(seen.seen).toBe(1);
+    expect(seen.largest?.ratio).toBeCloseTo(0.86, 5);
+    expect(seen.largest?.coverage).toBeCloseTo(0.8 * ((0.86 * 0.8 * 4000) / 3000), 5);
+    expect(seen.format).toBe('bluray');
+    expect([seen.unusable, seen.frame, seen.small, seen.outOfBand]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('counts a rectangle against the frame, and measures the case beside it instead', () => {
+    const seen = measure([frame, caseWith(0.71)]);
+    expect(seen).toMatchObject({ seen: 2, frame: 1, format: 'dvd' });
+    expect(seen.largest?.ratio).toBeCloseTo(0.71, 5);
+  });
+
+  it('has no measurement when the only rectangle is the frame', () => {
+    expect(measure([frame])).toEqual({ seen: 1, unusable: 0, frame: 1, small: 0, outOfBand: 0 });
+  });
+
+  it('counts the rectangles too small to be the case, and keeps the largest one measured', () => {
+    const seen = measure([caseWith(0.86, 0.4), caseWith(0.55, 0.3)]);
+    expect(seen).toMatchObject({ seen: 2, small: 2, outOfBand: 0 });
+    expect(seen.format).toBeUndefined();
+    expect(seen.largest?.coverage).toBeLessThan(DEFAULT_COVER_FORMAT_TUNING.minCaseCoverage);
+  });
+
+  it('counts a case whose ratio is in no band as out of band', () => {
+    const seen = measure([caseWith(0.785)]);
+    expect(seen).toMatchObject({ seen: 1, outOfBand: 1 });
+    expect(seen.format).toBeUndefined();
+    expect(seen.largest?.ratio).toBeCloseTo(0.785, 5);
+  });
+
+  it('counts a rectangle with no size as unusable', () => {
+    expect(measure([{ x: 0.1, y: 0.1, width: 0, height: 0.5 }])).toEqual({ seen: 1, unusable: 1, frame: 0, small: 0, outOfBand: 0 });
+  });
+
+  it('can use none of them when the still has no size', () => {
+    expect(measure([caseWith(0.86)], { width: 0, height: 0 })).toEqual({ seen: 1, unusable: 1, frame: 0, small: 0, outOfBand: 0 });
+  });
+
+  it('agrees with the cue about which format the shape gives', () => {
+    for (const ratio of [0.55, 0.62, 0.71, 0.76, 0.785, 0.86, 0.95]) {
+      expect(measure([caseWith(ratio)]).format).toBe(cueOf([caseWith(ratio)])?.format);
+    }
   });
 });

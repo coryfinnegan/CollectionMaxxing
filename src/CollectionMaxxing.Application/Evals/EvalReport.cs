@@ -105,7 +105,14 @@ public static class EvalReport
             {
                 text.Append("- `").Append(miss.PhotoId).Append("` (").Append(miss.Set).Append(", ").Append(miss.Kind).Append("): truth ")
                     .Append(miss.Truth is null ? "(none)" : "\"" + miss.Truth + "\"").Append(", read ")
-                    .Append(miss.Read is null ? "(none)" : "\"" + miss.Read + "\"").AppendLine();
+                    .Append(miss.Read is null ? "(none)" : "\"" + miss.Read + "\"");
+                if (miss.CoverCue is { } cue)
+                {
+                    // What the single picture's cover cue saw: why its format was or was not corrected.
+                    text.Append(", cover cue `").Append(cue).Append('`');
+                }
+
+                text.AppendLine();
             }
         }
 
