@@ -129,3 +129,41 @@ export const extractionPromptOf = (config: RecognitionConfig): string =>
 
 /** The one status code the config fetch treats as "nothing new". */
 export const HTTP_NOT_MODIFIED = 304;
+
+/** A range of short side over long side, in pixels. */
+export interface RatioBand {
+  min: number;
+  max: number;
+}
+
+/**
+ * What a single cover's case says about its film format (coverFormat.ts). Local tuning: the server does not own it, and it is
+ * not part of RecognitionSettings.
+ */
+export interface CoverFormatTuning {
+  /** The least share of the frame a rectangle must cover to be taken for the case, not a poster, a shelf edge or a label. */
+  minCaseCoverage: number;
+  /**
+   * Short side over long side of the case, in pixels. Measured on real cases: a VHS slipcase is about 0.55, a clamshell 0.60
+   * to 0.63, a DVD keepcase 0.71, a Blu-ray or Ultra HD keepcase 0.86. The bands leave room for a case that is tilted or cut
+   * off at the edge. The gaps between them (0.65 to 0.66, 0.77 to 0.80) and everything above 0.92 are left empty: a ratio
+   * there is not good evidence of anything. The floor under VHS keeps a spine or a shelf edge, which is thin, from being
+   * called a tape. Ultra HD shares Blu-ray's case, so only a logo says Ultra HD.
+   */
+  vhs: RatioBand;
+  dvd: RatioBand;
+  bluray: RatioBand;
+  /** Logo words this long or longer may be one character off ("VIDEOCASSETTF"). Short ones may not: "dvd" is one letter from "dud". */
+  fuzzyLogoMinLength: number;
+  /** How long after the model's read a cover's format cue may still arrive before the model's items go out as they are. */
+  cueWaitMs: number;
+}
+
+export const DEFAULT_COVER_FORMAT_TUNING: CoverFormatTuning = {
+  minCaseCoverage: 0.3,
+  vhs: { min: 0.45, max: 0.65 },
+  dvd: { min: 0.66, max: 0.77 },
+  bluray: { min: 0.8, max: 0.92 },
+  fuzzyLogoMinLength: 7,
+  cueWaitMs: 1500,
+};
