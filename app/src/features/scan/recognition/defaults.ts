@@ -1,6 +1,7 @@
 // Every tunable value for recognition lives here, and nowhere else in this folder (a test enforces it).
 // The server's GET /api/v1/recognition/config replaces the server-owned part; the rest is local tuning.
 // The server-owned part matches src/CollectionMaxxing.Application/Recognition/recognition.defaults.json.
+import type { TextOrientation } from '@/native/cm-vision';
 
 export interface RecognitionConfig {
   version: string;
@@ -45,6 +46,10 @@ export interface LocalTuning {
   duplicateTitleShare: number;
   /** Two Vision lines with the same text and boxes overlapping this much are one line seen twice. */
   duplicateLineOverlap: number;
+  /** The extra text pass for items that lie the other way up (a flat pile has tapes both ways); it runs only when a shelf shows such a pile. */
+  upsideDownOrientation: TextOrientation;
+  /** Two readings are of one box when their boxes overlap by at least this share of their union; the surer reading of a box is kept. */
+  sameBoxOverlap: number;
   /** Share of a line's width that must sit inside a spine column for the line to join it. */
   spineColumnOverlap: number;
   /** Rectangles overlapping by at least this share of the smaller one depict one surface and merge before splitting (a cover's nested quads are one item; disjoint spines still split, #504). */
@@ -58,6 +63,33 @@ export interface LocalTuning {
   spineRowShare: number;
   /** A shelf needs this many columns before it is read as spines. */
   minSpineColumns: number;
+  /**
+   * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
+   * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
+   * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
+   * heights apart. The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or 0.6 to 0.73
+   * wide (a cover that fills the frame), or have fewer than 5 bands, or have their bands 1 to 5 letter heights apart (title, author,
+   * tagline). The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under 0.3 of the big lettering
+   * on its band.
+   */
+  /** A line lies flat when its width is at least this many times its height. */
+  flatLineAspect: number;
+  /** A pile needs this many bands in one column. */
+  stackMinBands: number;
+  /** A pile is at least this wide (a share of the picture): a name or a cover word running down books is narrower. */
+  stackMinWidth: number;
+  /** A pile is no wider than this share of the picture; a cover that fills the frame is wider. */
+  stackMaxWidth: number;
+  /** A pile's bands sit close: the median gap between two is at most this many of their letter heights. */
+  stackMaxGap: number;
+  /** A line joins a band when it overlaps it or lies within this share of its own height from it. */
+  bandMaxGap: number;
+  /** A line stretches its band when its letters are at least this share of the band's tallest. */
+  bandSameLetters: number;
+  /** A band counts only when its tallest letters are at least this share of the biggest band's, so dust between two tapes is not a tape. */
+  bandMinLetters: number;
+  /** A band's title is made of the lines whose letters are at least this share of the band's tallest. */
+  bandTitleLetters: number;
   /** How far either side of the cut the two halves of a wide shot reach, as a share of the picture's width. */
   halfOverlap: number;
   /** The cut is looked for within this distance of the middle. */
@@ -129,11 +161,22 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   sameItemOverlap: 0.5,
   duplicateTitleShare: 1,
   duplicateLineOverlap: 0.5,
+  upsideDownOrientation: 180,
+  sameBoxOverlap: 0.5,
   spineColumnOverlap: 0.5,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
   spineRowShare: 0.6,
   minSpineColumns: 2,
+  flatLineAspect: 2.5,
+  stackMinBands: 5,
+  stackMinWidth: 0.1,
+  stackMaxWidth: 0.5,
+  stackMaxGap: 1,
+  bandMaxGap: 0.05,
+  bandSameLetters: 0.6,
+  bandMinLetters: 0.3,
+  bandTitleLetters: 0.6,
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,
