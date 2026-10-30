@@ -1,6 +1,6 @@
 // The fallback engine: Vision text and rectangles, split in TypeScript, no model. Its titles are guesses, so every
 // item says low confidence and leaves the finding to the server.
-import type { VisionEngine } from '@/native/cm-vision';
+import type { TextLine, VisionEngine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
 import { creatorOf } from './creators';
 import type { RecognitionSettings } from './defaults';
@@ -38,13 +38,13 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const lines = await readLines(this.deps.vision, still.uri, settings.local);
     // A cover shot is one item: the whole frame, never segmented (#504). Anything else may be a shelf row.
     if (isSingleItemShot(options.shotKind)) {
-      return this.reading(wholeFrame(lines), settings, started, onItem);
+      return this.reading(wholeFrame(lines), lines, settings, started, onItem);
     }
     const rectangles = await this.deps.vision.detectRectangles(still.uri).catch(() => []);
-    return this.reading(splitIntoPieces(lines, rectangles, settings.splitting, settings.local), settings, started, onItem);
+    return this.reading(splitIntoPieces(lines, rectangles, settings.splitting, settings.local), lines, settings, started, onItem);
   }
 
-  private reading(split: Split, settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void): SnapReading {
+  private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void): SnapReading {
     const { pieces, unreadableCount } = split;
     const items = pieces.map((p, order): ReadItem => {
       const titleLine = p.lines.reduce((best, l) =>
@@ -64,6 +64,8 @@ export class VisionPipelineEngine implements RecognitionEngine {
     });
     items.forEach(onItem);
     const total = this.now() - started;
-    return { items, unreadableCount, engine: this.name, timings: { totalMs: total, visionMs: total } };
+    // The lines and the pieces made of them are for the eval record only: nothing in the scanner reads them.
+    const ocr = { lines, pieces: pieces.map((p) => p.lines.map((l) => lines.indexOf(l))) };
+    return { items, unreadableCount, engine: this.name, ocr, timings: { totalMs: total, visionMs: total } };
   }
 }

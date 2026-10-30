@@ -7557,6 +7557,45 @@
           }
         }
       },
+      "EvalOcrLine": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "x": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "y": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "width": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "height": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "EvalOutcome": {
         "enum": [
           "ok",
@@ -7668,6 +7707,28 @@
                 "$ref": "#/components/schemas/EvalDuplicateRescan"
               }
             ]
+          },
+          "ocrLines": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EvalOcrLine"
+            }
+          },
+          "ocrPieces": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "int32"
+              }
+            }
           }
         }
       },

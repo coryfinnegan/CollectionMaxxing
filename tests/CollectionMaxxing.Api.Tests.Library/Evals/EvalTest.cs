@@ -58,7 +58,8 @@ public abstract class EvalTest : IdentifyTest
     /// <summary>One photo's result as the phone uploads it.</summary>
     protected static object PhotoResult(
         string photoId, string engine, object[] items, string outcome = "ok", long latencyMs = 1500, long? firstItemMs = 800,
-        string thermalState = "nominal", int unreadableCount = 0, string? fellBackFrom = null) => new
+        string thermalState = "nominal", int unreadableCount = 0, string? fellBackFrom = null,
+        object[]? ocrLines = null, int[][]? ocrPieces = null) => new
         {
             photoId,
             engine,
@@ -69,7 +70,13 @@ public abstract class EvalTest : IdentifyTest
             latencyMs,
             firstItemMs,
             thermalState,
+            ocrLines,
+            ocrPieces,
         };
+
+    /// <summary>One cleaned OCR line as the phone uploads it: the text and its box, each value 0 to 1.</summary>
+    protected static object OcrLine(string text, double x = 0.1, double y = 0.1, double width = 0.05, double height = 0.5) =>
+        new { text, x, y, width, height };
 
     /// <summary>A whole run body.</summary>
     protected static Dictionary<string, object?> RunBody(params object[] results) => new()

@@ -58,6 +58,11 @@ public sealed record EvalReadItemInput(
 /// </summary>
 public sealed record DuplicateRescanInput(int OwnedHits, int AnsweredOnCard, int UnsolicitedAdds);
 
+/// <summary>One cleaned OCR line the Vision engine split: its text and its box (normalised 0 to 1, origin top left).</summary>
+public sealed record EvalOcrLineInput(string? Text, double? X, double? Y, double? Width, double? Height);
+
+/// <param name="OcrLines">Only the <c>vision_pipeline</c> photo carries these: the lines the engine split. Ignored for the other engines.</param>
+/// <param name="OcrPieces">Only the <c>vision_pipeline</c> photo: for each piece the engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
 public sealed record EvalPhotoInput(
     string? PhotoId,
     ScanEngine? Engine,
@@ -70,7 +75,9 @@ public sealed record EvalPhotoInput(
     ThermalState? Thermal,
     int? CapturedCount = null,
     DateTimeOffset? CapturedAt = null,
-    DuplicateRescanInput? DuplicateRescan = null);
+    DuplicateRescanInput? DuplicateRescan = null,
+    IReadOnlyList<EvalOcrLineInput>? OcrLines = null,
+    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null);
 
 /// <param name="Partial">The phone cancelled the run part way. It is kept and shown, but never counts as a pass or a baseline.</param>
 /// <param name="BaselineNote">Why this run's thresholds may differ from the baseline's (docs/16 §17). Null most runs.</param>
@@ -133,6 +140,11 @@ public sealed record GroundedItem(
 /// </summary>
 public sealed record DuplicateRescan(int OwnedHits, int AnsweredOnCard, int UnsolicitedAdds);
 
+/// <summary>One cleaned OCR line the Vision engine split, with its box (normalised 0 to 1, origin top left). Kept on the PC only: it has titles.</summary>
+public sealed record GroundedOcrLine(string Text, double X, double Y, double Width, double Height);
+
+/// <param name="OcrLines">The cleaned lines the Vision engine split. Only the <c>vision_pipeline</c> photo has them, and only runs from a phone that sends them.</param>
+/// <param name="OcrPieces">For each piece the Vision engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
 public sealed record GroundedPhoto(
     string PhotoId,
     string Engine,
@@ -145,7 +157,9 @@ public sealed record GroundedPhoto(
     string ThermalState,
     int CapturedCount = 0,
     DateTimeOffset? CapturedAt = null,
-    DuplicateRescan? DuplicateRescan = null);
+    DuplicateRescan? DuplicateRescan = null,
+    IReadOnlyList<GroundedOcrLine>? OcrLines = null,
+    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>
 public sealed record GroundedRun(

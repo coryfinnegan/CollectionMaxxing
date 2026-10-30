@@ -1,4 +1,4 @@
-// Splitting what Vision saw into items, with no model: rectangles first, then spine columns, else the whole frame.
+// Splitting what Vision saw into items, with no model: rectangles first, then spine columns (found from the tall lines), else the whole frame.
 import type { Rect, TextLine } from '@/native/cm-vision';
 import type { LocalTuning, RecognitionConfig } from './defaults';
 import { bottom, centerX, centerY, contains, overlapShare, right, union, yOverlapShare } from './geometry';
@@ -44,9 +44,17 @@ function byRectangles(lines: TextLine[], rectangles: Rect[], tuning: LocalTuning
   return { pieces, unreadableCount };
 }
 
-function byColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Split | undefined {
-  const columns: { box: Rect; lines: TextLine[] }[] = [];
-  for (const l of [...lines].sort((a, b) => a.box.x - b.box.x)) {
+const isTall = (l: TextLine) => bottom(l.box) - l.box.y > l.box.width;
+
+interface Column {
+  box: Rect;
+  lines: TextLine[];
+}
+
+/** Tall lines left to right: a line joins the last column when it shares enough of its own width with it. */
+function columnsOf(tallLines: TextLine[], tuning: LocalTuning): Column[] {
+  const columns: Column[] = [];
+  for (const l of [...tallLines].sort((a, b) => a.box.x - b.box.x)) {
     const last = columns[columns.length - 1];
     const shared = last ? Math.min(right(last.box), right(l.box)) - Math.max(last.box.x, l.box.x) : 0;
     if (last && shared >= l.box.width * tuning.spineColumnOverlap) {
@@ -56,15 +64,38 @@ function byColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Sp
       columns.push({ box: l.box, lines: [l] });
     }
   }
-  const wide = columns.filter((c) => c.box.width >= minWidth);
-  if (wide.length < tuning.minSpineColumns) return undefined;
-  // Spines stand in one row: neighbors share their vertical band. Scattered cover lines do not, so they are not split.
-  const inOneRow = wide.every((c, i) => i === 0 || yOverlapShare(wide[i - 1].box, c.box) >= tuning.spineRowOverlap);
-  if (!inOneRow) return undefined;
-  return { pieces: wide.map((c) => piece(c.lines)), unreadableCount: 0 };
+  return columns;
 }
 
-const isTall = (l: TextLine) => bottom(l.box) - l.box.y > l.box.width;
+/**
+ * Spines stand in one row: most neighbors share their vertical band, so one short book beside tall ones does not undo the split.
+ * Scattered cover lines share almost none, so they are not split (#504).
+ */
+function inOneRow(columns: Column[], tuning: LocalTuning): boolean {
+  const pairs = columns.length - 1;
+  const sharing = columns.filter((c, i) => i > 0 && yOverlapShare(columns[i - 1].box, c.box) >= tuning.spineRowOverlap).length;
+  return sharing / pairs >= tuning.spineRowShare;
+}
+
+/**
+ * Spine columns come from the tall lines alone, so books lying flat in the frame do not hide the spines. A short line whose center
+ * sits across a column inside the row's band joins that column; every other line (a flat stack below the row) becomes one more piece.
+ */
+function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Split | undefined {
+  const columns = columnsOf(lines.filter(isTall), tuning).filter((c) => c.box.width >= minWidth);
+  if (columns.length < tuning.minSpineColumns || !inOneRow(columns, tuning)) return undefined;
+  const band = union(columns.map((c) => c.box));
+  const rest: TextLine[] = [];
+  for (const l of lines.filter((l) => !isTall(l))) {
+    const x = centerX(l.box);
+    const across = centerY(l.box) >= band.y && centerY(l.box) <= bottom(band) ? columns.filter((c) => x >= c.box.x && x <= right(c.box)) : [];
+    if (across.length === 0) rest.push(l);
+    else across.reduce((a, b) => (Math.abs(x - centerX(b.box)) < Math.abs(x - centerX(a.box)) ? b : a)).lines.push(l);
+  }
+  const pieces = columns.map((c) => piece(c.lines));
+  if (rest.length > 0) pieces.push(piece(rest));
+  return { pieces, unreadableCount: 0 };
+}
 
 /** One item for the whole frame: the cover path, never segmented. Empty when there is no text. */
 export function wholeFrame(lines: TextLine[]): Split {
@@ -83,10 +114,5 @@ export function splitIntoPieces(
     const split = byRectangles(lines, rectangles, tuning);
     if (split.pieces.length > 0) return split;
   }
-  const tallShare = lines.filter(isTall).length / lines.length;
-  if (tallShare >= tuning.spineTallShare) {
-    const split = byColumns(lines, tuning, splitting.minSpineColumnWidth);
-    if (split) return split;
-  }
-  return wholeFrame(lines);
+  return bySpineColumns(lines, tuning, splitting.minSpineColumnWidth) ?? wholeFrame(lines);
 }

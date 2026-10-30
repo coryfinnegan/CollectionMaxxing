@@ -7,7 +7,7 @@ import { evalsMock } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import { failedRead, makeKit, uriOf } from './evalsTestKit';
-import { modelItem, okRead } from '@/features/scan/recognition/fakes';
+import { line, modelItem, okRead } from '@/features/scan/recognition/fakes';
 
 interface Result {
   photoId: string;
@@ -22,6 +22,8 @@ interface Result {
   capturedCount?: number;
   capturedAt?: string;
   duplicateRescan?: { ownedHits: number; answeredOnCard: number; unsolicitedAdds: number };
+  ocrLines?: { text: string; x: number; y: number; width: number; height: number }[];
+  ocrPieces?: number[][];
 }
 interface Body {
   device: { model: string; osVersion: string; appVersion: string };
@@ -112,6 +114,52 @@ describe('the eval runner', () => {
     expect(rows.find((r) => r.engine === 'apple_model')?.items.map((i) => i.title)).toEqual(['Title of photo-001', 'Other of photo-001']);
     expect(rows.find((r) => r.engine === 'vision_pipeline')?.items.map((i) => i.title)).toEqual(['Title of photo-001', 'Other of photo-001', 'Third of photo-001']);
     for (const item of rows.find((r) => r.engine === 'apple_model')?.items ?? []) expect(item.resolvedBy).toBe('model');
+  });
+
+  it('sends the OCR lines the Vision engine split and the pieces it made, on its row only', async () => {
+    const kit = makeKit({ photos: 1 });
+    await kit.runner.start();
+    const rows = runs()[0].results;
+    const vision = rows.find((r) => r.engine === 'vision_pipeline');
+    expect(vision?.ocrLines).toEqual([
+      { text: 'Title of photo-001', x: 0.1, y: 0.1, width: 0.1, height: 0.5 },
+      { text: 'Other of photo-001', x: 0.5, y: 0.1, width: 0.1, height: 0.5 },
+    ]);
+    expect(vision?.ocrPieces).toEqual([[0], [1]]);
+    for (const row of rows.filter((r) => r.engine !== 'vision_pipeline')) {
+      expect(row.ocrLines).toBeUndefined();
+      expect(row.ocrPieces).toBeUndefined();
+    }
+  });
+
+  it('points each piece at the lines it was made from, a flat stack included', async () => {
+    const stack = { text: [
+      line('Spine one', 0.1, 0.05, 0.05, 0.5),
+      line('Spine two', 0.3, 0.05, 0.05, 0.5),
+      line('Flat book', 0.2, 0.8, 0.4, 0.05),
+    ] };
+    const kit = makeKit({ photos: 1, scenes: { 'photo-001': stack } });
+    await kit.runner.start();
+    const vision = runs()[0].results.find((r) => r.engine === 'vision_pipeline');
+    expect(vision?.ocrLines?.map((l) => l.text)).toEqual(['Spine one', 'Flat book', 'Spine two']);
+    expect(vision?.ocrPieces).toEqual([[0], [2], [1]]);
+    expect(vision?.items.map((i) => i.title)).toEqual(['Spine one', 'Spine two', 'Flat book']);
+  });
+
+  it('keeps the OCR record inside what the server accepts: boxes 0 to 1, text up to 200 characters, 1000 lines', async () => {
+    const many = Array.from({ length: 1010 }, (_, i) => line(`Line ${i}`, i / 1200, 0.1, 0.0005, 0.02));
+    many.push(line('x'.repeat(300), -0.0004, -0.0002, 1.0003, 1.0001));
+    const kit = makeKit({ photos: 1, scenes: { 'photo-001': { text: many } } });
+    await kit.runner.start();
+    const vision = runs()[0].results.find((r) => r.engine === 'vision_pipeline');
+    const lines = vision?.ocrLines ?? [];
+    expect(lines).toHaveLength(1000);
+    expect(lines.every((l) => l.text.length <= 200)).toBe(true);
+    expect(lines.every((l) => [l.x, l.y, l.width, l.height].every((v) => v >= 0 && v <= 1))).toBe(true);
+    const indexes = (vision?.ocrPieces ?? []).flat();
+    expect(indexes.length).toBeGreaterThan(0);
+    expect(indexes.every((index) => index >= 0 && index < lines.length)).toBe(true);
+    expect(kit.runner.getState().phase).toBe('done');
   });
 
   it('marks extraction rows as settled by the model', async () => {
