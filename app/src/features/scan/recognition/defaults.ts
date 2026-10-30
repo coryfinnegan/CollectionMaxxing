@@ -32,10 +32,15 @@ export interface LocalTuning {
   /** Words this long or longer match when one is the start of the other (the model completes cut-off words). */
   prefixMinLength: number;
   /**
-   * A Vision item is the model's item read again when the model's title says this share of what the Vision title says (shelf shots
-   * add the Vision items the model missed). 1 means every significant Vision word is in the model's title, so only a near-identical
-   * re-read is dropped and a sibling title in the same series is kept. The server merges two reads of the same book into one
-   * candidate, so the client does not have to catch the rest.
+   * Two items in the same place are the same physical item: their boxes overlap by at least this share of the smaller box. A shelf can hold
+   * five films all titled "HIGHLANDER", so an item is never the same as another because of its title while both have a box.
+   */
+  sameItemOverlap: number;
+  /**
+   * Only when an item has no box: it is an item already read when the other title says this share of what its own title says (shelf shots
+   * add the model's items that Vision missed). 1 means every significant word is in the other title, so only a near-identical re-read is
+   * dropped and a sibling title in the same series is kept. The server merges two reads of the same book into one candidate, so the
+   * client does not have to catch the rest.
    */
   duplicateTitleShare: number;
   /** Two Vision lines with the same text and boxes overlapping this much are one line seen twice. */
@@ -121,6 +126,7 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   minLineScore: 0.8,
   minItemCoverage: 0.6,
   prefixMinLength: 3,
+  sameItemOverlap: 0.5,
   duplicateTitleShare: 1,
   duplicateLineOverlap: 0.5,
   spineColumnOverlap: 0.5,

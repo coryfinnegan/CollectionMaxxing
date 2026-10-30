@@ -73,7 +73,7 @@ describe('EngineSelector', () => {
   it('streams items as they are read and runs one model read at a time', async () => {
     const { vision, selector: s } = selector(ok);
     const streamed: ReadItem[] = [];
-    await Promise.all([s.read(STILL, (i) => streamed.push(i)), s.read(STILL, () => {})]);
+    await Promise.all([s.read(STILL, (i) => streamed.push(i), ALONE), s.read(STILL, () => {}, ALONE)]);
     expect(streamed.map((i) => i.title)).toEqual(['Dune', 'Emma']);
     expect(vision.maxConcurrentReads).toBe(1);
   });
@@ -149,7 +149,7 @@ describe('EngineSelector with a wide shot', () => {
     const { cropper, scenes } = wide();
     const vision = new RecordingVision(scenes);
     const s = new EngineSelector({ vision, settings: () => smallLimit, newId: testIds, cropper });
-    const reading = await s.read(STILL, () => {});
+    const reading = await s.read(STILL, () => {}, ALONE);
     expect(cropper.regions).toHaveLength(2);
     expect(reading.engine).toBe('apple_model');
     expect(reading.items.map((i) => i.title)).toEqual(['Alpha', 'Bravo', 'Cujo', 'Delta', 'Echo', 'Foxtrot']);
