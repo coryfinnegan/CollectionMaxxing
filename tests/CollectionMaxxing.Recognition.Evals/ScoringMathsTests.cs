@@ -211,6 +211,24 @@ public sealed class ScoringMathsTests : IDisposable
     }
 
     [Fact]
+    public void A_release_whose_format_the_catalog_does_not_know_is_not_held_against_a_single_picture_match_but_a_different_format_is()
+    {
+        _golden.AddSingle("b1", new SyntheticGolden.SingleItem("The Quiet Orchard", "paperback", "complete", EvalKinds.BookSpine));
+        _golden.AddSingle("b2", new SyntheticGolden.SingleItem("The Lantern Cartographer", "paperback", "complete", EvalKinds.BookSpine));
+
+        var photos = new[]
+        {
+            Photo("b1", Apple, [new GroundedItem("the quiet orchard", null, "model", "matched", [Release("The Quiet Orchard", null, "book", "unknown")])]),
+            Photo("b2", Apple, [new GroundedItem("the lantern cartographer", null, "model", "matched", [Release("The Lantern Cartographer", null, "book", "hardcover")])]),
+        };
+        var single = EvalScorer.Score(photos, TruthsOf(_golden)).SoloOf();
+
+        single.TruthItems.ShouldBe(2);
+        single.Top1Pct.ShouldBe(50); // the unknown-format release is the paperback; the hardcover is not
+        single.Top3Pct.ShouldBe(50);
+    }
+
+    [Fact]
     public void In_a_single_picture_only_the_first_item_is_the_answer_and_the_others_only_cost_precision()
     {
         _golden.AddSingle("c1", new SyntheticGolden.SingleItem("Star Fox 64", "game_cartridge", "cart_only", EvalKinds.LooseCartridge, "Nintendo 64"));

@@ -1,3 +1,4 @@
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
@@ -35,6 +36,7 @@ public static class EvalScorer
     private static readonly string Tier0 = EnumText.ToText(ScanTier.T0);
     private static readonly string Tier1 = EnumText.ToText(ScanTier.T1);
     private static readonly string Tier2 = EnumText.ToText(ScanTier.T2);
+    private static readonly string UnknownFormat = EnumText.ToText(ReleaseFormat.Unknown);
 
     /// <summary>
     /// The model's time budget in milliseconds (the default of <c>engine.modelTimeoutMs</c>). A timed-out photo counts in the latency
@@ -487,9 +489,11 @@ public static class EvalScorer
         return wanted is null || (PlatformNames.Canonicalize(candidate.Platform) is { } found && found == wanted);
     }
 
-    /// <summary>A single picture's truth names its format (a VHS is not the DVD of the same film); a release that does not say its format is not held against it.</summary>
+    /// <summary>A single picture's truth names its format (a VHS is not the DVD of the same film); a release that does not say its format (none, or <c>unknown</c>) is not held against it.</summary>
     private static bool FormatAgrees(TruthItem truth, GroundedCandidate candidate) =>
-        truth.Format is null || candidate.Format is null || string.Equals(truth.Format, candidate.Format, StringComparison.OrdinalIgnoreCase);
+        truth.Format is null || candidate.Format is null
+        || string.Equals(candidate.Format, UnknownFormat, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(truth.Format, candidate.Format, StringComparison.OrdinalIgnoreCase);
 
     private static bool FullMatch(TruthItem truth, GroundedCandidate candidate) =>
         TitleMatch(truth, candidate) && PlatformMatches(truth, candidate) && FormatAgrees(truth, candidate);
