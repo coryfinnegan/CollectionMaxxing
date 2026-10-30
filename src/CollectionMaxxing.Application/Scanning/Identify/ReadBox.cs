@@ -9,7 +9,7 @@ public readonly record struct ReadBox(double X, double Y, double Width, double H
     /// <summary>The share of the smaller of two boxes the other must cover for the two to be one place.</summary>
     public const double SamePlaceShare = 0.5;
 
-    /// <summary>How far past the picture's edge a box may reach (floating point, and a box the camera cut at the edge).</summary>
+    /// <summary>How far outside 0 to 1 a value (or the end of a box) may be and still be moved into range, not dropped (floating point, and a box cut at the edge).</summary>
     public const double EdgeTolerance = 0.01;
 
     private const double Epsilon = 1e-9;
@@ -40,25 +40,31 @@ public readonly record struct ReadBox(double X, double Y, double Width, double H
 }
 
 /// <summary>
-/// A box as the phone sent it, every member a claim to check. <see cref="Checked"/> is the box when all four are finite, from 0 to 1,
-/// the width and height are above 0, and the box ends inside the picture (to within <see cref="ReadBox.EdgeTolerance"/>); else null.
+/// A box as the phone sent it, every member a claim to check. A box is a hint, so a bad one is never a reason to refuse a read:
+/// <see cref="Clamped"/> is the box with any value within <see cref="ReadBox.EdgeTolerance"/> of the 0 to 1 range moved into it
+/// (and the box trimmed back to the picture's edge), and null, meaning the read has no box, when a member is missing, not finite
+/// or further out of range than that, the width or height is not above 0, or the box runs further past the edge than that.
 /// </summary>
 public sealed record ReadBoxInput(double? X, double? Y, double? Width, double? Height)
 {
-    public ReadBox? Checked()
+    public ReadBox? Clamped()
     {
-        if (X is not { } x || Y is not { } y || Width is not { } width || Height is not { } height)
+        if (Fit(X) is not { } x || Fit(Y) is not { } y || Fit(Width) is not { } width || Fit(Height) is not { } height)
         {
             return null;
         }
 
-        return IsFraction(x) && IsFraction(y) && IsFraction(width) && IsFraction(height)
-            && width > 0 && height > 0
-            && x + width <= 1 + ReadBox.EdgeTolerance
-            && y + height <= 1 + ReadBox.EdgeTolerance
-                ? new ReadBox(x, y, width, height)
-                : null;
+        if (x + width > 1 + ReadBox.EdgeTolerance || y + height > 1 + ReadBox.EdgeTolerance)
+        {
+            return null;
+        }
+
+        width = Math.Min(width, 1 - x);
+        height = Math.Min(height, 1 - y);
+        return width > 0 && height > 0 ? new ReadBox(x, y, width, height) : null;
     }
 
-    private static bool IsFraction(double value) => double.IsFinite(value) && value is >= 0 and <= 1;
+    /// <summary>The value in range: as it is, or moved to 0 or 1 when it is only just outside. Null when missing, not finite or further out.</summary>
+    private static double? Fit(double? value) =>
+        value is { } v && double.IsFinite(v) && v >= -ReadBox.EdgeTolerance && v <= 1 + ReadBox.EdgeTolerance ? Math.Clamp(v, 0, 1) : null;
 }

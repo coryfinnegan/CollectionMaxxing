@@ -140,17 +140,51 @@ public sealed class CombinedEngineTests : IDisposable
     // ---- time, outcome and the rows it needs -----------------------------------------------------------------------------
 
     [Fact]
-    public void The_combined_read_takes_the_models_time_plus_Visions_and_starts_with_the_models_first_item()
+    public void The_combined_read_takes_Visions_time_plus_the_models_and_shows_its_first_item_when_Vision_does()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64"),
+            ModelRead(T1(Matched("Star Fox 64"))),
+            Photo("s1", Vision, [GuessedByVision("Star Fox 64")], latencyMs: 700, firstItemMs: 300));
+
+        var both = scored.ShelfOf(Combined);
+        both.LatencyP50Ms.ShouldBe(4700, "Vision reads and then the model does, so the total is both");
+        both.FirstItemP50Ms.ShouldBe(300, "Vision's items show first, so the first item is Vision's");
+        scored.ShelfOf(Apple).LatencyP50Ms.ShouldBe(4000);
+        scored.ShelfOf(Apple).FirstItemP50Ms.ShouldBe(900);
+    }
+
+    [Fact]
+    public void When_Vision_sent_no_first_item_time_the_first_item_is_the_end_of_its_whole_read()
     {
         var scored = Score(
             ArrangeShelf("Star Fox 64"),
             ModelRead(T1(Matched("Star Fox 64"))),
             VisionRead(GuessedByVision("Star Fox 64")));
 
+        scored.ShelfOf(Combined).FirstItemP50Ms.ShouldBe(700);
+    }
+
+    [Fact]
+    public void When_Vision_found_nothing_the_first_item_is_the_models_after_Visions_whole_read()
+    {
+        var scored = Score(ArrangeShelf("Star Fox 64"), ModelRead(T1(Matched("Star Fox 64"))), VisionRead());
+
         var both = scored.ShelfOf(Combined);
+        both.FirstItemP50Ms.ShouldBe(1600); // Vision's 700 and then the model's first item at 900
         both.LatencyP50Ms.ShouldBe(4700);
-        both.FirstItemP50Ms.ShouldBe(900);
-        scored.ShelfOf(Apple).LatencyP50Ms.ShouldBe(4000);
+        both.PredictedItems.ShouldBe(1);
+    }
+
+    [Fact]
+    public void When_Vision_failed_the_first_item_time_is_the_models_own()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64"),
+            ModelRead(T1(Matched("Star Fox 64"))),
+            Photo("s1", Vision, [], latencyMs: 300, firstItemMs: 100, outcome: "error"));
+
+        scored.ShelfOf(Combined).FirstItemP50Ms.ShouldBe(900);
     }
 
     [Fact]
@@ -270,6 +304,8 @@ public sealed class CombinedEngineTests : IDisposable
         run.Summary.Metrics[$"{Combined}.shelf.top1"].ShouldBe(100);
         run.ReportMarkdown.ShouldContain($"## {Combined}");
         run.ReportMarkdown.ShouldContain("Report only");
+        run.ReportMarkdown.ShouldContain("the Vision text items first, then the Apple model's items Vision did not read");
+        run.ReportMarkdown.ShouldContain("the first item is Vision's");
         run.Summary.ScoredPhotos.ShouldBe(2); // the rows the phone uploaded, not the one built from them
     }
 

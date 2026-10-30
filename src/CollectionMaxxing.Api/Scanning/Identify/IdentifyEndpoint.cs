@@ -48,7 +48,7 @@ internal static class IdentifyEndpoint
         IdentifyRequest? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<IdentifyRequest>(body, json.Value.SerializerOptions);
+            parsed = JsonSerializer.Deserialize<IdentifyRequest>(body, BoxTolerantJson.Of(json.Value.SerializerOptions));
         }
         catch (JsonException)
         {

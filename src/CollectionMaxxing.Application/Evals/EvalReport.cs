@@ -92,7 +92,7 @@ public static class EvalReport
             text.AppendLine().Append("## ").AppendLine(engine).AppendLine();
             if (engine == EvalCombination.Engine)
             {
-                text.AppendLine("Report only, built from the rows above: the Apple model's items plus the Vision text items it did not read. Shelf latency is the two added together; single pictures are the model's own.").AppendLine();
+                text.AppendLine("Report only, built from the rows above: the Vision text items first, then the Apple model's items Vision did not read (the scanner shows Vision's first). Shelf latency is the two added together, since Vision reads and then the model does, and the first item is Vision's; single pictures are the model's own.").AppendLine();
             }
 
             AppendSlice(text, "Shelf", numbers.Shelf);

@@ -14,7 +14,8 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 
 /// <summary>
 /// One item as the phone sent it (the API maps its request to this). Nothing here is an image. <c>Box</c> is where the read sits in
-/// the picture (x, y, width, height, each 0 to 1, origin top left); an older phone, or a read with no position, sends none.
+/// the picture (x, y, width, height, each 0 to 1, origin top left); an older phone, or a read with no position, sends none. A box
+/// is a hint: one that cannot be used (see <see cref="ReadBoxInput.Clamped"/>) is the same as none and never refuses the read.
 /// </summary>
 public sealed record IdentifyItemInput(
     string? LocalId,
@@ -159,14 +160,6 @@ internal static class IdentifyCleaning
                     $"A product code is at most {ProductCode.MaxInputLength} characters, shaped like SNS-ADNE-USA or SLUS-00594.",
                     $"items[{i}].productCode");
             }
-
-            if (item.Box is { } box && box.Checked() is null)
-            {
-                return ScanningErrors.Invalid(
-                    "scan.box_invalid",
-                    "A box is x, y, width and height as fractions of the picture: each from 0 to 1, the width and height above 0, and the box inside the picture.",
-                    $"items[{i}].box");
-            }
         }
 
         return null;
@@ -201,7 +194,7 @@ internal static class IdentifyCleaning
             var facts = ReadSanitizer.Sanitize(read);
             var profile = ScoringProfileSelector.Choose(facts.Completeness, facts.Kind, facts.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
             return new CleanItem(
-                Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile, item.Box?.Checked());
+                Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile, item.Box?.Clamped());
         }).ToList();
 
     /// <summary>Strips control and invisible formatting characters (a newline or tab becomes a space), trims, and cuts to length. Empty becomes null.</summary>

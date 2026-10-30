@@ -68,9 +68,11 @@ public static class EvalCombination
             // Vision's items stand as they are, and the model adds what Vision did not find.
             Items = both ? [.. vision.Items, .. modelAdded] : apple.Items,
 
-            // The scanner reads with both engines, so the combined read took both: an upper bound, since they could overlap.
-            // The first-item time, the outcome and the unreadable count are still the model's.
+            // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
+            // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
+            // still the model's.
             LatencyMs = apple.LatencyMs + vision.LatencyMs,
+            FirstItemMs = FirstItemOf(apple, vision, both),
             ThermalState = vision.ThermalState,
 
             // Vision items the model did not read are segments the model did not capture, so the captured count (when the phone
@@ -78,6 +80,17 @@ public static class EvalCombination
             CapturedCount = apple.CapturedCount > 0 && visionOnly ? apple.CapturedCount + 1 : apple.CapturedCount,
         };
     }
+
+    /// <summary>
+    /// When the combined read first showed an item. Vision's items show first, so it is Vision's first-item time, or its whole read
+    /// when it sent none. When Vision found nothing the first item is the model's, after Vision's whole read. When either engine did
+    /// not answer, the items are the model's own and so is the time.
+    /// </summary>
+    private static long? FirstItemOf(GroundedPhoto apple, GroundedPhoto vision, bool both) =>
+        !both ? apple.FirstItemMs
+        : vision.Items.Count > 0 ? vision.FirstItemMs ?? vision.LatencyMs
+        : apple.FirstItemMs is { } modelFirst ? vision.LatencyMs + modelFirst
+        : null;
 
     /// <summary>
     /// Whether a model item and a Vision item are the same item on the shelf. With a box on both, the same item is the same place

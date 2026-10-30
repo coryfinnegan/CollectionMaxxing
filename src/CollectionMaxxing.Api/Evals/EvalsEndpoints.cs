@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Problems;
+using CollectionMaxxing.Api.Scanning;
 using CollectionMaxxing.Application.Evals;
 using CollectionMaxxing.Application.Scanning.Identify;
 using Microsoft.AspNetCore.Http.Features;
@@ -77,6 +78,7 @@ public static class EvalsEndpoints
     {
         var strict = new JsonSerializerOptions(app);
         strict.Converters.Insert(0, new StrictScanEngineConverter());
+        strict.Converters.Insert(0, new LenientItemBoxConverter()); // a box is a hint: one that cannot be read is no box, not a refused run
         strict.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow; // a member the run does not declare is refused, not dropped
         return strict;
     }

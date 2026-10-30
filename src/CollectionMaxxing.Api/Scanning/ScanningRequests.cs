@@ -32,7 +32,9 @@ public sealed record BarcodeBatchRequest(IReadOnlyList<ScannedCode>? Codes = nul
 
 /// <summary>
 /// Where a read sits in its picture: <c>X</c>, <c>Y</c>, <c>Width</c> and <c>Height</c>, each a fraction of the picture from 0 to 1,
-/// the origin at the top left (the phone's <c>Rect</c>). The width and height are above 0 and the box ends inside the picture.
+/// the origin at the top left (the phone's <c>Rect</c>). The width and height are above 0 and the box ends inside the picture. A box
+/// is a hint and is never a reason to refuse a read: a value only just outside 0 to 1 (by 0.01) is moved into range, and a box that
+/// is incomplete or further out than that is read as no box.
 /// </summary>
 public sealed record ItemBox(double? X = null, double? Y = null, double? Width = null, double? Height = null);
 

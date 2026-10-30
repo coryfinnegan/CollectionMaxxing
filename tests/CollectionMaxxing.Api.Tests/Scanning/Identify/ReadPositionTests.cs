@@ -9,7 +9,8 @@ namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
 
 // A real shelf has several tapes whose spines read the same title. The phone sends each read with the box it sits in (x, y,
 // width and height, 0 to 1, origin top left), so the server can tell the same spine read twice (one place) from two spines
-// that read alike (two places). Neutral titles throughout.
+// that read alike (two places). A box is only a hint, so a box that cannot be used is read as no box and never refuses the scan.
+// Neutral titles throughout.
 public class ReadPositionTests(ApiFixture api) : IdentifyTest(api)
 {
     private const string Title = "Quiet Harbor Atlas";
@@ -112,7 +113,7 @@ public class ReadPositionTests(ApiFixture api) : IdentifyTest(api)
         (await ScanReaders.ItemsAsync(Db, libraryId)).Count.ShouldBe(2);
     }
 
-    // ---- the box is checked -----------------------------------------------------------------------------------------------
+    // ---- a box is a hint: it is tidied, never refused --------------------------------------------------------------------------
 
     [Fact]
     public async Task A_well_formed_box_is_accepted_and_so_is_a_read_with_none()
@@ -124,21 +125,25 @@ public class ReadPositionTests(ApiFixture api) : IdentifyTest(api)
         (await IdentifyAsync(client, sessionId, null, BookAt(Box(0.95, 0.0, 0.05, 1.0)))).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
-    [Fact]
-    public async Task A_box_that_reaches_a_hair_past_the_edge_is_accepted()
+    [Theory]
+    [InlineData(0.95, 0.1, 0.0505, 0.8)] // a hair past the right edge
+    [InlineData(-0.005, 0.1, 0.05, 0.8)] // a hair before the left edge
+    [InlineData(0.1, 0.95, 0.05, 0.0508)] // a hair past the bottom edge
+    public async Task A_box_a_hair_outside_the_picture_is_moved_into_it_and_still_counts_as_a_place(double x, double y, double width, double height)
     {
         var (client, sessionId, _) = await StartAsync();
 
-        var response = await IdentifyAsync(client, sessionId, null, BookAt(Box(0.95, 0.1, 0.0505, 0.8)));
+        // Kept as a box (not dropped as "no box"), it is a place of its own, apart from a read of the same title somewhere else.
+        var candidates = await IdentifyOnePictureAsync(client, sessionId, BookAt(new { x, y, width, height }), BookAt(Box(0.50, 0.1, 0.05, 0.5)));
 
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        candidates.Select(Decision).ShouldBe(["accepted", "accepted"]);
     }
 
-    public static TheoryData<string, object> BadBoxes => new()
+    public static TheoryData<string, object> UnusableBoxes => new()
     {
         { "x below 0", new { x = -0.1, y = 0.1, width = 0.05, height = 0.8 } },
         { "x above 1", new { x = 1.5, y = 0.1, width = 0.05, height = 0.8 } },
-        { "y below 0", new { x = 0.1, y = -0.01, width = 0.05, height = 0.8 } },
+        { "y below 0", new { x = 0.1, y = -0.5, width = 0.05, height = 0.8 } },
         { "width above 1", new { x = 0.0, y = 0.1, width = 1.5, height = 0.8 } },
         { "height above 1", new { x = 0.1, y = 0.0, width = 0.05, height = 1.2 } },
         { "zero width", new { x = 0.1, y = 0.1, width = 0.0, height = 0.8 } },
@@ -146,50 +151,44 @@ public class ReadPositionTests(ApiFixture api) : IdentifyTest(api)
         { "negative width", new { x = 0.5, y = 0.1, width = -0.1, height = 0.8 } },
         { "runs past the right edge", new { x = 0.9, y = 0.1, width = 0.2, height = 0.8 } },
         { "runs past the bottom edge", new { x = 0.1, y = 0.9, width = 0.05, height = 0.3 } },
-    };
-
-    [Theory]
-    [MemberData(nameof(BadBoxes))]
-    public async Task A_box_out_of_range_is_refused_and_nothing_is_stored(string why, object box)
-    {
-        var (client, sessionId, _) = await StartAsync();
-
-        var response = await IdentifyAsync(client, sessionId, null, BookAt(box));
-
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, why);
-        var problem = await ReadJsonAsync(response);
-        problem.GetProperty("code").GetString().ShouldBe("scan.box_invalid");
-        (await CountCandidatesAsync(sessionId)).ShouldBe(0);
-    }
-
-    public static TheoryData<string, object> IncompleteBoxes => new()
-    {
         { "no x", new { y = 0.1, width = 0.05, height = 0.8 } },
         { "no y", new { x = 0.1, width = 0.05, height = 0.8 } },
         { "no width", new { x = 0.1, y = 0.1, height = 0.8 } },
         { "no height", new { x = 0.1, y = 0.1, width = 0.05 } },
         { "an empty box", new { } },
+        { "x is text", new { x = "left", y = 0.1, width = 0.05, height = 0.8 } },
+        { "x is null", new { x = (double?)null, y = 0.1, width = 0.05, height = 0.8 } },
+        { "x is a list", new { x = new[] { 0.1 }, y = 0.1, width = 0.05, height = 0.8 } },
+        { "a member is an object", new { x = new { deeper = 1 }, y = 0.1, width = 0.05, height = 0.8 } },
+        { "the box is text", "left" },
+        { "the box is a number", 0.5 },
+        { "the box is a list", new[] { 0.1, 0.1, 0.05, 0.8 } },
     };
 
     [Theory]
-    [MemberData(nameof(IncompleteBoxes))]
-    public async Task A_box_with_a_value_missing_is_refused(string why, object box)
+    [MemberData(nameof(UnusableBoxes))]
+    public async Task A_box_that_cannot_be_used_never_refuses_the_scan_and_the_read_counts_as_having_no_box(string why, object box)
     {
         var (client, sessionId, _) = await StartAsync();
 
-        var response = await IdentifyAsync(client, sessionId, null, BookAt(box));
+        // With no box the read is compared as reads always were, so it is a repeat of the same title read elsewhere.
+        var response = await IdentifyAsync(client, sessionId, null, BookAt(Box(0.10)), BookAt(box));
 
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest, why);
-        (await ReadJsonAsync(response)).GetProperty("code").GetString().ShouldBe("scan.box_invalid");
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, why + ": " + await response.Content.ReadAsStringAsync());
+        var candidates = (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().ToList();
+        candidates.Count.ShouldBe(2, why);
+        candidates.Select(Decision).ShouldBe(["accepted", "rejected"], why);
+        (await CountCandidatesAsync(sessionId)).ShouldBe(2);
     }
 
     [Fact]
-    public async Task A_box_that_is_not_numbers_is_refused_as_a_bad_body_not_a_server_error()
+    public async Task A_box_with_an_unwanted_member_is_read_by_the_members_it_has()
     {
         var (client, sessionId, _) = await StartAsync();
 
-        var response = await IdentifyAsync(client, sessionId, null, BookAt(new { x = "left", y = 0.1, width = 0.05, height = 0.8 }));
+        var candidates = await IdentifyOnePictureAsync(
+            client, sessionId, BookAt(new { x = 0.10, y = 0.1, width = 0.05, height = 0.8, note = "left spine" }), BookAt(Box(0.60)));
 
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        candidates.Select(Decision).ShouldBe(["accepted", "accepted"]);
     }
 }
