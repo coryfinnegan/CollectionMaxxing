@@ -17,7 +17,8 @@ public sealed record ScoredEngines(IReadOnlyDictionary<string, EngineSummary> En
 /// </summary>
 /// <remarks>
 /// A read item is <b>correct</b> when its best release has the truth item's title (normalised the way the live scorer does) and,
-/// when the truth names a platform, the same platform and, on a single picture, the same format. <b>Top-3</b> also accepts the second and third releases. An
+/// when the truth names a platform, the same platform and, on a single picture, the same format and a kind of work that format can be (a VHS is not the novel of
+/// the same name). <b>Top-3</b> also accepts the second and third releases. An
 /// <b>invented title</b> is a Matched item whose best release has the title of no truth item of the photo (a right title on the
 /// wrong console is a platform error, measured on its own). In a single-item picture only
 /// the first item read is the answer; any others only count against precision.
@@ -37,6 +38,29 @@ public static class EvalScorer
     private static readonly string Tier1 = EnumText.ToText(ScanTier.T1);
     private static readonly string Tier2 = EnumText.ToText(ScanTier.T2);
     private static readonly string UnknownFormat = EnumText.ToText(ReleaseFormat.Unknown);
+
+    private static readonly HashSet<string> FilmKinds = new(StringComparer.OrdinalIgnoreCase) { EnumText.ToText(WorkKind.Film), EnumText.ToText(WorkKind.Tv) };
+    private static readonly HashSet<string> GameKinds = new(StringComparer.OrdinalIgnoreCase) { EnumText.ToText(WorkKind.Game) };
+    private static readonly HashSet<string> BookKinds = new(StringComparer.OrdinalIgnoreCase) { EnumText.ToText(WorkKind.Book) };
+
+    /// <summary>The kinds of work a release in each physical format can be. A format not listed (<c>other</c>, <c>unknown</c>, anything new) fits any kind.</summary>
+    private static readonly Dictionary<string, HashSet<string>> KindsByFormat = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [EnumText.ToText(ReleaseFormat.Vhs)] = FilmKinds,
+        [EnumText.ToText(ReleaseFormat.Betamax)] = FilmKinds,
+        [EnumText.ToText(ReleaseFormat.Laserdisc)] = FilmKinds,
+        [EnumText.ToText(ReleaseFormat.Dvd)] = FilmKinds,
+        [EnumText.ToText(ReleaseFormat.Bluray)] = FilmKinds,
+        [EnumText.ToText(ReleaseFormat.UhdBluray)] = FilmKinds,
+        [EnumText.ToText(ReleaseFormat.GameCartridge)] = GameKinds,
+        [EnumText.ToText(ReleaseFormat.GameDisc)] = GameKinds,
+        [EnumText.ToText(ReleaseFormat.GameCard)] = GameKinds,
+        [EnumText.ToText(ReleaseFormat.Hardcover)] = BookKinds,
+        [EnumText.ToText(ReleaseFormat.Paperback)] = BookKinds,
+        [EnumText.ToText(ReleaseFormat.MassMarket)] = BookKinds,
+        [EnumText.ToText(ReleaseFormat.BoardBook)] = BookKinds,
+        [EnumText.ToText(ReleaseFormat.SpiralBound)] = BookKinds,
+    };
 
     /// <summary>
     /// The model's time budget in milliseconds (the default of <c>engine.modelTimeoutMs</c>). A timed-out photo counts in the latency
@@ -495,8 +519,23 @@ public static class EvalScorer
         || string.Equals(candidate.Format, UnknownFormat, StringComparison.OrdinalIgnoreCase)
         || string.Equals(truth.Format, candidate.Format, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A single picture's format also says what kind of item it is: a VHS is a film (or a TV show), never the novel with the same
+    /// title, and a game cartridge is never a film. A release with no kind is not held against it; a shelf truth has no format and
+    /// is unchanged; <c>other</c> and any format not listed fit every kind.
+    /// </summary>
+    private static bool KindFitsFormat(TruthItem truth, GroundedCandidate candidate)
+    {
+        if (truth.Format is null || candidate.Kind is null || !KindsByFormat.TryGetValue(truth.Format, out var kinds))
+        {
+            return true;
+        }
+
+        return kinds.Contains(candidate.Kind);
+    }
+
     private static bool FullMatch(TruthItem truth, GroundedCandidate candidate) =>
-        TitleMatch(truth, candidate) && PlatformMatches(truth, candidate) && FormatAgrees(truth, candidate);
+        TitleMatch(truth, candidate) && PlatformMatches(truth, candidate) && FormatAgrees(truth, candidate) && KindFitsFormat(truth, candidate);
 
     private static bool TypeMatches(TruthItem truth, GroundedCandidate candidate) =>
         truth.Format is not null
