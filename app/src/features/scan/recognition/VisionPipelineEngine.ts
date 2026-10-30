@@ -2,7 +2,7 @@
 // item says low confidence and leaves the finding to the server.
 import type { TextLine, VisionEngine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
-import { coverTitleOf } from './coverTitle';
+import { coverTitleOf, mayBeCreator } from './coverTitle';
 import { creatorOf } from './creators';
 import type { RecognitionSettings } from './defaults';
 import { readLines } from './lines';
@@ -53,8 +53,10 @@ export class VisionPipelineEngine implements RecognitionEngine {
       const titleLine =
         biggest?.line ??
         p.lines.reduce((best, l) => (l.confidence * l.text.length > best.confidence * best.text.length ? l : best));
-      // The creator is never a line of the title, nor a second reading of one.
-      const creator = creatorOf(biggest ? p.lines.filter((l) => !biggest.used.includes(l)) : p.lines, titleLine, settings.local);
+      // The creator is never a line of the title, nor a second reading of one. On a cover it is the name printed bigger than the title, when
+      // there is one; else a line that is not boilerplate (a bestseller line, a licence) nor a word of it. A shelf piece offers every line.
+      const others = biggest ? p.lines.filter((l) => !biggest.used.includes(l)) : p.lines;
+      const creator = biggest?.creator?.text ?? creatorOf(cover ? others.filter((l) => mayBeCreator(l.text)) : others, titleLine, settings.local);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),
