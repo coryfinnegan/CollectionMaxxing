@@ -50,10 +50,21 @@ describe('addableItems', () => {
     expect(added[0].confidence).toBe('low');
   });
 
-  it('drops a Vision item at 0.6 coverage and keeps one just under it', () => {
-    const model = [item('Alpha Bravo Charlie Delta Echo', 0)];
-    expect(addableItems([item('Alpha Bravo Charlie Zulu Yankee', 0)], model, T)).toHaveLength(0); // 3 of 5 = 0.6
-    expect(addableItems([item('Alpha Bravo Zulu Yankee Xray', 0)], model, T)).toHaveLength(1); // 2 of 5 = 0.4
+  it('drops an exact re-read, in any casing, and a Vision title the model title wholly contains', () => {
+    const model = [item('The Lantern Road Cookbook', 0)];
+    expect(addableItems([item('The Lantern Road Cookbook', 0)], model, T)).toHaveLength(0);
+    expect(addableItems([item('LANTERN ROAD COOKBOOK', 0)], model, T)).toHaveLength(0);
+    expect(addableItems([item('Lantern Road', 0)], model, T)).toHaveLength(0);
+  });
+
+  it('keeps a sibling title in the same series: sharing most words is not the same book', () => {
+    expect(addableItems([item('barefoot contessa foolproof', 0)], [item('Barefoot Contessa Family Style', 0)], T)).toHaveLength(1);
+    expect(addableItems([item('THE SMITTEN KITCHEN COOKBOOK', 0)], [item('Smitten Kitchen Every Day', 0)], T)).toHaveLength(1);
+  });
+
+  it('keeps a Vision read with junk after the model\'s title; the server merges reads of the same book', () => {
+    const added = addableItems([item('Lantern Road Cookbook QXRTVZ', 0)], [item('The Lantern Road Cookbook', 0)], T);
+    expect(added.map((i) => i.title)).toEqual(['Lantern Road Cookbook QXRTVZ']);
   });
 
   it('numbers added items after the highest model order, in the Vision order', () => {
