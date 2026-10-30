@@ -1,9 +1,9 @@
 // Picks the engine for each snap. The Apple model when it can see pictures; the OCR-text extraction tier when the
 // model can only read text, or when the picture read declines, runs out of time or room; Vision text for that one snap
-// when neither model tier answers. The next snap tries the model again. A shelf shot the picture model read also gets
-// the Vision pipeline's items the model did not find: the two engines find different spines. A single cover read by any
-// of the three tiers is checked against the case's shape and logos and the cover's printed text (CoverCueEngine.ts), which
-// the engines often get wrong.
+// when neither model tier answers. The next snap tries the model again. A shelf shot is read by the Vision pipeline first, and
+// its items stream at once; the model then adds the items it found where Vision found nothing (combine.ts): Vision finds most of
+// the spines in about a second, and the model finds different ones. A single cover read by any of the three tiers is checked against
+// the case's shape and logos and the cover's printed text (CoverCueEngine.ts), which the engines often get wrong.
 import type { ModelCapabilities, ModelUnavailableReason, Rect, VisionEngine } from '@/native/cm-vision';
 import { discardPicture, trackPicture } from '../pictureFiles';
 import { isSingleItemShot } from '../shotkind/shotKind';
@@ -11,7 +11,7 @@ import { AppleModelEngine } from './AppleModelEngine';
 import { withCoverCue } from './CoverCueEngine';
 import { FmTextEngine } from './FmTextEngine';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
-import { addableItems } from './combine';
+import { addableItems, enrichedItems, fillPlace, isNewItem, nextOrder } from './combine';
 import type { CoverFormatTuning } from './defaults';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
@@ -85,60 +85,98 @@ export class EngineSelector {
     const caps = await this.capabilities();
     if (!caps || !extractsText(caps)) return this.fallBack(still, onItem, 'unavailable', options);
     if (!seesPictures(caps)) return this.readText(still, onItem, options);
-    try {
-      // A single cover is corrected by what its case and its text say (the engine is wrapped); a shelf shot is read as the model read it.
-      const reading = await this.apple.read(still, onItem, options);
-      // The Vision read starts once the model's items have streamed, so it never competes with them, and runs while a wide shot is re-read in halves.
-      const vision = this.readVision(still, options);
-      const whole = await this.maybeHalves(still, reading, started, options);
-      return await this.withVisionItems(whole, vision, onItem, started);
-    } catch (error) {
-      return this.readText(still, onItem, options, error instanceof ModelUnusableError ? error.reason : 'unavailable');
-    }
+    if (options.combine !== false && !isSingleItemShot(options.shotKind)) return this.readShelf(still, onItem, options, started);
+    // A single cover is corrected by what its case and its text say (the engines are wrapped); the model alone is read as the model read it.
+    const read = await this.readModel(still, onItem, options, started);
+    return typeof read === 'string' ? this.fallBack(still, onItem, read, options) : read;
   }
 
   /**
-   * The middle tier. When the picture read failed first, its reason is the snap's fellBackFrom: that says why the
-   * preferred engine wasn't used, and a failed extraction on top changes nothing about it.
+   * A shelf shot: Vision's items first, streamed at once (it reads a shelf in about a second and finds most of the spines, where the model
+   * takes many times longer and invents titles); then the model reads, and adds only the items it found where Vision found nothing. A
+   * model item on a Vision item changes nothing but what that item lacks: Vision keeps the title, box, localId and order, and takes the
+   * model's kind and format (Vision's `other` searches books too), creator, platform, edition and completeness.
+   *
+   * The snap's engine and fellBackFrom say what the model did, not who found most of the items, so the model's health stays readable
+   * in the stats: when a model tier answered, the snap is that tier's, with the reason the picture read failed if the text tier had to
+   * answer; when none did, Vision's reading stands as the snap and the model's failure is the fellBackFrom, as it was when Vision was the
+   * fallback. Vision failing loses nothing of the model's; only both failing fails the snap.
    */
-  private async readText(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions, fellBackFrom?: FellBackFrom): Promise<SnapReading> {
+  private async readShelf(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions, started: number): Promise<SnapReading> {
+    const local = this.deps.settings().local;
+    const emit = (item: ReadItem) => {
+      try {
+        onItem(item);
+      } catch {
+        // a failing store must not fail the snap, or lose the items after it
+      }
+    };
+
+    let vision: SnapReading | undefined;
+    let visionFailure: unknown;
     try {
-      const reading = await this.text.read(still, onItem, options);
-      return fellBackFrom === undefined ? reading : { ...reading, fellBackFrom };
+      vision = await this.pipeline.read(still, emit, options);
     } catch (error) {
-      const reason = fellBackFrom ?? (error instanceof ModelUnusableError ? error.reason : 'unavailable');
-      return this.fallBack(still, onItem, reason, options);
+      visionFailure = error;
+    }
+    const found = vision?.items ?? [];
+
+    // A model item streams if it is somewhere Vision found nothing, numbered after Vision's. One on a Vision item adds what that item lacks (its
+    // kind, its format), and the Vision item streams again under its own localId, so the receipt row updates in place. The reading the model
+    // ends with supersedes what streamed.
+    const current = [...found];
+    let next = nextOrder(found);
+    const streamNew = (item: ReadItem) => {
+      if (isNewItem(item, found, local)) {
+        emit({ ...item, order: next++ });
+        return;
+      }
+      const filled = fillPlace(current, item, local);
+      if (filled) emit(filled);
+    };
+    const model = await this.readModel(still, streamNew, options, started);
+
+    const total = this.now() - started;
+    if (typeof model === 'string') {
+      if (!vision) throw visionFailure instanceof Error ? visionFailure : new Error('Neither Vision nor the model could read this shelf.');
+      return { ...vision, fellBackFrom: model, timings: { ...vision.timings, totalMs: total } };
+    }
+    const items = [...enrichedItems(found, model.items, local), ...addableItems(model.items, found, local)];
+    return { ...model, items, timings: { ...model.timings, totalMs: total, visionMs: total - (model.timings.modelMs ?? 0) } };
+  }
+
+  /**
+   * The model tiers in order: the picture read (re-read in halves when the shelf is wide), then OCR-text extraction when the picture
+   * read gave nothing. When the picture read failed first, its reason is the snap's fellBackFrom: that says why the preferred engine
+   * wasn't used, and a failed extraction on top changes nothing about it. Resolves with that reason when no tier answered.
+   */
+  private async readModel(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions, started: number): Promise<SnapReading | FellBackFrom> {
+    let reason: FellBackFrom = 'unavailable';
+    try {
+      const reading = await this.apple.read(still, onItem, options);
+      return await this.maybeHalves(still, reading, started, options);
+    } catch (error) {
+      if (error instanceof ModelUnusableError) reason = error.reason;
+    }
+    try {
+      return { ...(await this.text.read(still, onItem, options)), fellBackFrom: reason };
+    } catch {
+      return reason;
+    }
+  }
+
+  /** The middle tier on its own, for a phone whose model can only read text. */
+  private async readText(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions): Promise<SnapReading> {
+    try {
+      return await this.text.read(still, onItem, options);
+    } catch (error) {
+      return this.fallBack(still, onItem, error instanceof ModelUnusableError ? error.reason : 'unavailable', options);
     }
   }
 
   private async fallBack(still: Still, onItem: (item: ReadItem) => void, reason: FellBackFrom, options: ReadOptions): Promise<SnapReading> {
     const reading = await this.pipeline.read(still, onItem, options);
     return { ...reading, fellBackFrom: reason };
-  }
-
-  /** The Vision pipeline's own read of a shelf shot; nothing for a cover shot or when asked for the model alone. Never rejects. */
-  private readVision(still: Still, options: ReadOptions): Promise<SnapReading | undefined> | undefined {
-    if (options.combine === false || isSingleItemShot(options.shotKind)) return undefined;
-    return this.pipeline.read(still, () => {}, options).catch(() => undefined);
-  }
-
-  /**
-   * The model's reading plus the Vision items it did not have, streamed as they are added. They keep the engine's own fields
-   * (low confidence, their own boxes); the snap stays the model's. When Vision failed or added nothing the model's reading
-   * comes back as it was: this step never fails a snap.
-   */
-  private async withVisionItems(model: SnapReading, vision: Promise<SnapReading | undefined> | undefined, onItem: (item: ReadItem) => void, started: number): Promise<SnapReading> {
-    const read = await vision;
-    if (!read) return model;
-    try {
-      const added = addableItems(read.items, model.items, this.deps.settings().local);
-      if (added.length === 0) return model;
-      added.forEach(onItem);
-      const total = this.now() - started;
-      return { ...model, items: [...model.items, ...added], timings: { ...model.timings, totalMs: total, visionMs: total - (model.timings.modelMs ?? 0) } };
-    } catch {
-      return model;
-    }
   }
 
   /** A shelf with more items than the config allows in one look is read as two halves cut where there is no text. */
