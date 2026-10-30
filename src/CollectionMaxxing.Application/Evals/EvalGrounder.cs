@@ -20,8 +20,12 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
     /// <summary>The top releases kept per item (the same three <c>/identify</c> offers).</summary>
     public const int Alternatives = 3;
 
+    /// <summary>
+    /// Grounds the items one photo and engine read. A read the run's <paramref name="memo"/> has already grounded is answered from
+    /// it, so the catalogue and the providers are asked once per distinct read in a run, not once per engine and photo.
+    /// </summary>
     public async Task<IReadOnlyList<GroundedItem>> GroundAsync(
-        ScanEngine engine, IReadOnlyList<EvalReadItemInput> items, CancellationToken cancellationToken)
+        ScanEngine engine, IReadOnlyList<EvalReadItemInput> items, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
         if (items.Count == 0)
         {
@@ -33,7 +37,8 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
         foreach (var item in cleaned)
         {
             // No one is waiting on an eval, so each read gets the patient budget the background job gets, not the live request's.
-            answers.Add(await grounding.GroundAsync(item.Facts, item.Profile, options.JobResolveBudget, cancellationToken));
+            answers.Add(await memo.GroundAsync(
+                item.Facts, item.Profile, () => grounding.GroundAsync(item.Facts, item.Profile, options.JobResolveBudget, cancellationToken)));
         }
 
         // One book, one item per photo and engine: a read that repeats a stronger read of the same release is not scored, the same
