@@ -61,7 +61,8 @@ export interface LocalTuning {
   seamTolerance: number;
   /**
    * On a single cover, a line joins the title when its letters are at least this share of the biggest line's height and it sits next to the
-   * title in reading order ("SLEEP AWAY" over "CAMP 3"). A subtitle, set smaller, stays out.
+   * title in reading order ("SLEEP AWAY" over "CAMP 3", "RED" over "OCTOBER" at about two thirds). A line set much smaller, such as a
+   * tagline, stays out.
    */
   coverTitleSimilarHeight: number;
   /** A line joins the title only when it is no further from it than this many letter heights of the biggest line. */
@@ -71,6 +72,13 @@ export interface LocalTuning {
    * whose box says nothing about its letter height, so it is never taken for the title.
    */
   coverTitleLineAspect: number;
+  /**
+   * An author's name is often printed bigger than the title. When the biggest text on a cover reads as a name (two words up to this many,
+   * letters only) and a smaller run that does not read as one stands beside it, that run is the title and the name is the creator.
+   */
+  coverNameMaxWords: number;
+  /** The smaller run must be at least this share of the name's letter height to be taken for the title, so a tagline is not. */
+  coverTitleBesideNameShare: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
   creatorMaxWords: number;
   /** A Vision line with fewer letters than this is not an author either. */
@@ -123,9 +131,11 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,
-  coverTitleSimilarHeight: 0.7,
+  coverTitleSimilarHeight: 0.58,
   coverTitleMaxGap: 1,
   coverTitleLineAspect: 0.15,
+  coverNameMaxWords: 3,
+  coverTitleBesideNameShare: 0.5,
   creatorMaxWords: 5,
   creatorMinLetters: 3,
 };
