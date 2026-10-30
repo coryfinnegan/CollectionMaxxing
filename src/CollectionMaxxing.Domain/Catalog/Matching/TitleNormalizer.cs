@@ -89,9 +89,10 @@ public static partial class TitleNormalizer
     public const double MainTitleCredit = 0.8;
 
     /// <summary>
-    /// What the same words in another order are worth as a title: "garden food" against "The Food Garden". Close, never the
-    /// same. Word order is the one thing that tells these titles apart, and a reader that misorders lines or words (a
-    /// spine read bottom to top) has not read the title. A match that rests on this alone must not be added automatically.
+    /// What the same words in another order are worth as a title: "kitchen orchard" against "The Orchard Kitchen". Close,
+    /// never the same. Word order is the one thing that tells these titles apart, and a reader that misorders lines or
+    /// words (a spine read bottom to top) has not read the title. A match that rests on this alone must not be added
+    /// automatically.
     /// </summary>
     public const double ReorderedWordsCredit = 0.9;
 

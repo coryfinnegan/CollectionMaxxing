@@ -3,10 +3,10 @@ using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Domain.Tests.Matching;
 
-// The twelfth eval run (2026-10-30): the model read a shelf spine as "garden food" and the catalogue's "The food garden"
-// came back Matched, an automatic add. The two titles share every word, and the word-overlap ratio forgives word order,
-// so the title term was a perfect 1.0 and the near-title guard (which looks for a title below 1.0) never fired. The same
-// words in another order are a different title: only the author names keep forgiving order ("Odell, Mara").
+// The twelfth eval run (2026-10-30): the model read a shelf spine's words in the wrong order, and a catalogue title with
+// those words came back Matched, an automatic add. The two titles share every word, and the word-overlap ratio forgives
+// word order, so the title term was a perfect 1.0 and the near-title guard (which looks for a title below 1.0) never
+// fired. The same words in another order are a different title: only author names keep forgiving order ("Odell, Mara").
 public class ReorderedWordsTests
 {
     private static readonly ScoringOptions Options = new();
