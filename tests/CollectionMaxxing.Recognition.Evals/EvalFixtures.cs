@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Evals;
+using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.Infrastructure.Evals;
@@ -36,8 +37,10 @@ internal static class EvalFixtures
         new(title, kind, format, platform, 1997, score);
 
     /// <summary>An item the live scorer matched to <paramref name="title"/>.</summary>
-    public static GroundedItem Matched(string title, string? platform = "Nintendo 64", string readAs = "", string resolvedBy = "model", string? completeness = null) =>
-        new(readAs.Length == 0 ? title : readAs, completeness, resolvedBy, "matched", [Release(title, platform)]);
+    public static GroundedItem Matched(
+        string title, string? platform = "Nintendo 64", string readAs = "", string resolvedBy = "model", string? completeness = null,
+        string kind = "game", string format = "game_cartridge") =>
+        new(readAs.Length == 0 ? title : readAs, completeness, resolvedBy, "matched", [Release(title, platform, kind, format)]);
 
     /// <summary>An item the scorer could only narrow down to several releases (best first).</summary>
     public static GroundedItem Ambiguous(params GroundedCandidate[] releases) => new("ambiguous read", null, "model", "ambiguous", releases);
@@ -52,6 +55,9 @@ internal static class EvalFixtures
     public static GroundedItem T1(GroundedItem item) => Tiered(item, ScanTier.T1);
 
     public static GroundedItem T2(GroundedItem item) => Tiered(item, ScanTier.T2);
+
+    /// <summary>The item with the box it was read in: a spine <paramref name="width"/> wide whose left edge is at <paramref name="x"/> (each 0 to 1).</summary>
+    public static GroundedItem At(this GroundedItem item, double x, double width = 0.05) => item with { Box = new ReadBox(x, 0.1, width, 0.8) };
 
     /// <summary>A kept provisional guess (docs/16 §17): it must carry <c>IsGuess</c>, else it scores as invented.</summary>
     public static GroundedItem Kept(GroundedItem item, bool? isGuess = true) => item with { Provisional = true, IsGuess = isGuess };

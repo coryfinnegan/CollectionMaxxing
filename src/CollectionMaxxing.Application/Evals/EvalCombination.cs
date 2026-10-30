@@ -1,13 +1,19 @@
+using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Evals;
 
 /// <summary>
-/// The virtual engine <c>apple_vision</c>: what the scanner reads on a shelf shot, the picture model's items plus the Vision
-/// text engine's items the model did not find (the two find different spines). It is built here from what the phone uploaded,
-/// per photo, so it needs no phone engine of its own, and it is report-only: the M3 gate reads the real engines' rows and the
-/// regression check never had its metric keys, so neither moves.
+/// The virtual engine <c>apple_vision</c>: what the scanner shows on a shelf shot, the Vision text engine's items first and then the
+/// picture model's items Vision missed (the two find different spines). It is built here from what the phone uploaded, per photo,
+/// so it needs no phone engine of its own, and it is report-only: the M3 gate reads the real engines' rows and the regression
+/// check never had its metric keys, so neither moves.
 /// </summary>
+/// <remarks>
+/// A model item is one Vision already has when it is the same item: when both reads have a box, the boxes overlap
+/// (<see cref="ReadBox.SamePlaceAs"/>), so the same title on two spines is two items; otherwise, when their best release is the
+/// same (its normalised title and year).
+/// </remarks>
 public static class EvalCombination
 {
     /// <summary>The engine name the combination is reported under, next to the three the phone reads.</summary>
@@ -51,31 +57,37 @@ public static class EvalCombination
             return apple with { Engine = Engine };
         }
 
-        var added = apple.Outcome == Ok && vision.Outcome == Ok ? NotReadByTheModel(apple.Items, vision.Items) : [];
+        // Both engines have to have answered for their items to be combined; if either did not, the items are the model's own.
+        var both = apple.Outcome == Ok && vision.Outcome == Ok;
+        var modelAdded = both ? apple.Items.Where(model => !vision.Items.Any(visionItem => SameItem(model, visionItem))).ToList() : [];
+        var visionOnly = both && vision.Items.Any(visionItem => !apple.Items.Any(model => SameItem(model, visionItem)));
         return apple with
         {
             Engine = Engine,
-            Items = added.Count == 0 ? apple.Items : [.. apple.Items, .. added],
 
-            // The scanner reads with Vision after the model, so the combined read took both: an upper bound, since they could overlap.
-            // The first item is the model's (Vision's come after), and so are the outcome and the unreadable count.
+            // Vision's items stand as they are, and the model adds what Vision did not find.
+            Items = both ? [.. vision.Items, .. modelAdded] : apple.Items,
+
+            // The scanner reads with both engines, so the combined read took both: an upper bound, since they could overlap.
+            // The first-item time, the outcome and the unreadable count are still the model's.
             LatencyMs = apple.LatencyMs + vision.LatencyMs,
             ThermalState = vision.ThermalState,
 
-            // Added items are segments the model did not capture, so the captured count (when the phone sent one) grows by that read.
-            CapturedCount = apple.CapturedCount > 0 && added.Count > 0 ? apple.CapturedCount + 1 : apple.CapturedCount,
+            // Vision items the model did not read are segments the model did not capture, so the captured count (when the phone
+            // sent one) grows by that read.
+            CapturedCount = apple.CapturedCount > 0 && visionOnly ? apple.CapturedCount + 1 : apple.CapturedCount,
         };
     }
 
     /// <summary>
-    /// The Vision items whose best release is not the best release of a model item (its normalised title and year). A Vision
-    /// item with no release to compare is left out; the model's items are all kept, whatever they found.
+    /// Whether a model item and a Vision item are the same item on the shelf. With a box on both, the same item is the same place
+    /// (whatever each read there); without one on either side, the same item is the same best release. A read with no release
+    /// to compare is never the same item by title.
     /// </summary>
-    private static List<GroundedItem> NotReadByTheModel(IReadOnlyList<GroundedItem> model, IReadOnlyList<GroundedItem> vision)
-    {
-        var read = model.Select(KeyOf).Where(key => key is not null).Select(key => key!.Value).ToHashSet();
-        return [.. vision.Where(item => KeyOf(item) is { } key && !read.Contains(key))];
-    }
+    private static bool SameItem(GroundedItem model, GroundedItem vision) =>
+        model.Box is { } modelBox && vision.Box is { } visionBox
+            ? modelBox.SamePlaceAs(visionBox)
+            : KeyOf(model) is { } key && KeyOf(vision) == key;
 
     private static (string Title, int? Year)? KeyOf(GroundedItem item) =>
         item.Best is { } best && TitleNormalizer.Normalize(best.Title) is { Length: > 0 } title ? (title, best.Year) : null;
