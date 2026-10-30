@@ -10,6 +10,7 @@ const mockNative = {
   extractItems: jest.fn<Promise<ReadItemsResult>, [string, ReadItemsOptions]>(),
   modelCapabilities: jest.fn(),
   recognizeText: jest.fn(),
+  detectRectangles: jest.fn(),
   deviceStatus: jest.fn(),
   addListener: jest.fn((event: string, listener: Listener) => {
     expect(event).toBe('onItem');
@@ -49,6 +50,7 @@ beforeEach(() => {
   mockNative.extractItems.mockReset();
   mockNative.modelCapabilities.mockReset();
   mockNative.recognizeText.mockReset();
+  mockNative.detectRectangles.mockReset();
 });
 
 describe('the native wrapper', () => {
@@ -144,6 +146,22 @@ describe('the native wrapper', () => {
       ['file:///a.jpg', [0]],
       ['file:///a.jpg', [0, 90, 270]],
     ]);
+  });
+
+  describe('detectRectangles', () => {
+    const rect = { x: 0.1, y: 0.1, width: 0.5, height: 0.8 };
+
+    it('sends no options to Swift when the caller gives none, so the request stays the shelf splitter\'s own', async () => {
+      mockNative.detectRectangles.mockResolvedValue([rect]);
+      await expect(visionEngine.detectRectangles('file:///a.jpg')).resolves.toEqual([rect]);
+      expect(mockNative.detectRectangles.mock.calls).toEqual([['file:///a.jpg', null]]);
+    });
+
+    it('sends the options the caller gives, so a cover can ask for a case as wide as it is tall', async () => {
+      mockNative.detectRectangles.mockResolvedValue([rect]);
+      await visionEngine.detectRectangles('file:///a.jpg', { maximumAspectRatio: 1, minimumSize: 0.3 });
+      expect(mockNative.detectRectangles.mock.calls).toEqual([['file:///a.jpg', { maximumAspectRatio: 1, minimumSize: 0.3 }]]);
+    });
   });
 
   describe('overlapping readItems calls run one at a time', () => {

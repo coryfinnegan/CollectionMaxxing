@@ -29,6 +29,7 @@ describe('index.web', () => {
     const { visionEngine } = require('../index.web');
     await expect(visionEngine.recognizeText('x')).rejects.toThrow(/not available on the web/);
     await expect(visionEngine.detectRectangles('x')).rejects.toThrow(/not available on the web/);
+    await expect(visionEngine.detectRectangles('x', { maximumAspectRatio: 1 })).rejects.toThrow(/not available on the web/);
     await expect(visionEngine.detectBarcodes('x')).rejects.toThrow(/not available on the web/);
     await expect(visionEngine.featurePrint('x')).rejects.toThrow(/not available on the web/);
     await expect(

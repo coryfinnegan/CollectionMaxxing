@@ -91,6 +91,11 @@ describe('FakeVisionEngine', () => {
     expect(codes.map((c) => c.value)).toEqual(['9780441172719', '51299']);
   });
 
+  it('replays the same rectangles however it is asked: the options shape a real search, not a recording', async () => {
+    const plain = await engine.detectRectangles('fixture://shelf-of-three-dvds');
+    await expect(engine.detectRectangles('fixture://shelf-of-three-dvds', { maximumAspectRatio: 1 })).resolves.toEqual(plain);
+  });
+
   it('tells a crop from the whole picture when printing', async () => {
     const whole = await engine.featurePrint('fixture://dvd-spine-1');
     const crop = await engine.featurePrint('fixture://dvd-spine-1', { x: 0.2, y: 0.1, width: 0.1, height: 0.6 });

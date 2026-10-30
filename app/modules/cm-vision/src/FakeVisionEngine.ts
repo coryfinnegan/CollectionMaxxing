@@ -1,6 +1,7 @@
 import { fixtures, sameJson, type FixtureSet } from './fixtures';
 import type {
   DetectedCode,
+  DetectRectanglesOptions,
   DeviceStatus,
   FeaturePrint,
   ModelCapabilities,
@@ -78,7 +79,8 @@ export class FakeVisionEngine implements VisionEngine {
     return lines;
   }
 
-  async detectRectangles(imageUri: string): Promise<Rect[]> {
+  /** The options shape a real search; a recording is of one picture, so it is replayed the same however it is asked. */
+  async detectRectangles(imageUri: string, _options?: DetectRectanglesOptions): Promise<Rect[]> {
     return this.replay('detectRectangles', { imageUri });
   }
 

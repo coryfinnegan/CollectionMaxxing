@@ -6,6 +6,7 @@ import { useObjectOutput } from 'react-native-vision-camera';
 import { mapScannedObjects } from './mapScannedObjects';
 import type {
   DetectedCode,
+  DetectRectanglesOptions,
   DeviceStatus,
   FeaturePrint,
   ModelCapabilities,
@@ -26,7 +27,7 @@ export { UnavailableVisionEngine } from './UnavailableVisionEngine';
 interface NativeCmVision {
   isAvailable(): Promise<boolean>;
   recognizeText(imageUri: string, orientations: number[]): Promise<TextLine[]>;
-  detectRectangles(imageUri: string): Promise<Rect[]>;
+  detectRectangles(imageUri: string, options: DetectRectanglesOptions | null): Promise<Rect[]>;
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;
   featurePrint(imageUri: string, cropBox: Rect | null): Promise<FeaturePrint>;
   featurePrintDistance(a: FeaturePrint, b: FeaturePrint): Promise<number>;
@@ -57,8 +58,8 @@ class NativeVisionEngine implements VisionEngine {
   recognizeText(imageUri: string, options?: { orientations?: (0 | 90 | 270)[] }) {
     return this.native().recognizeText(imageUri, options?.orientations ?? [0]);
   }
-  detectRectangles(imageUri: string) {
-    return this.native().detectRectangles(imageUri);
+  detectRectangles(imageUri: string, options?: DetectRectanglesOptions) {
+    return this.native().detectRectangles(imageUri, options ?? null);
   }
   detectBarcodes(imageUri: string) {
     return this.native().detectBarcodes(imageUri);

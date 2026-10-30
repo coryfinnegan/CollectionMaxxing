@@ -30,6 +30,20 @@ export interface DetectedCode {
 export type Unsubscribe = () => void;
 
 /**
+ * What a rectangle search is asked for. Left out entirely, the request is the shelf splitter's own: upright shapes, at least a tenth
+ * of the picture's shorter side. A caller that wants something else names only what it changes.
+ */
+export interface DetectRectanglesOptions {
+  /**
+   * Short side over long side of the tallest shape to return, 0..1. Vision's own limit is 0.5 (twice as tall as wide), which
+   * never returns a DVD case (about 0.71) or a Blu-ray case (about 0.86): a caller looking for a case asks for 1.
+   */
+  maximumAspectRatio?: number;
+  /** The least size of a rectangle as a share of the picture's shorter side, 0..1. */
+  minimumSize?: number;
+}
+
+/**
  * Apple Vision on the phone. Native code only calls Vision and shapes results; everything
  * else (splitting, scoring, the prompt text) is TypeScript.
  *
@@ -45,7 +59,7 @@ export interface VisionEngine {
    * Lines are not de-duplicated across orientations; the caller decides.
    */
   recognizeText(imageUri: string, options?: { orientations?: (0 | 90 | 270)[] }): Promise<TextLine[]>;
-  detectRectangles(imageUri: string): Promise<Rect[]>;
+  detectRectangles(imageUri: string, options?: DetectRectanglesOptions): Promise<Rect[]>;
   /** Barcodes in a still picture (Photos import), through VNDetectBarcodesRequest. */
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;
   /** `cropBox` is normalised, origin top-left. */
