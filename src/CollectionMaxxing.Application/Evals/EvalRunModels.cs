@@ -64,6 +64,7 @@ public sealed record EvalOcrLineInput(string? Text, double? X, double? Y, double
 
 /// <param name="OcrLines">Only the <c>vision_pipeline</c> photo carries these: the lines the engine split. Ignored for the other engines.</param>
 /// <param name="OcrPieces">Only the <c>vision_pipeline</c> photo: for each piece the engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
+/// <param name="CoverCue">What the phone's cover cue saw on a single picture, as one short line. Cleaned and cut to <see cref="EvalCoverCue.MaxLength"/> when kept; never a reason to refuse a run.</param>
 public sealed record EvalPhotoInput(
     string? PhotoId,
     ScanEngine? Engine,
@@ -78,7 +79,8 @@ public sealed record EvalPhotoInput(
     DateTimeOffset? CapturedAt = null,
     DuplicateRescanInput? DuplicateRescan = null,
     IReadOnlyList<EvalOcrLineInput>? OcrLines = null,
-    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null);
+    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
+    string? CoverCue = null);
 
 /// <param name="Partial">The phone cancelled the run part way. It is kept and shown, but never counts as a pass or a baseline.</param>
 /// <param name="BaselineNote">Why this run's thresholds may differ from the baseline's (docs/16 §17). Null most runs.</param>
@@ -149,6 +151,7 @@ public sealed record GroundedOcrLine(string Text, double X, double Y, double Wid
 
 /// <param name="OcrLines">The cleaned lines the Vision engine split. Only the <c>vision_pipeline</c> photo has them, and only runs from a phone that sends them.</param>
 /// <param name="OcrPieces">For each piece the Vision engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
+/// <param name="CoverCue">What the phone's cover cue saw on a single picture (rectangles found and why each was left out, the format, kind and product code it gave, whether it came in time). Shown beside the picture's miss in the report; null when the phone sent none.</param>
 public sealed record GroundedPhoto(
     string PhotoId,
     string Engine,
@@ -163,7 +166,8 @@ public sealed record GroundedPhoto(
     DateTimeOffset? CapturedAt = null,
     DuplicateRescan? DuplicateRescan = null,
     IReadOnlyList<GroundedOcrLine>? OcrLines = null,
-    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null);
+    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
+    string? CoverCue = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>
 public sealed record GroundedRun(
@@ -174,6 +178,35 @@ public sealed record GroundedRun(
     IReadOnlyList<GroundedPhoto> Photos,
     bool Partial = false,
     string? BaselineNote = null);
+
+/// <summary>
+/// The line the phone sends about what a single cover's cue saw. It is for the eval record only, so a bad one is cleaned and cut, never a reason
+/// to refuse a run: control characters (line breaks included) become spaces so the report keeps one line, backticks become apostrophes so the
+/// report's code span holds, and the text is trimmed and cut to <see cref="MaxLength"/>. Blank is none.
+/// </summary>
+public static class EvalCoverCue
+{
+    /// <summary>The longest cue kept. The phone's own lines are under 200.</summary>
+    public const int MaxLength = 300;
+
+    public static string? Clean(string? sent)
+    {
+        if (string.IsNullOrWhiteSpace(sent))
+        {
+            return null;
+        }
+
+        var text = new string([.. sent.Select(c => char.IsControl(c) ? ' ' : c == '`' ? '\'' : c)]).Trim();
+        if (text.Length > MaxLength)
+        {
+            // A pair of surrogates is one character: never leave half of one at the cut.
+            var length = char.IsHighSurrogate(text[MaxLength - 1]) ? MaxLength - 1 : MaxLength;
+            text = text[..length].TrimEnd();
+        }
+
+        return text.Length == 0 ? null : text;
+    }
+}
 
 public static class ResolvedByText
 {

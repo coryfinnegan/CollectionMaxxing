@@ -5,8 +5,11 @@ using CollectionMaxxing.Domain.Scanning;
 
 namespace CollectionMaxxing.Application.Evals;
 
-/// <summary>One thing that went wrong in a run, for the report that stays on the PC (it has titles, so it is never committed).</summary>
-public sealed record EvalMiss(string PhotoId, string Set, string Engine, string Kind, string? Truth, string? Read);
+/// <summary>
+/// One thing that went wrong in a run, for the report that stays on the PC (it has titles, so it is never committed). <c>CoverCue</c> is what
+/// the phone's cover cue saw on the picture (null when it sent none): it is what explains a wrong format, so the report prints it beside the miss.
+/// </summary>
+public sealed record EvalMiss(string PhotoId, string Set, string Engine, string Kind, string? Truth, string? Read, string? CoverCue = null);
 
 /// <summary>What scoring a run gives: per-engine numbers and the misses behind them.</summary>
 public sealed record ScoredEngines(IReadOnlyDictionary<string, EngineSummary> Engines, IReadOnlyList<EvalMiss> Misses);
@@ -439,7 +442,8 @@ public static class EvalScorer
                 var others = pairOfItem.Where(p => p.Value.Full).Select(p => (object)claimers[p.Key]).ToHashSet(ReferenceEqualityComparer.Instance);
                 misses.Add(new EvalMiss(
                     photo.PhotoId, truth.Set, photo.Engine, photo.Outcome == Ok ? "miss" : photo.Outcome, truthItems[t].Title,
-                    items.Count == 0 ? ReadSummary(photo, items, truthItems[t].Title) : ReadSummary(photo, [.. items.Where(i => !others.Contains(i))], truthItems[t].Title, readSomething: true)));
+                    items.Count == 0 ? ReadSummary(photo, items, truthItems[t].Title) : ReadSummary(photo, [.. items.Where(i => !others.Contains(i))], truthItems[t].Title, readSomething: true),
+                    EvalCoverCue.Clean(photo.CoverCue)));
             }
         }
 
@@ -455,12 +459,12 @@ public static class EvalScorer
             if (IsUnguessedProvisional(item))
             {
                 tally.Invented++;
-                misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, item.Best?.Title ?? item.ReadTitle));
+                misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, item.Best?.Title ?? item.ReadTitle, EvalCoverCue.Clean(photo.CoverCue)));
             }
             else if (item.Verdict == Matched && item.Best is { } best && !truthItems.Any(t => TitleMatch(t, best)))
             {
                 tally.Invented++;
-                misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, best.Title));
+                misses.Add(new EvalMiss(photo.PhotoId, truth.Set, photo.Engine, "invented", null, best.Title, EvalCoverCue.Clean(photo.CoverCue)));
             }
         }
     }
