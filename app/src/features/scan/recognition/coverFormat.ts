@@ -39,28 +39,59 @@ function hugsFrame(r: Rect, tuning: CoverFormatTuning): boolean {
   return gaps.filter((gap) => gap <= tuning.frameEdgeMargin).length >= tuning.frameHuggingSides;
 }
 
+/** What the shape search saw in the rectangles, kept for the eval record (`describeCue`). The scanner acts only on `format`. */
+export interface ShapeMeasure {
+  /** The rectangles Vision returned. */
+  seen: number;
+  /** Rectangles with no size, or any rectangle at all when the still has none: never taken for the case. */
+  unusable: number;
+  /** Rectangles against 3 or more of the picture's edges: the crop of the photo, not the case. */
+  frame: number;
+  /** Rectangles (not the frame) that cover less than `minCaseCoverage` of the picture. */
+  small: number;
+  /** 1 when the rectangle the shape was read from has a ratio between the bands or outside them. */
+  outOfBand: number;
+  /** The largest rectangle that is neither unusable nor the frame, whether or not it is big enough to count: the one the shape is read from. */
+  largest?: { ratio: number; coverage: number };
+  /** The format that rectangle is shaped like; absent when it is too small, in no band, or there is no such rectangle. */
+  format?: FilmFormat;
+}
+
 /**
  * The format the largest big-enough rectangle is shaped like: its short side over its long side, in pixels (Vision's
  * rectangles are 0..1 of each side, so a 0.5 by 0.5 rectangle on a 3:4 still is not a square). A rectangle that hugs the
  * frame is never taken for the case. A ratio between the bands or outside them is no cue. Ultra HD shares Blu-ray's case,
- * so only a logo says Ultra HD.
+ * so only a logo says Ultra HD. The measurement also says how many rectangles there were and why those not used were left out.
  */
-function formatFromShape(still: CoverFormatInput['still'], rectangles: Rect[], tuning: CoverFormatTuning): FilmFormat | undefined {
-  if (!positive(still.width) || !positive(still.height)) return undefined;
+export function measureShape(still: CoverFormatInput['still'], rectangles: Rect[], tuning: CoverFormatTuning): ShapeMeasure {
+  const measure: ShapeMeasure = { seen: rectangles.length, unusable: 0, frame: 0, small: 0, outOfBand: 0 };
+  if (!positive(still.width) || !positive(still.height)) return { ...measure, unusable: rectangles.length };
   let largest: Rect | undefined;
   for (const r of rectangles) {
-    if (positive(r.width) && positive(r.height) && !hugsFrame(r, tuning) && (!largest || r.width * r.height > largest.width * largest.height)) largest = r;
+    if (!positive(r.width) || !positive(r.height)) measure.unusable += 1;
+    else if (hugsFrame(r, tuning)) measure.frame += 1;
+    else {
+      if (r.width * r.height < tuning.minCaseCoverage) measure.small += 1;
+      if (!largest || r.width * r.height > largest.width * largest.height) largest = r;
+    }
   }
-  if (!largest || largest.width * largest.height < tuning.minCaseCoverage) return undefined;
+  if (!largest) return measure;
   const sides = [largest.width * still.width, largest.height * still.height];
   const ratio = Math.min(...sides) / Math.max(...sides);
+  const coverage = largest.width * largest.height;
+  measure.largest = { ratio, coverage };
+  if (coverage < tuning.minCaseCoverage) return measure;
   const bands: [FilmFormat, CoverFormatTuning['vhs']][] = [
     ['vhs', tuning.vhs],
     ['dvd', tuning.dvd],
     ['bluray', tuning.bluray],
   ];
-  return bands.find(([, band]) => ratio >= band.min && ratio <= band.max)?.[0];
+  const format = bands.find(([, band]) => ratio >= band.min && ratio <= band.max)?.[0];
+  return format ? { ...measure, format } : { ...measure, outOfBand: 1 };
 }
+
+const formatFromShape = (still: CoverFormatInput['still'], rectangles: Rect[], tuning: CoverFormatTuning): FilmFormat | undefined =>
+  measureShape(still, rectangles, tuning).format;
 
 // ---- Logos --------------------------------------------------------------------------------------------------------
 
