@@ -77,6 +77,9 @@ public sealed record EvalOcrLine(string? Text = null, double? X = null, double? 
 /// a duplicate re-scan's evidence, when the photo was one (docs/16 §17). <c>OcrLines</c> (at most 1000) and <c>OcrPieces</c> (for each
 /// piece the Vision engine made, the indexes of its lines) come from the <c>vision_pipeline</c> photo only, so a later fix can use the
 /// real lines; the PC keeps them with the grounded run and ignores them on any other engine's photo.
+/// <c>CoverCue</c> is a short line (at most 300 characters; a longer one is cut, not refused) about what the cover cue saw on a single picture:
+/// the rectangles found and why each was left out, the format, kind and product code it gave, and whether it came in time. The eval report
+/// shows it beside the picture's miss; the scanner never reads it.
 /// </summary>
 public sealed record EvalPhotoResult(
     string? PhotoId = null,
@@ -92,7 +95,8 @@ public sealed record EvalPhotoResult(
     DateTimeOffset? CapturedAt = null,
     EvalDuplicateRescan? DuplicateRescan = null,
     IReadOnlyList<EvalOcrLine>? OcrLines = null,
-    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null);
+    IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
+    string? CoverCue = null);
 
 /// <summary>Body of <c>POST /api/admin/evals/runs</c>: at most 2 MB. Nothing in it is an image. <c>Partial</c> is true when the phone cancelled the run part way. <c>BaselineNote</c> explains a deliberate threshold move (docs/16 §17).</summary>
 public sealed record EvalRunRequest(

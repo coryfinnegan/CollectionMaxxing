@@ -33,6 +33,8 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
             return [];
         }
 
+        // Cleaning also tells each kindless read what kind the rest of the photo's reads agreed on (KindContext), the one rule
+        // /identify applies; the memo below keys on the read with it, so a lookup made under another photo's kind is never reused.
         var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials);
         var answers = new List<BarcodeResolution>(items.Count);
         foreach (var item in cleaned)

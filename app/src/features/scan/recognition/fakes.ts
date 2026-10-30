@@ -20,6 +20,8 @@ export interface Scene {
   /** Lines Vision reads with the picture turned 90 degrees clockwise. */
   text90?: TextLine[];
   text270?: TextLine[];
+  /** Lines Vision reads with the picture turned upside down. */
+  text180?: TextLine[];
   rectangles?: Rect[];
 }
 
@@ -70,6 +72,7 @@ export class RecordingVision extends FakeVisionEngine {
         record({ imageUri: uri }, s.text ?? []),
         record({ imageUri: uri, orientation: 90 as const }, s.text90 ?? []),
         record({ imageUri: uri, orientation: 270 as const }, s.text270 ?? []),
+        record({ imageUri: uri, orientation: 180 as const }, s.text180 ?? []),
       ]),
       detectRectangles: entries.map(([uri, s]) => record({ imageUri: uri }, s.rectangles ?? [])),
       detectBarcodes: [],

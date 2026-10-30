@@ -53,6 +53,11 @@ export interface SnapReading {
   items: ReadItem[];
   /** The Vision text engine's lines and pieces; only its own reading has them. */
   ocr?: OcrReading;
+  /**
+   * What the cover cue saw on a single-item shot, as one short line of text (`describeCue`, coverCue.ts): the rectangles found and why each was
+   * left out, the format, kind and product code it gave, and whether it came in time. For the eval record only; the scanner ignores it.
+   */
+  coverCue?: string;
   /** Items that were there but could not be read; the scanner shows its "Get closer" chip when above 0. */
   unreadableCount: number;
   engine: EngineName;

@@ -15,6 +15,7 @@ import type {
   ReadItemsResult,
   Rect,
   TextLine,
+  TextOrientation,
   VisionEngine,
 } from './types';
 
@@ -55,7 +56,7 @@ class NativeVisionEngine implements VisionEngine {
       return false; // e.g. Expo Go, which does not contain the module
     }
   }
-  recognizeText(imageUri: string, options?: { orientations?: (0 | 90 | 270)[] }) {
+  recognizeText(imageUri: string, options?: { orientations?: TextOrientation[] }) {
     return this.native().recognizeText(imageUri, options?.orientations ?? [0]);
   }
   detectRectangles(imageUri: string, options?: DetectRectanglesOptions) {

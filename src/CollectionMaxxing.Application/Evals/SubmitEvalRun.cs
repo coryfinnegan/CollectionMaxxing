@@ -103,7 +103,8 @@ public static class SubmitEvalRun
                         ? new DuplicateRescan(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds)
                         : null,
                     result.Engine == ScanEngine.VisionPipeline ? result.OcrLines?.Select(l => new GroundedOcrLine(l.Text!, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value)).ToList() : null,
-                    result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null));
+                    result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null,
+                    EvalCoverCue.Clean(result.CoverCue)));
             }
 
             if (logger.IsEnabled(LogLevel.Information))

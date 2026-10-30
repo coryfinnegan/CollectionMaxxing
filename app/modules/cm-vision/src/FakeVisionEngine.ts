@@ -10,6 +10,7 @@ import type {
   ReadItemsResult,
   Rect,
   TextLine,
+  TextOrientation,
   VisionEngine,
 } from './types';
 
@@ -71,7 +72,7 @@ export class FakeVisionEngine implements VisionEngine {
     return true;
   }
 
-  async recognizeText(imageUri: string, options?: { orientations?: (0 | 90 | 270)[] }): Promise<TextLine[]> {
+  async recognizeText(imageUri: string, options?: { orientations?: TextOrientation[] }): Promise<TextLine[]> {
     const lines: TextLine[] = [];
     for (const orientation of options?.orientations ?? [0]) {
       lines.push(...this.replay('recognizeText', orientation === 0 ? { imageUri } : { imageUri, orientation }));

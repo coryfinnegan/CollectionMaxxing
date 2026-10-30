@@ -169,7 +169,20 @@ internal static class IdentifyCleaning
         new[] { item.LocalId, item.SegmentId, item.Text, item.Title, item.Creator, item.Edition, item.Platform, item.ProductCode }
             .Sum(value => value is null ? 0 : Encoding.UTF8.GetByteCount(value));
 
+    /// <summary>
+    /// Cleans the items of one snap, and tells each read that names no kind what kind the rest of the snap agreed on
+    /// (<see cref="KindContext"/>, which only orders level-scoring releases). The eval grounder cleans through here too, so the
+    /// live path and the eval run order a shelf's kindless reads by one rule.
+    /// </summary>
     public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind = IdentifyKind.Shelf, IGameSerialLookup? serials = null) =>
+        WithSnapKind(CleanEach(items, kind, serials));
+
+    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned) =>
+        KindContext.Dominant(cleaned.Select(c => c.Facts.Kind)) is { } snapKind
+            ? [.. cleaned.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
+            : cleaned;
+
+    private static List<CleanItem> CleanEach(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind, IGameSerialLookup? serials) =>
         items.Select(item =>
         {
             var read = new ReadFacts(
@@ -291,19 +304,7 @@ internal sealed record StoredRead
     /// <summary>The read and the profile that were stored on a candidate; a candidate without them reads as just its text.</summary>
     public static (ReadFacts Facts, ScoringProfileKind Profile) From(ScanCandidate candidate)
     {
-        StoredRead? stored = null;
-        if (!string.IsNullOrWhiteSpace(candidate.InferredJson))
-        {
-            try
-            {
-                stored = JsonSerializer.Deserialize<StoredRead>(candidate.InferredJson, Options);
-            }
-            catch (JsonException)
-            {
-                // Unreadable: fall back to the text alone.
-            }
-        }
-
+        var stored = ReadStored(candidate.InferredJson);
         var facts = new ReadFacts(
             stored?.Title,
             candidate.VisibleText,
@@ -318,6 +319,26 @@ internal sealed record StoredRead
             stored?.ReadAs);
         var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
         return (facts, profile);
+    }
+
+    /// <summary>The kind a stored read named, or null when it named none (or the read cannot be read).</summary>
+    public static WorkKind? KindOf(string? inferredJson) => Parse<WorkKind>(ReadStored(inferredJson)?.Kind);
+
+    private static StoredRead? ReadStored(string? inferredJson)
+    {
+        if (string.IsNullOrWhiteSpace(inferredJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<StoredRead>(inferredJson, Options);
+        }
+        catch (JsonException)
+        {
+            return null; // Unreadable: fall back to the text alone.
+        }
     }
 
     private static T? Parse<T>(string? text)

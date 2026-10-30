@@ -17,6 +17,7 @@ enum CmContract {
     let upright: (x: Double, y: Double, w: Double, h: Double)
     switch degrees {
     case 90: upright = (x: y, y: 1 - (x + w), w: h, h: w)
+    case 180: upright = (x: 1 - (x + w), y: 1 - (y + h), w: w, h: h)
     case 270: upright = (x: 1 - (y + h), y: x, w: h, h: w)
     default: upright = (x: x, y: y, w: w, h: h)
     }

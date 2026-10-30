@@ -29,6 +29,9 @@ export interface DetectedCode {
 
 export type Unsubscribe = () => void;
 
+/** Degrees the picture is turned clockwise for one text pass: 90 reads lines that run top to bottom, 270 bottom to top, 180 upside down. */
+export type TextOrientation = 0 | 90 | 180 | 270;
+
 /**
  * What a rectangle search is asked for. Left out entirely, the request is the shelf splitter's own: upright shapes, at least a tenth
  * of the picture's shorter side. A caller that wants something else names only what it changes.
@@ -58,7 +61,7 @@ export interface VisionEngine {
    * One pass per orientation (default `[0]`), lines concatenated in the order of `orientations`.
    * Lines are not de-duplicated across orientations; the caller decides.
    */
-  recognizeText(imageUri: string, options?: { orientations?: (0 | 90 | 270)[] }): Promise<TextLine[]>;
+  recognizeText(imageUri: string, options?: { orientations?: TextOrientation[] }): Promise<TextLine[]>;
   detectRectangles(imageUri: string, options?: DetectRectanglesOptions): Promise<Rect[]>;
   /** Barcodes in a still picture (Photos import), through VNDetectBarcodesRequest. */
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;

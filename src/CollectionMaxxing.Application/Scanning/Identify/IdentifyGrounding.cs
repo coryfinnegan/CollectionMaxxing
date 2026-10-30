@@ -12,6 +12,9 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <see cref="ProductCode"/> is set only when the printed product code named exactly one game (ADR-031): that game's title and
 /// platform then stand in <see cref="Title"/> and <see cref="Platform"/>, and <see cref="ReadAs"/> keeps the words the read had
 /// before (for the trace and for the card's "read as" line). Both are null on every other read.
+/// <see cref="KindContext"/> is not part of the read: it is the kind the rest of the snap agreed on (<see cref="Identify.KindContext"/>),
+/// set only on a read that names no kind, and it only orders level-scoring releases. It lives here so that it is part of the read's
+/// value, which is what the eval run's memo keys on: the same words in a snap of films and in one of books are two lookups.
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -24,7 +27,8 @@ public sealed record ReadFacts(
     int? Year,
     string? Platform,
     string? ProductCode = null,
-    string? ReadAs = null)
+    string? ReadAs = null,
+    WorkKind? KindContext = null)
 {
     /// <summary>The words to look for: the model's title when it gave one, else everything that was legible. Null when there is nothing to search.</summary>
     public string? SearchText => !string.IsNullOrWhiteSpace(Title) ? Title : !string.IsNullOrWhiteSpace(Text) ? Text : null;
@@ -81,7 +85,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             return new BarcodeResolution(ResolutionVerdict.NotFound, [], null, [NoText]);
         }
 
-        var resolution = TextSearchResolver.Score(facts.ToReadItem(), ProfileFor(profile), local, providers, pendingWhenProvidersFailed: true);
+        var resolution = TextSearchResolver.Score(
+            facts.ToReadItem(), ProfileFor(profile), local, providers, pendingWhenProvidersFailed: true, kindContext: facts.KindContext);
         return resolution with
         {
             // A provider film or game names no format: the one the cover was read as is the release's (a DVD, a VHS tape).

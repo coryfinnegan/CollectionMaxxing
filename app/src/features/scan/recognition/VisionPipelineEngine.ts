@@ -48,7 +48,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const single = isSingleItemShot(options.shotKind);
     // Both rectangle searches start with the text read, so looking for covers costs no extra time. A cover shot never looks: it is one item.
     const looking = single ? undefined : Promise.all([this.rectanglesOf(still), this.rectanglesOf(still, { maximumAspectRatio: DEFAULT_MULTI_COVER_TUNING.maxAspectRatio })]);
-    const lines = await readLines(this.deps.vision, still.uri, settings.local);
+    const lines = await readLines(this.deps.vision, still.uri, settings.local, { shelf: !single });
     // A cover shot is one item: the whole frame, never segmented (#504), and its title is its biggest text. Anything else may be a shelf row.
     if (single) {
       const whole = wholeFrame(lines);
@@ -59,14 +59,15 @@ export class VisionPipelineEngine implements RecognitionEngine {
     // Several covers lying side by side are an item each; whatever lies outside them is a shelf as it always was.
     const several = multipleCovers(lines, wide, still, settings.local);
     const rest = splitIntoPieces(several?.rest ?? lines, rectangles, settings.splitting, settings.local);
-    const covers = several?.covers ?? [];
+    // A cover goes in as a plain piece (its lines and box); its title and kind ride beside it, since a piece's own `title` is a stack band's text.
+    const covers = (several?.covers ?? []).map((c) => ({ piece: { lines: c.lines, box: c.box } satisfies Piece, read: { title: c.title, kind: c.kind } }));
     return this.reading(
-      { pieces: [...covers, ...rest.pieces], unreadableCount: rest.unreadableCount },
+      { pieces: [...covers.map((c) => c.piece), ...rest.pieces], unreadableCount: rest.unreadableCount },
       lines,
       settings,
       started,
       onItem,
-      new Map(covers.map((c) => [c, { title: c.title, kind: c.kind }])),
+      new Map(covers.map((c) => [c.piece, c.read])),
     );
   }
 
@@ -97,7 +98,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),
-        title: titleLine.text,
+        title: p.title ?? titleLine.text,
         ...(creator ? { creator } : {}),
         ...(productCode ? { productCode } : {}),
         kind: cover?.kind ?? 'other',

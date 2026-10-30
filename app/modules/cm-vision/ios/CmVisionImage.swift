@@ -39,8 +39,8 @@ enum CmImage {
 }
 
 enum CmText {
-  /// One text pass over the picture turned `rotation` degrees clockwise (0, 90 or 270), with every box mapped
-  /// back to the upright picture. 90 reads lines that run top to bottom, 270 lines that run bottom to top.
+  /// One text pass over the picture turned `rotation` degrees clockwise (0, 90, 180 or 270), with every box mapped
+  /// back to the upright picture. 90 reads lines that run top to bottom, 270 lines that run bottom to top, 180 upside down.
   static func recognize(_ image: CmLoadedImage, rotation: Int) throws -> [[String: Any]] {
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
@@ -50,9 +50,10 @@ enum CmText {
     switch rotation {
     case 0:
       handler = VNImageRequestHandler(cgImage: image.cgImage, orientation: image.orientation, options: [:])
-    case 90, 270:
+    case 90, 180, 270:
       let upright = CIImage(cgImage: image.cgImage).oriented(image.orientation)
-      let turned = upright.oriented(rotation == 90 ? .right : .left)
+      let turn: CGImagePropertyOrientation = rotation == 90 ? .right : (rotation == 180 ? .down : .left)
+      let turned = upright.oriented(turn)
       handler = VNImageRequestHandler(ciImage: turned, options: [:])
     default:
       throw CmVisionBadOrientationException(String(rotation))
@@ -70,7 +71,7 @@ enum CmText {
 
 final class CmVisionBadOrientationException: GenericException<String> {
   override var reason: String {
-    "Text can be read at 0, 90 or 270 degrees, not \(param)"
+    "Text can be read at 0, 90, 180 or 270 degrees, not \(param)"
   }
 }
 

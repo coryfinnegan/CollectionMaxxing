@@ -1,16 +1,16 @@
 // The whole cue a single cover gives (its case's format and what its text says it is) and how that cue corrects what an engine read.
 import type { Rect } from '@/native/cm-vision';
-import { type CoverCue, correctRead, coverCue } from './coverCue';
-import type { FilmFormat } from './coverFormat';
+import { type CoverCue, correctRead, coverCue, describeCue } from './coverCue';
+import type { CoverFormatInput, FilmFormat } from './coverFormat';
 import { line } from './fakes';
 import type { ReadItem } from './types';
 
 const STILL = { width: 3000, height: 4000 };
 const said = (...texts: string[]) => texts.map((t, i) => line(t, 0.1, 0.1 + i * 0.05, 0.5, 0.04));
-/** A case standing upright, `ratio` wide for its height, 80% of the picture tall. */
-const caseWith = (ratio: number): Rect => {
-  const width = (ratio * 0.8 * STILL.height) / STILL.width;
-  return { x: (1 - width) / 2, y: 0.1, width, height: 0.8 };
+/** A case standing upright, `ratio` wide for its height, `fill` of the picture tall (80% unless said). */
+const caseWith = (ratio: number, fill = 0.8): Rect => {
+  const width = (ratio * fill * STILL.height) / STILL.width;
+  return { x: (1 - width) / 2, y: (1 - fill) / 2, width, height: fill };
 };
 
 describe('coverCue', () => {
@@ -42,6 +42,59 @@ describe('coverCue', () => {
       kind: 'game',
       productCode: 'SNS-ADNE-USA',
     });
+  });
+});
+
+describe('describeCue: what the eval record says the cue saw', () => {
+  const FRAME: Rect = { x: 0, y: 0, width: 1, height: 1 };
+  const input = (rectangles: Rect[], ...texts: string[]): CoverFormatInput => ({ still: STILL, rectangles, lines: said(...texts) });
+  const described = (look: CoverFormatInput, arrival: Parameters<typeof describeCue>[0] = 'ready') => describeCue(arrival, { input: look, cue: coverCue(look) });
+
+  it('says a Blu-ray-shaped rectangle gave the shape format, with the ratio and how much of the picture it covered', () => {
+    expect(described(input([caseWith(0.86)]))).toBe('cue=ready fmt=shape:bluray r=0.86 cov=0.73 rects=1 kind=none code=none');
+  });
+
+  it('says a logo gave the format, and still gives the ratio of the rectangle', () => {
+    expect(described(input([caseWith(0.71)], 'Blu-ray Disc'))).toBe('cue=ready fmt=logo:bluray r=0.71 cov=0.61 rects=1 kind=none code=none');
+  });
+
+  it('says there were no rectangles', () => {
+    expect(described(input([]))).toBe('cue=ready fmt=none rects=0 kind=none code=none');
+  });
+
+  it('says a rectangle that hugs the frame was left out', () => {
+    expect(described(input([FRAME]))).toBe('cue=ready fmt=none rects=1 (1 frame-hugging) kind=none code=none');
+  });
+
+  it('says a rectangle too small to be the case was left out, and how much it covered', () => {
+    expect(described(input([caseWith(0.86, 0.4)]))).toBe('cue=ready fmt=none r=0.86 cov=0.18 rects=1 (1 too small) kind=none code=none');
+  });
+
+  it('says a rectangle shaped like no case was left out', () => {
+    expect(described(input([caseWith(0.787)]))).toBe('cue=ready fmt=none r=0.79 cov=0.67 rects=1 (1 out of band) kind=none code=none');
+  });
+
+  it('counts each reason once per rectangle', () => {
+    const look = input([FRAME, caseWith(0.86, 0.4), { x: 0.1, y: 0.1, width: 0, height: 0.5 }, caseWith(0.55)]);
+    expect(described(look)).toContain('rects=4 (1 unusable, 1 frame-hugging, 1 too small)');
+  });
+
+  it('says the kind the text named and the product code it printed', () => {
+    expect(described(input([], 'SUPER NINTENDO', 'SNS ADNE-USA'))).toBe('cue=ready fmt=none rects=0 kind=game code=SNS-ADNE-USA');
+  });
+
+  it.each(['ready', 'late'] as const)('says the cue was %s when it arrived', (arrival) => {
+    expect(described(input([]), arrival)).toMatch(new RegExp(`^cue=${arrival} `));
+  });
+
+  it.each(['timeout', 'failed'] as const)('says only that the cue %s when there is nothing to describe', (arrival) => {
+    expect(describeCue(arrival)).toBe(`cue=${arrival}`);
+  });
+
+  it('stays short, whatever the cover had on it', () => {
+    const many = Array.from({ length: 40 }, () => FRAME);
+    const worst = described(input([...many, ...Array.from({ length: 40 }, () => caseWith(0.86, 0.4))], 'Ultra HD', 'SUPER NINTENDO', 'SNS ADNE-USA'), 'late');
+    expect(worst.length).toBeLessThan(200);
   });
 });
 

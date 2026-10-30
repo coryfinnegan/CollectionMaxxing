@@ -35,6 +35,7 @@ interface Result {
   duplicateRescan?: { ownedHits: number; answeredOnCard: number; unsolicitedAdds: number };
   ocrLines?: { text: string; x: number; y: number; width: number; height: number }[];
   ocrPieces?: number[][];
+  coverCue?: string;
 }
 interface Body {
   device: { model: string; osVersion: string; appVersion: string };
@@ -160,6 +161,43 @@ describe('the eval runner', () => {
       );
     expect(kinds('photo-002')).toEqual({ apple_model: ['film'], fm_text: ['film'], vision_pipeline: ['film'] });
     expect(kinds('photo-001')).toEqual({ apple_model: ['book'], fm_text: ['book'], vision_pipeline: ['other'] });
+  });
+
+  describe('what the cover cue saw', () => {
+    // photo-001 is a shelf and photo-002 a single (the runner reads the shelves first). A Blu-ray keepcase, 0.86 wide for its height, 80% of a 3000 x 4000 picture tall.
+    const blurayWidth = (0.86 * 0.8 * 4000) / 3000;
+    const blurayCase = { x: (1 - blurayWidth) / 2, y: 0.1, width: blurayWidth, height: 0.8 };
+    const cueOf = (photoId: string, engine: string) => runs()[0].results.find((r) => r.photoId === photoId && r.engine === engine)?.coverCue;
+
+    it('sends it with every engine\'s row of a single cover: the shape it found, its ratio and that it came in time', async () => {
+      const kit = makeKit({ photos: 2, scenes: { 'photo-002': { rectangles: [blurayCase] } } });
+      await kit.runner.start();
+      // "late" is the Vision tier, which can finish its read a moment before the cue's own search; both are inside the wait.
+      for (const engine of ['apple_model', 'fm_text', 'vision_pipeline']) {
+        expect([engine, cueOf('photo-002', engine)]).toEqual([engine, expect.stringMatching(/^cue=(ready|late) fmt=shape:bluray r=0\.86 cov=0\.\d\d rects=1 /)]);
+      }
+    });
+
+    it('says when the cover had no rectangle to measure', async () => {
+      const kit = makeKit({ photos: 2 });
+      await kit.runner.start();
+      expect(cueOf('photo-002', 'vision_pipeline')).toContain('rects=0');
+    });
+
+    it('leaves it out of a shelf\'s rows, which the cue does not look at', async () => {
+      const kit = makeKit({ photos: 2, scenes: { 'photo-001': { rectangles: [blurayCase] } } });
+      await kit.runner.start();
+      for (const row of runs()[0].results.filter((r) => r.photoId === 'photo-001')) expect(row).not.toHaveProperty('coverCue');
+    });
+
+    it('leaves it out of a row whose model gave no reading, which used no cue', async () => {
+      const kit = makeKit({ photos: 2, scenes: { 'photo-002': { read: failedRead('declined') } } });
+      await kit.runner.start();
+      const refused = runs()[0].results.find((r) => r.photoId === 'photo-002' && r.engine === 'apple_model');
+      expect(refused?.outcome).toBe('refused');
+      expect(refused).not.toHaveProperty('coverCue');
+      expect(cueOf('photo-002', 'vision_pipeline')).toEqual(expect.stringContaining('cue='));
+    });
   });
 
   it('sends the OCR lines the Vision engine split and the pieces it made, on its row only', async () => {
