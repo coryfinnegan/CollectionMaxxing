@@ -32,6 +32,17 @@ describe('coverCue', () => {
   it('is nothing when neither says anything', () => {
     expect(coverCue({ still: STILL, rectangles: [], lines: said('THE LANTERN ROAD') })).toBeUndefined();
   });
+
+  it('has the product code the text prints', () => {
+    expect(coverCue({ still: STILL, rectangles: [], lines: said('SNS-8C-USA') })).toEqual({ productCode: 'SNS-8C-USA' });
+  });
+
+  it('has the kind and the code together on a cartridge', () => {
+    expect(coverCue({ still: STILL, rectangles: [], lines: said('SUPER NINTENDO', 'SNS ADNE-USA') })).toEqual({
+      kind: 'game',
+      productCode: 'SNS-ADNE-USA',
+    });
+  });
 });
 
 describe('correctRead', () => {
@@ -146,6 +157,53 @@ describe('correctRead', () => {
 
     it('does not make an "other" a film when a bestseller line made it a book', () => {
       expect(as(correctRead(read('other'), shape('vhs', 'book')))).toBe('book/undefined');
+    });
+  });
+
+  describe('a product code', () => {
+    const code: CoverCue = { productCode: 'SNS-8C-USA' };
+
+    it('makes an "other" a game that carries the code, with no film format', () => {
+      expect(correctRead(read('other'), code)).toMatchObject({ kind: 'game', productCode: 'SNS-8C-USA' });
+      expect(correctRead(read('other'), code).format).toBeUndefined();
+    });
+
+    it('puts the code on a game without changing anything else about it', () => {
+      const corrected = correctRead(read('game', undefined, { platform: 'Super Nintendo', completeness: 'cart_only' }), code);
+      expect(corrected).toMatchObject({ kind: 'game', platform: 'Super Nintendo', completeness: 'cart_only', productCode: 'SNS-8C-USA', title: 'Rushmore' });
+    });
+
+    it('never changes a book or a film because of a code-like string, and does not give it the code', () => {
+      for (const item of [read('book'), read('film', 'dvd'), read('film', 'vhs'), read('tv')]) {
+        expect(correctRead(item, code)).toBe(item);
+      }
+    });
+
+    it('is not carried to a film that a format logo made out of an "other"', () => {
+      const corrected = correctRead(read('other'), { ...code, ...logo('dvd') });
+      expect(as(corrected)).toBe('film/dvd');
+      expect(corrected.productCode).toBeUndefined();
+    });
+
+    it('goes with the game that a console\'s name made of a book read', () => {
+      expect(correctRead(read('book'), { ...code, kind: 'game' })).toMatchObject({ kind: 'game', productCode: 'SNS-8C-USA' });
+    });
+
+    it('is not carried to a book that a bestseller line made of an "other"', () => {
+      const corrected = correctRead(read('other'), { ...code, kind: 'book' });
+      expect(as(corrected)).toBe('book/undefined');
+      expect(corrected.productCode).toBeUndefined();
+    });
+
+    it('returns the same object when the game already has the code', () => {
+      const game = read('game', undefined, { productCode: 'SNS-8C-USA' });
+      expect(correctRead(game, code)).toBe(game);
+    });
+
+    it('does not change the item it is given', () => {
+      const other = read('other');
+      correctRead(other, code);
+      expect(other).toEqual(read('other'));
     });
   });
 

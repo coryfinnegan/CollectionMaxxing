@@ -22,6 +22,8 @@ export interface ReadItem {
   platform?: string;
   edition?: string;
   completeness?: ItemCompleteness;
+  /** A game's product code printed on its label (`SNS-8C-USA`, `SLUS-00594`), as read from Vision's text. The server names the game from it. */
+  productCode?: string;
   /** Normalized 0..1 on the still, origin top-left. Absent when no Vision text matched. */
   box?: Rect;
   order: number;
