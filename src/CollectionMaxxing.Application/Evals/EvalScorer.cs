@@ -96,7 +96,10 @@ public static class EvalScorer
     {
         var misses = new List<EvalMiss>();
         var engines = new SortedDictionary<string, EngineSummary>(StringComparer.Ordinal);
-        foreach (var byEngine in photos.Where(p => truths.ContainsKey(p.PhotoId)).GroupBy(p => p.Engine))
+
+        // The combination of the model and Vision (report only) is scored like an engine the phone read, from the same rows.
+        var everything = photos.Concat(EvalCombination.Of(photos, truths));
+        foreach (var byEngine in everything.Where(p => truths.ContainsKey(p.PhotoId)).GroupBy(p => p.Engine))
         {
             var entries = byEngine.Select(p => (Photo: p, Truth: truths[p.PhotoId])).ToList();
             var shelf = entries.Where(e => e.Truth.Set == GoldenSets.Shelf).ToList();

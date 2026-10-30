@@ -90,6 +90,11 @@ public static class EvalReport
         foreach (var (engine, numbers) in summary.Engines)
         {
             text.AppendLine().Append("## ").AppendLine(engine).AppendLine();
+            if (engine == EvalCombination.Engine)
+            {
+                text.AppendLine("Report only, built from the rows above: the Apple model's items plus the Vision text items it did not read. Shelf latency is the two added together; single pictures are the model's own.").AppendLine();
+            }
+
             AppendSlice(text, "Shelf", numbers.Shelf);
             AppendSlice(text, "Single", numbers.Single);
             text.Append("Thermal state at the end: ").AppendLine(numbers.ThermalAtEnd ?? "n/a").AppendLine();
