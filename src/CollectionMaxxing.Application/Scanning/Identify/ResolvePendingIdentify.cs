@@ -53,7 +53,8 @@ public sealed class ResolvePendingIdentify(
             return;
         }
 
-        var (facts, profile) = StoredRead.From(candidate);
+        var (stored, profile) = StoredRead.From(candidate);
+        var facts = await WithSnapKindAsync(candidate, stored, cancellationToken);
         var answer = await grounding.GroundAsync(facts, profile, options.JobResolveBudget, cancellationToken);
 
         // The answer lands under the session's lock, on rows read fresh inside it: a request that resolved the same
@@ -104,5 +105,24 @@ public sealed class ResolvePendingIdentify(
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// A read that names no kind is asked again with the kind its snap agreed on, as the request would have asked it
+    /// (<see cref="KindContext"/>): the snap's other rows keep the kinds they were read with. A row with no snap, or alone in
+    /// it (a barcode, a bound cover), has no context.
+    /// </summary>
+    private async Task<ReadFacts> WithSnapKindAsync(ScanCandidate candidate, ReadFacts facts, CancellationToken cancellationToken)
+    {
+        if (facts.Kind is not null || candidate.SnapId is not { } snapId)
+        {
+            return facts;
+        }
+
+        var reads = await db.ScanCandidates.AsNoTracking()
+            .Where(c => c.SessionId == candidate.SessionId && c.SnapId == snapId)
+            .Select(c => c.InferredJson)
+            .ToListAsync(cancellationToken);
+        return KindContext.Dominant(reads.Select(StoredRead.KindOf)) is { } snapKind ? facts with { KindContext = snapKind } : facts;
     }
 }
