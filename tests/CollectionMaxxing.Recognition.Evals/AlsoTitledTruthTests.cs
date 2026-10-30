@@ -10,9 +10,9 @@ namespace CollectionMaxxing.Recognition.Evals;
 /// </summary>
 public sealed class AlsoTitledTruthTests : IDisposable
 {
-    private const string Spine = "The Staub Cookbook";
-    private const string Full = "The Staub Cookbook: Modern Recipes for Classic Cast Iron";
-    private const string LookAlike = "The Staub Cookbook: Set of Prints";
+    private const string Spine = "The Example Cookbook";
+    private const string Full = "The Example Cookbook: Recipes for Everyday Cooking";
+    private const string LookAlike = "The Example Cookbook: Set of Prints";
 
     private readonly SyntheticGolden _golden = new();
 
@@ -31,11 +31,11 @@ public sealed class AlsoTitledTruthTests : IDisposable
         var camel = TruthFiles.Parse(
             "s1",
             GoldenSets.Shelf,
-            """{ "items": [{ "title": "The Staub Cookbook", "mediaType": "book", "alsoTitled": ["Full A", " Full B "] }], "unreadable": 0 }""");
+            """{ "items": [{ "title": "The Example Cookbook", "mediaType": "book", "alsoTitled": ["Full A", " Full B "] }], "unreadable": 0 }""");
         var snake = TruthFiles.Parse(
             "s2",
             GoldenSets.Shelf,
-            """{ "items": [{ "title": "The Staub Cookbook", "media_type": "book", "also_titled": ["Full A"], /* comments and trailing commas are fine */ }], "unreadable": 0 }""");
+            """{ "items": [{ "title": "The Example Cookbook", "media_type": "book", "also_titled": ["Full A"], /* comments and trailing commas are fine */ }], "unreadable": 0 }""");
 
         camel.ShouldNotBeNull();
         camel.Shelf!.Items.Single().AlsoTitled.ShouldBe(["Full A", "Full B"]);
@@ -49,11 +49,11 @@ public sealed class AlsoTitledTruthTests : IDisposable
         var single = TruthFiles.Parse(
             "c1",
             GoldenSets.Single,
-            """{ "title": "The Staub Cookbook", "format": "hardcover", "completeness": "n_a", "kind": "book_spine", "alsoTitled": ["Full A"] }""");
+            """{ "title": "The Example Cookbook", "format": "hardcover", "completeness": "n_a", "kind": "book_spine", "alsoTitled": ["Full A"] }""");
         var snake = TruthFiles.Parse(
             "c2",
             GoldenSets.Single,
-            """{ "title": "The Staub Cookbook", "format": "hardcover", "also_titled": ["Full A"] }""");
+            """{ "title": "The Example Cookbook", "format": "hardcover", "also_titled": ["Full A"] }""");
 
         single.ShouldNotBeNull();
         single.Single!.AlsoTitled.ShouldBe(["Full A"]);
@@ -85,8 +85,8 @@ public sealed class AlsoTitledTruthTests : IDisposable
     [InlineData("\"also_titled\": 12")]
     public void An_also_titled_that_is_not_an_array_of_strings_makes_the_file_invalid(string field)
     {
-        TruthFiles.Parse("s1", GoldenSets.Shelf, $$"""{ "items": [{ "title": "The Staub Cookbook", "mediaType": "book", {{field}} }] }""").ShouldBeNull();
-        TruthFiles.Parse("c1", GoldenSets.Single, $$"""{ "title": "The Staub Cookbook", "format": "hardcover", {{field}} }""").ShouldBeNull();
+        TruthFiles.Parse("s1", GoldenSets.Shelf, $$"""{ "items": [{ "title": "The Example Cookbook", "mediaType": "book", {{field}} }] }""").ShouldBeNull();
+        TruthFiles.Parse("c1", GoldenSets.Single, $$"""{ "title": "The Example Cookbook", "format": "hardcover", {{field}} }""").ShouldBeNull();
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class AlsoTitledTruthTests : IDisposable
     {
         _golden.AddShelf("good", [BookTruth(Full)]);
         _golden.AddShelf("bad", null);
-        _golden.AddFile("shelf", "bad.truth.json", """{ "items": [{ "title": "The Staub Cookbook", "mediaType": "book", "alsoTitled": "oops" }], "unreadable": 0 }""");
+        _golden.AddFile("shelf", "bad.truth.json", """{ "items": [{ "title": "The Example Cookbook", "mediaType": "book", "alsoTitled": "oops" }], "unreadable": 0 }""");
 
         var truths = TruthsOf(_golden);
 
@@ -136,7 +136,7 @@ public sealed class AlsoTitledTruthTests : IDisposable
     {
         _golden.AddShelf("s1", [BookTruth(Full)]);
 
-        var shelf = EvalScorer.Score([Photo("s1", Apple, [MatchedBook("the STAUB cookbook - modern recipes for classic cast iron")])], TruthsOf(_golden)).ShelfOf();
+        var shelf = EvalScorer.Score([Photo("s1", Apple, [MatchedBook("the EXAMPLE cookbook - recipes for everyday cooking")])], TruthsOf(_golden)).ShelfOf();
 
         shelf.Top1Pct.ShouldBe(100);
         shelf.InventedTitles.ShouldBe(0);
