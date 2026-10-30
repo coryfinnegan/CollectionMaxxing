@@ -119,13 +119,13 @@ public static class MatchScorer
             {
                 // A spine reads title and author as one line: this release's own author, found in the read, is not part of
                 // its title, and finding it there is the creator signal a separate author field would have been.
-                var similarity = TitleNormalizer.Similarity(read.Title, release.Title);
+                var similarity = TitleNormalizer.TitleSimilarity(read.Title, release.Title);
                 foreach (var creator in release.Creators)
                 {
                     if (TitleNormalizer.WithoutCreator(read.Title, creator) is { } bare)
                     {
                         creatorInTitle = true;
-                        similarity = Math.Max(similarity, TitleNormalizer.Similarity(bare, release.Title));
+                        similarity = Math.Max(similarity, TitleNormalizer.TitleSimilarity(bare, release.Title));
                     }
                 }
 
@@ -257,7 +257,8 @@ public static class MatchScorer
     /// <summary>
     /// The score rests on a title that is close but not the same, with nothing compared besides it and the kind (no author,
     /// year, platform, edition or picture): in the sixth eval run a made-up spine read matched an old pamphlet with a
-    /// near title at 0.94, as "lantern road dinners" would match "A Lantern Road Dinner".
+    /// near title at 0.94, as "lantern road dinners" would match "A Lantern Road Dinner". The same words in another order
+    /// are a near title too ("kitchen orchard" is not "The Orchard Kitchen"): the title term is under 1 for them.
     /// </summary>
     private static bool RestsOnANearTitleAlone(ScoredRelease best) =>
         best.Terms.Where(t => t.Compared).All(t => t.Name is TitleTerm or TypeTerm)
