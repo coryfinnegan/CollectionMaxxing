@@ -85,6 +85,28 @@ public class FilmOverTvTests
         result.Outcome.ShouldNotBe(MatchOutcome.NotFound);
     }
 
+    [Theory]
+    [InlineData(WorkKind.Film, WorkKind.Tv, null)]
+    [InlineData(WorkKind.Film, WorkKind.Tv, ReleaseFormat.Vhs)]
+    [InlineData(WorkKind.Tv, WorkKind.Film, null)]
+    [InlineData(WorkKind.Tv, WorkKind.Film, ReleaseFormat.Vhs)]
+    public void A_lone_same_titled_release_of_the_other_kind_of_video_is_a_candidate_but_never_Matched(
+        WorkKind readKind,
+        WorkKind releaseKind,
+        ReleaseFormat? format)
+    {
+        var read = new ReadItem { Title = "Lantern Road", Kind = readKind, Format = format };
+        var only = Release("only", "Lantern Road", releaseKind, format);
+
+        foreach (var kind in new[] { ScoringProfileKind.ShelfSpine, ScoringProfileKind.Cover, ScoringProfileKind.BareLabel })
+        {
+            var result = MatchScorer.Evaluate(read, [only], Options.Profile(kind));
+
+            result.Ranked.Count.ShouldBe(1);
+            result.Outcome.ShouldBe(MatchOutcome.Ambiguous, kind.ToString());
+        }
+    }
+
     [Fact]
     public void A_film_and_a_show_are_a_partial_type_match_not_a_full_one_or_none()
     {
