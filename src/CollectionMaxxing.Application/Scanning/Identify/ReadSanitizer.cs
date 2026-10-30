@@ -8,7 +8,7 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// Drops what the on-device model put in a field that cannot hold it, before the read is scored or stored. Real reads
 /// carried the model's own enum words as the platform ("boxed", "looseCart", "book"), a loose-cart completeness on a book
 /// cover (which scored the book as a cartridge), ratings, bestseller lines and ISBNs as the edition, and a series line,
-/// brand or placeholder as the author. A field that is dropped is simply not a claim; nothing is invented in its place. Pure.
+/// brand, placeholder or fragment of a word ("DWN") as the author. A field that is dropped is simply not a claim; nothing is invented in its place. Pure.
 /// </summary>
 public static class ReadSanitizer
 {
@@ -60,6 +60,12 @@ public static class ReadSanitizer
     /// </summary>
     private const int MaxNameWords = 7;
 
+    /// <summary>
+    /// The longest a lone word can be and still be a fragment of the spine's print ("DWN", "FRE"), not a name.
+    /// A credit of several words is judged by its initials instead: "Anh To" is a name, "A B" is not.
+    /// </summary>
+    private const int MaxFragmentLetters = 3;
+
     public static ReadFacts Sanitize(ReadFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
@@ -107,7 +113,7 @@ public static class ReadSanitizer
     // copies a series line or brand off the spine (a series' name for a book of that series), and a neighbour's title or
     // tagline, as the author. A real author the title carries (a spine's "DUNE FRANK HERBERT") is still found: the scorer
     // looks for each release's own author in the title. A game's creator is a studio, whose name may well carry "the"
-    // ("The ... Room"), so the name test is not applied to games.
+    // ("The ... Room"), and may be short ("EA", "THQ"), so the name tests are not applied to games.
     private static bool IsCreator(string? creator, string? title, WorkKind? kind)
     {
         if (string.IsNullOrWhiteSpace(creator) || NotACreator.Contains(PlatformNames.Normalize(creator)))
@@ -116,7 +122,7 @@ public static class ReadSanitizer
         }
 
         var asWritten = PlatformNames.Normalize(creator).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (kind != WorkKind.Game && (asWritten.Length > MaxNameWords || asWritten.Any(NotInAName.Contains)))
+        if (kind != WorkKind.Game && (asWritten.Length > MaxNameWords || asWritten.Any(NotInAName.Contains) || IsFragment(asWritten)))
         {
             return false;
         }
@@ -125,6 +131,11 @@ public static class ReadSanitizer
         var creatorWords = TitleNormalizer.Normalize(creator).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return creatorWords.Length > 0 && !creatorWords.All(titleWords.Contains);
     }
+
+    // The Vision engine guesses an author from the spine's smaller lines and sends pieces of words. One word of three
+    // letters or fewer ("DWN", "FRE", "AB") or only initials ("A B") is not a name; a surname, or a second name, makes it one.
+    private static bool IsFragment(string[] words) =>
+        words.Length == 1 ? words[0].Length <= MaxFragmentLetters : words.All(word => word.Length == 1);
 
     private static bool IsEditionMark(string? edition)
     {

@@ -161,7 +161,16 @@ public static class MatchScorer
 
         if (!string.IsNullOrWhiteSpace(read.Creator))
         {
-            Add("creator", weights.Creator, release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators) : null, answerable.Creator);
+            // Two pieces of evidence, the better one counts: the author the reader named, and this release's own author
+            // found printed in the title line. A spine's smaller print is often misread as the author (a fragment, the
+            // publisher), and that must not hide the author the title line carries.
+            double? similarity = release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators) : null;
+            if (creatorInTitle)
+            {
+                similarity = Math.Max(similarity ?? 0.0, 1.0);
+            }
+
+            Add("creator", weights.Creator, similarity, answerable.Creator);
         }
         else if (creatorInTitle)
         {
