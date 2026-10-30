@@ -1,0 +1,28 @@
+game-serials.tsv.gz (the game product-code table in this folder)
+
+Licensed under the Creative Commons Attribution-ShareAlike 4.0 International License (CC-BY-SA-4.0).
+
+  Licence summary: https://creativecommons.org/licenses/by-sa/4.0/
+  Legal code:      https://creativecommons.org/licenses/by-sa/4.0/legalcode
+
+Attribution
+
+  The table is adapted from libretro-database (https://github.com/libretro/libretro-database), (c) the libretro contributors,
+  licensed under CC-BY-SA-4.0 (https://github.com/libretro/libretro-database/blob/master/LICENSE). It was made from the files in
+  metadat/serial and metadat/redump at commit 77f15a815241163fe4af9631ebce4c3adc954eac.
+
+Changes
+
+  The data was filtered to the platforms this project knows, its product codes were normalised, its titles were shortened to the
+  game's name (region, language and revision brackets removed), and rows were merged and sorted. The README in this folder lists
+  every change. The script that makes the table is scripts/game-serials/Update-GameSerials.ps1.
+
+Share-alike
+
+  If you adapt or redistribute this table, you must credit libretro-database as above, say what you changed, and share your
+  version under CC-BY-SA-4.0 (or a licence CC-BY-SA lists as compatible). This licence covers the table only. The rest of this
+  repository is not licensed under CC-BY-SA, and using the table does not change the licence of the code that reads it.
+
+No warranty
+
+  The table is provided as is, without warranty of any kind.
