@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.GameSerials;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
@@ -15,7 +16,7 @@ namespace CollectionMaxxing.Application.Evals;
 /// written, no artwork re-score is asked for and no background job is queued. The providers are asked through their normal cached
 /// path, so a repeat costs nothing. It reads the catalogue as the caller can: a signed-in administrator sees the global releases.
 /// </summary>
-public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, ScanningOptions options)
+public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, ScanningOptions options, IGameSerialLookup serials)
 {
     /// <summary>The top releases kept per item (the same three <c>/identify</c> offers).</summary>
     public const int Alternatives = 3;
@@ -32,7 +33,7 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
             return [];
         }
 
-        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)]);
+        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials);
         var answers = new List<BarcodeResolution>(items.Count);
         foreach (var item in cleaned)
         {

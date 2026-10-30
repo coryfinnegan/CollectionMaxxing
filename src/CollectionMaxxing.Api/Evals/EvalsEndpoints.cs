@@ -156,7 +156,7 @@ public static class EvalsEndpoints
                     r.Items?.Select(i => i is null
                         ? null!
                         : new EvalReadItemInput(
-                            new IdentifyItemInput(i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, null),
+                            new IdentifyItemInput(i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, null, i.ProductCode),
                             i.ResolvedBy,
                             i.Tier,
                             i.Provisional == true,

@@ -518,3 +518,24 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 - **Consequences:**
   - ADR-017's "Photos never reach our servers for recognition" still holds — these bytes are stored evidence, never recognition input.
   - The upload path needs a test proxy proving successes never upload.
+
+## ADR-031: Game product codes from a CC-BY-SA serial list (owner decision)
+
+- **Status:** **Accepted** (owner decision, 2026-10-30; written by the lead).
+- **Context:** cartridge labels and discs print a product code (`SNS-ADNE-USA`, `NUS-NSME-USA`, `SLUS-00594`) that Vision OCR reads exactly, while stylised label art defeats both OCR and the on-device model. In the 2026-10-30 eval neither SNES cartridge was read by any engine, yet Vision read both codes. The catalogue providers (IGDB) do not record product codes.
+- **Decision:**
+  - We bundle a product code → title + platform table, generated from [libretro-database](https://github.com/libretro/libretro-database). It uses `metadat/serial/*.dat` for cartridge systems and `metadat/redump/*.dat` for disc systems. That data is licensed CC-BY-SA-4.0, and we pin it to a commit.
+  - The table lives in its own folder with its licence and attribution. A script regenerates it; nobody edits it by hand.
+  - The phone pulls codes out of the Vision text it already reads.
+  - The server turns a code into a title and platform, then finds the release in the catalogue as it does for any read.
+  - It is free and adds no service. Recognition stays on the device (ADR-017).
+- **Alternatives:**
+  - IGDB: rejected, because it has no product codes.
+  - MobyGames: rejected, because its API is paid.
+  - No-Intro or Redump downloads directly: rejected, because their redistribution terms are unclear.
+  - No lookup: rejected, because cartridges would stay unreliable.
+- **Consequences:**
+  - The table file is CC-BY-SA-4.0, so attribution and share-alike apply to the table, not to our code. Its README credits libretro-database and names the pinned commit.
+  - A code resolves only within its own platform.
+  - A code printed with a region suffix (`SNS-8C-USA`) also matches the list's shorter form (`SNS-8C`).
+  - Updating the table is a reviewed PR that regenerates it from a newer pinned commit.

@@ -35,6 +35,8 @@ public sealed record BarcodeBatchRequest(IReadOnlyList<ScannedCode>? Codes = nul
 /// additions to the original contract (SCAN-2a): without the format a VHS and a DVD of one film are indistinguishable.
 /// <c>SegmentId</c> is the phone's own id for the segment the item belongs to, so the items of a multi-item snap stay linked (#338).
 /// Every field is a claim to check against the catalogue, never a verdict: the server decides the match.
+/// <c>ProductCode</c> is the code printed on a game cartridge or disc (<c>SNS-ADNE-USA</c>, <c>SLUS-00594</c>), at most 32
+/// characters: when the server's table says it belongs to one game, the read is identified as that game (ADR-031).
 /// </summary>
 public sealed record IdentifyItem(
     string? LocalId = null,
@@ -48,7 +50,8 @@ public sealed record IdentifyItem(
     CollectionMaxxing.Domain.Catalog.ReleaseFormat? Format = null,
     int? Year = null,
     string? Platform = null,
-    Guid? LocalMatchReleaseId = null);
+    Guid? LocalMatchReleaseId = null,
+    string? ProductCode = null);
 
 /// <summary>
 /// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 40 items, 256 KB). <c>FellBackFrom</c> says why

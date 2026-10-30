@@ -9,6 +9,9 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <summary>
 /// What the phone read from one item: text and fields only (never a picture). Every field is a claim to be checked against
 /// the catalogue, not a fact; <see cref="Text"/> is whatever was legible, <see cref="Title"/> the model's guess at the title.
+/// <see cref="ProductCode"/> is set only when the printed product code named exactly one game (ADR-031): that game's title and
+/// platform then stand in <see cref="Title"/> and <see cref="Platform"/>, and <see cref="ReadAs"/> keeps the words the read had
+/// before (for the trace and for the card's "read as" line). Both are null on every other read.
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -19,10 +22,15 @@ public sealed record ReadFacts(
     WorkKind? Kind,
     ReleaseFormat? Format,
     int? Year,
-    string? Platform)
+    string? Platform,
+    string? ProductCode = null,
+    string? ReadAs = null)
 {
     /// <summary>The words to look for: the model's title when it gave one, else everything that was legible. Null when there is nothing to search.</summary>
     public string? SearchText => !string.IsNullOrWhiteSpace(Title) ? Title : !string.IsNullOrWhiteSpace(Text) ? Text : null;
+
+    /// <summary>What to show as the words that were read: the legible text, else the title as read before a product code replaced it, else the title.</summary>
+    public string? ShownText => Text ?? ReadAs ?? Title;
 
     public ReadItem ToReadItem() => new()
     {
@@ -78,8 +86,23 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         {
             // A provider film or game names no format: the one the cover was read as is the release's (a DVD, a VHS tape).
             Options = [.. resolution.Options.Select(o => o.Provider is { } p ? o with { Provider = p.WithReadFormat(facts.Format) } : o)],
-            Steps = [.. resolution.Steps, new TraceStep("profile", profile.ToString(), 0)],
+            Steps = [.. CodeStep(facts), .. resolution.Steps, new TraceStep("profile", profile.ToString(), 0)],
         };
+    }
+
+    /// <summary>
+    /// The trace line for a read whose product code decided its title (ADR-031): the code, the game it named and the words the
+    /// read had before. Nothing for any other read. The step name is <c>product_code</c>, for whoever reads a candidate's trace.
+    /// </summary>
+    private static IEnumerable<TraceStep> CodeStep(ReadFacts facts)
+    {
+        if (facts.ProductCode is not { } code)
+        {
+            yield break;
+        }
+
+        var game = facts.Platform is { } platform ? $"{facts.Title} ({platform})" : facts.Title;
+        yield return new TraceStep("product_code", facts.ReadAs is { } readAs ? $"{code} = {game}; read as: {readAs}" : $"{code} = {game}", 0);
     }
 
     /// <summary>The whole grounding for one read, one step after the other, within <paramref name="budget"/> for the providers.</summary>
