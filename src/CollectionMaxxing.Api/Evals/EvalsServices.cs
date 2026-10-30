@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Evals;
 using CollectionMaxxing.Infrastructure.Evals;
+using CollectionMaxxing.Infrastructure.GameSerials;
 
 namespace CollectionMaxxing.Api.Evals;
 
@@ -15,6 +16,7 @@ public static class EvalsServices
         services.AddOptions<EvalsOptions>().BindConfiguration(EvalsOptions.SectionName);
         services.AddSingleton<IGoldenSet, FileGoldenSet>();
         services.AddSingleton<IEvalResults, FileEvalResults>();
+        services.AddGameSerials(); // the grounder reads product codes the way /identify does (ADR-031)
         services.AddScoped<EvalGrounder>();
         services.AddScoped<ListGoldenPhotos.Handler>();
         services.AddScoped<GetGoldenImage.Handler>();

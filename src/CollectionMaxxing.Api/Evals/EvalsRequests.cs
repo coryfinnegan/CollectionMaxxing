@@ -15,6 +15,7 @@ public sealed record EvalDeviceRequest(string? Model = null, string? OsVersion =
 /// One item the phone read in a golden photo: the fields of an <c>/identify</c> item (every one a claim to check, never a verdict),
 /// plus <c>ResolvedBy</c>, the step that settled it (model, vision_text, artwork or fix_it). When it is left out, the engine's own step is assumed.
 /// <c>Tier</c> is the commit tier the pipeline assigned (T0, T1, T2); <c>Provisional</c> with <c>IsGuess</c> marks a kept guess (docs/16 §17).
+/// <c>ProductCode</c> is the code the phone found printed on a game (as in <c>/identify</c>, ADR-031), grounded the same way.
 /// </summary>
 public sealed record EvalReadItem(
     string? LocalId = null,
@@ -31,7 +32,8 @@ public sealed record EvalReadItem(
     ScanTier? Tier = null,
     bool? Provisional = null,
     bool? IsGuess = null,
-    string? SegmentId = null);
+    string? SegmentId = null,
+    string? ProductCode = null);
 
 /// <summary>
 /// Reads an engine as its API name only (<c>apple_model</c>, <c>fm_text</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number

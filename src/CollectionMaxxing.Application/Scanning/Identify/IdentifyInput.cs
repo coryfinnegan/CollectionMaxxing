@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.GameSerials;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -24,7 +25,8 @@ public sealed record IdentifyItemInput(
     ReleaseFormat? Format,
     int? Year,
     string? Platform,
-    Guid? LocalMatchReleaseId);
+    Guid? LocalMatchReleaseId,
+    string? ProductCode = null);
 
 /// <summary>
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
@@ -145,20 +147,27 @@ internal static class IdentifyCleaning
             {
                 return ScanningErrors.Invalid("scan.item_too_large", $"An item can be at most {MaxItemBytes / 1024} KB of text.", $"items[{i}]");
             }
+
+            if (!string.IsNullOrWhiteSpace(item.ProductCode) && !ProductCode.IsAcceptable(item.ProductCode))
+            {
+                return ScanningErrors.Invalid(
+                    "scan.product_code_invalid",
+                    $"A product code is at most {ProductCode.MaxInputLength} characters, shaped like SNS-ADNE-USA or SLUS-00594.",
+                    $"items[{i}].productCode");
+            }
         }
 
         return null;
     }
 
     private static int SizeOf(IdentifyItemInput item) =>
-        new[] { item.LocalId, item.SegmentId, item.Text, item.Title, item.Creator, item.Edition, item.Platform }
+        new[] { item.LocalId, item.SegmentId, item.Text, item.Title, item.Creator, item.Edition, item.Platform, item.ProductCode }
             .Sum(value => value is null ? 0 : Encoding.UTF8.GetByteCount(value));
 
-    public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind = IdentifyKind.Shelf) =>
+    public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind = IdentifyKind.Shelf, IGameSerialLookup? serials = null) =>
         items.Select(item =>
         {
-            // What the model put in a field that cannot hold it is dropped before anything scores or stores it.
-            var facts = ReadSanitizer.Sanitize(new ReadFacts(
+            var read = new ReadFacts(
                 Text(item.Title, MaxFieldLength),
                 Text(item.Text, MaxTextLength),
                 Text(item.Creator, MaxFieldLength),
@@ -167,7 +176,17 @@ internal static class IdentifyCleaning
                 item.Kind,
                 item.Format,
                 item.Year is >= MinYear and <= MaxYear ? item.Year : null,
-                Text(item.Platform, MaxPlatformLength)));
+                Text(item.Platform, MaxPlatformLength));
+
+            // A product code that names exactly one game identifies the read (ADR-031); the title and platform it gives are the
+            // table's, so they go in before the sanitiser, which then treats the read as the game it now is.
+            if (serials is not null)
+            {
+                read = ProductCodeReads.Resolve(read, item.ProductCode, serials);
+            }
+
+            // What the model put in a field that cannot hold it is dropped before anything scores or stores it.
+            var facts = ReadSanitizer.Sanitize(read);
             var profile = ScoringProfileSelector.Choose(facts.Completeness, facts.Kind, facts.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
             return new CleanItem(Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile);
         }).ToList();
@@ -234,6 +253,11 @@ internal sealed record StoredRead
 
     public string? Platform { get; init; }
 
+    /// <summary>The product code that decided the title (ADR-031); with <see cref="ReadAs"/>, the words the read had before.</summary>
+    public string? ProductCode { get; init; }
+
+    public string? ReadAs { get; init; }
+
     public string? Profile { get; init; }
 
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
@@ -252,6 +276,8 @@ internal sealed record StoredRead
             Format = facts.Format is { } format ? EnumText.ToText(format) : null,
             Year = facts.Year,
             Platform = facts.Platform,
+            ProductCode = facts.ProductCode,
+            ReadAs = facts.ReadAs,
             Profile = profile.ToString(),
         },
         Options);
@@ -281,7 +307,9 @@ internal sealed record StoredRead
             Parse<WorkKind>(stored?.Kind),
             Parse<ReleaseFormat>(stored?.Format),
             stored?.Year,
-            stored?.Platform);
+            stored?.Platform,
+            stored?.ProductCode,
+            stored?.ReadAs);
         var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
         return (facts, profile);
     }

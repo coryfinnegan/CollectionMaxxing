@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.GameSerials;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Domain.Common;
@@ -46,6 +47,7 @@ public static class IdentifyItems
         ReleaseCovers releaseCovers,
         IJobQueue jobs,
         ScanningOptions options,
+        IGameSerialLookup serials,
         ILogger<Handler> logger)
     {
         public async Task<Result<CandidatesDto>> HandleAsync(Command command, CancellationToken cancellationToken)
@@ -76,7 +78,7 @@ public static class IdentifyItems
             }
 
             var snapId = input.SnapId!.Value;
-            var items = IdentifyCleaning.Clean(input.Items!, input.Kind);
+            var items = IdentifyCleaning.Clean(input.Items!, input.Kind, serials);
             var now = clock.GetUtcNow();
 
             // Claim the snap and its rows under the session's lock, so a retry or a twin of this request finds them instead of racing them.
@@ -130,7 +132,7 @@ public static class IdentifyItems
                         Source = source,
                         ShotKind = ShotReading.Of(input.ShotKind, items.Count), // one item read is a cover shot, whatever the framing said
                         SegmentId = item.SegmentId,
-                        VisibleText = item.Facts.Text ?? item.Facts.Title,
+                        VisibleText = item.Facts.ShownText,
                         SnapId = snapId,
                         LocalId = item.LocalId,
                         Resolution = CandidateResolution.Pending,
@@ -174,7 +176,7 @@ public static class IdentifyItems
             }
 
             var snapId = input.SnapId!.Value;
-            var item = IdentifyCleaning.Clean(input.Items!, input.Kind)[0]; // Validate kept exactly one item
+            var item = IdentifyCleaning.Clean(input.Items!, input.Kind, serials)[0]; // Validate kept exactly one item
             var now = clock.GetUtcNow();
 
             await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
@@ -220,7 +222,7 @@ public static class IdentifyItems
                 entry.Property(c => c.InferredJson).CurrentValue = StoredRead.Serialize(item.Facts, item.Profile);
                 entry.Property(c => c.GuidanceCode).CurrentValue = GuidanceCodes.For(
                     input.FellBackFrom, CandidateResolution.Pending, candidate.Source, candidate.RawCode, quotaSpent: false);
-                if ((item.Facts.Text ?? item.Facts.Title) is { } text)
+                if (item.Facts.ShownText is { } text)
                 {
                     // Through this same entry, not SetVisibleText: attaching the row a second time would drop the marks above.
                     entry.Property(c => c.VisibleText).CurrentValue = text.Length > 2000 ? text[..2000] : text;
@@ -256,7 +258,7 @@ public static class IdentifyItems
             }
 
             var snapId = input.SnapId!.Value;
-            var proof = IdentifyCleaning.Clean(input.Items!, input.Kind)[0]; // Validate kept exactly one item
+            var proof = IdentifyCleaning.Clean(input.Items!, input.Kind, serials)[0]; // Validate kept exactly one item
             var now = clock.GetUtcNow();
 
             ScanCandidate candidate;
@@ -304,7 +306,7 @@ public static class IdentifyItems
                     Source = source,
                     ShotKind = ShotReading.Of(input.ShotKind, 1), // an edition proof is one item
                     SegmentId = proof.SegmentId,
-                    VisibleText = proof.Facts.Text ?? proof.Facts.Title,
+                    VisibleText = proof.Facts.ShownText,
                     SnapId = snapId,
                     LocalId = proof.LocalId,
                     Resolution = CandidateResolution.Pending,
