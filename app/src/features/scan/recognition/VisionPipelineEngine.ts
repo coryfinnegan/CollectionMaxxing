@@ -1,13 +1,15 @@
 // The fallback engine: Vision text and rectangles, split in TypeScript, no model. Its titles are guesses, so every
 // item says low confidence and leaves the finding to the server.
-import type { TextLine, VisionEngine } from '@/native/cm-vision';
+import type { Rect, TextLine, VisionEngine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
-import { coverTitleOf } from './coverTitle';
+import type { CueKind } from './coverKind';
+import { coverTitleOf, type CoverTitle } from './coverTitle';
 import { creatorOf } from './creators';
-import type { RecognitionSettings } from './defaults';
+import { DEFAULT_MULTI_COVER_TUNING, type RecognitionSettings } from './defaults';
 import { readLines } from './lines';
+import { multipleCovers } from './multiCover';
 import { productCodeOf } from './productCode';
-import { splitIntoPieces, wholeFrame, type Split } from './splitting';
+import { splitIntoPieces, wholeFrame, type Piece, type Split } from './splitting';
 import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
 
 export interface EngineDeps {
@@ -15,6 +17,12 @@ export interface EngineDeps {
   settings: () => RecognitionSettings;
   now?: () => number;
   newId?: () => string;
+}
+
+/** What a single cover's piece was read as: its title (nothing when no line is left to be one), and the kind its own text names. */
+interface CoverRead {
+  title: CoverTitle | undefined;
+  kind?: CueKind;
 }
 
 let sequence = 0;
@@ -37,20 +45,45 @@ export class VisionPipelineEngine implements RecognitionEngine {
   async read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
     const started = this.now();
     const settings = this.deps.settings();
+    const single = isSingleItemShot(options.shotKind);
+    // Rectangles are asked for while the text is read, so looking for covers costs no extra time. A cover shot never looks: it is one item.
+    const looking = single ? undefined : this.rectanglesOf(still);
     const lines = await readLines(this.deps.vision, still.uri, settings.local);
     // A cover shot is one item: the whole frame, never segmented (#504), and its title is its biggest text. Anything else may be a shelf row.
-    if (isSingleItemShot(options.shotKind)) {
-      return this.reading(wholeFrame(lines), lines, settings, started, onItem, still);
+    if (single) {
+      const whole = wholeFrame(lines);
+      return this.reading(whole, lines, settings, started, onItem, new Map(whole.pieces.map((p) => [p, { title: coverTitleOf(p.lines, still, settings.local) }])));
     }
-    const rectangles = await this.deps.vision.detectRectangles(still.uri).catch(() => []);
-    return this.reading(splitIntoPieces(lines, rectangles, settings.splitting, settings.local), lines, settings, started, onItem);
+    const rectangles = (await looking) ?? [];
+    // Several covers lying side by side are an item each; whatever lies outside them is a shelf as it always was.
+    const several = multipleCovers(lines, rectangles, still, settings.local);
+    const rest = splitIntoPieces(several?.rest ?? lines, rectangles, settings.splitting, settings.local);
+    const covers = several?.covers ?? [];
+    return this.reading(
+      { pieces: [...covers, ...rest.pieces], unreadableCount: rest.unreadableCount },
+      lines,
+      settings,
+      started,
+      onItem,
+      new Map(covers.map((c) => [c, { title: c.title, kind: c.kind }])),
+    );
   }
 
-  /** `cover` is the still of a single-cover shot: its pieces take the biggest text as the title. A shelf piece takes its longest, surest line. */
-  private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void, cover?: Still): SnapReading {
+  /** The rectangle search, asked for shapes as wide as a case (Vision's default would never return a game's). Never throws: no rectangles is a reading too. */
+  private async rectanglesOf(still: Still): Promise<Rect[]> {
+    try {
+      return await this.deps.vision.detectRectangles(still.uri, { maximumAspectRatio: DEFAULT_MULTI_COVER_TUNING.maxAspectRatio });
+    } catch {
+      return [];
+    }
+  }
+
+  /** The pieces in `covers` are single covers: each takes its biggest text as the title, and the kind its own text names. Any other piece is a stretch of shelf, whose title is its longest, surest line. */
+  private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void, covers: ReadonlyMap<Piece, CoverRead>): SnapReading {
     const { pieces, unreadableCount } = split;
     const items = pieces.map((p, order): ReadItem => {
-      const biggest = cover && coverTitleOf(p.lines, cover, settings.local);
+      const cover = covers.get(p);
+      const biggest = cover?.title;
       const titleLine =
         biggest?.line ??
         p.lines.reduce((best, l) => (l.confidence * l.text.length > best.confidence * best.text.length ? l : best));
@@ -66,7 +99,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
         title: titleLine.text,
         ...(creator ? { creator } : {}),
         ...(productCode ? { productCode } : {}),
-        kind: 'other',
+        kind: cover?.kind ?? 'other',
         box: p.box,
         order,
         confidence: 'low',
