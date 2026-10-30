@@ -155,25 +155,51 @@ public sealed class TextSearchResolver(
     private const int MinWordsLeft = 2;
 
     /// <summary>
-    /// The queries to try, plainest last: as read; with the title alone, when the read named a creator (#438 stage 1: the
-    /// fallback, never the default); then without the title's last word, and its last two, while two words are left. A spine
-    /// read by OCR often runs other print into the title ("... NIGHT QXRTVZ"), and a title search finds nothing with it.
+    /// The queries to try, plainest last, none twice, and every one with the title's accents stripped (an accent an OCR read
+    /// puts on an English word, "TÉENAGE", is noise): as read; with the title alone, when the read named a creator (#438
+    /// stage 1: the fallback, never the default); without the title's last word, and its last two, while two words are left (a
+    /// spine read by OCR often runs other print into the title, "... NIGHT QXRTVZ", and a title search finds nothing with it);
+    /// with its numbers written the other way, 3 as III and III as 3 (the catalogue may spell a sequel the other way than the
+    /// cover); then without its first word, and its first two, while two words are left, each also with the numbers swapped (a
+    /// misread first word, "SLEEP AWAY" for "Sleepaway", sinks a search the rest of the title would find).
     /// </summary>
-    private static IEnumerable<CatalogQuery> Ladder(CatalogQuery query)
+    private static IEnumerable<CatalogQuery> Ladder(CatalogQuery asRead)
     {
+        var query = asRead with { Title = TitleNormalizer.StripAccents(asRead.Title) };
+        var asked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Key(query) };
         yield return query;
         var titleOnly = query with { Creator = null };
-        if (!string.IsNullOrWhiteSpace(query.Creator))
+        if (!string.IsNullOrWhiteSpace(query.Creator) && asked.Add(Key(titleOnly)))
         {
             yield return titleOnly;
         }
 
         var words = query.Title.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var rungs = new List<string[]>();
         for (var drop = 1; drop <= MaxDroppedWords && words.Length - drop >= MinWordsLeft; drop++)
         {
-            yield return titleOnly with { Title = string.Join(' ', words[..^drop]) };
+            rungs.Add(words[..^drop]);
+        }
+
+        rungs.AddRange(TitleNumerals.Swapped(words));
+        for (var skip = 1; skip <= MaxDroppedWords && words.Length - skip >= MinWordsLeft; skip++)
+        {
+            var rest = words[skip..];
+            rungs.Add(rest);
+            rungs.AddRange(TitleNumerals.Swapped(rest));
+        }
+
+        foreach (var rung in rungs.Select(rung => titleOnly with { Title = string.Join(' ', rung) }))
+        {
+            if (asked.Add(Key(rung)))
+            {
+                yield return rung;
+            }
         }
     }
+
+    /// <summary>Two rungs are the same when they have the same title (whatever its case) and creator.</summary>
+    private static string Key(CatalogQuery rung) => $"{rung.Title}\n{rung.Creator}";
 
     private async Task<Attempt> AskUntilCloseAsync(
         ICatalogProvider provider, CatalogQuery query, List<TraceStep> steps, CancellationToken callerToken, CancellationToken budgetToken)

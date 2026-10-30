@@ -81,6 +81,38 @@ public static partial class TitleNormalizer
     }
 
     /// <summary>
+    /// A title with its accents taken off and nothing else changed (case, spacing and punctuation stay): "TÉENAGE" gives
+    /// "TEENAGE", "Œuvre" gives "Oeuvre". For a search query, where an accent an OCR read puts on an English word is noise.
+    /// Null gives "".
+    /// </summary>
+    public static string StripAccents(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        foreach (var raw in text.Normalize(NormalizationForm.FormC))
+        {
+            if (!AccentMap.TryGetValue(char.ToLowerInvariant(raw), out var plain))
+            {
+                builder.Append(raw);
+            }
+            else if (char.IsUpper(raw))
+            {
+                builder.Append(char.ToUpperInvariant(plain[0])).Append(plain, 1, plain.Length - 1);
+            }
+            else
+            {
+                builder.Append(plain);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
     /// What a title that is only the other one's main title is worth: "Kitchen Confidential" read off a cover against
     /// "Kitchen Confidential: Adventures in the Culinary Underbelly" from a provider, or the other way round. Close, never
     /// the same: a missing subtitle can tell two releases apart ("Metroid Prime 2" is pinned Ambiguous against "Metroid
