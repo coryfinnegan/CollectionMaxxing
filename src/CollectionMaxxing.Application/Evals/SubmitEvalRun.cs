@@ -30,11 +30,9 @@ public static class SubmitEvalRun
     public sealed class Handler(
         IGoldenSet golden,
         IEvalResults results,
-        EvalGrounder grounder,
+        EvalRunScoring scoring,
         IIdGenerator ids,
         TimeProvider clock,
-        IOptions<EvalsOptions> options,
-        IOptionsMonitor<ScoringOptions> scoring,
         ILogger<Handler> logger)
     {
         public async Task<Result<EvalRunResult>> HandleAsync(EvalRunInput input, CancellationToken cancellationToken)
@@ -61,56 +59,14 @@ public static class SubmitEvalRun
                 return refusal;
             }
 
-            var listing = golden.List().ToDictionary(p => p.Id, StringComparer.Ordinal);
-            var truths = new Dictionary<string, TruthEntry>(StringComparer.Ordinal);
-            var withoutTruth = new List<string>();
-            foreach (var id in accepted.Select(r => r.PhotoId!).Distinct(StringComparer.Ordinal))
-            {
-                if (!listing.TryGetValue(id, out var photo))
-                {
-                    skipped.Add(new SkippedPhoto(id, "unknown_photo"));
-                }
-                else if (golden.ReadTruth(id) is not { } text)
-                {
-                    skipped.Add(new SkippedPhoto(id, "no_truth"));
-                    withoutTruth.Add(id);
-                }
-                else if (TruthFiles.Parse(id, photo.Set, text) is { } truth)
-                {
-                    truths[id] = truth;
-                }
-                else
-                {
-                    skipped.Add(new SkippedPhoto(id, "invalid_truth"));
-                }
-            }
+            var truthSet = scoring.Prepare(accepted.Select(r => r.PhotoId!).Distinct(StringComparer.Ordinal), skipped);
 
             // One memo per run, made here and passed down (not injected): what is grounded is known for this run only.
             var memo = new EvalGroundingMemo();
             var photos = new List<GroundedPhoto>();
-            foreach (var result in accepted.Where(r => listing.ContainsKey(r.PhotoId!)))
+            foreach (var result in accepted.Where(r => truthSet.Listing.ContainsKey(r.PhotoId!)))
             {
-                var items = result.Outcome == EvalOutcome.Ok
-                    ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, cancellationToken)
-                    : [];
-                photos.Add(new GroundedPhoto(
-                    result.PhotoId!,
-                    EnumText.ToText(result.Engine!.Value),
-                    result.FellBackFrom is { } reason ? EnumText.ToText(reason) : null,
-                    EnumText.ToText(result.Outcome!.Value),
-                    items,
-                    result.UnreadableCount ?? 0,
-                    result.LatencyMs!.Value,
-                    result.FirstItemMs,
-                    EnumText.ToText(result.Thermal!.Value),
-                    result.CapturedCount ?? 0,
-                    result.CapturedAt,
-                    result.DuplicateRescan is { } evidence
-                        ? new DuplicateRescan(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds)
-                        : null,
-                    result.Engine == ScanEngine.VisionPipeline ? result.OcrLines?.Select(l => new GroundedOcrLine(l.Text!, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value)).ToList() : null,
-                    result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null,
-                    EvalCoverCue.Clean(result.CoverCue)));
+                photos.Add(await scoring.GroundAsync(result, memo, cancellationToken));
             }
 
             if (logger.IsEnabled(LogLevel.Information))
@@ -118,106 +74,27 @@ public static class SubmitEvalRun
                 logger.LogInformation("Eval run grounded {Grounded} distinct reads and reused {Reused} repeats.", memo.Grounded, memo.Reused);
             }
 
-            var run = new GroundedRun(
+            var run = new EvalRunToScore(
                 ids.NewId().ToString("N"),
                 clock.GetUtcNow(),
                 new EvalDevice(input.Device!.Model!.Trim(), input.Device.OsVersion!.Trim(), input.Device.AppVersion!.Trim()),
                 input.ConfigVersion!.Trim(),
-                photos,
                 input.Partial,
-                string.IsNullOrWhiteSpace(input.BaselineNote) ? null : input.BaselineNote.Trim());
-            var baseline = results.LoadBaselineDoc();
-            var evaluated = EvalReport.Evaluate(
-                run, truths, baseline?.Metrics, BuildSha.Resolve(options.Value), skipped, listing.Count,
-                scoring.CurrentValue.Thresholds, baseline?.ThresholdHash);
-
-            try
-            {
-                await results.SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, cancellationToken);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                // The exception's message names a path; only its type is logged.
-                logger.LogWarning("The eval results could not be written ({Failure}).", exception.GetType().Name);
-                return EvalErrors.ResultsNotWritable;
-            }
-
-            var drafts = WriteDrafts(withoutTruth, photos, listing);
-            if (logger.IsEnabled(LogLevel.Information))
-            {
-                logger.LogInformation(
-                    "Eval run {RunId}: scored {Scored} photos, skipped {Skipped}, wrote {Drafts} draft truth files; M3 gate {Verdict}.",
-                    run.RunId,
-                    evaluated.Summary.ScoredPhotos,
-                    skipped.Count,
-                    drafts,
-                    evaluated.Summary.Gate.Verdict);
-            }
-            return new EvalRunResult(run.RunId, evaluated.Summary);
-        }
-
-        private int WriteDrafts(List<string> withoutTruth, List<GroundedPhoto> photos, Dictionary<string, GoldenPhotoDto> listing)
-        {
-            var written = 0;
-            foreach (var id in withoutTruth)
-            {
-                if (golden.HasDraft(id))
-                {
-                    continue; // the owner may be correcting it
-                }
-
-                var best = photos.Where(p => p.PhotoId == id && p.Outcome == "ok" && p.Items.Count > 0)
-                    .OrderByDescending(p => p.Items.Count(i => i.Verdict == "matched"))
-                    .ThenByDescending(p => p.Items.Count)
-                    .FirstOrDefault();
-                if (best is null)
-                {
-                    continue;
-                }
-
-                var json = listing[id].Set == GoldenSets.Shelf ? ShelfDraft(best) : SingleDraft(best);
-                if (golden.TryWriteDraft(id, json) || results.TryWriteDraft(id, json))
-                {
-                    written++;
-                }
-            }
-
-            return written;
-        }
-
-        private static string ShelfDraft(GroundedPhoto best) => TruthFiles.WriteShelfDraft(
-            best.Items.Select(i =>
-            {
-                var top = i.Best;
-                return new ShelfTruthItem(top?.Title ?? i.ReadTitle ?? string.Empty, top?.Kind ?? "other", top?.Platform, top?.Year);
-            }).Where(i => i.Title.Length > 0),
-            best.UnreadableCount);
-
-        private static string SingleDraft(GroundedPhoto best)
-        {
-            var item = best.Items[0];
-            var top = item.Best;
-            var format = EnumText.ParseOrNull<ReleaseFormat>(top?.Format);
-            var completeness = EnumText.ParseOrNull<ItemCompleteness>(item.ReadCompleteness);
-            return TruthFiles.WriteSingleDraft(new SingleTruth(
-                top?.Title ?? item.ReadTitle ?? string.Empty,
-                top?.Platform,
-                top?.Format ?? "unknown",
-                item.ReadCompleteness ?? "n_a",
-                null,
-                EvalKinds.Guess(format, completeness)));
+                input.BaselineNote,
+                photos);
+            return await scoring.ScoreAsync(run, truthSet, skipped, cancellationToken);
         }
 
         private static DomainError? Validate(EvalRunInput input)
         {
-            if (input.Device is not { } device || !Text(device.Model) || !Text(device.OsVersion) || !Text(device.AppVersion))
+            if (DeviceProblem(input.Device) is { } device)
             {
-                return EvalErrors.Invalid("evals.device_required", "Send the device: model, osVersion and appVersion (each up to 100 characters).", "device");
+                return device;
             }
 
-            if (!Text(input.ConfigVersion))
+            if (ConfigVersionProblem(input.ConfigVersion) is { } config)
             {
-                return EvalErrors.Invalid("evals.config_version_required", "Send the configVersion the run used (up to 100 characters).", "configVersion");
+                return config;
             }
 
             if (input.Results is not { Count: > 0 })
@@ -230,12 +107,7 @@ public static class SubmitEvalRun
                 return EvalErrors.Invalid("evals.too_many_results", $"Send at most {MaxPhotos} photo results in one run.", "results");
             }
 
-            if (input.BaselineNote is not null && input.BaselineNote.Trim().Length > MaxNote)
-            {
-                return EvalErrors.Invalid("evals.note_too_long", $"A baseline note is at most {MaxNote} characters.", "baselineNote");
-            }
-
-            return null;
+            return NoteProblem(input.BaselineNote);
         }
 
         /// <summary>
@@ -282,9 +154,25 @@ public static class SubmitEvalRun
 
             return accepted.Count == 0 ? ([], first) : (accepted, null);
         }
-
-        private static bool Text(string? value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= MaxText;
     }
+
+    /// <summary>The run's device must say its model, OS version and app version (each up to 100 characters), whether it opens a run or sends one.</summary>
+    internal static DomainError? DeviceProblem(EvalDeviceInput? device) =>
+        device is null || !Text(device.Model) || !Text(device.OsVersion) || !Text(device.AppVersion)
+            ? EvalErrors.Invalid("evals.device_required", "Send the device: model, osVersion and appVersion (each up to 100 characters).", "device")
+            : null;
+
+    internal static DomainError? ConfigVersionProblem(string? configVersion) =>
+        Text(configVersion)
+            ? null
+            : EvalErrors.Invalid("evals.config_version_required", "Send the configVersion the run used (up to 100 characters).", "configVersion");
+
+    internal static DomainError? NoteProblem(string? baselineNote) =>
+        baselineNote is not null && baselineNote.Trim().Length > MaxNote
+            ? EvalErrors.Invalid("evals.note_too_long", $"A baseline note is at most {MaxNote} characters.", "baselineNote")
+            : null;
+
+    private static bool Text(string? value) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= MaxText;
 }
 
 /// <summary>

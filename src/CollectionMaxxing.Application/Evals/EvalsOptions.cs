@@ -71,6 +71,21 @@ public static class EvalErrors
     public static readonly DomainError ResultsNotWritable = new(
         ErrorKind.Conflict, "evals.results_not_writable", "The results folder could not be written. Check that it exists and is writable.");
 
+    public static readonly DomainError NoOpenRun = new(ErrorKind.NotFound, "evals.no_open_run", "There is no open eval run on the PC. Open one first.");
+
+    public static readonly DomainError RunAlreadyOpen = new(
+        ErrorKind.Conflict, "evals.run_open", "A run is already open on the PC. Continue it, or discard it to start over.");
+
+    public static readonly DomainError RunNotOpen = new(
+        ErrorKind.Conflict, "evals.run_not_open", "The open run has been finished, so it takes no more photos.");
+
+    public static readonly DomainError NoPhotos = Invalid("evals.no_photos", "The golden folder has no photos to run.", "photos");
+
+    public static readonly DomainError PhotoNotInRun = Invalid("evals.photo_not_in_run", "That photo is not part of the open run.", "photoId");
+
+    public static readonly DomainError PhotoIdMismatch = Invalid(
+        "evals.photo_id_mismatch", "Every result must name the photo in the address.", "results");
+
     public static readonly DomainError SetInvalid = Invalid("evals.set_invalid", "The set must be \"single\" or \"shelf\".", "set");
 
     public static readonly DomainError IdInvalid = Invalid(

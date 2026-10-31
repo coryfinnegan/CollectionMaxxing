@@ -101,6 +101,15 @@ public sealed record EvalPhotoResult(
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
     string? CoverCue = null);
 
+/// <summary>Body of <c>POST /api/admin/evals/runs/open</c>: the device and config version the run uses, and an optional note on a deliberate threshold move.</summary>
+public sealed record EvalOpenRunRequest(EvalDeviceRequest? Device = null, string? ConfigVersion = null, string? BaselineNote = null);
+
+/// <summary>Body of <c>PUT /api/admin/evals/runs/open/photos/{photoId}</c>: the results of every engine for that one photo (a result may leave its <c>PhotoId</c> out, but not name another photo).</summary>
+public sealed record EvalPhotoRequest(IReadOnlyList<EvalPhotoResult>? Results = null);
+
+/// <summary>Body of <c>POST /api/admin/evals/runs/open/finish</c>: <c>Partial</c> is true when the phone stops early to score what it has. The body may be left out.</summary>
+public sealed record EvalFinishRequest(bool? Partial = null);
+
 /// <summary>Body of <c>POST /api/admin/evals/runs</c>: at most 2 MB. Nothing in it is an image. <c>Partial</c> is true when the phone cancelled the run part way. <c>BaselineNote</c> explains a deliberate threshold move (docs/16 §17).</summary>
 public sealed record EvalRunRequest(
     EvalDeviceRequest? Device = null,
