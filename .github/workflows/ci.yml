@@ -142,6 +142,10 @@ jobs:
       - uses: actions/checkout@v7
       - name: Deploy script tests
         run: pwsh -NoProfile -File deploy/tests/Run-Tests.ps1
+      # A new tests/ project that no backend-test shard names would pass locally (check.sh runs every project) and never
+      # run here, with the `backend` check still green. This fails the build instead (scripts/check-ci-coverage.sh).
+      - name: Every test project is in a CI shard
+        run: bash scripts/check-ci-coverage.sh
       # The mutation sampler's own tests (QA-3a): scripts/check doesn't run them, and the nightly sweep relies on them.
       - name: Mutation tooling tests
         run: pwsh -NoProfile -File scripts/mutation/tests.ps1

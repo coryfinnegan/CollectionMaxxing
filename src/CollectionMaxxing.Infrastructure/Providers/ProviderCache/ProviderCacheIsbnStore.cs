@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Infrastructure.Persistence;
@@ -19,8 +18,6 @@ public sealed class ProviderCacheIsbnStore(IServiceScopeFactory scopes, TimeProv
     /// <summary>"Never": far past anything a lookup or the cache cleanup compares against.</summary>
     private static readonly DateTimeOffset Forever = new(9999, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
-
     public async Task<ProviderRelease?> FindAsync(string isbn13, CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
@@ -36,7 +33,7 @@ public sealed class ProviderCacheIsbnStore(IServiceScopeFactory scopes, TimeProv
 
         try
         {
-            return JsonSerializer.Deserialize<StoredBook>(payload, Json)?.ToRelease();
+            return JsonSerializer.Deserialize<StoredProviderRelease>(payload, StoredProviderRelease.Json)?.ToRelease();
         }
         catch (JsonException)
         {
@@ -46,7 +43,7 @@ public sealed class ProviderCacheIsbnStore(IServiceScopeFactory scopes, TimeProv
 
     public async Task SaveAsync(string isbn13, ProviderRelease release, CancellationToken ct)
     {
-        var payload = JsonSerializer.Serialize(StoredBook.From(release), Json);
+        var payload = JsonSerializer.Serialize(StoredProviderRelease.From(release), StoredProviderRelease.Json);
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var now = time.GetUtcNow();
@@ -78,32 +75,5 @@ public sealed class ProviderCacheIsbnStore(IServiceScopeFactory scopes, TimeProv
         {
             // Another request saved the same book a moment ago; either copy is fine.
         }
-    }
-
-    /// <summary>The stored shape: plain strings and numbers, so a change to <see cref="ProviderRelease"/> never breaks old rows.</summary>
-    private sealed record StoredBook(
-        string Provider, string ExternalId, string Title, WorkKind Kind, ReleaseFormat? Format, string? Platform, int? Year,
-        List<string> Creators, string? Edition, string? Publisher, string? CoverUrl, string? Synopsis, List<string> Identifiers)
-    {
-        public static StoredBook From(ProviderRelease r) => new(
-            r.Provider, r.ExternalId, r.Title, r.Kind, r.Format, r.Platform, r.Year, [.. r.Creators], r.Edition, r.Publisher,
-            r.CoverUrl, r.Synopsis, [.. r.Identifiers.Select(i => i.Value)]);
-
-        public ProviderRelease ToRelease() => new()
-        {
-            Provider = Provider,
-            ExternalId = ExternalId,
-            Title = Title,
-            Kind = Kind,
-            Format = Format,
-            Platform = Platform,
-            Year = Year,
-            Creators = Creators ?? [],
-            Edition = Edition,
-            Publisher = Publisher,
-            CoverUrl = CoverUrl,
-            Synopsis = Synopsis,
-            Identifiers = ProviderJson.Identifiers(Identifiers ?? []),
-        };
     }
 }

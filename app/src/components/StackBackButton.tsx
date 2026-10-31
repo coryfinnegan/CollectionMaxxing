@@ -9,6 +9,7 @@ import { type Href, usePathname, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
+import { goBackOr } from '@/lib/navigation';
 import { useColors } from '@/theme/tokens';
 import { usePressFeedback } from '@/ui';
 
@@ -34,10 +35,7 @@ export function StackBackButton() {
   const colors = useColors();
   const press = usePressFeedback('none');
   if (pathname === '/scanner') return <View style={styles.slot} />;
-  const goBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace(parentHub(pathname));
-  };
+  const goBack = () => goBackOr(router, parentHub(pathname));
   return (
     <Animated.View style={press.style}>
       <Pressable

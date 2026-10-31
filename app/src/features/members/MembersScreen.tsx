@@ -9,6 +9,7 @@ import { getListMembersQueryKey, useListMembers, useRemoveMember, useUpdateMembe
 import type { InviteDto, LibraryRole, MemberDto } from '@/api/generated/models';
 import { formatLastSeen } from '@/features/auth/DevicesScreen';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { friendlyError } from '@/lib/problem';
 import { useNow } from '@/lib/useNow';
 import { spacing } from '@/theme/tokens';
@@ -31,7 +32,7 @@ export function MembersScreen() {
   if (isLoading || me.isLoading || !libraryId) {
     return (
       <Screen title="Members">
-        <LoadingState label="Loading members…" />
+        <LibraryLoading label="Loading members…" />
       </Screen>
     );
   }
