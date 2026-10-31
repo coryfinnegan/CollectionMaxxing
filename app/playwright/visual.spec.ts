@@ -37,6 +37,8 @@ test.describe('visual', () => {
     await page.getByRole('link', { name: 'Open The Matrix' }).click();
     await expect(page).toHaveURL(new RegExp(`/item/${matrix}$`));
     await expect(page.getByRole('heading', { name: 'The Matrix' })).toBeVisible();
+    // The editing buttons wait for the role; the shot is of the finished screen.
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
     await expectShot(page, 'item-detail');
   });
 

@@ -18,6 +18,7 @@ import { changeFilter, defaultState, hasActiveFilter, type ListState } from '@/f
 import { useDebounced, useItems } from '@/features/library/useItems';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { NeedsAttention, useProvisionals } from '@/features/library/NeedsAttention';
 import { useMyRole } from '@/features/me/useMyRole';
 import { localDateString } from '@/lib/dates';
@@ -55,7 +56,7 @@ export function LibraryTable({ title, fixedStatus }: LibraryTableProps) {
         <Text variant="title" accessibilityRole="header">
           {title}
         </Text>
-        <LoadingState label="Loading your library…" />
+        <LibraryLoading label="Loading your library…" />
       </View>
     );
   }

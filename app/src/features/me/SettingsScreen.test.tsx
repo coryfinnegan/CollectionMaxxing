@@ -86,6 +86,21 @@ describe('Settings > Recognition', () => {
     expect(screen.getByText(/reads the text on covers/)).toBeTruthy();
   });
 
+  it('never claims that covers stay on the phone, which a close call does not honor (Apple model)', async () => {
+    await renderWithProviders(<SettingsScreen />);
+    expect(await screen.findByText('Engine: Apple on-device model')).toBeTruthy();
+    expect(screen.queryByText(/never leave/i)).toBeNull();
+    expect(screen.getByText(/Covers are read on this iPhone, and nothing goes to an AI service/)).toBeTruthy();
+  });
+
+  it('never claims that cover photos stay on the phone (Apple text model)', async () => {
+    recognitionWith({ available: true, vision: false, guidedGeneration: true, contextSize: 4096 });
+    await renderWithProviders(<SettingsScreen />);
+    expect(await screen.findByText('Engine: Apple text model')).toBeTruthy();
+    expect(screen.queryByText(/never leave/i)).toBeNull();
+    expect(screen.getByText(/Nothing goes to an AI service/)).toBeTruthy();
+  });
+
   it.each([
     ['modelNotReady', 'Apple Intelligence: Still getting ready'],
     ['osTooOld', 'Apple Intelligence: Needs a newer iOS'],

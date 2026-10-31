@@ -138,6 +138,16 @@ describe('LibraryView grid', () => {
     expect(await screen.findByText('The Matrix')).toBeTruthy();
   });
 
+  it('lets the first tap reach a row in the link sheet while the keyboard is up (Needs attention)', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await screen.findByText('Nothing needs attention.');
+
+    expect(screen.getByTestId('needs-attention').props.keyboardShouldPersistTaps).toBe('handled');
+  });
+
   it('shows no Needs attention chip in the Wishlist view', async () => {
     await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" />);
 

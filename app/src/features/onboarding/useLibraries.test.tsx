@@ -1,7 +1,9 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
+import { HttpResponse, http } from 'msw';
 import type { ReactNode } from 'react';
 import { MOCK_LIBRARY_ID, mockAccount } from '@/mocks/data';
+import { server } from '@/mocks/server';
 import { useLibraryStore } from '@/state/library';
 import { makeQueryClient, renderWithProviders } from '@/test/render';
 import { LibraryGate } from './LibraryGate';
@@ -44,6 +46,22 @@ describe('useActiveLibraryId', () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.libraryId).toBeUndefined();
+  });
+
+  it('says so when the list cannot be loaded, and asks again on refetch', async () => {
+    server.use(http.get('*/api/v1/libraries', () => new HttpResponse(null, { status: 401 })));
+    const { result } = await renderHook(() => useActiveLibraryId(), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.libraryId).toBeUndefined();
+    expect(result.current.isLoading).toBe(false);
+
+    server.resetHandlers();
+    await act(async () => {
+      await result.current.refetch();
+    });
+    await waitFor(() => expect(result.current.libraryId).toBe(MOCK_LIBRARY_ID));
+    expect(result.current.isError).toBe(false);
   });
 });
 

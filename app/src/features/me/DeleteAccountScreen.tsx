@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ApiError, customFetch } from '@/lib/http';
 import { isWeb } from '@/lib/auth/session';
+import { useGoBackOr } from '@/lib/navigation';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Screen, Text } from '@/ui';
 import { clearLocalData } from './localData';
@@ -14,6 +15,7 @@ export const membersMessage =
 
 export function DeleteAccountScreen() {
   const router = useRouter();
+  const keep = useGoBackOr('/me');
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
 
@@ -58,7 +60,7 @@ export function DeleteAccountScreen() {
           <Text>To delete your account, open CollectionMaxxing in a browser on your computer and go to Me, then Delete account. It needs a fresh sign-in, which only the browser can do.</Text>
         </Card>
       )}
-      <Button label="Keep my account" variant="secondary" onPress={() => router.back()} />
+      <Button label="Keep my account" variant="secondary" onPress={keep} />
     </Screen>
   );
 }

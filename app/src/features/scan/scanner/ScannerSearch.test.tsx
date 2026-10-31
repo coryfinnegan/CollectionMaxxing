@@ -110,6 +110,29 @@ describe('scanner search', () => {
     expect(JSON.parse(sent[0]!)).toMatchObject({ releaseId: ALIEN_VHS, addedVia: 'search', acquiredOn: localDateString() });
   });
 
+  it('adds a provider-only edition by its provider and id, the second row opening the second work', async () => {
+    seedOwned();
+    const sent: string[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/items', async ({ request }) => {
+        sent.push(await request.text());
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+    const onClose = jest.fn();
+    await renderWithProviders(<ScannerSearch libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
+
+    await searchFor('doom');
+    await fireEvent.press(await screen.findByRole('button', { name: 'Doom II, id Software · 1994 · 1 edition' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(sent).toHaveLength(1);
+    const body = JSON.parse(sent[0]!) as Record<string, unknown>;
+    expect(body).toMatchObject({ providerRef: { provider: 'igdb', externalId: 'doom-ii-1994' }, addedVia: 'search', acquiredOn: localDateString() });
+    expect(body).not.toHaveProperty('releaseId');
+  });
+
   it('shows the add error without closing when the pick fails', async () => {
     seedOwned();
     server.use(

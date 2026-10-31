@@ -239,6 +239,10 @@ function Get-CmPlan {
     }
     $plan += Format-CmCommand 'docker' @('pull', (Get-CmImageRef $Ctx 'api' 'main'))
     $plan += '(a second look at :main: when its revision moved while the images were checked, the stale commit is not deployed)'
+    $plan += '(then, when a migration file changed between the deployed commit and the new one, or git cannot tell: a named dump of the database into <CM_BACKUP_DIR>/pre-migrate first, with the backup image that runs now; if it fails nothing is migrated, the deploy stops with exit 1 and the running version stays; the last 5 dumps are kept)'
+    $plan += Format-CmCommand 'git' @('-C', $Ctx.RepoDir, 'diff', '--name-only', '--no-renames', '<deployed sha>', $tag)
+    $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', 'backup', '-c',
+            'pg_dump -Fc -f /backups/pre-migrate/pre-migrate-<sha12>-<time>.dump.partial (checked with pg_restore --list, then renamed)')) @{ CM_TAG = '<deployed sha>' }
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('run', '--rm', 'migrate')) @{ CM_TAG = $tag }
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services)) @{ CM_TAG = $tag }
     $plan += Format-CmCommand 'curl' @('-s', '-m', '5', '-w', '%{http_code}', $Ctx.SmokeUrl)
@@ -249,6 +253,10 @@ function Get-CmPlan {
     $plan += '(if the smoke test or the service check fails: the same up -d with CM_TAG=<previous good sha>)'
     $plan += '(then, once, on a server that still has the .ipa it served before the iPhone app moved to TestFlight, any run removes it)'
     $plan += Format-CmCommand 'docker' (Get-CmRetiredIpaArgs $Ctx '<deployed sha>')
+    $plan += '(then, after a good deploy and on every quiet poll, old images of the api, migrate and backup repositories only, unless CM_PRUNE_IMAGES=0 is set in .env: at most 100 per poll, never the running or the previous version or the 3 newest of each)'
+    $plan += Format-CmCommand 'docker' @('image', 'ls', '--no-trunc', '--format', '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}')
+    $plan += Format-CmCommand 'docker' @('ps', '-a', '--no-trunc', '--format', '{{.Image}}')
+    $plan += Format-CmCommand 'docker' @('image', 'rm', "$($Ctx.ImagePrefix)api:<old sha>")
     $plan += '(any refusal, failure or rollback exits non-zero, writes an ALERT line to the log and pings <CM_HEARTBEAT_URL>/fail)'
     $plan
 }
@@ -282,7 +290,7 @@ function Get-CmComposeGuard {
     $r = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = 'guard-check' } -Arguments (Get-CmComposeArgs $Ctx @('config', '--format', 'json'))
     if ($r.ExitCode -ne 0) { return 'docker compose config failed (is the compose file path right?)' }
     try { $config = ($r.Output -join "`n") | ConvertFrom-Json } catch { return 'docker compose config did not return JSON' }
-    Test-CmConfig -EnvMap $EnvMap -ComposeConfig $config
+    Test-CmConfig -EnvMap $EnvMap -ComposeConfig $config -ComposeFile $Ctx.ComposeFile
 }
 
 # ---- the ancestry guard ------------------------------------------------------------------------------------------------
@@ -319,13 +327,32 @@ function Update-CmRepoToMain {
         Write-CmLog "the clone at $repo is not on main, so it was not moved to origin/main" 'WARN'
         return $false
     }
+    # Where the clone is before and after, so the log only says "moved" when it did. On a quiet poll the fast-forward
+    # is a no-op, and a line claiming otherwise every two minutes (720 a day) hides the lines that matter.
+    $before = Get-CmRepoHead -Repo $repo
     $merge = Invoke-Cm -Mutating -Command 'git' -Arguments @('-C', $repo, 'merge', '--ff-only', 'origin/main')
     if ($merge.ExitCode -ne 0) {
         Write-CmLog "the clone at $repo could not be fast-forwarded to origin/main (it has diverged); left as it is" 'WARN'
         return $false
     }
-    Write-CmLog "moved the clone at $repo to origin/main, so the deployer scripts match the latest main"
+    $after = Get-CmRepoHead -Repo $repo
+    if ($before -and $after) {
+        if ($before -cne $after) { Write-CmLog "moved the clone at $repo to origin/main, so the deployer scripts match the latest main" }
+    }
+    else {
+        Write-CmLog "fast-forwarded the clone at $repo to origin/main (could not tell whether it moved)"
+    }
     $true
+}
+
+function Get-CmRepoHead {
+    <# The commit the clone is at (git rev-parse HEAD, read only). Empty when git cannot say. #>
+    param([string]$Repo)
+    $r = Invoke-Cm -Command 'git' -Arguments @('-C', $Repo, 'rev-parse', 'HEAD')
+    if ($r.ExitCode -ne 0) { return '' }
+    $sha = (@($r.Output | Where-Object { "$_".Trim() }) | Select-Object -First 1)
+    if ("$sha".Trim() -cmatch '^[0-9a-f]{40}$') { return "$sha".Trim() }
+    ''
 }
 
 function Get-CmRetiredIpaArgs {
@@ -365,9 +392,10 @@ function Remove-CmRetiredIpa {
 }
 
 function Complete-CmQuietRun {
-    <# A run with nothing to deploy: the one-time clean-up of the retired .ipa, if it is still there. Never turns a quiet run into a crash or an alert. #>
+    <# A run with nothing to deploy: the one-time clean-up of the retired .ipa, if it is still there, and the next batch of old images. Never turns a quiet run into a crash or an alert. #>
     param($Ctx, [string]$Outcome)
     Remove-CmRetiredIpa -Ctx $Ctx
+    Invoke-CmImagePrune -Ctx $Ctx
     New-CmResult $Outcome 0
 }
 
@@ -475,6 +503,294 @@ function Send-CmAlert {
     if ($ping.ExitCode -ne 0) { Write-CmLog 'alert ping failed (the log line above is still the alert)' 'WARN' }
 }
 
+# ---- a database dump before the migration --------------------------------------------------------------------------------
+# Migrations are expand-only, but a failed one, or a rollback onto a changed schema, would otherwise leave only last
+# night's dump. So when a release may change the schema, the deployer first takes a named dump into
+# <CM_BACKUP_DIR>/pre-migrate (its own folder: the nightly backup, its retention and the restore drill never look there),
+# keeps the last 5, and does not migrate at all if the dump fails.
+
+$script:CmPreMigrateKeep = 5
+
+function Get-CmPreMigrateDumpName {
+    <# pre-migrate-<first 12 hex of the commit>-<UTC yyyyMMdd-HHmmss>.dump #>
+    param([string]$Sha, [DateTime]$Utc)
+    if ("$Sha" -cnotmatch '^[0-9a-f]{40}$') { throw "a dump name needs a full commit hash, not '$Sha'" }
+    "pre-migrate-$($Sha.Substring(0, 12))-$($Utc.ToUniversalTime().ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)).dump"
+}
+
+function Get-CmPreMigrateScript {
+    <#
+      The shell script that runs inside the backup image (its entrypoint is replaced by sh, so it works whatever the
+      image's own backup.sh looks like): pg_dump into a .partial file, check it is not empty and that pg_restore can
+      read its table of contents, only then rename it; on any failure remove the partial file and exit 1. It
+      contains no quote characters on purpose (native argument passing on Windows mangles them), so both names are
+      checked to hold nothing but plain characters.
+    #>
+    param([string]$Directory, [string]$FileName)
+    if ($FileName -cnotmatch '^pre-migrate-[0-9a-f]{12}-\d{8}-\d{6}\.dump$') { throw "not a pre-migrate dump name: '$FileName'" }
+    if ($Directory -cnotmatch '^[A-Za-z0-9_./:-]+$') { throw "not a plain folder name: '$Directory'" }
+    $f = "$Directory/$FileName"
+    "mkdir -p $Directory; if pg_dump -Fc -f $f.partial && [ -s $f.partial ] && pg_restore --list $f.partial >/dev/null; then mv -f $f.partial $f || { rm -f $f.partial; exit 1; }; echo pre-migrate dump written: pre-migrate/$FileName; else rm -f $f.partial; echo pre-migrate dump FAILED; exit 1; fi"
+}
+
+function Test-CmMigrationsPending {
+    <#
+      Whether the release may change the database schema: git lists the files that differ between the deployed commit
+      and the new one, and any file under a Migrations folder means yes. Anything git cannot answer (no deployed
+      commit, a failed diff) is also a yes, because a dump that was not needed costs a few seconds and a dump that
+      was needed and skipped costs the night's data. Read only.
+    #>
+    param($Ctx, [string]$From, [string]$To)
+    $yes = { param($why) [pscustomobject]@{ Pending = $true; Reason = $why } }
+    if ("$From" -cnotmatch '^[0-9a-f]{40}$' -or "$To" -cnotmatch '^[0-9a-f]{40}$') {
+        return & $yes 'there is no deployed commit to compare with, so migrations are assumed pending'
+    }
+    $r = Invoke-Cm -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'diff', '--name-only', '--no-renames', $From, $To)
+    if ($r.ExitCode -ne 0) {
+        return & $yes "git could not compare $($From.Substring(0, 12)) with $($To.Substring(0, 12)) (exit $($r.ExitCode)), so the deployer could not tell whether migrations are pending; assuming they are"
+    }
+    $changed = @(@($r.Output) | Where-Object { "$_" -cmatch '(^|/)Migrations/' })
+    if ($changed.Count -gt 0) {
+        return & $yes "$($changed.Count) migration file$(if ($changed.Count -ne 1) { 's' }) changed between $($From.Substring(0, 12)) and $($To.Substring(0, 12))"
+    }
+    [pscustomobject]@{ Pending = $false; Reason = "between $($From.Substring(0, 12)) and $($To.Substring(0, 12))" }
+}
+
+function Select-CmPreMigrateDumpsToRemove {
+    <#
+      Pure. Of the file names in the pre-migrate folder, the ones to delete: only names of exactly the form
+      pre-migrate-<12 hex>-<yyyyMMdd-HHmmss>.dump are looked at (anything else in the folder is not ours), the newest
+      Keep by their time stamp stay. A Keep below 1 removes nothing: the newest dump always stays.
+    #>
+    param([string[]]$Names = @(), [int]$Keep = 5)
+    if ($Keep -lt 1) { return @() }
+    $ours = foreach ($n in @($Names)) {
+        if ("$n" -cmatch '^pre-migrate-[0-9a-f]{12}-(\d{8}-\d{6})\.dump$') { [pscustomobject]@{ Name = "$n"; Stamp = $Matches[1] } }
+    }
+    $sorted = @($ours | Sort-Object -Property @{ Expression = 'Stamp'; Descending = $true }, @{ Expression = 'Name'; Descending = $true })
+    @($sorted | Select-Object -Skip $Keep | ForEach-Object { $_.Name })
+}
+
+function Remove-CmOldPreMigrateDumps {
+    <# Keeps the newest few pre-migrate dumps in <backup dir>/pre-migrate. Never fails the deploy; never creates the folder. #>
+    param([string]$BackupDir, [int]$Keep = $script:CmPreMigrateKeep)
+    try {
+        if (-not "$BackupDir".Trim()) { return }
+        $dir = Join-Path $BackupDir 'pre-migrate'
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+        $gone = @(Select-CmPreMigrateDumpsToRemove -Names @(Get-ChildItem -LiteralPath $dir -File | ForEach-Object { $_.Name }) -Keep $Keep)
+        foreach ($name in $gone) {
+            if ($name -cnotmatch '^pre-migrate-[0-9a-f]{12}-\d{8}-\d{6}\.dump$') { continue }   # belt and braces: never remove anything else
+            Remove-Item -LiteralPath (Join-Path $dir $name) -Force -ErrorAction Stop
+        }
+        if ($gone.Count -gt 0) { Write-CmLog "removed $($gone.Count) old pre-migrate dump$(if ($gone.Count -ne 1) { 's' }); the newest $Keep stay" }
+    }
+    catch { Write-CmLog "could not remove old pre-migrate dumps ($($_.Exception.Message)); they stay and the deploy goes on" 'WARN' }
+}
+
+function Invoke-CmPreMigrateDump {
+    <#
+      Before the migrate step: when migrations may be pending (Test-CmMigrationsPending), dump the live database with the
+      backup image that is running now (a proven one; on the very first deploy, the new one) into
+      <CM_BACKUP_DIR>/pre-migrate. `--no-deps` leaves the running postgres alone. Returns @{ Ok; Skipped; Reason }:
+      Ok false means the dump failed and the caller must not migrate.
+    #>
+    param($Ctx, [hashtable]$EnvMap, $Current, [string]$Sha, $NewCtx, $OldCtx)
+    $from = if ($Current) { "$($Current['sha'])" } else { '' }
+    $pending = Test-CmMigrationsPending -Ctx $Ctx -From $from -To $Sha
+    if (-not $pending.Pending) {
+        Write-CmLog "no migration file changed $($pending.Reason), so no pre-migrate dump is taken"
+        return [pscustomobject]@{ Ok = $true; Skipped = $true; Reason = '' }
+    }
+    Write-CmLog "taking a pre-migrate dump of the database: $($pending.Reason)"
+    $name = Get-CmPreMigrateDumpName -Sha $Sha -Utc ([DateTime]::UtcNow)
+    $shellScript = Get-CmPreMigrateScript -Directory '/backups/pre-migrate' -FileName $name
+    if ($from) {
+        $dumpCtx = if ($OldCtx) { $OldCtx } else { $Ctx }
+        $tag = $from
+        $flags = @('run', '--rm', '--no-deps', '-T')
+    }
+    else {
+        $dumpCtx = $NewCtx
+        $tag = $Sha
+        $flags = @('run', '--rm', '-T')
+    }
+    $r = Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $tag } -Arguments (Get-CmComposeArgs $dumpCtx ($flags + @('--entrypoint', 'sh', 'backup', '-c', $shellScript)))
+    if ($r.ExitCode -ne 0) {
+        $last = (@($r.Output) | Where-Object { "$_".Trim() } | Select-Object -Last 1)
+        $detail = if ($last) { ": $(("$last").Trim())" } else { '' }
+        if ($detail.Length -gt 200) { $detail = $detail.Substring(0, 200) }
+        $reason = "the pre-migrate dump of the database failed for $($Sha.Substring(0, 12)) (docker exited $($r.ExitCode)$detail), so the database was not migrated and the running version was not touched; the next poll tries again"
+        return [pscustomobject]@{ Ok = $false; Skipped = $false; Reason = $reason }
+    }
+    Write-CmLog "pre-migrate dump written to pre-migrate/$name in the backup folder"
+    Remove-CmOldPreMigrateDumps -BackupDir "$($EnvMap['CM_BACKUP_DIR'])"
+    [pscustomobject]@{ Ok = $true; Skipped = $false; Reason = '' }
+}
+
+# ---- housekeeping: old images --------------------------------------------------------------------------------------------
+# Every deploy pulls three images (api, migrate, backup) tagged with the full commit hash, and nothing used to remove
+# them: about 40 GB after a few weeks. After a good deploy, and on quiet polls so a backlog is worked off, the deployer
+# removes tags of THOSE THREE repositories only, by explicit repo:tag, one `docker image rm` each (docker refuses to
+# remove what a container uses, which is fine). Kept, per repository: the running version, the previous good one (the
+# rollback target) and the 3 newest others by build time. CM_PRUNE_IMAGES=0 (in .env or the environment) switches it off.
+
+$script:CmPruneKeepRecent = 3
+$script:CmPruneMaxPerPoll = 100          # a backlog is worked off over several polls instead of one long one
+$script:CmPruneSecondsPerPoll = 90       # and a slow disk stops a poll's clean-up at this long
+$script:CmPruneMaxFailuresInARow = 5     # something is wrong with docker itself: stop asking
+
+function Test-CmPruneEnabled {
+    <# On unless CM_PRUNE_IMAGES says 0, false, off or no (any case), in .env or in the process environment. #>
+    param([hashtable]$EnvMap = @{}, [string]$ProcessValue = '')
+    foreach ($value in @($EnvMap['CM_PRUNE_IMAGES'], $ProcessValue)) {
+        if ("$value".Trim() -in @('0', 'false', 'off', 'no')) { return $false }
+    }
+    $true
+}
+
+function ConvertFrom-CmDockerCreatedAt {
+    <# `docker image ls` prints CreatedAt as Go does: '2026-10-30 22:31:55 -0500 CDT'. A DateTimeOffset, or $null for anything else. #>
+    param([string]$Text)
+    if ("$Text" -notmatch '^\s*(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)? ([+-])(\d{2})(\d{2})\b') { return $null }
+    try {
+        $local = [DateTime]::ParseExact("$($Matches[1]) $($Matches[2])", 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+        if ($Matches[3]) { $local = $local.AddSeconds([double]::Parse("0$($Matches[3])", [Globalization.CultureInfo]::InvariantCulture)) }
+        $offset = [TimeSpan]::new([int]$Matches[5], [int]$Matches[6], 0)
+        if ($Matches[4] -eq '-') { $offset = $offset.Negate() }
+        [DateTimeOffset]::new($local, $offset)
+    }
+    catch { $null }
+}
+
+function Select-CmImagesToPrune {
+    <#
+      Pure. Decides which image tags to remove. Images are objects with Repository, Tag, Id and Created (a
+      DateTimeOffset, or $null when unknown). Only tags of the named repositories (exact name) that are a full 40-digit
+      lower case commit hash are ever candidates: main, latest, <none>, other repositories and lookalikes are not.
+      Per repository these stay: any tag in KeepTags (the running and the previous version), the KeepRecent newest of
+      the rest by Created, anything with no usable Created, and anything in InUse (references 'repo:tag' and image ids,
+      full or at least 12 hex digits, of images that containers use). With no valid KeepTags nothing is selected.
+      Returns @{ Remove; Eligible }: Remove is at most Max tags, oldest first; Eligible is how many qualified before
+      the cap, so the caller can say how many wait for the next poll.
+    #>
+    param([object[]]$Images = @(), [string[]]$Repositories = @(), [string[]]$KeepTags = @(), [string[]]$InUse = @(), [int]$KeepRecent = 3, [int]$Max = 100)
+    $none = [pscustomobject]@{ Remove = @(); Eligible = 0 }
+    $keep = @($KeepTags | Where-Object { "$_" -cmatch '^[0-9a-f]{40}$' })
+    if ($keep.Count -eq 0 -or $Max -lt 1) { return $none }
+    if ($KeepRecent -lt 0) { $KeepRecent = 0 }
+
+    $usedRefs = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $usedIds = [System.Collections.Generic.List[string]]::new()
+    foreach ($u in @($InUse)) {
+        $text = "$u".Trim()
+        if (-not $text) { continue }
+        $bare = $text -replace '^sha256:', ''
+        if ($bare -cmatch '^[0-9a-f]{12,64}$') { $usedIds.Add($bare) } else { [void]$usedRefs.Add($text) }
+    }
+    $isUsed = {
+        param($img)
+        if ($usedRefs.Contains("$($img.Repository):$($img.Tag)")) { return $true }
+        $id = "$($img.Id)" -replace '^sha256:', ''
+        foreach ($used in $usedIds) { if ($id -and $id.StartsWith($used, [StringComparison]::Ordinal)) { return $true } }
+        $false
+    }
+
+    $chosen = [System.Collections.Generic.List[object]]::new()
+    foreach ($repo in @($Repositories | Where-Object { $_ } | Select-Object -Unique)) {
+        $mine = @($Images | Where-Object { $_ -and "$($_.Repository)" -ceq $repo -and "$($_.Tag)" -cmatch '^[0-9a-f]{40}$' })
+        $others = @($mine | Where-Object { $keep -cnotcontains "$($_.Tag)" })
+        $dated = @($others | Where-Object { $null -ne $_.Created } | Sort-Object -Property @{ Expression = { $_.Created }; Descending = $true }, @{ Expression = { $_.Tag }; Descending = $true })
+        foreach ($img in @($dated | Select-Object -Skip $KeepRecent)) {
+            if (-not (& $isUsed $img)) { $chosen.Add($img) }
+        }
+    }
+    $ordered = @($chosen | Sort-Object -Property @{ Expression = { $_.Created }; Descending = $false }, @{ Expression = { $_.Repository }; Descending = $false }, @{ Expression = { $_.Tag }; Descending = $false })
+    [pscustomobject]@{ Remove = @($ordered | Select-Object -First $Max); Eligible = $ordered.Count }
+}
+
+function Get-CmLocalImages {
+    <# Every local image tag as objects for Select-CmImagesToPrune (read only). $null when docker cannot list them. #>
+    param($Ctx)
+    $r = Invoke-Cm -Command 'docker' -Arguments @('image', 'ls', '--no-trunc', '--format', '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}')
+    if ($r.ExitCode -ne 0) { return $null }
+    $images = foreach ($line in @($r.Output)) {
+        $parts = "$line".Trim() -split '\|', 4
+        if ($parts.Count -ne 4) { continue }
+        [pscustomobject]@{ Repository = $parts[0]; Tag = $parts[1]; Id = $parts[2]; Created = (ConvertFrom-CmDockerCreatedAt $parts[3]) }
+    }
+    , @($images)
+}
+
+function Get-CmContainerImages {
+    <# What every container, running or not, was created from, as docker prints it (a reference, or an id). Read only; empty when docker cannot say. #>
+    $r = Invoke-Cm -Command 'docker' -Arguments @('ps', '-a', '--no-trunc', '--format', '{{.Image}}')
+    if ($r.ExitCode -ne 0) { return @() }
+    @(@($r.Output) | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+}
+
+function Invoke-CmImagePrune {
+    <#
+      Removes old images of this project's three repositories (see the notes above). Apply mode only. It reads the
+      running and previous version from the state file, so it does nothing without a valid deployed commit on record.
+      It can never fail a deploy: every problem is a WARN and the next poll tries again.
+    #>
+    param($Ctx, [int]$TimeBudgetSeconds = $script:CmPruneSecondsPerPoll)
+    if (-not $global:CmApply) { return }
+    try {
+        $envMap = Read-CmEnvFile -Path $Ctx.EnvFile
+        if (-not (Test-CmPruneEnabled -EnvMap $envMap -ProcessValue "$env:CM_PRUNE_IMAGES")) { return }
+        $state = Read-CmState -Path $Ctx.StateFile
+        $shaOf = { param($entry) if ($entry -is [System.Collections.IDictionary]) { "$($entry['sha'])" } else { '' } }
+        $current = & $shaOf $state['current']
+        if ($current -cnotmatch '^[0-9a-f]{40}$') { return }
+        $keepTags = @($current, (& $shaOf $state['previous']))
+        $repos = @('api', 'migrate', 'backup' | ForEach-Object { "$($Ctx.ImagePrefix)$_" })
+
+        $images = Get-CmLocalImages -Ctx $Ctx
+        if ($null -eq $images) {
+            Write-CmLog 'could not list the local images, so the old ones were not cleaned up this poll' 'WARN'
+            return
+        }
+        $plan = Select-CmImagesToPrune -Images $images -Repositories $repos -KeepTags $keepTags -KeepRecent $script:CmPruneKeepRecent -Max $script:CmPruneMaxPerPoll
+        if ($plan.Remove.Count -eq 0) { return }
+        # Only now ask what containers use (a second look at the same list, minus those), so a clean machine costs one listing.
+        $used = @(Get-CmContainerImages)
+        if ($used.Count -gt 0) {
+            $plan = Select-CmImagesToPrune -Images $images -Repositories $repos -KeepTags $keepTags -InUse $used -KeepRecent $script:CmPruneKeepRecent -Max $script:CmPruneMaxPerPoll
+            if ($plan.Remove.Count -eq 0) { return }
+        }
+
+        $removed = 0
+        $failed = [System.Collections.Generic.List[string]]::new()
+        $firstError = ''
+        $inARow = 0
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        foreach ($img in $plan.Remove) {
+            if ($clock.Elapsed.TotalSeconds -ge $TimeBudgetSeconds) { break }
+            $ref = "$($img.Repository):$($img.Tag)"
+            $r = Invoke-Cm -Mutating -Command 'docker' -Arguments @('image', 'rm', $ref)
+            if ($r.ExitCode -eq 0) { $removed++; $inARow = 0; continue }
+            $failed.Add($ref)
+            if (-not $firstError) { $firstError = (@($r.Output) | Where-Object { "$_".Trim() } | Select-Object -First 1) }
+            $inARow++
+            if ($inARow -ge $script:CmPruneMaxFailuresInARow) { break }
+        }
+        $waiting = $plan.Eligible - $removed - $failed.Count
+        $plural = { param($n) if ($n -eq 1) { "$n old image" } else { "$n old images" } }
+        if ($removed -gt 0) {
+            $more = if ($waiting -gt 0) { "; $waiting more wait for the next poll" } else { '' }
+            Write-CmLog "removed $(& $plural $removed) of api, migrate and backup (kept the running and the previous version and the $($script:CmPruneKeepRecent) newest of each)$more"
+        }
+        if ($failed.Count -gt 0) {
+            $why = if ($firstError) { ": $(("$firstError").Trim())" } else { '' }
+            if ($why.Length -gt 200) { $why = $why.Substring(0, 200) }
+            Write-CmLog "could not remove $(& $plural $failed.Count) (first: $($failed[0])$why); they stay and the deploy is not affected" 'WARN'
+        }
+    }
+    catch { Write-CmLog "cleaning up old images failed ($($_.Exception.Message)); the deploy is not affected" 'WARN' }
+}
+
 # ---- one deploy ----------------------------------------------------------------------------------------------------------
 
 function Get-CmVerifiedImages {
@@ -502,7 +818,7 @@ function Invoke-CmDeploy {
       explicit rollback path (the only way to go back to an older commit).
       Outcomes and exit codes:
         0  dry-run, busy, up-to-date, known-bad, deployed, manual-rollback
-        1  migrate-failed, rolled-back, failed, rollback-failed, crashed, stale-lock
+        1  migrate-failed, dump-failed, rolled-back, failed, rollback-failed, crashed, stale-lock
         2  config-error
         3  no-docker
         4  refused, downgrade-refused, rollback-refused
@@ -663,6 +979,14 @@ function Invoke-CmDeployCore {
             return New-CmResult 'config-error' 2 ($newProblems -join '; ')
         }
         $oldCtx = if ($current) { New-CmCtxAtCommit -Ctx $Ctx -Sha "$($current['sha'])" } else { $null }
+        # A release that may change the schema gets a named dump of the live database first. If the dump fails nothing is
+        # migrated and the running version stays; the commit is not blamed (a full disk is not its fault), so the next
+        # poll tries again.
+        $dump = Invoke-CmPreMigrateDump -Ctx $Ctx -EnvMap $envMap -Current $current -Sha $sha -NewCtx $newCtx -OldCtx $oldCtx
+        if (-not $dump.Ok) {
+            Write-CmLog $dump.Reason 'ERROR'
+            return New-CmResult 'dump-failed' 1 $dump.Reason
+        }
         $mig = Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $sha } -Arguments (Get-CmComposeArgs $newCtx @('run', '--rm', 'migrate'))
         if ($mig.ExitCode -ne 0) {
             $message = "migration failed for $($sha.Substring(0, 12)); the running api was not touched"
@@ -685,6 +1009,9 @@ function Invoke-CmDeployCore {
         }
 
         if ($health.Ok) {
+            # The version it replaces is the rollback target: remembered so the image clean-up never removes it.
+            $before = if ($current) { "$($current['sha'])" } else { '' }
+            if ($before -cmatch '^[0-9a-f]{40}$' -and $before -ne $sha) { $state['previous'] = @{ sha = $before } }
             $state['current'] = @{
                 sha        = $sha
                 created    = $api.Created
@@ -695,6 +1022,7 @@ function Invoke-CmDeployCore {
             Write-CmState -Path $Ctx.StateFile -State $state
             Write-CmLog "deployed $($sha.Substring(0, 12)); smoke test passed"
             Remove-CmRetiredIpa -Ctx $Ctx
+            Invoke-CmImagePrune -Ctx $Ctx
             return New-CmResult 'deployed' 0
         }
 

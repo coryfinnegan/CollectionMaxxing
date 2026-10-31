@@ -21,6 +21,7 @@ type ScreenProps = {
   /**
    * Form screens (#442): the scroll view sits in a KeyboardAvoidingView and
    * the focused field scrolls above the keyboard. Ignored when scroll is off.
+   * Any screen with a text field should set it; taps reach controls either way.
    */
   keyboardAvoiding?: boolean;
 };
@@ -62,8 +63,9 @@ export function Screen({
     return <View style={[styles.fill, styles.padding]}>{content}</View>;
   }
   if (!keyboardAvoiding) {
+    // "handled": a tap on a button while the keyboard is up presses the button, not just dismisses the keyboard.
     return (
-      <ScrollView style={styles.fill} contentContainerStyle={styles.padding}>
+      <ScrollView testID="screen-scroll" style={styles.fill} contentContainerStyle={styles.padding} keyboardShouldPersistTaps="handled">
         {content}
       </ScrollView>
     );

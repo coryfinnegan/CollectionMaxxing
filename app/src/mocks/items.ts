@@ -14,7 +14,7 @@ import type {
   WorkKind,
 } from '@/api/generated/models';
 import { localDateString } from '@/lib/dates';
-import { catalogReleases } from './catalog';
+import { catalogReleases, providerHitFor } from './catalog';
 import { newMockId } from './data';
 
 export type MockItem = { item: ItemDto; work: WorkDto; release: ReleaseDto; version: number };
@@ -205,12 +205,21 @@ export const handlers = [
     const body = JSON.parse(raw) as CreateItemRequest;
     const n = itemsState.entries.length + 1000;
     let entry: MockItem;
+    if (body.releaseId && body.providerRef) {
+      return problem(400, 'One or more validation errors occurred.', { releaseId: ['Give a releaseId, a providerRef or manual details: exactly one of them.'] }, { code: 'item.source_required' });
+    }
     if (body.releaseId) {
       const found = catalogReleases().find((c) => c.release.id === body.releaseId);
       if (!found) return problem(404, 'That release is not in the catalog.');
       entry = makeEntry(n, 0, [found.work.title, found.work.kind, found.release.format, found.release.platform?.name ?? null, found.release.year ?? 0, 'owned', null]);
       entry.work.id = found.work.id;
       entry.release = { ...found.release };
+    } else if (body.providerRef) {
+      // Like the server: a hit the search showed is saved as a new work and release with real ids.
+      const found = providerHitFor(body.providerRef);
+      if (!found) return problem(404, 'That search result has expired. Search again to add it.', undefined, { code: 'provider_hit.not_found' });
+      entry = makeEntry(n, 0, [found.work.title, found.work.kind, found.release.format, found.release.platform?.name ?? null, found.release.year ?? 0, 'owned', null]);
+      entry.release = { ...entry.release, publisher: found.release.publisher, source: 'provider' };
     } else {
       const title = body.manual?.title?.trim();
       if (!title) return problem(400, 'One or more validation errors occurred.', { title: ['Title is required.'] });
@@ -222,7 +231,7 @@ export const handlers = [
     }
     entry.item.id = newMockId();
     entry.item.createdAt = new Date().toISOString();
-    entry.item.addedVia = body.addedVia ?? (body.releaseId ? 'search' : 'manual');
+    entry.item.addedVia = body.addedVia ?? (body.releaseId || body.providerRef ? 'search' : 'manual');
     entry.item.acquiredOn = body.acquiredOn ?? localDateString();
     if (body.status) entry.item.status = body.status;
     if (body.locationId !== undefined) entry.item.locationId = body.locationId;

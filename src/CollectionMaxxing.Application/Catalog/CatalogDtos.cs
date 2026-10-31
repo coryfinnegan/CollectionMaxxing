@@ -18,7 +18,16 @@ public sealed record WorkDto(
 /// <summary>A barcode or catalogue number of a release.</summary>
 public sealed record ReleaseIdentifierDto(IdentifierType Type, string Value);
 
-/// <summary>A specific physical product: the 1993 VHS, the N64 cartridge.</summary>
+/// <summary>
+/// Names a search result that only a provider knows: the provider and its own id for the release. The catalogue has no id
+/// for such a result until an add saves it, so <c>POST …/items</c> takes this instead of a <c>releaseId</c>.
+/// </summary>
+public sealed record ProviderRefDto(string Provider, string ExternalId);
+
+/// <summary>
+/// A specific physical product: the 1993 VHS, the N64 cartridge. A release only a provider knows has the empty id and
+/// names itself in <see cref="ProviderRef"/>; one the catalogue has saved has a real id and no provider reference.
+/// </summary>
 public sealed record ReleaseDto(
     Guid Id,
     Guid WorkId,
@@ -35,7 +44,8 @@ public sealed record ReleaseDto(
     int? RuntimeMinutes,
     string? CoverUrl,
     ReleaseSource Source,
-    IReadOnlyList<ReleaseIdentifierDto> Identifiers);
+    IReadOnlyList<ReleaseIdentifierDto> Identifiers,
+    ProviderRefDto? ProviderRef = null);
 
 /// <summary>A games platform (reference data).</summary>
 public sealed record PlatformDto(Guid Id, string Name, string ShortName, string? Manufacturer);

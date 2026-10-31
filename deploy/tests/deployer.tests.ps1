@@ -436,6 +436,132 @@ Test-Case 'config guard: the deployer refuses a bad config before pulling or cha
     Assert-Equal 0 (Get-MutatingCalls).Count
 }
 
+# ---- config guard: mounts, capabilities and host namespaces ------------------------------------------------------------------
+
+$script:GuardCompose = 'C:\CollectionMaxxing\repo\deploy\docker-compose.yml'
+function New-GuardEnv {
+    @{ CM_API_PORT = '5480'; CM_DASHBOARD_PORT = '18888'; CM_BACKUP_DIR = 'F:\Backups\CollectionMaxxing'; CM_SECRETS_DIR = 'C:\CollectionMaxxing\secrets' }
+}
+function Add-GuardVolume {
+    param($Config, [string]$Source, [string]$Target = '/mnt/x', [string]$Type = 'bind', [string]$Service = 'api')
+    $svc = $Config.services.$Service
+    $entry = [pscustomobject]@{ type = $Type; target = $Target }
+    if ($PSBoundParameters.ContainsKey('Source')) { $entry | Add-Member -NotePropertyName source -NotePropertyValue $Source }
+    $existing = @(if ($svc.PSObject.Properties['volumes']) { $svc.volumes })
+    $svc | Add-Member -NotePropertyName volumes -NotePropertyValue @($existing + $entry) -Force
+}
+function Get-GuardProblems {
+    param($Config, [hashtable]$EnvMap = $null)
+    if (-not $EnvMap) { $EnvMap = New-GuardEnv }
+    @(Test-CmConfig -EnvMap $EnvMap -ComposeConfig $Config -ComposeFile $script:GuardCompose)
+}
+
+Test-Case 'config guard: a bind mount of a host folder that is not on the allow-list is refused, naming the service and the container path but not the host path' {
+    foreach ($source in 'C:\Users\someone', 'C:\', 'C:\CollectionMaxxing', 'C:\CollectionMaxxing\.env', 'C:\CollectionMaxxing\state', 'F:\', '/', '/etc', '/home/someone/data') {
+        $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source $source -Target '/mnt/probe'
+        $problems = @(Get-GuardProblems $cfg)
+        Assert-Equal 1 $problems.Count "source [$source]: $($problems -join '; ')"
+        Assert-Match $problems[0] "service 'api'"
+        Assert-Match $problems[0] '/mnt/probe'
+        if ($source.Length -gt 3) { Assert-False ($problems[0].Contains($source)) "the host path [$source] must not be echoed (it may come from .env)" }
+    }
+}
+
+Test-Case 'config guard: bind mounts of the folders the stack is configured to use pass, however the path is written' {
+    $good = @(
+        'F:\Backups\CollectionMaxxing', 'F:\Backups\CollectionMaxxing\', 'F:/Backups/CollectionMaxxing', 'f:\backups\collectionmaxxing', 'F:\Backups\CollectionMaxxing\db',
+        'C:\CollectionMaxxing\secrets', 'C:/CollectionMaxxing/secrets/auth0',
+        'C:\CollectionMaxxing\repo\deploy\recognition',                    # the default recognition folder, beside the compose file
+        'C:\CollectionMaxxing\repo\evals\baseline.json',                    # ../evals/baseline.json from the compose file
+        'C:\CollectionMaxxing\evals\golden', 'C:\CollectionMaxxing\evals\results')   # the default evals folder, beside the clone
+    foreach ($source in $good) {
+        $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source $source
+        Assert-Equal 0 (Get-GuardProblems $cfg).Count "[$source] should pass"
+    }
+    $envMap = New-GuardEnv; $envMap['CM_EVALS_DIR'] = 'D:\Evals'; $envMap['CM_RECOGNITION_DIR'] = 'D:\Tuning'
+    foreach ($source in 'D:\Evals\golden', 'D:\Tuning') {
+        $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source $source
+        Assert-Equal 0 (Get-GuardProblems $cfg $envMap).Count "[$source] is configured in .env"
+    }
+    $envMap = New-GuardEnv; $envMap['CM_RECOGNITION_DIR'] = './recognition'
+    $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source 'C:\CollectionMaxxing\repo\deploy\recognition'
+    Assert-Equal 0 (Get-GuardProblems $cfg $envMap).Count 'a relative folder in .env is read from the compose file''s own folder'
+    $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source 'C:\CollectionMaxxing\repo\somewhere-else'
+    Assert-Equal 1 (Get-GuardProblems $cfg $envMap).Count 'and the rest of the clone is still not allowed'
+}
+
+Test-Case 'config guard: a sibling with the same name prefix, the parent folder, and a .. climb are not inside an allowed folder' {
+    foreach ($source in 'F:\Backups\CollectionMaxxing-old', 'F:\Backups\CollectionMaxxingX\db', 'F:\Backups', 'F:\Backups\CollectionMaxxing\..\Other', 'F:\Backups\CollectionMaxxing\..', 'C:\CollectionMaxxing\secrets2', 'C:\CollectionMaxxing\repo\deploy\..\..\state') {
+        $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source $source
+        Assert-Equal 1 (Get-GuardProblems $cfg).Count "[$source] should be refused"
+    }
+}
+
+Test-Case 'config guard: the Docker socket and engine pipe are refused in every spelling, even when .env names their folder' {
+    foreach ($source in '/var/run/docker.sock', '//var/run/docker.sock', '\\.\pipe\docker_engine', '//./pipe/docker_engine', 'C:\ProgramData\docker.sock') {
+        $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source $source -Target '/var/run/docker.sock'
+        $problems = @(Get-GuardProblems $cfg)
+        Assert-True ($problems.Count -ge 1) "[$source]"
+        Assert-Match ($problems -join ';') 'Docker'
+        $envMap = New-GuardEnv; $envMap['CM_BACKUP_DIR'] = ($source -replace '[^/\\]+$', '').TrimEnd('/', '\')
+        $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source $source -Target '/run/x.sock'
+        Assert-Match ((Get-GuardProblems $cfg $envMap) -join ';') 'Docker' "[$source] with its folder allow-listed"
+    }
+    $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source 'npipe' -Target '/pipe' -Type 'npipe'
+    Assert-True ((Get-GuardProblems $cfg).Count -ge 1) 'a named-pipe mount of any kind'
+}
+
+Test-Case 'config guard: named volumes and tmpfs are fine; a mount with no host path, or of an unknown kind, is not' {
+    $cfg = New-GoodComposeConfig
+    Add-GuardVolume $cfg -Source 'files' -Target '/data/files' -Type 'volume'
+    Add-GuardVolume $cfg -Target '/tmp/x' -Type 'tmpfs'
+    Assert-Equal 0 (Get-GuardProblems $cfg).Count
+    $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source '' -Target '/x'
+    Assert-Equal 1 (Get-GuardProblems $cfg).Count 'a bind with an empty source'
+    $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Target '/x'
+    Assert-Equal 1 (Get-GuardProblems $cfg).Count 'a bind with no source at all'
+    $cfg = New-GoodComposeConfig; Add-GuardVolume $cfg -Source 'x' -Target '/x' -Type 'cluster'
+    Assert-Equal 1 (Get-GuardProblems $cfg).Count 'a kind of mount this guard does not know'
+}
+
+Test-Case 'config guard: a named volume that is secretly a bind of a host folder is refused' {
+    $cfg = New-GoodComposeConfig
+    $cfg | Add-Member -NotePropertyName volumes -NotePropertyValue ([pscustomobject]@{
+            files  = [pscustomobject]@{ name = 'collectionmaxxing_files'; external = $false }
+            sneaky = [pscustomobject]@{ name = 'collectionmaxxing_sneaky'; driver = 'local'; driver_opts = [pscustomobject]@{ type = 'none'; o = 'bind'; device = 'C:\Users\someone' } }
+        })
+    $problems = @(Get-GuardProblems $cfg)
+    Assert-Equal 1 $problems.Count ($problems -join '; ')
+    Assert-Match $problems[0] "volume 'sneaky'"
+    Assert-False ($problems[0] -match 'someone')
+}
+
+Test-Case 'config guard: added capabilities and the host process or IPC namespace are refused' {
+    $cfg = New-GoodComposeConfig; $cfg.services.api | Add-Member -NotePropertyName cap_add -NotePropertyValue @('SYS_ADMIN')
+    Assert-Match ((Get-GuardProblems $cfg) -join ';') 'cap_add'
+    $cfg = New-GoodComposeConfig; $cfg.services.api | Add-Member -NotePropertyName cap_add -NotePropertyValue @()
+    Assert-Equal 0 (Get-GuardProblems $cfg).Count 'an empty cap_add adds nothing'
+    $cfg = New-GoodComposeConfig; $cfg.services.api | Add-Member -NotePropertyName cap_drop -NotePropertyValue @('ALL')
+    Assert-Equal 0 (Get-GuardProblems $cfg).Count 'dropping capabilities is the safe direction'
+    $cfg = New-GoodComposeConfig; $cfg.services.api | Add-Member -NotePropertyName pid -NotePropertyValue 'host'
+    Assert-Match ((Get-GuardProblems $cfg) -join ';') 'pid: host'
+    $cfg = New-GoodComposeConfig; $cfg.services.api | Add-Member -NotePropertyName ipc -NotePropertyValue 'host'
+    Assert-Match ((Get-GuardProblems $cfg) -join ';') 'ipc: host'
+    $cfg = New-GoodComposeConfig; $cfg.services.api | Add-Member -NotePropertyName devices -NotePropertyValue @([pscustomobject]@{ source = '/dev/sda'; target = '/dev/sda' })
+    Assert-Match ((Get-GuardProblems $cfg) -join ';') 'devices'
+}
+
+Test-Case 'config guard: the deployer refuses a release whose compose file mounts the Docker socket before it dumps, migrates or starts anything' {
+    $bad = New-GoodComposeConfig; Add-GuardVolume $bad -Source '/var/run/docker.sock' -Target '/var/run/docker.sock'
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ ComposeAt = @{ $script:Sha2 = 'bad: file' }; ComposeConfigFor = @{ 'bad: file' = $bad }; ChangedFiles = @('src/X/Migrations/1_A.cs') }
+    Assert-Equal 'config-error' $r.Result.Outcome
+    Assert-Equal 2 $r.Result.ExitCode
+    Assert-Match $r.Result.Reason 'Docker'
+    Assert-Equal 0 (Get-Calls 'docker' '*--entrypoint sh backup*').Count 'no dump'
+    Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
+    Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
+}
+
 Test-Case 'deployer: a portable gh under <Root>/tools/gh/bin goes first on this process PATH, once' {
     $root = New-TestRoot
     $saved = $env:PATH

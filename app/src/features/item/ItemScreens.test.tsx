@@ -1,10 +1,12 @@
+import { focusManager } from '@tanstack/react-query';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
+import { HttpResponse, http } from 'msw';
 import { Platform } from 'react-native';
 import DetailRoute from '@/app/item/[id]/index';
 import EditRoute from '@/app/item/[id]/edit';
 import { LibraryView } from '@/features/library/LibraryView';
 import { boundScanStore } from '@/features/review/boundScan';
-import { MOCK_LIBRARY_ID } from '@/mocks/data';
+import { MOCK_LIBRARY_ID, mockMe } from '@/mocks/data';
 import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -12,7 +14,7 @@ import { ItemDetailScreen } from './ItemDetailScreen';
 import { ItemEditScreen } from './ItemEditScreen';
 import { useUndoStore } from './useItem';
 
-const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: jest.fn(() => true) };
 jest.mock('expo-router', () => ({
   useRouter: () => mockRouter,
   useLocalSearchParams: () => ({ id: 'c0000000-0000-4000-8000-000000000001' }),
@@ -40,6 +42,12 @@ const MARIO = 'c0000000-0000-4000-8000-000000000004';
 const entry = () => itemsState.entries.find((e) => e.item.id === MATRIX)!;
 
 let patchHeaders: (string | null)[] = [];
+let patchBodyReads: Promise<unknown>[] = [];
+/** What each PATCH sent, in order. */
+const patchBodies = () => Promise.all(patchBodyReads);
+let itemReads = 0;
+let itemRequests = 0;
+let meReads = 0;
 
 beforeEach(() => {
   resetItems();
@@ -47,12 +55,59 @@ beforeEach(() => {
   useUndoStore.setState({ deleted: null });
   mockRouter.back.mockClear();
   mockRouter.push.mockClear();
+  mockRouter.replace.mockClear();
+  mockRouter.canGoBack.mockReturnValue(true);
   patchHeaders = [];
+  patchBodyReads = [];
+  itemReads = 0;
+  itemRequests = 0;
+  meReads = 0;
   server.events.on('request:start', ({ request }) => {
-    if (request.method === 'PATCH') patchHeaders.push(request.headers.get('If-Match'));
+    if (request.method === 'GET' && new URL(request.url).pathname.endsWith(`/items/${MATRIX}`)) itemRequests += 1;
+    if (request.method === 'PATCH') {
+      patchHeaders.push(request.headers.get('If-Match'));
+      patchBodyReads.push(request.clone().json());
+    }
+  });
+  // Counted when the answer is back, so a test can wait for a refetch to land.
+  server.events.on('response:mocked', ({ request }) => {
+    const path = new URL(request.url).pathname;
+    if (request.method === 'GET' && path.endsWith(`/items/${MATRIX}`)) itemReads += 1;
+    if (request.method === 'GET' && path.endsWith('/api/v1/me')) meReads += 1;
   });
 });
-afterEach(() => server.events.removeAllListeners());
+afterEach(() => {
+  server.events.removeAllListeners();
+  focusManager.setFocused(undefined);
+});
+
+const asRole = (role: 'owner' | 'editor' | 'viewer') =>
+  server.use(http.get('*/api/v1/me', () => HttpResponse.json({ ...mockMe(), memberships: [{ ...mockMe().memberships[0]!, role }] })));
+
+/** A refocus of the window, which is how a web tab quietly refetches an item that is open. Resolves once the answer is in. */
+async function refocusAndWaitForFailure() {
+  const before = itemRequests;
+  await act(async () => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+  });
+  await waitFor(() => expect(itemRequests).toBeGreaterThan(before));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+}
+
+async function refocusAndWaitForRefetch() {
+  const before = itemReads;
+  await act(async () => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+  });
+  await waitFor(() => expect(itemReads).toBeGreaterThan(before));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+}
 
 describe('ItemDetailScreen', () => {
   it('shows the facts, the location breadcrumb and the other copies', async () => {
@@ -68,7 +123,7 @@ describe('ItemDetailScreen', () => {
     await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Move'));
+    await fireEvent.press(await screen.findByLabelText('Move'));
     await fireEvent.press(await screen.findByLabelText('Shelf 1'));
 
     await waitFor(() => expect(entry().item.locationId).toBe('a0000000-0000-4000-8000-000000000002'));
@@ -159,17 +214,46 @@ describe('ItemDetailScreen', () => {
     await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Delete'));
+    await fireEvent.press(await screen.findByLabelText('Delete'));
 
     await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
     expect(entry().item.deletedAt).not.toBeNull();
     expect(useUndoStore.getState().deleted?.title).toBe('The Matrix');
   });
 
+  it('on a fresh load, with no history to go back to, deleting lands on the library instead of nowhere', async () => {
+    mockRouter.canGoBack.mockReturnValue(false);
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+    await screen.findByText('The Matrix');
+
+    await fireEvent.press(await screen.findByLabelText('Delete'));
+
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith('/library'));
+    expect(mockRouter.back).not.toHaveBeenCalled();
+    expect(useUndoStore.getState().deleted?.title).toBe('The Matrix');
+  });
+
+  it('keeps Undo reachable when the deleted item then answers not found', async () => {
+    // The router is a stand-in, so the screen stays up while the refetch after the delete comes back 404.
+    mockRouter.canGoBack.mockReturnValue(false);
+    await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+    await screen.findByText('The Matrix');
+
+    await fireEvent.press(await screen.findByLabelText('Delete'));
+
+    expect(await screen.findByText("Couldn't load this item")).toBeTruthy();
+    expect(screen.getByText('Deleted The Matrix')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Undo'));
+
+    expect(await screen.findByLabelText('Move')).toBeTruthy();
+    expect(entry().item.deletedAt).toBeNull();
+    expect(screen.queryByText('Deleted The Matrix')).toBeNull();
+  });
+
   it('Undo after a delete brings the item back to the list', async () => {
     const detail = await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
     await screen.findByText('The Matrix');
-    await fireEvent.press(screen.getByLabelText('Delete'));
+    await fireEvent.press(await screen.findByLabelText('Delete'));
     await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
     await detail.unmount();
 
@@ -182,6 +266,60 @@ describe('ItemDetailScreen', () => {
     expect(await screen.findByLabelText('The Matrix, DVD')).toBeTruthy();
     expect(entry().item.deletedAt).toBeNull();
     expect(screen.queryByText('Deleted The Matrix')).toBeNull();
+  });
+
+  describe('for each role', () => {
+    const editingControls = ['Edit', 'Move', 'Delete', 'Scan barcode to verify edition'];
+
+    it.each(['owner', 'editor'] as const)('offers an %s every editing action', async (role) => {
+      asRole(role);
+      entry().item.editionVerified = false;
+      await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+
+      for (const label of editingControls) expect(await screen.findByLabelText(label)).toBeTruthy();
+    });
+
+    it('offers a viewer the facts and nothing to change', async () => {
+      asRole('viewer');
+      entry().item.editionVerified = false;
+      await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+      await screen.findByText('The Matrix');
+      // Wait for the role to land, so the controls' absence is the answer and not just "not yet".
+      await waitFor(() => expect(meReads).toBeGreaterThan(0));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      for (const label of editingControls) expect(screen.queryByLabelText(label)).toBeNull();
+      expect(screen.getByText('Owned')).toBeTruthy();
+      expect(screen.getByText('Edition unverified')).toBeTruthy();
+    });
+
+    it('keeps the editing actions hidden until the role is known', async () => {
+      server.use(http.get('*/api/v1/me', () => new Promise<never>(() => undefined)));
+      await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+      await screen.findByText('The Matrix');
+
+      expect(screen.queryByLabelText('Delete')).toBeNull();
+      expect(screen.queryByLabelText('Edit')).toBeNull();
+    });
+
+    describe('on the web', () => {
+      const originalOs = Platform.OS;
+      afterEach(() => {
+        Platform.OS = originalOs;
+      });
+
+      it('never offers the barcode scan, which only the iPhone can do, but still offers the edits', async () => {
+        Platform.OS = 'web';
+        entry().item.editionVerified = false;
+        await renderWithProviders(<ItemDetailScreen id={MATRIX} />);
+
+        expect(await screen.findByLabelText('Edit')).toBeTruthy();
+        expect(screen.getByText('Edition unverified')).toBeTruthy();
+        expect(screen.queryByLabelText('Scan barcode to verify edition')).toBeNull();
+      });
+    });
   });
 });
 
@@ -221,6 +359,186 @@ describe('ItemEditScreen', () => {
     await fireEvent.press(screen.getByLabelText('Save changes'));
     await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
     expect(patchHeaders).toEqual(['"v1"', '"v2"']);
+  });
+
+  describe('when someone else saves the same item', () => {
+    /** B saves while A has the form open: the server moves on a version and B's notes are in. */
+    const bSaves = () => {
+      entry().item.notes = "B's notes";
+      entry().version += 1;
+    };
+
+    it('does not let a refetch swap the version being edited: a quiet refocus keeps the ETag the form opened with', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+      bSaves();
+
+      // On the web a refocus refetches the item behind the form; the live ETag is now B's.
+      await refocusAndWaitForRefetch();
+      await fireEvent.press(screen.getByLabelText('Condition Mint'));
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      // The save still carries the version A started from, so the server refuses it instead of overwriting B.
+      expect(await screen.findByText('Someone changed this. Reload?')).toBeTruthy();
+      expect(patchHeaders).toEqual(['"v1"']);
+      expect(entry().item.notes).toBe("B's notes");
+      expect(entry().item.condition).toBeNull();
+      expect(mockRouter.back).not.toHaveBeenCalled();
+    });
+
+    it('keeps the form on screen when a refetch behind it fails', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+      await fireEvent.changeText(screen.getByLabelText('Notes'), 'My edit');
+
+      server.use(http.get('*/api/v1/libraries/:libraryId/items/:id', () => HttpResponse.error()));
+      await refocusAndWaitForFailure();
+
+      expect(screen.getByDisplayValue('My edit')).toBeTruthy();
+      expect(screen.queryByText("Couldn't load this item")).toBeNull();
+    });
+
+    it('refuses a second Save too, until Reload, so a refreshed ETag never lets the edit through', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+      bSaves();
+
+      await fireEvent.changeText(screen.getByLabelText('Notes'), "A's notes");
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+      expect(await screen.findByText('Someone changed this. Reload?')).toBeTruthy();
+      // The refused save refreshes the item behind the form (the live ETag is now B's).
+      await refocusAndWaitForRefetch();
+
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(patchHeaders).toEqual(['"v1"', '"v1"']));
+      expect(await screen.findByText('Someone changed this. Reload?')).toBeTruthy();
+      expect(entry().item.notes).toBe("B's notes");
+      expect(mockRouter.back).not.toHaveBeenCalled();
+    });
+
+    it('Reload adopts their version, drops the old edits, and the next Save carries the new ETag', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+      bSaves();
+      await fireEvent.changeText(screen.getByLabelText('Notes'), "A's notes");
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+      await screen.findByText('Someone changed this. Reload?');
+
+      await fireEvent.press(screen.getByLabelText('Reload'));
+
+      await waitFor(() => expect(screen.queryByText('Someone changed this. Reload?')).toBeNull());
+      expect(screen.getByDisplayValue("B's notes")).toBeTruthy();
+      await fireEvent.press(screen.getByLabelText('Condition Mint'));
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+      expect(patchHeaders).toEqual(['"v1"', '"v2"']);
+      expect(await patchBodies()).toEqual([{ notes: "A's notes" }, { condition: 'mint' }]);
+      expect(entry().item.notes).toBe("B's notes");
+      expect(entry().item.condition).toBe('mint');
+    });
+
+    it('says so, and keeps the edits, when Reload cannot reach the server', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+      bSaves();
+      await fireEvent.changeText(screen.getByLabelText('Notes'), "A's notes");
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+      await screen.findByText('Someone changed this. Reload?');
+
+      server.use(http.get('*/api/v1/libraries/:libraryId/items/:id', () => HttpResponse.error()));
+      await fireEvent.press(screen.getByLabelText('Reload'));
+
+      expect(await screen.findByText("Couldn't reload. Check your connection and try again.")).toBeTruthy();
+      expect(screen.getByDisplayValue("A's notes")).toBeTruthy();
+      expect(screen.getByText('Someone changed this. Reload?')).toBeTruthy();
+    });
+  });
+
+  describe('what a save sends', () => {
+    it('sends only the fields that were changed', async () => {
+      entry().item.notes = 'Slipcover missing';
+      entry().item.condition = 'good';
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+
+      await fireEvent.press(screen.getByLabelText('Condition Mint'));
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+      expect(await patchBodies()).toEqual([{ condition: 'mint' }]);
+      expect(entry().item.notes).toBe('Slipcover missing');
+    });
+
+    it('sends nothing, and simply leaves, when no field was edited', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+      expect(patchHeaders).toEqual([]);
+    });
+
+    it('clears notes by sending null for them alone', async () => {
+      entry().item.notes = 'Slipcover missing';
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+
+      await fireEvent.changeText(screen.getByLabelText('Notes'), '  ');
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+      expect(await patchBodies()).toEqual([{ notes: null }]);
+    });
+  });
+
+  describe('leaving the form', () => {
+    it('goes back after a save when there is history', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+      await fireEvent.changeText(screen.getByLabelText('Notes'), 'Hello');
+
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+      expect(mockRouter.replace).not.toHaveBeenCalled();
+    });
+
+    it('on a fresh load, with no history, a save lands on the item itself', async () => {
+      mockRouter.canGoBack.mockReturnValue(false);
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+      await fireEvent.changeText(screen.getByLabelText('Notes'), 'Hello');
+
+      await fireEvent.press(screen.getByLabelText('Save changes'));
+
+      await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith(`/item/${MATRIX}`));
+      expect(mockRouter.back).not.toHaveBeenCalled();
+    });
+
+    it('on a fresh load, with no history, Cancel lands on the item itself', async () => {
+      mockRouter.canGoBack.mockReturnValue(false);
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+
+      await fireEvent.press(screen.getByLabelText('Cancel'));
+
+      expect(mockRouter.replace).toHaveBeenCalledWith(`/item/${MATRIX}`);
+      expect(mockRouter.back).not.toHaveBeenCalled();
+      expect(patchHeaders).toEqual([]);
+    });
+
+    it('Cancel goes back when there is history', async () => {
+      await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+      await screen.findByLabelText('Notes');
+
+      await fireEvent.press(screen.getByLabelText('Cancel'));
+
+      expect(mockRouter.back).toHaveBeenCalled();
+      expect(mockRouter.replace).not.toHaveBeenCalled();
+    });
   });
 
   it('shows completeness for games only, never for books or movies (#441)', async () => {
