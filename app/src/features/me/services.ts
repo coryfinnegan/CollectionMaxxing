@@ -1,6 +1,7 @@
 // The swappable pieces of the Me tab, set once at app start and replaced by fakes in tests:
 // Face ID, the vision engine's availability, the setting storage and how a finished export reaches the person.
 import { Share } from 'react-native';
+import { authHeaders } from '@/lib/auth/session';
 import { apiBaseUrl } from '@/lib/http';
 import type { RecognitionState } from '@/features/scan/recognition/EngineSelector';
 import { type KeyValueStore, MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
@@ -78,27 +79,83 @@ const deviceVision: RecognitionStatus = {
 };
 
 export interface ExportSharer {
-  /** Web: the browser downloads the file. iPhone: the share sheet opens. */
+  /** Web: the browser downloads the file. iPhone: the file is fetched with the sign-in, then the share sheet opens on it. */
   deliver(downloadUrl: string): Promise<void>;
 }
 
 const absolute = (url: string) => (url.startsWith('/') ? `${apiBaseUrl()}${url}` : url);
 
-const deviceSharer: ExportSharer = {
-  deliver: async (downloadUrl) => {
-    const url = absolute(downloadUrl);
-    if (typeof document !== 'undefined') {
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'collectionmaxxing-export.zip';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      return;
+/** The iPhone's pieces for handing an export over. Tests swap them for fakes; nothing here runs on the web. */
+export interface ExportDelivery {
+  /** Fetches `url` with `headers` into a temporary file and returns the file's `file://` address. A file left by a failure is gone. */
+  download(url: string, headers: Record<string, string>): Promise<string>;
+  /** Opens the share sheet on the file; resolves when the sheet closes. */
+  share(fileUrl: string): Promise<void>;
+  /** Deletes the temporary file. Resolves when it is gone, or was never there. */
+  remove(fileUrl: string): Promise<void>;
+}
+
+const EXPORT_FILE = 'collectionmaxxing-export.zip';
+
+/** expo-file-system's cache folder and React Native's share sheet, loaded on first use so the web and tests never need them. */
+const deviceDelivery: ExportDelivery = {
+  async download(url, headers) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('expo-file-system') as typeof import('expo-file-system');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { discardPicture, trackPicture } = require('@/features/scan/pictureFiles') as typeof import('@/features/scan/pictureFiles');
+    const dir = new fs.Directory(fs.Paths.cache, 'cm-export');
+    if (!dir.exists) dir.create({ intermediates: true, idempotent: true });
+    const destination = new fs.File(dir, EXPORT_FILE);
+    // Registered before the download starts, so a file left by a killed app is deleted by the next sign-out or unpair.
+    trackPicture(destination.uri);
+    try {
+      const file = await fs.File.downloadFileAsync(url, destination, { headers, idempotent: true });
+      return file.uri;
+    } catch (e) {
+      await discardPicture(destination.uri);
+      throw e;
     }
-    await Share.share({ url });
+  },
+  async share(fileUrl) {
+    await Share.share({ url: fileUrl });
+  },
+  async remove(fileUrl) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    await (require('@/features/scan/pictureFiles') as typeof import('@/features/scan/pictureFiles')).discardPicture(fileUrl);
   },
 };
+
+/**
+ * The download needs the same sign-in as every other call, and the phone's is a bearer token that a share target cannot send
+ * (it would be handed a link it is refused at). So the app fetches the zip itself, with the token, and shares the *file*: the
+ * share sheet gets a `file://` address that needs no sign-in. The file goes again once the sheet closes. The web keeps the
+ * browser's own download, which carries the session cookie.
+ */
+export function createDeviceSharer(delivery: ExportDelivery, headersFor: (method: string) => Promise<Record<string, string>> = authHeaders): ExportSharer {
+  return {
+    deliver: async (downloadUrl) => {
+      const url = absolute(downloadUrl);
+      if (typeof document !== 'undefined') {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = EXPORT_FILE;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return;
+      }
+      const file = await delivery.download(url, await headersFor('GET'));
+      try {
+        await delivery.share(file);
+      } finally {
+        await delivery.remove(file).catch(() => {}); // a file that cannot be deleted now is found by the next clear
+      }
+    },
+  };
+}
+
+const deviceSharer: ExportSharer = createDeviceSharer(deviceDelivery);
 
 function openSettingsStorage(): KeyValueStore {
   try {
