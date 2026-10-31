@@ -1,7 +1,7 @@
 // Me → Locations: the reference slice. A tree list with add, rename and delete, all through the generated hooks.
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
-import { canEditLibrary, useMyRole } from '@/features/me/useMyRole';
+import { useMyRole } from '@/features/me/useMyRole';
 import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
@@ -24,9 +24,8 @@ export function LocationsScreen() {
 function LocationsList({ libraryId }: { libraryId: string }) {
   const { locations, isLoading, isError, refetch } = useLocationsList(libraryId);
   const { create, rename, remove } = useLocationMutations(libraryId);
-  const { role } = useMyRole();
   // Viewers look at the tree; adding, renaming and deleting are for owners and editors (the server says 403 to the rest).
-  const canEdit = canEditLibrary(role);
+  const { canEdit } = useMyRole();
   const rows = useMemo(() => flattenTree(locations), [locations]);
 
   const [newName, setNewName] = useState('');

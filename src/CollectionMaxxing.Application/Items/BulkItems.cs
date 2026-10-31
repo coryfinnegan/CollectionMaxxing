@@ -101,6 +101,7 @@ public static class BulkItems
                 return ItemErrors.TagNotFound;
             }
 
+            var today = DateOnly.FromDateTime(now.UtcDateTime);
             var itemIds = items.Select(i => i.Id).ToList();
             var existing = add.Count + remove.Count == 0
                 ? []
@@ -116,6 +117,17 @@ public static class BulkItems
                 if (patch.Status is { } status)
                 {
                     item.Status = status;
+                    if (status == ItemStatus.Lent)
+                    {
+                        // Lending starts today, with no borrower named (the edit form can add one); an existing lend keeps its own.
+                        item.LentOn ??= today;
+                    }
+                    else
+                    {
+                        // An item that isn't lent out has no borrower, so a later lend never shows the old one.
+                        item.LentTo = null;
+                        item.LentOn = null;
+                    }
                 }
 
                 item.UpdatedAt = now;

@@ -10,7 +10,7 @@ import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLa
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
-import { canEditLibrary, useMyRole } from '@/features/me/useMyRole';
+import { useMyRole } from '@/features/me/useMyRole';
 import { boundScanStore } from '@/features/review/boundScan';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { useGoBackOr } from '@/lib/navigation';
@@ -42,8 +42,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   const { detail, etag, isLoading, isError, error, refetch } = useItemDetail(libraryId, id);
   const { locations } = useLocationsList(libraryId);
   const { update, remove } = useItemMutations(libraryId);
-  const { role } = useMyRole();
-  const canEdit = canEditLibrary(role);
+  const { canEdit } = useMyRole();
   const leave = useGoBackOr('/library');
   const setDeleted = useUndoStore((s) => s.setDeleted);
   const [moving, setMoving] = useState(false);

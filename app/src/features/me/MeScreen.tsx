@@ -26,7 +26,12 @@ export function MeScreen() {
     ...(isWeb() ? [{ title: 'Sign-in methods', href: '/me/sign-in-methods' as Href }] : []),
     ...(role === 'owner' || role === 'editor' ? [{ title: 'Recently deleted', href: '/me/deleted' as Href }] : []),
     { title: 'Settings', subtitle: isWeb() ? undefined : 'Recognition, appearance and security', href: '/settings' },
-    { title: 'Members', subtitle: 'Managed on the web', href: '/members' },
+    // Owners invite people and set roles; everyone else sees who is here. Nothing waits for a role, so no subtitle until it arrives.
+    {
+      title: 'Members',
+      subtitle: role === 'owner' ? 'Invite people and manage roles' : role ? 'See who shares this library' : undefined,
+      href: '/members',
+    },
   ];
 
   return (

@@ -122,7 +122,38 @@ public sealed class JobRunner(
         if (failed == 0)
         {
             LockLost(job, workerId, "could not be marked failed");
+            return; // another worker has the job now; it settles whatever it was for
         }
+
+        await NotifyFailedForGoodAsync(job, error, cancellationToken);
+    }
+
+    /// <summary>
+    /// Tells the handler its job failed for good, so it can settle what the job was working on (a scanned row that would
+    /// otherwise say "Looking up…" for days). A fresh scope: the failed run's database context may hold half-made changes.
+    /// Whatever goes wrong here is logged and never changes the outcome; the job stays failed.
+    /// </summary>
+    private async Task NotifyFailedForGoodAsync(Claimed job, string error, CancellationToken cancellationToken)
+    {
+        if (!_handlers.TryGetValue(job.Type, out var handler) || handler.OnFailedForGood is not { } onFailedForGood)
+        {
+            return;
+        }
+
+#pragma warning disable CA1031 // The failure hook must never turn a recorded failure into a crash of the worker.
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            using var data = JsonDocument.Parse(job.Data ?? "{}");
+            await onFailedForGood(scope.ServiceProvider, data.RootElement.Clone(), error, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                "Job {JobId} ({JobType}) failed for good, and settling what it was for failed too: {Error}",
+                job.Id, job.Type, JobErrorText.From(exception));
+        }
+#pragma warning restore CA1031
     }
 
     /// <summary>Another worker re-claimed the job while this run was still going (its lock expired): say so loudly.</summary>

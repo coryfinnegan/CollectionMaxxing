@@ -63,7 +63,7 @@ function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose:
         {isLoading || isError ? (
           <LibraryLoading label="Getting your library ready…" />
         ) : (
-          <EmptyState title="No library found." body="Pair this iPhone again." />
+          <EmptyState title="No library found." body="Create or join a library in Settings, then come back to scan." />
         )}
       </RouteFallback>
     );

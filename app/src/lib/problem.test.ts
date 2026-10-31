@@ -1,5 +1,6 @@
 import { ApiError } from './http';
 import { logger } from './auth/log';
+import { configureAuth, resetAuth } from './auth/session';
 import { friendlyError } from './problem';
 
 jest.mock('./auth/log', () => ({ logger: { warn: jest.fn(), error: jest.fn() } }));
@@ -51,6 +52,14 @@ describe('friendlyError', () => {
     expect(friendlyError(new ApiError(409, { title: 'Already in your library.' }))).toBe('Already in your library.');
 
     expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('asks for a sign-in again on every platform when the session ended, never to pair a device', () => {
+    for (const platform of ['web', 'native'] as const) {
+      configureAuth({ platform });
+      expect(friendlyError(new ApiError(401, { title: 'Unauthorized' }))).toBe('Your session ended. Sign in again.');
+    }
+    resetAuth();
   });
 
   it('keeps the caller fallback for API failures without their own copy', () => {

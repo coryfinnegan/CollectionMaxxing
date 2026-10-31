@@ -84,7 +84,7 @@ export function InviteDialog({ libraryId, onClose }: { libraryId: string; onClos
         {copied === 'yes' ? <Text accessibilityRole="alert">Link copied.</Text> : null}
         {copied === 'no' ? <Text accessibilityRole="alert">{"Couldn't copy. Select the link above and copy it by hand."}</Text> : null}
         <Text tone="muted">
-          {"Add them to Tailscale first, or the link won't open for them. Then send them the link yourself."}
+          {"Send them the link yourself, by message or in person. They sign in and join this library."}
         </Text>
       </Card>
       </View>
