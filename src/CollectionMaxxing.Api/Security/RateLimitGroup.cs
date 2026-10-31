@@ -6,14 +6,16 @@ namespace CollectionMaxxing.Api.Security;
 /// slash) can never move a request to another group.
 /// </summary>
 /// <param name="Name">The group, named like its property on <see cref="SecurityOptions.LimitOptions"/>.</param>
-/// <param name="CostPerItem">True when a call costs one permit per item in its JSON body (<c>items</c>) instead of one permit.</param>
-public sealed record RateLimitGroup(string Name, bool CostPerItem = false)
+/// <param name="Cost">
+/// How many permits a call costs, for a group whose cost depends on the call (identify costs one per item its body carries); one
+/// permit when null. It runs before the endpoint, so it must read nothing the endpoint cannot read again. Zero takes nothing from
+/// the group (the call still counts against the caller's general allowance).
+/// </param>
+public sealed record RateLimitGroup(string Name, Func<HttpContext, ValueTask<int>>? Cost = null)
 {
     public static RateLimitGroup Search { get; } = new(nameof(SecurityOptions.LimitOptions.Search));
 
     public static RateLimitGroup Barcodes { get; } = new(nameof(SecurityOptions.LimitOptions.Barcodes));
-
-    public static RateLimitGroup Identify { get; } = new(nameof(SecurityOptions.LimitOptions.Identify), CostPerItem: true);
 
     public static RateLimitGroup Export { get; } = new(nameof(SecurityOptions.LimitOptions.Export));
 
