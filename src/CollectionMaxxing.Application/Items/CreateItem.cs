@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CollectionMaxxing.Application.Catalog;
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Application.Scanning;
@@ -18,7 +20,8 @@ public sealed record ManualRelease(
     WorkKind? Kind, string? Title, int? Year, ReleaseFormat? Format, Guid? PlatformId, IReadOnlyList<string>? Creators, string? Barcode);
 
 /// <summary>
-/// Use case: add an item, from a release or from manual details (which creates a release private to this library).
+/// Use case: add an item, from a release, from a search result only a provider knows (which is saved to the shared catalogue the
+/// way a scan saves it), or from manual details (which creates a release private to this library).
 /// Safe to retry: the same <c>Idempotency-Key</c> and request returns the same item.
 /// </summary>
 public static class CreateItem
@@ -39,10 +42,18 @@ public static class CreateItem
         string? Notes,
         DateOnly? AcquiredOn,
         AddedVia? AddedVia,
-        IReadOnlyList<Guid>? TagIds);
+        IReadOnlyList<Guid>? TagIds,
+        ProviderRefDto? ProviderRef = null);
 
     public sealed class Handler(
-        IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock, IUserDirectory? users = null, ReleaseCovers? covers = null)
+        IAppDbContext db,
+        IIdGenerator ids,
+        ICurrentUser currentUser,
+        TimeProvider clock,
+        IUserDirectory? users = null,
+        ReleaseCovers? covers = null,
+        ReleaseStore? releases = null,
+        IProviderHitStore? hits = null)
     {
         public async Task<Result<Versioned<ItemDto>>> HandleAsync(Command command, CancellationToken cancellationToken)
         {
@@ -101,6 +112,16 @@ public static class CreateItem
                 }
 
                 releaseId = existingRelease;
+            }
+            else if (command.ProviderRef is { } hit)
+            {
+                var saved = await SaveProviderHitAsync(hit, cancellationToken);
+                if (saved is not { } savedRelease)
+                {
+                    return ItemErrors.ProviderHitNotFound;
+                }
+
+                releaseId = savedRelease;
             }
             else
             {
@@ -187,11 +208,34 @@ public static class CreateItem
             return new Versioned<ItemDto>(await ItemProjection.ToDtoAsync(item, tagIds, users, cancellationToken), item.Version);
         }
 
+        /// <summary>
+        /// Saves the provider hit the search showed as catalogue rows, the way a scan does (<see cref="ReleaseStore"/> reuses what
+        /// is there, so the same hit twice is one release), and returns the release's id. Nothing is saved until the item is.
+        /// Null when the hit is no longer kept.
+        /// </summary>
+        private async Task<Guid?> SaveProviderHitAsync(ProviderRefDto hit, CancellationToken cancellationToken)
+        {
+            if (hits is null || releases is null)
+            {
+                return null;
+            }
+
+            var found = await hits.FindAsync(hit.Provider, hit.ExternalId, cancellationToken);
+            return found is null ? null : (await releases.EnsureAsync(found, cancellationToken)).Id;
+        }
+
         private static DomainError? Validate(Command command)
         {
-            if ((command.ReleaseId is null) == (command.Manual is null))
+            var sources = (command.ReleaseId is null ? 0 : 1) + (command.Manual is null ? 0 : 1) + (command.ProviderRef is null ? 0 : 1);
+            if (sources != 1)
             {
-                return ItemErrors.Invalid("item.source_required", "Give either a releaseId or manual details, not both.", "releaseId");
+                return ItemErrors.Invalid(
+                    "item.source_required", "Give a releaseId, a providerRef or manual details: exactly one of them.", "releaseId");
+            }
+
+            if (command.ProviderRef is { } hit && (string.IsNullOrWhiteSpace(hit.Provider) || string.IsNullOrWhiteSpace(hit.ExternalId)))
+            {
+                return ItemErrors.Invalid("item.provider_ref_invalid", "Say which search result to add.", "providerRef");
             }
 
             if (command.Notes is { Length: > Item.MaxNotesLength })
