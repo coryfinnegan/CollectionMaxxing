@@ -124,6 +124,17 @@ function New-FakeMachine {
         RepoBranch              the branch the clone is on (default main; $null = a detached HEAD)
         ComposeAt               sha -> text of deploy/docker-compose.yml at that commit (default: a comment naming the sha)
         MergeFails              make `git merge --ff-only` fail (the clone has diverged)
+        RepoHead                the commit the clone is at (`git rev-parse HEAD`); default one fixed commit
+        MergeMovesTo            a successful `git merge --ff-only` moves the clone to this commit (default: it is already up to date)
+        ChangedFiles            the files `git diff --name-only <deployed> <new>` lists (default: none, so no migration changed)
+        DiffFails               make that `git diff` fail
+        DumpExit                exit code of the pre-migrate database dump (`compose run --rm -T --entrypoint sh backup -c ...`)
+        DumpWritesTo            a backup folder: a successful dump leaves an empty pre-migrate-<sha12>-<time>.dump in <folder>/pre-migrate
+        ImageRows               local images as `docker image ls` lists them: 'repository|tag|id|created' lines (default none)
+        ContainerImages         what `docker ps -a --format {{.Image}}` lists (default none)
+        RmFails                 image refs (repo:tag) whose `docker image rm` fails
+        RmAllFail               make every `docker image rm` fail
+        ListFails               make `docker image ls` fail
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -137,7 +148,10 @@ function New-FakeMachine {
     $graph = @{}; $graph[$script:Sha1] = @(); $graph[$script:Sha2] = @($script:Sha1)
     $m.Graph = $graph; $m.FetchFails = $false; $m.AlertFails = $false; $m.RunningServices = @()
     $m.HelperFails = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false; $m.ComposeAt = @{}; $m.ComposeConfigFor = @{}
+    $m.RepoHead = ('f0' * 20); $m.MergeMovesTo = $null; $m.ChangedFiles = @(); $m.DiffFails = $false; $m.DumpExit = 0; $m.DumpWritesTo = $null
+    $m.ImageRows = [System.Collections.Generic.List[string]]::new(); $m.ContainerImages = @(); $m.RmFails = @(); $m.RmAllFail = $false; $m.ListFails = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
+    if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
     $global:CmRunner = {
         param($Command, $Arguments, $Env, $Mutating)
@@ -197,7 +211,25 @@ function New-FakeMachine {
                     $cfg = if ($composeText -and $m.ComposeConfigFor.ContainsKey($composeText)) { $m.ComposeConfigFor[$composeText] } else { $m.ComposeConfig }
                     return & $ok @(($cfg | ConvertTo-Json -Depth 8 -Compress))
                 }
+                if ($line -match '^compose .* run --rm .*--entrypoint sh backup ') {
+                    # The pre-migrate dump. With DumpWritesTo it leaves an (empty) dump file where the real one would be.
+                    if ($m.DumpExit -eq 0 -and $m.DumpWritesTo -and $line -match '(pre-migrate-[0-9a-f]{12}-\d{8}-\d{6}\.dump)') {
+                        $dumpDir = Join-Path $m.DumpWritesTo 'pre-migrate'
+                        New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
+                        Set-Content -LiteralPath (Join-Path $dumpDir $Matches[1]) -Value 'dump'
+                    }
+                    return [pscustomobject]@{ ExitCode = $m.DumpExit; Output = @() }
+                }
                 if ($line -match '^compose .* run --rm migrate') { return [pscustomobject]@{ ExitCode = $m.MigrateExit; Output = @() } }
+                if ($line -match '^image ls') { if ($m.ListFails) { return & $fail } return & $ok @($m.ImageRows) }
+                if ($line -match '^ps -a') { return & $ok @($m.ContainerImages) }
+                if ($line -match '^image rm (\S+)') {
+                    $ref = $Matches[1]
+                    if ($m.RmAllFail -or $m.RmFails -contains $ref) { return [pscustomobject]@{ ExitCode = 1; Output = @("Error response from daemon: conflict: unable to delete $ref (image is being used by a container)") } }
+                    $gone = @($m.ImageRows | Where-Object { ($_ -split '\|')[0] + ':' + ($_ -split '\|')[1] -eq $ref })
+                    foreach ($g in $gone) { [void]$m.ImageRows.Remove($g) }
+                    return & $ok @("Untagged: $ref")
+                }
                 if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
                 if ($line -match '^run --rm') { if ($m.HelperFails) { return & $fail } return & $ok }
                 return & $ok
@@ -234,7 +266,9 @@ function New-FakeMachine {
                         if ($m.ComposeAt.ContainsKey($sha)) { return & $ok @($m.ComposeAt[$sha]) }
                         return & $ok @("# compose file at $sha")
                     }
-                    'merge' { if ($m.MergeFails) { return & $fail 128 } return & $ok }
+                    'merge' { if ($m.MergeFails) { return & $fail 128 } if ($m.MergeMovesTo) { $m.RepoHead = $m.MergeMovesTo } return & $ok }
+                    'rev-parse' { return & $ok @($m.RepoHead) }
+                    'diff' { if ($m.DiffFails) { return & $fail 128 } return & $ok @($m.ChangedFiles) }
                     default { return & $ok }
                 }
             }
