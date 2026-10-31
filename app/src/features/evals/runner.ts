@@ -102,8 +102,11 @@ export const sendWaitMs = (failures: number): number => Math.min(30_000, 1000 * 
 /** How often to ask whether the PC has finished scoring, while the screen is open. */
 export const SCORING_POLL_MS = 3000;
 
-/** How many times in a row the PC may answer "no" (a server error) to one photo before the runner leaves it out and goes on. A PC that does not answer at all is waited for. */
+/** How many server errors in a row the PC may answer one send with before the runner stops and keeps the readings. A PC that does not answer at all is waited for. */
 export const MAX_SERVER_REFUSALS = 5;
+
+/** What the owner is told when the PC cannot take what was read. Nothing is thrown away: it is all still on this phone. */
+export const PC_NOT_TAKING = "Couldn't send to your PC. What's read is kept on this phone; check again to pick up.";
 
 const initial = (): EvalState => ({
   phase: 'checking',
@@ -195,9 +198,15 @@ export function ocrRecord(ocr: OcrReading | undefined): Pick<EvalPhotoResult, 'o
 /** The PC said the run is not open any more (finished or discarded elsewhere): nothing more can be sent to it. */
 class RunGoneError extends Error {}
 
+/** The PC cannot take anything right now (signed out, evals off, results folder not writable, errors that keep coming): the run stops and keeps what it read. */
+class PcNotTakingError extends Error {}
+
 /** A 4xx other than "too many requests" and "timed out" is the PC's final answer about this request. */
 const isFinal = (error: unknown): error is ApiError =>
   error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
+
+/** The PC refused the photo itself: it failed its own checks (400) or is too big (413). Nothing else the PC says leaves a photo out. */
+const isAboutThePhoto = (error: unknown): error is ApiError => error instanceof ApiError && (error.status === 400 || error.status === 413);
 
 const isRunGone = (error: ApiError) => (RUN_GONE_CODES as readonly string[]).includes(error.problem.code ?? '');
 
@@ -283,12 +292,16 @@ export class EvalRunner {
   /** Looks at the PC again after something went wrong: whatever it holds is offered, and nothing is thrown away. */
   async recheck(): Promise<void> {
     if (this.active) return;
+    const before = this.state;
     this.set({ phase: 'checking', message: undefined });
-    await this.pull(false);
+    await this.pull(false, before.phase === 'error' ? before : undefined);
   }
 
-  /** Asks the PC for its run and takes its word. A run that started meanwhile is not disturbed, unless it is the run itself that is asking. */
-  private async pull(duringRun: boolean): Promise<void> {
+  /**
+   * Asks the PC for its run and takes its word. A run that started meanwhile is not disturbed, unless it is the run itself that is asking. When the
+   * PC cannot be asked, `backTo` (the state before) is put back, so an error and the readings it is keeping are not lost to a look that failed.
+   */
+  private async pull(duringRun: boolean, backTo?: EvalState): Promise<void> {
     try {
       const status = await this.deps.api.openRun();
       if (this.active && !duringRun) return;
@@ -296,7 +309,8 @@ export class EvalRunner {
       else if (this.state.phase === 'checking' || this.state.phase === 'resumable' || this.state.phase === 'scoring') this.becomeIdle();
     } catch {
       // The PC may be off, or the evals not switched on: the owner finds out when they start a run.
-      if ((!this.active || duringRun) && this.state.phase === 'checking') this.becomeIdle();
+      if (backTo) this.set({ ...backTo });
+      else if ((!this.active || duringRun) && this.state.phase === 'checking') this.becomeIdle();
     }
   }
 
@@ -386,6 +400,8 @@ export class EvalRunner {
       .catch((error: unknown) => {
         if (error instanceof RunGoneError) {
           this.set({ phase: 'error', endedAt: this.now(), message: "The run on your PC isn't open any more. Start a new one." });
+        } else if (error instanceof PcNotTakingError) {
+          this.set({ phase: 'error', endedAt: this.now(), message: PC_NOT_TAKING });
         } else {
           this.set({ phase: 'error', endedAt: this.now(), message: "Couldn't finish the run. What's read is kept; try again." });
         }
@@ -614,9 +630,10 @@ export class EvalRunner {
   }
 
   /**
-   * Sends what is kept, oldest first, before anything else is read. A PC that does not answer is waited for, a little longer each time; a photo it
-   * refuses for good (a 4xx) is left out and the run goes on; a photo it keeps answering with a server error is left out after a few tries. Nothing
-   * read is thrown away while the PC may still take it.
+   * Sends what is kept, oldest first, before anything else is read. A PC that does not answer is waited for, a little longer each time. A photo it
+   * refuses because of the photo itself (400, or 413 for one too big) is left out and the run goes on. Anything else final (signed out, evals off, the
+   * results folder not writable) or server errors that keep coming mean the PC cannot take anything right now: the run stops with every reading
+   * still kept here, for Check again and Continue to send first. Only a refusal about the photo ever throws its readings away.
    */
   private async deliverPending(): Promise<void> {
     while (this.pending.length > 0) {
@@ -626,6 +643,7 @@ export class EvalRunner {
         this.received.add(entry.photoId);
       } catch (error) {
         if (error instanceof ApiError && isRunGone(error)) throw new RunGoneError();
+        if (!isAboutThePhoto(error)) throw new PcNotTakingError(); // the readings stay in the outbox: nothing is settled
         // The PC will not take this photo: say so, leave it out of the score and go on with the others.
         this.refusedIds.add(entry.photoId);
         this.set({ refused: [...this.refusedIds] });

@@ -2,7 +2,7 @@ import { HttpResponse, http } from 'msw';
 import { promptOf } from '@/features/scan/recognition/defaults';
 import { authHeaders, configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryNativeAuth } from '@/lib/auth/native';
-import { evalsMock } from '@/mocks/evals';
+import { evalsMock, type MockSendFailure } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import { failedRead, makeKit, uriOf } from './evalsTestKit';
@@ -643,16 +643,89 @@ describe('the eval runner', () => {
       expect(kit.runner.getState().refused).toEqual(['photo-002']);
     });
 
-    it('leaves a photo out when the PC keeps answering with a server error, so one bad answer never holds the run up', async () => {
-      const kit = makeKit({ photos: 2 });
-      evalsMock.failSends = [500, 500, 500, 500, 500];
+    it('leaves a photo out when the PC says the photo is too big, as it does for a photo that fails its own checks', async () => {
+      const kit = makeKit({ photos: 3 });
+      evalsMock.failSends = [{ status: 413, code: 'evals.body_too_large' }];
 
       await kit.runner.start();
 
-      expect(kit.sleeps).toEqual([1000, 2000, 4000, 8000]);
-      expect(evalsMock.attempts).toEqual(['photo-001', 'photo-001', 'photo-001', 'photo-001', 'photo-001', 'photo-002']);
       expect(kit.runner.getState().refused).toEqual(['photo-001']);
-      expect(sentIds()).toEqual(['photo-002']);
+      expect(sentIds()).toEqual(['photo-002', 'photo-003']);
+      expect(kit.outbox.getString('eval-outbox-v1')).toBeUndefined();
+      expect(kit.runner.getState().phase).toBe('scoring');
+    });
+
+    describe('when the PC cannot take anything right now', () => {
+      const notice = "Couldn't send to your PC. What's read is kept on this phone; check again to pick up.";
+      // A 401 is asked again once with a fresh token by the auth layer before it reaches the runner, so the PC refuses twice.
+      const cases: [string, MockSendFailure[]][] = [
+        ['a 401 (signed out)', [401, 401]],
+        ['a 404 (the evals are switched off)', [404]],
+        ['a 409 evals.results_not_writable (the results folder cannot be written)', [{ status: 409, code: 'evals.results_not_writable' }]],
+        ['a 403 (not the owner)', [403]],
+      ];
+
+      it.each(cases)('stops the run and keeps every reading when a send gets %s, refusing nothing', async (_name, failures) => {
+        const kit = makeKit({ photos: 3 });
+        evalsMock.failSends = failures;
+
+        await kit.runner.start();
+
+        const state = kit.runner.getState();
+        expect(state).toMatchObject({ phase: 'error', message: notice, refused: [], pending: 1 });
+        expect(kit.downloaded).toEqual(['photo-001']); // it stopped reading
+        expect(evalsMock.sent).toEqual([]);
+        expect(evalsMock.finishes).toEqual([]);
+        expect(kit.outbox.getString('eval-outbox-v1')).toContain('photo-001');
+        expect(kit.sleeps).toEqual([]); // a final answer is not waited out
+      });
+
+      it('sends the kept readings first when the owner checks again and continues, and reads nothing twice', async () => {
+        const kit = makeKit({ photos: 3 });
+        evalsMock.failSends = [{ status: 409, code: 'evals.results_not_writable' }];
+        await kit.runner.start();
+
+        await kit.runner.recheck();
+        expect(kit.runner.getState()).toMatchObject({ phase: 'resumable', total: 3, photosDone: 1, pending: 1 });
+        await kit.runner.continueRun();
+
+        expect(sentIds()).toEqual(['photo-001', 'photo-002', 'photo-003']); // the kept photo goes first
+        expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-003']);
+        expect(evalsMock.finishes).toEqual([{}]);
+        expect(kit.runner.getState().refused).toEqual([]);
+      });
+
+      it('keeps the readings and the message when the PC cannot be reached to check again, and picks up once it can', async () => {
+        const kit = makeKit({ photos: 2 });
+        evalsMock.failSends = [404];
+        await kit.runner.start();
+        server.use(http.get('*/api/admin/evals/runs/open', () => HttpResponse.error()));
+
+        await kit.runner.recheck();
+
+        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: notice, pending: 1 });
+        expect(kit.outbox.getString('eval-outbox-v1')).toContain('photo-001');
+        server.resetHandlers();
+        await kit.runner.recheck();
+        await kit.runner.continueRun();
+        expect(sentIds()).toEqual(['photo-001', 'photo-002']);
+      });
+
+      it('keeps the readings when the PC keeps answering one photo with a server error, rather than throwing the photo away', async () => {
+        const kit = makeKit({ photos: 2 });
+        evalsMock.failSends = [500, 500, 500, 500, 500];
+
+        await kit.runner.start();
+
+        expect(kit.sleeps).toEqual([1000, 2000, 4000, 8000]);
+        expect(evalsMock.attempts).toEqual(['photo-001', 'photo-001', 'photo-001', 'photo-001', 'photo-001']);
+        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: notice, refused: [], pending: 1 });
+        expect(kit.outbox.getString('eval-outbox-v1')).toContain('photo-001');
+
+        await kit.runner.recheck();
+        await kit.runner.continueRun();
+        expect(sentIds()).toEqual(['photo-001', 'photo-002']);
+      });
     });
 
     it('waits for a PC that does not answer at all for as long as it takes, and never gives the photo up', async () => {

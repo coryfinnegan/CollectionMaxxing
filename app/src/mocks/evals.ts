@@ -40,8 +40,8 @@ export interface MockRun {
   pollsSinceFinish: number;
 }
 
-/** What a send can be made to do instead of working: an HTTP status, or 'network' for no answer at all. */
-export type MockSendFailure = number | 'network';
+/** What a send can be made to do instead of working: an HTTP status (with the problem code the PC gives it, if any), or 'network' for no answer at all. */
+export type MockSendFailure = number | 'network' | { status: number; code: string };
 
 export const evalsMock = {
   /** 'enabled' is the owner on a PC with evals on; 'off' is a PC with evals off; 'forbidden' is anyone who is not the owner. */
@@ -234,6 +234,7 @@ export const handlers = [
     evalsMock.attempts.push(photoId);
     const failure = evalsMock.failSends.shift();
     if (failure === 'network') return HttpResponse.error();
+    if (typeof failure === 'object') return problem(failure.status, 'The photo could not be saved.', failure.code);
     if (failure) return problem(failure, 'The photo could not be saved.');
     const run = evalsMock.run;
     if (!run) return problem(404, 'Not found', 'evals.no_open_run');

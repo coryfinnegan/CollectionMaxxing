@@ -238,6 +238,23 @@ describe('EvalsScreen', () => {
     expect(screen.getByText('Checking your PC for a run in progress.')).toBeTruthy();
   });
 
+  it('says the PC could not take what was read, keeps it, and offers Check again and then Continue', async () => {
+    const kit = makeKit({ photos: 2 });
+    evalsMock.failSends = [{ status: 409, code: 'evals.results_not_writable' }];
+    await renderWithProviders(<EvalsScreen runner={kit.runner} />);
+    await press('Start the run');
+
+    expect(await screen.findByText("Couldn't send to your PC. What's read is kept on this phone; check again to pick up.")).toBeTruthy();
+    await press('Check again');
+    expect(await screen.findByText('1 of 2 photos read')).toBeTruthy();
+    expect(screen.getByText(/1 photo read on this phone go up first\./)).toBeTruthy();
+    await press('Continue');
+
+    expect(await screen.findByText(/M3 gate: pass/)).toBeTruthy();
+    expect(evalsMock.sent.map((s) => s.photoId)).toEqual(['photo-001', 'photo-002']);
+    expect(kit.downloaded).toEqual(['photo-001', 'photo-002']);
+  });
+
   it('offers to look again when the run could not be opened', async () => {
     const kit = makeKit({ photos: 1 });
     await renderWithProviders(<EvalsScreen runner={kit.runner} />);
