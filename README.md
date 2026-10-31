@@ -28,7 +28,7 @@ It is **self-hosted**: the API and database run on one Windows PC, and you reach
 
 ## Prerequisites (development, Windows)
 
-- **.NET SDK 10** (`global.json` pins 10.0.400)
+- **.NET SDK 10** (`global.json` pins 10.0.403)
 - **Node.js 22 LTS** and npm
 - **Docker Desktop**, running (the API tests and the local database use containers)
 - **PowerShell 7** (`pwsh`)
