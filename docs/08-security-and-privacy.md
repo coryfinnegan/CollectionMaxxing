@@ -19,7 +19,7 @@ Target: **OWASP ASVS Level 2** for the API and web app, **OWASP MASVS-L1** for t
 | **S**poofing | Stolen refresh token or cookie; an Auth0 identity nobody invited | Auth0's rotating refresh tokens in the Keychain; the API admits only identities linked in `user_logins` (never by email) and creates an account only for a new identity, never by matching an existing one; "Sign out all iPhones" refuses older access tokens at once (`tokens_not_before`) and ends the refresh tokens at Auth0; revocable web sessions; tailnet-only reachability |
 | **T**ampering | Mass assignment (`ownerLibraryId` in a PATCH body); edits to another user's item | Explicit request DTOs only; library comes from the route or the stored resource; ETag concurrency |
 | **R**epudiation | "I didn't delete those 200 items" | `audit_events` for destructive and security actions; soft delete with restore |
-| **I**nformation disclosure | IDOR on `/items/{id}`; photo URLs guessable; EXIF GPS leak | Resource authorization + query filters + IDOR tests; private blob containers, served only through authorized endpoints or short-lived SAS; EXIF stripped by re-encoding |
+| **I**nformation disclosure | IDOR on `/items/{id}`; photo URLs guessable; EXIF GPS leak | Resource authorization + query filters + IDOR tests; private files on the PC, served only through authorized endpoints; EXIF/GPS dropped by rewriting each JPEG without its metadata segments |
 | **D**enial of service / cost | Flooding `/identify`; huge uploads | Rate limits, upload caps, per-provider quotas and caching |
 | **E**levation of privilege | Viewer calls an editor endpoint; normal user hits `/api/admin` | Role metadata on every endpoint + matrix tests; admin route group with its own policy |
 
@@ -66,12 +66,11 @@ A refusal is a 429 with `Retry-After`. The phone keeps its credentials on a 429 
 
 ## Upload pipeline
 
-1. Kestrel limits the request size to 16 MB, and the endpoint limits the image part to 15 MB.
-2. **Magic-byte check** (JPEG, PNG or WebP). The client's `Content-Type` and filename are ignored.
-3. Decode with ImageSharp, with a **pixel limit** of 40 MP to guard against decompression bombs.
-4. Auto-orient → resize → **re-encode to JPEG** (drops all metadata and any polyglot payload).
-5. Store under a server-generated name in a private container. The original upload is never stored.
-6. Serve only through an authorized endpoint or a 5-minute read-only SAS scoped to that one blob.
+1. Each upload route reads its body with a byte ceiling: 4 MB for a photo or a close-call capture, 1 MB for a kept row's crop (ADR-030). A longer body is refused with 413 and is never read in full.
+2. **JPEG only**, checked from the bytes by `JpegSanitizer`. The client's `Content-Type` and filename are ignored, and a picture wider or taller than 4,096 px is refused.
+3. The sanitizer **rewrites the file from its segments without decoding a pixel**: it keeps what a decoder needs (tables, frame and scan headers, the compressed scan data) and drops EXIF, XMP, ICC, every other APPn segment, comments and anything after the end marker. A damaged or cut-short JPEG is refused.
+4. A kept crop or cover is stored under a server-generated name on the PC's `files` volume, as an asset private to the library. The original upload is never stored. A close-call capture is not stored at all: it is compared in memory and discarded.
+5. Stored pictures are served only through authorized endpoints, to members of the library, with a private cache header.
 
 ## HTTP hardening
 

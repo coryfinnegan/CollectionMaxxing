@@ -139,7 +139,7 @@ Gaps (all also listed under "Notes for the lead" in the PR):
 | Section | Status | Evidence |
 |---|---|---|
 | V12.1 File upload (size, zip bombs, storage) | Pass | 4 MB cap and 413: `Scanning/Photo/PhotoUploadTests.A_file_over_four_megabytes_is_refused_with_413_and_nothing_is_stored`; export zips expire after 24 h (`Exports/ExportTests`). |
-| V12.2 File integrity (re-encode, no original kept) | Pass | `PhotoAcceptanceTests.An_uploaded_photo_has_no_exif_or_gps_after_storage_and_the_original_bytes_are_not_kept`; server-generated names: `PhotoUploadTests.The_stored_name_is_ours_and_never_the_name_the_client_sent`. |
+| V12.2 File integrity (rewritten without metadata, no original kept) | Pass | `PhotoAcceptanceTests.An_uploaded_photo_has_no_exif_or_gps_after_storage_and_the_original_bytes_are_not_kept`; server-generated names: `PhotoUploadTests.The_stored_name_is_ours_and_never_the_name_the_client_sent`. |
 | V12.3 File execution (no path traversal, no user-named paths) | Pass | Server-chosen file names; media routes never redirect or follow stored paths out of the folder: `Security/NoRedirectTests` (locked). |
 | V12.4 File storage (private, per library) | Pass | `PhotoAcceptanceTests.A_stored_photo_is_readable_only_by_members_of_its_library`, `Catalog/CoverEndpointTests`. |
 | V12.5 File download (headers, `nosniff`) | Pass | Media answers carry `nosniff`: `Catalog/CoverEndpointTests`; export download link is bound to one export and one user and expires (`Exports/ExportEndpoints.cs:78`). |

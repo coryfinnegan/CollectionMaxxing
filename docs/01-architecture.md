@@ -56,7 +56,7 @@ The web app is served **from the same origin as the API**. That lets the browser
 | HTTP resilience | `Microsoft.Extensions.Http.Resilience` | Retry with jitter that honours `Retry-After`, timeouts, circuit breakers, per-provider rate limiters |
 | Caching | `HybridCache` (memory) + `provider_cache` table (durable) | Provider responses are cached to respect quotas |
 | Recognition | **None on the server.** All recognition runs on the iPhone with Apple frameworks (Vision, Foundation Models); the API only matches text against the catalogue | See [02](02-scanning-and-recognition.md#apple-frameworks-only-on-the-phone-0-per-scan) |
-| Images | `JpegSanitizer` (our own) and OpenCvSharp | Uploads are checked as JPEG and rewritten without their metadata segments (EXIF, GPS, other APPn) without decoding pixels. OpenCvSharp compares a close call's capture with candidate covers in memory. Nothing re-encodes or resizes images on the server. |
+| Images | `JpegSanitizer` (our own) and OpenCvSharp | Uploads are checked as JPEG and rewritten without their metadata segments (EXIF, GPS, other APPn) without decoding pixels. OpenCvSharp compares a close call's capture with candidate covers in memory (it resizes those in-memory copies). No stored or served picture is re-encoded or resized. |
 | API docs | `Microsoft.AspNetCore.OpenApi` (OpenAPI 3.1) + Scalar UI (development only) | The TypeScript client is generated from this document |
 | Observability | OpenTelemetry → standalone **Aspire Dashboard** container on the PC | Traces, metrics, logs; one trace across app → API → providers |
 | Local orchestration | **Aspire** AppHost | One F5 starts Postgres, the API and the Expo web dev server |
@@ -76,7 +76,7 @@ src/
   CollectionMaxxing.ServiceDefaults/  OTel, health checks, resilience defaults
   CollectionMaxxing.Domain/           Entities, value objects, domain services. No dependencies.
   CollectionMaxxing.Application/      Use-case handlers, ports (interfaces), DTOs
-  CollectionMaxxing.Infrastructure/   EF Core, provider clients, blob, image (re-encode your-photo covers)
+  CollectionMaxxing.Infrastructure/   EF Core, provider clients, the photo and file stores
   CollectionMaxxing.Api/              Composition root: endpoints, auth, sign-in endpoints, SPA host
 tests/
   CollectionMaxxing.Domain.Tests/
