@@ -3,9 +3,9 @@ using System.Data.Common;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Catalog;
-using CollectionMaxxing.Infrastructure.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Libraries;
+using CollectionMaxxing.Infrastructure.Catalog;
 using CollectionMaxxing.Infrastructure.Persistence;
 using CollectionMaxxing.TestSupport;
 using Microsoft.EntityFrameworkCore;
@@ -67,14 +67,22 @@ public class LocalCatalogSearchManyTests(PostgresFixture db) : DatabaseTest(db)
         // A private release of another library's: nobody else may find it.
         var hiddenWork = new Work
         {
-            Id = Guid.CreateVersion7(), Kind = WorkKind.Book, Title = "Star Fox Secret", SortTitle = "Star Fox Secret",
-            NormalizedTitle = TitleNormalizer.Normalize("Star Fox Secret"), CreatedAt = Created,
+            Id = Guid.CreateVersion7(),
+            Kind = WorkKind.Book,
+            Title = "Star Fox Secret",
+            SortTitle = "Star Fox Secret",
+            NormalizedTitle = TitleNormalizer.Normalize("Star Fox Secret"),
+            CreatedAt = Created,
         };
         context.Works.Add(hiddenWork);
         context.Releases.Add(new Release
         {
-            Id = Guid.CreateVersion7(), WorkId = hiddenWork.Id, Format = ReleaseFormat.Paperback, Source = ReleaseSource.User,
-            OwnerLibraryId = other, CreatedAt = Created,
+            Id = Guid.CreateVersion7(),
+            WorkId = hiddenWork.Id,
+            Format = ReleaseFormat.Paperback,
+            Source = ReleaseSource.User,
+            OwnerLibraryId = other,
+            CreatedAt = Created,
         });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         return (platform, other);

@@ -79,13 +79,23 @@ public class IdentifyRoundTripTests : IdentifyTest
         await SeedCatalogueAsync(library);
         Games.Results.Add(new ProviderRelease
         {
-            Provider = "igdb", ExternalId = "g-zorblax", Title = "Zorblax Quest IV", Kind = WorkKind.Game, Format = ReleaseFormat.GameCartridge,
-            Platform = "Nintendo 64", Year = 1998,
+            Provider = "igdb",
+            ExternalId = "g-zorblax",
+            Title = "Zorblax Quest IV",
+            Kind = WorkKind.Game,
+            Format = ReleaseFormat.GameCartridge,
+            Platform = "Nintendo 64",
+            Year = 1998,
         });
         Games.Results.Add(new ProviderRelease
         {
-            Provider = "igdb", ExternalId = "g-quantum", Title = "Quantum Racer 64", Kind = WorkKind.Game, Format = ReleaseFormat.GameCartridge,
-            Platform = "Nintendo 64", Year = 1999,
+            Provider = "igdb",
+            ExternalId = "g-quantum",
+            Title = "Quantum Racer 64",
+            Kind = WorkKind.Game,
+            Format = ReleaseFormat.GameCartridge,
+            Platform = "Nintendo 64",
+            Year = 1999,
         });
         var client = As(library, LibraryRole.Editor);
         var sessionId = await StartSessionAsync(client, library.Id, new { autoCommitTiers = new[] { "T0", "T1" } });
