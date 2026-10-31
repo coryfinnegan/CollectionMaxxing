@@ -14,7 +14,7 @@ namespace CollectionMaxxing.Api.Scanning.Identify;
 /// </summary>
 internal static class IdentifyEndpoint
 {
-    /// <summary>The most a body may weigh: 40 items of up to 16 KB would be more, but a real read is a few hundred bytes.</summary>
+    /// <summary>The most a body may weigh: 120 items of up to 16 KB would be more, but a real read is a few hundred bytes.</summary>
     public const int MaxBodyBytes = 256 * 1024;
 
     public static async Task<IResult> HandleAsync(
@@ -22,27 +22,33 @@ internal static class IdentifyEndpoint
         HttpContext http,
         IOptions<JsonOptions> json,
         IdentifyItems.Handler handler,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        // Every refusal is logged with its problem code (never the body), so a 400 can be explained from the server log.
+        var logger = loggerFactory.CreateLogger("CollectionMaxxing.Api.Scanning.Identify.IdentifyEndpoint");
         var request = http.Request;
         if (!IsJson(request.ContentType))
         {
-            return ProblemResults.Problem(
-                StatusCodes.Status415UnsupportedMediaType,
-                "Unsupported media type",
-                "Send what was read as application/json. A picture is never sent to the server on this path.",
-                "scan.json_required");
+            return Refused(
+                logger,
+                "scan.json_required",
+                ProblemResults.Problem(
+                    StatusCodes.Status415UnsupportedMediaType,
+                    "Unsupported media type",
+                    "Send what was read as application/json. A picture is never sent to the server on this path.",
+                    "scan.json_required"));
         }
 
         if (request.ContentLength > MaxBodyBytes)
         {
-            return TooLarge();
+            return Refused(logger, "scan.body_too_large", TooLarge());
         }
 
         var body = await ReadBoundedAsync(request.Body, cancellationToken);
         if (body is null)
         {
-            return TooLarge();
+            return Refused(logger, "scan.body_too_large", TooLarge());
         }
 
         IdentifyRequest? parsed;
@@ -50,16 +56,15 @@ internal static class IdentifyEndpoint
         {
             parsed = JsonSerializer.Deserialize<IdentifyRequest>(body, BoxTolerantJson.Of(json.Value.SerializerOptions));
         }
-        catch (JsonException)
+        catch (JsonException exception)
         {
-            return ProblemResults.Problem(
-                StatusCodes.Status400BadRequest, "Bad request", "The body isn't valid JSON for an identify request.", "scan.body_invalid");
+            // The path inside the body names the member that could not be read (never its value).
+            return Refused(logger, "scan.body_invalid", BadBody(), exception.Path);
         }
 
         if (parsed is null)
         {
-            return ProblemResults.Problem(
-                StatusCodes.Status400BadRequest, "Bad request", "The body isn't valid JSON for an identify request.", "scan.body_invalid");
+            return Refused(logger, "scan.body_invalid", BadBody());
         }
 
         var input = new IdentifyInput(
@@ -79,8 +84,33 @@ internal static class IdentifyEndpoint
             parsed.ItemId);
 
         var result = await handler.HandleAsync(new IdentifyItems.Command(id, input), cancellationToken);
-        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
+        if (result.IsSuccess)
+        {
+            return TypedResults.Ok(result.Value);
+        }
+
+        // Not-found and conflict answers are logged too: any refusal can be asked about.
+        var error = result.Error!;
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Identify refused: {ProblemCode} at {Field}.", error.Code, error.Field);
+        }
+
+        return error.ToProblem();
     }
+
+    private static IResult Refused(ILogger logger, string code, IResult problem, string? field = null)
+    {
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Identify refused: {ProblemCode} at {Field}.", code, field);
+        }
+
+        return problem;
+    }
+
+    private static IResult BadBody() => ProblemResults.Problem(
+        StatusCodes.Status400BadRequest, "Bad request", "The body isn't valid JSON for an identify request.", "scan.body_invalid");
 
     private static bool IsJson(string? contentType) =>
         contentType is not null

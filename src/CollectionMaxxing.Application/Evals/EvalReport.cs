@@ -13,6 +13,8 @@ public static class EvalReport
     /// <summary>How many of the worst misses the report lists per engine.</summary>
     public const int MaxMissesPerEngine = 40;
 
+    private const int MaxSkippedListed = 100;
+
     public static EvaluatedRun Evaluate(
         GroundedRun run,
         IReadOnlyDictionary<string, TruthEntry> truths,
@@ -56,6 +58,17 @@ public static class EvalReport
             .Append(summary.Device.Model).Append(" / ").Append(summary.Device.OsVersion).Append(" / app ").Append(summary.Device.AppVersion)
             .AppendLine().AppendLine();
         text.Append("Scored ").Append(summary.ScoredPhotos).Append(" photos; skipped ").Append(summary.Skipped.Count).AppendLine(".").AppendLine();
+        foreach (var skip in summary.Skipped.Take(MaxSkippedListed))
+        {
+            // Ids and a reason word only: a photo skipped for a bad read, or scored with items trimmed (trimmed_items_120_of_151).
+            text.Append("- `").Append(skip.PhotoId).Append("`: ").AppendLine(skip.Reason);
+        }
+
+        if (summary.Skipped.Count > 0)
+        {
+            text.AppendLine();
+        }
+
         if (summary.Partial)
         {
             text.Append("**Partial run: ").Append(summary.PhotosRun).Append(summary.PhotosInSet > 0 ? " of " + summary.PhotosInSet : string.Empty)

@@ -62,7 +62,12 @@ internal sealed record CleanItem(string? LocalId, string? SegmentId, ReadFacts F
 /// <summary>Validates and cleans what the phone sent: limits, control characters, lengths.</summary>
 internal static class IdentifyCleaning
 {
-    public const int MaxItems = 40;
+    /// <summary>
+    /// The most items one picture may carry. A real shelf here has 46 books, and the Vision engine reads one item per spine, so 40
+    /// refused a whole shelf. The size of a request does not grow with it: the providers are asked within one budget
+    /// (<c>ScanningOptions.ResolveBudget</c>), and an item the budget runs out on is Pending and finished by the background job.
+    /// </summary>
+    public const int MaxItems = 120;
     public const int MaxItemBytes = 16 * 1024;
     public const int MaxTextLength = 2000;
     public const int MaxFieldLength = 500;
