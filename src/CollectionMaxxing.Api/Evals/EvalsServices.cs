@@ -23,6 +23,18 @@ public static class EvalsServices
         services.AddScoped<AddGoldenPhoto.Handler>();
         services.AddScoped<GetLatestEvalRun.Handler>();
         services.AddScoped<SubmitEvalRun.Handler>();
+
+        // The resumable run: kept as files on the PC, grounded in the background as the phone sends each photo, scored once when it finishes.
+        services.AddSingleton<IEvalRunStore, FileEvalRunStore>();
+        services.AddSingleton<EvalRunCoordinator>();
+        services.AddScoped<EvalRunScoring>();
+        services.AddScoped<EvalRunProcessor>();
+        services.AddScoped<OpenEvalRun.Handler>();
+        services.AddScoped<GetOpenEvalRun.Handler>();
+        services.AddScoped<StoreEvalPhoto.Handler>();
+        services.AddScoped<FinishEvalRun.Handler>();
+        services.AddScoped<DiscardEvalRun.Handler>();
+        services.AddHostedService<EvalRunWorker>();
         return services;
     }
 }

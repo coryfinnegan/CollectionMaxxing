@@ -66,6 +66,43 @@ public static class EvalsEndpoints
             .WithName("GetLatestEvalRun")
             .Produces<EvalSummary>();
 
+        // The resumable run: opened on the PC, a photo at a time (stored at once, grounded in the background), finished once, discarded to start over.
+        evals.MapGet("/runs/open", (GetOpenEvalRun.Handler handler) => Respond(handler.Handle()))
+            .WithName("GetOpenEvalRun")
+            .Produces<EvalOpenRunStatus>();
+
+        evals.MapPost("/runs/open", OpenRunAsync)
+            .WithName("OpenEvalRun")
+            .Accepts<EvalOpenRunRequest>("application/json")
+            .Produces<EvalOpenRunStatus>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+
+        evals.MapDelete("/runs/open", DiscardRunAsync)
+            .WithName("DiscardEvalRun")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        evals.MapPut("/runs/open/photos/{photoId}", StorePhotoAsync)
+            .WithName("StoreEvalPhoto")
+            .Accepts<EvalPhotoRequest>("application/json")
+            .Produces<EvalPhotoStored>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .WithRequestTimeout(Security.SecurityHeaders.UploadTimeoutPolicy); // a photo's results over a slow link
+
+        evals.MapPost("/runs/open/finish", FinishRunAsync)
+            .WithName("FinishEvalRun")
+            .Accepts<EvalFinishRequest>(true, "application/json")
+            .Produces<EvalOpenRunStatus>(StatusCodes.Status202Accepted)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+
         return app;
     }
 
@@ -114,19 +151,56 @@ public static class EvalsEndpoints
             return Refused(logger, EvalErrors.NotFound);
         }
 
+        var (parsed, refusal) = await ReadJsonBodyAsync<EvalRunRequest>(http, json, logger, BodyKind.Run, cancellationToken);
+        if (refusal is not null)
+        {
+            return refusal;
+        }
+
+        var input = new EvalRunInput(
+            parsed!.Device is null ? null : new EvalDeviceInput(parsed.Device.Model, parsed.Device.OsVersion, parsed.Device.AppVersion),
+            parsed.ConfigVersion,
+            parsed.Results?.Select(ToInput).ToList(),
+            parsed.Partial == true,
+            parsed.BaselineNote);
+
+        // Grounding a big run takes minutes, and the phone may lock or drop the connection meanwhile; tying the work to the
+        // request token would cancel it and throw the whole run away, unsaved. The body is read; from here the work belongs
+        // to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the upload
+        // timeout, which cancels the same token, does not cut it short either).
+        var result = await handler.HandleAsync(input, lifetime.ApplicationStopping);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : Refused(logger, result.Error!);
+    }
+
+    /// <summary>What a JSON body is called in the answers that refuse it.</summary>
+    private sealed record BodyKind(string Subject, string Noun)
+    {
+        public static readonly BodyKind Run = new("run", "eval run");
+        public static readonly BodyKind Photo = new("photo", "eval photo");
+        public static readonly BodyKind Request = new("request", "eval request");
+    }
+
+    /// <summary>
+    /// Reads the request body as the JSON of <typeparamref name="T"/>: JSON only, at most <see cref="EvalsOptions.MaxRunBytes"/>, and strict (an engine by its
+    /// API name only, a member nobody declared refused). Returns the body, or the answer that refuses it (logged with its problem code, never the body).
+    /// </summary>
+    private static async Task<(T? Body, IResult? Refusal)> ReadJsonBodyAsync<T>(
+        HttpContext http, IOptions<JsonOptions> json, ILogger logger, BodyKind kind, CancellationToken cancellationToken)
+        where T : class
+    {
         var request = http.Request;
         if (!IsJson(request.ContentType))
         {
-            return Refused(
+            return (null, Refused(
                 logger,
                 "evals.json_required",
                 ProblemResults.Problem(
-                    StatusCodes.Status415UnsupportedMediaType, "Unsupported media type", "Send the run as application/json.", "evals.json_required"));
+                    StatusCodes.Status415UnsupportedMediaType, "Unsupported media type", $"Send the {kind.Subject} as application/json.", "evals.json_required")));
         }
 
         if (request.ContentLength > EvalsOptions.MaxRunBytes)
         {
-            return Refused(logger, "evals.body_too_large", TooLarge());
+            return (null, Refused(logger, "evals.body_too_large", TooLarge(kind)));
         }
 
         var limit = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
@@ -142,68 +216,146 @@ public static class EvalsEndpoints
         }
         catch (BadHttpRequestException)
         {
-            return Refused(logger, "evals.body_too_large", TooLarge()); // the server's own cap tripped on a body sent without a length
+            return (null, Refused(logger, "evals.body_too_large", TooLarge(kind))); // the server's own cap tripped on a body sent without a length
         }
 
         if (body is null)
         {
-            return Refused(logger, "evals.body_too_large", TooLarge());
+            return (null, Refused(logger, "evals.body_too_large", TooLarge(kind)));
         }
 
-        EvalRunRequest? parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<EvalRunRequest>(body, StrictOptions(json.Value.SerializerOptions));
+            return JsonSerializer.Deserialize<T>(body, StrictOptions(json.Value.SerializerOptions)) is { } parsed
+                ? (parsed, null)
+                : (null, Refused(logger, "evals.body_invalid", BadBody(kind)));
         }
         catch (JsonException exception)
         {
             // The path inside the body names the member that could not be read (never its value).
-            return Refused(logger, "evals.body_invalid", BadBody(), exception.Path);
+            return (null, Refused(logger, "evals.body_invalid", BadBody(kind), exception.Path));
         }
+    }
 
-        if (parsed is null)
-        {
-            return Refused(logger, "evals.body_invalid", BadBody());
-        }
-
-        var input = new EvalRunInput(
-            parsed.Device is null ? null : new EvalDeviceInput(parsed.Device.Model, parsed.Device.OsVersion, parsed.Device.AppVersion),
-            parsed.ConfigVersion,
-            parsed.Results?.Select(r => r is null
+    private static EvalPhotoInput ToInput(EvalPhotoResult? r) => r is null
+        ? null!
+        : new EvalPhotoInput(
+            r.PhotoId,
+            r.Engine,
+            r.Outcome,
+            r.FellBackFrom,
+            r.Items?.Select(i => i is null
                 ? null!
-                : new EvalPhotoInput(
-                    r.PhotoId,
-                    r.Engine,
-                    r.Outcome,
-                    r.FellBackFrom,
-                    r.Items?.Select(i => i is null
-                        ? null!
-                        : new EvalReadItemInput(
-                            new IdentifyItemInput(i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, null, i.ProductCode,
-                                i.Box is { } box ? new ReadBoxInput(box.X, box.Y, box.Width, box.Height) : null, i.Unconfirmed == true),
-                            i.ResolvedBy,
-                            i.Tier,
-                            i.Provisional == true,
-                            i.IsGuess)).ToList(),
-                    r.UnreadableCount,
-                    r.LatencyMs,
-                    r.FirstItemMs,
-                    r.ThermalState,
-                    r.CapturedCount,
-                    r.CapturedAt,
-                    r.DuplicateRescan is { } evidence ? new DuplicateRescanInput(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds) : null,
-                    r.OcrLines?.Select(l => l is null ? null! : new EvalOcrLineInput(l.Text, l.X, l.Y, l.Width, l.Height)).ToList(),
-                    r.OcrPieces,
-                    r.CoverCue)).ToList(),
-            parsed.Partial == true,
-            parsed.BaselineNote);
+                : new EvalReadItemInput(
+                    new IdentifyItemInput(i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, null, i.ProductCode,
+                        i.Box is { } box ? new ReadBoxInput(box.X, box.Y, box.Width, box.Height) : null, i.Unconfirmed == true),
+                    i.ResolvedBy,
+                    i.Tier,
+                    i.Provisional == true,
+                    i.IsGuess)).ToList(),
+            r.UnreadableCount,
+            r.LatencyMs,
+            r.FirstItemMs,
+            r.ThermalState,
+            r.CapturedCount,
+            r.CapturedAt,
+            r.DuplicateRescan is { } evidence ? new DuplicateRescanInput(evidence.OwnedHits, evidence.AnsweredOnCard, evidence.UnsolicitedAdds) : null,
+            r.OcrLines?.Select(l => l is null ? null! : new EvalOcrLineInput(l.Text, l.X, l.Y, l.Width, l.Height)).ToList(),
+            r.OcrPieces,
+            r.CoverCue);
 
-        // Grounding a big run takes minutes, and the phone may lock or drop the connection meanwhile; tying the work to the
-        // request token would cancel it and throw the whole run away, unsaved. The body is read; from here the work belongs
-        // to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the upload
-        // timeout, which cancels the same token, does not cut it short either).
-        var result = await handler.HandleAsync(input, lifetime.ApplicationStopping);
+    // ---- the resumable run -------------------------------------------------------------------------------------------------
+
+    private static async Task<IResult> OpenRunAsync(
+        HttpContext http,
+        IGoldenSet golden,
+        IOptions<JsonOptions> json,
+        OpenEvalRun.Handler handler,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("CollectionMaxxing.Api.Evals.OpenEvalRun");
+        if (!golden.IsAvailable)
+        {
+            return Refused(logger, EvalErrors.NotFound); // off means 404 before anything about the body is looked at
+        }
+
+        var (parsed, refusal) = await ReadJsonBodyAsync<EvalOpenRunRequest>(http, json, logger, BodyKind.Request, cancellationToken);
+        if (refusal is not null)
+        {
+            return refusal;
+        }
+
+        var input = new EvalOpenRunInput(
+            parsed!.Device is null ? null : new EvalDeviceInput(parsed.Device.Model, parsed.Device.OsVersion, parsed.Device.AppVersion),
+            parsed.ConfigVersion,
+            parsed.BaselineNote);
+        var result = await handler.HandleAsync(input, cancellationToken);
+        return result.IsSuccess ? TypedResults.Created("/api/admin/evals/runs/open", result.Value) : Refused(logger, result.Error!);
+    }
+
+    private static async Task<IResult> StorePhotoAsync(
+        string photoId,
+        HttpContext http,
+        IGoldenSet golden,
+        IOptions<JsonOptions> json,
+        StoreEvalPhoto.Handler handler,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("CollectionMaxxing.Api.Evals.StoreEvalPhoto");
+        if (!golden.IsAvailable)
+        {
+            return Refused(logger, EvalErrors.NotFound);
+        }
+
+        var (parsed, refusal) = await ReadJsonBodyAsync<EvalPhotoRequest>(http, json, logger, BodyKind.Photo, cancellationToken);
+        if (refusal is not null)
+        {
+            return refusal;
+        }
+
+        var result = await handler.HandleAsync(new EvalPhotoSubmission(photoId, parsed!.Results?.Select(ToInput).ToList()), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : Refused(logger, result.Error!);
+    }
+
+    private static async Task<IResult> FinishRunAsync(
+        HttpContext http,
+        IGoldenSet golden,
+        IOptions<JsonOptions> json,
+        FinishEvalRun.Handler handler,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        var logger = loggerFactory.CreateLogger("CollectionMaxxing.Api.Evals.FinishEvalRun");
+        if (!golden.IsAvailable)
+        {
+            return Refused(logger, EvalErrors.NotFound);
+        }
+
+        // The body is optional: left out, the run is finished as a whole.
+        var partial = false;
+        if (http.Request.ContentLength != 0)
+        {
+            var (parsed, refusal) = await ReadJsonBodyAsync<EvalFinishRequest>(http, json, logger, BodyKind.Request, cancellationToken);
+            if (refusal is not null)
+            {
+                return refusal;
+            }
+
+            partial = parsed!.Partial == true;
+        }
+
+        var result = await handler.HandleAsync(partial, cancellationToken);
+        return result.IsSuccess ? TypedResults.Accepted("/api/admin/evals/runs/open", result.Value) : Refused(logger, result.Error!);
+    }
+
+    private static async Task<IResult> DiscardRunAsync(DiscardEvalRun.Handler handler, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(cancellationToken);
+        return result.IsSuccess
+            ? TypedResults.NoContent()
+            : Refused(loggerFactory.CreateLogger("CollectionMaxxing.Api.Evals.DiscardEvalRun"), result.Error!);
     }
 
     private static IResult Refused(ILogger logger, CollectionMaxxing.Domain.Common.DomainError error)
@@ -231,13 +383,13 @@ public static class EvalsEndpoints
         && (contentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase)
             || contentType.Contains("+json", StringComparison.OrdinalIgnoreCase));
 
-    private static IResult BadBody() => ProblemResults.Problem(
-        StatusCodes.Status400BadRequest, "Bad request", "The body isn't valid JSON for an eval run.", "evals.body_invalid");
+    private static IResult BadBody(BodyKind kind) => ProblemResults.Problem(
+        StatusCodes.Status400BadRequest, "Bad request", $"The body isn't valid JSON for an {kind.Noun}.", "evals.body_invalid");
 
-    private static IResult TooLarge() => ProblemResults.Problem(
+    private static IResult TooLarge(BodyKind kind) => ProblemResults.Problem(
         StatusCodes.Status413PayloadTooLarge,
         "Payload too large",
-        $"An eval run can be at most {EvalsOptions.MaxRunBytes / (1024 * 1024)} MB.",
+        $"An {kind.Noun} can be at most {EvalsOptions.MaxRunBytes / (1024 * 1024)} MB.",
         "evals.body_too_large");
 
     // ---- adding a golden photo ---------------------------------------------------------------------------------------------

@@ -293,6 +293,13 @@ public static class AuthorizationMatrix
         AdminOnly("POST", "/api/admin/evals/golden/{set}/{id}", NotFound), // adding a golden photo from the phone: with the evals off the admin gets the same 404
         AdminOnly("POST", "/api/admin/evals/runs", NotFound),
         AdminOnly("GET", "/api/admin/evals/runs/latest", NotFound),
+
+        // The resumable run: opened on the PC, a photo at a time, finished once. Same answers as the one-shot route above: the admin only, and 404 while the evals are off.
+        AdminOnly("GET", "/api/admin/evals/runs/open", NotFound),
+        AdminOnly("POST", "/api/admin/evals/runs/open", NotFound),
+        AdminOnly("DELETE", "/api/admin/evals/runs/open", NotFound),
+        AdminOnly("PUT", "/api/admin/evals/runs/open/photos/{photoId}", NotFound),
+        AdminOnly("POST", "/api/admin/evals/runs/open/finish", NotFound),
     ];
 
     /// <summary>One theory row per endpoint and caller, so a failure names both.</summary>
