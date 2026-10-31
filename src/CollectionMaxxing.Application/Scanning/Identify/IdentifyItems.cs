@@ -418,9 +418,15 @@ public static class IdentifyItems
                 }
                 else
                 {
-                    local[candidate.Id] = await grounding.FindLocalAsync(item.Facts, cancellationToken);
                     toAsk.Add((candidate, item));
                 }
+            }
+
+            // The database step for every read that needs it, together.
+            var pools = await grounding.FindLocalManyAsync([.. toAsk.Select(a => a.Item.Facts)], cancellationToken);
+            for (var i = 0; i < toAsk.Count; i++)
+            {
+                local[toAsk[i].Candidate.Id] = pools[i];
             }
 
             foreach (var (candidate, item, providers) in await AskProvidersAsync(toAsk, cancellationToken))

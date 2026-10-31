@@ -70,6 +70,15 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     public Task<LocalPool> FindLocalAsync(ReadFacts facts, CancellationToken cancellationToken) =>
         facts.SearchText is { } text ? search.FindLocalAsync(text, cancellationToken) : Task.FromResult(LocalPool.Empty);
 
+    /// <summary>The database step for several reads at once, in order: the same pool for each as <see cref="FindLocalAsync"/> gives, from a few queries. Run one batch at a time.</summary>
+    public async Task<IReadOnlyList<LocalPool>> FindLocalManyAsync(IReadOnlyList<ReadFacts> reads, CancellationToken cancellationToken)
+    {
+        var texts = reads.Select(r => r.SearchText).OfType<string>().ToList();
+        var pools = texts.Count == 0 ? [] : await search.FindLocalManyAsync(texts, cancellationToken);
+        var next = 0;
+        return [.. reads.Select(r => r.SearchText is null ? LocalPool.Empty : pools[next++])];
+    }
+
     /// <summary>The provider step: touches no database, so many reads can run at once within one budget.</summary>
     public async Task<ProviderAnswers> AskProvidersAsync(ReadFacts facts, CancellationToken callerToken, CancellationToken budgetToken) =>
         facts.ToQuery() is { } query ? await search.AskProvidersAsync(query, callerToken, budgetToken) : ProviderAnswers.None;

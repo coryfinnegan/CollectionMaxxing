@@ -93,10 +93,46 @@ public sealed class TextSearchResolver(
         var started = Stopwatch.GetTimestamp();
         var hits = await local.FindAsync(new LocalSearch(normalized, null, null, null, LocalCap), cancellationToken);
         var step = new TraceStep("catalogue", hits.Count > 0 ? "hit" : "miss", (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        return PoolOf(hits, step, await PlatformsOfAsync(hits, cancellationToken));
+    }
+
+    /// <summary>
+    /// <see cref="FindLocalAsync"/> for several titles at once: the pool of each, in order, from a few queries instead of a few each.
+    /// A title that appears twice is looked up once. The lookup time on each step is the batch's time shared by the titles looked up.
+    /// Uses the database: one call at a time.
+    /// </summary>
+    public async Task<IReadOnlyList<LocalPool>> FindLocalManyAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken)
+    {
+        var normalized = texts.Select(TitleNormalizer.Normalize).ToList();
+        var titles = normalized.Where(n => n.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        if (titles.Count == 0)
+        {
+            return [.. normalized.Select(_ => LocalPool.Empty)];
+        }
+
+        var started = Stopwatch.GetTimestamp();
+        var found = await local.FindManyAsync([.. titles.Select(title => new LocalSearch(title, null, null, null, LocalCap))], cancellationToken);
+        var milliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds / titles.Count;
+        var platforms = await PlatformsOfAsync(found.SelectMany(hits => hits).ToList(), cancellationToken);
+        var pools = new Dictionary<string, LocalPool>(StringComparer.Ordinal);
+        for (var i = 0; i < titles.Count; i++)
+        {
+            pools[titles[i]] = PoolOf(found[i], new TraceStep("catalogue", found[i].Count > 0 ? "hit" : "miss", milliseconds), platforms);
+        }
+
+        return [.. normalized.Select(title => title.Length == 0 ? LocalPool.Empty : pools[title])];
+    }
+
+    private async Task<Dictionary<Guid, Platform>> PlatformsOfAsync(IReadOnlyList<LocalHit> hits, CancellationToken cancellationToken)
+    {
         var platformIds = hits.Select(h => h.Release.PlatformId).OfType<Guid>().Distinct().ToList();
-        var platforms = platformIds.Count == 0
+        return platformIds.Count == 0
             ? []
             : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
+    }
+
+    private static LocalPool PoolOf(IReadOnlyList<LocalHit> hits, TraceStep step, Dictionary<Guid, Platform> platforms)
+    {
         var pool = new List<(CandidateRelease Scoring, ResolutionOption Option)>();
         var workIds = new Dictionary<string, Guid>(StringComparer.Ordinal);
         foreach (var hit in hits)
