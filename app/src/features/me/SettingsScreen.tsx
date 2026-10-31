@@ -48,13 +48,13 @@ export function RecognitionSection() {
         <>
           <Text>Engine: Apple on-device model</Text>
           <Text>{`Apple Intelligence: ${APPLE_INTELLIGENCE_LABEL[state.appleIntelligence]}`}</Text>
-          <Text tone="muted">Apple Intelligence is on. Covers are read on this iPhone and never leave it.</Text>
+          <Text tone="muted">Apple Intelligence is on. Covers are read on this iPhone, and nothing goes to an AI service.</Text>
         </>
       ) : state.engine === 'fm_text' ? (
         <>
           <Text>Engine: Apple text model</Text>
           <Text>{`Apple Intelligence: ${APPLE_INTELLIGENCE_LABEL[state.appleIntelligence]}`}</Text>
-          <Text tone="muted">This iPhone reads the text on covers with its on-device model. Cover photos never leave it.</Text>
+          <Text tone="muted">This iPhone reads the text on covers with its on-device model. Nothing goes to an AI service.</Text>
         </>
       ) : (
         <>
