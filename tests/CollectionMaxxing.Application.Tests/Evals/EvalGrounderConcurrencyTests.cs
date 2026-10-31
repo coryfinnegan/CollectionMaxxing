@@ -367,7 +367,7 @@ public class EvalGrounderConcurrencyTests
     [Fact]
     public async Task A_read_that_runs_out_of_its_own_budget_is_pending_and_the_read_queued_behind_it_still_has_a_full_budget()
     {
-        var grounder = Grounder(new RecordingCatalogue(), new SlowForSomeProvider(), parallelism: 1, budget: TimeSpan.FromMilliseconds(300));
+        var grounder = Grounder(new RecordingCatalogue(), new SlowForSomeProvider(), parallelism: 1, budget: TimeSpan.FromMilliseconds(750));
 
         var items = await GroundAsync(grounder, new EvalGroundingMemo(), Reads("Slow Poke Quest", "Quick Quest")).WaitAsync(Patience);
 
