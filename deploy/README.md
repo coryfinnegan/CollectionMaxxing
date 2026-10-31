@@ -10,6 +10,7 @@ Everything here was written and tested **without touching the real machine**. Ev
 | `deployer/` | `Deploy-CollectionMaxxing.ps1` (the deployer), `Install-Deployer.ps1` / `Uninstall-Deployer.ps1` (the scheduled task), shared `Cm.*.ps1` |
 | `apple/` | `New-SigningRequest.ps1` and `Publish-SigningSecrets.ps1`: the TestFlight signing setup and its yearly renewal (ADR-024, [runbooks/iphone-app-testflight.md](runbooks/iphone-app-testflight.md)) |
 | `tailscale/` | `Set-TailscaleServe.ps1` |
+| `agent/` | The issue agent: `Watch-AgentIssues.ps1` (the scheduled watcher), `Run-AgentIssue.ps1` (one run), `agent-prompt.md` (what the agent is told), `Install-AgentWatcher.ps1` ([The issue agent](#the-issue-agent-optional)) |
 | `backup/` | The backup image: `Dockerfile.backup`, `backup.sh`, `backup-lib.sh` (dump, files archive, manifest, retention, heartbeat) |
 | `runbooks/`, `drills/` | Short "what do I do when..." runbooks (start at `runbooks/README.md`) and the restore drill log template |
 | `RESTORE.md` | The runbook for the restore drill (twice a year) and for a real restore. The drill itself is `scripts/restore-drill.ps1` / `scripts/restore-drill.sh` |
@@ -25,16 +26,16 @@ What happens after a merge to `main`, in order, and what each step needs from th
 
 1. **CI builds and signs** (`.github/workflows/release.yml`, "Release images", about 4-5 minutes). Three images land on GHCR tagged with the full commit SHA, each with a build attestation; then the moving `:main` tag jumps onto all three — but only after every leg AND its attestation succeeded. Needs: GitHub Actions running. When the run fails, `:main` stays where it was and the deployer never sees the commit.
 2. **The deployer polls** (the `CollectionMaxxingDeployer` scheduled task, every 2 minutes). It pulls `api:main`, reads the commit SHA from the image's `org.opencontainers.image.revision` label, and stops when that is the commit already running. Needs: the PC on, you signed in, Docker Desktop running. The task does not run while you are signed out, and nothing queues up for it — the first poll after you sign in just picks up whatever `:main` is then.
-3. **The deployer proves and swaps** ("How the deployer decides" below): ancestry (the new commit must descend from the running one), one attestation per image (the certificate must say this repo built it from `main` at that commit), the expand-only migration, `up -d`, then the smoke test, the service check and the running-version check (the api container's revision label must equal the deployed commit). A refusal or a failure is an `ALERT` line in `logs\deployer.log` — and, only when `CM_HEARTBEAT_URL` is set in `.env`, a failure email. **That URL is not set today, so a stuck deployer is silent outside this log file.**
+3. **The deployer proves and swaps** ("How the deployer decides" below): ancestry (the new commit must descend from the running one), one attestation per image (the certificate must say this repo built it from `main` at that commit), the expand-only migration, `up -d`, then the smoke test, the service check and the running-version check (the api container's revision label must equal the deployed commit). A refusal or a failure is an `ALERT` line in `logs\deployer.log`, a labeled GitHub issue ([Alerts as GitHub issues](#alerts-as-github-issues)) and, only when `CM_HEARTBEAT_URL` is set in `.env`, a failure email.
 4. **Delivery is verified against the running server**, not the registry: `GET http://127.0.0.1:5480/health/version` reports the commit the api is running (`CM_BUILD_SHA`, set from the deployed tag). A server-side fix is delivered when that endpoint reports the merge commit (or a newer one) — the rule proposal is `docs/proposed-server-delivery-rule-491.md`.
 
-Manual steps, honestly listed: the one-time install checklist below; keeping the PC on, signed in and Docker running (steps 2-3 only happen then); setting `CM_HEARTBEAT_URL` if you want failure emails. There is no manual pull, ever: at the start of every poll the deployer fast-forwards its own clone to `origin/main` when the clone is clean and fast-forwardable (a dirty, diverged or off-`main` clone is left alone with a `WARN` line until it is fixed), so a deployer or compose fix self-delivers within one poll cycle and the next run loads it. Last-good stays solely in `state\deployer-state.json` (the rollback anchor), never in the clone position.
+Manual steps, honestly listed: the one-time install checklist below; keeping the PC on, signed in and Docker running (steps 2-3 only happen then); setting `CM_HEARTBEAT_URL` if you also want failure emails (the alert issues need nothing from you but a working `gh` login). There is no manual pull, ever: at the start of every poll the deployer fast-forwards its own clone to `origin/main` when the clone is clean and fast-forwardable (a dirty, diverged or off-`main` clone is left alone with a `WARN` line until it is fixed), so a deployer or compose fix self-delivers within one poll cycle and the next run loads it. Last-good stays solely in `state\deployer-state.json` (the rollback anchor), never in the clone position.
 
 ## Before you start (nothing here changes anything)
 
 - [ ] **Docker Desktop** is updated (24.0.7 is from 2023) and set to start when you sign in. Windows: Settings > Accounts > Sign-in options > "Use my sign-in info to automatically finish setting up after an update".
 - [ ] **GitHub CLI** is version 2.49 or newer (the first with `gh attestation verify`). Check with `gh --version`; update with `winget upgrade GitHub.cli` (needs admin), or, without admin, unzip the official `gh_<version>_windows_amd64.zip` from [cli/cli releases](https://github.com/cli/cli/releases) to `C:\CollectionMaxxing\tools\gh`. The deployer puts `tools\gh\bin` first on its own PATH when it is there.
-- [ ] **`gh auth status`** says you are logged in (the attestation check needs a token; read-only is enough). If not, run `gh auth login` yourself.
+- [ ] **`gh auth status`** says you are logged in (the attestation check needs a token; read-only is enough, but the alert issues need one that can write issues on this repo, which the normal `gh auth login` gives). If not, run `gh auth login` yourself.
 - [ ] **PowerShell 7**: `pwsh --version` prints 7.x.
 - [ ] **Tailscale** is signed in: `tailscale status`.
 - [ ] **The lead has merged** `deploy/proposed/release.yml` as `.github/workflows/release.yml`, a push to `main` has run it, and the three packages (`collectionmaxxing-api`, `-migrate`, `-backup`) are public on GHCR. Until then there is nothing to deploy.
@@ -65,8 +66,7 @@ Copy-Item C:\CollectionMaxxing\repo\deploy\.env.example C:\CollectionMaxxing\.en
 [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
 notepad C:\CollectionMaxxing\.env
 ```
-Fill in `POSTGRES_PASSWORD`, `CM_PUBLIC_ORIGIN` (the address people browse to, for example `https://pc.tailnet.ts.net`), `CM_SECRETS_DIR`, `CM_BACKUP_DIR` (a folder on **F:**, not C:), `CM_TZ` and, if you want email alerts, `CM_HEARTBEAT_URL` (step 9). `CM_GOOGLE_BOOKS_API_KEY` is optional: paste a Google Books API key to add a second source for book lookups (leave it empty to use Open Library alone). Games and movies need theirs: `CM_IGDB_CLIENT_ID` and `CM_IGDB_CLIENT_SECRET` (a Twitch app at dev.twitch.tv/console) and `CM_TMDB_API_KEY` (the API Read Access Token at themoviedb.org/settings/api); without them every game or movie picture finds nothing, silently. Windows environment variables such as `Providers__GoogleBooks__ApiKey` do **not** reach the containers; only these `.env` lines do. After changing one, recreate the API (the next deploy does it too): `$env:CM_TAG='<sha>'; docker compose -p collectionmaxxing -f C:\CollectionMaxxing
-epo\deploy\docker-compose.yml --env-file C:\CollectionMaxxing\.env up -d api` (`<sha>` is `current.sha` in `C:\CollectionMaxxing\state\deployer-state.json`). Leave the ports alone. `.env` is never committed. **Undo:** delete the file.
+Fill in `POSTGRES_PASSWORD`, `CM_PUBLIC_ORIGIN` (the address people browse to, for example `https://pc.tailnet.ts.net`), `CM_SECRETS_DIR`, `CM_BACKUP_DIR` (a folder on **F:**, not C:), `CM_TZ` and, if you want email alerts, `CM_HEARTBEAT_URL` (step 9). `CM_GOOGLE_BOOKS_API_KEY` is optional: paste a Google Books API key to add a second source for book lookups (leave it empty to use Open Library alone). Games and movies need theirs: `CM_IGDB_CLIENT_ID` and `CM_IGDB_CLIENT_SECRET` (a Twitch app at dev.twitch.tv/console) and `CM_TMDB_API_KEY` (the API Read Access Token at themoviedb.org/settings/api); without them every game or movie picture finds nothing, silently. Windows environment variables such as `Providers__GoogleBooks__ApiKey` do **not** reach the containers; only these `.env` lines do. After changing one, recreate the API (the next deploy does it too): `$env:CM_TAG='<sha>'; docker compose -p collectionmaxxing -f C:\CollectionMaxxing\repo\deploy\docker-compose.yml --env-file C:\CollectionMaxxing\.env up -d api` (`<sha>` is `current.sha` in `C:\CollectionMaxxing\state\deployer-state.json`). Leave the ports alone. `.env` is never committed. **Undo:** delete the file.
 
 ### 3. Set up Auth0 sign-in
 
@@ -139,17 +139,28 @@ The iPhone app is no longer served from this PC: it comes from TestFlight (ADR-0
 
 Nothing here is set up. When you want it (docs/10): create a free Backblaze B2 bucket or use OneDrive, then `rclone config` (an `crypt` remote on top), and schedule `rclone copy F:\Backups\CollectionMaxxing <crypt-remote>:` weekly with a normal Windows scheduled task you create yourself. Keep the rclone password somewhere safe: without it the copy cannot be read.
 
+### 12. Optional: the issue agent
+
+Only if you want GitHub issues to turn into pull requests without a session of yours. Nothing runs until you do this; see [The issue agent](#the-issue-agent-optional) for what it does, its limits and its switch.
+
+```powershell
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1            # dry run
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Apply
+```
+**Undo:** `pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Uninstall -Apply`.
+
 ## Everything the real install runs
 
 | Step | Commands that change the machine |
 |---|---|
 | 1 | `git clone` into `C:\CollectionMaxxing\repo` |
 | 2 | Copies `.env.example` to `.env` (you edit it) |
-| 3 | `Apply-Auth0.ps1 -Apply`: changes your Auth0 tenant, and writes the files in `secretsuth0\` |
-| 5, and every 2 minutes after | `git -C ...\repo fetch origin main` plus `git merge --ff-only origin/main` at poll start (after read-only `git status` / `git symbolic-ref`; skipped with a `WARN` when the clone is dirty, off `main` or diverged) and, only when a new image appeared, a second fetch plus read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify` (every local digest, until one verifies); a second `docker pull` of `api:main` plus `image inspect` (the revision must not have moved); read-only `git diff --name-only <deployed> <new>`, and, when a migration file changed or git cannot tell, a pre-migrate dump (`docker compose run --rm --no-deps -T --entrypoint sh backup -c "pg_dump ..."` into `<CM_BACKUP_DIR>\pre-migrate`, the newest 5 kept); `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; `docker compose ps` (every started service must be up); `docker compose ps -q api` plus `docker inspect` (the running api must report the deployed commit); writes `state\deployer-state.json` and `logs\deployer.log*`; once, on a server that still has the retired `.ipa`, `docker run --rm ... sh -c "rm -rf /data/files/ipa"`; after a good deploy and on quiet polls (unless `CM_PRUNE_IMAGES=0`), read-only `docker image ls` / `docker ps -a`, then `docker image rm <repo>:<old commit>` for old tags of the api, migrate and backup repositories only (at most 100 per poll) |
+| 3 | `Apply-Auth0.ps1 -Apply`: changes your Auth0 tenant, and writes the files in `secrets\auth0\` |
+| 5, and every 2 minutes after | `git -C ...\repo fetch origin main` plus `git merge --ff-only origin/main` at poll start (after read-only `git status` / `git symbolic-ref`; skipped with a `WARN` when the clone is dirty, off `main` or diverged) and, only when a new image appeared, a second fetch plus read-only `git cat-file` / `git merge-base --is-ancestor`; `docker pull` of the three images; `gh attestation verify` (every local digest, until one verifies); a second `docker pull` of `api:main` plus `image inspect` (the revision must not have moved); read-only `git diff --name-only <deployed> <new>`, and, when a migration file changed or git cannot tell, a pre-migrate dump (`docker compose run --rm --no-deps -T --entrypoint sh backup -c "pg_dump ..."` into `<CM_BACKUP_DIR>\pre-migrate`, the newest 5 kept); `docker compose run --rm migrate`; `docker compose up -d api backup aspire-dashboard`; `curl` of `/health/ready`; `docker compose ps` (every started service must be up); `docker compose ps -q api` plus `docker inspect` (the running api must report the deployed commit); writes `state\deployer-state.json` and `logs\deployer.log*`; after a failed run `gh issue list` / `create` / `comment` on the repo for the alert issue, after a good one `gh issue close` of the ones it opened, and on quiet polls and after a deploy a read-only `docker compose ps -q backup` plus `docker inspect` of the backup container (unless `CM_ALERT_ISSUES=0`); once, on a server that still has the retired `.ipa`, `docker run --rm ... sh -c "rm -rf /data/files/ipa"`; after a good deploy and on quiet polls (unless `CM_PRUNE_IMAGES=0`), read-only `docker image ls` / `docker ps -a`, then `docker image rm <repo>:<old commit>` for old tags of the api, migrate and backup repositories only (at most 100 per poll) |
 | 6 | `tailscale serve --bg --https=443 http://127.0.0.1:5480` |
 | 7 | `schtasks /Create ...` (one task) |
 | 8 | `backup.sh once` inside the backup container |
+| 12 | `schtasks /Create ...` (one task, `CollectionMaxxingAgent`, optional). Once installed, each run of the agent service changes your own checkout (`git fetch origin`, `git worktree add`, and `git worktree remove` for its own `agent-issue-<n>` folders) and GitHub (labels and comments on one issue, then whatever the agent does for it); see the next section |
 
 It never runs `docker system prune`, `docker volume prune`, `docker image prune`, `docker rm` on any container, `docker image rm` on anything but a single old `repo:tag` of the api, migrate or backup repository ([Old images](#old-images-what-is-removed-and-what-is-kept)), `docker compose down -v`, anything that edits the registry, PATH, system or WSL settings, or anything that binds a port other than `127.0.0.1:5480` and `127.0.0.1:18888`.
 
@@ -176,7 +187,7 @@ The sha must be 40 lowercase hex characters. A true first deploy (no state, noth
 
 **Exit codes:** 0 fine or nothing to do (also "already up to date", "known bad, waiting for a newer one", and a dry run), 1 deploy failed or rolled back (migration or its pre-migrate dump failed, smoke test or service check failed, stale lock, crashed), 2 config refused, 3 Docker or GHCR not reachable, 4 refused (not a descendant, not attested, unreadable state). (5 was the retired `.ipa` sync.)
 
-**Refusals are loud.** Every non-zero result of a real (`-Apply`) run writes a line starting `ALERT deploy <outcome>` to `deployer.log` and pings `<CM_HEARTBEAT_URL>/fail` with the reason as the body: the same free healthchecks.io check the nightly backup uses, so you get the same email. (A deploy alert also marks that check "down" until the next good backup ping; that is the price of using one channel.) With no heartbeat URL the log line is the only alert. A failed ping never changes the exit code. The poller repeats the ping every 2 minutes while the cause persists; healthchecks only emails on the change.
+**Refusals are loud.** Every non-zero result of a real (`-Apply`) run writes a line starting `ALERT deploy <outcome>` to `deployer.log`, opens or updates a labeled GitHub issue ([below](#alerts-as-github-issues)), and pings `<CM_HEARTBEAT_URL>/fail` with the reason as the body: the same free healthchecks.io check the nightly backup uses, so you get the same email. (A deploy alert also marks that check "down" until the next good backup ping; that is the price of using one channel.) With no heartbeat URL and `CM_ALERT_ISSUES=0` the log line is the only alert. A failed ping or issue never changes the exit code. The poller repeats the ping every 2 minutes while the cause persists; healthchecks only emails on the change, and the issue is touched at most once an hour.
 
 **Rolling back on purpose** is the one way to go to an older commit, and it is separate from the poller:
 
@@ -209,6 +220,105 @@ Every deploy pulls three images (`collectionmaxxing-api`, `-migrate`, `-backup`,
 - **Kill switch:** `CM_PRUNE_IMAGES=0` in `C:\CollectionMaxxing\.env` (or in the deployer's process environment) turns the whole clean-up off. `false`, `off` and `no` work too; anything else, or not set, leaves it on. Remove the line to turn it back on.
 
 The log lines to look for: `removed 100 old images of api, migrate and backup (kept the running and the previous version and the 3 newest of each); 281 more wait for the next poll`, and `could not remove 1 old image (first: ...)` as a `WARN`.
+
+### Alerts as GitHub issues
+
+A problem on the PC reaches you without anyone reading `deployer.log`: the deployer opens a GitHub issue through the portable `gh` it already uses (it runs as your Windows user, so it is your `gh` login; `guard-issues.yml` leaves owner-authored issues alone). It is **once per problem, not once per poll**:
+
+- Every alert has a **kind**, and a kind has at most one open issue. The issue is found by the `alert` label plus a hidden marker in its body (`<!-- cm-alert:<kind> -->`). While the problem lasts the deployer adds a comment ("Again at 13:00 UTC, 27 times today"), **at most one per kind per hour**; it never opens a second issue for the same kind.
+- When the problem clears, the deployer **closes** that issue with a one-line comment saying what cleared it. A deploy problem clears with the next good deploy (or when `main` is the running version again); a quiet `known-bad` poll does not clear it, because the bad commit is still `main`. `backup-unhealthy` clears when the backup container reports healthy, the two Docker kinds when Docker answers again.
+- **Transient kinds wait.** `docker-unavailable` and `main-tag-moving` file nothing until they have lasted 10 polls in a row (about 20 minutes), `deployer-crashed` until 3; one good poll starts the count again. The log line and the heartbeat ping are not delayed.
+- Every issue carries `alert` and `type:infra`. **Code problems an agent can fix** also get `agent-task`, `p1`, `sev:blocker`. **Anything only you can fix, or that an agent must not "fix"**, gets `needs:cory` and `p1` (`p2` where the deployer carries on by itself). An `attestation-failed` issue is never an agent task: it may be tampering, and nobody loosens the verification.
+- The body says in one plain sentence what happened, when, the running and the new commit, what to do, and the last 20 lines of the log. Everything is passed through `Hide-CmSecrets` and a second scrub (every `.env` value that is a secret, token, key, URL, origin, domain or client id, anything shaped like a token, tailnet host names, home folders and email addresses) before it leaves the PC.
+- It never fails or blocks a deploy. If `gh` fails (offline, not logged in) the deployer logs a `WARN`, carries on, and leaves that kind alone for 15 minutes; the alert is kept and filed (with the time it happened) once `gh` works again, unless the problem clears first. At most **10 issue writes a day** (create, comment, close, all kinds together, counted in UTC days).
+- **Switch:** `CM_ALERT_ISSUES=0` in `C:\CollectionMaxxing\.env` (or the deployer's process environment) turns issue filing off; `false`, `off` and `no` work too. The `ALERT` log line and the heartbeat ping stay. Manual `-RollbackTo` runs never file an issue.
+- What it remembers (the open issue number, when it last wrote, today's count, the polls in a row) is under the `alerts` key of `state\deployer-state.json`; nothing else in that file is touched, and an unreadable state file is never overwritten.
+
+| Kind | Labels beyond `alert` and `type:infra` | Raised when | Cleared by |
+|---|---|---|---|
+| `deploy-rolled-back` | `agent-task` `p1` `sev:blocker` | a new version started but a service crashed or the wrong build answered, and the previous version was put back | a later good deploy, or `main` is the running version again |
+| `smoke-failed` | `agent-task` `p1` `sev:blocker` | the new version never answered `/health/ready`, previous version put back | same |
+| `migrate-failed` | `agent-task` `p1` `sev:blocker` | the database migration failed; the running api was not touched | same |
+| `config-guard-refused` | `agent-task` `p1` `sev:blocker` | the config guard refused the setup or the release's compose file | same |
+| `deployer-crashed` | `agent-task` `p1` `sev:blocker` | the deployer script threw, 3 polls in a row | a run that finishes normally |
+| `attestation-failed` | `needs:cory` `p1` | an image has no valid build proof, or is not the commit it claims to be | same as the deploy kinds |
+| `downgrade-refused` | `needs:cory` `p1` | the newest `main` image is older than, diverged from or unrelated to the running version | same |
+| `deployer-setup-refused` | `needs:cory` `p1` | the state file is unreadable or lost, or the clone cannot supply the compose file | same |
+| `pre-migrate-dump-failed` | `needs:cory` `p1` | the dump before a migration failed (usually a full or missing backup drive) | a later good deploy |
+| `deployer-stuck` | `needs:cory` `p1` | a run has held the lock for over 30 minutes | a run that finishes normally |
+| `backup-unhealthy` | `needs:cory` `p1` | the backup container reports unhealthy (newest good backup over 30 h old, Postgres unreachable) or is not running; read with `docker inspect` on every quiet poll and after a deploy | the container reports healthy |
+| `docker-unavailable` | `needs:cory` `p2` | Docker or GHCR did not answer for 10 polls in a row | Docker answers again |
+| `main-tag-moving` | `needs:cory` `p2` | the `main` image tag moved during the checks, 10 polls in a row | the tag settles |
+
+A quiet poll with nothing open and a healthy backup makes no `gh` call at all. The deployer has no free-disk check of its own; a full backup drive shows up as `pre-migrate-dump-failed` or `backup-unhealthy`.
+
+## The issue agent (optional)
+
+A second scheduled task, separate from the deployer. Every 5 minutes `Watch-AgentIssues.ps1` looks on GitHub for a queued issue and, when there is one, starts a fresh headless Claude Code run (`claude -p`) for that one issue in its own git worktree. The agent works the issue test first, opens one pull request, has a separate verifier agent review it, squash-merges it when CI is green and the verifier approves (the owner's standing rule), and follows it to delivery. It replaces the old `scripts/watch-muse-issues.ps1`, which only printed ready issues for a long-lived session; a fresh run per issue keeps contexts small (ADR-023).
+
+**It costs nothing while there is no work.** A watcher pass is plain PowerShell plus the `gh` CLI and never starts a model. An idle pass is one `gh issue list` call; with the switch off, the daily cap reached or a run still alive it makes none. Only a pass that finds an issue starts a model, once, for that issue.
+
+### Queue an issue
+
+Issues the deployer files for problems an agent can fix (the kinds labeled `agent-task` in [Alerts as GitHub issues](#alerts-as-github-issues)) land in this queue too: they are written under your `gh` login, carry `p1`, and their quoted log lines are data to the agent, not instructions.
+
+Open an issue as yourself (issues by anyone else are never worked) and add the label `agent-task`. Optionally add `p1` to `p5` (no label counts as `p3`), a `type:*` label and a `tier:*` label. The issue text is the brief: write what you want and how you will know it is done. Text pasted into it (logs, alert output) is treated as data, not instructions. To see where it is, look at the issue: the labels and the comments say.
+
+| Label | Meaning | Set by |
+|---|---|---|
+| `agent-task` | Queued for the agent | you |
+| `agent-working` | A run has picked it up (comment "Picked up at ...") | the watcher |
+| `agent-review` | The pull request is open; waiting for CI, the verifier and the merge | the agent (it removes it when delivered) |
+| `agent-blocked` | The agent stopped and said why in a comment, or the watcher found the run dead; remove the label to try again | the agent or the watcher |
+| `needs:cory`, `status:blocked` | Not the agent's to move; the watcher skips these | you or the agent |
+| `p1` to `p5` | Order of work (`p1` first, then oldest) | you |
+| `tier:mechanical` / `tier:critical` | Model: `haiku` / `opus`. Anything else runs `sonnet` | you |
+
+### How one run goes
+
+1. The pass reads `C:\CollectionMaxxing\.env`, closes out an earlier run if its process is gone, and stops if one is still alive (one run at a time) or the day's cap is reached.
+2. It lists open `agent-task` issues written by the repo owner, skips any with `agent-working`, `agent-blocked`, `needs:cory` or `status:blocked`, and picks by priority, then oldest.
+3. In your own checkout it runs `git fetch origin` (if that fails the issue is left untouched and the next pass tries again). Then it adds `agent-working`, comments "Picked up at <time>", runs `git worktree add <checkout>\.claude\worktrees\agent-issue-<n> -b agent/issue-<n> origin/main` (a leftover worktree from an earlier failed run of the same issue is reused as it is), and starts `Run-AgentIssue.ps1` in a headless console. The pass then exits.
+4. The runner starts `claude -p --permission-mode auto --model <model>` with `agent-prompt.md` (with the issue number filled in) as its input, in that worktree. Everything it prints is appended to `logs\agent\issue-<n>-<yyyyMMdd-HHmmss>.log`.
+5. The agent does the work as `CLAUDE.md` describes, comments the PR link on the issue and swaps `agent-working` for `agent-review`, has a verifier subagent review the diff, merges when CI is green and the verifier approves, and follows the merge to delivery. If it is blocked or unsure it comments what it needs, adds `agent-blocked` (and `needs:cory` when the decision is yours) and stops.
+6. The next pass sees the process gone. If the issue is closed, the run finished: the worktree and the local branch are removed when its pull request merged. If the agent blocked itself, nothing more happens. Otherwise (a non-zero exit, no merge, still `agent-working`) the watcher adds `agent-blocked` and comments the last 30 log lines with secrets hidden; that worktree is kept so you can look at it. Then the lock is cleared and the same pass moves on to the next issue.
+
+   One exception, so a broken sign-in cannot block the whole queue: a run that exits non-zero **within 5 minutes of starting** (sign-in expired, usage limit, `--permission-mode auto` refused) failed to start; the issue did not fail. That issue goes back in the queue (`agent-working` removed, `agent-task` kept, no `agent-blocked`) with one comment, "The agent couldn't start ... It will try again after <time>", holding the first 10 log lines with secrets hidden. The whole service then pauses for 60 minutes: every pass exits with no call to GitHub. A second quick failure in a row doubles the pause (8 hours at most); any run that gets past 5 minutes, or any other way a run ends, resets it. A quick failure is not counted against the daily cap.
+
+### Limits and the switch
+
+Settings go in `C:\CollectionMaxxing\.env` (all optional, read on every pass; see `.env.example`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `CM_AGENT_ENABLED` | on | `0`, `false`, `off` or `no` switches the agent off: every pass exits at once, with no call to GitHub. A run already going is not stopped by this |
+| `CM_AGENT_REPO` | `<home>\source\repos\CollectionMaxxing` | Your own checkout, where the worktrees are made. It is refused if it is the deployer's own clone (`C:\CollectionMaxxing\repo`) or inside it, and nothing is claimed |
+| `CM_AGENT_MAX_RUNS_PER_DAY` | 8 | Runs started per local day, counted when an issue is picked up (a run that fails within 5 minutes is given back). `0` pauses new runs. When the cap is hit the log says so once |
+| `CM_AGENT_MAX_MINUTES` | 180 | A run longer than this is stopped with all its child processes and its issue is marked `agent-blocked`. The runner enforces this itself, because Task Scheduler may not start the watcher again while an agent runs |
+
+Always on: one run at a time (a lock in `state\agent.lock`; a second watcher pass exits, and a lock whose process is gone or whose id now belongs to a newer process is cleared), only issues written by the repo owner, no admin rights, no second account, and no other scheduled task is touched. The agent itself works under the hard rules in `CLAUDE.md`: its worktree and its own branch only, never `main`, no force-push, Docker and ports as `CLAUDE.md` says, nothing secret in a commit or comment. The log tail the watcher posts passes through the same secret masking as the deployer's log (every secret-looking value in `.env`, GitHub and bearer tokens, the home folder).
+
+The agent runs as your Windows account with your `gh` login and your Claude Code sign-in, while you are signed in. `--permission-mode auto` has to be available for that sign-in; if it is not, the first run fails at once, its log tail lands on the issue and the issue is marked `agent-blocked`.
+
+### Install, look, stop
+
+```powershell
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1            # dry run: prints the schtasks command
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Apply
+schtasks /Query /TN CollectionMaxxingAgent
+```
+It registers one user-level task, `CollectionMaxxingAgent` (every 5 minutes, `conhost --headless pwsh ... Watch-AgentIssues.ps1 -Root C:\CollectionMaxxing -Apply`, `/RL LIMITED`), and refuses to replace one that exists. Run `Watch-AgentIssues.ps1` by hand without `-Apply` to see what a pass would do; it changes nothing.
+
+| Where | What |
+|---|---|
+| `C:\CollectionMaxxing\logs\agent-watcher.log` | The watcher's own log; quiet passes write nothing |
+| `C:\CollectionMaxxing\logs\agent\issue-<n>-<time>.log` | One run: header, everything claude printed, how it ended. Next to it: `.prompt.md` (what it was told) and `.exit.json` |
+| `C:\CollectionMaxxing\state\agent-state.json`, `agent.lock` | The day's run count and the pause after quick failures (`pauseUntilUnix`, `quickFailures`; delete the file to clear it); the run in progress |
+| `<checkout>\.claude\worktrees\agent-issue-<n>` | A run's worktree, kept while its issue is blocked |
+
+**If an issue sits in the queue:** it must be written by the repo owner and carry `agent-task` and none of `agent-working`, `agent-blocked`, `needs:cory`, `status:blocked`. Then look for `config-error` lines in `logs\agent-watcher.log` (no checkout at `CM_AGENT_REPO`, `claude` not found), check `CM_AGENT_ENABLED`, the day's cap, whether the service is paused after a quick failure (the last comment on the last issue says until when) and whether another run holds `state\agent.lock`. **If a picked-up issue gets "The agent couldn't start" within minutes**, read the log lines in that comment (sign-in, usage limit, `auto` mode). **If it turns `agent-blocked` within minutes with "no exit code recorded"** and its run log holds only the header line, the run was killed with the watcher that started it; the comment carries the log tail.
+
+**Pause:** set `CM_AGENT_ENABLED=0` in `.env`. **Stop a run now:** `taskkill /PID <pid in state\agent.lock> /T /F`; the next pass marks its issue blocked. **Uninstall:** `pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Uninstall -Apply` (or `schtasks /Delete /TN CollectionMaxxingAgent /F`). **Run an issue again:** remove `agent-blocked` from it.
 
 ## Changing the code
 

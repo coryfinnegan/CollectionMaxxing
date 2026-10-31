@@ -15,8 +15,10 @@
   Last-good stays solely in the state file (the rollback anchor), never in the clone position. On a server that still
   has the .ipa it served before the iPhone app moved to TestFlight (ADR-024), a run removes it from the files volume, once.
 
-  Refusals are loud: a refused, failed or rolled-back deploy exits non-zero, writes an ALERT line to the log and pings
-  <CM_HEARTBEAT_URL>/fail (the free check the nightly backup already uses).
+  Refusals are loud: a refused, failed or rolled-back deploy exits non-zero, writes an ALERT line to the log, pings
+  <CM_HEARTBEAT_URL>/fail (the free check the nightly backup already uses) and opens a labeled GitHub issue through gh,
+  once per problem; the issue closes itself when the problem clears. A stale backup container is raised the same way on
+  quiet polls. CM_ALERT_ISSUES=0 in .env turns the issues off.
 
   Without -Apply this script changes nothing: it checks the config and prints the commands a real run would make.
   -WhatIf does the same.
