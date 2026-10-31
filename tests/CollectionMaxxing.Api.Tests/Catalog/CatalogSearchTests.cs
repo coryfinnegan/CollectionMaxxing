@@ -4,6 +4,7 @@ using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.TestSupport;
 
@@ -383,6 +384,23 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
         owned.GetProperty("ownedReleaseIds").EnumerateArray().Select(g => g.GetGuid()).ShouldBe([ownedReleaseId]);
         items.Where(i => i.GetProperty("work").GetProperty("title").GetString() != "Jurassic Park III")
             .SelectMany(i => i.GetProperty("ownedReleaseIds").EnumerateArray()).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(ItemStatus.Owned, true)]
+    [InlineData(ItemStatus.Lent, true)]
+    [InlineData(ItemStatus.Missing, true)] // still yours, you just can't find it
+    [InlineData(ItemStatus.Wishlist, false)]
+    [InlineData(ItemStatus.Sold, false)]
+    public async Task Only_what_you_have_shows_as_owned_in_search_results(ItemStatus status, bool shownAsOwned)
+    {
+        var library = await CreateLibraryAsync();
+        var (_, releaseId) = await CatalogSeed.AddAsync(Db, "Jurassic Park III", year: 2001);
+        await TestData.CreateItemAsync(Db, library, releaseId, status: status);
+
+        var items = await ReadItemsAsync(ClientWith(library.ViewerId), "q=jurassic park");
+
+        items.Single().GetProperty("ownedReleaseIds").EnumerateArray().Select(g => g.GetGuid()).ShouldBe(shownAsOwned ? [releaseId] : []);
     }
 
     [Fact]

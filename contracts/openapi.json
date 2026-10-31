@@ -6863,6 +6863,20 @@
                 "$ref": "#/components/schemas/CoverPickDto"
               }
             ]
+          },
+          "wishlistItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "soldItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -9416,6 +9430,20 @@
             "items": {
               "$ref": "#/components/schemas/OwnedCopyDto"
             }
+          },
+          "wishlistItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "soldItemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -9508,6 +9536,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ItemStatus"
+              }
             ]
           }
         }
@@ -11169,7 +11207,11 @@
           "byKind",
           "byFormat",
           "byPlatform",
-          "byDecade"
+          "byDecade",
+          "wishlistCount",
+          "soldCount",
+          "lentCount",
+          "missingCount"
         ],
         "type": "object",
         "properties": {
@@ -11204,6 +11246,22 @@
               "type": "integer",
               "format": "int32"
             }
+          },
+          "wishlistCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "soldCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lentCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "missingCount": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

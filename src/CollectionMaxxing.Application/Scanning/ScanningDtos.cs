@@ -25,6 +25,10 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// <c>CropUrl</c> is its kept segment crop, when it has one (#345).
 /// <c>CoverPick</c> is the cover verification's preselected alternative (#438 stage 2): Review shows it checked, and the
 /// person can still pick another. Null unless a verification preselected one.
+/// <c>AlreadyOwnedCount</c> counts the library's copies in the collection (owned, lent or missing), never a wishlisted or sold one.
+/// Beside it, <c>WishlistItemId</c> is the item on this library's wishlist for the matched release and <c>SoldItemId</c> its most
+/// recently added sold copy; each is null when there is none. A release on the wishlist (and not owned) is not added by the scan on its own:
+/// its card says "On your wishlist" and offers Got it.
 /// </summary>
 public sealed record CandidateDto(
     Guid Id,
@@ -59,7 +63,9 @@ public sealed record CandidateDto(
     string? SegmentId,
     GuidanceCode? GuidanceCode,
     string? CropUrl,
-    CoverPickDto? CoverPick = null);
+    CoverPickDto? CoverPick = null,
+    Guid? WishlistItemId = null,
+    Guid? SoldItemId = null);
 
 /// <summary>
 /// The cover verification's preselected alternative (#438 stage 2): the release Review shows checked, and why.

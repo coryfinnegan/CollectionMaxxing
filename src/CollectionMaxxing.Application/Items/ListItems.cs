@@ -12,7 +12,8 @@ namespace CollectionMaxxing.Application.Items;
 
 /// <summary>
 /// Use case: list a library's items with filters, a sort and cursor pagination. Every sort is "a key, then the id", so the
-/// order is total and a page boundary never repeats or skips an item. Deleted items are left out.
+/// order is total and a page boundary never repeats or skips an item. Deleted items are left out. With no status filter the
+/// list is the collection (<see cref="ItemStatuses.InCollection"/>); a status filter returns exactly that status.
 /// </summary>
 public static class ListItems
 {
@@ -171,9 +172,14 @@ public static class ListItems
             var libraryId = query.LibraryId;
             var items = db.Items.AsNoTracking().Where(i => i.LibraryId == libraryId && i.DeletedAt == null);
 
+            // No status asks for the library: what you have. Wishlist and sold items only show when asked for by name.
             if (status is { } wantedStatus)
             {
                 items = items.Where(i => i.Status == wantedStatus);
+            }
+            else
+            {
+                items = items.Where(i => ItemStatuses.InCollection.Contains(i.Status));
             }
 
             if (query.EditionVerified is { } verified)

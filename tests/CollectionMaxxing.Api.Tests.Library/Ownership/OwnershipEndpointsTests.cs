@@ -197,6 +197,7 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
     [InlineData(false, ItemStatus.Wishlist)]
     [InlineData(false, ItemStatus.Sold)]
     [InlineData(true, ItemStatus.Lent)]
+    [InlineData(true, ItemStatus.Missing)] // still yours, you just can't find it
     public async Task Only_copies_that_are_kept_count_as_owned(bool expected, ItemStatus status)
     {
         var library = await CreateLibraryAsync();
@@ -206,6 +207,120 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
         var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"releaseId={releaseId}")));
 
         answer.GetProperty("owned").GetBoolean().ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task A_missing_copy_is_listed_among_the_copies_with_its_status()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await ItemSeed.AddReleaseAsync(Db);
+        var itemId = await AddCopyAsync(library, releaseId, status: ItemStatus.Missing);
+
+        var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"releaseId={releaseId}")));
+
+        answer.GetProperty("count").GetInt32().ShouldBe(1);
+        answer.GetProperty("copies")[0].GetProperty("itemId").GetGuid().ShouldBe(itemId);
+        answer.GetProperty("copies")[0].GetProperty("status").GetString().ShouldBe("missing");
+    }
+
+    [Fact]
+    public async Task A_wishlisted_release_is_not_owned_but_names_its_wishlist_item()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await ItemSeed.AddReleaseAsync(Db);
+        var wished = await AddCopyAsync(library, releaseId, status: ItemStatus.Wishlist, updatedMinutes: 1);
+        await AddCopyAsync(library, releaseId, status: ItemStatus.Wishlist, updatedMinutes: 2); // a second one: the oldest is named
+
+        var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"releaseId={releaseId}")));
+
+        answer.GetProperty("owned").GetBoolean().ShouldBeFalse();
+        answer.GetProperty("count").GetInt32().ShouldBe(0);
+        answer.GetProperty("copies").GetArrayLength().ShouldBe(0);
+        answer.GetProperty("wishlistItemId").GetGuid().ShouldBe(wished);
+        answer.GetProperty("soldItemId").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_sold_release_is_not_owned_but_names_its_most_recent_sold_copy()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await ItemSeed.AddReleaseAsync(Db);
+        await AddCopyAsync(library, releaseId, status: ItemStatus.Sold, updatedMinutes: 1);
+        var latest = await AddCopyAsync(library, releaseId, status: ItemStatus.Sold, updatedMinutes: 5);
+        await AddCopyAsync(library, releaseId, status: ItemStatus.Sold, updatedMinutes: 3);
+
+        var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"releaseId={releaseId}")));
+
+        answer.GetProperty("owned").GetBoolean().ShouldBeFalse();
+        answer.GetProperty("copies").GetArrayLength().ShouldBe(0);
+        answer.GetProperty("soldItemId").GetGuid().ShouldBe(latest);
+        answer.GetProperty("wishlistItemId").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_release_can_be_owned_and_also_on_the_wishlist_or_sold_and_each_fact_is_kept_apart()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await ItemSeed.AddReleaseAsync(Db);
+        var own = await AddCopyAsync(library, releaseId, status: ItemStatus.Owned, updatedMinutes: 1);
+        var wished = await AddCopyAsync(library, releaseId, status: ItemStatus.Wishlist, updatedMinutes: 2);
+        var sold = await AddCopyAsync(library, releaseId, status: ItemStatus.Sold, updatedMinutes: 3);
+
+        var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"releaseId={releaseId}")));
+
+        answer.GetProperty("count").GetInt32().ShouldBe(1);
+        answer.GetProperty("copies")[0].GetProperty("itemId").GetGuid().ShouldBe(own);
+        answer.GetProperty("wishlistItemId").GetGuid().ShouldBe(wished);
+        answer.GetProperty("soldItemId").GetGuid().ShouldBe(sold);
+    }
+
+    [Fact]
+    public async Task A_wishlisted_copy_in_another_format_is_not_a_soft_match_and_not_this_releases_wishlist_item()
+    {
+        var library = await CreateLibraryAsync();
+        var dvd = await ItemSeed.AddReleaseAsync(Db, format: ReleaseFormat.Dvd);
+        var bluray = await ItemSeed.AddReleaseAsync(Db, format: ReleaseFormat.Bluray, workId: await ItemSeed.WorkOfAsync(Db, dvd));
+        await AddCopyAsync(library, bluray, status: ItemStatus.Wishlist);
+        await AddCopyAsync(library, bluray, status: ItemStatus.Sold);
+
+        var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"releaseId={dvd}")));
+
+        answer.GetProperty("sameWorkOtherFormat").GetArrayLength().ShouldBe(0);
+        answer.GetProperty("wishlistItemId").ValueKind.ShouldBe(JsonValueKind.Null);
+        answer.GetProperty("soldItemId").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_deleted_wishlist_or_sold_item_is_not_named()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await ItemSeed.AddReleaseAsync(Db);
+        var wished = await AddCopyAsync(library, releaseId, status: ItemStatus.Wishlist);
+        var sold = await AddCopyAsync(library, releaseId, status: ItemStatus.Sold);
+        await ItemSeed.SetDeletedAtAsync(Db, wished, DateTimeOffset.UtcNow);
+        await ItemSeed.SetDeletedAtAsync(Db, sold, DateTimeOffset.UtcNow);
+
+        var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"releaseId={releaseId}")));
+
+        answer.GetProperty("wishlistItemId").ValueKind.ShouldBe(JsonValueKind.Null);
+        answer.GetProperty("soldItemId").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_work_query_lists_the_copies_you_have_and_names_no_wishlist_or_sold_item()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await ItemSeed.AddReleaseAsync(Db);
+        var workId = await ItemSeed.WorkOfAsync(Db, releaseId);
+        await AddCopyAsync(library, releaseId, status: ItemStatus.Owned);
+        await AddCopyAsync(library, releaseId, status: ItemStatus.Wishlist);
+        await AddCopyAsync(library, releaseId, status: ItemStatus.Sold);
+
+        var answer = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(OwnershipUrl(library.Id, $"workId={workId}")));
+
+        answer.GetProperty("count").GetInt32().ShouldBe(1);
+        answer.GetProperty("wishlistItemId").ValueKind.ShouldBe(JsonValueKind.Null);
+        answer.GetProperty("soldItemId").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     [Fact]
@@ -230,8 +345,11 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
         var workId = await ItemSeed.WorkOfAsync(Db, releaseId);
         await AddIdentifierAsync(releaseId, Ean13);
         await AddCopyAsync(theirs, releaseId);
+        await AddCopyAsync(theirs, releaseId, status: ItemStatus.Wishlist);
+        await AddCopyAsync(theirs, releaseId, status: ItemStatus.Sold);
         var privateRelease = await ItemSeed.AddReleaseAsync(Db, title: "Mine alone", ownerLibraryId: theirs.Id);
         await AddCopyAsync(theirs, privateRelease);
+        await AddCopyAsync(theirs, privateRelease, status: ItemStatus.Wishlist);
         var client = ClientFor(mine, LibraryRole.Viewer);
 
         foreach (var query in new[] { $"releaseId={releaseId}", $"workId={workId}", $"code={Ean13}", $"releaseId={privateRelease}" })
@@ -242,6 +360,8 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
             answer.GetProperty("owned").GetBoolean().ShouldBeFalse(query);
             answer.GetProperty("copies").GetArrayLength().ShouldBe(0, query);
             answer.GetProperty("sameWorkOtherFormat").GetArrayLength().ShouldBe(0, query);
+            answer.GetProperty("wishlistItemId").ValueKind.ShouldBe(JsonValueKind.Null, query); // another library's wishlist never shows
+            answer.GetProperty("soldItemId").ValueKind.ShouldBe(JsonValueKind.Null, query);
         }
     }
 
@@ -259,7 +379,7 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
     // ---- Snapshot ---------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task The_first_snapshot_has_every_owned_item_with_its_identifiers_title_format_and_location()
+    public async Task The_first_snapshot_has_every_live_item_with_its_status_identifiers_title_format_and_location()
     {
         var library = await CreateLibraryAsync();
         var platformId = await ItemSeed.AddPlatformAsync(Db, "Nintendo 64", "N64");
@@ -279,14 +399,39 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
         snapshot.GetProperty("hasMore").GetBoolean().ShouldBeFalse();
         snapshot.GetProperty("nextCursor").GetString().ShouldNotBeNullOrEmpty();
         var entries = snapshot.GetProperty("entries");
-        entries.GetArrayLength().ShouldBe(2);
+        entries.GetArrayLength().ShouldBe(3);
         entries[0].GetProperty("title").GetString().ShouldBe("Goldeneye");
+        entries[0].GetProperty("status").GetString().ShouldBe("owned");
         entries[0].GetProperty("format").GetString().ShouldBe("game_cartridge");
         entries[0].GetProperty("platform").GetString().ShouldBe("Nintendo 64");
         entries[0].GetProperty("locationPath").GetString().ShouldBe("Shelf");
         entries[0].GetProperty("identifiers")[0].GetString().ShouldBe(Ean13);
         entries[0].GetProperty("deleted").GetBoolean().ShouldBeFalse();
         entries[1].GetProperty("title").GetString().ShouldBe("Jurassic Park");
+        entries[2].GetProperty("title").GetString().ShouldBe("Wishlisted");
+        entries[2].GetProperty("status").GetString().ShouldBe("wishlist"); // carried so the phone can say "on your wishlist" offline
+    }
+
+    [Fact]
+    public async Task The_snapshot_carries_wishlist_and_sold_items_with_their_status_and_never_a_location()
+    {
+        var library = await CreateLibraryAsync();
+        var shelf = await TestData.CreateLocationAsync(Db, library.Id, "Shelf");
+        var wished = await ItemSeed.AddReleaseAsync(Db, "Wished");
+        var sold = await ItemSeed.AddReleaseAsync(Db, "Sold");
+        var missing = await ItemSeed.AddReleaseAsync(Db, "Missing");
+        await AddCopyAsync(library, wished, shelf, ItemStatus.Wishlist, updatedMinutes: 1);
+        await AddCopyAsync(library, sold, shelf, ItemStatus.Sold, updatedMinutes: 2);
+        await AddCopyAsync(library, missing, shelf, ItemStatus.Missing, updatedMinutes: 3);
+
+        var snapshot = await ReadJsonAsync(await ClientFor(library, LibraryRole.Viewer).GetAsync(SnapshotUrl(library.Id)));
+
+        var entries = snapshot.GetProperty("entries").EnumerateArray().ToList();
+        entries.Select(e => e.GetProperty("status").GetString()).ShouldBe(["wishlist", "sold", "missing"]);
+        entries.Select(e => e.GetProperty("deleted").GetBoolean()).ShouldBe([false, false, false]);
+        entries[0].GetProperty("locationPath").ValueKind.ShouldBe(JsonValueKind.Null);
+        entries[1].GetProperty("locationPath").ValueKind.ShouldBe(JsonValueKind.Null);
+        entries[2].GetProperty("locationPath").GetString().ShouldBe("Shelf");
     }
 
     [Fact]
@@ -307,7 +452,7 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
     }
 
     [Fact]
-    public async Task A_snapshot_with_a_cursor_returns_only_changes_and_tombstones()
+    public async Task A_snapshot_with_a_cursor_returns_only_changes_and_tombstones_and_an_item_that_changes_status_is_a_changed_entry()
     {
         var library = await CreateLibraryAsync();
         var client = ClientFor(library, LibraryRole.Viewer);
@@ -325,9 +470,11 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
 
         var entries = snapshot.GetProperty("entries").EnumerateArray().ToList();
         entries.Select(e => e.GetProperty("itemId").GetGuid()).ShouldBe([deleted, sold, added]);
-        entries.Select(e => e.GetProperty("deleted").GetBoolean()).ShouldBe([true, true, false]);
+        entries.Select(e => e.GetProperty("deleted").GetBoolean()).ShouldBe([true, false, false]);
         entries.ShouldNotContain(e => e.GetProperty("itemId").GetGuid() == kept);
         entries[0].GetProperty("title").ValueKind.ShouldBe(JsonValueKind.Null);
+        entries[1].GetProperty("title").GetString().ShouldBe("Sold"); // sold is not deleted: the phone keeps it, as sold
+        entries[1].GetProperty("status").GetString().ShouldBe("sold");
 
         var again = await ReadJsonAsync(await client.GetAsync(SnapshotUrl(library.Id, snapshot.GetProperty("nextCursor").GetString())));
         again.GetProperty("entries").GetArrayLength().ShouldBe(0);

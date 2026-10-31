@@ -473,13 +473,13 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
     {
         var (library, viewer) = await ArrangeShelfAsync();
 
-        (await TitlesAsync(viewer, library.Id, string.Empty)).ShouldBe(["Alien", "Dune", "Mario Kart", "Okami", "Zelda"]);
+        (await TitlesAsync(viewer, library.Id, string.Empty)).ShouldBe(["Alien", "Dune", "Okami", "Zelda"]); // the wishlisted Mario Kart is not in the library
     }
 
     [Theory]
-    [InlineData("sort=title", "Alien,Dune,Mario Kart,Okami,Zelda")]
-    [InlineData("sort=-addedAt", "Dune,Alien,Okami,Mario Kart,Zelda")]
-    [InlineData("sort=year", "Dune,Alien,Mario Kart,Zelda,Okami")]
+    [InlineData("sort=title", "Alien,Dune,Okami,Zelda")]
+    [InlineData("sort=-addedAt", "Dune,Alien,Okami,Zelda")]
+    [InlineData("sort=year", "Dune,Alien,Zelda,Okami")]
     public async Task The_list_sorts(string query, string expected)
     {
         var (library, viewer) = await ArrangeShelfAsync();
@@ -497,16 +497,16 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
         var titles = await TitlesAsync(viewer, library.Id, "sort=platform");
 
         titles.Take(2).Order().ShouldBe(["Alien", "Dune"]); // no platform
-        titles.Skip(2).Take(2).Order().ShouldBe(["Mario Kart", "Zelda"]); // Nintendo 64
-        titles[4].ShouldBe("Okami"); // PlayStation 2
+        titles[2].ShouldBe("Zelda"); // Nintendo 64
+        titles[3].ShouldBe("Okami"); // PlayStation 2
     }
 
     [Theory]
-    [InlineData("kind=game", "Mario Kart,Okami,Zelda")]
+    [InlineData("kind=game", "Okami,Zelda")]
     [InlineData("kind=film", "Alien")]
-    [InlineData("format=game_cartridge", "Mario Kart,Zelda")]
+    [InlineData("format=game_cartridge", "Zelda")]
     [InlineData("format=vhs", "Alien")]
-    [InlineData("platform=N64", "Mario Kart,Zelda")]
+    [InlineData("platform=N64", "Zelda")]
     [InlineData("platform=playstation 2", "Okami")]
     [InlineData("status=wishlist", "Mario Kart")]
     [InlineData("status=owned", "Dune,Okami,Zelda")]
@@ -517,6 +517,50 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
         var (library, viewer) = await ArrangeShelfAsync();
 
         (await TitlesAsync(viewer, library.Id, query)).ShouldBe(expected.Split(','));
+    }
+
+    /// <summary>The shelf plus a missing item, a sold item and a second wishlisted one: every status the library can hold.</summary>
+    private async Task<(TestLibrary Library, HttpClient Viewer)> ArrangeEveryStatusAsync()
+    {
+        var (library, viewer) = await ArrangeShelfAsync();
+        await ItemSeed.AddItemAsync(Db, library, "Pong", WorkKind.Game, ReleaseFormat.GameCartridge, 1972, status: ItemStatus.Missing, addedMinutes: 6);
+        await ItemSeed.AddItemAsync(Db, library, "Tetris", WorkKind.Game, ReleaseFormat.GameCartridge, 1984, status: ItemStatus.Sold, addedMinutes: 7);
+        await ItemSeed.AddItemAsync(Db, library, "Alien Resurrection", WorkKind.Film, ReleaseFormat.Dvd, 1997, status: ItemStatus.Wishlist, addedMinutes: 8);
+        return (library, viewer);
+    }
+
+    [Fact]
+    public async Task With_no_status_the_list_is_only_what_you_have_owned_lent_and_missing()
+    {
+        var (library, viewer) = await ArrangeEveryStatusAsync();
+
+        (await TitlesAsync(viewer, library.Id, string.Empty)).ShouldBe(["Alien", "Dune", "Okami", "Pong", "Zelda"]);
+    }
+
+    [Theory]
+    [InlineData("status=wishlist", "Alien Resurrection,Mario Kart")]
+    [InlineData("status=sold", "Tetris")]
+    [InlineData("status=lent", "Alien")]
+    [InlineData("status=missing", "Pong")]
+    [InlineData("status=owned", "Dune,Okami,Zelda")]
+    public async Task An_explicit_status_returns_exactly_that_status(string query, string expected)
+    {
+        var (library, viewer) = await ArrangeEveryStatusAsync();
+
+        (await TitlesAsync(viewer, library.Id, query)).ShouldBe(expected.Split(','));
+    }
+
+    [Theory]
+    [InlineData("q=alien", "Alien")]
+    [InlineData("q=alien&status=wishlist", "Alien Resurrection")]
+    [InlineData("q=tetris", "")]
+    [InlineData("q=tetris&status=sold", "Tetris")]
+    [InlineData("q=pong", "Pong")]
+    public async Task Searching_the_library_follows_the_same_default_and_an_explicit_status_searches_that_view(string query, string expected)
+    {
+        var (library, viewer) = await ArrangeEveryStatusAsync();
+
+        (await TitlesAsync(viewer, library.Id, query)).ShouldBe(expected.Length == 0 ? [] : expected.Split(','));
     }
 
     [Fact]
@@ -545,7 +589,7 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
         await ItemSeed.SetEditionUnverifiedAsync(Db, zelda);
 
         (await TitlesAsync(viewer, library.Id, "editionVerified=false")).ShouldBe(["Zelda"]);
-        (await TitlesAsync(viewer, library.Id, "editionVerified=true")).ShouldBe(["Alien", "Dune", "Mario Kart", "Okami"]);
+        (await TitlesAsync(viewer, library.Id, "editionVerified=true")).ShouldBe(["Alien", "Dune", "Okami"]);
 
         var filtered = await ReadJsonAsync(await viewer.GetAsync($"{ItemsUrl(library.Id)}?editionVerified=false"));
         filtered.GetProperty("items").EnumerateArray().Single().GetProperty("editionVerified").GetBoolean().ShouldBeFalse();
@@ -712,9 +756,9 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
     // ---- Stats ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Stats_count_the_librarys_items_by_kind_format_platform_and_decade()
+    public async Task Stats_count_the_librarys_collection_by_kind_format_platform_and_decade_and_count_wishlist_and_sold_beside_it()
     {
-        var (library, viewer) = await ArrangeShelfAsync();
+        var (library, viewer) = await ArrangeEveryStatusAsync();
         var other = await CreateLibraryAsync();
         await ItemSeed.AddItemAsync(Db, other, "Not counted", WorkKind.Book);
         var deleted = await ItemSeed.AddItemAsync(Db, library, "Deleted", WorkKind.Book);
@@ -722,13 +766,18 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
 
         var stats = await ReadJsonAsync(await viewer.GetAsync($"/api/v1/libraries/{library.Id}/stats"));
 
+        // What you have: owned (Zelda, Okami, Dune), lent (Alien) and missing (Pong). Not the two wishlisted or the sold one.
         stats.GetProperty("total").GetInt32().ShouldBe(5);
         Counts(stats, "byKind").ShouldBe(new Dictionary<string, int> { ["book"] = 1, ["film"] = 1, ["game"] = 3 });
         Counts(stats, "byFormat").ShouldBe(
             new Dictionary<string, int> { ["game_cartridge"] = 2, ["game_disc"] = 1, ["paperback"] = 1, ["vhs"] = 1 });
-        Counts(stats, "byPlatform").ShouldBe(new Dictionary<string, int> { ["Nintendo 64"] = 2, ["PlayStation 2"] = 1 });
+        Counts(stats, "byPlatform").ShouldBe(new Dictionary<string, int> { ["Nintendo 64"] = 1, ["PlayStation 2"] = 1 });
         Counts(stats, "byDecade").ShouldBe(
-            new Dictionary<string, int> { ["1960s"] = 1, ["1970s"] = 1, ["1990s"] = 2, ["2000s"] = 1 });
+            new Dictionary<string, int> { ["1960s"] = 1, ["1970s"] = 2, ["1990s"] = 1, ["2000s"] = 1 });
+        stats.GetProperty("wishlistCount").GetInt32().ShouldBe(2);
+        stats.GetProperty("soldCount").GetInt32().ShouldBe(1);
+        stats.GetProperty("lentCount").GetInt32().ShouldBe(1);
+        stats.GetProperty("missingCount").GetInt32().ShouldBe(1);
     }
 
     private static Dictionary<string, int> Counts(JsonElement stats, string name) =>

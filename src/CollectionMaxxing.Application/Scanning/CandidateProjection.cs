@@ -18,7 +18,8 @@ namespace CollectionMaxxing.Application.Scanning;
 /// server made by itself (so that a person's own decision can be told from it), and <paramref name="RetryAfter"/> when a code
 /// that found the UPC allowance spent will next be tried. <paramref name="CoverScores"/> and <paramref name="CoverPick"/> are
 /// the last cover verification (#438 stage 2): every alternative's visual score and the preselected pick, if any. Any fresh
-/// answer rewrites the trace and clears them.
+/// answer rewrites the trace and clears them. <paramref name="WishlistItemId"/> and <paramref name="SoldItemId"/> are the library's
+/// wishlist item and most recent sold copy of the matched release when the answer was made (see <see cref="Ownership.OwnershipDto"/>).
 /// </summary>
 internal sealed record StoredTrace(
     IReadOnlyList<TraceStep> Steps,
@@ -27,7 +28,9 @@ internal sealed record StoredTrace(
     CandidateDecision? AutoDecision = null,
     DateTimeOffset? RetryAfter = null,
     IReadOnlyList<CoverScore>? CoverScores = null,
-    StoredCoverPick? CoverPick = null);
+    StoredCoverPick? CoverPick = null,
+    Guid? WishlistItemId = null,
+    Guid? SoldItemId = null);
 
 /// <summary>One entry of a candidate's <c>alternatives</c>: a release the person can pick, with its own ownership.</summary>
 public sealed record StoredAlternative(
@@ -201,7 +204,9 @@ internal static class CandidateProjection
         c.SegmentId,
         c.GuidanceCode,
         cropUrl,
-        coverPick);
+        coverPick,
+        trace.WishlistItemId,
+        trace.SoldItemId);
 
     /// <summary>
     /// The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent. Their

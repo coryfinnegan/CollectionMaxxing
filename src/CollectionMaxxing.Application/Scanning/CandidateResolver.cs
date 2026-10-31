@@ -135,6 +135,9 @@ public sealed class CandidateResolver(
         var ownedAt = new List<string>();
         CandidateDecision? autoDecision = null;
         var firstOwned = 0;
+        Guid? wishlistItemId = null;
+        Guid? soldItemId = null;
+        var onWishlist = false;
 
         var ownershipBiased = false;
         var coverBiased = false;
@@ -185,12 +188,19 @@ public sealed class CandidateResolver(
                     candidate.AlreadyOwnedCount = owned.Count;
                     ownedAt = OwnedAt(owned);
                     firstOwned = owned.Count;
+                    wishlistItemId = owned.WishlistItemId;
+                    soldItemId = owned.SoldItemId;
+                    // A release on the wishlist that the library does not own yet is what Got it on the card is for: the scan must not
+                    // add a second, owned item beside the wishlist one.
+                    onWishlist = owned.Count == 0 && owned.WishlistItemId is not null;
 
-                    // An exactly owned release is skipped unless the session opted into copies; anything else is added. An unconfirmed
-                    // read is not added by default: it stays undecided, the person ticks it in Review (or Adds it on its card) to opt in.
-                    if (undecided && ((owned.Count > 0 && !copiesMode) || !unconfirmed))
+                    // An exactly owned release is skipped unless the session opted into copies, and so is one on the wishlist; anything else
+                    // is added. An unconfirmed read is not added by default: it stays undecided, the person ticks it in Review (or Adds it
+                    // on its card) to opt in.
+                    var skipped = (owned.Count > 0 && !copiesMode) || onWishlist;
+                    if (undecided && (skipped || !unconfirmed))
                     {
-                        autoDecision = owned.Count > 0 && !copiesMode ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                        autoDecision = skipped ? CandidateDecision.Rejected : CandidateDecision.Accepted;
                         candidate.Decision = autoDecision.Value;
                     }
                 }
@@ -207,7 +217,7 @@ public sealed class CandidateResolver(
         }
 
         candidate.Tier = EvaluateTier(
-            verdict, resolution, taken, facts, firstOwned, fromIdentifier, copiesMode, candidate.ShotKind, unconfirmed);
+            verdict, resolution, taken, facts, firstOwned, fromIdentifier, copiesMode, candidate.ShotKind, unconfirmed, onWishlist);
 
         if (resolution.ProductTitle is { } productTitle && candidate.VisibleText is null)
         {
@@ -234,7 +244,8 @@ public sealed class CandidateResolver(
             steps = [.. steps, new TraceStep("cover", "biased", 0)];
         }
         candidate.TraceJson = CandidateJson.Serialize(new StoredTrace(
-            steps, ownedAt, NeedsArt(candidate, resolution with { Verdict = verdict }), autoDecision, retryAfter));
+            steps, ownedAt, NeedsArt(candidate, resolution with { Verdict = verdict }), autoDecision, retryAfter,
+            WishlistItemId: wishlistItemId, SoldItemId: soldItemId));
     }
 
     /// <summary>
@@ -474,7 +485,8 @@ public sealed class CandidateResolver(
     /// owning it, and a spine/cover shot (a loose item is always T2, never T1). Anything else is T2, reviewed by the
     /// person. Pending has no tier yet. <paramref name="verdict"/> is the verdict after the veto. An <paramref name="unconfirmed"/> read
     /// (only the picture model saw it, where Vision found nothing) is T2 at most, however exactly the catalogue matched it: the model can
-    /// read a title that happens to exist, so a person confirms it. Only the tier moves; the candidates and the verdict are as scored.
+    /// read a title that happens to exist, so a person confirms it. A release on the library's wishlist (<paramref name="onWishlist"/>) is T2
+    /// too: it is not owned, but a scan must not add an owned item beside the wishlist one. Only the tier moves; the candidates and the verdict are as scored.
     /// </summary>
     private ScanTier? EvaluateTier(
         ResolutionVerdict verdict,
@@ -485,14 +497,15 @@ public sealed class CandidateResolver(
         bool fromIdentifier,
         bool copiesMode,
         ShotKind shotKind,
-        bool unconfirmed)
+        bool unconfirmed,
+        bool onWishlist)
     {
         if (verdict == ResolutionVerdict.Pending)
         {
             return null;
         }
 
-        if (unconfirmed)
+        if (unconfirmed || onWishlist)
         {
             return ScanTier.T2;
         }

@@ -5,6 +5,7 @@ using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -170,8 +171,8 @@ public static class SearchCatalog
             result.Releases.Any(r => mine.Contains(r.Id));
 
         /// <summary>
-        /// The releases the caller's libraries own: a live Owned or Lent copy, whether the release is shared or one a library made
-        /// for itself (a release with no live copy left is not owned). The table filters already hide every other library's items, so
+        /// The releases the caller's libraries own: a live copy in the collection (owned, lent or missing; a wishlisted or sold copy is not
+        /// owned), whether the release is shared or one a library made for itself (a release with no live copy left is not owned). The table filters already hide every other library's items, so
         /// what matches is the caller's by construction.
         /// </summary>
         private async Task<HashSet<Guid>> MyReleaseIdsAsync(List<Guid> releaseIds, CancellationToken cancellationToken)
@@ -182,7 +183,7 @@ public static class SearchCatalog
             }
 
             return (await db.Items.AsNoTracking()
-                .Where(i => i.DeletedAt == null && Ownership.OwnershipQuery.OwnedStatuses.Contains(i.Status) && releaseIds.Contains(i.ReleaseId))
+                .Where(i => i.DeletedAt == null && ItemStatuses.InCollection.Contains(i.Status) && releaseIds.Contains(i.ReleaseId))
                 .Select(i => i.ReleaseId)
                 .ToListAsync(cancellationToken))
                 .ToHashSet();
