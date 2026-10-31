@@ -1,6 +1,6 @@
 # Requesting work: feature requests and bugs as GitHub issues
 
-This page is for an assistant that files work on the owner's behalf (or the owner, filing by hand). A GitHub issue written the way this page describes is picked up by the background issue agent, built, tested, reviewed by a second agent, merged and delivered to the phone or the PC, with no session needing to be open. It is the dependable path when Remote Control isn't.
+This page is for an assistant that files work on the owner's behalf (or the owner, filing by hand). A GitHub issue written the way this page describes is picked up by the background issue agent, built, tested, reviewed by a second agent, merged and delivered to the phone or the PC, with no session needing to be open. It is the dependable path when Remote Control isn't. The agent runs on the owner's PC, so the PC has to be on with the owner signed in to Windows; an issue filed while it is off waits in the queue.
 
 ## The two rules that decide whether anything happens
 
@@ -65,6 +65,7 @@ gh issue create --repo coryfinnegan/CollectionMaxxing \
 - It builds the change test first, opens a pull request that says `Closes #<the issue>`, has a second agent review it, merges it when CI is green, and follows it until it reaches the phone (a TestFlight build) or the PC (a deploy). It comments the PR link and the delivery on the issue, and the merge closes the issue.
 - **If it needs the owner** (a product decision, something unclear, anything that needs the owner's phone or accounts), it comments the question, adds `agent-blocked` and `needs:cory`, and stops. Answer in a comment, then remove `agent-blocked` and `needs:cory` (keep `agent-task`), and the next pass picks it up again with the answer.
 - **If it fails** for a reason of its own, it adds `agent-blocked` with the last lines of its log; the same answer-and-relabel step puts it back in the queue.
+- **If it can't start at all** (it stops within 5 minutes, usually an expired sign-in or a usage limit), the issue goes back in the queue by itself with a comment, and the agent waits an hour before trying again (longer if it keeps happening).
 
 ## What the agent will push back on
 
