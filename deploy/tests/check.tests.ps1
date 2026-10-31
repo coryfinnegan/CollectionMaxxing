@@ -178,6 +178,17 @@ function New-CheckFakeCheckout {
     $root
 }
 
+function Set-CheckEnvVar {
+    <#
+      Sets an environment variable of this process, or removes it for a null value. [Environment]::SetEnvironmentVariable
+      with a null from PowerShell leaves the variable behind as an empty string, and an empty TMPDIR or GITHUB_ACTIONS
+      left in this process would reach the bash suites that run after these cases.
+    #>
+    param([Parameter(Mandatory)][string]$Name, $Value)
+    if ($null -eq $Value) { Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue }
+    else { Set-Item -LiteralPath "Env:$Name" -Value $Value }
+}
+
 function Invoke-CheckIn {
     <#
       Runs one phase of the gate script that lives in $Root. The temp folder is a throwaway one, so nothing lands in
@@ -199,7 +210,7 @@ function Invoke-CheckIn {
     $saved = @{}
     foreach ($name in $vars.Keys) {
         $saved[$name] = [Environment]::GetEnvironmentVariable($name)
-        [Environment]::SetEnvironmentVariable($name, $vars[$name])
+        Set-CheckEnvVar $name $vars[$name]
     }
     try {
         if ($Runner.Posix) {
@@ -211,7 +222,7 @@ function Invoke-CheckIn {
         [pscustomobject]@{ Exit = $LASTEXITCODE; Lines = @($lines); Text = ($lines -join "`n") }
     }
     finally {
-        foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
+        foreach ($name in $saved.Keys) { Set-CheckEnvVar $name $saved[$name] }
     }
 }
 
