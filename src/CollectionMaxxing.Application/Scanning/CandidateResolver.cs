@@ -5,6 +5,7 @@ using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Ownership;
 using CollectionMaxxing.Application.Scanning.Artwork;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
@@ -27,8 +28,13 @@ public sealed class CandidateResolver(
 
     private static readonly TraceStep LocalHit = new("catalogue", "hit", 0);
 
-    /// <summary>The releases the catalogue already has for each barcode (docs/02 section 3, step 1), by the barcode's digits.</summary>
-    public async Task<Dictionary<string, List<Guid>>> FindLocalAsync(IReadOnlyCollection<Identifier> identifiers, CancellationToken cancellationToken)
+    /// <summary>
+    /// The releases the catalogue already has for each barcode (docs/02 section 3, step 1), by the barcode's digits, as
+    /// <paramref name="libraryId"/> may use them: links from providers are for everyone, but a link a person taught
+    /// by hand answers only in the library that taught it.
+    /// </summary>
+    public async Task<Dictionary<string, List<Guid>>> FindLocalAsync(
+        Guid libraryId, IReadOnlyCollection<Identifier> identifiers, CancellationToken cancellationToken)
     {
         if (identifiers.Count == 0)
         {
@@ -38,7 +44,7 @@ public sealed class CandidateResolver(
         var values = identifiers.Select(i => i.Value).Distinct().ToList();
 
         // A 13-digit code may be stored as an ISBN or as a GTIN; the digits identify the product. The release filter hides other libraries' releases.
-        var rows = await (from i in db.ReleaseIdentifiers.AsNoTracking()
+        var rows = await (from i in db.ReleaseIdentifiers.AsNoTracking().UsableBy(libraryId)
                           join r in db.Releases.AsNoTracking() on i.ReleaseId equals r.Id
                           where values.Contains(i.Value)
                           select new { i.Value, r.Id }).Distinct().ToListAsync(cancellationToken);
@@ -102,7 +108,7 @@ public sealed class CandidateResolver(
             {
                 ensured.Add(option.LocalReleaseId is { } local
                     ? new EnsuredRelease(local, false)
-                    : await releases.EnsureAsync(option.Provider!, cancellationToken));
+                    : await releases.EnsureAsync(option.Provider!, libraryId, cancellationToken));
             }
 
             await ShareSameNovelCoversAsync(ensured, donorCovers, cancellationToken);

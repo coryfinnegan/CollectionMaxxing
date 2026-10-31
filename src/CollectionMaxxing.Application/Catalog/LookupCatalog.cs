@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Identifiers;
@@ -12,15 +13,24 @@ namespace CollectionMaxxing.Application.Catalog;
 /// <summary>
 /// Use case: resolve one barcode or catalogue number. Any barcode form is accepted (UPC-A, UPC-E, EAN-8, EAN-13, ISBN-10/13)
 /// and normalised first, so a UPC-A and its GTIN-13 form give the same release. The catalogue answers first (global and
-/// the caller's own libraries' releases only); the providers are asked only when it has nothing. An unknown code is an
+/// the caller's own libraries' releases only, and a barcode link only if a provider gave it or the caller's own library taught it:
+/// another library's hand pick is never the answer); the providers are asked only when it has nothing. An unknown code is an
 /// empty result, not an error.
 /// </summary>
 public static class LookupCatalog
 {
     public sealed record Query(string? Code);
 
+    /// <param name="currentUser">
+    /// Who is asking. Without one only the shared barcode links count (no library's hand pick is used).
+    /// </param>
     public sealed class Handler(
-        IAppDbContext db, IEnumerable<ICatalogProvider> providers, BookLookup bookLookup, CatalogOptions options, ILogger<Handler> logger)
+        IAppDbContext db,
+        IEnumerable<ICatalogProvider> providers,
+        BookLookup bookLookup,
+        CatalogOptions options,
+        ILogger<Handler> logger,
+        ICurrentUser? currentUser = null)
     {
         public async Task<Result<CatalogLookupDto>> HandleAsync(Query query, CancellationToken cancellationToken)
         {
@@ -30,7 +40,7 @@ public static class LookupCatalog
             }
 
             // 13-digit codes may be stored as an ISBN or as a GTIN; the digits are what identify the product.
-            var releaseIds = await (from i in db.ReleaseIdentifiers.AsNoTracking()
+            var releaseIds = await (from i in db.ReleaseIdentifiers.AsNoTracking().UsableBy(currentUser?.LibraryIds ?? [])
                                     join r in db.Releases.AsNoTracking() on i.ReleaseId equals r.Id // the filter hides other libraries'
                                     where i.Value == identifier.Value
                                     select r.Id).Distinct().ToListAsync(cancellationToken);

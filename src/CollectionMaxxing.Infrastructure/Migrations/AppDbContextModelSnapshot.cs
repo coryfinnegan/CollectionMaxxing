@@ -477,36 +477,61 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
             modelBuilder.Entity("CollectionMaxxing.Domain.Catalog.ReleaseIdentifier", b =>
                 {
-                    b.Property<string>("Type")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("type");
-
-                    b.Property<string>("Value")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("value");
-
-                    b.Property<Guid>("ReleaseId")
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
-                        .HasColumnName("release_id");
+                        .HasColumnName("id");
 
                     b.Property<Guid?>("LearnedBySessionId")
                         .HasColumnType("uuid")
                         .HasColumnName("learned_by_session_id");
 
-                    b.HasKey("Type", "Value", "ReleaseId")
+                    b.Property<Guid?>("LibraryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("library_id");
+
+                    b.Property<Guid>("ReleaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("release_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("type");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
                         .HasName("pk_release_identifiers");
 
                     b.HasIndex("LearnedBySessionId")
                         .HasDatabaseName("ix_release_identifiers_learned_by_session_id")
                         .HasFilter("learned_by_session_id is not null");
 
+                    b.HasIndex("LibraryId")
+                        .HasDatabaseName("ix_release_identifiers_library_id")
+                        .HasFilter("library_id is not null");
+
                     b.HasIndex("ReleaseId")
                         .HasDatabaseName("ix_release_identifiers_release_id");
 
                     b.HasIndex("Type", "Value")
                         .HasDatabaseName("ix_release_identifiers_type_value");
+
+                    b.HasIndex("Type", "Value", "ReleaseId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_release_identifiers_shared")
+                        .HasFilter("library_id is null");
+
+                    b.HasIndex("Type", "Value", "ReleaseId", "LibraryId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_release_identifiers_learned")
+                        .HasFilter("library_id is not null");
 
                     b.ToTable("release_identifiers", null, t =>
                         {
@@ -2170,6 +2195,12 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasForeignKey("LearnedBySessionId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_release_identifiers_scan_sessions_learned_by_session_id");
+
+                    b.HasOne("CollectionMaxxing.Domain.Libraries.Library", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_release_identifiers_libraries_library_id");
 
                     b.HasOne("CollectionMaxxing.Domain.Catalog.Release", null)
                         .WithMany()

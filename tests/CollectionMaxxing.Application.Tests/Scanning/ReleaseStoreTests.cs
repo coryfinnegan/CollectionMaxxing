@@ -9,6 +9,9 @@ namespace CollectionMaxxing.Application.Tests.Scanning;
 
 public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
 {
+    /// <summary>The library the provider answers are for; none of these tests teach it a barcode, so it needs no row.</summary>
+    private static readonly Guid Library = Guid.CreateVersion7();
+
     private static ProviderRelease Book(string? coverUrl, string isbn = "9780441172719", ReleaseFormat? format = ReleaseFormat.Paperback) => new()
     {
         Provider = "openlibrary",
@@ -67,7 +70,7 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         await using var context = Db.CreateContext();
         var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
 
-        var ensured = await store.EnsureAsync(Book("https://covers.openlibrary.org/b/id/42-L.jpg"), TestContext.Current.CancellationToken);
+        var ensured = await store.EnsureAsync(Book("https://covers.openlibrary.org/b/id/42-L.jpg"), Library, TestContext.Current.CancellationToken);
         await context.SaveChangesAsync();
 
         ensured.IsNew.ShouldBeTrue();
@@ -80,11 +83,11 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
     {
         await using var context = Db.CreateContext();
         var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
-        var first = await store.EnsureAsync(Book(null), TestContext.Current.CancellationToken);
+        var first = await store.EnsureAsync(Book(null), Library, TestContext.Current.CancellationToken);
         await context.SaveChangesAsync();
 
         var again = await store.EnsureAsync(
-            Book("https://covers.openlibrary.org/b/id/42-L.jpg"), TestContext.Current.CancellationToken);
+            Book("https://covers.openlibrary.org/b/id/42-L.jpg"), Library, TestContext.Current.CancellationToken);
         await context.SaveChangesAsync();
 
         again.ShouldBe(new EnsuredRelease(first.Id, false));
@@ -98,11 +101,11 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         await using var context = Db.CreateContext();
         var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
         var first = await store.EnsureAsync(
-            Book("https://covers.openlibrary.org/b/id/42-L.jpg"), TestContext.Current.CancellationToken);
+            Book("https://covers.openlibrary.org/b/id/42-L.jpg"), Library, TestContext.Current.CancellationToken);
         await context.SaveChangesAsync();
 
         var again = await store.EnsureAsync(
-            Book("https://books.google.com/other.jpg"), TestContext.Current.CancellationToken);
+            Book("https://books.google.com/other.jpg"), Library, TestContext.Current.CancellationToken);
         await context.SaveChangesAsync();
 
         again.ShouldBe(new EnsuredRelease(first.Id, false));
@@ -116,7 +119,7 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         await using var context = Db.CreateContext();
         var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
 
-        var ensured = await store.EnsureAsync(Book(null, format: null), TestContext.Current.CancellationToken);
+        var ensured = await store.EnsureAsync(Book(null, format: null), Library, TestContext.Current.CancellationToken);
         await context.SaveChangesAsync();
 
         (await context.Releases.AsNoTracking().SingleAsync(r => r.Id == ensured.Id)).Format.ShouldBe(ReleaseFormat.Unknown);
@@ -128,7 +131,7 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         await using var context = Db.CreateContext();
         var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
 
-        var ensured = await store.EnsureAsync(Book(null, format: ReleaseFormat.Other), TestContext.Current.CancellationToken);
+        var ensured = await store.EnsureAsync(Book(null, format: ReleaseFormat.Other), Library, TestContext.Current.CancellationToken);
         await context.SaveChangesAsync();
 
         (await context.Releases.AsNoTracking().SingleAsync(r => r.Id == ensured.Id)).Format.ShouldBe(ReleaseFormat.Other);
@@ -142,10 +145,10 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         var cancellationToken = TestContext.Current.CancellationToken;
 
         var mayberry = await new ReleaseStore(context, ids, TimeProvider.System)
-            .EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), cancellationToken);
+            .EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), Library, cancellationToken);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var kleypas = await new ReleaseStore(context, ids, TimeProvider.System)
-            .EnsureAsync(Novel("9780061990625", "OL2M", "Lisa Kleypas"), cancellationToken);
+            .EnsureAsync(Novel("9780061990625", "OL2M", "Lisa Kleypas"), Library, cancellationToken);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         kleypas.IsNew.ShouldBeTrue();
@@ -165,8 +168,8 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         var store = new ReleaseStore(context, new FakeIdGenerator(), TimeProvider.System);
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        var mayberry = await store.EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), cancellationToken);
-        var kleypas = await store.EnsureAsync(Novel("9780061990625", "OL2M", "Lisa Kleypas"), cancellationToken);
+        var mayberry = await store.EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), Library, cancellationToken);
+        var kleypas = await store.EnsureAsync(Novel("9780061990625", "OL2M", "Lisa Kleypas"), Library, cancellationToken);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var works = await context.Releases.AsNoTracking()
@@ -185,10 +188,10 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         var cancellationToken = TestContext.Current.CancellationToken;
 
         var first = await new ReleaseStore(context, ids, TimeProvider.System)
-            .EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), cancellationToken);
+            .EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), Library, cancellationToken);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var again = await new ReleaseStore(context, ids, TimeProvider.System)
-            .EnsureAsync(Novel("9780061990625", "OL3M", "Sarah Mayberry"), cancellationToken);
+            .EnsureAsync(Novel("9780061990625", "OL3M", "Sarah Mayberry"), Library, cancellationToken);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         again.ShouldBe(new EnsuredRelease(first.Id, false));
@@ -202,10 +205,10 @@ public class ReleaseStoreTests(PostgresFixture db) : DatabaseTest(db)
         var cancellationToken = TestContext.Current.CancellationToken;
 
         var first = await new ReleaseStore(context, ids, TimeProvider.System)
-            .EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), cancellationToken);
+            .EnsureAsync(Novel("9780306406157", "OL1M", "Sarah Mayberry"), Library, cancellationToken);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         var again = await new ReleaseStore(context, ids, TimeProvider.System)
-            .EnsureAsync(Novel("9780061990625", "OL4M"), cancellationToken);
+            .EnsureAsync(Novel("9780061990625", "OL4M"), Library, cancellationToken);
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         again.ShouldBe(new EnsuredRelease(first.Id, false));
