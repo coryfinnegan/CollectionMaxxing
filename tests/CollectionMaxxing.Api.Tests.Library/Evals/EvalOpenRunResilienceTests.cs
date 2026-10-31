@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Scanning;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog.Providers;
@@ -168,17 +169,87 @@ public class EvalOpenRunResilienceTests(ApiFixture api) : OpenRunTest(api)
         summary.GetProperty("scoredPhotos").GetInt32().ShouldBe(3);
     }
 
-    private void UseClockAndFlakyStore(FakeTimeProvider clock, Func<string, GroundedPhotoFile, bool> fails) =>
+    [Fact]
+    public async Task A_run_with_a_photo_given_up_on_is_partial_so_it_never_gets_a_full_verdict_or_becomes_a_baseline()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Golden.AddSingle("c2", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+        UseClockAndFlakyStore(clock, (photoId, file) => photoId == "c1" && file.Photos.Count > 0);
+        using var admin = AdminClient();
+        await OpenOkAsync(admin);
+        await PutPhotoOkAsync(admin, "c1", AllEngines("c1", StarFoxRead));
+        await PutPhotoOkAsync(admin, "c2", AllEngines("c2", StarFoxRead));
+        await FinishOkAsync(admin); // the phone sent every photo and did not say partial
+
+        (await BecomesTrueAsync(() =>
+        {
+            clock.Advance(TimeSpan.FromMinutes(10));
+            return ResultFiles().Count == 1;
+        }, Bounded)).ShouldBeTrue();
+        var done = await StatusWhenDoneAsync(admin);
+
+        done.GetProperty("partial").GetBoolean().ShouldBeTrue();
+        var summary = done.GetProperty("summary");
+        summary.GetProperty("partial").GetBoolean().ShouldBeTrue();
+        summary.GetProperty("gate").GetProperty("verdict").GetString().ShouldBe("incomplete");
+        summary.GetProperty("regression").GetProperty("status").GetString().ShouldBe("partial_run");
+    }
+
+    [Fact]
+    public async Task A_run_whose_results_are_already_on_disk_is_only_marked_done_and_not_scored_into_a_second_file()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+        var runId = (await OpenOkAsync(admin)).GetProperty("runId").GetString()!;
+        // The API stopped after writing this run's results and before marking it done.
+        await File.WriteAllTextAsync(Path.Combine(Golden.Results, "latest.json"), JsonSerializer.Serialize(new { runId, partial = false }));
+        await PutPhotoOkAsync(admin, "c1", AllEngines("c1", StarFoxRead));
+        await FinishOkAsync(admin);
+
+        var done = await StatusWhenDoneAsync(admin);
+
+        done.GetProperty("runId").GetString().ShouldBe(runId);
+        ResultFiles().ShouldBeEmpty("the results of this run were already written: nothing is written again");
+        Directory.Exists(Path.Combine(OpenRunFolder, "photos")).ShouldBeFalse("the stored photos are cleared all the same");
+    }
+
+    [Fact]
+    public async Task A_run_whose_done_mark_could_not_be_written_is_marked_on_the_next_try_without_a_second_result_file()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+        var refused = 0;
+        UseClockAndFlakyStore(clock, (_, _) => false, header => header.State == OpenRunState.Done && Interlocked.Increment(ref refused) == 1);
+        using var admin = AdminClient();
+        await OpenOkAsync(admin);
+        await PutPhotoOkAsync(admin, "c1", AllEngines("c1", StarFoxRead));
+        await FinishOkAsync(admin);
+
+        (await BecomesTrueAsync(() =>
+        {
+            clock.Advance(TimeSpan.FromSeconds(30));
+            return Volatile.Read(ref refused) >= 2;
+        }, Bounded)).ShouldBeTrue("it tried again after the failed write");
+        await StatusWhenDoneAsync(admin);
+
+        ResultFiles().Count.ShouldBe(1, "one run, one result file, however many tries it took to mark it done");
+    }
+
+    private void UseClockAndFlakyStore(FakeTimeProvider clock, Func<string, GroundedPhotoFile, bool> fails, Func<OpenRunHeader, bool>? failsSave = null) =>
         ConfigureServices = services =>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(clock);
             services.RemoveAll<IEvalRunStore>();
-            services.AddSingleton<IEvalRunStore>(provider => new FlakyRunStore(new FileEvalRunStore(provider.GetRequiredService<IOptions<EvalsOptions>>()), fails));
+            services.AddSingleton<IEvalRunStore>(provider => new FlakyRunStore(new FileEvalRunStore(provider.GetRequiredService<IOptions<EvalsOptions>>()), fails, failsSave));
         };
 
     /// <summary>The real store, except that it refuses to keep some groundings: a disk that fails under the PC.</summary>
-    private sealed class FlakyRunStore(IEvalRunStore inner, Func<string, GroundedPhotoFile, bool> fails) : IEvalRunStore
+    private sealed class FlakyRunStore(IEvalRunStore inner, Func<string, GroundedPhotoFile, bool> fails, Func<OpenRunHeader, bool>? failsSave) : IEvalRunStore
     {
         public bool IsConfigured => inner.IsConfigured;
 
@@ -186,7 +257,15 @@ public class EvalOpenRunResilienceTests(ApiFixture api) : OpenRunTest(api)
 
         public void Create(OpenRunHeader header) => inner.Create(header);
 
-        public void Save(OpenRunHeader header) => inner.Save(header);
+        public void Save(OpenRunHeader header)
+        {
+            if (failsSave?.Invoke(header) == true)
+            {
+                throw new IOException("the disk is full");
+            }
+
+            inner.Save(header);
+        }
 
         public void Discard() => inner.Discard();
 

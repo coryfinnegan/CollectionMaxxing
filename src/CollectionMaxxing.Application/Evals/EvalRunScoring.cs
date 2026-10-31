@@ -114,6 +114,7 @@ public sealed class EvalRunScoring(
             run.Photos,
             run.Partial,
             string.IsNullOrWhiteSpace(run.BaselineNote) ? null : run.BaselineNote.Trim());
+        cancellationToken.ThrowIfCancellationRequested(); // stopping is fine before the files start to be written, not in the middle of them
         var baseline = results.LoadBaselineDoc();
         var evaluated = EvalReport.Evaluate(
             grounded, truthSet.Truths, baseline?.Metrics, BuildSha.Resolve(options.Value), skipped, truthSet.Listing.Count,
@@ -121,7 +122,8 @@ public sealed class EvalRunScoring(
 
         try
         {
-            await results.SaveAsync(evaluated.Summary, grounded, evaluated.ReportMarkdown, cancellationToken);
+            // Once writing has started it finishes: a stop half way would leave some of the four files, and the next try would write the run again.
+            await results.SaveAsync(evaluated.Summary, grounded, evaluated.ReportMarkdown, CancellationToken.None);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

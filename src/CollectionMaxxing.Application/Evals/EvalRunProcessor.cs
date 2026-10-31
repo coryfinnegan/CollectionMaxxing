@@ -65,6 +65,7 @@ public sealed class EvalRunProgress
 /// </summary>
 public sealed class EvalRunProcessor(
     IGoldenSet golden,
+    IEvalResults results,
     IEvalRunStore store,
     EvalRunCoordinator coordinator,
     EvalRunScoring scoring,
@@ -75,6 +76,9 @@ public sealed class EvalRunProcessor(
 {
     /// <summary>How long to wait after the first, second… failure of a photo before trying it again. One more failure than there are waits gives it up.</summary>
     public static readonly IReadOnlyList<TimeSpan> RetryAfter = [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5)];
+
+    /// <summary>Why a photo was left out of the score when its grounding failed for good. A run that has one is partial, so it never gets a full verdict or becomes a baseline.</summary>
+    public const string GroundingFailed = "grounding_failed";
 
     private static readonly DomainError ScoringFailed = new(ErrorKind.Conflict, "evals.scoring_failed", "The run could not be scored. The PC will try again.");
 
@@ -191,7 +195,7 @@ public sealed class EvalRunProcessor(
         logger.LogError("Grounding an eval photo failed {Failures} times ({Failure}); it is left out of the score.", failures, exception.GetType().Name);
         try
         {
-            var skipped = (store.LoadPhoto(photoId)?.Skipped ?? []).Append(new SkippedPhoto(photoId, "grounding_failed")).ToList();
+            var skipped = (store.LoadPhoto(photoId)?.Skipped ?? []).Append(new SkippedPhoto(photoId, GroundingFailed)).ToList();
             await KeepAsync(runId, photoId, version, new GroundedPhotoFile([], skipped), cancellationToken);
             progress.Forgive(photoId);
         }
@@ -208,6 +212,14 @@ public sealed class EvalRunProcessor(
         if (store.Load() is not { } header || header.RunId != runId || header.State != OpenRunState.Finishing)
         {
             return EvalRunStep.Worked; // discarded or changed meanwhile: look again
+        }
+
+        // The results of this run may already be on disk: the API stopped, or the header could not be written, after they were. Then the run is only
+        // marked done; scoring it again would write a second result file for one run.
+        if (results.LoadLatestSummary() is { } written && written.RunId == header.RunId)
+        {
+            Done(header with { Partial = written.Partial });
+            return EvalRunStep.Worked;
         }
 
         var stored = store.StoredIds();
@@ -229,6 +241,8 @@ public sealed class EvalRunProcessor(
             skipped.AddRange(file.Skipped);
         }
 
+        // A photo given up on is a photo the run did not cover: the run is partial, whatever the phone said.
+        var partial = header.Partial || skipped.Any(s => s.Reason == GroundingFailed);
         Result<EvalRunResult> scored;
         try
         {
@@ -239,7 +253,7 @@ public sealed class EvalRunProcessor(
                 clock.GetUtcNow(),
                 header.Device,
                 header.ConfigVersion,
-                header.Partial,
+                partial,
                 header.BaselineNote,
                 [.. photos.Where(p => truthSet.Listing.ContainsKey(p.PhotoId))]);
             scored = await scoring.ScoreAsync(run, truthSet, skipped, cancellationToken);
@@ -264,16 +278,7 @@ public sealed class EvalRunProcessor(
             return EvalRunStep.Waiting;
         }
 
-        store.Save(header with { State = OpenRunState.Done, FinishedAt = clock.GetUtcNow(), Failure = null });
-        try
-        {
-            store.ClearPhotos(); // the result files hold everything; a failure here leaves files that the next run clears
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            logger.LogWarning("The stored eval photos could not be cleared ({Failure}).", exception.GetType().Name);
-        }
-
+        Done(header with { Partial = partial });
         if (logger.IsEnabled(LogLevel.Information))
         {
             logger.LogInformation(
@@ -281,5 +286,19 @@ public sealed class EvalRunProcessor(
         }
 
         return EvalRunStep.Worked;
+    }
+
+    /// <summary>Marks the run scored, then drops its stored photos: the result files hold everything.</summary>
+    private void Done(OpenRunHeader header)
+    {
+        store.Save(header with { State = OpenRunState.Done, FinishedAt = clock.GetUtcNow(), Failure = null });
+        try
+        {
+            store.ClearPhotos(); // a failure here leaves files that the next run clears
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("The stored eval photos could not be cleared ({Failure}).", exception.GetType().Name);
+        }
     }
 }
