@@ -69,21 +69,21 @@ jobs:
               | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Events.
               | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Quota.
               | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Learning. )
-          # auth (Api.Tests.Auth): 626 of its 968 tests are the authorization matrix, one theory with a row per
-          # endpoint and kind of caller (87 each), so a class split would leave one shard with most of the time.
-          # auth-1 = the Authorization namespace without the Admin and NoLibraries rows; auth-2 = everything else.
+          # auth (Api.Tests.Auth): auth-1 = the Authorization and Auth namespaces; auth-2 = everything else
+          # (Security, Onboarding, Invites, Members, KeyRing and whatever comes next). Split by time, not by count:
+          # 609 of the 968 tests are one cheap theory, the authorization matrix (about 0.14 s a row against about
+          # 0.9 s for the sign-in, onboarding and security tests), so the shards list 727 and 241 tests and take
+          # about the same time (per-class times from run 41153067225: roughly 200 s each).
           - shard: auth-1
             projects: CollectionMaxxing.Api.Tests.Auth
             filter: >-
               FullyQualifiedName~CollectionMaxxing.Api.Tests.Authorization.
-              & DisplayName!~actor: Admin
-              & DisplayName!~actor: NoLibraries
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Auth.
           - shard: auth-2
             projects: CollectionMaxxing.Api.Tests.Auth
             filter: >-
               FullyQualifiedName!~CollectionMaxxing.Api.Tests.Authorization.
-              | DisplayName~actor: Admin
-              | DisplayName~actor: NoLibraries
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Auth.
           - shard: rest
             projects: >-
               CollectionMaxxing.Api.Tests.Library
