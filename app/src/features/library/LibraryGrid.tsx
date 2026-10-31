@@ -29,8 +29,6 @@ export type LibraryGridProps = {
   title: string;
   /** Set for the Wishlist and Lent out views. */
   fixedStatus?: ItemStatus;
-  /** Opens with the Add an item panel showing (Library's own Add item entry point). */
-  openAdd?: boolean;
   /** Hides the content title: pushed pages on the phone already name themselves in the stack header (#303). */
   hideTitle?: boolean;
 };
@@ -47,7 +45,7 @@ const emptyCopy: Record<string, { title: string; body: string }> = {
   lent: { title: 'Nothing is lent out.', body: 'Lend an item from its page and it shows up here.' },
 };
 
-export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryGridProps) {
+export function LibraryGrid({ title, fixedStatus, hideTitle }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
   const { theme } = useUnistyles();
   // Plain objects: SafeAreaView lives outside the babel-processed tree, so a
@@ -65,7 +63,7 @@ export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryG
       </SafeAreaView>
     );
   }
-  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} hideTitle={hideTitle} />;
+  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} hideTitle={hideTitle} />;
 }
 
 /** The library heading: the title with its count, in the one design. Pushed views hide it; their stack header names them. */
@@ -80,7 +78,7 @@ function LibraryHeading({ title, subtitle }: { title: string; subtitle?: string 
   );
 }
 
-function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGridProps & { libraryId: string }) {
+function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & { libraryId: string }) {
   const router = useRouter();
   const { theme } = useUnistyles();
   const safe = { flex: 1, backgroundColor: theme.colors.ground };
@@ -95,7 +93,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
 
   const [chosen, setState] = useState<ListState>(defaultState());
   const [search, setSearch] = useState('');
-  const [panel, setPanel] = useState<Panel>(openAdd ? 'add' : null);
+  const [panel, setPanel] = useState<Panel>(null);
   /** "Needs attention" (#345): kept rows instead of the grid. Only the library view has it, not Wishlist or Lent out. */
   const [attention, setAttention] = useState(false);
   const { items: attentionItems } = useProvisionals(!fixedStatus ? libraryId : undefined);
