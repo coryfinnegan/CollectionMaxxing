@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Scanning.Learning;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Items;
@@ -52,13 +53,7 @@ public sealed class OwnershipQuery(IAppDbContext db)
         var askedIds = asked.Select(a => a.Id).ToHashSet();
 
         var rows = await CopiesOfWorksAsync(libraryId, workIds, cancellationToken);
-        var have = rows.Where(r => ItemStatuses.IsInCollection(r.Copy.Status)).ToList();
-        var exact = have.Where(r => askedIds.Contains(r.Copy.ReleaseId)).Select(r => r.Copy).ToList();
-        var soft = have.Where(r => !askedIds.Contains(r.Copy.ReleaseId) && !shapes.Contains((r.Copy.Format, r.PlatformId)))
-            .Select(r => r.Copy).ToList();
-        return new OwnershipDto(
-            exact.Count > 0, exact.Count, exact, soft,
-            WishlistItemOf(rows, askedIds), SoldItemOf(rows, askedIds));
+        return Answer(rows, askedIds, shapes);
     }
 
     /// <summary>
@@ -89,11 +84,7 @@ public sealed class OwnershipQuery(IAppDbContext db)
         var rowsOfWork = rows.ToLookup(r => r.Copy.WorkId);
         foreach (var release in asked)
         {
-            var ofWork = rowsOfWork[release.WorkId].ToList();
-            var exact = ofWork.Where(r => r.Copy.ReleaseId == release.Id).Select(r => r.Copy).ToList();
-            var soft = ofWork.Where(r => r.Copy.ReleaseId != release.Id && (r.Copy.Format, r.PlatformId) != (release.Format, release.PlatformId))
-                .Select(r => r.Copy).ToList();
-            answers[release.Id] = new OwnershipDto(exact.Count > 0, exact.Count, exact, soft);
+            answers[release.Id] = Answer(rowsOfWork[release.WorkId].ToList(), [release.Id], [(release.Format, release.PlatformId)]);
         }
 
         return answers;
@@ -133,6 +124,20 @@ public sealed class OwnershipQuery(IAppDbContext db)
     }
 
     private sealed record CopyRow(OwnedCopyDto Copy, Guid? PlatformId);
+
+    /// <summary>
+    /// The one answer, for the single and the batched paths alike: from every live item of the asked releases' works, the copies in the
+    /// collection of exactly these releases, the same work in another shape (soft), and the wishlist and sold facts. A wishlisted or sold
+    /// copy is never a copy and never a soft match.
+    /// </summary>
+    private static OwnershipDto Answer(IReadOnlyList<CopyRow> rows, HashSet<Guid> askedIds, HashSet<(ReleaseFormat Format, Guid? PlatformId)> shapes)
+    {
+        var have = rows.Where(r => ItemStatuses.IsInCollection(r.Copy.Status)).ToList();
+        var exact = have.Where(r => askedIds.Contains(r.Copy.ReleaseId)).Select(r => r.Copy).ToList();
+        var soft = have.Where(r => !askedIds.Contains(r.Copy.ReleaseId) && !shapes.Contains((r.Copy.Format, r.PlatformId)))
+            .Select(r => r.Copy).ToList();
+        return new OwnershipDto(exact.Count > 0, exact.Count, exact, soft, WishlistItemOf(rows, askedIds), SoldItemOf(rows, askedIds));
+    }
 
     /// <summary>The oldest live wishlist item for any of the releases asked about, or null.</summary>
     private static Guid? WishlistItemOf(IEnumerable<CopyRow> rows, HashSet<Guid> askedReleaseIds) =>
