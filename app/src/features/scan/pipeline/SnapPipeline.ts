@@ -6,9 +6,10 @@
 //
 // Scanning never adds anything: no item is created and no candidate is accepted here. Add, Wishlist and Review do that.
 import type { StoreApi } from 'zustand/vanilla';
-import type { CandidateDto } from '@/api/generated/models';
+import type { CandidateDto, CreateScanSessionRequest } from '@/api/generated/models';
 import type { Rect } from '@/native/cm-vision';
 import { UNKNOWN_ITEM } from '@/features/review/grouping';
+import { logger } from '@/lib/auth/log';
 import { ApiError } from '@/lib/http';
 import { LOCAL_PREFIX, useCardsStore } from '../cards/cardsStore';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
@@ -65,9 +66,20 @@ const DEFAULT_WAIT_MS = 5_000;
 const MIN_WAIT_MS = 1_000;
 const MAX_WAIT_MS = 2 * 60_000;
 
+/** A picture the server answers with an error of its own (500) is tried this many times, with a longer wait after each, then parked. */
+const MAX_TRIES = 5;
+const FIRST_RETRY_MS = 5_000;
+const MAX_RETRY_MS = 60_000;
+/** 502, 503 and 504 say the server is not there (a gateway in front of it, or it is starting), which is nobody's fault but the connection's. */
+const isServerAway = (status: number) => status === 502 || status === 503 || status === 504;
+const retryWait = (failures: number) => Math.min(MAX_RETRY_MS, FIRST_RETRY_MS * 2 ** (failures - 1));
+
 const SLOW_DOWN = 'The server asked us to slow down. Your pictures are saved and will finish in a moment.';
 const TOO_BIG = 'A picture had too many items to look up at once. Take it again from a bit closer.';
 const CANNOT_SEND = "Couldn't look up a picture, so nothing was added from it. Take it again.";
+const PARKED = "Couldn't send a picture. It stays on this phone and is tried again when the scanner opens.";
+const NOTHING_READ = "Couldn't read that. Move a little closer.";
+const READ_FAILED = "Couldn't read that picture. Try taking it again.";
 
 const isSnapInUse = (error: ApiError) => error.problem.code === 'scan.snap_in_use' || (error.problem.type?.endsWith('scan.snap_in_use') ?? false);
 
@@ -86,6 +98,15 @@ export class SnapPipeline {
   private holdUntil = 0;
   /** Bound covers waiting for their answer, by snap: leaving the scanner is per screen, so it stays out of the store. */
   private readonly boundDone = new Map<string, () => void>();
+  /** Stopped: the screen is gone or the library was switched. Nothing it still waits for is drawn into the cards. */
+  private stopped = false;
+  /** Failed sends of each snap the server answered 500 for, when each may be tried again, and the ones given up on for this run. */
+  private readonly failures = new Map<string, number>();
+  private readonly retryAt = new Map<string, number>();
+  private readonly parked = new Set<string>();
+  private sessionBody: () => CreateScanSessionRequest = () => ({});
+  private onNotice: (message: string | null) => void = () => undefined;
+  private noticed = false;
 
   constructor(private readonly deps: PipelineDeps) {}
 
@@ -99,9 +120,23 @@ export class SnapPipeline {
     this.onOutcome = handler;
   }
 
+  /**
+   * The session context (where finds go, their status, what is being scanned) a session made by a picture starts with. Read at
+   * the moment the session is made, so it is whatever the person has chosen by then. Without it a session starts empty.
+   */
+  setSessionBody(provider: () => CreateScanSessionRequest) {
+    this.sessionBody = provider;
+  }
+
+  /** Told when a picture the person took is dropped (a message), and when the next one is read fine (null). */
+  setNoticeHandler(handler: (message: string | null) => void) {
+    this.onNotice = handler;
+  }
+
   /** Starts watching for close calls and picks up snaps a killed app left half-read. */
   start() {
     this.stop();
+    this.stopped = false;
     this.unsubscribe = useCardsStore.subscribe(() => this.scanForCloseCalls());
     this.scanForCloseCalls();
     // Every snap still here has unresolved work: pin it before trimming, so retention never takes it.
@@ -113,15 +148,24 @@ export class SnapPipeline {
   }
 
   stop() {
+    this.stopped = true;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+  }
+
+  /** Whether an answer for `sessionId` still belongs on screen: the scanner is still open and the scan was not discarded or replaced. */
+  private isCurrent(sessionId: string) {
+    return !this.stopped && this.deps.tray.getState().sessionId === sessionId;
   }
 
   /** One picture from the shutter or auto-snap. Resolves once it is read and sent (or queued). */
   async onSnap(event: SnapEvent, options: { recognition?: Reader; bound?: { candidateId: string; onDone(): void } } = {}): Promise<void> {
     // A barcode in view wins: the barcode path reads it, no picture is sent. An imported picture is not what the camera sees.
     // A bound shutter capture is deliberate (one row waits for it), so it wins back.
-    if (event.trigger !== 'import' && !options.bound && this.barcodeInView()) return;
+    if (event.trigger !== 'import' && !options.bound && this.barcodeInView()) {
+      await discardPicture(event.photo.uri); // the scaled snap is not used: nothing of it stays on the phone
+      return;
+    }
     const { store, snaps } = this.deps;
     const snapId = (this.deps.newId ?? randomId)();
     const photoUri = trackPicture(event.photo.uri, snapId); // the scaled snap: deleted once the store has its own copy
@@ -151,11 +195,13 @@ export class SnapPipeline {
     const still: Still = stored
       ? { uri: stored.stillUri, width: stored.width, height: stored.height }
       : { uri: event.photo.uri, width: event.photo.width, height: event.photo.height };
-    await this.read(snapId, still, options.recognition ?? this.deps.recognition, event.shotKind);
+    // A shutter picture (and a cover snapped for a Review row) is deliberate: if it comes to nothing the person is told.
+    const deliberate = event.trigger === 'shutter' || !!options.bound;
+    await this.read(snapId, still, options.recognition ?? this.deps.recognition, event.shotKind, deliberate);
     await this.flush();
   }
 
-  private async read(snapId: string, still: Still, recognition: Reader, shotKind?: ShotKind): Promise<void> {
+  private async read(snapId: string, still: Still, recognition: Reader, shotKind?: ShotKind, deliberate = false): Promise<void> {
     const { store } = this.deps;
     reading.add(snapId);
     try {
@@ -177,18 +223,29 @@ export class SnapPipeline {
       });
       for (const item of result.items) this.makeCrop(snapId, still, item);
       if (items.length === 0) {
-        // Nothing found: the line fades out. It costs nothing.
+        // Nothing found: the line fades out. It costs nothing, and the person hears about it only if they took it on purpose.
         void this.drop(snapId);
         this.onOutcome(false);
+        if (deliberate) this.notify(NOTHING_READ);
       } else {
         this.onOutcome(true);
+        this.notify(null);
       }
-    } catch {
+    } catch (error) {
+      logger.warn(`A picture could not be read: ${error instanceof Error ? error.message : String(error)}`);
       void this.drop(snapId); // a picture that cannot be read is dropped, never a crash
       this.onOutcome(false);
+      if (deliberate) this.notify(READ_FAILED);
     } finally {
       reading.delete(snapId);
     }
+  }
+
+  /** Tells the screen a one-line message, or that the last one is out of date. Silence is not repeated. */
+  private notify(message: string | null) {
+    if (message === null && !this.noticed) return;
+    this.noticed = message !== null;
+    this.onNotice(message);
   }
 
   /** A snap that will not be used: off the receipt, out of the snap store, and none of its picture files left. */
@@ -254,8 +311,9 @@ export class SnapPipeline {
     try {
       await this.sendEach(refused);
     } finally {
-      // Said once the send is over, so a snap that did go through after it cannot wipe what the person needs to know.
-      const message = refused.at(-1);
+      // Said once the send is over, so a snap that did go through after it cannot wipe what the person needs to know. A snap
+      // given up on keeps being mentioned (unless something more urgent is on the line) for as long as it waits on the phone.
+      const message = refused.at(-1) ?? (this.hasParked() && !tray.getState().problem ? PARKED : undefined);
       if (message) tray.getState().setOnline(tray.getState().online, message);
     }
   }
@@ -266,6 +324,7 @@ export class SnapPipeline {
     let resets = 0;
     const renamed = new Set<string>();
     for (;;) {
+      if (this.stopped) return; // the screen is gone or the library was switched: what is waiting stays for the next time it opens
       // Barcodes first: identify waits while the tray still holds codes the server has not confirmed. The tray's own
       // flush sends them; the next pipeline flush tries again. A tray with a problem of its own (a refused batch, a
       // signed-out user) does not hold pictures up: only waiting work waits. Art-scores chain off identify's answers
@@ -274,28 +333,43 @@ export class SnapPipeline {
       if (unsentCodes && !tray.getState().problem) return;
       const next = store
         .getState()
-        .snaps.filter((s) => s.libraryId === this.deps.libraryId && s.phase === 'read' && !s.sent)
+        .snaps.filter((s) => s.libraryId === this.deps.libraryId && s.phase === 'read' && !s.sent && this.mayTry(s.snapId))
         .sort((a, b) => a.createdAt - b.createdAt)[0];
       if (!next) return;
       if (this.barcodeInView() && !next.boundCandidateId) return; // held until the barcode is out of view; a bound cover is deliberate
+      let identifying = false;
       try {
         await this.findLocalMatches(next);
+        if (this.stopped) return;
         const snap = store.getState().snaps.find((s) => s.snapId === next.snapId);
         if (!snap) continue; // removed while waiting
         let sessionId = tray.getState().sessionId;
         if (!sessionId) {
-          sessionId = await api.createSession(this.deps.libraryId);
+          sessionId = await api.createSession(this.deps.libraryId, this.sessionBody());
           tray.getState().setSessionId(sessionId);
         }
+        identifying = true;
         const candidates = await api.identify(sessionId, identifyRequestOf(snap));
+        identifying = false;
         const byLocalId: Record<string, string> = {};
         for (const c of candidates) if (c.localId) byLocalId[c.localId] = c.id;
-        store.getState().markSent(snap.snapId, sessionId, byLocalId);
+        store.getState().markSent(snap.snapId, sessionId, byLocalId); // the server has it, whoever is looking
+        this.failures.delete(snap.snapId);
+        // The answer was asked for a scan that may be over by now (a library switch, a Discard): it goes nowhere. The session
+        // snapshot brings the cards back if the person returns to that scan.
+        if (!this.isCurrent(sessionId)) return;
         announce(useCardsStore.getState().merge(candidates));
         tray.getState().setOnline(true);
         this.finishBound(snap.snapId); // the row is upgraded now; a bound screen leaves
       } catch (error) {
         const status = error instanceof ApiError ? error.status : undefined;
+        if (identifying && error instanceof ApiError && status !== undefined && status >= 500 && !isServerAway(status)) {
+          // The server is there and fell over on this picture. Another one may go through, so this one waits its turn
+          // (a little longer each time) and is parked after a few tries, so it can neither hold the others up nor be retried forever.
+          this.noteFailure(next.snapId, refused);
+          if (!tray.getState().online) tray.getState().setOnline(true);
+          continue;
+        }
         if (error instanceof ApiError && status === 429) {
           // Too many requests (docs/04): keep the snap, wait as long as the server said, then send it again unchanged.
           const wait = Math.min(MAX_WAIT_MS, Math.max(MIN_WAIT_MS, error.retryAfterMs ?? DEFAULT_WAIT_MS));
@@ -337,6 +411,28 @@ export class SnapPipeline {
     }
   }
 
+  /** Whether a snap may be tried now: not given up on, and not still waiting out its last failure. */
+  private mayTry(snapId: string) {
+    return !this.parked.has(snapId) && (this.retryAt.get(snapId) ?? 0) <= this.now();
+  }
+
+  private hasParked() {
+    return this.deps.store.getState().snaps.some((s) => this.parked.has(s.snapId));
+  }
+
+  private noteFailure(snapId: string, refused: string[]) {
+    const failures = (this.failures.get(snapId) ?? 0) + 1;
+    this.failures.set(snapId, failures);
+    if (failures < MAX_TRIES) {
+      this.retryAt.set(snapId, this.now() + retryWait(failures));
+      return;
+    }
+    this.parked.add(snapId);
+    this.retryAt.delete(snapId);
+    logger.warn(`A picture was parked after ${failures} failed sends.`);
+    refused.push(PARKED);
+  }
+
   /** A bound cover got its answer: the waiting screen leaves. Once only; a later flush finds nothing to finish. */
   private finishBound(snapId: string) {
     const done = this.boundDone.get(snapId);
@@ -357,7 +453,7 @@ export class SnapPipeline {
       const uri = await this.crops.get(boxKey(snap.snapId, item.localId))?.task;
       if (!uri) continue;
       const releaseId = await match({ uri }).catch(() => undefined);
-      if (!releaseId) continue;
+      if (!releaseId || this.stopped) continue;
       this.deps.store.getState().setPayload(snap.snapId, item.localId, { ...item.payload, localMatchReleaseId: releaseId });
       this.showLocalCard(snap, item, releaseId);
     }
@@ -421,7 +517,10 @@ export class SnapPipeline {
     const { store, tray } = this.deps;
     const item = store.getState().snaps.find((s) => s.snapId === snapId)?.items.find((i) => i.localId === localId);
     store.getState().removeItem(snapId, localId);
-    if (!store.getState().snaps.some((s) => s.snapId === snapId)) this.deps.snaps.unpin(snapId);
+    if (!store.getState().snaps.some((s) => s.snapId === snapId)) {
+      this.deps.snaps.unpin(snapId);
+      void discardPicturesOf(snapId); // the last item is gone: the scaled snap that stayed for its receipt line goes too
+    }
     useCardsStore.getState().dropLocal(snapId, localId);
     const card = item && this.cardOf(item);
     const sessionId = tray.getState().sessionId;
@@ -477,10 +576,12 @@ export class SnapPipeline {
     const picture = await this.pictureOf(found.snap, found.item);
     if (!picture) return;
     const distances = await compareArtwork(this.deps.art, card, picture);
+    if (!this.isCurrent(sessionId)) return; // the scan is over (or the library was switched) while the covers were compared
     let current = card;
     if (distances) {
       try {
         const updated = await this.deps.api.scoreArt(sessionId, candidateId, distances);
+        if (!this.isCurrent(sessionId)) return;
         if (updated) {
           announce(useCardsStore.getState().merge([updated]));
           current = useCardsStore.getState().byId[candidateId] ?? updated;
@@ -497,6 +598,6 @@ export class SnapPipeline {
     const capture = coverCaptureOf(this.deps.snaps, found.snap, found.item);
     if (!capture) return;
     const verified = await verifyCoverPhoto(this.deps.coverVerify, this.deps.api, sessionId, current, capture);
-    if (verified) announce(useCardsStore.getState().merge([verified]));
+    if (verified && this.isCurrent(sessionId)) announce(useCardsStore.getState().merge([verified]));
   }
 }

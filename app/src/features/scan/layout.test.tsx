@@ -14,7 +14,7 @@ import { setSessionContextStorage } from './session/sessionContext';
 import { setTrayStore } from './tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from './tray/trayStore';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }), useIsFocused: () => true }));
 // Entry routing, not the camera: the preview's own fallback is covered by the lazy boundary.
 jest.mock('./scanner/LazyCameraPreview', () => ({ LazyCameraPreview: () => null }));
 

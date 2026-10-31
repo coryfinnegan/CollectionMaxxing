@@ -14,6 +14,7 @@ import { useAutoSnapConfig } from '../pipeline/useAutoSnapConfig';
 import { LazyCameraPreview } from './LazyCameraPreview';
 import { ScannerScreen } from './ScannerScreen';
 import { FakeScannerSource, VisionCameraSource } from './ScannerSource';
+import { useScreenActive } from './useScreenActive';
 
 export function ScannerRoute({ onClose, showClose = true }: { onClose?: () => void; showClose?: boolean }) {
   if (Platform.OS === 'web') {
@@ -48,6 +49,8 @@ function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose:
   const devSource = useMemo(() => (__DEV__ ? new FakeScannerSource() : undefined), []);
   const pipeline = useMemo(() => (libraryId ? createDevicePipelineDeps(libraryId) : undefined), [libraryId]);
   const autoSnapConfig = useAutoSnapConfig();
+  // The Scan tab stays mounted behind the other tabs: the camera, barcodes and auto-snap run only while this screen is showing.
+  const active = useScreenActive();
   const leaveBound = useCallback(() => {
     boundScanStore.getState().clear();
     router.back();
@@ -71,7 +74,8 @@ function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose:
     <ScannerScreen
       libraryId={libraryId}
       source={camera}
-      preview={<LazyCameraPreview source={camera} />}
+      active={active}
+      preview={<LazyCameraPreview source={camera} active={active} />}
       devSource={devSource}
       onClose={onClose}
       showClose={showClose}

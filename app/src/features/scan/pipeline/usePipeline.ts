@@ -1,7 +1,8 @@
 // Runs the picture pipeline for the scanner screen: starts it, keeps sending what is waiting (a snap read offline goes out when
 // the connection returns), tells it whether a barcode is in view, and hands the screen the picture lines and the counts.
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
+import type { CreateScanSessionRequest } from '@/api/generated/models';
 import type { StoreApi } from 'zustand/vanilla';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { useCardsStore, withLocalCards } from '../cards/cardsStore';
@@ -15,6 +16,8 @@ import { SnapPipeline, type PipelineDeps, type Reader } from './SnapPipeline';
 
 /** A barcode seen this recently still counts as in view (the same memory auto-snap uses). */
 const BARCODE_MEMORY_MS = 600;
+/** How long "Couldn't read that" stays on the status line. */
+const NOTICE_MS = 6_000;
 
 export function usePipeline({
   deps,
@@ -22,6 +25,9 @@ export function usePipeline({
   resendMs = 5000,
   onOutcome,
   boundCover,
+  active = true,
+  sessionBody,
+  noticeMs = NOTICE_MS,
 }: {
   deps: PipelineDeps | undefined;
   source: ScannerSource;
@@ -30,8 +36,19 @@ export function usePipeline({
   onOutcome?: (found: boolean) => void;
   /** Review's "Snap cover": every picture from this screen upgrades this row in place. */
   boundCover?: { candidateId: string; onDone(): void };
+  /** False while the scanner's screen is not the one being looked at: nothing is retried, and no barcode is noticed. */
+  active?: boolean;
+  /** The context a session opened by a picture starts with. It is read when that session is made, so it may change meanwhile. */
+  sessionBody?: CreateScanSessionRequest;
+  /** How long the one-line message about a dropped picture stays. */
+  noticeMs?: number;
 }) {
+  const body = useRef(sessionBody);
+  useEffect(() => {
+    body.current = sessionBody;
+  });
   const pipeline = useMemo(() => (deps ? new SnapPipeline(deps) : undefined), [deps]);
+  const [notice, setNotice] = useState<string | null>(null);
   const store = deps?.store ?? getPipelineStore();
   const tray: StoreApi<TrayStore> | undefined = deps ? (deps.tray ?? getTrayStore(deps.libraryId)) : undefined;
   const lastBarcodeAt = useRef(-Infinity);
@@ -44,29 +61,44 @@ export function usePipeline({
     if (!pipeline) return;
     pipeline.setBarcodeProbe(() => Date.now() - lastBarcodeAt.current < BARCODE_MEMORY_MS);
     pipeline.setOutcomeHandler((found) => outcome.current?.(found));
-    const off = source.start((codes) => {
+    pipeline.setNoticeHandler(setNotice);
+    pipeline.setSessionBody(() => body.current ?? {});
+  }, [pipeline]);
+
+  // The camera's barcodes only count while the screen is the one being looked at.
+  useEffect(() => {
+    if (!pipeline || !active) return;
+    return source.start((codes) => {
       if (codes.length > 0) lastBarcodeAt.current = Date.now();
     });
-    return off;
-  }, [pipeline, source]);
+  }, [pipeline, source, active]);
 
   useEffect(() => {
     if (!pipeline) return;
     pipeline.start();
+    return () => pipeline.stop();
+  }, [pipeline]);
+
+  // What is waiting is sent now and retried until it gets through, but only while the screen is showing: it starts again when it is back.
+  useEffect(() => {
+    if (!pipeline || !active) return;
     void pipeline.flush();
     const timer = setInterval(() => void pipeline.flush(), resendMs);
-    return () => {
-      clearInterval(timer);
-      pipeline.stop();
-    };
-  }, [pipeline, resendMs]);
+    return () => clearInterval(timer);
+  }, [pipeline, resendMs, active]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), noticeMs);
+    return () => clearTimeout(timer);
+  }, [notice, noticeMs]);
 
   // A committed or discarded scan is forgotten; a (re)opened session drains what is waiting, barcodes first.
   const sessionId = useTrayValue(tray, (s) => s.sessionId, null);
   useEffect(() => {
     pipeline?.sweep();
-    void pipeline?.flush();
-  }, [pipeline, sessionId]);
+    if (active) void pipeline?.flush();
+  }, [pipeline, sessionId, active]);
 
   const snaps = useStore(store, (s) => s.snaps);
   const unreadableCount = useStore(store, (s) => s.unreadableCount);
@@ -96,6 +128,7 @@ export function usePipeline({
 
   return {
     enabled: !!pipeline,
+    notice,
     onSnap,
     snapWith,
     recognition: deps?.recognition,
