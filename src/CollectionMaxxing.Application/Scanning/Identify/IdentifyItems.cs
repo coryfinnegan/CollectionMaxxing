@@ -443,11 +443,13 @@ public static class IdentifyItems
                     return; // cleaned up mid-resolve; the answers die with the session
                 }
 
+                // What the answers need about the releases they name is read once for the whole picture, not once per answer.
+                var lookups = await resolver.LookUpAsync(session.LibraryId, answers.Values, cancellationToken);
                 var coverFiles = new List<string>();
                 for (var i = 0; i < fresh.Count; i++)
                 {
                     var candidate = fresh[i].Candidate;
-                    await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken);
+                    await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken, lookups: lookups);
                     if (repeats.Contains(i))
                     {
                         SkipRepeat(candidate);
@@ -498,13 +500,15 @@ public static class IdentifyItems
             CancellationToken cancellationToken, Guid? proofItemId = null)
         {
             DateTimeOffset? runAfter = delay is { } d ? clock.GetUtcNow() + d : null;
-            foreach (var candidate in candidates.Where(c => c.Resolution == CandidateResolution.Pending))
+            var pending = candidates
+                .Where(c => c.Resolution == CandidateResolution.Pending)
+                .Select(c => new JobToEnqueue(
+                    new ResolveJob(session.LibraryId, session.Id, c.Id, userId, proofItemId),
+                    new JobEnqueueOptions(runAfter, $"{ResolveJobType}:{c.Id}{keySuffix}")))
+                .ToList();
+            if (pending.Count > 0)
             {
-                await jobs.EnqueueAsync(
-                    ResolveJobType,
-                    new ResolveJob(session.LibraryId, session.Id, candidate.Id, userId, proofItemId),
-                    new JobEnqueueOptions(runAfter, $"{ResolveJobType}:{candidate.Id}{keySuffix}"),
-                    cancellationToken);
+                await jobs.EnqueueManyAsync(ResolveJobType, pending, cancellationToken);
             }
         }
 
