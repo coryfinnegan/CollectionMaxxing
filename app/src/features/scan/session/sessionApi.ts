@@ -38,6 +38,21 @@ export function announce(events: { id: string; event: CardEvent }[], sessionId?:
 
 const creating = new Map<string, Promise<string>>();
 
+/** The trays whose scanner is open right now. A tray is one library's, so this says which library's scanner is on screen. */
+const openScanners = new Map<object, number>();
+
+/** A scanner for this tray opened. Returns what to call when it closes. */
+export function enterScanner(tray: object): () => void {
+  openScanners.set(tray, (openScanners.get(tray) ?? 0) + 1);
+  return () => {
+    const left = (openScanners.get(tray) ?? 1) - 1;
+    if (left > 0) openScanners.set(tray, left);
+    else openScanners.delete(tray);
+  };
+}
+
+export const isScannerOpen = (tray: object) => (openScanners.get(tray) ?? 0) > 0;
+
 /**
  * Makes the library's scan session. Barcodes and pictures can both ask at once; they share one request per library,
  * so there is one session. Each library has its own in-flight request: Library B never receives Library A's session.
@@ -57,7 +72,15 @@ export function createSessionOnce(libraryId: string, body: CreateScanSessionRequ
   return next;
 }
 
-export function flushDeps(libraryId: string, sessionBody: () => CreateScanSessionRequest = () => ({})): FlushDeps {
+/**
+ * @param isCurrent whether `sessionId` is still the scan on screen. A batch's answer that lands after a library switch or a
+ *   Discard is not drawn into the cards.
+ */
+export function flushDeps(
+  libraryId: string,
+  sessionBody: () => CreateScanSessionRequest = () => ({}),
+  isCurrent: (sessionId: string) => boolean = () => true,
+): FlushDeps {
   return {
     createSession: () => createSessionOnce(libraryId, sessionBody()),
     async sendBatch(sessionId, batch) {
@@ -67,6 +90,7 @@ export function flushDeps(libraryId: string, sessionBody: () => CreateScanSessio
         { headers: { 'Idempotency-Key': batch.key } },
       );
       if (response.status !== 200) throw new ApiError(response.status, {});
+      if (!isCurrent(sessionId)) return;
       announce(useCardsStore.getState().merge(response.data.candidates), sessionId);
     },
     classify(error) {
@@ -98,8 +122,12 @@ export const resumeCursor = (candidates: CandidateDto[]): string | undefined => 
   return last > 0 ? String(last) : undefined;
 };
 
-/** Routes one session event: candidates merge into the cards, `session.counters` seeds the counters bar. */
-export function routeSessionMessage(sessionId: string, message: SseMessage) {
+/**
+ * Routes one session event: candidates merge into the cards, `session.counters` seeds the counters bar. An event that lands
+ * when `isCurrent` says its scan is no longer the one on screen is dropped.
+ */
+export function routeSessionMessage(sessionId: string, message: SseMessage, isCurrent: () => boolean = () => true) {
+  if (!isCurrent()) return;
   if (message.event === 'session.counters') {
     try {
       const body = JSON.parse(message.data) as { counters?: unknown; changeSeq?: unknown };
@@ -127,16 +155,22 @@ export function routeSessionMessage(sessionId: string, message: SseMessage) {
 }
 
 /** Follows the session's events; falls back to polling `?since=` when the stream keeps failing. */
-export function followSession(sessionId: string, lastEventId: string | undefined, tuning: { retryMs?: number; pollMs?: number } = {}) {
+export function followSession(
+  sessionId: string,
+  lastEventId: string | undefined,
+  tuning: { retryMs?: number; pollMs?: number } = {},
+  isCurrent: () => boolean = () => true,
+) {
   return connectSse({
     url: `${baseUrl()}/api/v1/scan-sessions/${sessionId}/events`,
     headers: () => authHeaders('GET'),
     lastEventId,
     ...tuning,
-    onMessage: (message) => routeSessionMessage(sessionId, message),
+    onMessage: (message) => routeSessionMessage(sessionId, message, isCurrent),
     poll: async (last) => {
       // The snapshot carries the whole session's counters even when it carries only the changed candidates.
       const snapshot = await loadSessionSnapshot(sessionId, last === undefined ? 0 : Number(last));
+      if (!isCurrent()) return [];
       seedFromSnapshot(sessionId, snapshot);
       return snapshot.candidates.map(toMessage);
     },

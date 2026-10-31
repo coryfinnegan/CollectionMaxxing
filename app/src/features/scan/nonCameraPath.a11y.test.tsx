@@ -13,7 +13,7 @@ import { setTrayStore } from './tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from './tray/trayStore';
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+jest.mock('expo-router', () => ({ useRouter: () => mockRouter, useIsFocused: () => true }));
 // Entry routing, not the camera: the preview's own fallback is covered by the lazy boundary.
 jest.mock('./scanner/LazyCameraPreview', () => ({ LazyCameraPreview: () => null }));
 

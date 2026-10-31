@@ -8,9 +8,11 @@ import { createTrayStore, MemoryKeyValueStore } from '@/features/scan/tray/trayS
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
+import { ApiError } from '@/lib/http';
 import {
   createDiscardOutbox,
   dropCandidateLocally,
+  dropPictureItemLocally,
   flushDiscardOutbox,
   getDiscardOutbox,
   isDiscarded,
@@ -142,6 +144,30 @@ describe('discard outbox', () => {
     expect(queue.list(MOCK_LIBRARY_ID)).toHaveLength(0);
   });
 
+  it.each([401, 408, 429])('keeps a discard the server answers with %i (try again later) and stops, like a lost connection', async (status) => {
+    const queue = getDiscardOutbox();
+    queue.enqueue({ libraryId: MOCK_LIBRARY_ID, sessionId: SESSION, candidateId: 'cand-1' });
+    queue.enqueue({ libraryId: MOCK_LIBRARY_ID, sessionId: SESSION, candidateId: 'cand-2' });
+    const reject = jest.fn().mockRejectedValue(new ApiError(status, {}));
+
+    await expect(flushDiscardOutbox({ libraryId: MOCK_LIBRARY_ID, reject })).resolves.toBe(2);
+
+    expect(reject).toHaveBeenCalledTimes(1); // it stopped at the first
+    expect(queue.list(MOCK_LIBRARY_ID).map((e) => e.candidateId)).toEqual(['cand-1', 'cand-2']);
+  });
+
+  it.each([403, 404, 409])('drops a discard the server refuses for good (%i) and still sends the rest', async (status) => {
+    const queue = getDiscardOutbox();
+    queue.enqueue({ libraryId: MOCK_LIBRARY_ID, sessionId: SESSION, candidateId: 'cand-1' });
+    queue.enqueue({ libraryId: MOCK_LIBRARY_ID, sessionId: SESSION, candidateId: 'cand-2' });
+    const reject = jest.fn().mockRejectedValueOnce(new ApiError(status, {})).mockResolvedValueOnce(undefined);
+
+    await expect(flushDiscardOutbox({ libraryId: MOCK_LIBRARY_ID, reject })).resolves.toBe(0);
+
+    expect(reject).toHaveBeenCalledTimes(2);
+    expect(queue.list(MOCK_LIBRARY_ID)).toHaveLength(0);
+  });
+
   it('stops on a lost connection and keeps the rest queued', async () => {
     seed([candidate('cand-1')]);
     getDiscardOutbox().enqueue({ libraryId: MOCK_LIBRARY_ID, sessionId: SESSION, candidateId: 'cand-1' });
@@ -150,6 +176,20 @@ describe('discard outbox', () => {
     await expect(flushDiscardOutbox({ libraryId: MOCK_LIBRARY_ID })).resolves.toBe(1);
     expect(scanMock.sessions.get(SESSION)!.candidates[0]!.decision).toBe('undecided');
     expect(isDiscarded('cand-1')).toBe(true);
+  });
+});
+
+describe('dropPictureItemLocally', () => {
+  it('takes the picture item of one candidate out of the snaps of its session, and nothing else', () => {
+    setPipelineStore(createPipelineStore({ storage: new MemoryKeyValueStore() }));
+    getPipelineStore().getState().addSnap(snap());
+    getPipelineStore().getState().addSnap(snap({ snapId: 'snap-2', sessionId: 'another-session' }));
+    useCardsStore.getState().showLocal(candidate('local:snap-1:item-1', { localId: 'item-1' }));
+
+    dropPictureItemLocally('a0000000-0000-4000-8000-000000000001', candidate('cand-1', { localId: 'item-1' }));
+
+    expect(getPipelineStore().getState().snaps.map((s) => s.snapId)).toEqual(['snap-2']);
+    expect(useCardsStore.getState().local['local:snap-1:item-1']).toBeUndefined();
   });
 });
 

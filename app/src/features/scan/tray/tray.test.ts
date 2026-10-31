@@ -1,6 +1,7 @@
 import { createStabilityFilter } from './stability';
 import {
   addCopy,
+  closeSession,
   emptyTray,
   lineStatus,
   markBatchSent,
@@ -140,5 +141,40 @@ describe('tray batches', () => {
     expect(lineStatus(line, false)).toBe('queued');
     expect(lineStatus(line, true)).toBe('sending');
     expect(lineStatus({ ...line, sentCopies: 1 }, false)).toBe('sent');
+  });
+});
+
+describe('closing a committed session', () => {
+  const tray = (n: number): TrayState => {
+    let state: TrayState = { ...emptyTray(), sessionId: 'session-1' };
+    for (let i = 0; i < n; i++) state = scanCode(state, { value: `code-${i}`, symbology: 'ean-13' }, 1000 + i).state;
+    return state;
+  };
+
+  it('forgets the lines the server has in full and the session, and keeps what it never received', () => {
+    // Three codes scanned, two sent, the third still waiting in its batch.
+    let state = markBatchSent(planBatches(tray(2), keys()), 'key-1');
+    state = planBatches(scanCode(state, { value: 'code-2', symbology: 'ean-13' }, 2000).state, keys());
+
+    const next = closeSession(state);
+
+    expect(next.sessionId).toBeNull();
+    expect(next.lines.map((l) => [l.code, l.copies, l.sentCopies])).toEqual([['code-2', 1, 0]]);
+    expect(next.outbox).toEqual(state.outbox); // the waiting batch keeps its key and goes to the next session
+  });
+
+  it('keeps only the extra copy of a line whose first copy was sent', () => {
+    let state = markBatchSent(planBatches(tray(1), keys()), 'key-1');
+    state = planBatches(addCopy(state, 'code-0'), keys());
+
+    const next = closeSession(state);
+
+    expect(next.lines.map((l) => [l.code, l.copies, l.sentCopies])).toEqual([['code-0', 1, 0]]);
+    expect(next.outbox.flatMap((b) => b.entries)).toEqual([{ value: 'code-0', symbology: 'ean-13', copies: 1 }]);
+  });
+
+  it('leaves an empty tray when everything was sent', () => {
+    const state = markBatchSent(planBatches(tray(2), keys()), 'key-1');
+    expect(closeSession(state)).toEqual(emptyTray());
   });
 });

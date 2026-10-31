@@ -38,11 +38,17 @@ export function useAutoSnap({
   onSnap,
   config = DEFAULT_AUTO_SNAP_CONFIG,
   tuning = {},
+  active = true,
 }: {
   source: ScannerSource;
   onSnap: (event: SnapEvent) => void;
   config?: AutoSnapConfig;
   tuning?: AutoSnapTuning;
+  /**
+   * False while the scanner's screen is not the one being looked at (another tab, or the app in the background): the camera
+   * is off then, so nothing is listened to, no look is taken and no picture is. It starts again when this turns true.
+   */
+  active?: boolean;
 }) {
   const { flashMs = 1000, hintCheckMs = 500, resize } = tuning;
   const [flash, setFlash] = useState(false);
@@ -55,9 +61,9 @@ export function useAutoSnap({
   const lastUsefulAt = useRef(0);
   const capturing = useRef(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const live = useRef({ onSnap, config, resize });
+  const live = useRef({ onSnap, config, resize, active });
   useEffect(() => {
-    live.current = { onSnap, config, resize };
+    live.current = { onSnap, config, resize, active };
   });
 
   const useful = useCallback(() => {
@@ -67,7 +73,7 @@ export function useAutoSnap({
 
   const snap = useCallback(
     (trigger: SnapTrigger) => {
-      if (capturing.current) return;
+      if (capturing.current || !live.current.active) return;
       capturing.current = true;
       // What the framing says this shot is, from the latest signals (an auto snap is a fired gate by definition).
       const frame = latest.current;
@@ -108,6 +114,7 @@ export function useAutoSnap({
   );
 
   useEffect(() => {
+    if (!active) return;
     const offCodes = source.start((codes) => {
       if (codes.length === 0) return;
       lastBarcodeAt.current = Date.now();
@@ -134,21 +141,23 @@ export function useAutoSnap({
       offCodes();
       offSignals();
     };
-  }, [source, snap, useful]);
+  }, [source, snap, useful, active]);
 
   // "Nothing useful" for a while: show the hint chip.
   useEffect(() => {
+    if (!active) return;
     lastUsefulAt.current = Date.now();
     const timer = setInterval(() => {
       if (Date.now() - lastUsefulAt.current >= live.current.config.hintAfterMs) setHint(true);
     }, hintCheckMs);
     return () => clearInterval(timer);
-  }, [hintCheckMs]);
+  }, [hintCheckMs, active]);
 
   useEffect(() => () => clearTimeout(flashTimer.current), []);
 
   /** The big button: a picture now, whatever the machine thinks. */
   const takePicture = useCallback(() => {
+    if (!live.current.active) return;
     machine.current = machineShutter(machine.current, latest.current, Date.now());
     snap('shutter');
   }, [snap]);

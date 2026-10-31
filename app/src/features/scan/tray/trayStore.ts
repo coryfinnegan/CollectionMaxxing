@@ -3,6 +3,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import {
   addCopy,
+  closeSession,
   DEFAULT_COOLDOWN_MS,
   emptyTray,
   markBatchSent,
@@ -45,6 +46,8 @@ export type TrayStore = TrayState & {
   plusOne(code: string): void;
   remove(code: string): void;
   clear(): void;
+  /** The session was committed: forgets what the server has in full and the session, keeps what is still waiting to be sent. */
+  closeSession(): void;
   /** Used by `flushTray`. */
   setSessionId(id: string | null): void;
   plan(): void;
@@ -101,6 +104,7 @@ export function createTrayStore({ storage, storageKey = STORAGE_KEY, now = Date.
       plusOne: (code) => update(addCopy(snapshot(), code)),
       remove: (code) => update(removeLine(snapshot(), code)),
       clear: () => update(emptyTray()),
+      closeSession: () => update(closeSession(snapshot())),
       setSessionId: (id) => update({ ...snapshot(), sessionId: id }),
       plan: () => update(planBatches(snapshot(), newKey)),
       confirm: (key) => update(markBatchSent(snapshot(), key)),
