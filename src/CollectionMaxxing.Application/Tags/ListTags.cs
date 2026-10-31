@@ -3,7 +3,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Tags;
 
-/// <summary>Use case: list every tag in a library, sorted by name. The name column is citext, so the sort ignores case.</summary>
+/// <summary>
+/// Use case: list every tag in a library, sorted by name. The name column is citext, so the sort ignores case. A tag's item count is
+/// the items it is on that are not in the trash, the same items the stats and the item list show.
+/// </summary>
 public static class ListTags
 {
     public sealed record Query(Guid LibraryId);
@@ -20,7 +23,8 @@ public static class ListTags
                 .Select(t => new TagDto(
                     t.Id,
                     t.Name,
-                    db.ItemTags.Count(it => it.LibraryId == t.LibraryId && it.TagId == t.Id)))
+                    db.ItemTags.Count(it => it.LibraryId == t.LibraryId && it.TagId == t.Id
+                        && db.Items.Any(i => i.LibraryId == it.LibraryId && i.Id == it.ItemId && i.DeletedAt == null))))
                 .ToListAsync(cancellationToken);
 
             return new Page<TagDto>(items);

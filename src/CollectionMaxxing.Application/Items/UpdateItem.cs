@@ -31,6 +31,14 @@ public static class UpdateItem
             var patch = command.Patch;
             var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
 
+            var badText = TextRules.Check(patch.Notes.Value, "notes")
+                ?? TextRules.Check(patch.CustomTitle.Value, "customTitle")
+                ?? TextRules.Check(patch.LentTo.Value, "lentTo");
+            if (badText is not null)
+            {
+                return badText;
+            }
+
             if (patch.Notes.IsSet && patch.Notes.Value is { Length: > Item.MaxNotesLength })
             {
                 return ItemErrors.Invalid("item.notes_too_long", $"Notes can be at most {Item.MaxNotesLength} characters.", "notes");
@@ -63,6 +71,8 @@ public static class UpdateItem
             }
 
             var status = patch.Status ?? item.Status;
+            var lentTo = item.LentTo;
+            var lentOn = item.LentOn;
             if (patch.LentTo.IsSet && !string.IsNullOrWhiteSpace(patch.LentTo.Value))
             {
                 // Lending something sets it to Lent, unless it is already gone.
@@ -76,23 +86,37 @@ public static class UpdateItem
                     status = ItemStatus.Lent;
                 }
 
-                item.LentOn = patch.LentOn.IsSet ? patch.LentOn.Value : item.LentOn ?? today;
-                item.LentTo = patch.LentTo.Value!.Trim();
+                lentOn = patch.LentOn.IsSet ? patch.LentOn.Value : lentOn ?? today;
+                lentTo = patch.LentTo.Value!.Trim();
             }
             else
             {
                 if (patch.LentTo.IsSet)
                 {
-                    item.LentTo = null;
+                    lentTo = null;
                 }
 
                 if (patch.LentOn.IsSet)
                 {
-                    item.LentOn = patch.LentOn.Value;
+                    lentOn = patch.LentOn.Value;
                 }
             }
 
+            if (status != ItemStatus.Lent)
+            {
+                // Only a lent item has a borrower, so one that isn't lent out never keeps the name or the date.
+                lentTo = null;
+                lentOn = null;
+            }
+            else if (lentTo is null && (patch.Status is not null || patch.LentTo.IsSet || patch.LentOn.IsSet))
+            {
+                // Only an edit of the lend itself is held to this: an old lent item with no name can still have its notes changed.
+                return ItemErrors.LentToRequired("lentTo");
+            }
+
             item.Status = status;
+            item.LentTo = lentTo;
+            item.LentOn = lentOn;
             if (patch.Condition.IsSet)
             {
                 item.Condition = patch.Condition.Value;

@@ -9,6 +9,7 @@ using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Libraries.Members;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Items;
@@ -448,7 +449,8 @@ public static class BuildExport
                             .Select(t => new { t.ItemId, t.TagId }).ToListAsync(cancellationToken))
                         .ToLookup(t => t.ItemId, t => t.TagId);
                     var releaseIds = rows.Select(r => r.ReleaseId).Distinct().ToList();
-                    var identifiers = (await db.ReleaseIdentifiers.AsNoTracking().Where(i => releaseIds.Contains(i.ReleaseId))
+                    // The shared barcodes and the ones this library taught, not a barcode only another library taught.
+                    var identifiers = (await db.ReleaseIdentifiers.AsNoTracking().UsableBy(library.Id).Where(i => releaseIds.Contains(i.ReleaseId))
                             .OrderBy(i => i.Type).ThenBy(i => i.Value)
                             .Select(i => new { i.ReleaseId, i.Type, i.Value }).ToListAsync(cancellationToken))
                         .ToLookup(i => i.ReleaseId, i => new ExportIdentifier(EnumText(i.Type), i.Value));

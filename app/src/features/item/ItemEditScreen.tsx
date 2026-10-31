@@ -25,7 +25,7 @@ import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
 import { Button, Card, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Text, TextField } from '@/ui';
 import { breadcrumb } from './breadcrumb';
-import { buildPatch, formFromItem, isEmptyPatch, isValidDate, type ItemForm } from './etag';
+import { buildPatch, formFromItem, isEmptyPatch, isValidDate, lentToMissing, type ItemForm } from './etag';
 import { useItemDetail, useItemMutations } from './useItem';
 
 export function ItemEditScreen({ id }: { id: string }) {
@@ -88,6 +88,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
+  const [lentToError, setLentToError] = useState<string | null>(null);
   const set = <K extends keyof ItemForm>(key: K, value: ItemForm[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   const save = () => {
@@ -99,6 +100,11 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
       return;
     }
     setDateError(null);
+    if (lentToMissing(form, snapshot.item)) {
+      setLentToError('Say who has it.');
+      return;
+    }
+    setLentToError(null);
     const patch = buildPatch({ ...form, acquiredOn: form.acquiredOn.trim() }, snapshot.item, localDateString());
     // Nothing changed, so there is nothing that could write over anyone else's version.
     if (isEmptyPatch(patch)) {
@@ -151,7 +157,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
       </Group>
 
       {form.status === 'lent' ? (
-        <TextField label="Lent to" value={form.lentTo} onChangeText={(v) => set('lentTo', v)} placeholder="Sam" />
+        <TextField label="Lent to" value={form.lentTo} onChangeText={(v) => set('lentTo', v)} placeholder="Sam" error={lentToError} />
       ) : null}
 
       <Group label="Condition">

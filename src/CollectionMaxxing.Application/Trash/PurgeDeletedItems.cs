@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Audit;
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Jobs;
@@ -10,7 +11,8 @@ public sealed class PurgeDeletedItemsPayload;
 
 /// <summary>
 /// Recurring job: items deleted more than 30 days ago are removed for good, with their dependent rows (tags and feature prints
-/// cascade in the database; a scan candidate that created the item just forgets it). Nothing newer is touched.
+/// cascade in the database; a scan candidate that created the item just forgets it), and with the last item of a hand-typed release
+/// that release and its work too. Nothing newer is touched.
 /// Safe to run twice: a second run finds nothing.
 /// </summary>
 public static class PurgeDeletedItems
@@ -52,6 +54,9 @@ public static class PurgeDeletedItems
                 }
 
                 await db.SaveChangesAsync(cancellationToken);
+
+                // A hand-typed item made its own release and work; with its last item gone, nothing else uses them.
+                await PrivateReleases.RemoveUnusedAsync(db, batch.Select(i => i.ReleaseId).Distinct().ToList(), cancellationToken);
             }
         }
     }

@@ -92,11 +92,10 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
 
         var key = CallerKey(context);
         // The specific group first, so a refused call does not also use up the caller's general allowance.
-        var (group, permits) = await SpecificAsync(context.Request, path);
-        if (group is not null)
+        if (context.GetEndpoint()?.Metadata.GetMetadata<RateLimitGroup>() is { } group)
         {
-            var wait = limiter.TryTake(group, key, permits == 0 ? await CountItemsAsync(context.Request) : permits);
-            if (wait is { } refused)
+            var permits = group.CostPerItem ? await CountItemsAsync(context.Request) : 1;
+            if (limiter.TryTake(group.Name, key, permits) is { } refused)
             {
                 await Refuse(context, refused);
                 return;
@@ -110,48 +109,6 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
         }
 
         await next(context);
-    }
-
-    /// <summary>The group a request counts against besides "everything else", and the permits it costs (0: one per item in the body).</summary>
-    private static async Task<(string? Group, int Permits)> SpecificAsync(HttpRequest request, PathString path)
-    {
-        var method = request.Method;
-        var value = path.Value ?? string.Empty;
-        if (HttpMethods.IsGet(method) && value.TrimEnd('/') == "/api/v1/me/export")
-        {
-            return (nameof(SecurityOptions.LimitOptions.Export), 1);
-        }
-
-        if (HttpMethods.IsGet(method) && (value.TrimEnd('/') == "/api/v1/catalog/search" || value.TrimEnd('/') == "/api/v1/catalog/lookup"))
-        {
-            return (nameof(SecurityOptions.LimitOptions.Search), 1);
-        }
-
-        if (HttpMethods.IsPost(method) && value.StartsWith("/api/v1/scan-sessions/", StringComparison.Ordinal))
-        {
-            if (value.EndsWith("/barcodes", StringComparison.Ordinal))
-            {
-                return (nameof(SecurityOptions.LimitOptions.Barcodes), 1);
-            }
-
-            if (value.EndsWith("/identify", StringComparison.Ordinal))
-            {
-                return (nameof(SecurityOptions.LimitOptions.Identify), 0);
-            }
-        }
-
-        // Signing out must always work, whoever has been busy from the same address.
-        if (HttpMethods.IsPost(method) && path.StartsWithSegments("/account/logout"))
-        {
-            return (null, 0);
-        }
-
-        if (HttpMethods.IsPost(method) && path.StartsWithSegments("/account"))
-        {
-            return (nameof(SecurityOptions.LimitOptions.AuthHourly), 1);
-        }
-
-        return (null, 0);
     }
 
     /// <summary>A signed-in caller is their user id; anyone else is the address they came from.</summary>

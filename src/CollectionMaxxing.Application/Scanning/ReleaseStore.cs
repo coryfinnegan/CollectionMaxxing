@@ -3,6 +3,7 @@ using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using Microsoft.EntityFrameworkCore;
@@ -24,12 +25,18 @@ public sealed class ReleaseStore(IAppDbContext db, IIdGenerator ids, TimeProvide
     private readonly Dictionary<string, EnsuredRelease> _added = new(StringComparer.Ordinal);
     private List<Platform>? _platforms;
 
-    public async Task<EnsuredRelease> EnsureAsync(ProviderRelease provider, CancellationToken cancellationToken)
+    /// <param name="provider">What a provider said.</param>
+    /// <param name="libraryId">
+    /// The library the answer is for. The same barcode is the same product only by a link that library may use: a shared one,
+    /// or one it taught itself. A link another library taught by hand never reuses a release here.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the lookups.</param>
+    public async Task<EnsuredRelease> EnsureAsync(ProviderRelease provider, Guid libraryId, CancellationToken cancellationToken)
     {
         // The same barcode is the same product.
         foreach (var identifier in provider.Identifiers)
         {
-            var existing = await (from i in db.ReleaseIdentifiers.AsNoTracking()
+            var existing = await (from i in db.ReleaseIdentifiers.AsNoTracking().UsableBy(libraryId)
                                   join r in db.Releases.AsNoTracking() on i.ReleaseId equals r.Id
                                   where i.Value == identifier.Value
                                   orderby r.CreatedAt, r.Id

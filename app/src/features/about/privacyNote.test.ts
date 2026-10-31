@@ -29,9 +29,40 @@ describe('privacy note', () => {
     expect(text).toMatch(/never kept/i);
   });
 
-  it('says a cover photo is kept only if you choose Use my photo, with its hidden details removed', () => {
-    expect(text).toMatch(/kept only if you choose Use my photo/);
-    expect(text).toMatch(/hidden photo details are removed/i);
+  it('counts three cases a photo goes to the PC: a close call, Use my photo, and a row kept as unverified', () => {
+    expect(text).toMatch(/in three cases/i);
+    expect(text).not.toMatch(/two cases/i);
+  });
+
+  it('says a cover photo is kept if you choose Use my photo, and no longer says that is the only way', () => {
+    expect(text).toMatch(/Use my photo/);
+    expect(text).not.toMatch(/only if you choose Use my photo/i);
+    expect(text).not.toMatch(/kept only/i);
+  });
+
+  it('says a row you keep as unverified keeps the photo of that one cover on the PC until you delete the row or link it to an item', () => {
+    expect(text).toMatch(/a row you keep as unverified/i);
+    expect(text).toMatch(/photo of one cover/i);
+    expect(text).toMatch(/which your PC keeps/i);
+    expect(text).toMatch(/stays until you delete the row or link it to an item/i);
+  });
+
+  it('says adding a kept row to the library makes its photo the cover', () => {
+    expect(text).toMatch(/adding the row makes it the cover/i);
+  });
+
+  it('says every kept photo is private to the library and has its hidden details removed', () => {
+    expect(text).toMatch(/private to your library/i);
+    expect(text).toMatch(/hidden photo details removed/i);
+  });
+
+  it('keeps the close-call photo apart from the kept ones: the scan photo is never kept, the other two are', () => {
+    const closeCall = PRIVACY_NOTE.find((p) => /close call/i.test(p))!;
+    expect(closeCall).toMatch(/never kept/i);
+    expect(closeCall).not.toMatch(/Use my photo|unverified/i);
+    const kept = PRIVACY_NOTE.find((p) => /unverified/i.test(p))!;
+    expect(kept).toMatch(/Use my photo/);
+    expect(kept).not.toMatch(/never kept/i);
   });
 
   it('says the PC keeps picture fingerprints, and that they are not the pictures', () => {
@@ -62,6 +93,6 @@ describe('privacy note', () => {
   });
 
   it('stays short', () => {
-    expect(text.split(/\s+/).length).toBeLessThanOrEqual(150);
+    expect(text.split(/\s+/).length).toBeLessThanOrEqual(175);
   });
 });

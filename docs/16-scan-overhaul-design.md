@@ -36,14 +36,14 @@ The current pipeline already matches the research direction in several places:
 
 Gaps the design must close (§2–§12 each name theirs): camera-first entry, session
 context UI, auto-add tiers, Move action, barcode entry in review, cover snap,
-segment counters/strip, provisionals, edition upgrade, barcode-primary games/movies
+segment counters, provisionals, edition upgrade, barcode-primary games/movies
 under quota, honest baseline + review-burden metric.
 
 ## 2. Component diagram
 
 ```text
 iPhone (Expo + VisionCamera v5, Apple-only, ADR-017)
-│ ScanTab→Camera  SessionSheet  SegmentStrip  ReceiptBar  Review  EvalsRunner
+│ ScanTab→Camera  SessionSheet  ReceiptBar  Review  EvalsRunner
 │ VisionCameraSource ─┬─ live barcodes (AVFoundation metadata)
 │                     └─ stills → ShotClassifier → AppleModelEngine ⇄ VisionPipelineEngine
 │ Stores (MMKV): tray / pipeline / snapStore(crops) / owned-index / fingerprints
@@ -125,7 +125,9 @@ local queue + last snapshot):
 - `toReview` — candidates in Ambiguous/NotFound/Error or unactioned provisionals
 - `owned` — exact-owned hits this session (informational; duplicates protection, not a failure)
 
-**Segment strip** (new horizontal strip in shoot order; each cell = snap thumbnail
+**Segment strip** (not in the app: it was built but never placed on a screen, and was
+removed as unused; the live counters above are what shipped. The design is kept for
+reference.) (new horizontal strip in shoot order; each cell = snap thumbnail
 from `snapStore` + state dot):
 
 ```text
