@@ -12,8 +12,8 @@ namespace CollectionMaxxing.Application.Evals;
 public sealed record ThresholdAttestation(string RunHash, string? BaselineHash, string? BaselineNote);
 
 /// <summary>
-/// The §16 thresholds as one fingerprint, hashed into every run's manifest. A threshold move without a same-PR baseline
-/// note and acceptance re-run shows up as a hash change, and the regression check calls it <c>incomplete</c>.
+/// The §16 thresholds as one fingerprint, hashed into every run's manifest. A threshold move without a baseline
+/// note and an acceptance re-run shows up as a hash change, and the regression check calls it <c>incomplete</c>.
 /// The phone-side knobs (barcode stability, auto-snap gate) are not in here: the server cannot audit them, so an app
 /// release carries them under a new <c>configVersion</c> instead.
 /// </summary>
@@ -29,7 +29,7 @@ public static class EvalThresholds
     public const string TierRulesVersion = "t1-v1";
 
     /// <summary>
-    /// The session default for <c>autoCommitTiers</c> (<c>ScanSessionUseCases</c>): none since #452, so the marker is
+    /// The session default for <c>autoCommitTiers</c> (<c>ScanSessionUseCases</c>): none, so the marker is
     /// empty. A default only the code knows is hashed as a marker, for the same reason as <see cref="TierRulesVersion"/>.
     /// </summary>
     public const string DefaultAutoCommitTiers = "";

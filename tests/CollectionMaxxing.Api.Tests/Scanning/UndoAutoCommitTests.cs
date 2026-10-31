@@ -221,6 +221,79 @@ public class UndoAutoCommitTests : ScanTest
     // ---- Not locked: flows around the precision core ----------------------------------------------------------
 
     [Fact]
+    public async Task Undo_leaves_a_tombstone_for_the_item_it_removed_so_a_synced_phone_is_told()
+    {
+        var (library, editor, sessionId, candidates, _) = await AutoAddedAsync(34150);
+        var removed = candidates[1].GetProperty("createdItemId").GetGuid();
+        var kept = candidates[0].GetProperty("createdItemId").GetGuid();
+
+        (await UndoAutoAsync(editor, sessionId)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var context = Db.CreateContext();
+        var tombstones = await context.ItemTombstones.IgnoreQueryFilters().AsNoTracking().Where(t => t.LibraryId == library.Id).ToListAsync();
+        tombstones.Select(t => t.ItemId).ShouldBe([removed]);
+        tombstones.ShouldNotContain(t => t.ItemId == kept);
+    }
+
+    [Fact]
+    public async Task Undo_takes_the_servers_own_decision_out_of_the_trace_so_it_is_not_taken_for_one_still_standing()
+    {
+        var (_, editor, sessionId, candidates, _) = await AutoAddedAsync(34152);
+        var undone = Id(candidates[1]);
+        (await AutoDecisionOfAsync(undone)).ShouldBeTrue("the auto-add recorded the server's decision in the trace");
+
+        (await UndoAutoAsync(editor, sessionId, undone)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        (await AutoDecisionOfAsync(undone)).ShouldBeFalse("the undone row no longer carries a decision the server made");
+        (await AutoDecisionOfAsync(Id(candidates[0]))).ShouldBeTrue("the other auto-add is untouched");
+    }
+
+    [Fact]
+    public async Task Undo_with_a_reused_key_for_another_candidate_is_refused_and_removes_nothing_more()
+    {
+        var (library, editor, sessionId, candidates, _) = await AutoAddedAsync(34154);
+        var key = Guid.NewGuid().ToString();
+
+        var first = await UndoAutoAsync(editor, sessionId, Id(candidates[0]), key);
+        first.StatusCode.ShouldBe(HttpStatusCode.OK, await first.Content.ReadAsStringAsync());
+        var again = await UndoAutoAsync(editor, sessionId, Id(candidates[0]), key);
+        again.StatusCode.ShouldBe(HttpStatusCode.OK, "the same request again gets its first answer back");
+        (await ReadJsonAsync(again)).GetProperty("candidate").GetProperty("id").GetGuid().ShouldBe(Id(candidates[0]));
+
+        var other = await UndoAutoAsync(editor, sessionId, Id(candidates[1]), key);
+
+        other.StatusCode.ShouldBe((HttpStatusCode)422); // the API answers a reused key with 422, like every other Idempotency-Key endpoint
+        (await CodeOfAsync(other)).ShouldBe("idempotency.key_reused");
+        var items = await ScanReaders.ItemsAsync(Db, library.Id);
+        items.Select(i => i.Id).ShouldBe([candidates[1].GetProperty("createdItemId").GetGuid()]);
+    }
+
+    [Fact]
+    public async Task Undo_is_written_to_the_audit_log_with_how_many_items_went()
+    {
+        var (library, editor, sessionId, _, _) = await AutoAddedAsync(34156);
+
+        (await UndoAutoAsync(editor, sessionId)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var context = Db.CreateContext();
+        var events = await context.AuditEvents.IgnoreQueryFilters().AsNoTracking()
+            .Where(e => e.Action == "scan.auto_commit_undone" && e.LibraryId == library.Id).ToListAsync();
+        var audited = events.ShouldHaveSingleItem();
+        audited.EntityId.ShouldBe(sessionId);
+        audited.EntityType.ShouldBe("scan_session");
+        JsonDocument.Parse(audited.DetailsJson.ShouldNotBeNull()).RootElement.GetProperty("items").GetInt32().ShouldBe(1);
+    }
+
+    /// <summary>True when the candidate's stored trace still holds a decision the server made by itself.</summary>
+    private async Task<bool> AutoDecisionOfAsync(Guid candidateId)
+    {
+        await using var context = Db.CreateContext();
+        var trace = await context.ScanCandidates.IgnoreQueryFilters().Where(c => c.Id == candidateId).Select(c => c.TraceJson).SingleAsync();
+        return JsonDocument.Parse(trace.ShouldNotBeNull()).RootElement.TryGetProperty("autoDecision", out var decision)
+            && decision.ValueKind != JsonValueKind.Null;
+    }
+
+    [Fact]
     public async Task Undo_after_commit_is_refused()
     {
         var (library, editor, sessionId, _, _) = await AutoAddedAsync(34142);

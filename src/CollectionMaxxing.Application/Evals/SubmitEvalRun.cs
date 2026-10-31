@@ -197,8 +197,8 @@ public static class SubmitEvalRun
         {
             var item = best.Items[0];
             var top = item.Best;
-            var format = Parse<ReleaseFormat>(top?.Format);
-            var completeness = Parse<ItemCompleteness>(item.ReadCompleteness);
+            var format = EnumText.ParseOrNull<ReleaseFormat>(top?.Format);
+            var completeness = EnumText.ParseOrNull<ItemCompleteness>(item.ReadCompleteness);
             return TruthFiles.WriteSingleDraft(new SingleTruth(
                 top?.Title ?? item.ReadTitle ?? string.Empty,
                 top?.Platform,
@@ -206,20 +206,6 @@ public static class SubmitEvalRun
                 item.ReadCompleteness ?? "n_a",
                 null,
                 EvalKinds.Guess(format, completeness)));
-        }
-
-        private static T? Parse<T>(string? text)
-            where T : struct, Enum
-        {
-            foreach (var value in Enum.GetValues<T>())
-            {
-                if (EnumText.ToText(value) == text)
-                {
-                    return value;
-                }
-            }
-
-            return null;
         }
 
         private static DomainError? Validate(EvalRunInput input)
