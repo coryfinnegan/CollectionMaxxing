@@ -42,11 +42,11 @@ public static class PruneJobs
             var failedBefore = now - FailedRetention;
 
             // The newest row of each recurring job, which the scheduler may still need. At most one per recurring job type.
-            var keep = (await db.Database.SqlQuery<Guid>($"""
+            var keep = await db.Database.SqlQuery<Guid>($"""
                 SELECT DISTINCT ON (type) id AS "Value" FROM jobs
                 WHERE (payload ->> 'key') LIKE 'recurring:%'
                 ORDER BY type, created_at DESC, id DESC
-                """).ToListAsync(cancellationToken)).ToArray();
+                """).ToArrayAsync(cancellationToken);
 
             var total = 0;
             for (var batch = 0; batch < MaxBatchesPerRun; batch++)

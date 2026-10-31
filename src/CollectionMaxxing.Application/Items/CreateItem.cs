@@ -115,7 +115,7 @@ public static class CreateItem
             }
             else if (command.ProviderRef is { } hit)
             {
-                var saved = await SaveProviderHitAsync(hit, cancellationToken);
+                var saved = await SaveProviderHitAsync(hit, libraryId, cancellationToken);
                 if (saved is not { } savedRelease)
                 {
                     return ItemErrors.ProviderHitNotFound;
@@ -211,9 +211,9 @@ public static class CreateItem
         /// <summary>
         /// Saves the provider hit the search showed as catalogue rows, the way a scan does (<see cref="ReleaseStore"/> reuses what
         /// is there, so the same hit twice is one release), and returns the release's id. Nothing is saved until the item is.
-        /// Null when the hit is no longer kept.
+        /// Null when the hit is no longer kept. A barcode link another library taught by hand never reuses a release for this one.
         /// </summary>
-        private async Task<Guid?> SaveProviderHitAsync(ProviderRefDto hit, CancellationToken cancellationToken)
+        private async Task<Guid?> SaveProviderHitAsync(ProviderRefDto hit, Guid libraryId, CancellationToken cancellationToken)
         {
             if (hits is null || releases is null)
             {
@@ -221,7 +221,7 @@ public static class CreateItem
             }
 
             var found = await hits.FindAsync(hit.Provider, hit.ExternalId, cancellationToken);
-            return found is null ? null : (await releases.EnsureAsync(found, cancellationToken)).Id;
+            return found is null ? null : (await releases.EnsureAsync(found, libraryId, cancellationToken)).Id;
         }
 
         private static DomainError? Validate(Command command)
