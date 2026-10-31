@@ -8,6 +8,8 @@ import { candidate } from './testData';
 import {
   createProvisionalOutbox,
   findDroppedSegments,
+  flushProvisionalOutbox,
+  getProvisionalOutbox,
   keepAsUnverified,
   MAX_CROP_BYTES,
   setProvisionalCropReader,
@@ -144,6 +146,16 @@ describe('keepAsUnverified', () => {
     expect(useCardsStore.getState().byId[row.id]).toBeUndefined(); // the row stays a visible T2 row until the keep lands
   });
 
+  it('queues the keep when the server says to try again later (429), instead of failing the row', async () => {
+    setProvisionalTransport(recording({ keeps: new ApiError(429, {}) }).transport);
+    const row = candidate({ resolution: 'not_found' });
+
+    const result = await keepAsUnverified({ libraryId: 'lib', canEdit: true, sessionId: 'session', candidate: row, cropUri: undefined });
+
+    expect(result).toEqual({ ok: true, queued: true });
+    expect(getProvisionalOutbox().list('lib').map((e) => e.candidateId)).toEqual([row.id]);
+  });
+
   it('treats an already-kept conflict as stale, so the row reloads instead of duplicating', async () => {
     const proxy = recording({ keeps: new ApiError(409, {}) });
     setProvisionalTransport(proxy.transport);
@@ -151,6 +163,60 @@ describe('keepAsUnverified', () => {
     const result = await keepAsUnverified({ libraryId: 'lib', canEdit: true, sessionId: 'session', candidate: candidate({ resolution: 'not_found' }), cropUri: undefined });
 
     expect(result).toEqual({ ok: false, reason: 'stale' });
+  });
+});
+
+describe('flushProvisionalOutbox', () => {
+  const queue = (candidateId: string, cropUri?: string) =>
+    getProvisionalOutbox().enqueue({ libraryId: 'lib', sessionId: 'session', candidateId, ...(cropUri ? { cropUri } : {}) });
+
+  it.each([401, 408, 429])('keeps a queued keep the server answers with %i (try again later) and stops', async (status) => {
+    const proxy = recording({ keeps: new ApiError(status, {}) });
+    setProvisionalTransport(proxy.transport);
+    queue('row-1');
+    queue('row-2');
+
+    await expect(flushProvisionalOutbox({ libraryId: 'lib' })).resolves.toBe(2);
+
+    expect(proxy.calls.keeps).toHaveLength(1); // it stopped at the first
+    expect(getProvisionalOutbox().list('lib')).toHaveLength(2);
+  });
+
+  it('keeps a queued keep whose crop upload is told to slow down (429), instead of losing the row', async () => {
+    const proxy = recording({ uploads: new ApiError(429, {}) });
+    setProvisionalTransport(proxy.transport);
+    queue('row-1', 'file:///crop.jpg');
+
+    await expect(flushProvisionalOutbox({ libraryId: 'lib' })).resolves.toBe(1);
+
+    expect(proxy.calls.keeps).toHaveLength(0);
+  });
+
+  it.each([403, 404])('drops a queued keep the server refuses for good (%i) and still sends the rest', async (status) => {
+    const proxy = recording({ keeps: new ApiError(status, {}) });
+    const first = proxy.transport.keep;
+    let calls = 0;
+    setProvisionalTransport({
+      ...proxy.transport,
+      keep: (sessionId, candidateId, cropAssetId) => (++calls === 1 ? first(sessionId, candidateId, cropAssetId) : Promise.resolve(kept(candidate({ id: candidateId })))),
+    });
+    queue('row-1');
+    queue('row-2');
+
+    await expect(flushProvisionalOutbox({ libraryId: 'lib' })).resolves.toBe(0);
+
+    expect(getProvisionalOutbox().list('lib')).toHaveLength(0);
+  });
+
+  it('drops a keep that landed before (409) and tells the caller to reload', async () => {
+    setProvisionalTransport(recording({ keeps: new ApiError(409, {}) }).transport);
+    queue('row-1');
+    const onStale = jest.fn();
+
+    await expect(flushProvisionalOutbox({ libraryId: 'lib', onStale })).resolves.toBe(0);
+
+    expect(onStale).toHaveBeenCalledTimes(1);
+    expect(getProvisionalOutbox().list('lib')).toHaveLength(0);
   });
 });
 

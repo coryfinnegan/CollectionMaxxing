@@ -65,6 +65,12 @@ type Props = {
   photoImport?: { picker?: PhotoPicker; vision?: () => BarcodeDetector | Promise<BarcodeDetector>; resize?: Resizer };
   /** Review's "Scan barcode": the camera reads for this row, and leaves once the read is sent. */
   boundScan?: BoundScan & { onDone(): void; onCancel(): void };
+  /**
+   * Whether this screen is the one being looked at (its tab is selected, nothing is on top of it, the app is in front). The tab bar
+   * keeps the Scan tab mounted, so when this is false the scanner reads no barcodes and takes no pictures. Sending what was already
+   * taken goes on: Review is pushed on top of the scanner and the person waits there for the answers. Defaults to true.
+   */
+  active?: boolean;
 };
 
 export function ScannerScreen({
@@ -82,6 +88,7 @@ export function ScannerScreen({
   outcomeRef,
   photoImport,
   boundScan,
+  active = true,
 }: Props) {
   const router = useRouter();
   const colors = useColors();
@@ -128,7 +135,7 @@ export function ScannerScreen({
     () => (boundScan?.kind === 'cover' ? { candidateId: boundScan.candidateId, onDone: boundScan.onDone } : undefined),
     [boundScan],
   );
-  const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture });
+  const session = useScanSession({ libraryId, sources, tuning, sessionBody: body, boundCapture, active });
   const { counters } = useSessionCounters(libraryId, session.sessionId);
   const [flash, setFlash] = useState(false);
   const reduceMotion = useReduceMotion();
@@ -140,6 +147,9 @@ export function ScannerScreen({
     resendMs: tuning?.resendMs,
     onOutcome: (found) => reportOutcome.current(found),
     boundCover,
+    active,
+    sessionBody: body,
+    noticeMs: tuning?.noticeMs,
   });
   // Scans waiting on this phone for a connection, for the bar's Queued announcement.
   const queued = session.online
@@ -170,6 +180,7 @@ export function ScannerScreen({
       : (onSnap ?? (pictures.enabled ? pictures.onSnap : counter)),
     config: autoSnapConfig,
     tuning: { flashMs: tuning?.flashMs, ...autoSnapTuning },
+    active,
   });
   useEffect(() => {
     reportOutcome.current = autoSnap.reportOutcome;
@@ -295,7 +306,7 @@ export function ScannerScreen({
             items={session.items + pictures.items}
             processing={session.processing + pictures.processing}
             problem={session.problem}
-            notice={session.notice}
+            notice={session.notice ?? pictures.notice}
             counters={counters}
             queued={queued}
             onReview={() => router.push('/review')}
