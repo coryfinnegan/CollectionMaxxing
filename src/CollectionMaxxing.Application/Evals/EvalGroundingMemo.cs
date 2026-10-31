@@ -5,8 +5,8 @@ using CollectionMaxxing.Domain.Catalog.Matching;
 namespace CollectionMaxxing.Application.Evals;
 
 /// <summary>
-/// What grounding answered for each distinct read in one eval run. The same title is usually read by all three engines and by
-/// several photos, and every lookup costs catalogue and provider calls (a 19-photo run made 636 of them), so a read that
+/// What grounding answered for each distinct read in one run of the evals. The same title is usually read by all three engines and by
+/// several photos, and every lookup costs catalogue and provider calls, so a read that
 /// repeats is answered from here. A read is "the same" when its cleaned <see cref="ReadFacts"/> (a record of plain fields, so it
 /// compares by value) and its <see cref="ScoringProfileKind"/> are equal: the profile follows from the photo too, not only the read.
 /// </summary>

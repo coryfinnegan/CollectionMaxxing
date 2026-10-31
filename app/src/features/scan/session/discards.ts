@@ -5,7 +5,7 @@ import { decideCandidate } from '@/api/generated/scanning/scanning';
 import type { CandidateDto } from '@/api/generated/models';
 import { ApiError } from '@/lib/http';
 import { useCardsStore } from '../cards/cardsStore';
-import { getPipelineStore } from '../pipeline/pipelineStore';
+import { getPipelineStore, type PicSnap } from '../pipeline/pipelineStore';
 import { MemoryKeyValueStore, type KeyValueStore, type TrayStore } from '../tray/trayStore';
 
 /** One reject the server has not confirmed yet. The id is the candidate: discarding twice queues once. */
@@ -94,8 +94,17 @@ const defaultReject = async (sessionId: string, candidateId: string): Promise<vo
 };
 
 /**
- * Sends one library's queued discards, oldest first. A 4xx drops the entry (retrying a refused request never
- * helps: the session is gone, or the candidate with it); offline or a 5xx stops the flush. Returns what is queued still.
+ * Whether a failed request is worth sending again later, as is: no connection, a 5xx, or a refusal that may pass by itself —
+ * not signed in right now (401), a timeout (408), too many requests (429). Any other 4xx is a real "no" (403 not allowed,
+ * 404 the session or candidate is gone, 409 it changed or was done already), and sending it again never helps.
+ */
+export const isTryAgainLater = (error: unknown): boolean =>
+  !(error instanceof ApiError) || error.status >= 500 || error.status === 401 || error.status === 408 || error.status === 429;
+
+/**
+ * Sends one library's queued discards, oldest first. A refusal that is final (403, 404, 409 and the like: the session is
+ * gone, or the candidate with it) drops the entry; anything that may pass (offline, a 5xx, 401, 408, 429) stops the flush
+ * and keeps the entry. Returns what is queued still.
  */
 export async function flushDiscardOutbox({
   libraryId,
@@ -111,11 +120,8 @@ export async function flushDiscardOutbox({
       await reject(entry.sessionId, entry.candidateId);
       queue.remove(entry.candidateId);
     } catch (error) {
-      if (error instanceof ApiError && error.status < 500) {
-        queue.remove(entry.candidateId);
-        continue;
-      }
-      return queue.list(libraryId).length;
+      if (isTryAgainLater(error)) return queue.list(libraryId).length;
+      queue.remove(entry.candidateId);
     }
   }
   return 0;
@@ -137,9 +143,21 @@ export function dropCandidateLocally({
 }): void {
   useCardsStore.getState().remove(candidate.id);
   if (candidate.rawCode) tray.getState().remove(candidate.rawCode);
+  dropPictureItem((snap) => snap.libraryId === libraryId, candidate);
+}
+
+/**
+ * Takes a candidate's picture item (and the phone's own card for it) off the snaps sent to this session. A row that leaves
+ * Review without being discarded, such as a skip, would otherwise leave its item counting as "processing" for ever.
+ */
+export function dropPictureItemLocally(sessionId: string, candidate: Pick<CandidateDto, 'id' | 'localId'>): void {
+  dropPictureItem((snap) => snap.sessionId === sessionId, candidate);
+}
+
+function dropPictureItem(inSnap: (snap: PicSnap) => boolean, candidate: Pick<CandidateDto, 'id' | 'localId'>): void {
   const pipeline = getPipelineStore();
   for (const snap of pipeline.getState().snaps) {
-    if (snap.libraryId !== libraryId) continue;
+    if (!inSnap(snap)) continue;
     const item = snap.items.find((i) => i.candidateId === candidate.id || (candidate.localId != null && i.localId === candidate.localId));
     if (!item) continue;
     pipeline.getState().removeItem(snap.snapId, item.localId);

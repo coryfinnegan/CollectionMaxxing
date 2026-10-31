@@ -17,7 +17,7 @@ import { CommitCelebration } from './CommitCelebration';
 import { alternativesOf, isAggregated, preselectedOf, UNKNOWN_ITEM, unresolvedTitleOf, type ReviewGroup } from './grouping';
 import { guidanceOf } from './guidance';
 import { PickOptions, PickOverflow } from './PickRows';
-import { addLabel, effective, type ReviewStatus } from './plan';
+import { addLabel, effective, leftOutLine, type ReviewStatus } from './plan';
 import { keepable, pairCropUri, thumbForLocalId } from './provisionals';
 import { quotaPausedLine, quotaPending } from './quotaLine';
 import { useReview } from './useReview';
@@ -171,6 +171,7 @@ export function ReviewScreen({
           {review.commitError}
         </Text>
       ) : null}
+      {review.canAdd && review.count > 0 && review.groups.pending.length > 0 ? <Text tone="muted">{leftOutLine(review.groups.pending.length)}</Text> : null}
       {review.canAdd && total > 0 ? (
         <Button label={addLabel(review.count)} haptic="commit" busy={review.committing} disabled={review.count === 0} onPress={() => void review.commit()} />
       ) : null}

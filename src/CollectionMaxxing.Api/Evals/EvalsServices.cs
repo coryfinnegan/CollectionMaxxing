@@ -4,7 +4,7 @@ using CollectionMaxxing.Infrastructure.GameSerials;
 
 namespace CollectionMaxxing.Api.Evals;
 
-/// <summary>Registers the eval server (EVAL-1a). Kept apart from the endpoints class, which may not know Infrastructure.</summary>
+/// <summary>Registers the eval server. Kept apart from the endpoints class, which may not know Infrastructure.</summary>
 public static class EvalsServices
 {
     /// <summary>

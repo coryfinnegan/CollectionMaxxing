@@ -119,6 +119,33 @@ describe('a snap leaves no picture file behind once it is stored', () => {
   });
 });
 
+describe('a snap that is not used leaves no picture file behind', () => {
+  it('deletes the scaled snap when a barcode is in view and the picture is not used', async () => {
+    const kit = makeKit();
+    const pipeline = new SnapPipeline(kit.deps);
+    pipeline.setBarcodeProbe(() => true);
+
+    await pipeline.onSnap(await kit.snapEvent('auto'));
+
+    expect(kit.fs.strays()).toEqual([]);
+    expect(kit.store.getState().snaps).toEqual([]);
+  });
+
+  it('deletes the scaled snap that stayed for the receipt when its last item is removed', async () => {
+    const kit = makeKit();
+    jest.spyOn(kit.files, 'put').mockRejectedValue(new Error('disk full'));
+    kit.reader.script(readingOf([dune]));
+    const pipeline = new SnapPipeline(kit.deps);
+    await pipeline.onSnap(await kit.snapEvent());
+    const [snap] = kit.store.getState().snaps;
+    expect(kit.fs.strays().length).toBeGreaterThan(0); // read from the scaled snap itself, so it stays while the line is on the receipt
+
+    pipeline.removeItem(snap!.snapId, snap!.items[0]!.localId);
+
+    await waitFor(() => expect(kit.fs.strays()).toEqual([]));
+  });
+});
+
 describe('Discard, sign-out and unpair leave no picture file anywhere', () => {
   it('on Discard, after a snap with halves', async () => {
     const kit = makeKit();

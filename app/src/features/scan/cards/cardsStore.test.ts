@@ -32,3 +32,15 @@ describe('merging cards by change order', () => {
     expect(useCardsStore.getState().byId.c1!.resolution).toBe('matched');
   });
 });
+
+describe('ending a committed session', () => {
+  it('drops the session’s candidates and keeps the phone’s own cards for pictures not sent yet', () => {
+    useCardsStore.getState().merge([card({ id: 'c1' }), card({ id: 'c2' })]);
+    useCardsStore.getState().showLocal(card({ id: 'local:snap-1:item-1', localId: 'item-1' }) as CandidateDto);
+
+    useCardsStore.getState().endSession();
+
+    expect(Object.keys(useCardsStore.getState().byId)).toEqual([]);
+    expect(Object.keys(useCardsStore.getState().local)).toEqual(['local:snap-1:item-1']);
+  });
+});

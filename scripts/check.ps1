@@ -145,6 +145,17 @@ if ($formatFailed.Count -gt 0) {
   Write-Failure "format ($($formatFailed -join ', '); fix with: dotnet format <project>.csproj)" $files $formatLog
 }
 Write-Ok "format ($([int][math]::Ceiling($formatTimer.Elapsed.TotalSeconds))s)"
+
+# Comments say what the code does and why, not where the idea came from. The paths held to that rule are listed in
+# scripts/comment-history-enforced.txt (see the header there for how to widen it).
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+  Write-Failure 'comments (node is needed for scripts/check-comments.mjs)' @() (Join-Path $logDir 'comments.log')
+}
+$step = Invoke-Step 'comments' { node scripts/check-comments.mjs }
+if ($step.Code -ne 0) {
+  Write-Failure 'comments (say what the code does and why; to widen the ratchet see scripts/comment-history-enforced.txt)' ($step.Lines | Select-Object -First $maxLines) $step.Log
+}
+Write-Ok "comments, history-free in the enforced paths ($($step.Seconds)s)"
 }
 
 # ---- test -----------------------------------------------------------------------------------------------------

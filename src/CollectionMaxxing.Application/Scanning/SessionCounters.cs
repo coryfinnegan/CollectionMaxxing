@@ -1,4 +1,7 @@
+using System.Linq.Expressions;
+using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Scanning;
+using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Application.Scanning;
 
@@ -38,40 +41,55 @@ public sealed record SessionSegmentDto(
 /// <summary>Counts the session's candidates into the live counters and per-snap segments (docs/16 §5).</summary>
 public static class SessionCounters
 {
+    private enum Bucket
+    {
+        ToReview,
+        Added,
+        Owned,
+        Skipped,
+    }
+
+    /// <summary>
+    /// The one rule that puts a candidate in a bucket: <see cref="Count"/> runs it in memory and <see cref="CountAsync"/> as
+    /// SQL, so the two can't disagree. An owned hit answered on its card, including reject-and-drop ("Skip"), is never a failure.
+    /// </summary>
+    private static readonly Expression<Func<ScanCandidate, Bucket>> BucketRule = c =>
+        c.CreatedItemId != null ? Bucket.Added
+        : c.AlreadyOwnedCount > 0 ? Bucket.Owned
+        : c.Decision == CandidateDecision.Rejected ? Bucket.Skipped
+        : Bucket.ToReview;
+
+    private static readonly Func<ScanCandidate, Bucket> BucketOf = BucketRule.Compile();
+
     /// <param name="openProvisionals">How many of the session's provisional records still need attention: each counts as one captured segment waiting for review.</param>
     public static SessionCountersDto Count(IEnumerable<ScanCandidate> candidates, int openProvisionals = 0)
     {
-        var captured = 0;
-        var added = 0;
-        var toReview = 0;
-        var owned = 0;
-        var skipped = 0;
+        var tally = new Tally();
         foreach (var candidate in candidates)
         {
-            captured++;
-            if (candidate.CreatedItemId is not null)
-            {
-                added++;
-            }
-            else if (candidate.AlreadyOwnedCount > 0)
-            {
-                // An owned hit answered on its card, including reject-and-drop ("Skip"): never a failure.
-                owned++;
-            }
-            else if (candidate.Decision == CandidateDecision.Rejected)
-            {
-                skipped++;
-            }
-            else
-            {
-                toReview++;
-            }
+            tally.Add(BucketOf(candidate), 1);
         }
 
-        captured += openProvisionals;
-        toReview += openProvisionals;
+        return tally.ToDto(openProvisionals);
+    }
 
-        return new SessionCountersDto(captured, added, toReview, owned, skipped);
+    /// <summary>The counters of <paramref name="sessionId"/>'s candidates, counted by the database in one query: no candidate row is loaded.</summary>
+    public static async Task<SessionCountersDto> CountAsync(
+        IAppDbContext db, Guid sessionId, int openProvisionals, CancellationToken cancellationToken)
+    {
+        var groups = await db.ScanCandidates.AsNoTracking()
+            .Where(c => c.SessionId == sessionId)
+            .GroupBy(BucketRule)
+            .Select(g => new { Bucket = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        var tally = new Tally();
+        foreach (var group in groups)
+        {
+            tally.Add(group.Bucket, group.Count);
+        }
+
+        return tally.ToDto(openProvisionals);
     }
 
     public static IReadOnlyList<SessionSegmentDto> Segments(IEnumerable<ScanSnap> snaps, IEnumerable<ScanCandidate> candidates)
@@ -111,5 +129,35 @@ public static class SessionCounters
         }
 
         return SessionSegmentState.Resolved;
+    }
+
+    private struct Tally
+    {
+        private int _added;
+        private int _owned;
+        private int _skipped;
+        private int _toReview;
+
+        public void Add(Bucket bucket, int count)
+        {
+            switch (bucket)
+            {
+                case Bucket.Added:
+                    _added += count;
+                    break;
+                case Bucket.Owned:
+                    _owned += count;
+                    break;
+                case Bucket.Skipped:
+                    _skipped += count;
+                    break;
+                default:
+                    _toReview += count;
+                    break;
+            }
+        }
+
+        public readonly SessionCountersDto ToDto(int openProvisionals) => new(
+            _added + _owned + _skipped + _toReview + openProvisionals, _added, _toReview + openProvisionals, _owned, _skipped);
     }
 }
