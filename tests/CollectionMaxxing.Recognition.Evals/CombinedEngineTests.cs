@@ -188,13 +188,12 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
-    public void The_outcome_is_the_models_and_nothing_is_added_to_a_read_the_model_did_not_make()
+    public void The_outcome_is_the_models_when_both_engines_failed_or_found_nothing_and_the_row_is_empty()
     {
-        var truths = ArrangeShelf("Star Fox 64");
         var scored = Score(
-            truths,
+            ArrangeShelf("Star Fox 64"),
             Photo("s1", Apple, [], latencyMs: 8200, firstItemMs: null, outcome: "timeout", fellBackFrom: "timeout"),
-            VisionRead(GuessedByVision("Star Fox 64")));
+            Photo("s1", Vision, [], latencyMs: 300, firstItemMs: null, outcome: "error"));
 
         var both = scored.ShelfOf(Combined);
         both.Timeouts.ShouldBe(1);
@@ -249,7 +248,167 @@ public sealed class CombinedEngineTests : IDisposable
         scored.Engines.ShouldBeEmpty();
     }
 
+    // ---- when the model fails, Vision's reading stands (as it does in the scanner) --------------------------------------------
+
+    // The twelfth-run photo accept-shelf-04: the model timed out with no items, Vision found 41 and scored 23 of 46, and the
+    // combined row scored 0 of 46. The scanner keeps Vision's reading when the model fails on a shelf; so must the combination.
+    private static GroundedPhoto ModelFailed(string outcome = "timeout", string? fellBackFrom = "timeout") =>
+        Photo("s1", Apple, [], latencyMs: 8200, firstItemMs: null, outcome: outcome, fellBackFrom: fellBackFrom);
+
+    [Fact]
+    public void A_model_timeout_leaves_Visions_items_as_the_combined_read_and_they_are_scored()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64", "Mario Kart 64", "Banjo-Kazooie"),
+            ModelFailed(),
+            Photo("s1", Vision, [GuessedByVision("Star Fox 64"), GuessedByVision("Mario Kart 64")], latencyMs: 700, firstItemMs: 300));
+
+        scored.ShelfOf(Apple).PredictedItems.ShouldBe(0);
+        scored.ShelfOf(Vision).Top1Hits.ShouldBe(2);
+        var both = scored.ShelfOf(Combined);
+        both.TruthItems.ShouldBe(3);
+        both.PredictedItems.ShouldBe(2);
+        both.Top1Hits.ShouldBe(2);
+        both.CorrectItems.ShouldBe(2);
+        both.RecallPct.ShouldBe(66.67);
+    }
+
+    [Fact]
+    public void The_combined_read_after_a_model_failure_says_so_with_a_fallback_and_is_not_a_timeout_or_a_failure_of_its_own()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64"),
+            ModelFailed(),
+            VisionRead(GuessedByVision("Star Fox 64")));
+
+        var both = scored.ShelfOf(Combined);
+        both.Fallbacks.ShouldBe(1);
+        both.Timeouts.ShouldBe(0, "Vision's reading is the snap and it answered; the timeout is the model row's to report");
+        both.Failures.ShouldBe(0);
+        both.Refusals.ShouldBe(0);
+        scored.ShelfOf(Apple).Timeouts.ShouldBe(1);
+    }
+
+    [Fact]
+    public void The_combined_read_after_a_model_failure_takes_Visions_time_and_shows_its_first_item_when_Vision_does()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64"),
+            ModelFailed(),
+            Photo("s1", Vision, [GuessedByVision("Star Fox 64")], latencyMs: 700, firstItemMs: 300));
+
+        var both = scored.ShelfOf(Combined);
+        both.LatencyP50Ms.ShouldBe(700);
+        both.FirstItemP50Ms.ShouldBe(300);
+    }
+
+    [Fact]
+    public void When_Vision_sent_no_first_item_time_after_a_model_failure_the_first_item_is_the_end_of_its_whole_read()
+    {
+        var scored = Score(ArrangeShelf("Star Fox 64"), ModelFailed(), VisionRead(GuessedByVision("Star Fox 64")));
+
+        scored.ShelfOf(Combined).FirstItemP50Ms.ShouldBe(700);
+    }
+
+    [Theory]
+    [InlineData("timeout", null, "timeout")]
+    [InlineData("refused", null, "declined")]
+    [InlineData("error", null, "unavailable")]
+    [InlineData("error", "context", "context")]
+    [InlineData("refused", "declined", "declined")]
+    [InlineData("timeout", "unavailable", "unavailable")]
+    public void The_reason_the_model_failed_is_the_one_the_phone_sent_else_what_its_outcome_says(string outcome, string? sent, string expected)
+    {
+        var built = EvalCombination.Of(
+            [ModelFailed(outcome, sent), VisionRead(GuessedByVision("Star Fox 64"))],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Engine.ShouldBe(Combined);
+        built.Outcome.ShouldBe("ok");
+        built.FellBackFrom.ShouldBe(expected);
+        built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
+        built.Items[0].Provisional.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void After_a_model_failure_Visions_own_counts_stand_so_its_segments_still_reconcile()
+    {
+        var capturedAt = new DateTimeOffset(2026, 10, 17, 9, 0, 0, TimeSpan.Zero);
+        var vision = Photo(
+            "s1", Vision,
+            [GuessedByVision("Star Fox 64") with { SegmentId = "a" }, GuessedByVision("Mario Kart 64") with { SegmentId = "b" }],
+            capturedCount: 3, unreadable: 1, capturedAt: capturedAt);
+
+        var scored = Score(ArrangeShelf("Star Fox 64", "Mario Kart 64", "Banjo-Kazooie"), ModelFailed(), vision);
+
+        var both = scored.ShelfOf(Combined);
+        both.UnreconciledPhotos.ShouldBe(0, "Vision's two segments and its one unreadable are the three it captured");
+        both.Top1Hits.ShouldBe(2);
+    }
+
+    [Fact]
+    public void A_model_that_answered_with_nothing_leaves_Visions_items_and_no_fallback()
+    {
+        var built = EvalCombination.Of(
+            [Photo("s1", Apple, [], latencyMs: 4000), VisionRead(GuessedByVision("Star Fox 64"))],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Outcome.ShouldBe("ok");
+        built.FellBackFrom.ShouldBeNull("the model answered; it just found nothing");
+        built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
+    }
+
+    [Fact]
+    public void A_Vision_failure_with_a_model_that_has_items_gives_the_models_items()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(T1(Matched("Star Fox 64"))), Photo("s1", Vision, [], latencyMs: 300, outcome: "error")],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Engine.ShouldBe(Combined);
+        built.Outcome.ShouldBe("ok");
+        built.FellBackFrom.ShouldBeNull();
+        built.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
+        built.Items.Select(i => i.ResolvedBy).ShouldBe(["model"]);
+    }
+
+    [Fact]
+    public void Both_engines_failing_gives_an_empty_row_that_is_the_models_failure()
+    {
+        var built = EvalCombination.Of(
+            [ModelFailed(), Photo("s1", Vision, [], latencyMs: 300, outcome: "error")],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Engine.ShouldBe(Combined);
+        built.Items.ShouldBeEmpty();
+        built.Outcome.ShouldBe("timeout");
+    }
+
+    [Fact]
+    public void A_model_failure_where_Vision_found_nothing_is_still_the_models_failure_and_an_empty_row()
+    {
+        var built = EvalCombination.Of([ModelFailed(), VisionRead()], ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.ShouldBeEmpty();
+        built.Outcome.ShouldBe("timeout");
+        built.FellBackFrom.ShouldBe("timeout");
+    }
+
     // ---- a cover shot is not combined ------------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_single_picture_the_model_timed_out_on_does_not_borrow_Visions_items()
+    {
+        _golden.AddSingle("c1", new SyntheticGolden.SingleItem("Star Fox 64", "game_cartridge", "cart_only", EvalKinds.LooseCartridge, "Nintendo 64"));
+        var model = Photo("c1", Apple, [], latencyMs: 8200, outcome: "timeout", fellBackFrom: "timeout");
+        var vision = Photo("c1", Vision, [GuessedByVision("Star Fox 64")], latencyMs: 700);
+
+        var scored = EvalScorer.Score([model, vision], TruthsOf(_golden));
+
+        var both = scored.SoloOf(Combined);
+        both.PredictedItems.ShouldBe(0);
+        both.Timeouts.ShouldBe(1);
+    }
 
     [Fact]
     public void A_single_item_picture_is_the_models_own_reading_because_the_scanner_does_not_combine_a_cover_shot()

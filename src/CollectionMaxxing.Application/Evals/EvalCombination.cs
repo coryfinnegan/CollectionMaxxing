@@ -1,5 +1,7 @@
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog.Matching;
+using CollectionMaxxing.Domain.Common;
+using CollectionMaxxing.Domain.Scanning;
 
 namespace CollectionMaxxing.Application.Evals;
 
@@ -10,9 +12,17 @@ namespace CollectionMaxxing.Application.Evals;
 /// check never had its metric keys, so neither moves.
 /// </summary>
 /// <remarks>
+/// <para>
 /// A model item is one Vision already has when it is the same item: when both reads have a box, the boxes overlap
 /// (<see cref="ReadBox.SamePlaceAs"/>), so the same title on two spines is two items; otherwise, when their best release is the
 /// same (its normalised title and year).
+/// </para>
+/// <para>
+/// When the model fails on a shelf (a timeout, an error or a refusal), the scanner keeps Vision's reading, so the combined row is
+/// Vision's items too (it scored 0 of 46 on a shelf where Vision alone scored 23, before). That row is Vision's reading with the
+/// model's failure as its <c>FellBackFrom</c>, the way the scanner records such a snap: it is not a timeout, error or refusal of
+/// its own, the model row reports those. When Vision failed and the model answered, the items are the model's.
+/// </para>
 /// </remarks>
 public static class EvalCombination
 {
@@ -20,6 +30,8 @@ public static class EvalCombination
     public const string Engine = "apple_vision";
 
     private const string Ok = "ok";
+    private const string Timeout = "timeout";
+    private const string Refused = "refused";
 
     /// <summary>
     /// One combined photo for every photo that has both an <c>apple_model</c> and a <c>vision_pipeline</c> row (and a truth file).
@@ -57,6 +69,12 @@ public static class EvalCombination
             return apple with { Engine = Engine };
         }
 
+        // The model failed and Vision read: the scanner shows Vision's reading, and the model's failure is the fellBackFrom.
+        if (apple.Outcome != Ok && vision.Outcome == Ok && vision.Items.Count > 0)
+        {
+            return VisionAfterTheModelFailed(apple, vision);
+        }
+
         // Both engines have to have answered for their items to be combined; if either did not, the items are the model's own.
         var both = apple.Outcome == Ok && vision.Outcome == Ok;
         var modelAdded = both ? apple.Items.Where(model => !vision.Items.Any(visionItem => SameItem(model, visionItem))).ToList() : [];
@@ -80,6 +98,35 @@ public static class EvalCombination
             CapturedCount = apple.CapturedCount > 0 && visionOnly ? apple.CapturedCount + 1 : apple.CapturedCount,
         };
     }
+
+    /// <summary>
+    /// The scanner's snap when the model failed on a shelf and Vision read: Vision's reading stands as it was (its items, outcome,
+    /// unreadable and captured counts, so its segments still reconcile) and the model's failure is the <c>FellBackFrom</c>: the
+    /// reason the phone sent, else the one its outcome says (a timeout, a refusal is a declined, an error is unavailable). The time is
+    /// Vision's own, and the first item is Vision's first, or the end of its whole read when it sent none; what the failed model
+    /// cost is on the <c>apple_model</c> row. Vision's OCR lines belong to its own row, and the model's duplicate re-scan evidence
+    /// is used only when Vision sent none.
+    /// </summary>
+    private static GroundedPhoto VisionAfterTheModelFailed(GroundedPhoto apple, GroundedPhoto vision) =>
+        vision with
+        {
+            Engine = Engine,
+            FellBackFrom = apple.FellBackFrom ?? FellBackFromOutcome(apple.Outcome),
+            FirstItemMs = vision.FirstItemMs ?? vision.LatencyMs,
+            DuplicateRescan = vision.DuplicateRescan ?? apple.DuplicateRescan,
+            OcrLines = null,
+            OcrPieces = null,
+            CoverCue = null,
+        };
+
+    /// <summary>Why a model row that sent no reason failed, in the scanner's words: a refusal is declined, a timeout a timeout, anything else unavailable.</summary>
+    private static string FellBackFromOutcome(string outcome) => EnumText.ToText(
+        outcome switch
+        {
+            Timeout => FallbackReason.Timeout,
+            Refused => FallbackReason.Declined,
+            _ => FallbackReason.Unavailable,
+        });
 
     /// <summary>
     /// When the combined read first showed an item. Vision's items show first, so it is Vision's first-item time, or its whole read
