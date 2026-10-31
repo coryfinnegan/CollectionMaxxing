@@ -1,0 +1,27 @@
+name: Bug report
+description: Something doesn't work the way it should. The background agent fixes it (see docs/requesting-work.md).
+title: "Bug: short description"
+labels: [agent-task, type:bug, p2]
+body:
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What I expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: Device (iPhone or web), the screen, and what you tapped, in order.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: The repository is public. Describe a screenshot in words instead of attaching it. Change the p2 label if the priority differs.
