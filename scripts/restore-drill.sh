@@ -159,9 +159,13 @@ trap cleanup EXIT
 
 # --network none: it cannot reach, or be reached by, anything. No -p, no -v: it cannot touch a port or a volume.
 # The password is a random one-off for this container; it protects nothing.
-"$DOCKER" run -d --name "$name" --label cm-drill=1 --network none \
+if ! run_err="$("$DOCKER" run -d --name "$name" --label cm-drill=1 --network none \
   -e POSTGRES_USER="$DB_USER" -e POSTGRES_DB="$DB_NAME" -e POSTGRES_PASSWORD="drill-$RANDOM$RANDOM$RANDOM" \
-  "$IMAGE" >/dev/null || { say "restore drill: could not start $IMAGE"; exit 2; }
+  "$IMAGE" 2>&1 >/dev/null)"; then
+  # docker's own words (a registry error, a name clash), not just "could not start".
+  say "restore drill: could not start $IMAGE: $(printf '%s' "$run_err" | tr '\r\n' '  ')"
+  exit 2
+fi
 created=1
 
 ready=0

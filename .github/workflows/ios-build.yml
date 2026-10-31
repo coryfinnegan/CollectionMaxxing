@@ -42,8 +42,12 @@ jobs:
     runs-on: xcode-27 # macOS 26 + Xcode 27 (iOS 27 SDK), actions/runner-images#14404
     timeout-minutes: 60
     environment: testflight
+    # Read-only on purpose: this job holds the signing secrets, so its token cannot write to the repository. The one
+    # step that needs to write (creating the GitHub release on a tag) is the `release` job below, which holds no secrets.
     permissions:
-      contents: write # create the GitHub release on tags
+      contents: read
+    outputs:
+      build_number: ${{ steps.published.outputs.build_number }}
     env:
       BUNDLE_ID: io.github.coryfinnegan.collectionmaxxing
       TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
@@ -99,7 +103,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.what.outputs.ref }}
 
@@ -124,7 +128,7 @@ jobs:
             echo "::error::The newest released Xcode here is $major; the app needs Xcode 27 (iOS 27 SDK). Check the runner image."; exit 1
           fi
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -267,13 +271,11 @@ jobs:
             echo "Version $VERSION, build $BUILD_NUMBER. It reaches testers once Apple finishes processing it, usually within half an hour."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Create the GitHub release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          notes="**On iPhone:** this version comes through TestFlight as build $BUILD_NUMBER. With automatic updates on, it installs on its own once Apple has processed it; otherwise open TestFlight and tap Update."
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --notes "$notes"
+      # Hands the uploaded build's number to the release job (a job output, so it is the number that really went to
+      # TestFlight even when only the failed jobs of a run are re-run).
+      - name: Publish the build number
+        id: published
+        run: echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Remove the signing material
         if: always()
@@ -281,3 +283,22 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
           rm -rf "$HOME/.appstoreconnect/private_keys" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/distribution.p12"
           rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision
+
+  release:
+    # The GitHub release for a v* tag, created only after the build above uploaded to TestFlight. A job of its own so
+    # the one write this workflow makes happens in a job that has no signing secrets, no environment and no code checkout.
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub release
+    steps:
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_NUMBER: ${{ needs.build.outputs.build_number }}
+        run: |
+          notes="**On iPhone:** this version comes through TestFlight as build $BUILD_NUMBER. With automatic updates on, it installs on its own once Apple has processed it; otherwise open TestFlight and tap Update."
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --notes "$notes"
