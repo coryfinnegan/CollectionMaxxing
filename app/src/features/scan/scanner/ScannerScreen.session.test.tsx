@@ -2,6 +2,7 @@
 // scan sends it when the session is created. Typed search is one tap from the camera.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
+import { deviceUtcOffsetMinutes } from '@/lib/dates';
 import { MOCK_LIBRARY_ID, newMockId } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
@@ -81,7 +82,14 @@ describe('scanner session context', () => {
     expect(await screen.findByLabelText('Session: Game room › Shelf 2, Owned, Games, Home. Change settings')).toBeTruthy();
     await act(async () => source.inject([{ value: DEV_CODES.duneOwned, symbology: 'ean-13' }]));
     await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0]).toEqual({ defaultLocationId: SHELF_2, defaultStatus: 'owned', mediaHint: 'games', channel: 'home', autoCommitTiers: [] });
+    expect(bodies[0]).toEqual({
+      defaultLocationId: SHELF_2,
+      defaultStatus: 'owned',
+      mediaHint: 'games',
+      channel: 'home',
+      autoCommitTiers: [],
+      utcOffsetMinutes: deviceUtcOffsetMinutes(),
+    });
   });
 
   it('creates a session that a picture opened with the chosen context, not an empty one', async () => {
@@ -109,7 +117,12 @@ describe('scanner session context', () => {
     await press('Take picture'); // a shelf first: no barcode has opened the session
 
     await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0]).toMatchObject({ defaultStatus: 'wishlist', mediaHint: 'games', channel: 'in_store' }); // not the blank home scan an empty body would make
+    expect(bodies[0]).toMatchObject({
+      defaultStatus: 'wishlist',
+      mediaHint: 'games',
+      channel: 'in_store', // not the blank home scan an empty body would make
+      utcOffsetMinutes: deviceUtcOffsetMinutes(), // a picture-opened session dates its items by the phone's day too
+    });
   });
 
   it('searches the catalog one tap from the camera', async () => {

@@ -24,6 +24,7 @@ internal static class ScanCommitItems
         AddedVia via,
         Guid userId,
         DateTimeOffset now,
+        DateOnly acquiredOn,
         bool editionVerified = true) => new()
         {
             Id = id,
@@ -33,7 +34,7 @@ internal static class ScanCommitItems
             Condition = condition,
             Completeness = completeness,
             LocationId = locationId,
-            AcquiredOn = DateOnly.FromDateTime(now.UtcDateTime),
+            AcquiredOn = acquiredOn,
             CoverChoice = cover,
             CustomCoverAssetId = photoId,
             AddedVia = via,

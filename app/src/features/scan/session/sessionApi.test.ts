@@ -2,11 +2,12 @@
 // (the creation order, which an update leaves alone). A reconnect or a poll asks only for what changed since the last one.
 import { http, HttpResponse } from 'msw';
 import { server } from '@/mocks/server';
-import { candidate } from '@/features/review/testData';
+import { candidate, release } from '@/features/review/testData';
+import { localDateString } from '@/lib/dates';
 import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
 import { useCardsStore } from '../cards/cardsStore';
 import { useAutoCommitUndoStore } from './autoCommitUndo';
-import { announce, createSessionOnce, followSession, resumeCursor, routeSessionMessage } from './sessionApi';
+import { announce, createSessionOnce, followSession, resumeCursor, routeSessionMessage, wishlistCandidate } from './sessionApi';
 
 const SESSION = 'b1000000-0000-4000-8000-000000000001';
 
@@ -95,7 +96,30 @@ describe('per-library session creation', () => {
 
     await createSessionOnce(LIB_A, { defaultLocationId: 'loc-1', defaultStatus: 'wishlist', mediaHint: 'games', channel: 'in_store' });
 
-    expect(bodies).toEqual([{ defaultLocationId: 'loc-1', defaultStatus: 'wishlist', mediaHint: 'games', channel: 'in_store' }]);
+    expect(bodies).toEqual([
+      {
+        defaultLocationId: 'loc-1',
+        defaultStatus: 'wishlist',
+        mediaHint: 'games',
+        channel: 'in_store',
+        utcOffsetMinutes: -new Date().getTimezoneOffset() || 0,
+      },
+    ]);
+  });
+
+  it('tells the server the phone\'s UTC offset, so an item added in the evening is dated today and not tomorrow', async () => {
+    const bodies: { utcOffsetMinutes?: unknown }[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/scan-sessions', async ({ request }) => {
+        bodies.push((await request.json()) as { utcOffsetMinutes?: unknown });
+        return HttpResponse.json({ id: 'session-1' }, { status: 201 });
+      }),
+    );
+
+    await createSessionOnce(LIB_A); // the barcode path, which has no context to send
+
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.utcOffsetMinutes).toBe(-new Date().getTimezoneOffset() || 0);
   });
 
   it('shares one in-flight request when one library asks twice at once', async () => {
@@ -163,5 +187,22 @@ describe('auto-add announcements', () => {
 
     announce([{ id: 'c-y', event: 'added' }], SESSION);
     expect(useAutoCommitUndoStore.getState().last).toEqual({ sessionId: SESSION, candidateId: 'c-y' });
+  });
+});
+
+describe('the Wishlist card action', () => {
+  it('sends the day on the phone, so an evening add is not dated tomorrow', async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/items', async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+    const wanted = candidate({ release: release(7, 'Hades') });
+
+    await wishlistCandidate('aaaaaaaa-0000-4000-8000-000000000000', wanted);
+
+    expect(bodies).toEqual([{ releaseId: wanted.release!.id, status: 'wishlist', acquiredOn: localDateString() }]);
   });
 });

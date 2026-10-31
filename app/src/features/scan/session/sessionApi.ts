@@ -3,6 +3,7 @@
 import { createScanSession, decideCandidate, getScanSession, scanBarcodes } from '@/api/generated/scanning/scanning';
 import { createItem } from '@/api/generated/items/items';
 import type { CandidateDto, CreateScanSessionRequest, ScanSessionDto } from '@/api/generated/models';
+import { deviceUtcOffsetMinutes, localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { haptics } from '@/lib/haptics';
@@ -56,13 +57,14 @@ export const isScannerOpen = (tray: object) => (openScanners.get(tray) ?? 0) > 0
 /**
  * Makes the library's scan session. Barcodes and pictures can both ask at once; they share one request per library,
  * so there is one session. Each library has its own in-flight request: Library B never receives Library A's session.
- * The context (location, status, media, channel) rides along so Review inherits it.
+ * The context (location, status, media, channel) rides along so Review inherits it. So does the phone's UTC offset, whoever
+ * asks: the server dates what the session adds (a commit, an auto-add) by the day the person is in, and only the phone knows it.
  */
 export function createSessionOnce(libraryId: string, body: CreateScanSessionRequest = {}): Promise<string> {
   const running = creating.get(libraryId);
   if (running) return running;
   const next = (async () => {
-    const response = await createScanSession(libraryId, body);
+    const response = await createScanSession(libraryId, { utcOffsetMinutes: deviceUtcOffsetMinutes(), ...body });
     if (response.status !== 201) throw new ApiError(response.status, {});
     return response.data.id;
   })().finally(() => {
@@ -189,7 +191,7 @@ export async function wishlistCandidate(libraryId: string, candidate: CandidateD
   if (!candidate.release) return;
   const response = await createItem(
     libraryId,
-    { releaseId: candidate.release.id, status: 'wishlist' },
+    { releaseId: candidate.release.id, status: 'wishlist', acquiredOn: localDateString() },
     { headers: { 'Idempotency-Key': `wishlist-${candidate.id}` } },
   );
   if (response.status !== 201) throw new ApiError(response.status, {});

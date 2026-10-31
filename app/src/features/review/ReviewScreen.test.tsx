@@ -10,6 +10,7 @@ import { createPipelineStore, getPipelineStore, setPipelineStore, type PicSnap }
 import { DEV_CODES } from '@/features/scan/scanner/devCodes';
 import { getTrayStore, setTrayStore } from '@/features/scan/tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
+import { localDateString } from '@/lib/dates';
 import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { QUOTA_COPY } from '@/features/scan/cards/copy';
@@ -623,6 +624,17 @@ describe('Review screen', () => {
     expect(items).toEqual([['wishlist', null], ['owned', 'good']]);
   });
 
+  it('sends the day on the phone with the commit, so an evening add is not dated tomorrow', async () => {
+    seed([mario()]);
+    await open();
+    await act(async () => {
+      fireEvent.press(await screen.findByLabelText('Add 1 item'));
+    });
+    await screen.findByText('Added 1 item');
+    expect(reviewMock.commits[0]!.body!.acquiredOn).toBe(localDateString());
+    expect(itemsState.entries.at(-1)!.item.acquiredOn).toBe(localDateString());
+  });
+
   describe('candidate sheet', () => {
     it('sends the edited platform and edition, and the row shows them', async () => {
       seed([candidate({ release: release(4, 'Super Mario 64', { format: 'game_cartridge' }) })]);
@@ -724,7 +736,7 @@ describe('Review screen', () => {
 
     await screen.findByText('Added 1 item');
     expect(reviewMock.commits).toHaveLength(1);
-    expect(reviewMock.commits[0]!.body).toEqual({ addTo: SHELF_1, status: 'wishlist' });
+    expect(reviewMock.commits[0]!.body).toEqual({ addTo: SHELF_1, status: 'wishlist', acquiredOn: localDateString() });
   });
 
   it('an in-store session says the locations are decided later and starts at the last home spot', async () => {

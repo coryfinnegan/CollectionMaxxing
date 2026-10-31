@@ -23,6 +23,12 @@ const tuning = { retryMs: 20, pollMs: 20, resendMs: 40, flashMs: 50 };
 let ticks: number;
 const flush = () => act(async () => void (await Promise.resolve()));
 
+// The flash and the hint run on the real clock (setTimeout, setInterval, Date). A test that looks at them right after a press
+// or a render loses that race on a loaded machine (the act can take longer than the flash lasts, or than the quiet spell
+// before the hint), so these tests stop the clock, Date included: nothing changes until the test (or waitFor, which advances
+// fake timers itself) moves it. afterEach restores the real one.
+const holdTheClock = () => jest.useFakeTimers();
+
 const setup = async ({ reduceMotion = false }: { reduceMotion?: boolean } = {}) => {
   jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(reduceMotion);
   const signals = new FakeFrameSignals();
@@ -101,6 +107,7 @@ describe('scanner auto-snap', () => {
   });
 
   it('shows "Nice scan!" and buzzes at once on the shutter, before the picture arrives', async () => {
+    holdTheClock();
     const { source } = await setup();
     let release: () => void = () => undefined;
     source.capturePhoto = () => new Promise((resolve) => (release = () => resolve({ uri: 'file:///x.jpg', width: 100, height: 100, orientation: 1 })));
@@ -112,15 +119,18 @@ describe('scanner auto-snap', () => {
   });
 
   it('shows "Nice scan!" within 100 ms and takes it away by itself', async () => {
+    // "Within 100 ms" (docs/05) means local and immediate. It is checked with the whole clock held: the flash is up as soon as the
+    // press returns although not one millisecond was allowed to pass, so no timer or delay stands between the press and the flash
+    // (waiting on the camera is covered by the case above). Reading 100 ms off the wall clock measured the machine: 105 ms under load.
+    holdTheClock();
     await setup();
-    const started = Date.now();
     await fireEvent.press(screen.getByLabelText('Take picture'));
     expect(screen.getByText('Nice scan!')).toBeTruthy();
-    expect(Date.now() - started).toBeLessThanOrEqual(100);
-    await waitFor(() => expect(screen.queryByText('Nice scan!')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Nice scan!')).toBeNull()); // waitFor moves the held clock itself
   });
 
   it('does not animate the flash with Reduce Motion, and does with it off', async () => {
+    holdTheClock();
     const timing = jest.spyOn(Animated, 'timing');
     await setup({ reduceMotion: true });
     await flush();
@@ -138,9 +148,13 @@ describe('scanner auto-snap', () => {
   });
 
   it('suggests the flash after a quiet spell, turns it on when tapped, and clears on a snap', async () => {
+    holdTheClock(); // the quiet spell (hintAfterMs 150) is read off Date by an interval: only the test spends it
     const { source } = await setup();
     expect(screen.queryByText('Try the flash or move closer')).toBeNull();
-    await waitFor(() => expect(screen.getByText('Try the flash or move closer')).toBeTruthy());
+    await act(async () => void jest.advanceTimersByTime(149)); // not yet
+    expect(screen.queryByText('Try the flash or move closer')).toBeNull();
+    await act(async () => void jest.advanceTimersByTime(1 + 30)); // quiet for 150 ms, and the 30 ms check has run
+    expect(screen.getByText('Try the flash or move closer')).toBeTruthy();
     await fireEvent.press(screen.getByText('Try the flash or move closer'));
     expect(source.flash).toBe(true);
     await fireEvent.press(screen.getByLabelText('Take picture'));
