@@ -12,6 +12,7 @@ import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { flattenTree } from '@/features/locations/tree';
 import { useMyRole } from '@/features/me/useMyRole';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
@@ -59,7 +60,7 @@ export function LibraryGrid({ title, fixedStatus, hideTitle }: LibraryGridProps)
             {title}
           </Text>
         )}
-        <LoadingState label="Loading your library…" />
+        <LibraryLoading label="Loading your library…" />
       </SafeAreaView>
     );
   }
@@ -281,7 +282,7 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
   if (attention) {
     return (
       <SafeAreaView testID="library-safe-area" edges={['left', 'right']} style={safe}>
-        <ScrollView testID="needs-attention" contentContainerStyle={styles.listContent}>
+        <ScrollView testID="needs-attention" contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
             {hideTitle ? null : (
               <LibraryHeading title={title} subtitle={attentionItems.length === 0 ? 'Nothing waiting' : `${attentionItems.length} waiting`} />

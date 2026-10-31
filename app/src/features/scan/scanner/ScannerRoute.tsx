@@ -6,9 +6,10 @@ import { Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStore } from 'zustand';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { boundScanStore } from '@/features/review/boundScan';
 import { useColors } from '@/theme/tokens';
-import { Button, EmptyState, LoadingState, Screen } from '@/ui';
+import { Button, EmptyState, Screen } from '@/ui';
 import { createDevicePipelineDeps } from '../pipeline/device';
 import { useAutoSnapConfig } from '../pipeline/useAutoSnapConfig';
 import { LazyCameraPreview } from './LazyCameraPreview';
@@ -43,7 +44,7 @@ function RouteFallback({ onClose, showClose, children }: { onClose?: () => void;
 
 function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose: boolean }) {
   const router = useRouter();
-  const { libraryId, isLoading } = useActiveLibraryId();
+  const { libraryId, isLoading, isError } = useActiveLibraryId();
   const binding = useStore(boundScanStore, (s) => s.binding);
   const camera = useMemo(() => new VisionCameraSource(), []);
   const devSource = useMemo(() => (__DEV__ ? new FakeScannerSource() : undefined), []);
@@ -62,8 +63,8 @@ function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose:
   if (!libraryId) {
     return (
       <RouteFallback onClose={onClose} showClose={showClose}>
-        {isLoading ? (
-          <LoadingState label="Getting your library ready…" />
+        {isLoading || isError ? (
+          <LibraryLoading label="Getting your library ready…" />
         ) : (
           <EmptyState title="No library found." body="Create or join a library in Settings, then come back to scan." />
         )}

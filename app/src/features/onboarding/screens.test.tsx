@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { MemoryNativeAuth } from '@/lib/auth/native';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
@@ -116,6 +116,12 @@ describe('CreateLibraryScreen', () => {
     expect(screen.getByTestId('safe-area')).toBeTruthy();
   });
 
+  it('keeps the name field above the keyboard', async () => {
+    await renderWithProviders(<CreateLibraryScreen />);
+
+    expect(within(screen.getByTestId('keyboard-avoiding-view')).getByLabelText('Library name')).toBeTruthy();
+  });
+
   it('sends the name as typed', async () => {
     await renderWithProviders(<CreateLibraryScreen />);
     await fireEvent.changeText(screen.getByLabelText('Library name'), '  Game room ');
@@ -182,6 +188,12 @@ describe('JoinLibraryScreen', () => {
     await renderWithProviders(<JoinLibraryScreen />);
 
     expect(screen.getByTestId('safe-area')).toBeTruthy();
+  });
+
+  it('keeps the invite field above the keyboard', async () => {
+    await renderWithProviders(<JoinLibraryScreen />);
+
+    expect(within(screen.getByTestId('keyboard-avoiding-view')).getByLabelText('Invite link or code')).toBeTruthy();
   });
 
   it('forgives case and dashes in a code', async () => {

@@ -29,6 +29,7 @@ public static class ProviderServiceCollectionExtensions
         services.AddSingleton<ProviderRequestCoalescer>();
         services.AddSingleton<ProviderRuntime>();
         services.TryAddSingleton<IIsbnStore, ProviderCacheIsbnStore>();
+        services.TryAddSingleton<IProviderHitStore, ProviderCacheHitStore>(); // the hits a search showed, so an add can name one
 
         services.AddOptions<ProviderResilienceOptions>().BindConfiguration(ProviderResilienceOptions.SectionName);
         services.AddOptions<OpenLibraryOptions>().BindConfiguration(OpenLibraryOptions.SectionName);

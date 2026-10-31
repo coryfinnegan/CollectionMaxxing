@@ -103,6 +103,16 @@ export function markBatchSent(state: TrayState, key: string): TrayState {
   return { ...state, lines, outbox: state.outbox.filter((b) => b.key !== key) };
 }
 
+/**
+ * The session was committed and is closed. A line the server has in full is done and goes. What it never received stays,
+ * counted from zero, with its waiting batches and their keys, and the next flush sends it to a new session: a commit
+ * must never lose a scan the phone is still holding.
+ */
+export function closeSession(state: TrayState): TrayState {
+  const lines = state.lines.filter((l) => l.sentCopies < l.copies).map((l) => ({ ...l, copies: l.copies - l.sentCopies, sentCopies: 0 }));
+  return { lines, outbox: state.outbox, sessionId: null };
+}
+
 export type LineStatus = 'sent' | 'sending' | 'queued';
 
 /** `queued` means it is waiting for a connection; `sending` means we are online and it is on its way. */

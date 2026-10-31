@@ -40,6 +40,11 @@ type CardsState = {
   /** Takes away the local cards of one snap, or of one item of it. */
   dropLocal(snapId: string, localId?: string): void;
   remove(id: string): void;
+  /**
+   * The session was committed and is closed: its candidates leave, so the next scan starts clean (a leftover row would show up
+   * ticked in the next Review and fail its commit). The phone's own cards stay: they belong to pictures not sent yet.
+   */
+  endSession(): void;
   reset(): void;
 };
 
@@ -90,6 +95,7 @@ export const useCardsStore = create<CardsState>((set, get) => ({
     const { [id]: _removed, ...rest } = get().byId;
     set({ byId: rest });
   },
+  endSession: () => set({ byId: {} }),
   reset: () => set({ byId: {}, order: {}, announced: {}, local: {} }),
 }));
 

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Items;
@@ -30,7 +31,10 @@ public sealed record ManualItemDetails(
     IReadOnlyList<string>? Creators = null,
     string? Barcode = null);
 
-/// <summary>Body of <c>POST …/items</c>: from a <c>releaseId</c>, or manual details. Needs an <c>Idempotency-Key</c> header.</summary>
+/// <summary>
+/// Body of <c>POST …/items</c>: from a <c>releaseId</c>, from a search result only a provider knows (<c>providerRef</c>, as the
+/// search returned it on the release), or manual details; exactly one of the three. Needs an <c>Idempotency-Key</c> header.
+/// </summary>
 public sealed record CreateItemRequest(
     Guid? ReleaseId = null,
     ManualItemDetails? Manual = null,
@@ -41,7 +45,8 @@ public sealed record CreateItemRequest(
     string? Notes = null,
     DateOnly? AcquiredOn = null,
     AddedVia? AddedVia = null,
-    IReadOnlyList<Guid>? TagIds = null);
+    IReadOnlyList<Guid>? TagIds = null,
+    ProviderRefDto? ProviderRef = null);
 
 /// <summary>
 /// Body of <c>PATCH …/items/{id}</c> (JSON Merge Patch, RFC 7396). Needs an <c>If-Match</c> header. A property that is
