@@ -433,7 +433,7 @@ Test-Case 'config guard: the deployer refuses a bad config before pulling or cha
     Assert-Equal 'config-error' $r.Result.Outcome
     Assert-Equal 2 $r.Result.ExitCode
     Assert-Equal 0 (Get-Calls 'docker' '*pull*').Count
-    Assert-Equal 0 (Get-MutatingCalls).Count
+    Assert-Equal 0 (@(Get-MutatingCalls) | Where-Object { $_.Display -notlike '*gh issue *' }).Count 'nothing on the machine changes (the alert issue on GitHub is the one write)'
 }
 
 # ---- config guard: mounts, capabilities and host namespaces ------------------------------------------------------------------
