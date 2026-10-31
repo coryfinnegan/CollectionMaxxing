@@ -28,12 +28,14 @@
   </ItemGroup>
 
   <ItemGroup Label="Service defaults">
+    <!-- Held on 10.9.0 on purpose: each release floors the Microsoft.Extensions.* packages at the runtime patch it ships with
+         (10.9 needs 10.0.11 = the installed runtime; 10.10 needs 10.0.12; 10.11 needs 10.0.13). Move it with the runtime. -->
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.9.0" />
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.19.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.19.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.20.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.20.0" />
   </ItemGroup>
 
   <ItemGroup Label="Aspire (AppHost only; Aspire.Hosting.AppHost itself is pinned by the AppHost SDK version)">
@@ -58,7 +60,7 @@
     <PackageVersion Include="Respawn" Version="7.0.0" />
     <PackageVersion Include="WireMock.Net" Version="2.19.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
     <PackageVersion Include="TngTech.ArchUnitNET.xUnitV3" Version="0.13.4" />
   </ItemGroup>
 

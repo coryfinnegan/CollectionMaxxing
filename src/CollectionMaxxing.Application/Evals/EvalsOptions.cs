@@ -10,7 +10,7 @@ public sealed class EvalsOptions
 {
     public const string SectionName = "Evals";
 
-    /// <summary>The most a run upload may weigh (docs/09 and the brief: 2 MB).</summary>
+    /// <summary>The most a run upload may weigh (2 MB; a run is JSON, with no picture in it).</summary>
     public const int MaxRunBytes = 2 * 1024 * 1024;
 
     /// <summary>

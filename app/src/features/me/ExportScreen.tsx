@@ -45,6 +45,7 @@ export function ExportScreen() {
 
   const download = async () => {
     if (!current?.downloadUrl) return;
+    setMessage(null); // a refused try is not shown again once the next one starts
     try {
       await getSharer().deliver(current.downloadUrl);
     } catch (e) {
