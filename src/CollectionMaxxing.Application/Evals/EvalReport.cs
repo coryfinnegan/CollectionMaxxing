@@ -15,6 +15,12 @@ public static class EvalReport
 
     private const int MaxSkippedListed = 100;
 
+    /// <summary>
+    /// A one-time note in the gate section: gate results before ADR-032 measured the model alone, so they are not comparable with these.
+    /// Drop it once no report from before the switch is still being compared.
+    /// </summary>
+    private const string GateRowNote = "Gate measured on the combined row since ADR-032; earlier runs measured the model alone.";
+
     public static EvaluatedRun Evaluate(
         GroundedRun run,
         IReadOnlyDictionary<string, TruthEntry> truths,
@@ -77,6 +83,9 @@ public static class EvalReport
 
 
         text.Append("## M3 gate: ").AppendLine(summary.Gate.Verdict.ToUpperInvariant()).AppendLine();
+        text.Append("The gate measures what the app shows, the combined row (`").Append(summary.Gate.Engine)
+            .AppendLine("`): on a shelf Vision's items plus the model's unconfirmed additions, on a single cover the model's read with the cover checks. The model-only and Vision-only sections below are for diagnosis.").AppendLine();
+        text.AppendLine(GateRowNote).AppendLine();
         text.AppendLine("| Measure | Bar | Measured | Result |").AppendLine("|---|---|---|---|");
         foreach (var measure in summary.Gate.Measures)
         {
@@ -84,9 +93,9 @@ public static class EvalReport
         }
 
         var comparison = summary.Gate.Comparison;
-        text.AppendLine().Append("Apple model against Vision text, top-1: ")
+        text.AppendLine().Append("Apple model alone against Vision text, top-1: ")
             .Append(comparison.AppleTop1Pct?.ToString("0.##", CultureInfo.InvariantCulture) ?? "n/a").Append("% against ")
-            .Append(comparison.VisionTop1Pct?.ToString("0.##", CultureInfo.InvariantCulture) ?? "n/a").AppendLine("%.").AppendLine();
+            .Append(comparison.VisionTop1Pct?.ToString("0.##", CultureInfo.InvariantCulture) ?? "n/a").AppendLine("% (information; not part of the verdict).").AppendLine();
 
         text.Append("## Regression check: ").AppendLine(summary.Regression.Status).AppendLine();
         if (summary.Regression.Status == EvalRegression.Incomplete)
@@ -105,7 +114,7 @@ public static class EvalReport
             text.AppendLine().Append("## ").AppendLine(engine).AppendLine();
             if (engine == EvalCombination.Engine)
             {
-                text.AppendLine("Report only, built from the rows above: the Vision text items first, then the Apple model's items Vision did not read (the scanner shows Vision's first). Shelf latency is Vision's plus the model's, a failed model's wait included (when it fails, Vision's items stand), since Vision reads and then the model does, and the first item is Vision's; single pictures are the model's own.").AppendLine();
+                text.AppendLine("The row the M3 gate measures, built from the rows above: the Vision text items first, then the Apple model's items Vision did not read (the scanner shows Vision's first). Shelf latency is Vision's plus the model's, a failed model's wait included (when it fails, Vision's items stand), since Vision reads and then the model does, and the first item is Vision's; single pictures are the model's own.").AppendLine();
             }
 
             AppendSlice(text, "Shelf", numbers.Shelf);

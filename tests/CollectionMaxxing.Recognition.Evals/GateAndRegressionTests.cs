@@ -4,9 +4,14 @@ using static CollectionMaxxing.Recognition.Evals.EvalFixtures;
 
 namespace CollectionMaxxing.Recognition.Evals;
 
-/// <summary>The M3 gate rules (docs/02) and the 2-point regression rule (docs/09), on a golden set generated in the test.</summary>
+/// <summary>
+/// The M3 gate rules (docs/02) and the 2-point regression rule (docs/09), on a golden set generated in the test. Since ADR-032 the gate
+/// measures the combined row (<c>apple_vision</c>, what the app shows), not the Apple model alone.
+/// </summary>
 public sealed class GateAndRegressionTests : IDisposable
 {
+    private const string Combined = EvalCombination.Engine;
+
     private readonly SyntheticGolden _golden = new();
 
     public void Dispose() => _golden.Dispose();
@@ -45,19 +50,32 @@ public sealed class GateAndRegressionTests : IDisposable
     private static GroundedPhoto ShelfPhoto(string engine, bool right = true, long latencyMs = 6000, long firstItemMs = 1500, string thermal = "nominal") =>
         Photo("s1", engine, right ? [T1(Matched("Star Fox 64")), T1(Matched("Mario Kart 64"))] : [T1(Matched("Star Fox 64"))], latencyMs, firstItemMs, thermal: thermal);
 
-    /// <summary>Apple meets every bar; Vision text gets half of the singles right.</summary>
-    private static List<GroundedPhoto> MeetingEveryBar(Func<GroundedPhoto, GroundedPhoto>? changeApple = null)
+    /// <summary>
+    /// The model meets every bar; Vision text gets half of the singles right (all of them, and the whole shelf, with
+    /// <paramref name="visionReadsAllRight"/>). On the shelf Vision reads in 1.5 s and the model in 6 s, so the combined row, which waits
+    /// for both, takes 7.5 s: under the 8 s bar.
+    /// </summary>
+    private static List<GroundedPhoto> MeetingEveryBar(
+        Func<GroundedPhoto, GroundedPhoto>? changeApple = null,
+        Func<GroundedPhoto, GroundedPhoto>? changeVision = null,
+        bool visionReadsAllRight = false)
     {
         var photos = new List<GroundedPhoto>();
         foreach (var s in Singles)
         {
             photos.Add(OnePhoto(s, Apple));
-            photos.Add(OnePhoto(s, Vision, right: s.Id[0] is 'b' or 'g' or 'd'));
+            photos.Add(OnePhoto(s, Vision, right: visionReadsAllRight || s.Id[0] is 'b' or 'g' or 'd'));
         }
 
         photos.Add(ShelfPhoto(Apple));
-        photos.Add(ShelfPhoto(Vision, right: false));
-        return changeApple is null ? photos : [.. photos.Select(p => p.Engine == Apple ? changeApple(p) : p)];
+        photos.Add(ShelfPhoto(Vision, right: visionReadsAllRight, latencyMs: 1500, firstItemMs: 1000));
+        return
+        [
+            .. photos.Select(p =>
+                p.Engine == Apple && changeApple is not null ? changeApple(p)
+                : p.Engine == Vision && changeVision is not null ? changeVision(p)
+                : p),
+        ];
     }
 
     private EvaluatedRun Evaluate(IEnumerable<GroundedPhoto> photos, IReadOnlyDictionary<string, double>? baseline = null) =>
@@ -72,8 +90,9 @@ public sealed class GateAndRegressionTests : IDisposable
     {
         var run = Evaluate(MeetingEveryBar());
 
-        run.Summary.Gate.Measures.Where(m => m.Status != M3Gate.Pass).Select(m => $"{m.Name}={m.Status} ({m.Actual})").ShouldBeEmpty();
+        run.Summary.Gate.Measures.Where(m => m.Status is not (M3Gate.Pass or M3Gate.Info)).Select(m => $"{m.Name}={m.Status} ({m.Actual})").ShouldBeEmpty();
         run.Summary.Gate.Verdict.ShouldBe("pass");
+        run.Summary.Gate.Engine.ShouldBe(Combined);
         run.Summary.Gate.Comparison.AppleBeatsVision.ShouldBe(true);
         run.Summary.Gate.Comparison.AppleTop1Pct.ShouldBe(100);
     }
@@ -106,11 +125,11 @@ public sealed class GateAndRegressionTests : IDisposable
     {
         // 8 of 10 loose cartridges are right: 80% top-1 meets the 75% bar, 80% top-3 misses the 90% bar.
         var passing = Evaluate(MeetingEveryBar()).Summary.Engines;
-        var single = passing[M3Gate.Engine].Single!;
+        var single = passing[Combined].Single!;
         var byKind = single.ByKind.ToDictionary(k => k.Key, k => k.Value);
         byKind[EvalKinds.LooseCartridge] = new KindMetrics(10, 8, 8, 80, 80);
         var engines = passing.ToDictionary(e => e.Key, e => e.Value);
-        engines[M3Gate.Engine] = engines[M3Gate.Engine] with { Single = single with { ByKind = byKind } };
+        engines[Combined] = engines[Combined] with { Single = single with { ByKind = byKind } };
 
         var gate = M3Gate.Evaluate(engines);
 
@@ -122,7 +141,7 @@ public sealed class GateAndRegressionTests : IDisposable
     private GateTable GateWith(Func<SliceMetrics, SliceMetrics> changeSingle)
     {
         var engines = Evaluate(MeetingEveryBar()).Summary.Engines.ToDictionary(e => e.Key, e => e.Value);
-        engines[M3Gate.Engine] = engines[M3Gate.Engine] with { Shelf = null, Single = changeSingle(engines[M3Gate.Engine].Single!) };
+        engines[Combined] = engines[Combined] with { Shelf = null, Single = changeSingle(engines[Combined].Single!) };
         return M3Gate.Evaluate(engines);
     }
 
@@ -161,11 +180,31 @@ public sealed class GateAndRegressionTests : IDisposable
     [Fact]
     public void A_first_shelf_card_after_2_seconds_or_a_shelf_after_8_seconds_fails()
     {
-        var slowFirst = Evaluate(MeetingEveryBar(p => p.PhotoId == "s1" ? p with { FirstItemMs = 2100 } : p));
+        // The first card on a shelf is Vision's, so it is Vision's first item that is timed.
+        var slowFirst = Evaluate(MeetingEveryBar(changeVision: p => p.PhotoId == "s1" ? p with { FirstItemMs = 2100 } : p));
         var slowWhole = Evaluate(MeetingEveryBar(p => p.PhotoId == "s1" ? p with { LatencyMs = 8100 } : p));
 
         StatusOf(slowFirst, "speed.shelf_first_item_p50").ShouldBe("fail");
         StatusOf(slowWhole, "speed.shelf_total_p50").ShouldBe("fail");
+    }
+
+    [Fact]
+    public void A_slow_model_does_not_delay_the_first_shelf_card_because_Visions_items_show_first()
+    {
+        var run = Evaluate(MeetingEveryBar(p => p.PhotoId == "s1" ? p with { FirstItemMs = 5000 } : p));
+
+        StatusOf(run, "speed.shelf_first_item_p50").ShouldBe("pass");
+    }
+
+    [Fact]
+    public void A_whole_shelf_takes_Visions_read_and_then_the_models_so_two_reads_each_under_8_seconds_can_still_fail()
+    {
+        // 6 s for the model and 2.5 s for Vision: each is under the 8 s bar, the shelf the person waited for is 8.5 s.
+        var run = Evaluate(MeetingEveryBar(changeVision: p => p.PhotoId == "s1" ? p with { LatencyMs = 2500 } : p));
+
+        var measure = run.Summary.Gate.Measures.Single(m => m.Name == "speed.shelf_total_p50");
+        measure.Actual.ShouldBe("8500 ms");
+        measure.Status.ShouldBe("fail");
     }
 
     [Fact]
@@ -188,7 +227,8 @@ public sealed class GateAndRegressionTests : IDisposable
     [Fact]
     public void A_phone_that_ends_serious_or_slows_down_late_in_the_run_fails_the_thermal_measure()
     {
-        var hot = Evaluate(MeetingEveryBar(p => p.PhotoId == "s1" ? p with { ThermalState = "serious" } : p));
+        // The combined shelf row carries the thermal state of Vision's read (the last the phone makes on a photo); a single cover keeps the model's.
+        var hot = Evaluate(MeetingEveryBar(changeVision: p => p.PhotoId == "s1" ? p with { ThermalState = "serious" } : p));
         var slowing = Evaluate(MeetingEveryBar(p => p.PhotoId is "l1" or "c1" ? p with { LatencyMs = 4000 } : p));
 
         StatusOf(hot, "thermals").ShouldBe("fail");
@@ -196,20 +236,139 @@ public sealed class GateAndRegressionTests : IDisposable
     }
 
     [Fact]
-    public void The_apple_model_must_beat_the_vision_text_engine_not_just_tie_it()
+    public void Beating_the_vision_text_engine_is_reported_as_information_and_never_decides_the_verdict()
     {
-        var tie = Evaluate(MeetingEveryBar().Where(p => p.Engine == Apple).Concat(MeetingEveryBar().Where(p => p.Engine == Apple).Select(p => p with { Engine = Vision })));
+        // Vision text reads everything right, so the model only ties it (the old gate failed that).
+        var tie = Evaluate(MeetingEveryBar(visionReadsAllRight: true));
 
-        StatusOf(tie, "top1.beats_vision_text").ShouldBe("fail");
+        // Vision text also reads the whole shelf where the model reads half of it; the combined row still has the whole shelf.
+        var behind = Evaluate(MeetingEveryBar(p => p.PhotoId == "s1" ? ShelfPhoto(Apple, right: false) : p, visionReadsAllRight: true));
+
+        foreach (var run in new[] { tie, behind })
+        {
+            StatusOf(run, "top1.beats_vision_text").ShouldBe(M3Gate.Info);
+            run.Summary.Gate.Comparison.AppleBeatsVision.ShouldBe(false);
+            run.Summary.Gate.Measures.Where(m => m.Status is not (M3Gate.Pass or M3Gate.Info)).ShouldBeEmpty();
+            run.Summary.Gate.Verdict.ShouldBe(M3Gate.Pass);
+        }
+
+        tie.Summary.Gate.Measures.Single(m => m.Name == "top1.beats_vision_text").Actual.ShouldBe("100% vs 100%");
+        behind.Summary.Gate.Measures.Single(m => m.Name == "top1.beats_vision_text").Actual.ShouldBe("87.5% vs 100%");
+    }
+
+    [Fact]
+    public void Beating_vision_without_a_vision_engine_is_information_with_no_number_not_a_missing_measure()
+    {
+        var run = Evaluate(MeetingEveryBar().Where(p => p.Engine == Apple));
+
+        var measure = run.Summary.Gate.Measures.Single(m => m.Name == "top1.beats_vision_text");
+        measure.Status.ShouldBe(M3Gate.Info);
+        measure.Actual.ShouldBeNull();
     }
 
     [Fact]
     public void A_gate_with_a_measure_that_has_no_photos_yet_is_incomplete_not_a_pass()
     {
+        // No bare-label picture was read by either engine, so that kind has no photos behind it.
+        var run = Evaluate(MeetingEveryBar().Where(p => p.PhotoId != "l1"));
+
+        StatusOf(run, "top1.bare_label").ShouldBe("no_data");
+        StatusOf(run, "top1.book_spine").ShouldBe("pass");
+        run.Summary.Gate.Verdict.ShouldBe("incomplete");
+    }
+
+    [Fact]
+    public void A_run_without_Vision_rows_has_no_combined_row_so_the_gate_has_nothing_to_measure_and_is_incomplete()
+    {
         var run = Evaluate(MeetingEveryBar().Where(p => p.Engine == Apple));
 
-        StatusOf(run, "top1.beats_vision_text").ShouldBe("no_data");
+        run.Summary.Engines.Keys.ShouldBe([Apple]);
+        StatusOf(run, "top1.book_spine").ShouldBe("no_data");
+        StatusOf(run, "speed.single_p50").ShouldBe("no_data");
         run.Summary.Gate.Verdict.ShouldBe("incomplete");
+    }
+
+    // ---- the gate reads the combined row ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A shelf where the model adds a title that is not on it with the top tier (a wrong auto-add on its own row) and Vision reads both
+    /// spines. On the combined row Vision's two items stand and the model's extra title is unconfirmed, so it is review, not an auto-add.
+    /// </summary>
+    private static List<GroundedPhoto> AShelfWhereOnlyTheModelAutoAddsAWrongTitle() =>
+        MeetingEveryBar(
+            changeApple: p => p.PhotoId == "s1" ? Photo("s1", Apple, [T1(Matched("Star Fox 64")), T1(Matched("Zorblax Quest"))], 6000, 1500) : p,
+            changeVision: p => p.PhotoId == "s1" ? ShelfPhoto(Vision, right: true, latencyMs: 1500, firstItemMs: 1000) : p);
+
+    [Fact]
+    public void The_gate_takes_auto_add_precision_from_the_combined_row_not_the_model_alone()
+    {
+        var run = Evaluate(AShelfWhereOnlyTheModelAutoAddsAWrongTitle());
+
+        // The model alone auto-adds 8 titles and one is wrong: under the 99% bar.
+        var alone = M3Gate.Evaluate(new Dictionary<string, EngineSummary> { [Combined] = run.Summary.Engines[Apple] });
+        alone.Measures.Single(m => m.Name == "auto_add_precision").Status.ShouldBe(M3Gate.Fail);
+
+        // What the app shows auto-adds only Vision's two items and the six covers, all right: that bar passes.
+        var measure = run.Summary.Gate.Measures.Single(m => m.Name == "auto_add_precision");
+        measure.Status.ShouldBe(M3Gate.Pass);
+        measure.Actual.ShouldBe("100%");
+    }
+
+    [Fact]
+    public void A_title_only_the_model_saw_still_counts_as_invented_on_the_combined_row_because_the_person_is_shown_it()
+    {
+        var run = Evaluate(AShelfWhereOnlyTheModelAutoAddsAWrongTitle());
+
+        // It goes to review instead of being added, but it is shown: one of nine shown items is invented, over the 1% bar.
+        StatusOf(run, "invented_titles").ShouldBe(M3Gate.Fail);
+        run.Summary.Gate.Verdict.ShouldBe(M3Gate.Fail);
+    }
+
+    [Fact]
+    public void The_gate_names_the_row_it_measured_and_the_model_and_vision_rows_stay_in_the_summary_for_diagnosis()
+    {
+        var run = Evaluate(MeetingEveryBar());
+
+        run.Summary.Gate.Engine.ShouldBe(Combined);
+        run.Summary.Engines.Keys.ShouldBe([Apple, Combined, Vision]);
+    }
+
+    [Fact]
+    public void A_single_cover_on_the_combined_row_is_the_models_own_read_whatever_Vision_read()
+    {
+        var run = Evaluate(MeetingEveryBar());
+
+        // The scanner reads a cover with the model (and its cover cue); Vision's cover read, right or wrong, is not shown.
+        var model = run.Summary.Engines[Apple].Single!;
+        var combined = run.Summary.Engines[Combined].Single!;
+        combined.Photos.ShouldBe(model.Photos);
+        combined.Top1Hits.ShouldBe(model.Top1Hits);
+        combined.Top3Hits.ShouldBe(model.Top3Hits);
+        combined.AutoAdds.ShouldBe(model.AutoAdds);
+        combined.LatencyP50Ms.ShouldBe(model.LatencyP50Ms);
+        combined.ByKind.Keys.ShouldBe(model.ByKind.Keys);
+    }
+
+    [Fact]
+    public void Model_timeouts_are_the_models_own_rate_because_a_shelf_timeout_is_hidden_behind_Visions_items_on_the_combined_row()
+    {
+        // The model times out on the shelf and Vision reads it: the scanner shows Vision's items, so the combined row is Vision's read, not a timeout.
+        var run = Evaluate(MeetingEveryBar(p => p.PhotoId == "s1" ? Photo("s1", Apple, [], 8200, firstItemMs: null, outcome: "timeout", fellBackFrom: "timeout") : p));
+
+        run.Summary.Engines[Combined].Shelf!.Timeouts.ShouldBe(0);
+        run.Summary.Engines[Apple].Shelf!.Timeouts.ShouldBe(1);
+        var measure = run.Summary.Gate.Measures.Single(m => m.Name == "model_timeouts");
+        measure.Actual.ShouldBe("14.29%"); // one of the model's seven photos
+        measure.Status.ShouldBe(M3Gate.Pass); // reported; the wait is counted in the speed measures
+    }
+
+    [Fact]
+    public void A_shelf_where_the_model_timed_out_is_slow_on_the_combined_row_by_the_wait_but_its_first_card_is_still_Visions()
+    {
+        var run = Evaluate(MeetingEveryBar(p => p.PhotoId == "s1" ? Photo("s1", Apple, [], 8200, firstItemMs: null, outcome: "timeout", fellBackFrom: "timeout") : p));
+
+        StatusOf(run, "speed.shelf_total_p50").ShouldBe("fail"); // 8.2 s of waiting for the model, then Vision's items
+        StatusOf(run, "speed.shelf_first_item_p50").ShouldBe("pass"); // Vision's items are the first card
     }
 
     // ---- the regression rule ---------------------------------------------------------------------------------------------
@@ -278,5 +437,65 @@ public sealed class GateAndRegressionTests : IDisposable
         run.Summary.Regression.Status.ShouldBe("regressed");
         run.Summary.Regression.Regressions.Select(r => r.Metric).ShouldContain("apple_model.single.top1");
         Evaluate(MeetingEveryBar(), first.Summary.Metrics).Summary.Regression.Status.ShouldBe("ok");
+    }
+
+    [Fact]
+    public void A_baseline_holds_each_engines_own_numbers_so_moving_the_gate_to_the_combined_row_changes_what_none_of_its_keys_mean()
+    {
+        // A baseline taken before ADR-032 has only the engines' metric keys (never a gate measure, never the combined row's): it is compared as it always was.
+        var first = Evaluate(MeetingEveryBar());
+        var before = first.Summary.Metrics.Where(m => !m.Key.StartsWith(Combined + ".", StringComparison.Ordinal)).ToDictionary(m => m.Key, m => m.Value);
+        before["apple_model.single.top1"] = 105; // as if the last run had been 5 points better than this one
+
+        var run = Evaluate(MeetingEveryBar(), before);
+
+        run.Summary.Regression.Status.ShouldBe("regressed");
+        run.Summary.Regression.Regressions.Select(r => r.Metric).ShouldBe(["apple_model.single.top1"]);
+        run.Summary.Regression.Compared.ShouldBe(before.Count);
+    }
+
+    [Fact]
+    public void A_failing_gate_on_the_combined_row_does_not_touch_the_regression_check_and_a_run_compared_with_itself_is_ok()
+    {
+        GroundedPhoto Wrong(GroundedPhoto p) => p.PhotoId == "c1" ? OnePhoto(Singles[4], Apple, right: false) : p;
+        var failing = Evaluate(MeetingEveryBar(Wrong));
+
+        var again = Evaluate(MeetingEveryBar(Wrong), failing.Summary.Metrics);
+
+        failing.Summary.Gate.Verdict.ShouldBe("fail");
+        again.Summary.Regression.Status.ShouldBe("ok");
+        again.Summary.Regression.Compared.ShouldBe(failing.Summary.Metrics.Count);
+    }
+
+    // ---- the report ------------------------------------------------------------------------------------------------------
+
+    private const string SwitchNote = "Gate measured on the combined row since ADR-032; earlier runs measured the model alone.";
+
+    [Fact]
+    public void The_report_says_the_gate_measures_what_the_app_shows_and_carries_the_one_time_note_in_the_gate_section()
+    {
+        var report = Evaluate(MeetingEveryBar()).ReportMarkdown;
+
+        var gate = report.IndexOf("## M3 gate: PASS", StringComparison.Ordinal);
+        var note = report.IndexOf(SwitchNote, StringComparison.Ordinal);
+        var firstEngine = report.IndexOf("## apple_model", StringComparison.Ordinal);
+        gate.ShouldBeGreaterThanOrEqualTo(0);
+        note.ShouldBeGreaterThan(gate);
+        note.ShouldBeLessThan(firstEngine);
+        var section = report[gate..firstEngine];
+        section.ShouldContain("what the app shows");
+        section.ShouldContain("combined row");
+    }
+
+    [Fact]
+    public void The_report_keeps_a_section_for_every_engine_row_and_shows_beats_vision_as_information()
+    {
+        var report = Evaluate(MeetingEveryBar()).ReportMarkdown;
+
+        report.ShouldContain("## apple_model");
+        report.ShouldContain("## apple_vision");
+        report.ShouldContain("## vision_pipeline");
+        report.Split('\n').Single(l => l.StartsWith("| top1.beats_vision_text |", StringComparison.Ordinal)).TrimEnd().ShouldEndWith("| info |");
+        report.ShouldContain("not part of the verdict");
     }
 }
