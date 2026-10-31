@@ -54,8 +54,10 @@ public sealed class CoverReResolver(IAppDbContext db, BookLookup books, CatalogO
 
     private async Task<Identifier?> IsbnAsync(Guid releaseId, CancellationToken cancellationToken)
     {
+        // Only the shared ISBNs (a provider's or the catalogue's): the answer is written onto a release everyone shares, so a
+        // barcode one library taught by hand, right or wrong, must not decide which cover the providers are asked for.
         var values = await db.ReleaseIdentifiers.AsNoTracking()
-            .Where(i => i.ReleaseId == releaseId)
+            .Where(i => i.ReleaseId == releaseId && i.LibraryId == null)
             .Select(i => i.Value)
             .ToListAsync(cancellationToken);
         foreach (var value in values)

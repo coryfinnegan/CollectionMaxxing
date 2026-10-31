@@ -171,7 +171,7 @@ Turn on **BitLocker** on the drives that hold the Docker volumes and backups, so
 ## Observability (light)
 
 - **Aspire Dashboard** (standalone container) for logs, traces and metrics. One trace per scan goes from the phone through the API to the providers.
-- **Logs** are also written to rotating files on the `files` volume, so they survive restarts.
+- **Logs** go to the console, which Docker keeps as each container's json-file log, capped at 5 files of 20 MB per service by the compose file. They are lost when the container is recreated (every deploy recreates the API), so look in the Aspire Dashboard or the deployer log for anything older.
 - **Uptime:** optional. An Uptime Kuma container, or the Healthchecks.io ping, can notify you if `/health/ready` fails.
 
 ## Cost

@@ -40,9 +40,9 @@ public class BulkItemsTests(PostgresFixture db) : DatabaseTest(db)
         var item = await TestData.CreateItemAsync(Db, library);
         var tag = await TestData.CreateTagAsync(Db, library.Id, "signed");
 
-        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(null, null, [tag], null)))).IsSuccess.ShouldBeTrue();
-        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(null, null, null, [tag])))).IsSuccess.ShouldBeTrue();
-        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(null, null, [], [])))).Error!.Code.ShouldBe("bulk.patch_required");
+        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(default, null, [tag], null)))).IsSuccess.ShouldBeTrue();
+        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(default, null, null, [tag])))).IsSuccess.ShouldBeTrue();
+        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(default, null, [], [])))).Error!.Code.ShouldBe("bulk.patch_required");
     }
 
     private async Task LendAsync(Guid itemId, string to, DateOnly on)
@@ -72,7 +72,7 @@ public class BulkItemsTests(PostgresFixture db) : DatabaseTest(db)
         var item = await TestData.CreateItemAsync(Db, library);
         await LendAsync(item, "Sam", new DateOnly(2026, 5, 1));
 
-        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(null, status, null, null)))).IsSuccess.ShouldBeTrue();
+        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(default, status, null, null)))).IsSuccess.ShouldBeTrue();
 
         var after = await ReadAsync(item);
         after.Status.ShouldBe(status);
@@ -81,23 +81,61 @@ public class BulkItemsTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
-    public async Task Setting_lent_starts_the_lend_today_with_no_name_and_leaves_an_existing_lend_alone()
+    public async Task Setting_lent_is_refused_when_any_item_has_no_borrower_and_nothing_changes()
     {
         var library = await TestData.CreateLibraryAsync(Db);
         var owned = await TestData.CreateItemAsync(Db, library);
         var alreadyLent = await TestData.CreateItemAsync(Db, library);
         await LendAsync(alreadyLent, "Sam", new DateOnly(2026, 5, 1));
 
-        (await RunAsync(library, Patch(library.Id, [owned, alreadyLent], new BulkChange(null, ItemStatus.Lent, null, null)))).IsSuccess.ShouldBeTrue();
+        var result = await RunAsync(library, Patch(library.Id, [owned, alreadyLent], new BulkChange(default, ItemStatus.Lent, null, null)));
 
-        var started = await ReadAsync(owned);
-        started.Status.ShouldBe(ItemStatus.Lent);
-        started.LentTo.ShouldBeNull();
-        started.LentOn.ShouldBe(new DateOnly(2026, 6, 1)); // the clock's day, as the single-item edit does
+        result.Error!.Code.ShouldBe("item.lent_to_required");
+        (await ReadAsync(owned)).Status.ShouldBe(ItemStatus.Owned);
+    }
+
+    [Fact]
+    public async Task Setting_lent_is_refused_for_an_item_that_only_carries_a_stale_borrower()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var item = await TestData.CreateItemAsync(Db, library);
+        await using (var context = Db.CreateContext())
+        {
+            (await context.Items.IgnoreQueryFilters().SingleAsync(i => i.Id == item)).LentTo = "Sam"; // left over from an earlier lend
+            await context.SaveChangesAsync();
+        }
+
+        var result = await RunAsync(library, Patch(library.Id, [item], new BulkChange(default, ItemStatus.Lent, null, null)));
+
+        result.Error!.Code.ShouldBe("item.lent_to_required");
+    }
+
+    [Fact]
+    public async Task Setting_lent_on_items_already_lent_to_someone_leaves_their_lends_alone()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var alreadyLent = await TestData.CreateItemAsync(Db, library);
+        await LendAsync(alreadyLent, "Sam", new DateOnly(2026, 5, 1));
+
+        (await RunAsync(library, Patch(library.Id, [alreadyLent], new BulkChange(default, ItemStatus.Lent, null, null)))).IsSuccess.ShouldBeTrue();
 
         var kept = await ReadAsync(alreadyLent);
         kept.LentTo.ShouldBe("Sam");
         kept.LentOn.ShouldBe(new DateOnly(2026, 5, 1));
+    }
+
+    [Fact]
+    public async Task A_location_set_to_null_clears_it_and_one_that_is_not_set_leaves_it()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var shelf = await TestData.CreateLocationAsync(Db, library.Id, "Shelf");
+        var item = await TestData.CreateItemAsync(Db, library, locationId: shelf);
+
+        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(default, ItemStatus.Missing, null, null)))).IsSuccess.ShouldBeTrue();
+        (await ReadAsync(item)).LocationId.ShouldBe(shelf);
+
+        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(PatchValue<Guid?>.Of(null), null, null, null)))).IsSuccess.ShouldBeTrue();
+        (await ReadAsync(item)).LocationId.ShouldBeNull();
     }
 
     [Fact]
@@ -108,7 +146,7 @@ public class BulkItemsTests(PostgresFixture db) : DatabaseTest(db)
         var tag = await TestData.CreateTagAsync(Db, library.Id, "signed");
         await LendAsync(item, "Sam", new DateOnly(2026, 5, 1));
 
-        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(null, null, [tag], null)))).IsSuccess.ShouldBeTrue();
+        (await RunAsync(library, Patch(library.Id, [item], new BulkChange(default, null, [tag], null)))).IsSuccess.ShouldBeTrue();
 
         var after = await ReadAsync(item);
         after.Status.ShouldBe(ItemStatus.Lent);
@@ -128,7 +166,7 @@ public class BulkItemsTests(PostgresFixture db) : DatabaseTest(db)
         await TestData.AttachTagAsync(Db, library.Id, first, loaned);
         await TestData.AttachTagAsync(Db, library.Id, second, signed);
 
-        var result = await RunAsync(library, Patch(library.Id, [first], new BulkChange(null, null, null, [signed])));
+        var result = await RunAsync(library, Patch(library.Id, [first], new BulkChange(default, null, null, [signed])));
 
         result.IsSuccess.ShouldBeTrue();
         (await TestData.CountItemTagsAsync(Db, library.Id)).ShouldBe(2); // first keeps "loaned", second keeps "signed"

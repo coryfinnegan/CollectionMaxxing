@@ -1,6 +1,7 @@
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Libraries;
 using CollectionMaxxing.Api.Problems;
+using CollectionMaxxing.Api.Security;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Domain.Common;
@@ -50,7 +51,8 @@ public static class ScanningEndpoints
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
-            .RequireScanSessionRole(LibraryRole.Viewer);
+            .RequireScanSessionRole(LibraryRole.Viewer)
+            .WithRateLimitGroup(RateLimitGroup.Barcodes);
 
         // What the phone read from one picture (text only, never an image). The body is read inside the handler, after the
         // session filters, and bounded; see IdentifyEndpoint.
@@ -62,7 +64,8 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
-            .RequireScanSessionRole(LibraryRole.Viewer);
+            .RequireScanSessionRole(LibraryRole.Viewer)
+            .WithRateLimitGroup(RateLimitGroup.Identify);
 
         // The feature-print distances the phone measured for a close call; the server re-scores. The body is read inside the
         // handler, after the session filters, and bounded; see ArtworkEndpoint.

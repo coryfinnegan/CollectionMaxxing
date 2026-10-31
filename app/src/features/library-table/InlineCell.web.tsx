@@ -1,5 +1,5 @@
 // Inline edit of one cell (location or status). Opening the cell loads the item's ETag; choosing a value
-// sends PATCH with If-Match. A 412 reloads the row and says so.
+// sends PATCH with If-Match. A 412 reloads the row and says so. Choosing Lent out asks who has it first: a lend needs a name.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useRef, useState } from 'react';
@@ -12,8 +12,8 @@ import { useInvalidateLibrary } from '@/features/item/useItem';
 import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
-import { Text } from '@/ui';
-import { statusPatch } from './statusPatch';
+import { Button, Text, TextField } from '@/ui';
+import { needsBorrower, statusPatch } from './statusPatch';
 
 export type CellOption = { value: string; label: string; depth?: number };
 
@@ -32,10 +32,15 @@ const patchFor = (field: Props['field'], item: ItemSummaryDto, value: string): U
     ? statusPatch(item.status, value as ItemStatus, localDateString())
     : { locationId: value === '' ? null : value };
 
+const startsLend = (field: Props['field'], item: ItemSummaryDto, value: string) =>
+  field === 'status' && needsBorrower(item.status, value as ItemStatus);
+
 export function InlineCell({ libraryId, item, field, current, options, onNotice }: Props) {
   const invalidate = useInvalidateLibrary();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [lentTo, setLentTo] = useState('');
   const etag = useRef<Promise<string | undefined> | null>(null);
   const noun = field === 'status' ? 'status' : 'location';
 
@@ -49,8 +54,7 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
     setOpen(!open);
   };
 
-  const choose = async (value: string) => {
-    setOpen(false);
+  const send = async (patch: UpdateItemRequest) => {
     setBusy(true);
     try {
       const tag = await etag.current;
@@ -58,7 +62,7 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
         onNotice(`Couldn't load "${item.title}" to change its ${noun}. Reload the list and try again.`);
         return;
       }
-      await updateItem(libraryId, item.id, patchFor(field, item, value), { headers: ifMatchHeader(tag) });
+      await updateItem(libraryId, item.id, patch, { headers: ifMatchHeader(tag) });
       onNotice('');
     } catch (error) {
       if (error instanceof ApiError && error.status === 412) {
@@ -69,10 +73,54 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
       }
     } finally {
       etag.current = null;
+      setLentTo('');
       setBusy(false);
       await invalidate(libraryId);
     }
   };
+
+  const choose = async (value: string) => {
+    setOpen(false);
+    if (startsLend(field, item, value)) {
+      // The ETag loaded when the menu opened stays for the save below.
+      setAsking(true);
+      return;
+    }
+    await send(patchFor(field, item, value));
+  };
+
+  const lend = async () => {
+    if (!lentTo.trim()) return;
+    setAsking(false);
+    await send(statusPatch(item.status, 'lent', localDateString(), lentTo));
+  };
+
+  const cancelLend = () => {
+    setAsking(false);
+    setLentTo('');
+    etag.current = null;
+  };
+
+  if (asking) {
+    return (
+      <View style={styles.root}>
+        <TextField
+          label="Lent to"
+          accessibilityLabel={`Who has ${item.title}`}
+          value={lentTo}
+          onChangeText={setLentTo}
+          placeholder="Sam"
+          autoFocus
+          returnKeyType="done"
+          onSubmitEditing={lend}
+        />
+        <View style={styles.actions}>
+          <Button label="Lend" accessibilityLabel={`Lend ${item.title}`} disabled={!lentTo.trim()} onPress={lend} />
+          <Button label="Cancel" accessibilityLabel={`Cancel lending ${item.title}`} variant="secondary" onPress={cancelLend} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -109,6 +157,7 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
 
 const styles = StyleSheet.create((theme) => ({
   root: { gap: theme.spacing.xs },
+  actions: { flexDirection: 'row', gap: theme.spacing.sm },
   trigger: { minHeight: 44, justifyContent: 'center' },
   current: { color: theme.colors.ink },
   menu: {

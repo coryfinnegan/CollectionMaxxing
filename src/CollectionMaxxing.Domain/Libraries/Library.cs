@@ -41,6 +41,11 @@ public sealed class Library : Common.IConcurrencyVersioned
                 Common.ErrorKind.Validation, "library.name_too_long", $"A library name can be at most {MaxNameLength} characters.", "name"));
         }
 
+        if (Common.TextRules.Check(trimmed, "name") is { } badText)
+        {
+            return Common.Result.Failure(badText);
+        }
+
         Name = trimmed;
         return Common.Result.Success();
     }

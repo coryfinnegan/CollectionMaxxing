@@ -37,6 +37,10 @@ public static class ItemErrors
         new(ErrorKind.Conflict, KeyReusedCode, "That Idempotency-Key was already used for a different request.");
 
     public static DomainError Invalid(string code, string message, string field) => new(ErrorKind.Validation, code, message, field);
+
+    /// <summary>A lent item has a borrower, so an edit that would leave one lent without a name is refused. <paramref name="field"/> is the request field to blame.</summary>
+    public static DomainError LentToRequired(string field) =>
+        Invalid("item.lent_to_required", "Say who has it before marking an item as lent out.", field);
 }
 
 /// <summary>Parses the <c>If-Match</c> header: an ETag is the quoted row version, e.g. <c>"42"</c>.</summary>

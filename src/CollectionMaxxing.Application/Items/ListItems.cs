@@ -107,6 +107,12 @@ public static class ListItems
                 return ItemErrors.Invalid("items.status_invalid", "That isn't a known status.", "status");
             }
 
+            var badText = TextRules.Check(query.Q, "q") ?? TextRules.Check(query.Tag, "tag");
+            if (badText is not null)
+            {
+                return badText;
+            }
+
             var limit = query.Limit is null or < 1 ? DefaultLimit : Math.Min(query.Limit.Value, MaxLimit);
 
             CursorValue? cursor = null;

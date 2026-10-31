@@ -346,13 +346,13 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
             editor, library.Id, new { releaseId = await ItemSeed.AddReleaseAsync(Db), notes = "Boxed", condition = "good" });
         var url = ItemUrl(library.Id, (await ReadJsonAsync(created)).GetProperty("id").GetGuid());
 
-        var response = await PatchAsync(editor, url, ETagOf(created), "{ \"notes\": null, \"status\": \"lent\" }");
+        var response = await PatchAsync(editor, url, ETagOf(created), "{ \"notes\": null, \"status\": \"wishlist\" }");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var item = await ReadJsonAsync(response);
         item.GetProperty("notes").ValueKind.ShouldBe(JsonValueKind.Null);
         item.GetProperty("condition").GetString().ShouldBe("good");
-        item.GetProperty("status").GetString().ShouldBe("lent");
+        item.GetProperty("status").GetString().ShouldBe("wishlist");
     }
 
     [Fact]
