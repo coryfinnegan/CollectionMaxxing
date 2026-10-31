@@ -21,6 +21,11 @@ function Test-Case {
     finally {
         $global:CmRunner = $null
         $global:CmAuth0Runner = $null
+        # The issue agent's seams (deploy/agent): the detached start, the process table, the clock and the claude lookup.
+        $global:CmStartProcess = $null
+        $global:CmProcessTable = $null
+        $global:CmAgentNow = $null
+        $global:CmClaudePath = $null
     }
 }
 

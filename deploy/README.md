@@ -10,6 +10,7 @@ Everything here was written and tested **without touching the real machine**. Ev
 | `deployer/` | `Deploy-CollectionMaxxing.ps1` (the deployer), `Install-Deployer.ps1` / `Uninstall-Deployer.ps1` (the scheduled task), shared `Cm.*.ps1` |
 | `apple/` | `New-SigningRequest.ps1` and `Publish-SigningSecrets.ps1`: the TestFlight signing setup and its yearly renewal (ADR-024, [runbooks/iphone-app-testflight.md](runbooks/iphone-app-testflight.md)) |
 | `tailscale/` | `Set-TailscaleServe.ps1` |
+| `agent/` | The issue agent: `Watch-AgentIssues.ps1` (the scheduled watcher), `Run-AgentIssue.ps1` (one run), `agent-prompt.md` (what the agent is told), `Install-AgentWatcher.ps1` ([The issue agent](#the-issue-agent-optional)) |
 | `backup/` | The backup image: `Dockerfile.backup`, `backup.sh`, `backup-lib.sh` (dump, files archive, manifest, retention, heartbeat) |
 | `runbooks/`, `drills/` | Short "what do I do when..." runbooks (start at `runbooks/README.md`) and the restore drill log template |
 | `RESTORE.md` | The runbook for the restore drill (twice a year) and for a real restore. The drill itself is `scripts/restore-drill.ps1` / `scripts/restore-drill.sh` |
@@ -139,6 +140,16 @@ The iPhone app is no longer served from this PC: it comes from TestFlight (ADR-0
 
 Nothing here is set up. When you want it (docs/10): create a free Backblaze B2 bucket or use OneDrive, then `rclone config` (an `crypt` remote on top), and schedule `rclone copy F:\Backups\CollectionMaxxing <crypt-remote>:` weekly with a normal Windows scheduled task you create yourself. Keep the rclone password somewhere safe: without it the copy cannot be read.
 
+### 12. Optional: the issue agent
+
+Only if you want GitHub issues to turn into pull requests without a session of yours. Nothing runs until you do this; see [The issue agent](#the-issue-agent-optional) for what it does, its limits and its switch.
+
+```powershell
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1            # dry run
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Apply
+```
+**Undo:** `pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Uninstall -Apply`.
+
 ## Everything the real install runs
 
 | Step | Commands that change the machine |
@@ -150,6 +161,7 @@ Nothing here is set up. When you want it (docs/10): create a free Backblaze B2 b
 | 6 | `tailscale serve --bg --https=443 http://127.0.0.1:5480` |
 | 7 | `schtasks /Create ...` (one task) |
 | 8 | `backup.sh once` inside the backup container |
+| 12 | `schtasks /Create ...` (one task, `CollectionMaxxingAgent`, optional). Once installed, each run of the agent service changes your own checkout (`git fetch origin`, `git worktree add`, and `git worktree remove` for its own `agent-issue-<n>` folders) and GitHub (labels and comments on one issue, then whatever the agent does for it); see the next section |
 
 It never runs `docker system prune`, `docker volume prune`, `docker image prune`, `docker rm` on any container, `docker image rm` on anything but a single old `repo:tag` of the api, migrate or backup repository ([Old images](#old-images-what-is-removed-and-what-is-kept)), `docker compose down -v`, anything that edits the registry, PATH, system or WSL settings, or anything that binds a port other than `127.0.0.1:5480` and `127.0.0.1:18888`.
 
@@ -209,6 +221,70 @@ Every deploy pulls three images (`collectionmaxxing-api`, `-migrate`, `-backup`,
 - **Kill switch:** `CM_PRUNE_IMAGES=0` in `C:\CollectionMaxxing\.env` (or in the deployer's process environment) turns the whole clean-up off. `false`, `off` and `no` work too; anything else, or not set, leaves it on. Remove the line to turn it back on.
 
 The log lines to look for: `removed 100 old images of api, migrate and backup (kept the running and the previous version and the 3 newest of each); 281 more wait for the next poll`, and `could not remove 1 old image (first: ...)` as a `WARN`.
+
+## The issue agent (optional)
+
+A second scheduled task, separate from the deployer. Every 5 minutes `Watch-AgentIssues.ps1` looks on GitHub for a queued issue and, when there is one, starts a fresh headless Claude Code run (`claude -p`) for that one issue in its own git worktree. The agent works the issue test first, opens one pull request, has a separate verifier agent review it, squash-merges it when CI is green and the verifier approves (the owner's standing rule), and follows it to delivery. It replaces the old `scripts/watch-muse-issues.ps1`, which only printed ready issues for a long-lived session; a fresh run per issue keeps contexts small (ADR-023).
+
+**It costs nothing while there is no work.** A watcher pass is plain PowerShell plus the `gh` CLI and never starts a model. An idle pass is one `gh issue list` call; with the switch off, the daily cap reached or a run still alive it makes none. Only a pass that finds an issue starts a model, once, for that issue.
+
+### Queue an issue
+
+Open an issue as yourself (issues by anyone else are never worked) and add the label `agent-task`. Optionally add `p1` to `p5` (no label counts as `p3`), a `type:*` label and a `tier:*` label. The issue text is the brief: write what you want and how you will know it is done. Text pasted into it (logs, alert output) is treated as data, not instructions. To see where it is, look at the issue: the labels and the comments say.
+
+| Label | Meaning | Set by |
+|---|---|---|
+| `agent-task` | Queued for the agent | you |
+| `agent-working` | A run has picked it up (comment "Picked up at ...") | the watcher |
+| `agent-review` | The pull request is open; waiting for CI, the verifier and the merge | the agent (it removes it when delivered) |
+| `agent-blocked` | The agent stopped and said why in a comment, or the watcher found the run dead; remove the label to try again | the agent or the watcher |
+| `needs:cory`, `status:blocked` | Not the agent's to move; the watcher skips these | you or the agent |
+| `p1` to `p5` | Order of work (`p1` first, then oldest) | you |
+| `tier:mechanical` / `tier:critical` | Model: `haiku` / `opus`. Anything else runs `sonnet` | you |
+
+### How one run goes
+
+1. The pass reads `C:\CollectionMaxxing\.env`, closes out an earlier run if its process is gone, and stops if one is still alive (one run at a time) or the day's cap is reached.
+2. It lists open `agent-task` issues written by the repo owner, skips any with `agent-working`, `agent-blocked`, `needs:cory` or `status:blocked`, and picks by priority, then oldest.
+3. In your own checkout it runs `git fetch origin` (if that fails the issue is left untouched and the next pass tries again). Then it adds `agent-working`, comments "Picked up at <time>", runs `git worktree add <checkout>\.claude\worktrees\agent-issue-<n> -b agent/issue-<n> origin/main` (a leftover worktree from an earlier failed run of the same issue is reused as it is), and starts `Run-AgentIssue.ps1` in a headless console. The pass then exits.
+4. The runner starts `claude -p --permission-mode auto --model <model>` with `agent-prompt.md` (with the issue number filled in) as its input, in that worktree. Everything it prints is appended to `logs\agent\issue-<n>-<yyyyMMdd-HHmmss>.log`.
+5. The agent does the work as `CLAUDE.md` describes, comments the PR link on the issue and swaps `agent-working` for `agent-review`, has a verifier subagent review the diff, merges when CI is green and the verifier approves, and follows the merge to delivery. If it is blocked or unsure it comments what it needs, adds `agent-blocked` (and `needs:cory` when the decision is yours) and stops.
+6. The next pass sees the process gone. If the issue is closed, the run finished: the worktree and the local branch are removed when its pull request merged. If the agent blocked itself, nothing more happens. Otherwise (a non-zero exit, no merge, still `agent-working`) the watcher adds `agent-blocked` and comments the last 30 log lines with secrets hidden; that worktree is kept so you can look at it. Then the lock is cleared and the same pass moves on to the next issue.
+
+### Limits and the switch
+
+Settings go in `C:\CollectionMaxxing\.env` (all optional, read on every pass; see `.env.example`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `CM_AGENT_ENABLED` | on | `0`, `false`, `off` or `no` switches the agent off: every pass exits at once, with no call to GitHub. A run already going is not stopped by this |
+| `CM_AGENT_REPO` | `<home>\source\repos\CollectionMaxxing` | Your own checkout, where the worktrees are made. It is refused if it is the deployer's own clone (`C:\CollectionMaxxing\repo`) or inside it, and nothing is claimed |
+| `CM_AGENT_MAX_RUNS_PER_DAY` | 8 | Runs started per local day, counted when an issue is picked up. `0` pauses new runs. When the cap is hit the log says so once |
+| `CM_AGENT_MAX_MINUTES` | 180 | A run longer than this is stopped with all its child processes and its issue is marked `agent-blocked`. The runner enforces this itself, because Task Scheduler may not start the watcher again while an agent runs |
+
+Always on: one run at a time (a lock in `state\agent.lock`; a second watcher pass exits, and a lock whose process is gone or whose id now belongs to a newer process is cleared), only issues written by the repo owner, no admin rights, no second account, and no other scheduled task is touched. The agent itself works under the hard rules in `CLAUDE.md`: its worktree and its own branch only, never `main`, no force-push, Docker and ports as `CLAUDE.md` says, nothing secret in a commit or comment. The log tail the watcher posts passes through the same secret masking as the deployer's log (every secret-looking value in `.env`, GitHub and bearer tokens, the home folder).
+
+The agent runs as your Windows account with your `gh` login and your Claude Code sign-in, while you are signed in. `--permission-mode auto` has to be available for that sign-in; if it is not, the first run fails at once, its log tail lands on the issue and the issue is marked `agent-blocked`.
+
+### Install, look, stop
+
+```powershell
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1            # dry run: prints the schtasks command
+pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Apply
+schtasks /Query /TN CollectionMaxxingAgent
+```
+It registers one user-level task, `CollectionMaxxingAgent` (every 5 minutes, `conhost --headless pwsh ... Watch-AgentIssues.ps1 -Root C:\CollectionMaxxing -Apply`, `/RL LIMITED`), and refuses to replace one that exists. Run `Watch-AgentIssues.ps1` by hand without `-Apply` to see what a pass would do; it changes nothing.
+
+| Where | What |
+|---|---|
+| `C:\CollectionMaxxing\logs\agent-watcher.log` | The watcher's own log; quiet passes write nothing |
+| `C:\CollectionMaxxing\logs\agent\issue-<n>-<time>.log` | One run: header, everything claude printed, how it ended. Next to it: `.prompt.md` (what it was told) and `.exit.json` |
+| `C:\CollectionMaxxing\state\agent-state.json`, `agent.lock` | The day's run count; the run in progress |
+| `<checkout>\.claude\worktrees\agent-issue-<n>` | A run's worktree, kept while its issue is blocked |
+
+**If an issue sits in the queue:** it must be written by the repo owner and carry `agent-task` and none of `agent-working`, `agent-blocked`, `needs:cory`, `status:blocked`. Then look for `config-error` lines in `logs\agent-watcher.log` (no checkout at `CM_AGENT_REPO`, `claude` not found), check `CM_AGENT_ENABLED`, the day's cap, and whether another run holds `state\agent.lock`. **If a picked-up issue turns `agent-blocked` within minutes** and its run log holds only the header line, the run did not survive its start; the blocked comment carries the exit code and the log tail.
+
+**Pause:** set `CM_AGENT_ENABLED=0` in `.env`. **Stop a run now:** `taskkill /PID <pid in state\agent.lock> /T /F`; the next pass marks its issue blocked. **Uninstall:** `pwsh -NoProfile -File C:\CollectionMaxxing\repo\deploy\agent\Install-AgentWatcher.ps1 -Uninstall -Apply` (or `schtasks /Delete /TN CollectionMaxxingAgent /F`). **Run an issue again:** remove `agent-blocked` from it.
 
 ## Changing the code
 
