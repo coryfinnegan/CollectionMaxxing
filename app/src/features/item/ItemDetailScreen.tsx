@@ -8,6 +8,7 @@ import { Platform, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { ItemDetailDto, UpdateItemRequest } from '@/api/generated/models';
 import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLabels } from '@/features/library/labels';
+import { isInCollection } from '@/features/library/statuses';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
@@ -86,6 +87,9 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
 
   const { item, work, release } = detail;
   const moves = movesFor(item.status);
+  // "Also in your library" is what you have: a wishlisted or sold copy of the same work is not one of the copies.
+  const otherCopies = detail.otherCopies.filter((copy) => isInCollection(copy.status));
+  const copiesInLibrary = otherCopies.length + (isInCollection(item.status) ? 1 : 0);
   const title = item.customTitle ?? work.title;
   const facts = [formatLabels[release.format], release.platform?.name, release.year ?? work.originalYear, release.publisher]
     .filter(Boolean)
@@ -191,7 +195,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         <Text>{item.notes ?? 'None'}</Text>
       </Card>
 
-      {detail.otherCopies.length > 0 ? <Text tone="muted">{`${detail.otherCopies.length + 1} copies of this work`}</Text> : null}
+      {otherCopies.length > 0 ? <Text tone="muted">{`${copiesInLibrary} ${copiesInLibrary === 1 ? 'copy' : 'copies'} of this work`}</Text> : null}
 
       {message ? (
         <Text tone="danger" accessibilityRole="alert">
@@ -236,7 +240,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         </Sheet>
       ) : null}
 
-      <OtherCopies copies={detail.otherCopies} locations={locations} onOpen={(copyId) => router.push(`/item/${copyId}`)} />
+      <OtherCopies copies={otherCopies} locations={locations} onOpen={(copyId) => router.push(`/item/${copyId}`)} />
       {done ? <Snackbar message={done.message} actionLabel={done.etag ? 'Undo' : undefined} onAction={undoMove} /> : null}
       <UndoSnackbar />
     </Screen>

@@ -183,6 +183,36 @@ describe('moving an item between the library, the wishlist and sold', () => {
   });
 });
 
+describe('the other copies of a work, on the item screen', () => {
+  /** Another copy of the item's work (same work and release) with this status. */
+  const addCopy = (title: string, id: string, status: 'owned' | 'wishlist' | 'sold') => {
+    const copy = JSON.parse(JSON.stringify(entryOf(title))) as ReturnType<typeof entryOf>;
+    copy.item.id = id;
+    copy.item.status = status;
+    itemsState.entries.push(copy);
+  };
+
+  it('does not count a wishlisted or sold copy of the same work as a copy in your library', async () => {
+    addCopy('Dune', 'f0000000-0000-4000-8000-000000000001', 'wishlist');
+    addCopy('Dune', 'f0000000-0000-4000-8000-000000000002', 'sold');
+
+    await openItem('Dune');
+
+    expect(screen.queryByText(/copies of this work/)).toBeNull();
+    expect(screen.queryByText('Also in your library')).toBeNull();
+  });
+
+  it('still lists another owned copy, and counts it', async () => {
+    addCopy('Dune', 'f0000000-0000-4000-8000-000000000003', 'owned');
+    addCopy('Dune', 'f0000000-0000-4000-8000-000000000004', 'wishlist');
+
+    await openItem('Dune');
+
+    expect(await screen.findByText('2 copies of this work')).toBeTruthy();
+    expect(screen.getByText('Also in your library')).toBeTruthy();
+  });
+});
+
 describe('the status chips in the edit form', () => {
   it('lists the three in the library first, a separator, then Wishlist and Sold', async () => {
     await renderWithProviders(<ItemEditScreen id={idOf('Dune')} />);
