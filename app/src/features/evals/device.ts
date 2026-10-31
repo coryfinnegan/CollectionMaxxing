@@ -1,11 +1,22 @@
-// The real pieces on the phone for the eval runner: photo download into the cache folder, the keep-awake lock, the device name.
+// The real pieces on the phone for the eval runner: photo download into the cache folder, the keep-awake lock, the device name, the outbox in MMKV
+// and whether the app is in front.
 // Everything native loads on first use; nothing here runs on the web build or in tests (they build their own).
+import { AppState } from 'react-native';
+import { MemoryKeyValueStore, type KeyValueStore } from '@/features/scan/tray/trayStore';
 import { apiBaseUrl } from '@/lib/http';
-import { EvalRunner, type EvalRunnerDeps } from './runner';
+import { DownloadError, EvalRunner, type AppStateSource, type EvalRunnerDeps } from './runner';
 import { evalApi } from './api';
 
 const KEEP_AWAKE_TAG = 'cm-evals';
 const FOLDER = 'cm-evals';
+
+/** The HTTP status the PC answered, when the download's error carries one (as a property, or as the number in its message). None means it never answered. */
+function statusFrom(error: unknown): number | undefined {
+  const { status, statusCode, message } = (error ?? {}) as { status?: unknown; statusCode?: unknown; message?: unknown };
+  for (const value of [status, statusCode]) if (typeof value === 'number') return value;
+  const found = typeof message === 'string' ? /(?<!\d)([45]\d\d)(?!\d)/.exec(message) : null;
+  return found ? Number(found[1]) : undefined;
+}
 
 const deviceFiles: EvalRunnerDeps['files'] = {
   async download(id) {
@@ -20,11 +31,15 @@ const deviceFiles: EvalRunnerDeps['files'] = {
     const destination = new fs.File(dir, `${id}.jpg`);
     // Registered before the download starts, so a file left by a killed app is found by the next clear.
     trackPicture(destination.uri);
-    const file = await fs.File.downloadFileAsync(`${apiBaseUrl()}/api/admin/evals/golden/${encodeURIComponent(id)}/image`, destination, {
-      headers: await authHeaders('GET'),
-      idempotent: true,
-    });
-    return file.uri;
+    try {
+      const file = await fs.File.downloadFileAsync(`${apiBaseUrl()}/api/admin/evals/golden/${encodeURIComponent(id)}/image`, destination, {
+        headers: await authHeaders('GET'),
+        idempotent: true,
+      });
+      return file.uri;
+    } catch (error) {
+      throw new DownloadError(error instanceof Error ? error.message : 'The photo did not download.', statusFrom(error));
+    }
   },
   async sizeOf(uri) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -42,6 +57,26 @@ const deviceKeepAwake: EvalRunnerDeps['keepAwake'] = {
   async off() {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     await (require('expo-keep-awake') as typeof import('expo-keep-awake')).deactivateKeepAwake(KEEP_AWAKE_TAG);
+  },
+};
+
+/** The readings the PC has not taken yet, kept in MMKV so an app that iOS ends mid-run loses none of them. */
+function openOutbox(): KeyValueStore {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createMMKV } = require('react-native-mmkv') as typeof import('react-native-mmkv');
+    return createMMKV({ id: 'eval-outbox' });
+  } catch {
+    return new MemoryKeyValueStore();
+  }
+}
+
+/** The app in front or not, as React Native tells it. */
+const deviceAppState: AppStateSource = {
+  current: () => AppState.currentState,
+  subscribe(listener) {
+    const subscription = AppState.addEventListener('change', listener);
+    return () => subscription.remove();
   },
 };
 
@@ -77,6 +112,8 @@ export function getEvalRunner(): EvalRunner {
       vision: visionEngine,
       device: deviceInfo(),
       keepAwake: deviceKeepAwake,
+      outbox: openOutbox(),
+      appState: deviceAppState,
     });
   }
   return current;
