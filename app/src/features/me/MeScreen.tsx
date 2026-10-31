@@ -3,14 +3,14 @@ import { type Href, useRouter } from 'expo-router';
 import { useListMembers } from '@/api/generated/libraries/libraries';
 import { useGetStats } from '@/api/generated/items/items';
 import { isWeb } from '@/lib/auth/session';
-import { Card, ListRow, Screen, Text } from '@/ui';
+import { Button, Card, ListRow, Screen, Text } from '@/ui';
 import { useMyRole } from './useMyRole';
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
 export function MeScreen() {
   const router = useRouter();
-  const { libraryId, role } = useMyRole();
+  const { libraryId, role, isError, refetch } = useMyRole();
   const stats = useGetStats(libraryId ?? '', { query: { enabled: !!libraryId } });
   const members = useListMembers(libraryId ?? '', { query: { enabled: !!libraryId } });
   const total = stats.data?.status === 200 ? stats.data.data.total : null;
@@ -38,7 +38,16 @@ export function MeScreen() {
     <Screen title="Me" showTitleOnPhone>
       <Card>
         <Text variant="heading">{isWeb() ? 'This browser' : 'Paired: this iPhone'}</Text>
-        {counts ? <Text tone="muted">{counts}</Text> : <Text tone="muted">Loading…</Text>}
+        {counts ? (
+          <Text tone="muted">{counts}</Text>
+        ) : isError ? (
+          <>
+            <Text tone="danger" accessibilityRole="alert">{"Couldn't load your library"}</Text>
+            <Button label="Try again" variant="secondary" onPress={() => void refetch()} />
+          </>
+        ) : (
+          <Text tone="muted">Loading…</Text>
+        )}
       </Card>
       <Card>
         {links.map((link) => (

@@ -17,7 +17,9 @@ Test-Case 'compose: every service caps its json-file log at 5 files of 20 MB, so
 }
 
 Test-Case 'compose: the logging block does not trip the deployer''s config guard' {
-    # The guard reads ports, networking, privileges and published ports only; logging is none of those.
+    # The guard is called the way the deployer calls it (the .env values and the compose file's path), so the
+    # stack's own bind mounts are allowed and only a logging problem could fail this.
     $config = Get-RealComposeConfig
-    Assert-Equal 0 @(Test-CmConfig -EnvMap @{ CM_API_PORT = '5480'; CM_DASHBOARD_PORT = '18888' } -ComposeConfig $config).Count
+    $envMap = @{ CM_API_PORT = '5480'; CM_DASHBOARD_PORT = '18888' } + $script:LastRealComposeEnv
+    Assert-Equal 0 @(Test-CmConfig -EnvMap $envMap -ComposeConfig $config -ComposeFile $script:LastRealComposeFile).Count
 }

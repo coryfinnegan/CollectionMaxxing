@@ -1,11 +1,14 @@
 // Item edit: status, condition, completeness (games only, #441), location, notes, acquired date, lent-to.
-// Saves with If-Match from the loaded ETag. A 412 keeps the user's edits on screen and offers Reload.
-import { useRouter } from 'expo-router';
+// Saves with If-Match from the ETag the form opened with, and sends only what the person changed. The form holds its
+// own snapshot of the item, so a refetch behind it (a refocused browser tab, the refresh after a refused save) never
+// swaps the version being edited. A 412 keeps the user's edits on screen and offers Reload, the one thing that takes
+// the newer version.
 import { useState } from 'react';
 import { View } from 'react-native';
-import type { ItemCompleteness, ItemCondition, ItemStatus } from '@/api/generated/models';
+import type { ItemCompleteness, ItemCondition, ItemDto, ItemStatus } from '@/api/generated/models';
 import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
+import { useGoBackOr } from '@/lib/navigation';
 import { AcquiredField } from './AcquiredField';
 import {
   completenesses,
@@ -17,11 +20,12 @@ import {
 } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
 import { Button, Card, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Text, TextField } from '@/ui';
 import { breadcrumb } from './breadcrumb';
-import { buildPatch, formFromItem, isValidDate, type ItemForm } from './etag';
+import { buildPatch, formFromItem, isEmptyPatch, isValidDate, type ItemForm } from './etag';
 import { useItemDetail, useItemMutations } from './useItem';
 
 export function ItemEditScreen({ id }: { id: string }) {
@@ -29,7 +33,7 @@ export function ItemEditScreen({ id }: { id: string }) {
   if (isLoading || !libraryId) {
     return (
       <Screen>
-        <LoadingState label="Loading this item…" />
+        <LibraryLoading label="Loading this item…" />
       </Screen>
     );
   }
@@ -37,7 +41,7 @@ export function ItemEditScreen({ id }: { id: string }) {
 }
 
 function EditLoader({ libraryId, id }: { libraryId: string; id: string }) {
-  const { detail, etag, isLoading, isError, error, refetch } = useItemDetail(libraryId, id);
+  const { detail, etag, isLoading, error, refetch } = useItemDetail(libraryId, id);
   if (isLoading) {
     return (
       <Screen>
@@ -45,7 +49,8 @@ function EditLoader({ libraryId, id }: { libraryId: string; id: string }) {
       </Screen>
     );
   }
-  if (isError || !detail || !etag) {
+  // Only a missing item is an error here. A refetch that fails behind an open form leaves the form alone.
+  if (!detail || !etag) {
     return (
       <Screen>
         <EmptyState
@@ -68,11 +73,17 @@ type FormProps = {
   refetch: ReturnType<typeof useItemDetail>['refetch'];
 };
 
+/** The version of the item the form opened with: what edits are measured against, and the ETag a save carries. */
+type Snapshot = { item: ItemDto; etag: string };
+
 function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
-  const router = useRouter();
+  // Taken once, when the form opens. The live `detail` and `etag` move whenever the item is refetched; this does not,
+  // except when the person taps Reload on the "someone changed this" card.
+  const [snapshot, setSnapshot] = useState<Snapshot>(() => ({ item: detail.item, etag }));
+  const leave = useGoBackOr(`/item/${id}`);
   const { locations } = useLocationsList(libraryId);
   const { update } = useItemMutations(libraryId);
-  const [form, setForm] = useState<ItemForm>(() => formFromItem(detail.item));
+  const [form, setForm] = useState<ItemForm>(() => formFromItem(snapshot.item));
   const [picking, setPicking] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,11 +99,16 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
       return;
     }
     setDateError(null);
-    const today = localDateString();
+    const patch = buildPatch({ ...form, acquiredOn: form.acquiredOn.trim() }, snapshot.item, localDateString());
+    // Nothing changed, so there is nothing that could write over anyone else's version.
+    if (isEmptyPatch(patch)) {
+      leave();
+      return;
+    }
     update.mutate(
-      { id, data: buildPatch({ ...form, acquiredOn: form.acquiredOn.trim() }, detail.item, today), etag },
+      { id, data: patch, etag: snapshot.etag },
       {
-        onSuccess: () => router.back(),
+        onSuccess: leave,
         onError: (e) => {
           if (e instanceof ApiError && e.status === 412) setConflict(true);
           else setError(friendlyError(e));
@@ -103,8 +119,16 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
 
   const reload = async () => {
     const result = await refetch();
-    const fresh = result.data?.status === 200 ? result.data.data : undefined;
-    if (fresh) setForm(formFromItem(fresh.item));
+    // A failed refetch still carries the data it had before; that is not the newer version.
+    const fresh = !result.isError && result.data?.status === 200 ? result.data : undefined;
+    const freshEtag = fresh?.headers.get('etag');
+    if (!fresh || !freshEtag) {
+      setError("Couldn't reload. Check your connection and try again.");
+      return;
+    }
+    setSnapshot({ item: fresh.data.item, etag: freshEtag });
+    setForm(formFromItem(fresh.data.item));
+    setError(null);
     setConflict(false);
   };
 
@@ -189,7 +213,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
 
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <Button label="Save changes" haptic="commit" onPress={save} busy={update.isPending} />
-        <Button label="Cancel" variant="secondary" onPress={() => router.back()} />
+        <Button label="Cancel" variant="secondary" onPress={leave} />
       </View>
     </Screen>
   );
