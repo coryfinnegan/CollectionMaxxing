@@ -164,7 +164,8 @@ public static class ScanningEndpoints
     {
         var result = await handler.HandleAsync(
             new CreateScanSession.Command(
-                libraryId, body.DefaultLocationId, body.DefaultStatus, body.MediaHint, body.Channel, body.AutoCommitTiers, body.AutoCommitCopies),
+                libraryId, body.DefaultLocationId, body.DefaultStatus, body.MediaHint, body.Channel, body.AutoCommitTiers, body.AutoCommitCopies,
+                body.UtcOffsetMinutes),
             cancellationToken);
         return result.IsSuccess
             ? TypedResults.Created($"{ScanSessionRoutes.Prefix}/{result.Value.Id}", result.Value)
@@ -215,7 +216,8 @@ public static class ScanningEndpoints
             ? null
             : new CommitOptions(
                 body.AddTo, body.Status, body.Condition,
-                body.Overrides?.Select(o => new CommitOverride(o?.CandidateId, o?.LocationId, o?.Status, o?.Condition, o?.Copies)).ToList());
+                body.Overrides?.Select(o => new CommitOverride(o?.CandidateId, o?.LocationId, o?.Status, o?.Condition, o?.Copies)).ToList(),
+                body.AcquiredOn);
         var result = await handler.HandleAsync(new CommitScanSession.Command(id, idempotencyKey, options), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToScanProblem();
     }

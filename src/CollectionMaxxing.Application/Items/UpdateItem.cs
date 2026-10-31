@@ -29,6 +29,7 @@ public static class UpdateItem
             }
 
             var patch = command.Patch;
+            // Only for a lend that names no date: the apps send their own day, which the server can't know, so this is the UTC day.
             var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
 
             var badText = TextRules.Check(patch.Notes.Value, "notes")

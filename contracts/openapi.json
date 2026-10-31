@@ -7106,6 +7106,13 @@
             "items": {
               "$ref": "#/components/schemas/CommitOverrideRequest"
             }
+          },
+          "acquiredOn": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
           }
         }
       },
@@ -7397,6 +7404,13 @@
           "autoCommitCopies": {
             "type": "boolean",
             "default": false
+          },
+          "utcOffsetMinutes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },

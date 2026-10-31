@@ -1,4 +1,4 @@
-import { localDateString, parseLocalDate } from './dates';
+import { deviceUtcOffsetMinutes, localDateString, parseLocalDate } from './dates';
 
 // Timezone-sensitive: the gate runs this file with TZ=America/Chicago (see
 // scripts/check.mjs). Setting process.env.TZ in-test is too late, so bare
@@ -18,6 +18,26 @@ describe('localDateString', () => {
 
   it('zero-pads month and day', () => {
     expect(localDateString(new Date('2026-09-01T12:00:00Z'))).toBe('2026-09-01');
+  });
+});
+
+describe('deviceUtcOffsetMinutes', () => {
+  it('is minus 300 in US Central daylight time, the offset the server dates a scan commit by', () => {
+    expect(deviceUtcOffsetMinutes(new Date(EVENING))).toBe(-300);
+  });
+
+  it('is minus 360 in US Central standard time', () => {
+    expect(deviceUtcOffsetMinutes(new Date('2026-01-15T18:00:00Z'))).toBe(-360);
+  });
+
+  it('is the device offset right now by default', () => {
+    expect(deviceUtcOffsetMinutes()).toBe(-new Date().getTimezoneOffset() || 0);
+  });
+
+  it('is a whole number of minutes with no negative zero, for a server that wants an integer', () => {
+    const offset = deviceUtcOffsetMinutes(new Date(EVENING));
+    expect(Number.isInteger(offset)).toBe(true);
+    expect(Object.is(deviceUtcOffsetMinutes(), -0)).toBe(false);
   });
 });
 

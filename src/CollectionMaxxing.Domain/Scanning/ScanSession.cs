@@ -49,6 +49,19 @@ public sealed class ScanSession : ILibraryScoped, IConcurrencyVersioned
 
     public DateTimeOffset CreatedAt { get; init; }
 
+    /// <summary>The earliest real UTC offset in minutes: UTC−12:00.</summary>
+    public const int MinUtcOffsetMinutes = -720;
+
+    /// <summary>The latest real UTC offset in minutes: UTC+14:00.</summary>
+    public const int MaxUtcOffsetMinutes = 840;
+
+    /// <summary>
+    /// The phone's offset from UTC in minutes when the session started (−300 for US Central daylight time). The server has no
+    /// other way to know which calendar day the person is in, so items the session adds are dated by it. Null for a session
+    /// started by a phone that didn't say: its items get the UTC day.
+    /// </summary>
+    public int? UtcOffsetMinutes { get; init; }
+
     public DateTimeOffset? CommittedAt { get; set; }
 
     /// <summary>

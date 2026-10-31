@@ -24,7 +24,8 @@ public static class CreateScanSession
         ScanMediaHint? MediaHint = null,
         ScanChannel? Channel = null,
         IReadOnlyList<ScanTier>? AutoCommitTiers = null,
-        bool AutoCommitCopies = false);
+        bool AutoCommitCopies = false,
+        int? UtcOffsetMinutes = null);
 
     public sealed class Handler(IAppDbContext db, IIdGenerator ids, ICurrentUser currentUser, TimeProvider clock)
     {
@@ -50,6 +51,14 @@ public static class CreateScanSession
                 return ScanningErrors.Invalid("scan.autocommit_tiers_invalid", "Auto-commit tiers can only be T0 and T1.", "autoCommitTiers");
             }
 
+            if (command.UtcOffsetMinutes is { } offset && !LocalDay.IsRealOffset(offset))
+            {
+                return ScanningErrors.Invalid(
+                    "scan.utc_offset_invalid",
+                    $"The UTC offset is in minutes, from {ScanSession.MinUtcOffsetMinutes} to {ScanSession.MaxUtcOffsetMinutes}.",
+                    "utcOffsetMinutes");
+            }
+
             var session = new ScanSession
             {
                 Id = ids.NewId(),
@@ -62,6 +71,7 @@ public static class CreateScanSession
                 Channel = command.Channel ?? ScanChannel.Home,
                 AutoCommitTiers = command.AutoCommitTiers?.Distinct().Select(EnumText.ToText).ToArray() ?? [],
                 AutoCommitCopies = command.AutoCommitCopies,
+                UtcOffsetMinutes = command.UtcOffsetMinutes,
                 CreatedAt = clock.GetUtcNow(),
             };
             db.ScanSessions.Add(session);

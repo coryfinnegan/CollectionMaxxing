@@ -15,16 +15,18 @@ public sealed record CommitOverride(Guid? CandidateId, Guid? LocationId, ItemSta
 
 /// <summary>
 /// The person's choices at commit (SCAN-1d): "Add to" a location, a status and a condition for everything, and overrides for
-/// single items. All optional; no options at all commits exactly as it always did.
+/// single items. All optional; no options at all commits exactly as it always did. <c>AcquiredOn</c> is the day the phone is in:
+/// the day the items are dated, which beats the session's UTC offset.
 /// </summary>
 public sealed record CommitOptions(
-    Guid? AddTo, ItemStatus? Status, ItemCondition? Condition, IReadOnlyList<CommitOverride>? Overrides)
+    Guid? AddTo, ItemStatus? Status, ItemCondition? Condition, IReadOnlyList<CommitOverride>? Overrides, DateOnly? AcquiredOn = null)
 {
     public bool IsEmpty => AddTo is null && Status is null && Condition is null && Overrides is not { Count: > 0 };
 
     /// <summary>
     /// What an <c>Idempotency-Key</c> is tied to: the session alone when there are no options (as before this existed), else the
-    /// session and the options, so one key can't be reused for a different commit.
+    /// session and the options, so one key can't be reused for a different commit. The day is left out on purpose: a retry sent
+    /// after midnight carries a new day but is the same commit, and must get the first answer back, not a conflict.
     /// </summary>
     public static string Hash(Guid sessionId, CommitOptions? options)
     {

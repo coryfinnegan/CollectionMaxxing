@@ -24,6 +24,10 @@ namespace CollectionMaxxing.Application.Scanning;
 /// edition) is added as the release of the same work that has those, which the commit creates for the library when none does.
 /// </para>
 /// <para>
+/// Every item is dated the day the person is in: the day the phone sends with the commit, else the day the session's UTC offset
+/// gives, else the UTC day. A day more than one day past the server's UTC day is refused, so a wrong phone clock can't stamp next year.
+/// </para>
+/// <para>
 /// A photo the person chose to use ("Use my photo") becomes the cover of the items its candidate creates; the photos of candidates that
 /// weren't accepted are deleted, files included, so nothing is left behind.
 /// </para>
@@ -127,12 +131,14 @@ public static class CommitScanSession
 
             // The person's options, all checked before anything is added: a bad one leaves no item and no changed candidate.
             var options = command.Options;
-            var invalid = await ValidateAsync(options, session, candidates, cancellationToken);
+            var invalid = await ValidateAsync(options, session, candidates, now, cancellationToken);
             if (invalid is not null)
             {
                 return invalid;
             }
 
+            // The day the person is in: the one their phone named, else the one the session's offset gives, else the UTC day.
+            var acquiredOn = options?.AcquiredOn ?? LocalDay.Of(now, session.UtcOffsetMinutes);
             var overrides = (options?.Overrides ?? []).ToDictionary(o => o.CandidateId!.Value);
             var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session, accepted, now, cancellationToken);
 
@@ -160,7 +166,8 @@ public static class CommitScanSession
                         photoId,
                         ScanCommitItems.ViaOf(candidate.Source),
                         userId,
-                        now);
+                        now,
+                        acquiredOn);
                     db.Items.Add(item);
                     created.Add(item.Id);
                     if (copy == 0)
@@ -214,11 +221,16 @@ public static class CommitScanSession
 
         /// <summary>Checks the options against the library and the session. Null when they are fine.</summary>
         private async Task<DomainError?> ValidateAsync(
-            CommitOptions? options, ScanSession session, List<ScanCandidate> candidates, CancellationToken cancellationToken)
+            CommitOptions? options, ScanSession session, List<ScanCandidate> candidates, DateTimeOffset now, CancellationToken cancellationToken)
         {
             if (options is null)
             {
                 return null;
+            }
+
+            if (options.AcquiredOn is { } acquiredOn && acquiredOn > LocalDay.Latest(now))
+            {
+                return ScanningErrors.Invalid("scan.acquired_on_invalid", "That date is in the future. Check your phone's clock.", "acquiredOn");
             }
 
             var overrides = options.Overrides ?? [];

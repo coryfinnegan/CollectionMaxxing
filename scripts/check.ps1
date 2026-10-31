@@ -10,7 +10,9 @@
   Run from anywhere:  pwsh scripts/check.ps1 [-Phase phase ...]
   Phases are restore, build, format, test and app; with no arguments all of them run. CI runs one phase per step so
   timings and failures localize (the backend job skips the app phase; the app job owns npm run check).
-  Full output of the last failing step is kept in the file named in the failure message.
+  Full output of the last failing step is kept in the file named in the failure message. The logs live in a folder of
+  this checkout's own under the temp folder (collectionmaxxing-check/<folder name>-<hash of the path>), so gate runs
+  in parallel worktrees never read each other's logs.
 
   Environment: CM_TEST_ONLY limits the test phase to the named test projects (whitespace-separated basenames).
   CM_TEST_FILTER hands a VSTest filter expression (`dotnet test --filter`) to every selected project; see check.sh for
@@ -31,7 +33,23 @@ $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
 
 $solution = 'CollectionMaxxing.slnx'
 $maxLines = 15
-$logDir = Join-Path ([System.IO.Path]::GetTempPath()) 'collectionmaxxing-check'
+
+# Agents run this gate at the same time in different worktrees of one PC, so the logs cannot share a folder: a run
+# would read the format.log another run just wrote. The folder name is the checkout's folder name (so a person can tell
+# which is which) plus a hash of its full path (so two worktrees that end in the same name still differ). The same
+# checkout gets the same folder every run. Windows paths compare without regard to case.
+function Get-CheckLogDir([string]$CheckoutRoot) {
+  $path = $CheckoutRoot.TrimEnd('\', '/')
+  if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { $path = $path.ToLowerInvariant() }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try { $hash = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($path)) } finally { $sha.Dispose() }
+  $id = -join ($hash[0..3] | ForEach-Object { $_.ToString('x2') })
+  $name = [System.IO.Path]::GetFileName($path) -replace '[^A-Za-z0-9._-]', '_'
+  if (-not $name) { $name = 'root' }
+  if ($name.Length -gt 40) { $name = $name.Substring(0, 40) }
+  Join-Path ([System.IO.Path]::GetTempPath()) "collectionmaxxing-check/$name-$id"
+}
+$logDir = Get-CheckLogDir (Get-Location).Path
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $scriptTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -284,8 +302,12 @@ if (Test-Path $perfLog) {
 
 # ---- app (only once the Expo app exists) --------------------------------------------------------------------
 if ((Test-Want 'app') -and (Test-Path 'app/package.json')) {
-  # The app gate's own logs land here too, so one upload carries app.log and the test.log it points to (#260).
-  $env:CM_APP_CHECK_LOG_DIR = Join-Path $logDir 'app'
+  # The app gate's own logs land here too, so one upload carries app.log and the test.log it points to (#260). On CI the
+  # workflow names the folder it uploads; anywhere else a value in the environment is ignored, because one left by an
+  # earlier in-process run would send every checkout back to a single shared folder.
+  if (-not (($env:GITHUB_ACTIONS -eq 'true') -and $env:CM_APP_CHECK_LOG_DIR)) {
+    $env:CM_APP_CHECK_LOG_DIR = Join-Path $logDir 'app'
+  }
   $step = Invoke-Step 'app' { npm run check --prefix app --silent }
   if ($step.Code -ne 0) {
     Write-Failure 'app (npm run check)' ($step.Lines | Where-Object { $_.Trim() -ne '' } | Select-Object -Last $maxLines) $step.Log

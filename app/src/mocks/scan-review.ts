@@ -222,6 +222,7 @@ export const handlers = [
         entry.item.locationId = over?.locationId ?? body?.addTo ?? null;
         entry.item.status = over?.status ?? body?.status ?? 'owned';
         entry.item.condition = over?.condition ?? null;
+        entry.item.acquiredOn = body?.acquiredOn ?? localDateString();
         itemsState.entries.push(entry);
         itemIds.push(entry.item.id);
         c.createdItemId ??= entry.item.id;
