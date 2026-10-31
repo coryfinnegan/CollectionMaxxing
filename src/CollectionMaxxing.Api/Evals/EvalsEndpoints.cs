@@ -13,7 +13,7 @@ namespace CollectionMaxxing.Api.Evals;
 
 /// <summary>
 /// The eval server's routes (EVAL-1a), all under <c>/api/admin</c> and so behind <see cref="Policies.Admin"/>: the owner's golden
-/// photos go out, the phone's per-photo readings come back, and the report is built on the PC. The routes are always mapped (so
+/// photos go out (and new ones come in from the phone, at full size), the phone's per-photo readings come back, and the report is built on the PC. The routes are always mapped (so
 /// who may call them is the same whatever the settings), and answer 404 to the administrator too until <c>Evals:Enabled</c> is
 /// true and <c>Evals:GoldenPath</c> is a folder.
 /// </summary>
@@ -37,6 +37,18 @@ public static class EvalsEndpoints
         evals.MapGet("/golden/{id}/image", Image)
             .WithName("GetGoldenPhotoImage")
             .Produces(StatusCodes.Status200OK, null, "image/jpeg", "image/heic");
+
+        // One golden photo from the phone, at full size, into the PC's golden folder. The body is the picture's bytes; what it is, is decided
+        // from them. The only route with a body this big (40 MB), and it has the long upload timeout.
+        evals.MapPost("/golden/{set}/{id}", AddGoldenPhotoAsync)
+            .WithName("AddGoldenPhoto")
+            .Accepts<Stream>("*/*") // any header: the bytes decide what the picture is (and a header that names a type must not make the router refuse it)
+            .Produces<GoldenPhotoDto>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .WithRequestTimeout(Security.SecurityHeaders.UploadTimeoutPolicy); // 40 MB over a slow link takes longer than the usual minute
 
         // What the phone read in each golden photo. Grounded and scored on the PC; the report is written there.
         evals.MapPost("/runs", SubmitRunAsync)
@@ -125,7 +137,7 @@ public static class EvalsEndpoints
         byte[]? body;
         try
         {
-            body = await ReadBoundedAsync(request.Body, cancellationToken);
+            body = await ReadBoundedAsync(request.Body, EvalsOptions.MaxRunBytes, request.ContentLength, cancellationToken);
         }
         catch (BadHttpRequestException)
         {
@@ -227,10 +239,13 @@ public static class EvalsEndpoints
         $"An eval run can be at most {EvalsOptions.MaxRunBytes / (1024 * 1024)} MB.",
         "evals.body_too_large");
 
-    /// <summary>The body, or null when it is longer than <see cref="EvalsOptions.MaxRunBytes"/>. Reads at most one byte past the limit.</summary>
-    private static async Task<byte[]?> ReadBoundedAsync(Stream stream, CancellationToken cancellationToken)
+    /// <summary>
+    /// The body, or null when it is longer than <paramref name="maxBytes"/>. Reads at most one byte past the limit. A length the caller declared
+    /// (and that fits) sizes the buffer once, so a 30 MB original is held once and not copied again.
+    /// </summary>
+    private static async Task<byte[]?> ReadBoundedAsync(Stream stream, int maxBytes, long? declaredLength, CancellationToken cancellationToken)
     {
-        using var buffer = new MemoryStream();
+        using var buffer = new MemoryStream(declaredLength is > 0 and <= int.MaxValue ? (int)Math.Min(declaredLength.Value, maxBytes) : 0);
         var chunk = new byte[64 * 1024];
         while (true)
         {
@@ -240,7 +255,7 @@ public static class EvalsEndpoints
                 break;
             }
 
-            if (buffer.Length + read > EvalsOptions.MaxRunBytes)
+            if (buffer.Length + read > maxBytes)
             {
                 return null;
             }
@@ -248,6 +263,104 @@ public static class EvalsEndpoints
             buffer.Write(chunk, 0, read);
         }
 
-        return buffer.ToArray();
+        return buffer.TryGetBuffer(out var segment) && segment.Array is { } array && segment.Offset == 0 && segment.Count == array.Length
+            ? array
+            : buffer.ToArray();
     }
+
+    // ---- adding a golden photo ---------------------------------------------------------------------------------------------
+
+    private static async Task<IResult> AddGoldenPhotoAsync(
+        string set,
+        string id,
+        HttpContext http,
+        AddGoldenPhoto.Handler handler,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        // Every refusal is logged with its code and nothing the caller sent: not the bytes, and not the name (it may not be a name at all).
+        var logger = loggerFactory.CreateLogger("CollectionMaxxing.Api.Evals.AddGoldenPhoto");
+
+        // Off is a 404, and a set or name that cannot be used a 400, before any of the body is read.
+        var check = handler.Check(set, id);
+        if (!check.IsSuccess)
+        {
+            return PhotoRefused(logger, check.Error!);
+        }
+
+        var request = http.Request;
+        if (request.ContentLength > EvalsOptions.MaxGoldenPhotoBytes)
+        {
+            return PhotoRefused(logger, "evals.photo_too_large", PhotoTooLarge());
+        }
+
+        // This route alone takes a body this big: the cap is raised for this request only, and Kestrel enforces it for a body sent without a
+        // length. (Not every server lets it be changed: then the read cap below is the guard.)
+        var limit = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (limit is { IsReadOnly: false })
+        {
+            limit.MaxRequestBodySize = EvalsOptions.MaxGoldenPhotoBytes;
+        }
+
+        byte[]? bytes;
+        try
+        {
+            bytes = await ReadBoundedAsync(request.Body, EvalsOptions.MaxGoldenPhotoBytes, request.ContentLength, cancellationToken);
+        }
+        catch (BadHttpRequestException exception) when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            return PhotoRefused(logger, "evals.photo_too_large", PhotoTooLarge());
+        }
+
+        if (bytes is null)
+        {
+            return PhotoRefused(logger, "evals.photo_too_large", PhotoTooLarge());
+        }
+
+        // The bytes say what the picture is. The Content-Type the phone sent is never read.
+        if (GoldenPhotoFormats.Sniff(bytes) is not { } format)
+        {
+            return PhotoRefused(
+                logger,
+                "evals.unsupported_picture",
+                ProblemResults.Problem(
+                    StatusCodes.Status415UnsupportedMediaType,
+                    "Unsupported media type",
+                    "Send the photo as a JPEG or a HEIC, the original from your library.",
+                    "evals.unsupported_picture"));
+        }
+
+        var result = handler.Handle(set, id, format, bytes);
+        if (!result.IsSuccess)
+        {
+            return PhotoRefused(logger, result.Error!);
+        }
+
+        // The name was checked to be plain letters, digits, "-" and "_" before it got here, so it is safe to write in a log line.
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Golden photo added: {Set}/{Id}, {Bytes} bytes.", set, id, bytes.Length);
+        }
+
+        return TypedResults.Created($"/api/admin/evals/golden/{id}/image", result.Value);
+    }
+
+    private static IResult PhotoRefused(ILogger logger, CollectionMaxxing.Domain.Common.DomainError error) =>
+        PhotoRefused(logger, error.Code, error.ToProblem());
+
+    private static IResult PhotoRefused(ILogger logger, string code, IResult problem)
+    {
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Golden photo refused: {ProblemCode}.", code);
+        }
+
+        return problem;
+    }
+
+    private static IResult PhotoTooLarge() => ProblemResults.Problem(
+        StatusCodes.Status413PayloadTooLarge,
+        "Payload too large",
+        $"A golden photo can be at most {EvalsOptions.MaxGoldenPhotoBytes / (1024 * 1024)} MB.",
+        "evals.photo_too_large");
 }
