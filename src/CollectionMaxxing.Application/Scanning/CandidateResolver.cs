@@ -142,7 +142,7 @@ public sealed class CandidateResolver(
         {
             var alternatives = new List<StoredAlternative>();
             var known = await CandidateProjection.LoadReleasesAsync(
-                db, ensured.Where(e => !e.IsNew).Select(e => e.Id).ToList(), cancellationToken);
+                db, [libraryId], ensured.Where(e => !e.IsNew).Select(e => e.Id).ToList(), cancellationToken);
             var ownership = new List<OwnershipDto>(ensured.Count);
             foreach (var release in ensured)
             {

@@ -3,6 +3,7 @@ using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning.Artwork;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Application.Scanning.Quota;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -107,7 +108,7 @@ internal static class CandidateProjection
         IAppDbContext db, IReadOnlyList<ScanCandidate> candidates, CancellationToken cancellationToken)
     {
         var releaseIds = candidates.Select(c => c.MatchedReleaseId).OfType<Guid>().Distinct().ToList();
-        var releases = await LoadReleasesAsync(db, releaseIds, cancellationToken);
+        var releases = await LoadReleasesAsync(db, candidates.Select(c => c.LibraryId).Distinct().ToList(), releaseIds, cancellationToken);
         var art = await ArtworkLinks.ForCloseCallsAsync(db, candidates, cancellationToken);
         var crops = await CropUrlsAsync(db, candidates, cancellationToken);
         return candidates.Select(c => ToDto(
@@ -201,9 +202,12 @@ internal static class CandidateProjection
         cropUrl,
         coverPick);
 
-    /// <summary>The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent.</summary>
+    /// <summary>
+    /// The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent. Their
+    /// barcodes are the shared ones and the ones <paramref name="libraryIds"/> taught, not one only another library taught.
+    /// </summary>
     public static async Task<Dictionary<Guid, ReleaseDto>> LoadReleasesAsync(
-        IAppDbContext db, IReadOnlyCollection<Guid> releaseIds, CancellationToken cancellationToken)
+        IAppDbContext db, IReadOnlyCollection<Guid> libraryIds, IReadOnlyCollection<Guid> releaseIds, CancellationToken cancellationToken)
     {
         if (releaseIds.Count == 0)
         {
@@ -218,6 +222,7 @@ internal static class CandidateProjection
             ? []
             : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
         var identifiers = (await db.ReleaseIdentifiers.AsNoTracking()
+                .UsableBy(libraryIds)
                 .Where(i => releaseIds.Contains(i.ReleaseId))
                 .OrderBy(i => i.Type).ThenBy(i => i.Value)
                 .ToListAsync(cancellationToken))

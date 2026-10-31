@@ -418,6 +418,27 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
     }
 
     [Fact]
+    public async Task The_export_lists_the_barcodes_the_library_taught_but_never_one_only_another_library_taught()
+    {
+        var seeded = await SeedAsync();
+        var other = await TestData.CreateLibraryAsync(Db);
+        await using (var context = Db.CreateContext())
+        {
+            var releaseId = await context.Items.IgnoreQueryFilters().Where(i => i.Id == seeded.Kept).Select(i => i.ReleaseId).SingleAsync();
+            context.ReleaseIdentifiers.AddRange(
+                new ReleaseIdentifier { ReleaseId = releaseId, Type = IdentifierType.Gtin13, Value = "0045496830069", LibraryId = seeded.Library.Id },
+                new ReleaseIdentifier { ReleaseId = releaseId, Type = IdentifierType.Gtin13, Value = "0045496870010", LibraryId = other.Id });
+            await context.SaveChangesAsync();
+        }
+
+        await using var host = new Host(Api);
+        var files = await ExportAsync(host, seeded.Library.OwnerId);
+
+        ParseCsv(files["items.csv"]).ShouldHaveSingleItem()["identifiers"].ShouldBe("gtin13:0045496830067; gtin13:0045496830069");
+        files["items.json"].ShouldNotContain("0045496870010");
+    }
+
+    [Fact]
     public async Task The_json_keeps_the_ids_so_a_second_export_matches_the_first()
     {
         var seeded = await SeedAsync();

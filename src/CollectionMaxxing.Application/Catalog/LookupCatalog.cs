@@ -40,12 +40,13 @@ public static class LookupCatalog
             }
 
             // 13-digit codes may be stored as an ISBN or as a GTIN; the digits are what identify the product.
-            var releaseIds = await (from i in db.ReleaseIdentifiers.AsNoTracking().UsableBy(currentUser?.LibraryIds ?? [])
+            var libraryIds = currentUser?.LibraryIds ?? [];
+            var releaseIds = await (from i in db.ReleaseIdentifiers.AsNoTracking().UsableBy(libraryIds)
                                     join r in db.Releases.AsNoTracking() on i.ReleaseId equals r.Id // the filter hides other libraries'
                                     where i.Value == identifier.Value
                                     select r.Id).Distinct().ToListAsync(cancellationToken);
 
-            var releases = (await ItemProjection.LoadReleasesAsync(db, releaseIds, cancellationToken))
+            var releases = (await ItemProjection.LoadReleasesAsync(db, libraryIds, releaseIds, cancellationToken))
                 .Select(ItemProjection.ToReleaseDto)
                 .ToList();
 
