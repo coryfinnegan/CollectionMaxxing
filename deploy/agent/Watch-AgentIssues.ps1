@@ -4,9 +4,9 @@
 
 .DESCRIPTION
   Plain PowerShell plus `gh`; it never starts a model by itself. Each pass:
-    1. reads C:\CollectionMaxxing\.env (CM_AGENT_ENABLED, CM_AGENT_REPO, CM_AGENT_MAX_RUNS_PER_DAY, CM_AGENT_MAX_MINUTES,
-       and CM_SECRETS_DIR for the long-lived Claude Code token in agent\claude-token); with the agent switched off it
-       exits at once;
+    1. reads C:\CollectionMaxxing\.env (CM_AGENT_ENABLED, CM_AGENT_REPO, CM_AGENT_MAX_RUNS_PER_DAY, CM_AGENT_MAX_MINUTES)
+       and looks for the long-lived Claude Code token in <Root>\agent-secrets\claude-token; with the agent switched off
+       it exits at once;
     2. closes out an earlier run whose process is gone (or kills one past its time limit) and marks its issue
        agent-blocked when it did not finish;
     3. stops when a run is still alive or the daily cap is reached;

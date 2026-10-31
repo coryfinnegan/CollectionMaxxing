@@ -12,10 +12,14 @@
 # SIGN-IN (why a long-lived token)
 #   * The CLI's own sign-in is a short-lived access token plus a refresh token that lapses when the CLI sits unused, and this
 #     service is idle for days at a time. So the runs use a token from `claude setup-token` (valid for about a year, it does not
-#     lapse with idleness) that the owner saves once in <secrets>\agent\claude-token. Run-AgentIssue gives it to the claude
-#     child as CLAUDE_CODE_OAUTH_TOKEN, in that child's environment and nowhere else.
+#     lapse with idleness) that the owner saves once in <Root>\agent-secrets\claude-token. Run-AgentIssue gives it to the claude
+#     child as CLAUDE_CODE_OAUTH_TOKEN, in that child's environment and nowhere else. The file is not in the secrets folder
+#     (CM_SECRETS_DIR): compose mounts that into the api container, and no compose service mounts anything under <Root> itself.
 #   * With no token file the CLI's own sign-in is used, as before. If that is signed out the watcher picks nothing and opens one
-#     alert issue for the owner (needs:cory); it closes the issue once a token file exists or the CLI is signed in again.
+#     alert issue for the owner (needs:cory); it closes the issue once a token file exists or the CLI is signed in again, and
+#     lifts the pause that failed starts left behind. A token that stops working (runs that used it fail at once) is a second
+#     owner alert, agent-token-failed, which closes on the next run that gets past start-up.
+#   * An alert is never allowed to stop a pass: every call into the alert code is guarded and a failure is a WARN.
 #
 # SAFETY MODEL
 #   * Every external command goes through Invoke-Cm (see Cm.Common.ps1), so a test can prove which commands would run.
@@ -33,6 +37,10 @@
 # An issue carrying any of these is somebody's: another run, a blocked one, or waiting for the owner.
 $script:CmAgentSkipLabels = @('agent-working', 'agent-blocked', 'needs:cory', 'status:blocked')
 $script:CmAgentSignedOutKind = 'agent-signed-out'
+$script:CmAgentTokenFailedKind = 'agent-token-failed'
+# `claude auth status` reads local files and answers in about a second; a copy that hangs must not hold the watcher lock.
+$script:CmAgentAuthStatusSeconds = 20
+$script:CmAgentLogRepeatSeconds = 3600   # a warning that would repeat on every pass is written at most this often
 $script:CmAgentDefaultMaxRuns = 8
 $script:CmAgentDefaultMaxMinutes = 180
 # A run that GitHub could not be asked about is retried every pass; after this many passes (an hour) the lock is dropped
@@ -99,20 +107,21 @@ function Get-CmAgentSettings {
         Repo           = $repo
         MaxRunsPerDay  = [int](& $number 'CM_AGENT_MAX_RUNS_PER_DAY' $script:CmAgentDefaultMaxRuns 0)
         MaxMinutes     = [int](& $number 'CM_AGENT_MAX_MINUTES' $script:CmAgentDefaultMaxMinutes 1)
-        TokenFile      = Get-CmAgentTokenFile -EnvMap $EnvMap -Root $Root
+        TokenFile      = Get-CmAgentTokenFile -Root $Root
+        EnvMap         = $EnvMap
     }
 }
 
 function Get-CmAgentTokenFile {
     <#
-      Where the long-lived Claude Code token is kept: agent\claude-token in the secrets folder, which is CM_SECRETS_DIR from
-      .env, else <Root>\secrets (the same place the Auth0 scripts look). Outside the repo. '' when there is no folder to look in.
+      Where the long-lived Claude Code token is kept: <Root>\agent-secrets\claude-token, outside the repo. Not in the secrets
+      folder (CM_SECRETS_DIR): compose mounts that read-write into the api container, so a file-read bug in the api would
+      reach the token. Nothing under <Root> is mounted into any container, and the deployer's config guard allows only the
+      folders .env names plus the compose file's own, so a release cannot start mounting it. '' when there is no root.
     #>
-    param([hashtable]$EnvMap = @{}, [string]$Root = '')
-    $dir = "$($EnvMap['CM_SECRETS_DIR'])".Trim()
-    if (-not $dir -and $Root) { $dir = [IO.Path]::Combine($Root, 'secrets') }
-    if (-not $dir) { return '' }
-    [IO.Path]::Combine($dir, 'agent', 'claude-token')
+    param([string]$Root = '')
+    if (-not $Root) { return '' }
+    [IO.Path]::Combine($Root, 'agent-secrets', 'claude-token')
 }
 
 function Read-CmAgentToken {
@@ -231,57 +240,143 @@ function Get-CmAgentAlertKind {
         Opener        = 'The issue agent''s watcher'
         LogName       = 'watcher log'
         NoCommits     = $true
-        Summary       = 'Claude Code on the PC is signed out and no long-lived token is saved, so the issue agent cannot start a run. The watcher picked nothing up: every issue queued with agent-task is untouched and waits.'
-        Todo          = 'Sign in once, for good. In a normal terminal on the PC, as the Windows account the agent runs as, run `claude setup-token` and sign in in the browser window it opens. Save the long-lived token it prints as the only line of the file `agent\claude-token` in the PC''s secrets folder (the folder CM_SECRETS_DIR names in `.env`). Do not paste the token into this issue or into a comment. It lasts about a year and, unlike the CLI''s own sign-in, does not lapse while the agent sits idle. A command that saves it without showing it is in deploy/README.md under "The issue agent". The next watcher pass after that picks the queued issues up by itself, and this issue closes.'
+        Summary       = 'Claude Code on the PC is signed out and no usable long-lived token is saved, so the issue agent cannot start a run. The watcher picked nothing up: every issue queued with agent-task is untouched and waits.'
+        Todo          = 'Sign in once, for good. In a normal terminal on the PC, as the Windows account the agent runs as, run `claude setup-token` and sign in in the browser window it opens. Save the long-lived token it prints as the only line of the file `agent-secrets\claude-token`, in the folder that holds the deployer''s `.env` (normally C:\CollectionMaxxing), replacing whatever the file holds. Do not paste the token into this issue or into a comment. It lasts about a year and, unlike the CLI''s own sign-in, does not lapse while the agent sits idle. A command that saves it without showing it is in deploy/README.md under "The issue agent". The next watcher pass after that picks the queued issues up by itself, and this issue closes.'
         Cleared       = 'Claude Code is signed in again (a token file is saved, or the CLI says it is signed in)'
     }
 }
 
+function Get-CmAgentTokenAlertKind {
+    <#
+      The alert issue for a saved token that stopped working: runs that used it failed within minutes of starting. Like the
+      signed-out alert it is the owner's (needs:cory, never an agent-task) and repeats once a day at most.
+    #>
+    @{
+        Title         = 'Issue agent: runs fail at start-up with the saved Claude Code token'
+        Labels        = @('alert', 'type:infra', 'needs:cory', 'p1')
+        After         = 1
+        RepeatSeconds = 86400
+        Opener        = 'The issue agent''s watcher'
+        LogName       = 'watcher log'
+        NoCommits     = $true
+        Summary       = 'Runs that use the saved Claude Code token have failed within minutes of starting. The usual cause is a token that has expired (they last about a year) or been revoked. After each failure the issue agent pauses and tries again later.'
+        Todo          = 'First read the log lines in the comment on the queued issue. If they name something else, such as a usage limit, the token is fine and this issue closes by itself once a run gets past start-up. If they say the sign-in failed, run `claude setup-token` again on the PC, as the Windows account the agent runs as, and save the new token as the only line of the file `agent-secrets\claude-token`, in the folder that holds the deployer''s `.env` (normally C:\CollectionMaxxing), replacing what is there. Do not paste the token into this issue or into a comment. A new token file lifts the pause by itself.'
+        Cleared       = 'a run gets past start-up again'
+    }
+}
+
+function Write-CmAgentLogHourly {
+    <#
+      A warning that would otherwise be written on every 5-minute pass: written at most once an hour. The time of the last
+      one is kept in the state file under Key, so it holds with alert issues switched off and when the alert book cannot
+      be read. Writes the state file only when it logs.
+    #>
+    param($Ctx, [string]$Key, [string]$Message)
+    $now = (Get-CmAgentNow).ToUnixTimeSeconds()
+    $state = Read-CmState -Path $Ctx.StateFile
+    if ($now - [long]$state[$Key] -lt $script:CmAgentLogRepeatSeconds) { return }
+    Write-CmLog $Message 'WARN'
+    $state[$Key] = $now
+    Write-CmState -Path $Ctx.StateFile -State $state
+}
+
+function Set-CmAgentAlert {
+    <# Opens (or repeats) an alert issue. An alert must never stop a pass, so a failure here is a WARN, as Add-CmAlertIssue does for the deployer. #>
+    param($Ctx, $Settings, [string]$Kind, $Def, [string]$Reason)
+    if (-not (Test-CmAlertIssuesEnabled -EnvMap $Settings.EnvMap -ProcessValue "$env:CM_ALERT_ISSUES")) { return }
+    try {
+        $result = [pscustomobject]@{ Outcome = $Kind; ExitCode = 2; Reason = $Reason; Kind = $Kind; Sha = '' }
+        Invoke-CmAlertRaise -Ctx $Ctx -Kind $Kind -Def $Def -Result $result -EnvMap $Settings.EnvMap
+    }
+    catch { Write-CmLog "could not file the alert issue for '$Kind' ($($_.Exception.Message)); the pass carries on" 'WARN' }
+}
+
+function Clear-CmAgentAlert {
+    <# Closes an alert issue this service opened. Guarded like Set-CmAgentAlert. #>
+    param($Ctx, $Settings, [string]$Kind, [string]$Why)
+    if (-not (Test-CmAlertIssuesEnabled -EnvMap $Settings.EnvMap -ProcessValue "$env:CM_ALERT_ISSUES")) { return }
+    try { Invoke-CmAlertClear -Ctx $Ctx -Why @{ $Kind = $Why } }
+    catch { Write-CmLog "could not close the alert issue for '$Kind' ($($_.Exception.Message)); the pass carries on" 'WARN' }
+}
+
+function Test-CmAgentAlertOpen {
+    <# True while the book of alerts remembers an issue (or one still to be filed) of this kind. #>
+    param($Ctx, [string]$Kind)
+    (Get-CmAlertBook -Ctx $Ctx).Kinds.ContainsKey($Kind)
+}
+
 function Get-CmAgentSignIn {
     <#
-      Whether a run can sign in, as @{ State; Why }: 'in' (a token file is there, or `claude auth status` says loggedIn),
-      'out' (no token file and the CLI says it is not signed in) or 'unknown' (no claude, or it printed no JSON: the caller
-      carries on as it did before this check existed). `claude auth status` reads only the CLI's own sign-in and cannot
-      tell whether a token is still good, so with a token file it is not asked. It exits 1 when signed out and still
-      prints the JSON.
+      Whether a run can sign in, as @{ State; Why; Malformed; Problem }: State is 'in' (a token file is there, or `claude auth
+      status` says loggedIn), 'out' (no usable token and the CLI says it is not signed in) or 'unknown' (no claude, it
+      printed no JSON, or it did not answer in time: the caller carries on as it did before this check existed).
+      Malformed is true for a token file that exists but holds no usable token; Problem says in words why there is no token.
+      `claude auth status` reads only the CLI's own sign-in and cannot tell whether a token is still good, so with a token
+      it is not asked. It exits 1 when signed out and still prints the JSON.
     #>
-    param($Settings)
-    if (Read-CmAgentToken -Path $Settings.TokenFile) { return [pscustomobject]@{ State = 'in'; Why = 'a token file is saved' } }
+    param($Ctx, $Settings)
+    $none = { param($state, $why = '') [pscustomobject]@{ State = $state; Why = $why; Malformed = $malformed; Problem = $problem } }
+    if (Read-CmAgentToken -Path $Settings.TokenFile) { $malformed = $false; $problem = ''; return & $none 'in' 'a token file is saved' }
+    $malformed = [bool]($Settings.TokenFile -and (Test-Path -LiteralPath $Settings.TokenFile -PathType Leaf))
+    $problem = if ($malformed) { 'the token file exists but holds no usable token (it needs one line with the token and no spaces in it)' } else { 'no token file is saved' }
     $claude = Resolve-CmAgentClaude
-    if (-not $claude) { return [pscustomobject]@{ State = 'unknown'; Why = '' } }
-    $r = Invoke-Cm -Command $claude -Arguments @('auth', 'status')
+    if (-not $claude) { return & $none 'unknown' }
+    $r = Invoke-Cm -Command $claude -Arguments @('auth', 'status') -TimeoutSeconds $script:CmAgentAuthStatusSeconds
     $text = (@($r.Output) -join "`n")
     $from = $text.IndexOf('{'); $to = $text.LastIndexOf('}')
     $loggedIn = $null
     if ($from -ge 0 -and $to -gt $from) {
         try { $loggedIn = ($text.Substring($from, $to - $from + 1) | ConvertFrom-Json).loggedIn } catch { }
     }
-    if ($loggedIn -eq $true) { return [pscustomobject]@{ State = 'in'; Why = 'Claude Code is signed in again' } }
-    if ($loggedIn -eq $false) { return [pscustomobject]@{ State = 'out'; Why = '' } }
-    [pscustomobject]@{ State = 'unknown'; Why = '' }
+    if ($loggedIn -eq $true) { return & $none 'in' 'Claude Code is signed in again' }
+    if ($loggedIn -eq $false) { return & $none 'out' }
+    if ($r.ExitCode -eq 124) {
+        Write-CmAgentLogHourly -Ctx $Ctx -Key 'authHangLogUnix' -Message "claude auth status did not answer within $($script:CmAgentAuthStatusSeconds) seconds, so the sign-in is not checked and the pass carries on"
+    }
+    & $none 'unknown'
 }
 
 function Confirm-CmAgentSignIn {
     <#
       Looks at the sign-in and keeps the alert issue in step with it: opens it (once per problem) while Claude Code is
-      signed out, closes it when it is not. Returns $false only when it is signed out, and then no run may start.
+      signed out, closes it when it is not and lifts the pause and streak that failed starts left behind (they were most
+      likely the missing sign-in). Returns $false only when it is signed out, and then no run may start.
     #>
-    param($Ctx, $Settings, [hashtable]$EnvMap)
+    param($Ctx, $Settings)
     $kind = $script:CmAgentSignedOutKind
-    $sign = Get-CmAgentSignIn -Settings $Settings
-    $alerts = Test-CmAlertIssuesEnabled -EnvMap $EnvMap -ProcessValue "$env:CM_ALERT_ISSUES"
+    $sign = Get-CmAgentSignIn -Ctx $Ctx -Settings $Settings
     if ($sign.State -eq 'out') {
-        if (-not (Get-CmAlertBook -Ctx $Ctx).Kinds.ContainsKey($kind)) {
-            Write-CmLog 'Claude Code is signed out and there is no token file (agent\claude-token in the secrets folder), so no issue is picked up until it is signed in; run claude setup-token (deploy/README.md, "The issue agent")' 'WARN'
-        }
-        if ($alerts) {
-            $reason = 'claude auth status says Claude Code is not signed in, and no token file is saved.'
-            Invoke-CmAlertRaise -Ctx $Ctx -Kind $kind -Result ([pscustomobject]@{ Outcome = $kind; ExitCode = 2; Reason = $reason; Kind = $kind; Sha = '' }) -EnvMap $EnvMap -Def (Get-CmAgentAlertKind)
-        }
+        Write-CmAgentLogHourly -Ctx $Ctx -Key 'signedOutLogUnix' -Message "Claude Code is signed out and $($sign.Problem), so no issue is picked up until it is signed in; run claude setup-token (deploy/README.md, ""The issue agent"")"
+        Set-CmAgentAlert -Ctx $Ctx -Settings $Settings -Kind $kind -Def (Get-CmAgentAlertKind) -Reason "claude auth status says Claude Code is not signed in, and $($sign.Problem)."
         return $false
     }
-    if ($sign.State -eq 'in' -and $alerts) { Invoke-CmAlertClear -Ctx $Ctx -Why @{ $kind = $sign.Why } }
+    if ($sign.Malformed) {
+        Write-CmAgentLogHourly -Ctx $Ctx -Key 'tokenFileLogUnix' -Message "the token file exists but holds no usable token (it needs one line with the token and no spaces in it), so the CLI's own sign-in is used"
+    }
+    if ($sign.State -eq 'in' -and (Test-CmAgentAlertOpen -Ctx $Ctx -Kind $kind)) {
+        Clear-CmAgentAlert -Ctx $Ctx -Settings $Settings -Kind $kind -Why $sign.Why
+        Reset-CmAgentBackoff -Ctx $Ctx
+    }
     $true
+}
+
+function Update-CmAgentTokenSeen {
+    <#
+      A token file that is new, or was replaced (its modified time differs from the one last seen), ends the pause and the
+      streak of failed starts: they were most likely the missing or expired sign-in this file replaces. The time last seen
+      is kept in the state file; nothing is written when it is unchanged.
+    #>
+    param($Ctx, $Settings)
+    if (-not (Read-CmAgentToken -Path $Settings.TokenFile)) { return }
+    $stamp = [DateTimeOffset]::new((Get-Item -LiteralPath $Settings.TokenFile).LastWriteTimeUtc).ToUnixTimeSeconds()
+    $state = Read-CmState -Path $Ctx.StateFile
+    if ([long]$state.tokenSeenUnix -eq $stamp) { return }
+    $lifted = [long]$state.pauseUntilUnix -gt 0 -or [int]$state.quickFailures -gt 0
+    $state.tokenSeenUnix = $stamp
+    if ($state.ContainsKey('quickFailures')) { $state.quickFailures = 0 }
+    [void]$state.Remove('pauseUntilUnix')
+    Write-CmState -Path $Ctx.StateFile -State $state
+    if ($lifted) { Write-CmLog 'a new token file was found, so the pause after failed starts is lifted' }
 }
 
 # ---- choosing the issue ---------------------------------------------------------------------------------------------------------
@@ -556,6 +651,7 @@ function Start-CmAgentRun {
     Write-CmState -Path $Ctx.LockFile -State @{
         issue = $issue; pid = [int]$process.Id; startedUnix = $now.ToUnixTimeSeconds(); model = $Pick.Model
         repoDir = $repoDir; worktree = $paths.Worktree; branch = $paths.Branch; log = $paths.Log; exitFile = $paths.Exit; attempts = 0
+        usedToken = [bool]$tokenFile   # a run that fails at once with the saved token is the token's alert, not the sign-in's
     }
     Write-CmLog "started the agent for issue #$issue (model $($Pick.Model)); process $($process.Id), log $($paths.Log)"
     New-CmAgentResult 'started' 0 '' $issue
@@ -595,14 +691,33 @@ function Reset-CmAgentBackoff {
     Write-CmState -Path $Ctx.StateFile -State $state
 }
 
+function Confirm-CmAgentRunStarted {
+    <# A run got past the start-up window: the sign-in and limits work, so the streak and pause end and a token alert, if one is open, closes. #>
+    param($Ctx, $Settings)
+    Reset-CmAgentBackoff -Ctx $Ctx
+    if (Test-CmAgentAlertOpen -Ctx $Ctx -Kind $script:CmAgentTokenFailedKind) {
+        Clear-CmAgentAlert -Ctx $Ctx -Settings $Settings -Kind $script:CmAgentTokenFailedKind -Why 'a run got past start-up again'
+    }
+}
+
+function Test-CmAgentAuthFailure {
+    <# True when the first lines a run printed (not the runner's own === lines) look like a failed sign-in. #>
+    param([string]$LogPath)
+    if (-not $LogPath -or -not (Test-Path -LiteralPath $LogPath)) { return $false }
+    $head = @(Get-Content -LiteralPath $LogPath -TotalCount 40 | Where-Object { $_ -notmatch '^===' }) -join "`n"
+    $head -match '(?i)authenticat|oauth|unauthori[sz]ed|\b401\b|(expired|revoked|invalid).{0,40}(token|credential|session)|not (signed|logged) in|/login'
+}
+
 function Register-CmAgentQuickFailure {
     <#
       A run that exited non-zero within CmAgentQuickFailureSeconds is almost certainly the machine, not the issue
       (sign-in expired, usage limit, a flag refused). So the issue goes back in the queue instead of being blocked, the
       service pauses (60 minutes, doubling per failure in a row, at most 8 hours), and the attempt is not counted against
       the day's cap; otherwise one broken sign-in would block every queued issue in turn.
+      When the run had the saved token, the failure may be the token (expired or revoked): the owner gets one alert if the
+      log says the sign-in failed, or if it is the second failure in a row.
     #>
-    param($Ctx, $Lock, [int]$ExitCode, [string[]]$QueueLabels)
+    param($Ctx, $Settings, $Lock, [int]$ExitCode, [string[]]$QueueLabels)
     $issue = [int]$Lock.issue
     $now = Get-CmAgentNow
     $state = Read-CmState -Path $Ctx.StateFile
@@ -623,6 +738,10 @@ function Register-CmAgentQuickFailure {
                 '```'
             ) -join "`n"))
     Write-CmLog "the agent run for issue #$issue failed within $($script:CmAgentQuickFailureSeconds / 60) minutes (exit code $ExitCode); the issue is back in the queue and new runs are paused until $($until.ToString('yyyy-MM-dd HH:mm zzz')) ($failures quick failure(s) in a row)" 'WARN'
+    if ($Lock.usedToken -eq $true -and ($failures -ge 2 -or (Test-CmAgentAuthFailure -LogPath "$($Lock.log)"))) {
+        Set-CmAgentAlert -Ctx $Ctx -Settings $Settings -Kind $script:CmAgentTokenFailedKind -Def (Get-CmAgentTokenAlertKind) `
+            -Reason "A run for issue #$issue that used the saved token exited with code $ExitCode within $($script:CmAgentQuickFailureSeconds / 60) minutes of starting ($failures failed start(s) in a row)."
+    }
 }
 
 function Remove-CmAgentWorktree {
@@ -714,22 +833,22 @@ function Complete-CmAgentRun {
         [void](Set-CmIssueLabels -Ctx $Ctx -Issue $issue -Remove $queueLabels)
         if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
         Write-CmLog "issue #$issue is closed; its agent run is finished$(if ($merged) { ' and its pull request merged' })"
-        Reset-CmAgentBackoff -Ctx $Ctx
+        Confirm-CmAgentRunStarted -Ctx $Ctx -Settings $Settings
     }
     elseif ($view.Labels -contains 'agent-blocked' -and $view.Labels -notcontains 'agent-working') {
         if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
         Write-CmLog "the agent blocked issue #$issue itself; its worktree is kept"
-        Reset-CmAgentBackoff -Ctx $Ctx
+        Confirm-CmAgentRunStarted -Ctx $Ctx -Settings $Settings
     }
     elseif ($quickFailure -and -not $merged) {
-        Register-CmAgentQuickFailure -Ctx $Ctx -Lock $Lock -ExitCode $exitCode -QueueLabels $queueLabels
+        Register-CmAgentQuickFailure -Ctx $Ctx -Settings $Settings -Lock $Lock -ExitCode $exitCode -QueueLabels $queueLabels
     }
     else {
         if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
         $body = Get-CmAgentBlockedBody -Lock $Lock -Exit $exit -Status $Status -Merged $merged -MaxMinutes $Settings.MaxMinutes -WorktreeRemoved $merged
         Set-CmAgentBlocked -Ctx $Ctx -Issue $issue -Remove $queueLabels -Body $body
         Write-CmLog "the agent run for issue #$issue did not finish ($Status); the issue is marked agent-blocked" 'WARN'
-        Reset-CmAgentBackoff -Ctx $Ctx
+        Confirm-CmAgentRunStarted -Ctx $Ctx -Settings $Settings
     }
     Remove-CmAgentLock -Ctx $Ctx
     $true
@@ -744,7 +863,7 @@ function Invoke-CmAgentWatch {
         started                                  an agent was started for Issue
         dry-run                                  without -Apply: what would have started
         finish-pending                           an earlier run could not be closed out yet; nothing new starts
-        signed-out 2                             Claude Code is signed out and there is no token file: nothing was picked up
+        signed-out 2                             Claude Code is signed out and no usable token file is saved: nothing was picked up
         config-error 2, gh-failed 3, fetch-failed 3, start-failed 1, claim-failed 3, crashed 1
     #>
     param($Ctx)
@@ -759,7 +878,7 @@ function Invoke-CmAgentWatch {
         $held = Enter-CmLock -Path $Ctx.WatcherLockFile
         if (-not $held) { return New-CmAgentResult 'busy' 0 }
     }
-    try { return Invoke-CmAgentWatchCore -Ctx $Ctx -Settings $settings -EnvMap $envMap }
+    try { return Invoke-CmAgentWatchCore -Ctx $Ctx -Settings $settings }
     catch {
         $message = "the agent watcher crashed: $($_.Exception.Message)"
         Write-CmLog $message 'ERROR'
@@ -769,7 +888,7 @@ function Invoke-CmAgentWatch {
 }
 
 function Invoke-CmAgentWatchCore {
-    param($Ctx, $Settings, [hashtable]$EnvMap = @{})
+    param($Ctx, $Settings)
     $lock = Read-CmAgentLock -Ctx $Ctx
     if ($lock) {
         $status = Get-CmAgentRunStatus -Lock $lock -MaxMinutes $Settings.MaxMinutes
@@ -782,15 +901,17 @@ function Invoke-CmAgentWatchCore {
         if (-not $closed) { return New-CmAgentResult 'finish-pending' 0 }
     }
 
+    # A token file that is new, or was replaced, ends the pause that failed starts left behind (before the pause is looked at).
+    Update-CmAgentTokenSeen -Ctx $Ctx -Settings $Settings
     # While the signed-out alert is open the sign-in is looked at on every pass (a local call, no model), so the alert closes
     # as soon as the token is saved even with nothing queued. Otherwise it is looked at only once an issue is about to be claimed.
     $signInChecked = $false
-    if ((Get-CmAlertBook -Ctx $Ctx).Kinds.ContainsKey($script:CmAgentSignedOutKind)) {
+    if (Test-CmAgentAlertOpen -Ctx $Ctx -Kind $script:CmAgentSignedOutKind) {
         $signInChecked = $true
-        if (-not (Confirm-CmAgentSignIn -Ctx $Ctx -Settings $Settings -EnvMap $EnvMap)) { return New-CmAgentResult 'signed-out' 2 'Claude Code is signed out and there is no token file' }
+        if (-not (Confirm-CmAgentSignIn -Ctx $Ctx -Settings $Settings)) { return New-CmAgentResult 'signed-out' 2 'Claude Code is signed out and no usable token file is saved' }
     }
 
-    $state = Read-CmState -Path $Ctx.StateFile   # after the sign-in check above: closing its alert wrote this file
+    $state = Read-CmState -Path $Ctx.StateFile   # after the steps above: they may have written this file
     # After runs that failed at once the service is paused (Register-CmAgentQuickFailure): no call until the time is up.
     if ([long]$state.pauseUntilUnix -gt (Get-CmAgentNow).ToUnixTimeSeconds()) { return New-CmAgentResult 'paused' 0 }
     $today = [int](Get-CmAgentNow).ToString('yyyyMMdd')
@@ -818,8 +939,9 @@ function Invoke-CmAgentWatchCore {
     }
     $pick = Select-CmAgentIssue -Issues $rows -Owner $Ctx.Owner
     if (-not $pick) { return New-CmAgentResult 'idle' 0 }
-    if (-not $signInChecked -and -not (Confirm-CmAgentSignIn -Ctx $Ctx -Settings $Settings -EnvMap $EnvMap)) {
-        return New-CmAgentResult 'signed-out' 2 'Claude Code is signed out and there is no token file' $pick.Number
+    if (-not $signInChecked) {
+        if (-not (Confirm-CmAgentSignIn -Ctx $Ctx -Settings $Settings)) { return New-CmAgentResult 'signed-out' 2 'Claude Code is signed out and no usable token file is saved' $pick.Number }
+        $state = Read-CmState -Path $Ctx.StateFile   # the check may have written its hourly log note
     }
     Write-CmLog "picked issue #$($pick.Number) '$($pick.Title)' (p$($pick.Priority), model $($pick.Model))"
     Start-CmAgentRun -Ctx $Ctx -Settings $Settings -Pick $pick -State $state
@@ -847,7 +969,7 @@ function Invoke-CmAgentRunner {
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     $began = Get-CmAgentNow
     Add-Content -LiteralPath $LogFile -Encoding utf8 -Value ('=== {0} agent for issue #{1} starting (model {2}, limit {3} minutes) ===' -f $began.ToString('yyyy-MM-dd HH:mm:ss'), $Issue, $Model, $MaxMinutes)
-    Add-Content -LiteralPath $LogFile -Encoding utf8 -Value $(if ($token) { '=== sign-in: the long-lived token from the secrets folder ===' } else { '=== sign-in: the CLI''s own ===' })
+    Add-Content -LiteralPath $LogFile -Encoding utf8 -Value $(if ($token) { '=== sign-in: the long-lived token from the token file ===' } else { '=== sign-in: the CLI''s own ===' })
     $line = Get-CmAgentShellLine -Claude $Claude -Model $Model -PromptFile $PromptFile -LogFile $LogFile
     $shell = if ($env:ComSpec) { $env:ComSpec } else { 'cmd.exe' }
     $childEnv = if ($token) { @{ CLAUDE_CODE_OAUTH_TOKEN = $token } } else { @{} }

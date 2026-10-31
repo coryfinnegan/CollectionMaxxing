@@ -162,7 +162,7 @@ Then give it a long-lived Claude Code sign-in, once ([Keep it signed in](#keep-i
 | 6 | `tailscale serve --bg --https=443 http://127.0.0.1:5480` |
 | 7 | `schtasks /Create ...` (one task) |
 | 8 | `backup.sh once` inside the backup container |
-| 12 | `schtasks /Create ...` (one task, `CollectionMaxxingAgent`, optional). Once installed, each run of the agent service changes your own checkout (`git fetch origin`, `git worktree add`, and `git worktree remove` for its own `agent-issue-<n>` folders) and GitHub (labels and comments on one issue, then whatever the agent does for it); see the next section. The one-time sign-in ([Keep it signed in](#keep-it-signed-in-once)) saves a token file in `secrets\agent\`, a step you do yourself |
+| 12 | `schtasks /Create ...` (one task, `CollectionMaxxingAgent`, optional). Once installed, each run of the agent service changes your own checkout (`git fetch origin`, `git worktree add`, and `git worktree remove` for its own `agent-issue-<n>` folders) and GitHub (labels and comments on one issue, then whatever the agent does for it); see the next section. The one-time sign-in ([Keep it signed in](#keep-it-signed-in-once)) saves a token file in `C:\CollectionMaxxing\agent-secrets\`, a step you do yourself |
 
 It never runs `docker system prune`, `docker volume prune`, `docker image prune`, `docker rm` on any container, `docker image rm` on anything but a single old `repo:tag` of the api, migrate or backup repository ([Old images](#old-images-what-is-removed-and-what-is-kept)), `docker compose down -v`, anything that edits the registry, PATH, system or WSL settings, or anything that binds a port other than `127.0.0.1:5480` and `127.0.0.1:18888`.
 
@@ -252,7 +252,7 @@ A problem on the PC reaches you without anyone reading `deployer.log`: the deplo
 | `docker-unavailable` | `needs:cory` `p2` | Docker or GHCR did not answer for 10 polls in a row | Docker answers again |
 | `main-tag-moving` | `needs:cory` `p2` | the `main` image tag moved during the checks, 10 polls in a row | the tag settles |
 
-The issue agent files one more kind of its own the same way, `agent-signed-out` (`needs:cory` `p1`, raised when Claude Code is signed out and no token file is saved, cleared when one is; it repeats at most once a day): see [Keep it signed in](#keep-it-signed-in-once).
+The issue agent files two more kinds of its own the same way, both `needs:cory` `p1`, never `agent-task`, and repeating at most once a day: `agent-signed-out` (Claude Code is signed out and no usable token file is saved; cleared when one is saved or the CLI is signed in again) and `agent-token-failed` (runs that used the saved token keep failing within minutes of starting; cleared on the next run that gets past start-up). See [Keep it signed in](#keep-it-signed-in-once).
 
 A quiet poll with nothing open and a healthy backup makes no `gh` call at all. The deployer has no free-disk check of its own; a full backup drive shows up as `pre-migrate-dump-failed` or `backup-unhealthy`.
 
@@ -303,31 +303,38 @@ Settings go in `C:\CollectionMaxxing\.env` (all optional, read on every pass; se
 
 Always on: one run at a time (a lock in `state\agent.lock`; a second watcher pass exits, and a lock whose process is gone or whose id now belongs to a newer process is cleared), only issues written by the repo owner, no admin rights, no second account, and no other scheduled task is touched. The agent itself works under the hard rules in `CLAUDE.md`: its worktree and its own branch only, never `main`, no force-push, Docker and ports as `CLAUDE.md` says, nothing secret in a commit or comment. The log tail the watcher posts passes through the same secret masking as the deployer's log (every secret-looking value in `.env`, GitHub and bearer tokens, the home folder).
 
-The agent runs as your Windows account with your `gh` login and a Claude Code sign-in: the long-lived token from `secrets\agent\claude-token` when you saved one, else the CLI's own, while you are signed in. `--permission-mode auto` has to be available for that sign-in; if it is not, the first run fails at once, its log tail lands on the issue and the issue is marked `agent-blocked`.
+The agent runs as your Windows account with your `gh` login and a Claude Code sign-in: the long-lived token from `agent-secrets\claude-token` when you saved one, else the CLI's own, while you are signed in. `--permission-mode auto` has to be available for that sign-in; if it is not, the first run fails at once, its log tail lands on the issue and the issue is marked `agent-blocked`.
 
 ### Keep it signed in (once)
 
 The CLI's own sign-in (`claude auth login`) is a short-lived access token plus a refresh token that lapses when the CLI goes unused. The agent sits idle for days, so that sign-in eventually fails with `OAuth session expired and could not be refreshed`. Give the agent a long-lived token instead. It is valid for about a year and does not lapse with idleness. **You do this once, by hand; no script of the repo does it for you.**
 
 1. In a normal terminal on the PC, as the Windows account the agent runs as, run `claude setup-token` and sign in in the browser window it opens. It prints a long token starting `sk-ant-`. It needs the same Claude subscription the CLI is signed in to. The token is shown once and nothing saves it.
-2. Save it as the only line of `agent\claude-token` in the secrets folder: the folder `CM_SECRETS_DIR` names in `C:\CollectionMaxxing\.env` (`C:\CollectionMaxxing\secrets` unless you moved it), next to `auth0\` and `apple\`. This command asks for the token without showing it and keeps it out of your shell history:
+2. Save it as the only line of `agent-secrets\claude-token` in the folder that holds `.env` (`C:\CollectionMaxxing`). This command asks for the token without showing it and keeps it out of your shell history:
 
    ```powershell
-   $secrets = (Select-String -Path C:\CollectionMaxxing\.env -Pattern '^CM_SECRETS_DIR=(.+)$').Matches.Groups[1].Value.Trim().Trim('"', "'")
-   New-Item -ItemType Directory -Force -Path "$secrets\agent" | Out-Null
-   Read-Host 'Paste the token' -AsSecureString | ConvertFrom-SecureString -AsPlainText | Set-Content -NoNewline -LiteralPath "$secrets\agent\claude-token"
+   New-Item -ItemType Directory -Force -Path C:\CollectionMaxxing\agent-secrets | Out-Null
+   Read-Host 'Paste the token' -AsSecureString | ConvertFrom-SecureString -AsPlainText | Set-Content -NoNewline -LiteralPath C:\CollectionMaxxing\agent-secrets\claude-token
    ```
-3. That is all. The next watcher pass uses it; nothing needs restarting. Keep the secrets folder readable only by your account and covered by BitLocker, like the rest of it. Never paste the token into an issue, a comment or a chat.
+3. That is all. The next watcher pass uses it; nothing needs restarting. Make `agent-secrets` readable only by your account (folder Properties > Security) and keep it on a drive BitLocker covers, like the rest of `C:\CollectionMaxxing`. Never paste the token into an issue, a comment or a chat. To replace it later (a year on, or after revoking it), run `claude setup-token` again and run the same two commands.
 
-**How it is used.** The file is read at the start of each run, and the token is handed to the `claude` process as `CLAUDE_CODE_OAUTH_TOKEN`, in that process's environment and nowhere else: not on a command line, not in a log, not in the state or exit file. The watcher also adds it to the values it hides, so even if a run prints it, the log lines it posts on an issue show `***`. Anything the agent runs inherits that environment, so the token reaches as far as the `gh` login the agent already has. The secrets folder is also mounted into the API container as `/secrets`, as the Auth0 and Apple files already are; the API never reads `agent\`.
+**Why not the secrets folder.** `CM_SECRETS_DIR` is mounted read-write into the API container, so a file-read bug in the internet-facing API would reach everything in it. `agent-secrets` sits directly under `C:\CollectionMaxxing`, and no container mounts anything there: the compose file names no such folder, and the deployer's config guard allows only the folders `.env` names plus the compose file's own, so a release cannot start mounting it without the guard refusing it first.
 
-**Without a token file** nothing changes: `claude` uses the CLI's own sign-in. Before it claims an issue, the watcher then runs `claude auth status` (it prints JSON and exits 1 when signed out). If it says `loggedIn: false`:
+**How it is used.** The file is read at the start of each run, and the token is handed to the `claude` process as `CLAUDE_CODE_OAUTH_TOKEN`, in that process's environment and nowhere else: not on a command line, not in a log, not in the state or exit file. The watcher also adds it to the values it hides, so even if a run prints it, the log lines it posts on an issue show `***`. Anything the agent runs inherits that environment, so the token reaches as far as the `gh` login the agent already has. A token file that exists but holds no usable token (it is empty, or its line has a space in it) is reported as exactly that in the log and in the alert, and the CLI's own sign-in is used instead.
+
+**A new token file lifts the pause.** The first time the watcher sees a token file, or sees it replaced (its modified time changed), it clears the pause and the streak of failed starts (`pauseUntilUnix`, `quickFailures`) that earlier failures left in `state\agent-state.json`, so the next pass picks the queue up instead of waiting out up to 8 hours. The same happens when the signed-out alert below closes.
+
+**Without a token file** nothing changes: `claude` uses the CLI's own sign-in. Before it claims an issue, the watcher then runs `claude auth status` (it prints JSON and exits 1 when signed out; it is given 20 seconds, and an answer that never comes is a warning and a normal pass). If it says `loggedIn: false`:
 
 - nothing is picked up, claimed, commented on or started; the issue stays in the queue untouched, and the watcher exits with code 2;
 - it opens one alert issue, `Issue agent: Claude Code is signed out` (`alert`, `type:infra`, `needs:cory`, `p1`; never `agent-task`), which says to run `claude setup-token` and where to save the token. It is the same kind of alert as in [Alerts as GitHub issues](#alerts-as-github-issues), kind `agent-signed-out`: once per problem, at most one repeat comment a day, and it closes itself, with a one-line comment, when a token file exists or `claude auth status` says it is signed in again. While that alert is open each pass runs `claude auth status` (a local call, no gh) so it closes as soon as you have fixed it, even with nothing queued;
-- `CM_ALERT_ISSUES=0` files no alert issue; the pass still picks nothing and logs a `WARN`.
+- the log gets one `WARN` an hour, not one per pass. `CM_ALERT_ISSUES=0` files no alert issue; the pass still picks nothing and logs that `WARN`.
 
-If `claude` is missing or prints something that is not JSON, the watcher cannot tell and carries on as before. A token that has expired or been revoked is not detected up front (`claude auth status` cannot tell): runs then fail within minutes, the quick-failure pause above applies, and the fix is to run `claude setup-token` again and replace the file's line.
+An alert never stops a pass: if GitHub or the alert code fails, the watcher logs a `WARN` and carries on.
+
+**When the token stops working.** `claude auth status` reports `loggedIn: true` for any token value, so a token that has expired or been revoked is only found out by a run failing. When a run that had the saved token fails within 5 minutes of starting, the usual quick-failure handling happens (the issue goes back in the queue with a comment holding the first log lines, and the service pauses), and, if the log says the sign-in failed or it is the second failure in a row, a second alert issue opens: `Issue agent: runs fail at start-up with the saved Claude Code token` (kind `agent-token-failed`, `needs:cory`, never `agent-task`, one comment a day at most). It says the token may have expired and to run `claude setup-token` again; read the log lines on the queued issue first, because a usage limit looks the same. It closes itself on the next run that gets past the start-up window, and saving a new token file lifts the pause at once.
+
+If `claude` is missing or prints something that is not JSON, the watcher cannot tell and carries on as before.
 
 ### Install, look, stop
 
@@ -342,7 +349,7 @@ It registers one user-level task, `CollectionMaxxingAgent` (every 5 minutes, `co
 |---|---|
 | `C:\CollectionMaxxing\logs\agent-watcher.log` | The watcher's own log; quiet passes write nothing |
 | `C:\CollectionMaxxing\logs\agent\issue-<n>-<time>.log` | One run: header, everything claude printed, how it ended. Next to it: `.prompt.md` (what it was told) and `.exit.json` |
-| `C:\CollectionMaxxing\state\agent-state.json`, `agent.lock` | The day's run count, the pause after quick failures (`pauseUntilUnix`, `quickFailures`; delete the file to clear it) and the open sign-in alert (`alerts`); the run in progress |
+| `C:\CollectionMaxxing\state\agent-state.json`, `agent.lock` | The day's run count, the pause after quick failures (`pauseUntilUnix`, `quickFailures`; to clear it by hand, edit `pauseUntilUnix` and `quickFailures` out of `state\agent-state.json`, never delete the file) and what the sign-in checks remember (`alerts`: the open alert issues, which deleting the file would orphan; `tokenSeenUnix`, `*LogUnix`); the run in progress |
 | `<checkout>\.claude\worktrees\agent-issue-<n>` | A run's worktree, kept while its issue is blocked |
 
 **If an issue sits in the queue:** it must be written by the repo owner and carry `agent-task` and none of `agent-working`, `agent-blocked`, `needs:cory`, `status:blocked`. Then look for `config-error` lines in `logs\agent-watcher.log` (no checkout at `CM_AGENT_REPO`, `claude` not found), for a `Claude Code is signed out` warning and the open `agent-signed-out` alert issue ([Keep it signed in](#keep-it-signed-in-once)), check `CM_AGENT_ENABLED`, the day's cap, whether the service is paused after a quick failure (the last comment on the last issue says until when) and whether another run holds `state\agent.lock`. **If a picked-up issue gets "The agent couldn't start" within minutes**, read the log lines in that comment (sign-in, usage limit, `auto` mode). **If it turns `agent-blocked` within minutes with "no exit code recorded"** and its run log holds only the header line, the run was killed with the watcher that started it; the comment carries the log tail.
