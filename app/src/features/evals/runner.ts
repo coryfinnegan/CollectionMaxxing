@@ -112,6 +112,9 @@ export const MAX_SERVER_REFUSALS = 5;
 /** What the owner is told when the PC cannot take what was read. Nothing is thrown away: it is all still on this phone. */
 export const PC_NOT_TAKING = "Couldn't send to your PC. What's read is kept on this phone; check again to pick up.";
 
+/** What the owner is told when a photo could not be downloaded from the PC (as opposed to a reading that could not be sent to it). */
+export const PC_NOT_DOWNLOADING = "Couldn't download a photo from your PC. What's read is kept on this phone; check again to pick up.";
+
 const initial = (): EvalState => ({
   phase: 'checking',
   total: 0,
@@ -218,7 +221,14 @@ export class DownloadError extends Error {
 class RunGoneError extends Error {}
 
 /** The PC cannot take anything right now (signed out, evals off, results folder not writable, errors that keep coming): the run stops and keeps what it read. */
-class PcNotTakingError extends Error {}
+class PcNotTakingError extends Error {
+  constructor(readonly cause: 'send' | 'download' = 'send') {
+    super();
+  }
+}
+
+/** The owner tapped Stop while a download was being waited for: the run gives up on this photo at once, instead of retrying with no limit. */
+class StopRequestedError extends Error {}
 
 const statusOf = (error: unknown): number | undefined => (error instanceof ApiError || error instanceof DownloadError ? error.status : undefined);
 
@@ -437,7 +447,7 @@ export class EvalRunner {
         if (error instanceof RunGoneError) {
           this.set({ phase: 'error', endedAt: this.now(), message: "The run on your PC isn't open any more. Start a new one." });
         } else if (error instanceof PcNotTakingError) {
-          this.set({ phase: 'error', endedAt: this.now(), message: PC_NOT_TAKING });
+          this.set({ phase: 'error', endedAt: this.now(), message: error.cause === 'download' ? PC_NOT_DOWNLOADING : PC_NOT_TAKING });
         } else {
           this.set({ phase: 'error', endedAt: this.now(), message: "Couldn't finish the run. What's read is kept; try again." });
         }
@@ -561,13 +571,15 @@ export class EvalRunner {
     this.set({ current: index + 1, step: 'apple' });
     let uri: string;
     try {
-      // A PC that is not answering is waited for, as a send is; only a final answer about this photo (it is not there) skips it.
-      uri = trackPicture(await this.withPc(() => this.deps.files.download(photo.id), 'running'));
+      // A PC that is not answering is waited for, as a send is; only a final answer about this photo (it is not there) skips it. The owner's stop
+      // cuts the wait short: nothing more is downloaded once it is asked for, the run goes on to finish with what is already read.
+      uri = trackPicture(await this.withPc(() => this.deps.files.download(photo.id), 'running', { stoppable: true }));
     } catch (error) {
+      if (error instanceof StopRequestedError) return;
       if (this.epoch !== epoch) return; // the download was cut short by the app leaving: read it again
       // Only an answer about this photo (it is not there) skips it. Signed out, evals off, or server errors that keep coming say nothing about the photo:
       // stop with what is read kept, not photo after photo skipped.
-      if (statusOf(error) !== 404 && statusOf(error) !== 410) throw new PcNotTakingError();
+      if (statusOf(error) !== 404 && statusOf(error) !== 410) throw new PcNotTakingError('download');
       this.set({ skipped: [...this.state.skipped, photo.id] });
       return;
     }
@@ -697,8 +709,10 @@ export class EvalRunner {
    * Runs a request to the PC until it answers. A request that never got an answer, or got a busy or restarting answer (408, 429, 502, 503, 504), is
    * tried again after a wait that grows, with no limit (the screen says it is waiting for the PC, and the readings stay kept), and the screen is put
    * back to `back` when it answers. Throws what the PC finally says: a 4xx, or a plain server error that came `MAX_SERVER_REFUSALS` times in a row.
+   * `stoppable` is for a download of a photo not yet read: the owner's stop ends the wait at once, by throwing `StopRequestedError`, instead of
+   * retrying with no limit. A send of what is already read is never stoppable: it keeps trying so nothing read is lost.
    */
-  private async withPc<T>(request: () => Promise<T>, back: EvalPhase): Promise<T> {
+  private async withPc<T>(request: () => Promise<T>, back: EvalPhase, options: { stoppable?: boolean } = {}): Promise<T> {
     let failures = 0;
     let serverErrors = 0;
     for (;;) {
@@ -717,6 +731,7 @@ export class EvalRunner {
         }
         this.set({ phase: 'waiting', message: undefined });
         await this.wait(sendWaitMs(failures));
+        if (options.stoppable && this.stopRequested) throw new StopRequestedError();
         await this.holdWhileAway();
       }
     }

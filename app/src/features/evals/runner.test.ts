@@ -9,7 +9,7 @@ import { failedRead, makeKit, uriOf } from './evalsTestKit';
 import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import type { ReadItem } from '@/features/scan/recognition/types';
-import { PC_NOT_TAKING, SCORING_POLL_MS, sendWaitMs } from './runner';
+import { PC_NOT_DOWNLOADING, SCORING_POLL_MS, sendWaitMs } from './runner';
 
 interface Result {
   photoId: string;
@@ -739,7 +739,7 @@ describe('the eval runner', () => {
 
         await kit.runner.start();
 
-        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: PC_NOT_TAKING, skipped: [] });
+        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: PC_NOT_DOWNLOADING, skipped: [] });
         expect(kit.downloaded).toEqual([]);
         expect(evalsMock.finishes).toEqual([]);
       });
@@ -749,7 +749,7 @@ describe('the eval runner', () => {
 
         await kit.runner.start();
 
-        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: PC_NOT_TAKING, skipped: [] });
+        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: PC_NOT_DOWNLOADING, skipped: [] });
         expect(evalsMock.finishes).toEqual([]);
       });
 
@@ -766,6 +766,44 @@ describe('the eval runner', () => {
         expect(sentIds()).toEqual(['photo-002', 'photo-001', 'photo-003']);
         expect(kit.runner.getState().skipped).toEqual([]);
         expect(evalsMock.run?.partial).toBe(false);
+      });
+
+      it('clears the skipped photos as soon as the run is continued, not only when it is rechecked first', async () => {
+        const kit = makeKit({ photos: 3, downloadFailures: [404] });
+        evalsMock.failSends = [{ status: 409, code: 'evals.results_not_writable' }];
+        await kit.runner.start();
+        expect(kit.runner.getState().skipped).toEqual(['photo-001']);
+
+        await kit.runner.refresh(); // picks the still-open run back up without touching skipped itself
+        expect(kit.runner.getState()).toMatchObject({ phase: 'resumable', skipped: ['photo-001'] });
+
+        const continuing = kit.runner.continueRun();
+        expect(kit.runner.getState().skipped).toEqual([]);
+        await continuing;
+      });
+
+      it('stops waiting for a download at once, and goes idle when nothing was read', async () => {
+        const kit = makeKit({ photos: 3, downloadFailures: ['network', 'network', 'network'], onSleep: () => kit.runner.stop() });
+
+        await kit.runner.start();
+
+        expect(kit.sleeps).toEqual([1000]); // the wait was cut short after the first try, not retried with no limit
+        expect(kit.downloaded).toEqual([]);
+        expect(evalsMock.finishes).toEqual([]);
+        expect(kit.runner.getState()).toMatchObject({ phase: 'idle', message: 'Nothing was read, so there was nothing to score.' });
+      });
+
+      it('stops waiting for a download at once, and goes on to finish with what is already read', async () => {
+        // 0 is falsy: the first download (photo-001) succeeds, the second (photo-002) never answers until it is stopped.
+        const kit = makeKit({ photos: 3, downloadFailures: [0, 'network', 'network', 'network'], onSleep: () => kit.runner.stop() });
+
+        await kit.runner.start();
+
+        expect(kit.sleeps).toEqual([1000]);
+        expect(kit.downloaded).toEqual(['photo-001']);
+        expect(sentIds()).toEqual(['photo-001']);
+        expect(evalsMock.finishes).toEqual([{ partial: true }]);
+        expect(kit.runner.getState()).toMatchObject({ phase: 'scoring', partial: true });
       });
     });
 
