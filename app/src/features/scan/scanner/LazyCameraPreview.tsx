@@ -25,11 +25,11 @@ class CameraBoundary extends Component<{ children: ReactNode }, { failed: boolea
   }
 }
 
-export function LazyCameraPreview({ source }: { source: VisionCameraSource }) {
+export function LazyCameraPreview({ source, active = true }: { source: VisionCameraSource; active?: boolean }) {
   return (
     <CameraBoundary>
       <Suspense fallback={null}>
-        <CameraPreview source={source} />
+        <CameraPreview source={source} active={active} />
       </Suspense>
     </CameraBoundary>
   );

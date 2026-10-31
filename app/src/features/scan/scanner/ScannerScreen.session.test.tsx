@@ -6,7 +6,9 @@ import { MOCK_LIBRARY_ID, newMockId } from '@/mocks/data';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
+import type { Resizer } from '../autosnap/snapPhoto';
 import { useCardsStore } from '../cards/cardsStore';
+import { makeKit, readItem, readingOf, resetKit } from '../pipeline/testKit';
 import { rememberSessionContext, setSessionContextStorage } from '../session/sessionContext';
 import { getTrayStore, setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
@@ -29,6 +31,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetKit();
   scanMock.reset();
   setTrayStore(undefined);
   setSessionContextStorage(undefined);
@@ -79,6 +82,34 @@ describe('scanner session context', () => {
     await act(async () => source.inject([{ value: DEV_CODES.duneOwned, symbology: 'ean-13' }]));
     await waitFor(() => expect(bodies).toHaveLength(1));
     expect(bodies[0]).toEqual({ defaultLocationId: SHELF_2, defaultStatus: 'owned', mediaHint: 'games', channel: 'home', autoCommitTiers: [] });
+  });
+
+  it('creates a session that a picture opened with the chosen context, not an empty one', async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/scan-sessions', async ({ request }) => {
+        bodies.push(await request.json());
+        const id = newMockId();
+        scanMock.sessions.set(id, { id, libraryId: MOCK_LIBRARY_ID, seq: 0, candidates: [], answers: new Map(), status: 'open' });
+        return HttpResponse.json({ id }, { status: 201 });
+      }),
+    );
+    rememberSessionContext(MOCK_LIBRARY_ID, { locationId: SHELF_1, status: 'wishlist', mediaHint: 'mixed', channel: 'home' });
+    const kit = makeKit();
+    kit.reader.script(readingOf([readItem('Dune')]));
+    const resize: Resizer = async (photo, target) => ({ uri: `${photo.uri}#resized`, width: target?.width ?? photo.width, height: target?.height ?? photo.height });
+    await renderWithProviders(
+      <ScannerScreen libraryId={MOCK_LIBRARY_ID} source={new FakeScannerSource()} tuning={tuning} pipeline={kit.deps} autoSnapTuning={{ flashMs: 50, resize }} />,
+    );
+
+    await press('Session: Game room › Shelf 1, Wishlist, Mixed, Home. Change settings');
+    await press('Games');
+    await press('In-store');
+    await press('Save');
+    await press('Take picture'); // a shelf first: no barcode has opened the session
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ defaultStatus: 'wishlist', mediaHint: 'games', channel: 'in_store' }); // not the blank home scan an empty body would make
   });
 
   it('searches the catalog one tap from the camera', async () => {
