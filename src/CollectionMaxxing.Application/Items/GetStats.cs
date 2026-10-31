@@ -13,32 +13,54 @@ public static class GetStats
     {
         public async Task<StatsDto> HandleAsync(Query query, CancellationToken cancellationToken)
         {
-            var rows = await (
+            // One GROUP BY on everything the four counts are keyed by: the database sends a row per distinct
+            // combination, not one per item, and the counts are rolled up here.
+            var buckets = (
                 from i in db.Items.AsNoTracking()
                 join r in db.Releases on i.ReleaseId equals r.Id
                 join w in db.Works on r.WorkId equals w.Id
                 join p in db.Platforms on r.PlatformId equals p.Id into platforms
                 from p in platforms.DefaultIfEmpty()
                 where i.LibraryId == query.LibraryId && i.DeletedAt == null
-                select new
+                group i by new
                 {
                     w.Kind,
                     r.Format,
                     Platform = p == null ? null : p.Name,
-                    r.ReleaseDate,
-                    w.OriginalYear,
-                })
-                .ToListAsync(cancellationToken);
+                    Decade = (r.ReleaseDate != null ? r.ReleaseDate!.Value.Year : w.OriginalYear) / 10 * 10,
+                }
+                into bucket
+                select new { bucket.Key.Kind, bucket.Key.Format, bucket.Key.Platform, bucket.Key.Decade, Count = bucket.Count() })
+                .AsAsyncEnumerable();
 
-            return new StatsDto(
-                rows.Count,
-                Count(rows.Select(r => EnumText.ToText(r.Kind))),
-                Count(rows.Select(r => EnumText.ToText(r.Format))),
-                Count(rows.Select(r => r.Platform)),
-                Count(rows.Select(r => (r.ReleaseDate?.Year ?? r.OriginalYear) is { } year ? $"{year / 10 * 10}s" : null)));
+            var total = 0;
+            var byKind = Counts();
+            var byFormat = Counts();
+            var byPlatform = Counts();
+            var byDecade = Counts();
+            await foreach (var bucket in buckets.WithCancellation(cancellationToken))
+            {
+                total += bucket.Count;
+                Add(byKind, EnumText.ToText(bucket.Kind), bucket.Count);
+                Add(byFormat, EnumText.ToText(bucket.Format), bucket.Count);
+                if (bucket.Platform is not null)
+                {
+                    Add(byPlatform, bucket.Platform, bucket.Count);
+                }
+
+                if (bucket.Decade is { } decade)
+                {
+                    Add(byDecade, $"{decade}s", bucket.Count);
+                }
+            }
+
+            return new StatsDto(total, byKind, byFormat, byPlatform, byDecade);
         }
 
-        private static Dictionary<string, int> Count(IEnumerable<string?> keys) =>
-            keys.Where(k => k is not null).GroupBy(k => k!).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count());
+        /// <summary>Counts keyed by text and listed in ordinal order, whatever the database collation.</summary>
+        private static SortedDictionary<string, int> Counts() => new(StringComparer.Ordinal);
+
+        private static void Add(SortedDictionary<string, int> counts, string key, int count) =>
+            counts[key] = counts.GetValueOrDefault(key) + count;
     }
 }

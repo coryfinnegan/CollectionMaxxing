@@ -1,6 +1,5 @@
-using System.Buffers;
-using System.Text;
 using System.Text.Json;
+using CollectionMaxxing.Api.Http;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Scanning;
@@ -39,8 +38,8 @@ internal static class CoverVerifyEndpoint
     /// <summary>The multipart part that holds the quad JSON, when the phone detected the cover corners.</summary>
     public const string QuadPartName = "quad";
 
-    /// <summary>The most quad JSON the endpoint reads: four points never need more.</summary>
-    public const int MaxQuadChars = 1024;
+    /// <summary>The most bytes of quad JSON the endpoint reads: four points never need more.</summary>
+    public const int MaxQuadBytes = 1024;
 
     /// <summary>Room for the multipart framing and the quad around a 4 MB file.</summary>
     private const int Overhead = 65 * 1024;
@@ -85,7 +84,7 @@ internal static class CoverVerifyEndpoint
         }
 
         byte[]? file = null;
-        string? quadJson = null;
+        Result<CoverQuad?>? quad = null;
         try
         {
             var reader = new MultipartReader(boundary, request.Body)
@@ -102,9 +101,11 @@ internal static class CoverVerifyEndpoint
                 }
 
                 var name = HeaderUtilities.RemoveQuotes(disposition.Name).Value;
-                if (name == QuadPartName && quadJson is null)
+                if (name == QuadPartName && quad is null)
                 {
-                    quadJson = await ReadQuadTextAsync(section.Body, cancellationToken);
+                    // A quad longer than the cap is as invalid as a malformed one.
+                    var quadJson = await BoundedBody.ReadTextAsync(section.Body, MaxQuadBytes, cancellationToken);
+                    quad = quadJson is null ? QuadInvalid() : ParseQuad(quadJson, jsonOptions.Value.SerializerOptions);
                     continue; // the phone sends the quad as a field or a file part; both read the same
                 }
 
@@ -118,7 +119,8 @@ internal static class CoverVerifyEndpoint
                     return Bad("scan.cover_one_file", "Send exactly one capture.");
                 }
 
-                file = await ReadCappedAsync(section.Body, cancellationToken);
+                // A part has no declared length, so it is read in chunks. Null is a capture over the cap.
+                file = await BoundedBody.ReadAsync(section.Body, JpegSanitizer.MaxBytes, declaredLength: null, cancellationToken);
                 if (file is null)
                 {
                     return TooLarge();
@@ -141,7 +143,7 @@ internal static class CoverVerifyEndpoint
             return Bad("scan.cover_no_file", "Send the capture as a multipart part named \"file\".");
         }
 
-        var quad = ParseQuad(quadJson, jsonOptions.Value.SerializerOptions);
+        quad ??= Result<CoverQuad?>.Success(null);
         if (!quad.IsSuccess)
         {
             return quad.Error!.ToProblem();
@@ -151,65 +153,11 @@ internal static class CoverVerifyEndpoint
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
     }
 
-    /// <summary>Reads at most <see cref="JpegSanitizer.MaxBytes"/> bytes. Null when there is more: the rest is never read.</summary>
-    private static async Task<byte[]?> ReadCappedAsync(Stream body, CancellationToken cancellationToken)
-    {
-        using var buffer = new MemoryStream();
-        var chunk = ArrayPool<byte>.Shared.Rent(16 * 1024);
-        try
-        {
-            int read;
-            while ((read = await body.ReadAsync(chunk, cancellationToken)) > 0)
-            {
-                if (buffer.Length + read > JpegSanitizer.MaxBytes)
-                {
-                    return null;
-                }
-
-                buffer.Write(chunk, 0, read);
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(chunk);
-        }
-
-        return buffer.ToArray();
-    }
-
-    /// <summary>Reads at most <see cref="MaxQuadChars"/> characters. Longer input comes back whole and fails parsing below.</summary>
-    private static async Task<string> ReadQuadTextAsync(Stream body, CancellationToken cancellationToken)
-    {
-        using var buffer = new MemoryStream();
-        var chunk = ArrayPool<byte>.Shared.Rent(1024);
-        try
-        {
-            int read;
-            var total = 0;
-            while ((read = await body.ReadAsync(chunk, cancellationToken)) > 0 && total <= MaxQuadChars)
-            {
-                buffer.Write(chunk, 0, Math.Min(read, (MaxQuadChars + 1) - total));
-                total += read;
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(chunk);
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray());
-    }
-
-    private static Result<CoverQuad?> ParseQuad(string? json, JsonSerializerOptions options)
+    private static Result<CoverQuad?> ParseQuad(string json, JsonSerializerOptions options)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
             return Result<CoverQuad?>.Success(null);
-        }
-
-        if (json.Length > MaxQuadChars)
-        {
-            return QuadInvalid();
         }
 
         QuadDto? quad;

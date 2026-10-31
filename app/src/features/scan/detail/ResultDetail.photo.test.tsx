@@ -118,6 +118,7 @@ describe('the bottom section', () => {
 
   it('offers the add buttons for a result that is not owned', async () => {
     const { cards } = await seedSnap(TWO);
+    useCardsStore.getState().merge([{ ...cards[0]!, decision: 'undecided' }], { announce: false }); // a new match comes back accepted; this one was taken out of the scan
     await renderWithProviders(<ResultDetail id={cards[0]!.id} />);
 
     expect(await screen.findByLabelText('Add to library')).toBeTruthy();

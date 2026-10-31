@@ -116,7 +116,7 @@ public sealed class ScanCandidate : ILibraryScoped, IConcurrencyVersioned
     /// <summary>The provisional record the person kept this row as (design §11); set when it is kept, null when that record is deleted.</summary>
     public Guid? ProvisionalId { get; set; }
 
-    /// <summary>The format the person chose over what was matched (SCAN-1d); commit uses the matching release of the same work.</summary>
+    /// <summary>The format the person chose over what was matched; commit uses the matching release of the same work.</summary>
     public ReleaseFormat? EditedFormat { get; set; }
 
     /// <summary>The platform the person typed over what was matched (at most 100 characters).</summary>

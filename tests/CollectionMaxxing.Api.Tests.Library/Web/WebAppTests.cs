@@ -175,21 +175,8 @@ public sealed partial class WebAppTests : IDisposable
         InlineScriptsAreAllowed(served);
     }
 
-    [Fact]
-    public void Every_inline_script_in_the_real_web_export_is_allowed_by_the_policy_when_it_has_been_built()
-    {
-        // The Playwright run (and the release build) leaves the real export in app/dist; the hash in the policy must match what Expo really emits.
-        var dist = RepositoryFiles.Find("app", "dist");
-        if (!Directory.Exists(dist))
-        {
-            return;
-        }
-
-        foreach (var page in Directory.EnumerateFiles(dist, "*.html", SearchOption.AllDirectories))
-        {
-            InlineScriptsAreAllowed(File.ReadAllText(page));
-        }
-    }
+    // The same check against the real export (the hash in the policy must match what Expo really emits) is app/playwright/csp.spec.ts:
+    // the backend jobs never build app/dist, so a test here passed without checking anything in CI, and the e2e job builds it.
 
     [Fact]
     public async Task With_no_web_export_installed_the_api_behaves_as_before()
