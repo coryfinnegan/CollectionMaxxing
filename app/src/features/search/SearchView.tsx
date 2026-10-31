@@ -64,7 +64,7 @@ export function SearchView({ onPick, onManual, initialQuery = '', scope, offline
   const [kind, setKind] = useState<WorkKind | null>(null);
   const [platform, setPlatform] = useState<PlatformDto | null>(null);
   const [yearText, setYearText] = useState('');
-  // The opened result, by a key unique per result: provider-only works all share one id (#572).
+  // The opened result, by a key unique per result: provider-only works all share one id.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const q = useDebounced(text.trim());
   const year = parseYear(yearText);

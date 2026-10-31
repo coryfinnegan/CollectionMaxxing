@@ -298,10 +298,10 @@ public static class SearchCatalog
                 scored.Add((found, MatchScorer.Score(read, found.ToCandidate(), CatalogProjection.Profile)));
             }
 
+            providerHits.AddRange(scored.Select(s => s.Release));
             return CatalogProjection.GroupProviderReleases(scored)
                 .Select(g =>
                 {
-                    providerHits.AddRange(g.Releases.Select(r => r.Release));
                     var face = g.Releases[0];
                     var work = CatalogProjection.ToWorkDto(face.Release);
                     var cover = face.Release.CoverUrl ?? g.Releases.Select(r => r.Release.CoverUrl).FirstOrDefault(c => c is not null);
