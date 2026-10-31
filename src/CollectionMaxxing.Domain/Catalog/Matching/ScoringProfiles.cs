@@ -81,8 +81,8 @@ public sealed record ArtScoringOptions
 
     /// <summary>
     /// Unitless factor applied to every distance the phone reports, before the cosine mapping above. 1 treats the reported
-    /// numbers as Euclidean distances between unit-length vectors. Calibrated at the M3 gate, when the real range of Apple's
-    /// feature-print distances is measured on the device.
+    /// numbers as Euclidean distances between unit-length vectors. Set from the real range of Apple's feature-print
+    /// distances, measured on the device at the M3 gate (docs/02).
     /// </summary>
     public double DistanceScale { get; init; } = 1.0;
 
@@ -94,9 +94,9 @@ public sealed record ArtScoringOptions
 }
 
 /// <summary>
-/// How the server verifies a cover capture against the candidates' covers (#438 stage 2): SIFT feature matching with a
+/// How the server verifies a cover capture against the candidates' covers: SIFT feature matching with a
 /// FLANN matcher, Lowe's ratio test and RANSAC homography verification, whose inlier count is the sameness score. The
-/// counts below are tuned on the #438 fixtures, which measured 227 and 159 inliers for the photo-matching edition
+/// counts below are tuned on the cover fixtures, which measured 227 and 159 inliers for the photo-matching edition
 /// (gentle and hard tilt, warped by the quad) against 24 for the same-title other edition and 11 for an unrelated
 /// cover: weak sits ~1.6x above the hardest negative, strong ~1.6x below the weakest positive. The fixture test fails
 /// unless fresh measurements still fall on either side of them.

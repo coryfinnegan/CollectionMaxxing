@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace CollectionMaxxing.Api.Evals;
 
 /// <summary>
-/// The eval server's routes (EVAL-1a), all under <c>/api/admin</c> and so behind <see cref="Policies.Admin"/>: the owner's golden
+/// The eval server's routes, all under <c>/api/admin</c> and so behind <see cref="Policies.Admin"/>: the owner's golden
 /// photos go out (and new ones come in from the phone, at full size), the phone's per-photo readings come back, and the report is built on the PC. The routes are always mapped (so
 /// who may call them is the same whatever the settings), and answer 404 to the administrator too until <c>Evals:Enabled</c> is
 /// true and <c>Evals:GoldenPath</c> is a folder.
@@ -197,10 +197,10 @@ public static class EvalsEndpoints
             parsed.Partial == true,
             parsed.BaselineNote);
 
-        // Grounding a big run takes minutes (a 19-photo run took five and a half), and the phone locks or drops the connection
-        // meanwhile, which cancelled the request token and threw the whole run away, unsaved. The body is read; from here the work
-        // belongs to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the
-        // upload timeout, which cancels the same token, no longer cuts it short either).
+        // Grounding a big run takes minutes, and the phone may lock or drop the connection meanwhile; tying the work to the
+        // request token would cancel it and throw the whole run away, unsaved. The body is read; from here the work belongs
+        // to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the upload
+        // timeout, which cancels the same token, does not cut it short either).
         var result = await handler.HandleAsync(input, lifetime.ApplicationStopping);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : Refused(logger, result.Error!);
     }

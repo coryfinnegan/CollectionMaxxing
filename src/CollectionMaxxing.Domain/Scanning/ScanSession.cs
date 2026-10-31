@@ -52,29 +52,29 @@ public sealed class ScanSession : ILibraryScoped, IConcurrencyVersioned
     public DateTimeOffset? CommittedAt { get; set; }
 
     /// <summary>
-    /// The ids of the items the commit created, set when the session is committed and cleared when the commit is undone (SCAN-1e). Undo removes
+    /// The ids of the items the commit created, set when the session is committed and cleared when the commit is undone. Undo removes
     /// exactly these, never items found by when or by whom they were made. Null before the first commit, and for a commit made before this was kept.
     /// </summary>
     public Guid[]? CommittedItemIds { get; set; }
 
     /// <summary>
     /// Which tiers auto-add in this session (docs/16 §6), spelled as <see cref="EnumText"/> spells them: none unless
-    /// the session says otherwise (#452 — nothing enters the library straight from a scan; every capture waits for the
-    /// Review commit). An empty list turns auto-add off entirely, and so does predating the #452 cutover (#489:
-    /// pre-cutover rows kept the old T0 default, which silently kept auto-adding after the fix). Use
+    /// the session says otherwise: nothing enters the library straight from a scan, and every capture waits for the
+    /// Review commit. An empty list turns auto-add off entirely, and so does a session created before
+    /// <see cref="AutoCommitCutover"/>: those rows kept the old T0 default, which would otherwise keep auto-adding. Use
     /// <see cref="AutoCommits"/> to ask.
     /// </summary>
     public string[] AutoCommitTiers { get; set; } = [];
 
     /// <summary>
-    /// The #452 cutover: #469 merged 2026-10-27T22:17:11Z, moving the session default to no auto-add. Sessions
-    /// created before that instant follow the no-auto-add rule whatever their stored tiers say (#489).
+    /// The instant the session default became no auto-add. Sessions created before it follow the no-auto-add rule
+    /// whatever their stored tiers say.
     /// </summary>
     public static readonly DateTimeOffset AutoCommitCutover = new(2026, 10, 27, 22, 17, 11, TimeSpan.Zero);
 
     /// <summary>
     /// Whether <paramref name="tier"/> auto-adds in this session: named in <see cref="AutoCommitTiers"/> and created
-    /// after the #452 cutover. Pre-cutover sessions never auto-add (#489).
+    /// at or after <see cref="AutoCommitCutover"/>. Earlier sessions never auto-add.
     /// </summary>
     public bool AutoCommits(ScanTier tier) => CreatedAt >= AutoCommitCutover && AutoCommitTiers.Contains(EnumText.ToText(tier));
 

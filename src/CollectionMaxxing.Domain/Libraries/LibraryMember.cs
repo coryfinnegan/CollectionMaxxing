@@ -20,7 +20,7 @@ public sealed class LibraryMember : ILibraryScoped, IConcurrencyVersioned
 
     public Guid LibraryId { get; private set; }
 
-    /// <summary>The user's id. A plain Guid for now; Identity arrives with sign-in.</summary>
+    /// <summary>The user's id: the account this membership belongs to. The membership goes when the account does.</summary>
     public Guid UserId { get; private set; }
 
     public LibraryRole Role { get; private set; }
