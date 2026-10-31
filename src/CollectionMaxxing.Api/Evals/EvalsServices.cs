@@ -20,6 +20,7 @@ public static class EvalsServices
         services.AddScoped<EvalGrounder>();
         services.AddScoped<ListGoldenPhotos.Handler>();
         services.AddScoped<GetGoldenImage.Handler>();
+        services.AddScoped<AddGoldenPhoto.Handler>();
         services.AddScoped<GetLatestEvalRun.Handler>();
         services.AddScoped<SubmitEvalRun.Handler>();
         return services;

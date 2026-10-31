@@ -114,6 +114,7 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
                 (OwnCandidates.TryGetValue(actor, out var candidate) ? candidate : OwnCandidates[Actor.Editor]).ToString(),
             "cid" or "userId" or "assetId" => Guid.CreateVersion7().ToString(),
             "token" => "a-token",
+            "set" => "single", // a golden folder's set (the eval photo upload)
             var other => throw new InvalidOperationException($"The matrix has no seeded value for route parameter '{other}'. Add one in ArrangeWorldAsync."),
         });
     }
