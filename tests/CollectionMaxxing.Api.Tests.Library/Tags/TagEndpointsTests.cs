@@ -123,6 +123,27 @@ public class TagEndpointsTests(ApiFixture api) : ApiTest(api)
     }
 
     [Fact]
+    public async Task A_tags_item_count_leaves_out_items_in_the_trash_and_counts_them_again_once_restored()
+    {
+        var library = await CreateLibraryAsync();
+        var editor = ClientFor(library, LibraryRole.Editor);
+        var tag = await TestData.CreateTagAsync(Db, library.Id, "Vinyl");
+        var kept = await TestData.CreateItemAsync(Db, library);
+        var trashed = await TestData.CreateItemAsync(Db, library);
+        await TestData.AttachTagAsync(Db, library.Id, kept, tag);
+        await TestData.AttachTagAsync(Db, library.Id, trashed, tag);
+        var trashedUrl = $"/api/v1/libraries/{library.Id}/items/{trashed}";
+        using var delete = new HttpRequestMessage(HttpMethod.Delete, trashedUrl);
+        delete.Headers.TryAddWithoutValidation("If-Match", (await editor.GetAsync(trashedUrl)).Headers.ETag!.Tag);
+        (await editor.SendAsync(delete)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        (await ItemCountOfAsync(editor, library.Id)).ShouldBe(1);
+
+        (await editor.PostAsync($"{trashedUrl}:restore", null)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ItemCountOfAsync(editor, library.Id)).ShouldBe(2);
+    }
+
+    [Fact]
     public async Task Deleting_a_tag_removes_it_and_its_item_links()
     {
         var library = await CreateLibraryAsync();
@@ -160,6 +181,13 @@ public class TagEndpointsTests(ApiFixture api) : ApiTest(api)
         var response = await ClientFor(library, LibraryRole.Editor).DeleteAsync(TagUrl(library.Id, Guid.CreateVersion7()));
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    /// <summary>The <c>itemCount</c> of the library's only tag.</summary>
+    private static async Task<int> ItemCountOfAsync(HttpClient client, Guid libraryId)
+    {
+        var list = await ReadJsonAsync(await client.GetAsync(TagsUrl(libraryId)));
+        return list.GetProperty("items").EnumerateArray().Single().GetProperty("itemCount").GetInt32();
     }
 
     private static string TagsUrl(Guid libraryId) => $"/api/v1/libraries/{libraryId}/tags";
