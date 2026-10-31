@@ -87,7 +87,10 @@ const absolute = (url: string) => (url.startsWith('/') ? `${apiBaseUrl()}${url}`
 
 /** The iPhone's pieces for handing an export over. Tests swap them for fakes; nothing here runs on the web. */
 export interface ExportDelivery {
-  /** Fetches `url` with `headers` into a temporary file and returns the file's `file://` address. A file left by a failure is gone. */
+  /**
+   * Fetches `url` with `headers` into a temporary file and returns the file's `file://` address. Rejects, with nothing left on disk,
+   * when the download fails or when what was saved is not the export (an ended sign-in or a server error saved as the .zip).
+   */
   download(url: string, headers: Record<string, string>): Promise<string>;
   /** Opens the share sheet on the file; resolves when the sheet closes. */
   share(fileUrl: string): Promise<void>;
@@ -96,6 +99,28 @@ export interface ExportDelivery {
 }
 
 const EXPORT_FILE = 'collectionmaxxing-export.zip';
+
+/** Every zip with files in it starts "PK" 3 4. */
+const ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04];
+
+export const isZipSignature = (head: Uint8Array): boolean => head.length >= ZIP_SIGNATURE.length && ZIP_SIGNATURE.every((byte, at) => head[at] === byte);
+
+/**
+ * A saved download is only the export if it starts like a zip. Otherwise (an error body saved under the .zip name, an empty file, a
+ * file that cannot be read) the file is deleted and this throws, so the share sheet is never opened on it.
+ */
+export async function requireZipFile(
+  fileUrl: string,
+  readHead: (fileUrl: string) => Promise<Uint8Array>,
+  remove: (fileUrl: string) => Promise<void>,
+): Promise<void> {
+  try {
+    if (!isZipSignature(await readHead(fileUrl))) throw new Error("That download wasn't the export.");
+  } catch (e) {
+    await remove(fileUrl);
+    throw e;
+  }
+}
 
 /** expo-file-system's cache folder and React Native's share sheet, loaded on first use so the web and tests never need them. */
 const deviceDelivery: ExportDelivery = {
@@ -111,6 +136,19 @@ const deviceDelivery: ExportDelivery = {
     trackPicture(destination.uri);
     try {
       const file = await fs.File.downloadFileAsync(url, destination, { headers, idempotent: true });
+      // Whether a refused answer (an ended sign-in, a server error) rejects here is not documented, so look at what was saved.
+      await requireZipFile(
+        file.uri,
+        async () => {
+          const handle = file.open();
+          try {
+            return handle.readBytes(ZIP_SIGNATURE.length); // four bytes: the zip holds photos and is never read whole
+          } finally {
+            handle.close();
+          }
+        },
+        discardPicture,
+      );
       return file.uri;
     } catch (e) {
       await discardPicture(destination.uri);

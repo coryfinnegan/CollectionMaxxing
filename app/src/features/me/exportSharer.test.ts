@@ -3,7 +3,7 @@
 import { apiBaseUrl } from '@/lib/http';
 import { configureAuth, resetAuth } from '@/lib/auth/session';
 import { MemoryNativeAuth } from '@/lib/auth/native';
-import { createDeviceSharer, type ExportDelivery } from './services';
+import { createDeviceSharer, isZipSignature, requireZipFile, type ExportDelivery } from './services';
 
 const LINK = '/api/v1/me/export/0d1e2f30-0000-4000-8000-000000000001/download?token=signed-link';
 const SAVED = 'file:///var/mobile/Library/Caches/cm-export/collectionmaxxing-export.zip';
@@ -82,6 +82,20 @@ describe('sharing an export on the iPhone', () => {
     expect(shared).toEqual([]);
   });
 
+  it('shares nothing when what came back is not the export, and says so', async () => {
+    // An expired sign-in or a server error can still be saved as the .zip: the delivery refuses it, so the sheet never opens on it.
+    const { delivery, shared, removed } = fakeDelivery({
+      download: async () => {
+        throw new Error("That download wasn't the export.");
+      },
+    });
+
+    await expect(createDeviceSharer(delivery).deliver(LINK)).rejects.toThrow("That download wasn't the export.");
+
+    expect(shared).toEqual([]);
+    expect(removed).toEqual([]); // the delivery already deleted what it saved
+  });
+
   it('is not held up by a file that cannot be deleted', async () => {
     const { delivery } = fakeDelivery({
       remove: async () => {
@@ -112,5 +126,54 @@ describe('downloading an export on the web', () => {
     expect(anchor.download).toBe('collectionmaxxing-export.zip');
     expect(anchor.click).toHaveBeenCalledTimes(1);
     expect(calls).toEqual([]);
+  });
+});
+
+const bytes = (...values: number[]) => Uint8Array.from(values);
+const ZIP_HEAD = bytes(0x50, 0x4b, 0x03, 0x04);
+const textBytes = (value: string) => Uint8Array.from(Buffer.from(value, 'utf8'));
+
+describe('telling a saved export from an error saved in its place', () => {
+  it('knows a zip by its first four bytes', () => {
+    expect(isZipSignature(ZIP_HEAD)).toBe(true);
+    expect(isZipSignature(bytes(0x50, 0x4b, 0x03, 0x04, 0x14, 0x00))).toBe(true);
+  });
+
+  it('does not take an error body, an empty file or a short read for a zip', () => {
+    expect(isZipSignature(textBytes('{"title":"Unauthorized","status":401}'))).toBe(false);
+    expect(isZipSignature(textBytes('<html>Bad gateway</html>'))).toBe(false);
+    expect(isZipSignature(bytes())).toBe(false);
+    expect(isZipSignature(bytes(0x50, 0x4b, 0x03))).toBe(false);
+    expect(isZipSignature(bytes(0x50, 0x4b, 0x05, 0x06))).toBe(false); // an empty archive: an export always holds files
+  });
+
+  it('keeps a file that starts like a zip', async () => {
+    const removed: string[] = [];
+
+    await requireZipFile(SAVED, async () => ZIP_HEAD, async (fileUrl) => void removed.push(fileUrl));
+
+    expect(removed).toEqual([]);
+  });
+
+  it.each([
+    ['an error body', textBytes('{"title":"Your session ended."}')],
+    ['an empty file', bytes()],
+  ])('deletes %s and refuses it', async (_name, head) => {
+    const removed: string[] = [];
+
+    await expect(requireZipFile(SAVED, async () => head, async (fileUrl) => void removed.push(fileUrl))).rejects.toThrow(/wasn't the export/);
+
+    expect(removed).toEqual([SAVED]);
+  });
+
+  it('deletes the file and refuses it when it cannot be read', async () => {
+    const removed: string[] = [];
+    const unreadable = async () => {
+      throw new Error('no such file');
+    };
+
+    await expect(requireZipFile(SAVED, unreadable, async (fileUrl) => void removed.push(fileUrl))).rejects.toThrow('no such file');
+
+    expect(removed).toEqual([SAVED]);
   });
 });
