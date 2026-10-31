@@ -328,9 +328,9 @@ internal sealed record StoredRead
             candidate.VisibleText,
             stored?.Creator,
             stored?.Edition,
-            Parse<ItemCompleteness>(stored?.Completeness),
-            Parse<WorkKind>(stored?.Kind),
-            Parse<ReleaseFormat>(stored?.Format),
+            EnumText.ParseOrNull<ItemCompleteness>(stored?.Completeness),
+            EnumText.ParseOrNull<WorkKind>(stored?.Kind),
+            EnumText.ParseOrNull<ReleaseFormat>(stored?.Format),
             stored?.Year,
             stored?.Platform,
             stored?.ProductCode,
@@ -343,7 +343,7 @@ internal sealed record StoredRead
     public static bool IsUnconfirmed(string? inferredJson) => ReadStored(inferredJson)?.Unconfirmed == true;
 
     /// <summary>The kind a stored read named, or null when it named none (or the read cannot be read).</summary>
-    public static WorkKind? KindOf(string? inferredJson) => Parse<WorkKind>(ReadStored(inferredJson)?.Kind);
+    public static WorkKind? KindOf(string? inferredJson) => EnumText.ParseOrNull<WorkKind>(ReadStored(inferredJson)?.Kind);
 
     private static StoredRead? ReadStored(string? inferredJson)
     {
@@ -360,19 +360,5 @@ internal sealed record StoredRead
         {
             return null; // Unreadable: fall back to the text alone.
         }
-    }
-
-    private static T? Parse<T>(string? text)
-        where T : struct, Enum
-    {
-        foreach (var value in Enum.GetValues<T>())
-        {
-            if (EnumText.ToText(value) == text)
-            {
-                return value;
-            }
-        }
-
-        return null;
     }
 }
