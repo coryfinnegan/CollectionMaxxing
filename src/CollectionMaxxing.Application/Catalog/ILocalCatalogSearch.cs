@@ -16,4 +16,21 @@ public sealed record LocalHit(Release Release, Work Work);
 public interface ILocalCatalogSearch
 {
     Task<IReadOnlyList<LocalHit>> FindAsync(LocalSearch search, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <see cref="FindAsync"/> for each of <paramref name="searches"/>: the answer holds, in the same order, exactly the hits that
+    /// search finds on its own. An implementation can answer many in far fewer round trips than one query each, which is why a
+    /// caller with a list of titles (a picture of a shelf) asks for them together.
+    /// </summary>
+    async Task<IReadOnlyList<IReadOnlyList<LocalHit>>> FindManyAsync(IReadOnlyList<LocalSearch> searches, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(searches);
+        var found = new List<IReadOnlyList<LocalHit>>(searches.Count);
+        foreach (var search in searches)
+        {
+            found.Add(await FindAsync(search, cancellationToken));
+        }
+
+        return found;
+    }
 }
