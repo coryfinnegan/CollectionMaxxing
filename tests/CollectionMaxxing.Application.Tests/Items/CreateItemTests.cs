@@ -107,6 +107,28 @@ public class CreateItemTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task An_item_added_without_a_date_is_acquired_on_the_day_at_the_offset_it_was_sent_with()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+
+        // 09:00 UTC on 1 June is 11 pm on 31 May in Hawaii (UTC-10).
+        var result = await RunAsync(library, Manual(library.Id, "k-acq-offset", Book()) with { UtcOffsetMinutes = -600 });
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Value.AcquiredOn.ShouldBe(new DateOnly(2026, 5, 31));
+    }
+
+    [Fact]
+    public async Task An_explicit_acquired_date_beats_the_offset()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+
+        var result = await RunAsync(library, Manual(library.Id, "k-acq-offset-2", Book(), acquiredOn: new DateOnly(2020, 1, 15)) with { UtcOffsetMinutes = -600 });
+
+        result.Value.Value.AcquiredOn.ShouldBe(new DateOnly(2020, 1, 15));
+    }
+
+    [Fact]
     public async Task An_explicit_acquired_date_is_kept()
     {
         var library = await TestData.CreateLibraryAsync(Db);

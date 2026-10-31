@@ -48,6 +48,7 @@ public sealed class AutoCommit(
             coverFiles?.Add(written);
         }
 
+        var acquiredOn = LocalDay.Of(now, session.UtcOffsetMinutes); // the day the person is in, not the server's
         var created = new List<Guid>();
         for (var copy = 0; copy < candidate.Copies; copy++)
         {
@@ -64,6 +65,7 @@ public sealed class AutoCommit(
                 ScanCommitItems.ViaOf(candidate.Source),
                 userId,
                 now,
+                acquiredOn,
                 editionVerified: tier != ScanTier.T1);
             db.Items.Add(item);
             created.Add(item.Id);

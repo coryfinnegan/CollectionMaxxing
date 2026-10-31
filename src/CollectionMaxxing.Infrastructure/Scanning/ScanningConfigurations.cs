@@ -20,6 +20,9 @@ internal sealed class ScanSessionConfiguration : IEntityTypeConfiguration<ScanSe
             t.HasCheckConstraint("ck_scan_sessions_default_status", EnumColumns.CheckIn<ItemStatus>("default_status"));
             t.HasCheckConstraint("ck_scan_sessions_media_hint", EnumColumns.CheckIn<ScanMediaHint>("media_hint"));
             t.HasCheckConstraint("ck_scan_sessions_channel", EnumColumns.CheckIn<ScanChannel>("channel"));
+            t.HasCheckConstraint(
+                "ck_scan_sessions_utc_offset_minutes",
+                $"utc_offset_minutes is null or utc_offset_minutes between {ScanSession.MinUtcOffsetMinutes} and {ScanSession.MaxUtcOffsetMinutes}");
         });
         builder.HasKey(s => s.Id);
         builder.Property(s => s.Id).ValueGeneratedNever();

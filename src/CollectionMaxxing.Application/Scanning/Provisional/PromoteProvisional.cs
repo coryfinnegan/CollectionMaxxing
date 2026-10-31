@@ -61,6 +61,11 @@ public static class PromoteProvisional
             // same row (a double tap, two tabs) then collide on one key, so only one item is made. The one that loses either
             // replays the winner's item or is refused whole by the database (a 409), and in neither case leaves an item behind.
             var releaseId = await MatchedReleaseAsync(command.LibraryId, provisional.CandidateId, cancellationToken);
+
+            // The item is dated the day the person was in when they scanned it; a session that was cleaned up has no offset left to ask.
+            var utcOffsetMinutes = provisional.SessionId is { } sessionId
+                ? await db.ScanSessions.AsNoTracking().Where(s => s.Id == sessionId).Select(s => s.UtcOffsetMinutes).FirstOrDefaultAsync(cancellationToken)
+                : null;
             var created = await items.HandleAsync(
                 new CreateItem.Command(
                     command.LibraryId,
@@ -76,7 +81,8 @@ public static class PromoteProvisional
                     Notes: null,
                     AcquiredOn: null,
                     AddedVia.Picture,
-                    TagIds: null),
+                    TagIds: null,
+                    UtcOffsetMinutes: utcOffsetMinutes),
                 cancellationToken);
             if (!created.IsSuccess)
             {

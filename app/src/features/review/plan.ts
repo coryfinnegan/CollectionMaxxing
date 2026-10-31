@@ -67,6 +67,8 @@ export type CommitBody = {
   addTo?: string;
   status?: ReviewStatus;
   overrides?: { candidateId: string; locationId?: string; status?: ReviewStatus; condition?: ItemCondition }[];
+  /** The day on the phone (YYYY-MM-DD); `commitDraft` adds it, so the request's identity does not change at midnight. */
+  acquiredOn?: string;
 };
 
 /**

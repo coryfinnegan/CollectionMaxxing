@@ -9,6 +9,8 @@ namespace CollectionMaxxing.Api.Scanning;
 /// is being scanned (mixed when missing) and <c>Channel</c> says where (home when missing; in a store, Review asks for each location later).
 /// <c>AutoCommitTiers</c> says which tiers auto-add (none when missing, since #452; pre-cutover sessions never
 /// auto-add whatever they carry, #489); <c>AutoCommitCopies</c> whether an exact-owned hit still adds another copy.
+/// <c>UtcOffsetMinutes</c> is the phone's offset from UTC in minutes (−300 for US Central daylight time), from −720 to 840: the
+/// server dates the items it adds for the session (a commit, an auto-add) by the day it gives. Without it (an older app) they get the UTC day.
 /// </summary>
 public sealed record CreateScanSessionRequest(
     Guid? DefaultLocationId = null,
@@ -16,7 +18,8 @@ public sealed record CreateScanSessionRequest(
     ScanMediaHint? MediaHint = null,
     ScanChannel? Channel = null,
     IReadOnlyList<ScanTier>? AutoCommitTiers = null,
-    bool AutoCommitCopies = false);
+    bool AutoCommitCopies = false,
+    int? UtcOffsetMinutes = null);
 
 /// <summary>Query of <c>GET /api/v1/scan-sessions/{id}</c>: with <c>since</c>, only candidates after that sequence number.</summary>
 public sealed record ScanSessionQuery([FromQuery(Name = "since")] int? Since = null);
@@ -113,9 +116,15 @@ public sealed record CommitOverrideRequest(
 /// Optional body of <c>POST …/commit</c> (SCAN-1d): <c>AddTo</c> is the location for every item, <c>Status</c> and
 /// <c>Condition</c> apply to every item, and <c>Overrides</c> change single scanned items. Applied in the commit's own
 /// transaction; with no body the commit is exactly what it was before.
+/// <c>AcquiredOn</c> is the day the phone is in (YYYY-MM-DD): the day every new item is dated, in place of the day the session's
+/// UTC offset gives. It can be at most one day past the server's UTC day.
 /// </summary>
 public sealed record CommitScanRequest(
-    Guid? AddTo = null, ItemStatus? Status = null, ItemCondition? Condition = null, IReadOnlyList<CommitOverrideRequest>? Overrides = null);
+    Guid? AddTo = null,
+    ItemStatus? Status = null,
+    ItemCondition? Condition = null,
+    IReadOnlyList<CommitOverrideRequest>? Overrides = null,
+    DateOnly? AcquiredOn = null);
 
 /// <summary>
 /// Body of <c>POST …/candidates/{cid}:search</c>: re-search with the user's own words. <c>ContextWorkIds</c> carries the
