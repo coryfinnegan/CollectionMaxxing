@@ -121,6 +121,11 @@ public sealed class LocationTree
             return new DomainError(ErrorKind.Validation, "location.name_too_long", $"A name can be at most {Location.MaxNameLength} characters.", "name");
         }
 
+        if (TextRules.Check(trimmed, "name") is { } badText)
+        {
+            return badText;
+        }
+
         return trimmed;
     }
 

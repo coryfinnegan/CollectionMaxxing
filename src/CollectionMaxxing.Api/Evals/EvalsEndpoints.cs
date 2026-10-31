@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Api.Auth;
+using CollectionMaxxing.Api.Http;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Api.Scanning;
 using CollectionMaxxing.Application.Evals;
@@ -12,7 +13,7 @@ using Microsoft.Extensions.Options;
 namespace CollectionMaxxing.Api.Evals;
 
 /// <summary>
-/// The eval server's routes (EVAL-1a), all under <c>/api/admin</c> and so behind <see cref="Policies.Admin"/>: the owner's golden
+/// The eval server's routes, all under <c>/api/admin</c> and so behind <see cref="Policies.Admin"/>: the owner's golden
 /// photos go out (and new ones come in from the phone, at full size), the phone's per-photo readings come back, and the report is built on the PC. The routes are always mapped (so
 /// who may call them is the same whatever the settings), and answer 404 to the administrator too until <c>Evals:Enabled</c> is
 /// true and <c>Evals:GoldenPath</c> is a folder.
@@ -137,7 +138,7 @@ public static class EvalsEndpoints
         byte[]? body;
         try
         {
-            body = await ReadBoundedAsync(request.Body, EvalsOptions.MaxRunBytes, request.ContentLength, cancellationToken);
+            body = await BoundedBody.ReadAsync(request.Body, EvalsOptions.MaxRunBytes, request.ContentLength, cancellationToken);
         }
         catch (BadHttpRequestException)
         {
@@ -197,10 +198,10 @@ public static class EvalsEndpoints
             parsed.Partial == true,
             parsed.BaselineNote);
 
-        // Grounding a big run takes minutes (a 19-photo run took five and a half), and the phone locks or drops the connection
-        // meanwhile, which cancelled the request token and threw the whole run away, unsaved. The body is read; from here the work
-        // belongs to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the
-        // upload timeout, which cancels the same token, no longer cuts it short either).
+        // Grounding a big run takes minutes, and the phone may lock or drop the connection meanwhile; tying the work to the
+        // request token would cancel it and throw the whole run away, unsaved. The body is read; from here the work belongs
+        // to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the upload
+        // timeout, which cancels the same token, does not cut it short either).
         var result = await handler.HandleAsync(input, lifetime.ApplicationStopping);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : Refused(logger, result.Error!);
     }
@@ -239,35 +240,6 @@ public static class EvalsEndpoints
         $"An eval run can be at most {EvalsOptions.MaxRunBytes / (1024 * 1024)} MB.",
         "evals.body_too_large");
 
-    /// <summary>
-    /// The body, or null when it is longer than <paramref name="maxBytes"/>. Reads at most one byte past the limit. A length the caller declared
-    /// (and that fits) sizes the buffer once, so a 30 MB original is held once and not copied again.
-    /// </summary>
-    private static async Task<byte[]?> ReadBoundedAsync(Stream stream, int maxBytes, long? declaredLength, CancellationToken cancellationToken)
-    {
-        using var buffer = new MemoryStream(declaredLength is > 0 and <= int.MaxValue ? (int)Math.Min(declaredLength.Value, maxBytes) : 0);
-        var chunk = new byte[64 * 1024];
-        while (true)
-        {
-            var read = await stream.ReadAsync(chunk, cancellationToken);
-            if (read == 0)
-            {
-                break;
-            }
-
-            if (buffer.Length + read > maxBytes)
-            {
-                return null;
-            }
-
-            buffer.Write(chunk, 0, read);
-        }
-
-        return buffer.TryGetBuffer(out var segment) && segment.Array is { } array && segment.Offset == 0 && segment.Count == array.Length
-            ? array
-            : buffer.ToArray();
-    }
-
     // ---- adding a golden photo ---------------------------------------------------------------------------------------------
 
     private static async Task<IResult> AddGoldenPhotoAsync(
@@ -305,7 +277,7 @@ public static class EvalsEndpoints
         byte[]? bytes;
         try
         {
-            bytes = await ReadBoundedAsync(request.Body, EvalsOptions.MaxGoldenPhotoBytes, request.ContentLength, cancellationToken);
+            bytes = await BoundedBody.ReadAsync(request.Body, EvalsOptions.MaxGoldenPhotoBytes, request.ContentLength, cancellationToken);
         }
         catch (BadHttpRequestException exception) when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
         {

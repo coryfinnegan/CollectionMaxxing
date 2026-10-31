@@ -5,7 +5,7 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// <summary>
 /// Same-novel identity for books (memo 18, "Data mapping", like <c>ProviderFallbackKey</c>): the kind plus the
 /// normalized title and creators, with no year — one provider's work records split what is still one novel
-/// (issue #514: Open Library keeps Lisa Kleypas's "Suddenly You" under several work keys). A same-title book
+/// (Open Library keeps Lisa Kleypas's "Suddenly You" under several work keys). A same-title book
 /// by a different author is a different work and never matches. Films, TV and games always stay apart here:
 /// remakes, ports and re-releases share titles and makers across genuinely different works.
 /// </summary>

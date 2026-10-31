@@ -44,9 +44,20 @@ describe('result detail', () => {
     expect(screen.queryByLabelText('Add to library')).toBeNull();
   });
 
-  it('offers Add to library and Wishlist for something new', async () => {
+  it('says a new match is already in this scan, as the server accepts it by itself', async () => {
     const candidate = await seedSession(DEV_CODES.mario64New);
+    expect(candidate.decision).toBe('accepted');
     useCardsStore.getState().merge([candidate], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('Not in your library')).toBeTruthy();
+    expect(await screen.findByText('Added to this scan')).toBeTruthy();
+    expect(screen.queryByLabelText('Add to library')).toBeNull();
+  });
+
+  it('offers Add to library and Wishlist for something new that is not in the scan', async () => {
+    const candidate = await seedSession(DEV_CODES.mario64New);
+    useCardsStore.getState().merge([{ ...candidate, decision: 'undecided' }], { announce: false }); // taken out of the scan again
     await renderWithProviders(<ResultDetail id={candidate.id} />);
 
     expect(await screen.findByText('Not in your library')).toBeTruthy();
@@ -57,7 +68,7 @@ describe('result detail', () => {
   it('hides the add buttons from a viewer but still shows ownership', async () => {
     server.use(http.get('*/api/v1/me', () => HttpResponse.json({ id: 'u', memberships: [{ libraryId: MOCK_LIBRARY_ID, role: 'viewer' }] })));
     const candidate = await seedSession(DEV_CODES.mario64New);
-    useCardsStore.getState().merge([candidate], { announce: false });
+    useCardsStore.getState().merge([{ ...candidate, decision: 'undecided' }], { announce: false });
     await renderWithProviders(<ResultDetail id={candidate.id} />);
 
     expect(await screen.findByText('Not in your library')).toBeTruthy();

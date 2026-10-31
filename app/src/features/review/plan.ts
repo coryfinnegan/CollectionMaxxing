@@ -50,6 +50,10 @@ export const addCount = (list: readonly CandidateDto[], draft: Draft): number =>
 
 export const addLabel = (count: number) => (count === 1 ? 'Add 1 item' : `Add ${count} items`);
 
+/** Above Add while rows are still being looked up: Add closes the scan, so they cannot come along. */
+export const leftOutLine = (pending: number) =>
+  pending === 1 ? '1 item is still looking up. Add leaves it out.' : `${pending} items are still looking up. Add leaves them out.`;
+
 export function effective(draft: Draft, id: string): { locationId: string | null; status: ReviewStatus; condition: ItemCondition } {
   const o = draft.overrides[id] ?? {};
   return {

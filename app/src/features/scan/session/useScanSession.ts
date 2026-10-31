@@ -18,12 +18,12 @@ import { getTrayStore } from '../tray/storage';
 import { flushTray, type TrayStore } from '../tray/trayStore';
 import { lineStatus } from '../tray/tray';
 import { useAutoCommitUndoStore } from './autoCommitUndo';
-import { flushDeps, followSession, loadSessionSnapshot, resumeCursor } from './sessionApi';
+import { enterScanner, flushDeps, followSession, isScannerOpen, loadSessionSnapshot, resumeCursor } from './sessionApi';
 import { flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from './discards';
 import { seedFromSnapshot } from './sessionCounters';
 import type { StoreApi } from 'zustand/vanilla';
 
-export type SessionTuning = { retryMs?: number; pollMs?: number; resendMs?: number; flashMs?: number };
+export type SessionTuning = { retryMs?: number; pollMs?: number; resendMs?: number; flashMs?: number; noticeMs?: number };
 
 /**
  * What a failed bound read says: a refusal names its reason (a barcode of another work, or no permission to
@@ -50,6 +50,7 @@ export function useScanSession({
   tuning = {},
   sessionBody,
   boundCapture,
+  active = true,
 }: {
   libraryId: string;
   sources: ScannerSource[];
@@ -59,9 +60,25 @@ export function useScanSession({
   sessionBody?: CreateScanSessionRequest;
   /** Review's "Scan barcode": stable reads go to this row instead of the tray, one read only. */
   boundCapture?: { submit(code: { value: string; symbology: string }): Promise<void> };
+  /**
+   * False while the scanner's screen is not the one being looked at (another tab, Review on top, the app in the background): no
+   * barcodes are read. Sending what is already waiting goes on regardless: the person waits for the answers on Review.
+   */
+  active?: boolean;
 }) {
   const { resendMs = 5000, flashMs = 1000 } = tuning;
-  const deps = useMemo(() => flushDeps(libraryId, () => sessionBody ?? {}), [libraryId, sessionBody]);
+  // An answer for a library's session that lands after the person switched to another library (or discarded the scan) is not
+  // drawn into the cards the other library shows.
+  useEffect(() => enterScanner(store), [store]);
+  const deps = useMemo(
+    () =>
+      flushDeps(
+        libraryId,
+        () => sessionBody ?? {},
+        (answeredFor) => isScannerOpen(store) && store.getState().sessionId === answeredFor,
+      ),
+    [libraryId, sessionBody, store],
+  );
   const [niceScanAt, setNiceScanAt] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const tuningRef = useRef(tuning);
@@ -95,6 +112,7 @@ export function useScanSession({
   const boundSending = useRef(false);
   useEffect(() => {
     boundSending.current = false;
+    if (!active) return; // another tab is open or the app is in the background: nothing is read
     const filter = createStabilityFilter();
     const flush = () => void flushTray(store, deps);
     const unsubscribes = sources.map((source) =>
@@ -125,13 +143,13 @@ export function useScanSession({
             setNotice(null);
             flush();
           } else if (result === 'duplicate') {
-            setNotice('Already in this scan. Use +1 for another copy.');
+            setNotice('Already in this scan. Add copies in Review.');
           }
         }
       }),
     );
     return () => unsubscribes.forEach((off) => off());
-  }, [sources, store, deps, boundCapture]);
+  }, [sources, store, deps, boundCapture, active]);
 
   // Anything waiting (including from before the app was killed) is sent now and retried until it gets through.
   useEffect(() => {
@@ -149,8 +167,10 @@ export function useScanSession({
     void (async () => {
       let cursor: string | undefined;
       await flushDiscardOutbox({ libraryId }).catch(() => 0);
+      if (cancelled) return;
       try {
         const snapshot = await loadSessionSnapshot(sessionId);
+        if (cancelled) return; // another library's scanner is open now: its cards are not this session's
         pruneDiscarded(snapshot.candidates);
         // Discarded and rejected candidates have no card: the snapshot confirms them, it never brings them back.
         const kept = withoutDiscarded(snapshot.candidates);
@@ -163,7 +183,7 @@ export function useScanSession({
       } catch {
         // The stream below will catch up; a failed snapshot is not fatal.
       }
-      if (!cancelled) follower = followSession(sessionId, cursor, tuningRef.current);
+      if (!cancelled) follower = followSession(sessionId, cursor, tuningRef.current, () => !cancelled);
     })();
     return () => {
       cancelled = true;

@@ -19,7 +19,7 @@ import {
 import type { StoreApi } from 'zustand/vanilla';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
-import { dropCandidateLocally, flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from '@/features/scan/session/discards';
+import { dropCandidateLocally, dropPictureItemLocally, flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from '@/features/scan/session/discards';
 import { loadSessionSnapshot } from '@/features/scan/session/sessionApi';
 import { seedFromSnapshot } from '@/features/scan/session/sessionCounters';
 import type { TrayStore } from '@/features/scan/tray/trayStore';
@@ -47,10 +47,11 @@ export async function searchCandidate(
   return response.data;
 }
 
-/** Skip: the server will not add it, and Review stops showing it. */
+/** Skip: the server will not add it, and Review stops showing it. A picture's item goes too: it is settled, not still being read. */
 export async function skipCandidate(sessionId: string, candidateId: string): Promise<void> {
   const rejected = await patchCandidate(sessionId, candidateId, { decision: 'rejected' });
   useCardsStore.getState().remove(rejected.id);
+  dropPictureItemLocally(sessionId, rejected);
 }
 
 /**

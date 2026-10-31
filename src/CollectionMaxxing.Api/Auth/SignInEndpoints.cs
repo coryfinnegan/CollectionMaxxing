@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Security;
 using CollectionMaxxing.Application.Accounts;
 using Microsoft.AspNetCore.Mvc;
 
@@ -39,7 +40,8 @@ public static class SignInEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status410Gone)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
-            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName);
+            .AllowAnonymous().RequireRateLimiting(RateLimiting.PolicyName)
+            .WithRateLimitGroup(RateLimitGroup.AuthHourly);
 
         // The page someone opens from an invite link. The SPA asks GET /api/v1/invites/{token} what the invite is for. Signed out, it
         // signs in first (/account/login?returnUrl=/join/{token}); signed in, it joins with POST /api/v1/invites:accept.
