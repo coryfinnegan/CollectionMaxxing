@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Catalog;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Application.Scanning.Photo;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.TestSupport;
@@ -15,6 +16,9 @@ namespace CollectionMaxxing.Api.Tests.Scanning.Artwork;
 /// </summary>
 public class CoverVerifyTests : ArtworkTest
 {
+    /// <summary>The most bytes of quad JSON the endpoint reads.</summary>
+    private const int QuadLimit = 1024;
+
     public CoverVerifyTests(ApiFixture api)
         : base(api)
     {
@@ -224,5 +228,71 @@ public class CoverVerifyTests : ArtworkTest
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await ReadJsonAsync(response)).GetProperty("code").GetString().ShouldBe("scan.cover_no_file");
+    }
+
+    /// <summary>A session with one ambiguous row, which is what a capture is verified against.</summary>
+    private async Task<(HttpClient Editor, Guid SessionId, Guid CandidateId)> AmbiguousRowAsync()
+    {
+        using var edition2001 = CoverFixtures.Edition2001();
+        using var edition2003 = CoverFixtures.Edition2003();
+        await SeedEditionsAsync(CoverFixtures.PngOf(edition2001), CoverFixtures.PngOf(edition2003));
+        var library = await CreateLibraryAsync();
+        var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+        var candidate = (await IdentifyOkAsync(
+            editor, sessionId, Read(title: "Suddenly You", kind: "book", creator: "Lisa Kleypas")))[0];
+        return (editor, sessionId, Id(candidate));
+    }
+
+    [Fact]
+    public async Task A_capture_over_four_megabytes_is_refused_with_413()
+    {
+        var (editor, sessionId, candidateId) = await AmbiguousRowAsync();
+        using var _ = editor;
+
+        var response = await PostCaptureAsync(editor, sessionId, candidateId, new byte[JpegSanitizer.MaxBytes + 1], null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge);
+        response.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
+        (await ReadJsonAsync(response)).GetProperty("code").GetString().ShouldBe("scan.cover_too_large");
+    }
+
+    [Fact]
+    public async Task A_capture_of_exactly_four_megabytes_is_not_refused_for_its_size()
+    {
+        var (editor, sessionId, candidateId) = await AmbiguousRowAsync();
+        using var _ = editor;
+
+        var response = await PostCaptureAsync(editor, sessionId, candidateId, new byte[JpegSanitizer.MaxBytes], null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadJsonAsync(response)).GetProperty("code").GetString().ShouldBe("scan.photo_not_jpeg");
+    }
+
+    [Fact]
+    public async Task A_quad_over_1024_bytes_is_refused_as_an_invalid_quad()
+    {
+        var (editor, sessionId, candidateId) = await AmbiguousRowAsync();
+        using var _ = editor;
+        var quad = QuadJson(CoverFixtures.GentleCorners()).PadRight(QuadLimit + 1);
+
+        var response = await PostCaptureAsync(editor, sessionId, candidateId, [1, 2, 3], quad);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadJsonAsync(response)).GetProperty("code").GetString().ShouldBe("scan.cover_quad_invalid");
+    }
+
+    [Fact]
+    public async Task A_quad_of_exactly_1024_bytes_is_read()
+    {
+        var (editor, sessionId, candidateId) = await AmbiguousRowAsync();
+        using var _ = editor;
+        var quad = QuadJson(CoverFixtures.GentleCorners()).PadRight(QuadLimit);
+
+        var response = await PostCaptureAsync(editor, sessionId, candidateId, [1, 2, 3], quad);
+
+        // The quad was accepted: what refuses the request is the capture, which is not a picture.
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadJsonAsync(response)).GetProperty("code").GetString().ShouldBe("scan.photo_not_jpeg");
     }
 }
