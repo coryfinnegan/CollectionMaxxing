@@ -223,7 +223,9 @@ public sealed class TextSearchResolver(
                 return new Attempt(found, Failed: true);
             }
 
-            if (budgetToken.IsCancellationRequested || attempt.Found.Any(release => TitleNormalizer.Similarity(rung.Title, release.Title) >= CloseTitle))
+            // The rung's title is normalized once, not once per release it is compared with.
+            var rungTitle = new ComparableTitle(rung.Title);
+            if (budgetToken.IsCancellationRequested || attempt.Found.Any(release => rungTitle.Similarity(new ComparableTitle(release.Title)) >= CloseTitle))
             {
                 break;
             }

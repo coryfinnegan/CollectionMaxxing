@@ -43,6 +43,8 @@ public sealed class FakeAuth0 : IDisposable
     public const string WebClientSecret = "web-client-secret-for-tests";
     public const string PublicOrigin = "https://localhost";
 
+    private static readonly CryptoProviderFactory UncachedProviders = new() { CacheSignatureProviders = false };
+
     private readonly WireMockServer _server = LoopbackWireMock.Start();
     private readonly JsonWebTokenHandler _tokens = new() { SetDefaultTimesOnTokenCreation = false };
     private readonly ConcurrentDictionary<string, TestIdentity> _profiles = new();
@@ -66,7 +68,7 @@ public sealed class FakeAuth0 : IDisposable
         _server.Given(Request.Create().WithPath("/.well-known/openid-configuration").UsingGet())
             .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(JsonSerializer.Serialize(discovery)));
 
-        var key = TestSigningKey.Rsa.ExportParameters(false);
+        var key = TestSigningKey.Parameters;
         var jwks = new { keys = new[] { new { kty = "RSA", use = "sig", alg = "RS256", kid = TestSigningKey.KeyId, n = Base64UrlEncoder.Encode(key.Modulus), e = Base64UrlEncoder.Encode(key.Exponent) } } };
         _server.Given(Request.Create().WithPath("/.well-known/jwks.json").UsingGet())
             .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(JsonSerializer.Serialize(jwks)));
@@ -129,7 +131,15 @@ public sealed class FakeAuth0 : IDisposable
         ["Auth:PublicOrigin"] = PublicOrigin,
     };
 
-    public static SigningCredentials Signing => new(new RsaSecurityKey(TestSigningKey.Rsa) { KeyId = TestSigningKey.KeyId }, SecurityAlgorithms.RsaSha256);
+    /// <summary>
+    /// What the tenant signs with: a new key object over the test key's material for every token, and no signature provider kept. Microsoft.IdentityModel
+    /// otherwise keeps providers in a cache for the whole process, keyed by the key's material, so every app in every test class running in parallel
+    /// would sign through one provider (and one key object) that any of them, or the cache itself, may dispose.
+    /// </summary>
+    public static SigningCredentials Signing => new(new RsaSecurityKey(TestSigningKey.Parameters) { KeyId = TestSigningKey.KeyId }, SecurityAlgorithms.RsaSha256)
+    {
+        CryptoProviderFactory = UncachedProviders,
+    };
 
     /// <summary>Points the API's handlers at this tenant's metadata (plain http on loopback).</summary>
     public void Configure(IServiceCollection services)
