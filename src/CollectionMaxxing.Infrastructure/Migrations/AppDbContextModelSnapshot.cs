@@ -1745,6 +1745,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
 
+                    b.Property<int?>("UtcOffsetMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("utc_offset_minutes");
+
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -1779,6 +1783,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_scan_sessions_media_hint", "\"media_hint\" in ('books', 'games', 'movies', 'mixed')");
 
                             t.HasCheckConstraint("ck_scan_sessions_status", "\"status\" in ('open', 'committed', 'abandoned')");
+
+                            t.HasCheckConstraint("ck_scan_sessions_utc_offset_minutes", "utc_offset_minutes is null or utc_offset_minutes between -720 and 840");
                         });
                 });
 

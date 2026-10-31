@@ -43,7 +43,8 @@ public static class CreateItem
         DateOnly? AcquiredOn,
         AddedVia? AddedVia,
         IReadOnlyList<Guid>? TagIds,
-        ProviderRefDto? ProviderRef = null);
+        ProviderRefDto? ProviderRef = null,
+        int? UtcOffsetMinutes = null);
 
     public sealed class Handler(
         IAppDbContext db,
@@ -144,7 +145,8 @@ public static class CreateItem
                 Completeness = command.Completeness,
                 LocationId = command.LocationId,
                 Notes = command.Notes,
-                AcquiredOn = command.AcquiredOn ?? DateOnly.FromDateTime(now.UtcDateTime),
+                // The apps send their own day; the offset is for a caller acting for a phone that sent none (promoting a kept row).
+                AcquiredOn = command.AcquiredOn ?? LocalDay.Of(now, command.UtcOffsetMinutes),
                 CoverChoice = CoverChoice.Release,
                 AddedVia = command.AddedVia ?? (command.Manual is null ? AddedVia.Search : AddedVia.Manual),
                 CreatedAt = now,

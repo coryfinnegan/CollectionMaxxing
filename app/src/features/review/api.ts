@@ -23,6 +23,7 @@ import { dropCandidateLocally, dropPictureItemLocally, flushDiscardOutbox, getDi
 import { loadSessionSnapshot } from '@/features/scan/session/sessionApi';
 import { seedFromSnapshot } from '@/features/scan/session/sessionCounters';
 import type { TrayStore } from '@/features/scan/tray/trayStore';
+import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import { commitBody, committable, type Draft } from './plan';
 
@@ -163,7 +164,9 @@ export async function commitDraft(
     if (!chosenIds.has(c.id) && c.decision === 'accepted') await patchCandidate(sessionId, c.id, { decision: 'undecided' });
   }
 
-  const response = await commitScanSession(sessionId, commitBody(draft, [...chosenIds]), { headers: { 'Idempotency-Key': key } });
+  // The day on the phone dates the new items. It stays out of commitBody: a retry after midnight is the same commit.
+  const body = { ...commitBody(draft, [...chosenIds]), acquiredOn: localDateString() };
+  const response = await commitScanSession(sessionId, body, { headers: { 'Idempotency-Key': key } });
   if (response.status !== 200) throw new ApiError(response.status, {});
   return response.data;
 }
