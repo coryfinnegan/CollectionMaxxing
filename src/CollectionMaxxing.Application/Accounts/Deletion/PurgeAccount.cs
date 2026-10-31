@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Audit;
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Domain.Libraries;
@@ -152,7 +153,9 @@ public static class PurgeAccount
             await db.Releases.IgnoreQueryFilters().Where(r => r.CoverAssetId != null && db.Assets.IgnoreQueryFilters().Any(a => a.Id == r.CoverAssetId && a.OwnerLibraryId == libraryId))
                 .ExecuteUpdateAsync(set => set.SetProperty(r => r.CoverAssetId, (Guid?)null), cancellationToken);
 
+            // The library's own releases go, and then the works they leave without a release. A work the shared catalogue also has stays.
             await db.Releases.IgnoreQueryFilters().Where(r => r.OwnerLibraryId == libraryId).ExecuteDeleteAsync(cancellationToken);
+            await PrivateReleases.DeleteWorksWithoutReleasesAsync(db, cancellationToken);
             await db.Assets.IgnoreQueryFilters().Where(a => a.OwnerLibraryId == libraryId && !stuck.Contains(a.Id)).ExecuteDeleteAsync(cancellationToken);
             if (stuck.Count > 0)
             {

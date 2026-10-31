@@ -133,6 +133,173 @@ public class PurgeDeletedItemsTests(PostgresFixture db) : DatabaseTest(db)
         purge.ActorUserId.ShouldBeNull();
     }
 
+    private async Task TrashAsync(Guid itemId)
+    {
+        await using var context = Db.CreateContext();
+        await context.Database.ExecuteSqlInterpolatedAsync($"update items set deleted_at = {DeletedAt} where id = {itemId}");
+    }
+
+    private async Task<(int Releases, int Works, int Identifiers)> CatalogueRowsAsync()
+    {
+        await using var context = Db.CreateContext();
+        return (
+            await context.Releases.IgnoreQueryFilters().CountAsync(),
+            await context.Works.CountAsync(),
+            await context.ReleaseIdentifiers.CountAsync());
+    }
+
+    [Fact]
+    public async Task Purging_the_last_item_of_a_manual_release_removes_the_release_with_its_work_and_barcodes()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var releaseId = await TestData.CreateReleaseAsync(Db, library.Id, "Hand Made Quest");
+        var itemId = await TestData.CreateItemAsync(Db, library, releaseId);
+        await using (var context = Db.CreateContext())
+        {
+            context.ReleaseIdentifiers.Add(new Domain.Catalog.ReleaseIdentifier { ReleaseId = releaseId, Type = Domain.Catalog.IdentifierType.Gtin13, Value = "0123456789012" });
+            await context.SaveChangesAsync();
+        }
+
+        await TrashAsync(itemId);
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(31)));
+
+        (await ItemExistsAsync(itemId)).ShouldBeFalse();
+        (await CatalogueRowsAsync()).ShouldBe((0, 0, 0));
+    }
+
+    [Fact]
+    public async Task A_scan_candidate_that_matched_a_removed_manual_release_forgets_it()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var releaseId = await TestData.CreateReleaseAsync(Db, library.Id);
+        var itemId = await TestData.CreateItemAsync(Db, library, releaseId);
+        var sessionId = await TestData.CreateScanSessionAsync(Db, library);
+        var candidateId = Guid.CreateVersion7();
+        await using (var arrange = Db.CreateContext())
+        {
+            arrange.ScanCandidates.Add(new Domain.Scanning.ScanCandidate
+            {
+                Id = candidateId,
+                LibraryId = library.Id,
+                SessionId = sessionId,
+                Seq = 1,
+                Source = Domain.Scanning.CandidateSource.Barcode,
+                MatchedReleaseId = releaseId,
+                CreatedAt = DeletedAt,
+            });
+            await arrange.SaveChangesAsync();
+        }
+
+        await TrashAsync(itemId);
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(31)));
+
+        (await CatalogueRowsAsync()).Releases.ShouldBe(0);
+        await using var check = Db.CreateContext();
+        (await check.ScanCandidates.IgnoreQueryFilters().SingleAsync(c => c.Id == candidateId)).MatchedReleaseId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_manual_release_stays_while_another_item_still_uses_it_even_one_in_the_trash()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var releaseId = await TestData.CreateReleaseAsync(Db, library.Id);
+        var purged = await TestData.CreateItemAsync(Db, library, releaseId);
+        var recentlyTrashed = await TestData.CreateItemAsync(Db, library, releaseId);
+        await TrashAsync(purged);
+        await using (var context = Db.CreateContext())
+        {
+            var recentAt = DeletedAt.AddDays(30);
+            await context.Database.ExecuteSqlInterpolatedAsync($"update items set deleted_at = {recentAt} where id = {recentlyTrashed}");
+        }
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(31)));
+
+        (await ItemExistsAsync(purged)).ShouldBeFalse();
+        (await ItemExistsAsync(recentlyTrashed)).ShouldBeTrue();
+        (await CatalogueRowsAsync()).ShouldBe((1, 1, 0));
+    }
+
+    [Fact]
+    public async Task A_manual_release_stays_while_one_of_its_feature_prints_belongs_to_an_item_that_moved_on()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var manual = await TestData.CreateReleaseAsync(Db, library.Id);
+        var purged = await TestData.CreateItemAsync(Db, library, manual);
+        var moved = await TestData.CreateItemAsync(Db, library); // now on another release, but it was matched against the manual one
+        await using (var context = Db.CreateContext())
+        {
+            context.ItemFeaturePrints.Add(new ItemFeaturePrint
+            {
+                Id = Guid.CreateVersion7(), LibraryId = library.Id, ItemId = moved, ReleaseId = manual, Revision = 1, Data = [1, 2, 3], CreatedAt = DeletedAt,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await TrashAsync(purged);
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(31)));
+
+        (await ItemExistsAsync(purged)).ShouldBeFalse();
+        (await CatalogueRowsAsync()).Releases.ShouldBe(2); // the manual release and the other item's own
+    }
+
+    [Fact]
+    public async Task Purging_an_item_of_a_shared_release_leaves_the_shared_catalogue_alone()
+    {
+        var (_, itemId) = await DeletedItemAsync();
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(31)));
+
+        (await ItemExistsAsync(itemId)).ShouldBeFalse();
+        (await CatalogueRowsAsync()).ShouldBe((1, 1, 0));
+    }
+
+    [Fact]
+    public async Task A_manual_release_on_a_shared_work_is_removed_but_the_work_stays()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var shared = await TestData.CreateReleaseAsync(Db);
+        Guid manual;
+        await using (var context = Db.CreateContext())
+        {
+            var workId = await context.Releases.IgnoreQueryFilters().Where(r => r.Id == shared).Select(r => r.WorkId).SingleAsync();
+            manual = Guid.CreateVersion7();
+            context.Releases.Add(new Domain.Catalog.Release
+            {
+                Id = manual, WorkId = workId, Format = Domain.Catalog.ReleaseFormat.Dvd, Source = Domain.Catalog.ReleaseSource.User, OwnerLibraryId = library.Id, CreatedAt = DeletedAt,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var itemId = await TestData.CreateItemAsync(Db, library, manual);
+        await TrashAsync(itemId);
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(31)));
+
+        (await CatalogueRowsAsync()).ShouldBe((1, 1, 0));
+        await using var check = Db.CreateContext();
+        (await check.Releases.IgnoreQueryFilters().SingleAsync()).Id.ShouldBe(shared);
+    }
+
+    [Fact]
+    public async Task Another_librarys_manual_releases_are_not_touched()
+    {
+        var mine = await TestData.CreateLibraryAsync(Db);
+        var theirs = await TestData.CreateLibraryAsync(Db);
+        var theirRelease = await TestData.CreateReleaseAsync(Db, theirs.Id);
+        await TestData.CreateItemAsync(Db, theirs, theirRelease);
+        var myItem = await TestData.CreateItemAsync(Db, mine, await TestData.CreateReleaseAsync(Db, mine.Id));
+        await TrashAsync(myItem);
+
+        await RunPurgeAsync(new FakeTimeProvider(DeletedAt.AddDays(31)));
+
+        (await CatalogueRowsAsync()).ShouldBe((1, 1, 0));
+        await using var check = Db.CreateContext();
+        (await check.Releases.IgnoreQueryFilters().SingleAsync()).Id.ShouldBe(theirRelease);
+    }
+
     [Fact]
     public async Task Purging_an_item_that_a_scan_candidate_created_works_and_clears_the_link()
     {
