@@ -82,16 +82,30 @@ internal sealed class ReleaseIdentifierConfiguration : IEntityTypeConfiguration<
         builder.ToTable("release_identifiers", t =>
             t.HasCheckConstraint("ck_release_identifiers_type", EnumColumns.CheckIn<IdentifierType>("type")));
 
-        // Unique (type, value, release_id): one barcode may belong to more than one release, but only once to each.
-        builder.HasKey(i => new { i.Type, i.Value, i.ReleaseId });
+        // One barcode may belong to more than one release, but only once to each, and a library that learned it has its own
+        // link beside the shared one. A nullable library cannot be part of a key, so the row has a key of its own and two
+        // partial unique indexes say what must be unique: (type, value, release) among shared links, and the same with
+        // the library among learned ones.
+        // The database fills the id in and keeps doing so for good: a deploy that fails its smoke test rolls back to an image that
+        // inserts (type, value, release_id) without one, and it must still be able to write links.
+        builder.HasKey(i => i.Id);
+        builder.Property(i => i.Id).HasDefaultValueSql("gen_random_uuid()");
         builder.Property(i => i.Type).HasSnakeCaseEnum();
         builder.Property(i => i.Value).HasMaxLength(64).IsRequired();
 
         builder.HasOne<Release>().WithMany().HasForeignKey(i => i.ReleaseId).OnDelete(DeleteBehavior.Cascade);
 
-        // The commit that taught a link; the session going away just makes it an ordinary link.
+        // The commit that taught a link; the session going away just makes it an ordinary link, still the library's.
         builder.HasOne<ScanSession>().WithMany().HasForeignKey(i => i.LearnedBySessionId).OnDelete(DeleteBehavior.SetNull);
         builder.HasIndex(i => i.LearnedBySessionId).HasFilter("learned_by_session_id is not null");
+
+        // The library that taught a link; what it taught goes with it.
+        builder.HasOne<Library>().WithMany().HasForeignKey(i => i.LibraryId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(i => i.LibraryId).HasFilter("library_id is not null");
+        builder.HasIndex(i => new { i.Type, i.Value, i.ReleaseId }).HasDatabaseName("ux_release_identifiers_shared").IsUnique()
+            .HasFilter("library_id is null");
+        builder.HasIndex(i => new { i.Type, i.Value, i.ReleaseId, i.LibraryId }).HasDatabaseName("ux_release_identifiers_learned").IsUnique()
+            .HasFilter("library_id is not null");
 
         // The barcode lookup.
         builder.HasIndex(i => new { i.Type, i.Value });

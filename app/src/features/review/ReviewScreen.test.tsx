@@ -7,6 +7,7 @@ import { createDiscardOutbox, flushDiscardOutbox, getDiscardOutbox, isDiscarded,
 import { createSessionCountersStore, getSessionCountersStore, setSessionCountersStore } from '@/features/scan/session/sessionCounters';
 import { rememberSessionContext, setSessionContextStorage } from '@/features/scan/session/sessionContext';
 import { createPipelineStore, getPipelineStore, setPipelineStore, type PicSnap } from '@/features/scan/pipeline/pipelineStore';
+import { DEV_CODES } from '@/features/scan/scanner/devCodes';
 import { getTrayStore, setTrayStore } from '@/features/scan/tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
@@ -198,6 +199,81 @@ describe('Review screen', () => {
     await screen.findByText(/Undone/);
     expect(itemsState.entries.find((e) => e.item.id === addedId)).toBeUndefined(); // gone for good, not in Recently deleted
     await screen.findByLabelText('Add 1 item'); // the results are back in Review, ready to fix and add again
+  });
+
+  describe('what the person unticked', () => {
+    // The server accepts every new match by itself (CandidateResolver), so a row the person unticks is still accepted over there.
+    // The commit adds whatever the server holds as accepted, so Add has to take the decision back first.
+    const accepted = (n: number, title: string) => candidate({ decision: 'accepted', release: release(n, title, { format: 'game_cartridge' }) });
+
+    it('adds only the ticked row, and sends the unticked one back to undecided', async () => {
+      const kept = accepted(21, 'Star Fox 64');
+      const unticked = accepted(22, 'Pilotwings 64');
+      seed([kept, unticked]);
+      const patches: Promise<unknown>[] = [];
+      server.events.on('request:start', ({ request }) => {
+        if (request.method === 'PATCH') patches.push(request.clone().json().then((body) => ({ url: new URL(request.url).pathname, body })));
+      });
+      try {
+        await open();
+        await press('2 items ready. Show them');
+        expect(screen.getByLabelText('Add 2 items')).toBeTruthy();
+        await press('Add Pilotwings 64'); // untick
+        expect(screen.getByLabelText('Add Pilotwings 64').props.accessibilityState.checked).toBe(false);
+
+        await press('Add 1 item');
+        await screen.findByText('Added 1 item');
+
+        expect(reviewMock.commits).toHaveLength(1);
+        const rows = scanMock.sessions.get(SESSION)!.candidates;
+        expect(rows.find((c) => c.id === kept.id)?.createdItemId).not.toBeNull();
+        expect(rows.find((c) => c.id === unticked.id)).toMatchObject({ decision: 'undecided', createdItemId: null });
+        expect(await Promise.all(patches)).toEqual([{ url: `/api/v1/scan-sessions/${SESSION}/candidates/${unticked.id}`, body: { decision: 'undecided' } }]);
+        expect(itemsState.entries.map((e) => e.release.title)).toEqual(expect.arrayContaining(['Star Fox 64']));
+        expect(itemsState.entries.map((e) => e.release.title)).not.toContain('Pilotwings 64');
+      } finally {
+        server.events.removeAllListeners();
+      }
+    });
+
+    it('adds nothing for a new match that came back accepted and was unticked', async () => {
+      // Straight from the mock server: a barcode that matches something new comes back accepted, like the real one.
+      const created = await fetch(`http://api.test/api/v1/libraries/${MOCK_LIBRARY_ID}/scan-sessions`, { method: 'POST', body: '{}' });
+      const { id } = (await created.json()) as { id: string };
+      const batch = await fetch(`http://api.test/api/v1/scan-sessions/${id}/barcodes`, {
+        method: 'POST',
+        body: JSON.stringify({ codes: [{ value: DEV_CODES.mario64New, symbology: 'ean-13', copies: 1 }, { value: DEV_CODES.ghostbustersNew, symbology: 'ean-13', copies: 1 }] }),
+      });
+      const { candidates } = (await batch.json()) as { candidates: CandidateDto[] };
+      expect(candidates.map((c) => c.decision)).toEqual(['accepted', 'accepted']);
+      await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={id} onOpenResult={jest.fn()} />);
+
+      await press('2 items ready. Show them');
+      await press('Add Ghostbusters');
+      await press('Add 1 item');
+      await screen.findByText('Added 1 item');
+
+      expect(itemsState.entries.map((e) => e.release.title)).toContain('Super Mario 64');
+      expect(itemsState.entries.map((e) => e.release.title)).not.toContain('Ghostbusters');
+    });
+  });
+
+  it('retries Add with the same Idempotency-Key after the answer was lost, and says it was added', async () => {
+    // The server committed, but the phone never heard: it cannot know, so it says nothing was added and keeps the picks.
+    seed([candidate({ decision: 'accepted', release: release(2, 'Super Mario 64', { format: 'game_cartridge' }) })]);
+    reviewMock.loseNextCommitAnswer = true;
+    await open();
+    await press('Add 1 item');
+    await screen.findByText(/Nothing was added/);
+
+    await press('Add 1 item'); // the same tap again
+
+    await screen.findByText('Added 1 item');
+    expect(screen.queryByText(/Nothing was added/)).toBeNull();
+    expect(reviewMock.commits).toHaveLength(2);
+    expect(reviewMock.commits[0]!.key).toBeTruthy();
+    expect(reviewMock.commits[1]!.key).toBe(reviewMock.commits[0]!.key); // a fresh key would be refused: the session is already finished
+    expect(reviewMock.made.get(SESSION)).toHaveLength(1); // added once, not twice
   });
 
   it('buzzes with weight on the commit and plays success when the items land', async () => {

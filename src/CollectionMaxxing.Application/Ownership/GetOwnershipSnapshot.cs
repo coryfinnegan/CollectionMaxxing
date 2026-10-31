@@ -1,5 +1,6 @@
 using System.Globalization;
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -88,7 +89,9 @@ public static class GetOwnershipSnapshot
                 select new { release.Id, release.WorkId, work.Title, release.Format, Platform = platform == null ? null : platform.Name })
                 .ToDictionaryAsync(r => r.Id, cancellationToken);
 
+            // The shared barcodes and the ones this library taught, not a barcode only another library taught.
             var identifiers = (await db.ReleaseIdentifiers.AsNoTracking()
+                .UsableBy(query.LibraryId)
                 .Where(i => releaseIds.Contains(i.ReleaseId) && i.Type != IdentifierType.Asin)
                 .Select(i => new { i.ReleaseId, i.Value })
                 .ToListAsync(cancellationToken))

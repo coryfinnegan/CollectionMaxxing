@@ -67,4 +67,4 @@ The app is installed through TestFlight, internal testers only (docs/08 "iOS app
 
 - **Device behaviour** (Keychain class on a real device, ATS behaviour, the system share of the camera permission). These need a device and are on the owner's iOS checklist (`docs/accessibility` and the OPS-2 notes).
 - **MASVS-RESILIENCE** (jailbreak detection, obfuscation): L2 and R only, not applicable to the L1 target.
-- **The on-device model path**: photos never leave the phone for recognition (docs/08 "On-device model risks"); the only upload is the "Use my photo" cover, which the server re-encodes and strips (`Scanning/Photo/PhotoAcceptanceTests`).
+- **The on-device model path**: recognition runs on the phone (docs/08 "On-device model risks"). A scan picture reaches the server in three cases (a close call's photo, compared and discarded; a kept row's crop; the "Use my photo" cover), each rewritten without its metadata by `JpegSanitizer` (`Scanning/Photo/PhotoAcceptanceTests`).

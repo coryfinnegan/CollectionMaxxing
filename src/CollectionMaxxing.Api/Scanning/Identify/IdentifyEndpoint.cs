@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CollectionMaxxing.Api.Http;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Scanning;
@@ -45,7 +46,7 @@ internal static class IdentifyEndpoint
             return Refused(logger, "scan.body_too_large", TooLarge());
         }
 
-        var body = await ReadBoundedAsync(request.Body, cancellationToken);
+        var body = await BoundedBody.ReadAsync(request.Body, MaxBodyBytes, request.ContentLength, cancellationToken);
         if (body is null)
         {
             return Refused(logger, "scan.body_too_large", TooLarge());
@@ -123,23 +124,4 @@ internal static class IdentifyEndpoint
         "Payload too large",
         $"An identify request can be at most {MaxBodyBytes / 1024} KB.",
         "scan.body_too_large");
-
-    /// <summary>The body, or null when it is longer than <see cref="MaxBodyBytes"/>. Reads at most one byte past the limit.</summary>
-    private static async Task<byte[]?> ReadBoundedAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[MaxBodyBytes + 1];
-        var total = 0;
-        while (total < buffer.Length)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken);
-            if (read == 0)
-            {
-                break;
-            }
-
-            total += read;
-        }
-
-        return total > MaxBodyBytes ? null : buffer.AsSpan(0, total).ToArray();
-    }
 }

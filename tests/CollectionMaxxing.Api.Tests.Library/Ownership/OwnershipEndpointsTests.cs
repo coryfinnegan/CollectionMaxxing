@@ -34,10 +34,11 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
         return $"/api/v1/libraries/{libraryId}/ownership/snapshot" + (parts.Count > 0 ? "?" + string.Join('&', parts) : string.Empty);
     }
 
-    private async Task AddIdentifierAsync(Guid releaseId, string value)
+    /// <summary>Adds a barcode to a release: a shared one, or (with <paramref name="taughtBy"/>) one that library taught by hand.</summary>
+    private async Task AddIdentifierAsync(Guid releaseId, string value, Guid? taughtBy = null)
     {
         await using var context = Db.CreateContext();
-        context.ReleaseIdentifiers.Add(new ReleaseIdentifier { ReleaseId = releaseId, Type = IdentifierType.Gtin13, Value = value });
+        context.ReleaseIdentifiers.Add(new ReleaseIdentifier { ReleaseId = releaseId, Type = IdentifierType.Gtin13, Value = value, LibraryId = taughtBy });
         await context.SaveChangesAsync();
     }
 
@@ -286,6 +287,23 @@ public class OwnershipEndpointsTests(ApiFixture api) : ApiTest(api)
         entries[0].GetProperty("identifiers")[0].GetString().ShouldBe(Ean13);
         entries[0].GetProperty("deleted").GetBoolean().ShouldBeFalse();
         entries[1].GetProperty("title").GetString().ShouldBe("Jurassic Park");
+    }
+
+    [Fact]
+    public async Task The_snapshot_lists_the_barcodes_the_library_taught_but_never_one_only_another_library_taught()
+    {
+        var mine = await CreateLibraryAsync();
+        var theirs = await CreateLibraryAsync();
+        var game = await ItemSeed.AddReleaseAsync(Db, "Goldeneye", WorkKind.Game, ReleaseFormat.GameCartridge);
+        await AddIdentifierAsync(game, Ean13);
+        await AddIdentifierAsync(game, "0045496830069", taughtBy: mine.Id);
+        await AddIdentifierAsync(game, "0045496830076", taughtBy: theirs.Id);
+        await AddCopyAsync(mine, game);
+
+        var snapshot = await ReadJsonAsync(await ClientFor(mine, LibraryRole.Viewer).GetAsync(SnapshotUrl(mine.Id)));
+
+        snapshot.GetProperty("entries")[0].GetProperty("identifiers").EnumerateArray().Select(i => i.GetString())
+            .ShouldBe(["0045496830069", Ean13]); // sorted
     }
 
     [Fact]

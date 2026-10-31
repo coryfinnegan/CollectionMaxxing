@@ -1,4 +1,4 @@
-import { buildPatch, formFromItem, ifMatchHeader, isValidDate, newIdempotencyKey } from './etag';
+import { buildPatch, formFromItem, ifMatchHeader, isValidDate, lentToMissing, newIdempotencyKey } from './etag';
 import type { ItemDto } from '@/api/generated/models';
 
 const item = {
@@ -78,5 +78,29 @@ describe('buildPatch', () => {
     const lent = { ...item, status: 'lent', lentTo: 'Sam', lentOn: '2026-10-01' } as ItemDto;
     const patch = buildPatch({ ...formFromItem(lent), lentTo: 'Alex' }, lent, '2026-10-13');
     expect(patch).toEqual({ lentTo: 'Alex' });
+  });
+});
+
+describe('lentToMissing', () => {
+  const lent = { ...item, status: 'lent', lentTo: 'Sam', lentOn: '2026-10-01' } as ItemDto;
+  const lentWithNoName = { ...item, status: 'lent', lentTo: null, lentOn: '2026-10-01' } as ItemDto;
+
+  it('flags lending out an item that is not lent, with no name', () => {
+    expect(lentToMissing({ ...formFromItem(item), status: 'lent' }, item)).toBe(true);
+    expect(lentToMissing({ ...formFromItem(item), status: 'lent', lentTo: '   ' }, item)).toBe(true);
+  });
+
+  it('flags clearing the name of an item that is lent out', () => {
+    expect(lentToMissing({ ...formFromItem(lent), lentTo: '' }, lent)).toBe(true);
+  });
+
+  it('does not flag a name, or an item that is not lent', () => {
+    expect(lentToMissing({ ...formFromItem(item), status: 'lent', lentTo: 'Sam' }, item)).toBe(false);
+    expect(lentToMissing(formFromItem(item), item)).toBe(false);
+    expect(lentToMissing({ ...formFromItem(lent), status: 'owned' }, lent)).toBe(false);
+  });
+
+  it('leaves an old lend that never had a name alone, so the rest of the item can still be edited', () => {
+    expect(lentToMissing(formFromItem(lentWithNoName), lentWithNoName)).toBe(false);
   });
 });

@@ -248,7 +248,15 @@ export const handlers = [
     if (!ifMatch) return problem(428, 'An If-Match header is required.');
     if (ifMatch !== etagOf(entry)) return problem(412, 'This item changed since you loaded it.');
     const body = (await request.json()) as UpdateItemRequest;
-    Object.assign(entry.item, Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)));
+    const merged = { ...entry.item, ...Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) };
+    // Like the real API: only a lent item has a borrower, and an edit of the lend itself needs a name.
+    if (merged.status !== 'lent') {
+      merged.lentTo = null;
+      merged.lentOn = null;
+    } else if (!merged.lentTo?.trim() && (body.status !== undefined || body.lentTo !== undefined || body.lentOn !== undefined)) {
+      return problem(400, 'Say who has it before marking an item as lent out.');
+    }
+    Object.assign(entry.item, merged);
     entry.item.updatedAt = new Date().toISOString();
     entry.version += 1;
     return HttpResponse.json(entry.item, { headers: { ETag: etagOf(entry) } });

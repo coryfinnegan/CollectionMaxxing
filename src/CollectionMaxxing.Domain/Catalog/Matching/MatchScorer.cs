@@ -19,7 +19,7 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// them and drops out for all, instead of dragging a perfect title and author down toward 0.5. The art term follows the
 /// same rule: once any candidate has a distance, one the phone did not compare scores no better than the weakest picture
 /// that was compared (and never above neutral), so a coverless candidate can not win on art because the picture matched
-/// nothing well (#519).
+/// nothing well.
 /// </para>
 /// <para>
 /// A format read agrees with a release that has no format on file through the release's kind: a DVD with a film or a
@@ -30,7 +30,7 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// on its title and the kind alone.
 /// </para>
 /// <para>
-/// Five guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
+/// These guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
 /// 2005" is not "Madden NFL 2004"), and the year in a title is never taken for the release year. A known platform or
 /// title-year conflict caps the score below the Matched threshold. Matched needs at least two signals that were
 /// actually compared (both sides present), or an exact barcode match; thinner evidence is at most Ambiguous. And when
@@ -266,9 +266,9 @@ public static class MatchScorer
 
     /// <summary>
     /// The score rests on a title that is close but not the same, with nothing compared besides it and the kind (no author,
-    /// year, platform, edition or picture): in the sixth eval run a made-up spine read matched an old pamphlet with a
-    /// near title at 0.94, as "lantern road dinners" would match "A Lantern Road Dinner". The same words in another order
-    /// are a near title too ("kitchen orchard" is not "The Orchard Kitchen"): the title term is under 1 for them.
+    /// year, platform, edition or picture). Such a read can score above the Matched line without being that item:
+    /// "lantern road dinners" is not "A Lantern Road Dinner". The same words in another order are a near title too
+    /// ("kitchen orchard" is not "The Orchard Kitchen"): the title term is under 1 for them.
     /// </summary>
     private static bool RestsOnANearTitleAlone(ScoredRelease best) =>
         best.Terms.Where(t => t.Compared).All(t => t.Name is TitleTerm or TypeTerm)
@@ -278,8 +278,8 @@ public static class MatchScorer
     /// <summary>
     /// The read's title has fewer than <see cref="MinimumTitleLetters"/> letters (digits, punctuation and spaces are not letters),
     /// like "2000s", "1999" or "24": there is too little in it to tell one item from another, so even the same title is no proof
-    /// the read is that item. In the thirteenth eval run the model read "2000s", a fragment of a "2000 Walt Disney World" tape,
-    /// and it was Matched, an automatic add, to a book titled "2000s". Such a read keeps its candidates and their scores and is at
+    /// the read is that item. A fragment such as "2000s", read off a "2000 Walt Disney World" tape, would otherwise be Matched,
+    /// an automatic add, to a book titled "2000s". Such a read keeps its candidates and their scores and is at
     /// most Ambiguous, so a person confirms it. The price: a real title of this kind ("1984", "Up") is reviewed rather than added
     /// by itself. An exact identifier match is not held back (the caller checks it first).
     /// </summary>

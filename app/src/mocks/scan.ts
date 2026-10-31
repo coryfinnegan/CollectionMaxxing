@@ -99,7 +99,7 @@ export const scanMock = {
       for (const c of session.candidates.filter((x) => x.resolution === 'pending')) {
         const entry = this.catalog[c.rawCode ?? ''];
         if (!entry) continue;
-        Object.assign(c, resolved(entry), { changeSeq: ++session.seq });
+        Object.assign(c, resolved(entry), c.decision === 'undecided' ? null : { decision: c.decision }, { changeSeq: ++session.seq }); // a decision already made is theirs
         emit(session, 'candidate.updated', c);
       }
     }
@@ -118,12 +118,14 @@ export const scanMock = {
   },
 };
 
+/** Like the server (CandidateResolver): a matched release the library does not own yet comes back already accepted; the person unticks what they don't want. */
 const resolved = (entry: Known): Partial<CandidateDto> => ({
   resolution: 'matched',
   score: 1,
   release: entry.release,
   alreadyOwnedCount: entry.owned.length,
   ownedAt: entry.owned.map((o) => o.locationPath),
+  decision: entry.owned.length === 0 ? 'accepted' : 'undecided',
 });
 
 /** The session's live counters, bucketed like the server: added, then owned, then rejected, else to review. */

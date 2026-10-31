@@ -49,6 +49,21 @@ describe('ExportScreen', () => {
     expect(mockAccount.exportStarts).toBe(2);
   });
 
+  it('says so when the export cannot be shared, and lets you share it again', async () => {
+    configureAuth({ platform: 'native' });
+    deliver.mockRejectedValueOnce(new Error("That download wasn't the export."));
+    await renderWithProviders(<ExportScreen />);
+    await fireEvent.press(screen.getByLabelText('Start export'));
+
+    await fireEvent.press(await screen.findByLabelText('Share export'));
+
+    expect(await screen.findByText('Something went wrong. Try again.')).toBeTruthy();
+    expect(screen.getByLabelText('Share export')).toBeTruthy(); // not stuck: the export is still ready
+    await fireEvent.press(screen.getByLabelText('Share export'));
+    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Something went wrong. Try again.')).toBeNull();
+  });
+
   it('offers the share sheet on the iPhone', async () => {
     configureAuth({ platform: 'native' });
     await renderWithProviders(<ExportScreen />);

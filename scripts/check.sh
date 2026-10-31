@@ -5,6 +5,9 @@
 # need to fix it (the first lines of each error or failing test) and exits non-zero. Needs Docker running: the tests
 # start a throwaway Postgres per test project that needs one.
 #
+# The format phase also runs scripts/check-comments.mjs: comments under src/ say what the code does and why, not where
+# the idea came from (the paths it holds to that are listed in scripts/comment-history-enforced.txt).
+#
 # Run from anywhere:  bash scripts/check.sh [phase ...]
 # Phases are restore, build, format, test and app; with no arguments all of them run. CI runs one phase per step so
 # timings and failures localize (the backend jobs skip the app phase; the app job owns npm run check).
@@ -133,6 +136,18 @@ if [ -n "$failed" ]; then
   fail "format ($failed; fix with: dotnet format <project>.csproj)" "$details"
 fi
 ok "format (${seconds}s)"
+
+# Comments say what the code does and why, not where the idea came from. The paths held to that rule are listed in
+# scripts/comment-history-enforced.txt (see the header there for how to widen it).
+if ! command -v node >/dev/null 2>&1; then
+  log="$log_dir/comments.log"
+  fail "comments (node is needed for scripts/check-comments.mjs)" ""
+fi
+run_step comments node scripts/check-comments.mjs
+if [ "$code" -ne 0 ]; then
+  fail "comments (say what the code does and why; to widen the ratchet see scripts/comment-history-enforced.txt)" "$(head -n "$max_lines" "$log")"
+fi
+ok "comments, history-free in the enforced paths (${seconds}s)"
 fi
 
 # ---- test ------------------------------------------------------------------------------------------------------

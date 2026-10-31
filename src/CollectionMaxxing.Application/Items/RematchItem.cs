@@ -74,7 +74,7 @@ public static class RematchItem
                     return ItemErrors.Invalid("item.barcode_invalid", "That code couldn't be read. Scan it again.", "barcode");
                 }
 
-                var resolved = await ResolveAsync(id, cancellationToken);
+                var resolved = await ResolveAsync(command.LibraryId, id, cancellationToken);
                 if (!resolved.IsSuccess)
                 {
                     return resolved.Error!;
@@ -106,7 +106,7 @@ public static class RematchItem
 
                 item.ReleaseId = releaseId;
                 item.EditionVerified = true;
-                await learner.LearnAsync(releaseId, id, cancellationToken);
+                await learner.LearnAsync(command.LibraryId, releaseId, id, cancellationToken);
                 return await SaveAndProjectAsync(db, clock, users, command.LibraryId, item, cancellationToken);
             }
 
@@ -115,9 +115,9 @@ public static class RematchItem
             /// providers. Barcode-proof means exactly one release, the T0 bar: a shared barcode or a close call is
             /// refused rather than guessed at.
             /// </summary>
-            private async Task<Result<Guid>> ResolveAsync(Identifier id, CancellationToken cancellationToken)
+            private async Task<Result<Guid>> ResolveAsync(Guid libraryId, Identifier id, CancellationToken cancellationToken)
             {
-                var local = await candidates.FindLocalAsync([id], cancellationToken);
+                var local = await candidates.FindLocalAsync(libraryId, [id], cancellationToken);
                 if (local.TryGetValue(id.Value, out var releaseIds))
                 {
                     return releaseIds.Count == 1
@@ -150,7 +150,7 @@ public static class RematchItem
 
                 var option = answer.Options[0];
                 return option.LocalReleaseId
-                    ?? (await releases.EnsureAsync(option.Provider!, cancellationToken)).Id;
+                    ?? (await releases.EnsureAsync(option.Provider!, libraryId, cancellationToken)).Id;
             }
         }
     }

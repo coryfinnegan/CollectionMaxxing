@@ -1,4 +1,5 @@
 using CollectionMaxxing.Api.Problems;
+using CollectionMaxxing.Api.Security;
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Exports;
@@ -23,7 +24,8 @@ public static class ExportEndpoints
             .WithName("StartExport").WithTags("Account")
             .Produces<ExportDto>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .WithRateLimitGroup(RateLimitGroup.Export);
 
         app.MapGet("/api/v1/me/export/{id:guid}", async (Guid id, ICurrentUser user, GetExport.Handler handler, ExportLinks links, CancellationToken cancellationToken) =>
             {
