@@ -25,8 +25,12 @@ public sealed class ResolvePendingIdentify(
     ReleaseCovers releaseCovers,
     ScanningOptions options,
     TimeProvider clock,
-    ILogger<ResolvePendingIdentify> logger) : IJobHandler<IdentifyItems.ResolveJob>
+    ILogger<ResolvePendingIdentify> logger) : IJobHandler<IdentifyItems.ResolveJob>, IJobFailureHandler<IdentifyItems.ResolveJob>
 {
+    /// <summary>The job failed for good (retries used up): the row becomes an Error instead of waiting for days.</summary>
+    public Task OnFailedForGoodAsync(IdentifyItems.ResolveJob job, string lastError, CancellationToken cancellationToken) =>
+        ResolveGaveUp.SettleAsync(db, sessionLock, logger, job.LibraryId, job.SessionId, job.CandidateId, lastError, cancellationToken);
+
     public async Task HandleAsync(IdentifyItems.ResolveJob job, CancellationToken cancellationToken)
     {
         // A job has no signed-in caller; it takes the identity of the scan's owner, with the libraries they belong to
@@ -73,8 +77,9 @@ public sealed class ResolvePendingIdentify(
             if (job.ProofItemId is { } proofItemId)
             {
                 // An edition proof finishes as its request would have: upgrade on a match of the item's own work, a
-                // T2 row otherwise, never an auto-add (docs/16 §11).
-                if (!await ProofUpgrade.TryApplyAsync(db, session, row, proofItemId, clock, cancellationToken)
+                // T2 row otherwise, never an auto-add (docs/16 §11). The role is the one the person has now (read above from
+                // the memberships): a proof queued by an editor who has since been made a viewer changes nothing.
+                if (!await ProofUpgrade.TryApplyAsync(db, session, row, proofItemId, currentUser.RoleIn(job.LibraryId), clock, cancellationToken)
                     && row.Resolution != CandidateResolution.Pending)
                 {
                     row.Tier = ScanTier.T2;
@@ -88,11 +93,7 @@ public sealed class ResolvePendingIdentify(
 
             if (row.Resolution == CandidateResolution.Pending)
             {
-                row.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
-                row.Tier = ScanTier.T2;
-                row.GuidanceCode = row.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep)
-                    ? keep
-                    : GuidanceCodes.For(null, CandidateResolution.Error, row.Source, row.RawCode, quotaSpent: false);
+                ResolveGaveUp.Apply(row); // gave up; the person can search by hand
             }
 
             try

@@ -34,7 +34,8 @@ public sealed record UndoResultDto(int Removed);
 /// <para>
 /// The items are the ids the commit recorded on the session (<see cref="ScanSession.CommittedItemIds"/>), never found by when or by whom they
 /// were made, so a lookalike item can't be deleted by mistake. Every one of those ids must still be there and untouched; if any is not,
-/// something else is going on and nothing is deleted. Undoing twice with the same <c>Idempotency-Key</c> replays the first answer, even after
+/// something else is going on and nothing is deleted. An item the commit did not make (a kept row promoted during the same session)
+/// is not one of those ids: undo leaves it, and the row that points at it, as they are. Undoing twice with the same <c>Idempotency-Key</c> replays the first answer, even after
 /// the person added again (the key undid one commit and never undoes another); a new key on a session that is not committed is a 409.
 /// </para>
 /// </summary>
@@ -94,9 +95,6 @@ public static class UndoScanCommit
 
             var candidates = await db.ScanCandidates.Where(c => c.SessionId == session.Id).ToListAsync(cancellationToken);
 
-            // Standing auto-adds are not this commit's: each is undone on its own, and this undo leaves them (and their items) alone.
-            var made = candidates.Where(c => c.CreatedItemId is not null && c.AutoCommittedItemIds is null).ToList();
-
             // Everything this commit created, and only that: the ids it recorded. All of them must be here, in this library, untouched.
             var expected = session.CommittedItemIds;
             if (expected is not { Length: > 0 })
@@ -105,11 +103,17 @@ public static class UndoScanCommit
             }
 
             var wanted = expected.ToHashSet();
+
+            // The rows whose item this commit made. A row can point at an item the commit did not make: a kept row promoted
+            // in this session (the person's own item), an edition proof that verified an existing item, a standing auto-add
+            // (each is undone on its own). Those items are not in the commit's ids, so undo leaves them and their links alone.
+            var made = candidates.Where(c => c.CreatedItemId is { } id && wanted.Contains(id)).ToList();
+
             var items = await db.Items.IgnoreQueryFilters()
                 .Where(i => i.LibraryId == session.LibraryId && wanted.Contains(i.Id))
                 .ToListAsync(cancellationToken);
             var untouched = items.All(i => i.DeletedAt == null && i.UpdatedAt == i.CreatedAt);
-            if (!untouched || items.Count != wanted.Count || made.Any(c => !wanted.Contains(c.CreatedItemId!.Value)))
+            if (!untouched || items.Count != wanted.Count)
             {
                 return ScanningErrors.UndoItemsChanged;
             }
