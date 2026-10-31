@@ -87,6 +87,9 @@ services:
       # silently, and every movie cover then finds nothing. Free for non-commercial use: create an API key at
       # themoviedb.org/settings/api and paste the "API Read Access Token" (or the v3 API key) into .env. Secret: never commit.
       Providers__Tmdb__ApiKey: ${CM_TMDB_API_KEY:-}
+      # Open Library (books): a contact email in its User-Agent lifts its limit from 1 request a second to 3. Empty = anonymous.
+      # Open Library sees the address on every request; an alias is fine. It lives only in .env (never committed).
+      Providers__OpenLibrary__ContactEmail: ${CM_OPENLIBRARY_CONTACT_EMAIL:-}
       # Sign-in through Auth0 (docs/07, docs/14). deploy/auth0/Apply-Auth0.ps1 writes these values to <secrets>\auth0\api.env;
       # copy them into .env. All six are required: without the Management credentials "Sign out all iPhones" would
       # silently do nothing at Auth0.
