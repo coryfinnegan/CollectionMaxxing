@@ -32,6 +32,13 @@ public sealed class EvalsOptions
 
     /// <summary>The git sha to put in the result file's name. Optional: the <c>CM_TAG</c> environment variable and then the build's own version are tried.</summary>
     public string? BuildSha { get; set; }
+
+    /// <summary>
+    /// How many of one photo's reads have their providers asked at the same time while grounding. The providers' own limiters set the
+    /// pace (Open Library allows 3 requests a second with a contact email, 1 without), so more than a handful in flight only queues;
+    /// each ask still has the patient background-job budget, counted from when it starts. A value below 1 asks one read at a time.
+    /// </summary>
+    public int GroundingParallelism { get; set; } = 6;
 }
 
 /// <summary>The rule for a photo id. An id comes from a file name and is the only thing a request may use to name a file.</summary>
