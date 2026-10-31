@@ -1,0 +1,1 @@
+# Paths (relative to the repo root) whose comments the gate enforces. See scripts/check-comments.mjs.
