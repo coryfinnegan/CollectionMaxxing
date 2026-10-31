@@ -290,7 +290,7 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
-    public void The_combined_read_after_a_model_failure_takes_Visions_time_and_shows_its_first_item_when_Vision_does()
+    public void The_combined_read_after_a_model_failure_takes_Visions_time_plus_the_wait_for_the_model_and_shows_its_first_item_when_Vision_does()
     {
         var scored = Score(
             ArrangeShelf("Star Fox 64"),
@@ -298,7 +298,7 @@ public sealed class CombinedEngineTests : IDisposable
             Photo("s1", Vision, [GuessedByVision("Star Fox 64")], latencyMs: 700, firstItemMs: 300));
 
         var both = scored.ShelfOf(Combined);
-        both.LatencyP50Ms.ShouldBe(700);
+        both.LatencyP50Ms.ShouldBe(8900, "the snap is not finished until the model gives up: Vision's 700 and the model's 8200");
         both.FirstItemP50Ms.ShouldBe(300);
     }
 

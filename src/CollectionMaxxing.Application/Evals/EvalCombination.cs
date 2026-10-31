@@ -21,7 +21,7 @@ namespace CollectionMaxxing.Application.Evals;
 /// When the model fails on a shelf (a timeout, an error or a refusal), the scanner keeps Vision's reading, so the combined row is
 /// Vision's items too (it scored 0 of 46 on a shelf where Vision alone scored 23, before). That row is Vision's reading with the
 /// model's failure as its <c>FellBackFrom</c>, the way the scanner records such a snap: it is not a timeout, error or refusal of
-/// its own, the model row reports those. When Vision failed and the model answered, the items are the model's.
+/// its own, the model row reports those; its total time still includes the wait for the model. When Vision failed and the model answered, the items are the model's.
 /// </para>
 /// </remarks>
 public static class EvalCombination
@@ -102,9 +102,10 @@ public static class EvalCombination
     /// <summary>
     /// The scanner's snap when the model failed on a shelf and Vision read: Vision's reading stands as it was (its items, outcome,
     /// unreadable and captured counts, so its segments still reconcile) and the model's failure is the <c>FellBackFrom</c>: the
-    /// reason the phone sent, else the one its outcome says (a timeout, a refusal is a declined, an error is unavailable). The time is
-    /// Vision's own, and the first item is Vision's first, or the end of its whole read when it sent none; what the failed model
-    /// cost is on the <c>apple_model</c> row. Vision's OCR lines belong to its own row, and the model's duplicate re-scan evidence
+    /// reason the phone sent, else the one its outcome says (a timeout, a refusal is a declined, an error is unavailable). The first item is
+    /// Vision's first, or the end of its whole read when it sent none; the total is Vision's read plus the model's, the time it
+    /// waited before failing, since the snap is not finished until the model gives up (the same sum as the normal combined row).
+    /// Vision's OCR lines belong to its own row, and the model's duplicate re-scan evidence
     /// is used only when Vision sent none.
     /// </summary>
     private static GroundedPhoto VisionAfterTheModelFailed(GroundedPhoto apple, GroundedPhoto vision) =>
@@ -112,6 +113,10 @@ public static class EvalCombination
         {
             Engine = Engine,
             FellBackFrom = apple.FellBackFrom ?? FellBackFromOutcome(apple.Outcome),
+
+            // The snap is not finished until the model gives up, so the total is Vision's read and then the model's wait, as in the
+            // normal combined row; the first item is still Vision's.
+            LatencyMs = vision.LatencyMs + apple.LatencyMs,
             FirstItemMs = vision.FirstItemMs ?? vision.LatencyMs,
             DuplicateRescan = vision.DuplicateRescan ?? apple.DuplicateRescan,
             OcrLines = null,
