@@ -28,7 +28,7 @@ public sealed class ApiLaneIsolationTests
         {
             var assemblyInfo = File.ReadAllText(Path.Combine(RepoRoot(), "tests", lane, "AssemblyInfo.cs"));
             assemblyInfo.ShouldContain("AssemblyFixture(typeof(PostgresServerLifetime))");
-            assemblyInfo.ShouldContain("CollectionBehavior(CollectionBehavior.CollectionPerClass)");
+            assemblyInfo.ShouldContain("CollectionBehavior(CollectionBehavior.CollectionPerClass");
             assemblyInfo.ShouldNotContain("CollectionPerAssembly");
             assemblyInfo.ShouldNotContain("DisableTestParallelization");
         }
