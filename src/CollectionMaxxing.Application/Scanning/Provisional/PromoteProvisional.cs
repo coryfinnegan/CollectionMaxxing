@@ -16,8 +16,9 @@ namespace CollectionMaxxing.Application.Scanning.Provisional;
 /// release when it has one (a barcode scanned after the keep), else the guessed title becomes a library-private release
 /// through the item-creation path, at the record's location; the crop is kept as the item's cover unless the caller says
 /// otherwise. The record resolves (staying as the audit trail), and the row it came from — when its session still exists —
-/// points at the new item, so the session's counters reconcile. Safe to retry: the same <c>Idempotency-Key</c> returns the
-/// same answer, through the item creation's own key.
+/// points at the new item, so the session's counters reconcile. Safe to retry, and safe to repeat: a kept row becomes one
+/// item however many times, or from however many tabs, it is promoted. Once it has resolved, any repeat (with any
+/// <c>Idempotency-Key</c>) returns the stored answer; promotes racing before that share one item-creation key.
 /// </summary>
 public static class PromoteProvisional
 {
@@ -55,11 +56,15 @@ public static class PromoteProvisional
 
             // A kept row that resolved afterwards (its barcode was scanned, design §11) promotes to that release —
             // verified — instead of a manual record typed from the guess.
+            //
+            // The item's own idempotency key names the kept row and nothing else, never the caller's header: two promotes of the
+            // same row (a double tap, two tabs) then collide on one key, so only one item is made. The one that loses either
+            // replays the winner's item or is refused whole by the database (a 409), and in neither case leaves an item behind.
             var releaseId = await MatchedReleaseAsync(command.LibraryId, provisional.CandidateId, cancellationToken);
             var created = await items.HandleAsync(
                 new CreateItem.Command(
                     command.LibraryId,
-                    $"provisional-promote:{provisional.Id}:{key}",
+                    $"provisional-promote:{provisional.Id}",
                     ReleaseId: releaseId,
                     releaseId is null
                         ? new ManualRelease(KindOf(provisional.MediaHint), provisional.TitleGuess, null, null, null, null, null)
