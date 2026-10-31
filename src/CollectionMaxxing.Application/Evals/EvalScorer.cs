@@ -252,10 +252,12 @@ public static class EvalScorer
     /// <summary>
     /// The item's tier with the server's first gate applied. The phone claims T1 for a confident read, but the server commits
     /// only what it matched (<c>CandidateResolver</c>), so a read it narrowed down or found nothing for counts as T2. The
-    /// server's other gates (owned copies, series volumes, the artwork re-score) are not modelled here.
+    /// server's other gates (owned copies, series volumes, the artwork re-score) are not modelled here. The second gate is the scanner's:
+    /// a read only the picture model made, where Vision found nothing (<see cref="GroundedItem.Unconfirmed"/>), is reviewed, never
+    /// committed by itself, so it is T2 at most however exactly it matched.
     /// </summary>
     private static string? TierOf(GroundedItem item) =>
-        (item.Tier == Tier0 || item.Tier == Tier1) && item.Verdict != Matched ? Tier2 : item.Tier;
+        (item.Tier == Tier0 || item.Tier == Tier1) && (item.Verdict != Matched || item.Unconfirmed) ? Tier2 : item.Tier;
 
     private static List<TruthItem> TruthItemsOf(TruthEntry truth) => truth.Set == GoldenSets.Shelf
         ? [.. truth.Shelf!.Items.Select(i => new TruthItem(i.Title, i.Platform, i.MediaType.ToLowerInvariant(), null, EvalKinds.Key(i.MediaType), i.AlsoTitled))]

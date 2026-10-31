@@ -121,6 +121,8 @@ public sealed record GroundedRead(
 /// null when the run predates tiers; <c>Provisional</c> marks a kept guess, which must carry <c>IsGuess</c> (docs/16 §17).
 /// <c>Box</c> is where the read sat in the photo (normalised 0 to 1, origin top left), null when the phone sent none or the run
 /// predates boxes; the combined engine uses it to tell one spine read by both engines from two spines that read alike.
+/// <c>Unconfirmed</c> marks a shelf read only the picture model made, at a place Vision found nothing. The scanner keeps such a read for
+/// review (T2 at most), so the scorer counts it as review, never an auto-add, whatever <c>Tier</c> the phone claimed.
 /// </summary>
 public sealed record GroundedItem(
     string? ReadTitle,
@@ -133,7 +135,8 @@ public sealed record GroundedItem(
     bool? IsGuess = null,
     string? SegmentId = null,
     GroundedRead? Read = null,
-    ReadBox? Box = null)
+    ReadBox? Box = null,
+    bool Unconfirmed = false)
 {
     /// <summary>The best release, or null when there is none.</summary>
     [JsonIgnore]
