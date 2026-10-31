@@ -52,6 +52,10 @@ export interface EvalState {
   refused: string[];
   /** Why the run is paused: the owner asked, or the app went to the background. */
   pause?: 'user' | 'background';
+  /** The owner tapped Stop, so the run ends early on purpose. */
+  stopped: boolean;
+  /** Why the PC cannot score the run yet (a problem code); it keeps trying. */
+  failure?: string;
   summary?: EvalOpenRunStatus['summary'];
   message?: string;
 }
@@ -122,6 +126,7 @@ const initial = (): EvalState => ({
   pending: 0,
   skipped: [],
   refused: [],
+  stopped: false,
 });
 
 const defaultSegmentId = () =>
@@ -195,15 +200,42 @@ export function ocrRecord(ocr: OcrReading | undefined): Pick<EvalPhotoResult, 'o
   };
 }
 
+/**
+ * A photo that could not be downloaded. `status` is the HTTP status the PC answered, when it answered; none means it never did (the network, or a PC that
+ * is restarting).
+ */
+export class DownloadError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'DownloadError';
+  }
+}
+
 /** The PC said the run is not open any more (finished or discarded elsewhere): nothing more can be sent to it. */
 class RunGoneError extends Error {}
 
 /** The PC cannot take anything right now (signed out, evals off, results folder not writable, errors that keep coming): the run stops and keeps what it read. */
 class PcNotTakingError extends Error {}
 
+const statusOf = (error: unknown): number | undefined => (error instanceof ApiError || error instanceof DownloadError ? error.status : undefined);
+
+/** The PC is there but busy or restarting (the proxy answers 502 while the API redeploys): wait for it, however long it takes. */
+const NOT_ANSWERING = new Set([408, 429, 502, 503, 504]);
+
 /** A 4xx other than "too many requests" and "timed out" is the PC's final answer about this request. */
-const isFinal = (error: unknown): error is ApiError =>
-  error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
+const isFinal = (error: unknown): boolean => {
+  const status = statusOf(error);
+  return status !== undefined && status >= 400 && status < 500 && !NOT_ANSWERING.has(status);
+};
+
+/** The PC answered, and the answer is a plain server error (500...): it counts against a photo, a few times in a row. Not answering does not. */
+const isServerError = (error: unknown): boolean => {
+  const status = statusOf(error);
+  return status !== undefined && status >= 500 && !NOT_ANSWERING.has(status);
+};
 
 /** The PC refused the photo itself: it failed its own checks (400) or is too big (413). Nothing else the PC says leaves a photo out. */
 const isAboutThePhoto = (error: unknown): error is ApiError => error instanceof ApiError && (error.status === 400 || error.status === 413);
@@ -293,7 +325,7 @@ export class EvalRunner {
   async recheck(): Promise<void> {
     if (this.active) return;
     const before = this.state;
-    this.set({ phase: 'checking', message: undefined });
+    this.set({ phase: 'checking', message: undefined, skipped: [] });
     await this.pull(false, before.phase === 'error' ? before : undefined);
   }
 
@@ -301,16 +333,18 @@ export class EvalRunner {
    * Asks the PC for its run and takes its word. A run that started meanwhile is not disturbed, unless it is the run itself that is asking. When the
    * PC cannot be asked, `backTo` (the state before) is put back, so an error and the readings it is keeping are not lost to a look that failed.
    */
-  private async pull(duringRun: boolean, backTo?: EvalState): Promise<void> {
+  private async pull(duringRun: boolean, backTo?: EvalState): Promise<boolean> {
     try {
       const status = await this.deps.api.openRun();
-      if (this.active && !duringRun) return;
+      if (this.active && !duringRun) return true;
       if (status) this.adopt(status);
       else if (this.state.phase === 'checking' || this.state.phase === 'resumable' || this.state.phase === 'scoring') this.becomeIdle();
+      return true;
     } catch {
       // The PC may be off, or the evals not switched on: the owner finds out when they start a run.
       if (backTo) this.set({ ...backTo });
       else if ((!this.active || duringRun) && this.state.phase === 'checking') this.becomeIdle();
+      return false;
     }
   }
 
@@ -326,7 +360,8 @@ export class EvalRunner {
     if (this.active) return this.active;
     if (this.state.phase !== 'resumable' || !this.run) return Promise.resolve();
     return this.launch(async () => {
-      this.set({ phase: 'running', startedAt: this.now(), endedAt: null, message: undefined });
+      // Photos skipped earlier are asked for again: whatever kept them from downloading may be over.
+      this.set({ phase: 'running', startedAt: this.now(), endedAt: null, message: undefined, skipped: [], stopped: false });
       await this.config();
       await this.loop();
     });
@@ -360,6 +395,7 @@ export class EvalRunner {
   stop() {
     if (!this.active) return;
     this.stopRequested = true;
+    this.set({ stopped: true });
     this.userPause = false;
     this.release?.();
     this.wake?.();
@@ -435,8 +471,8 @@ export class EvalRunner {
       });
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && error.problem.code === 'evals.run_open') {
-        await this.pull(true);
-        this.set({ message: 'Your PC is already holding a run. Continue it, or start over.' });
+        if (await this.pull(true)) this.set({ message: 'Your PC is already holding a run. Continue it, or start over.' });
+        else this.set({ phase: 'error', message: "Your PC is already holding a run, but it didn't answer when asked about it. Check again." });
         return;
       }
       this.set({ phase: 'error', message: "Couldn't open a run on your PC." });
@@ -462,6 +498,7 @@ export class EvalRunner {
       pending: this.pending.length,
       refused: [...this.refusedIds],
       partial: status.partial,
+      failure: status.failure ?? undefined,
     };
     if (status.state === 'done') {
       this.outbox.clear();
@@ -524,9 +561,13 @@ export class EvalRunner {
     this.set({ current: index + 1, step: 'apple' });
     let uri: string;
     try {
-      uri = trackPicture(await this.deps.files.download(photo.id));
-    } catch {
+      // A PC that is not answering is waited for, as a send is; only a final answer about this photo (it is not there) skips it.
+      uri = trackPicture(await this.withPc(() => this.deps.files.download(photo.id), 'running'));
+    } catch (error) {
       if (this.epoch !== epoch) return; // the download was cut short by the app leaving: read it again
+      // Only an answer about this photo (it is not there) skips it. Signed out, evals off, or server errors that keep coming say nothing about the photo:
+      // stop with what is read kept, not photo after photo skipped.
+      if (statusOf(error) !== 404 && statusOf(error) !== 410) throw new PcNotTakingError();
       this.set({ skipped: [...this.state.skipped, photo.id] });
       return;
     }
@@ -653,9 +694,9 @@ export class EvalRunner {
   }
 
   /**
-   * Runs a request to the PC until it answers. A request that never got an answer, or got a busy or server error, is tried again after a wait that
-   * grows (the screen says it is waiting for the PC, and the readings stay kept), and puts the screen back to `back` when it answers. Throws what the
-   * PC finally says: a 4xx, or a server error that came `MAX_SERVER_REFUSALS` times in a row.
+   * Runs a request to the PC until it answers. A request that never got an answer, or got a busy or restarting answer (408, 429, 502, 503, 504), is
+   * tried again after a wait that grows, with no limit (the screen says it is waiting for the PC, and the readings stay kept), and the screen is put
+   * back to `back` when it answers. Throws what the PC finally says: a 4xx, or a plain server error that came `MAX_SERVER_REFUSALS` times in a row.
    */
   private async withPc<T>(request: () => Promise<T>, back: EvalPhase): Promise<T> {
     let failures = 0;
@@ -668,11 +709,11 @@ export class EvalRunner {
       } catch (error) {
         if (isFinal(error)) throw error;
         failures += 1;
-        if (error instanceof ApiError) {
+        if (isServerError(error)) {
           serverErrors += 1;
           if (serverErrors >= MAX_SERVER_REFUSALS) throw error;
         } else {
-          serverErrors = 0;
+          serverErrors = 0; // not answering, or restarting: that is waited for with no limit, and starts the count of plain errors again
         }
         this.set({ phase: 'waiting', message: undefined });
         await this.wait(sendWaitMs(failures));

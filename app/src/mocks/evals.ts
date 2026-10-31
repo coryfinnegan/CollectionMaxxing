@@ -38,6 +38,8 @@ export interface MockRun {
   baselineNote?: string;
   /** How many times the run was asked about since it was finished. */
   pollsSinceFinish: number;
+  /** Why the PC could not score the run yet (a problem code), while it keeps trying. */
+  failure?: string | null;
 }
 
 /** What a send can be made to do instead of working: an HTTP status (with the problem code the PC gives it, if any), or 'network' for no answer at all. */
@@ -156,7 +158,7 @@ const statusOf = (run: MockRun) => {
     received,
     grounded: run.state === 'open' ? 0 : received.length,
     refused: run.refused,
-    failure: null,
+    failure: run.failure ?? null,
     summary: run.state === 'done' ? summary(run.runId, run.partial) : null,
   };
 };

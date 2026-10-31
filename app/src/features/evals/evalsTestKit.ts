@@ -2,7 +2,7 @@
 // a fake file system that records every download and delete, a config store whose server answer the test can change,
 // a fake app state to send the app to the background and back, and an outbox in memory that survives a relaunch.
 import { evalApi } from './api';
-import { createEvalRunner, type AppStateSource, type EvalRunner } from './runner';
+import { createEvalRunner, DownloadError, type AppStateSource, type EvalRunner } from './runner';
 import { RecognitionConfigStore } from '@/features/scan/recognition/config';
 import { DEFAULT_RECOGNITION_CONFIG, type RecognitionConfig } from '@/features/scan/recognition/defaults';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
@@ -27,8 +27,10 @@ export interface KitOptions {
   scenes?: Record<string, Partial<Scene>>;
   /** Server config versions: the n-th refresh gets the n-th version (the last one repeats). */
   versions?: string[];
-  /** Makes the download of this photo fail. */
+  /** Makes the download of this photo fail for good: the PC answers 404 about it. */
   failDownload?: string[];
+  /** The next downloads fail like this, one entry each, before any photo downloads: 'network' for no answer at all, or the HTTP status the PC answered. */
+  downloadFailures?: ('network' | number)[];
   /** Makes the selector (the Apple model side) throw instead of reading. */
   selectorThrows?: boolean;
   /** Called each time the fake vision engine is asked to read, to pause or stop in the middle of a run. */
@@ -59,6 +61,7 @@ export function makeKit(options: KitOptions = {}) {
 
   const deleted: string[] = [];
   const downloaded: string[] = [];
+  const downloadFailures = [...(options.downloadFailures ?? [])];
   setPictureFiles({
     storage: new MemoryKeyValueStore(),
     remove: async (uri) => {
@@ -67,7 +70,10 @@ export function makeKit(options: KitOptions = {}) {
   });
   const files = {
     async download(id: string) {
-      if (options.failDownload?.includes(id)) throw new Error('download failed');
+      const failure = downloadFailures.shift();
+      if (failure === 'network') throw new Error('Network request failed');
+      if (failure) throw new DownloadError(`The PC answered ${failure}.`, failure);
+      if (options.failDownload?.includes(id)) throw new DownloadError('The PC answered 404.', 404);
       downloaded.push(id);
       return trackPicture(uriOf(id));
     },

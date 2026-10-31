@@ -65,7 +65,7 @@ describe('EvalsScreen', () => {
     expect(screenSeenMidRun).toMatch(/Photo 1 of 2/);
     expect(screenSeenMidRun).toMatch(/Apple model/);
     expect(screen.getByText(/shelf_recall: 93%/)).toBeTruthy();
-    expect(screen.getByText('Your PC scored all 2 photos.')).toBeTruthy();
+    expect(screen.getByText('Your PC scored 2 photos.')).toBeTruthy();
   });
 
   it('says the PC is scoring and that the owner can leave, until the summary is ready', async () => {
@@ -139,6 +139,34 @@ describe('EvalsScreen', () => {
       expect(evalsMock.run).toBeUndefined();
     });
 
+    it('does not ask before throwing away a run with nothing read in it', async () => {
+      const kit = makeKit({ photos: 3, held: [] });
+      await renderWithProviders(<EvalsScreen runner={kit.runner} />);
+      expect(await screen.findByText('0 of 3 photos read')).toBeTruthy();
+
+      await press('Start over');
+
+      expect(await screen.findByRole('button', { name: 'Start the run' })).toBeTruthy();
+      expect(evalsMock.discards).toBe(1);
+      expect(screen.queryByText(/Start over\?/)).toBeNull();
+    });
+
+    it('says why the PC cannot score the run, that it keeps trying, and offers Start over', async () => {
+      const kit = makeKit({ photos: 2, held: ['photo-001', 'photo-002'], onSleep: () => new Promise<void>(() => undefined) });
+      evalsMock.run!.state = 'finishing';
+      evalsMock.run!.failure = 'evals.results_not_writable';
+      evalsMock.scoredAfterPolls = 1000;
+      await renderWithProviders(<EvalsScreen runner={kit.runner} />);
+
+      expect(await screen.findByText("Your PC couldn't score the run: its results folder can't be written. It keeps trying.")).toBeTruthy();
+      expect(screen.queryByText('Your PC is scoring the run.')).toBeNull();
+      await press('Start over');
+      await press('Throw away 2 photos and start over');
+
+      expect(await screen.findByRole('button', { name: 'Start the run' })).toBeTruthy();
+      expect(evalsMock.discards).toBe(1);
+    });
+
     it('shows the gate summary of a run the PC finished while the owner was away', async () => {
       const kit = makeKit({ photos: 2, held: ['photo-001', 'photo-002'] });
       evalsMock.run!.state = 'done';
@@ -168,7 +196,7 @@ describe('EvalsScreen', () => {
 
       expect(await screen.findByText(/M3 gate: incomplete/)).toBeTruthy();
       expect(evalsMock.finishes).toEqual([{ partial: true }]);
-      expect(screen.getByText('Stopped early. Your PC scored the 1 photo it had read.')).toBeTruthy();
+      expect(screen.getByText('Stopped early. Your PC scored 1 photo.')).toBeTruthy();
     });
 
     it('says it is waiting for the PC when a photo does not go up, and that the readings are kept on the phone', async () => {

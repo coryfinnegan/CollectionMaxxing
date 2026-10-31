@@ -7,6 +7,7 @@ import { Button, Card, LoadingState, Screen, Text, TextField } from '@/ui';
 import { AddEvalPhotos, deviceAddPhotos } from './AddEvalPhotos';
 import type { AddPhotosController } from './addPhotos';
 import { getEvalRunner } from './device';
+import { outcomeLines, scoringProblem } from './outcome';
 import type { EvalRunner, EvalState } from './runner';
 
 const THERMAL_LABEL = { nominal: 'Normal', fair: 'Warm', serious: 'Hot', critical: 'Very hot' } as const;
@@ -44,32 +45,65 @@ function Summary({ state }: { state: EvalState }) {
   );
 }
 
-/** A run that is picked up where it left off, or thrown away. Throwing it away asks once. */
-function Resumable({ runner, state, adding }: { runner: EvalRunner; state: EvalState; adding: boolean }) {
+/**
+ * Throwing the run on the PC away asks once, and says how many photos go with it. With nothing read there is nothing to lose, so it goes at once.
+ * `confirming` replaces the buttons beside it while the question is up.
+ */
+function useStartOver(runner: EvalRunner, read: number) {
   const [confirming, setConfirming] = useState(false);
+  const ask = () => (read === 0 ? void runner.startOver() : setConfirming(true));
+  const question = confirming ? (
+    <>
+      <Text accessibilityRole="alert">{`Start over? Your PC throws away this run and the ${photos(read)} it has read.`}</Text>
+      <Button
+        label={`Throw away ${photos(read)} and start over`}
+        variant="secondary"
+        onPress={() => {
+          setConfirming(false);
+          void runner.startOver();
+        }}
+      />
+      <Button label="Keep the run" variant="secondary" onPress={() => setConfirming(false)} />
+    </>
+  ) : null;
+  return { confirming, ask, question };
+}
+
+/** A run that is picked up where it left off, or thrown away. */
+function Resumable({ runner, state, adding }: { runner: EvalRunner; state: EvalState; adding: boolean }) {
+  const startOver = useStartOver(runner, state.photosDone);
   return (
     <Card>
       <Text variant="heading">{`${state.photosDone} of ${state.total} photos read`}</Text>
       <Text>Your PC is holding this run. Pick it up where it left off, or start over.</Text>
       {state.pending > 0 ? <Text tone="muted">{`${photos(state.pending)} read on this phone go up first.`}</Text> : null}
       {state.message ? <Text tone="muted">{state.message}</Text> : null}
-      {confirming ? (
-        <>
-          <Text accessibilityRole="alert">{`Start over? Your PC throws away this run and the ${photos(state.photosDone)} it has read.`}</Text>
-          <Button
-            label={`Throw away ${photos(state.photosDone)} and start over`}
-            variant="secondary"
-            onPress={() => {
-              setConfirming(false);
-              void runner.startOver();
-            }}
-          />
-          <Button label="Keep the run" variant="secondary" onPress={() => setConfirming(false)} />
-        </>
+      {startOver.confirming ? (
+        startOver.question
       ) : (
         <>
           <Button label="Continue" disabled={adding} onPress={() => void runner.continueRun()} />
-          <Button label="Start over" variant="secondary" onPress={() => setConfirming(true)} />
+          <Button label="Start over" variant="secondary" onPress={startOver.ask} />
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** The PC has the whole run and is scoring it. When it cannot, the screen says why and offers to start over. */
+function Scoring({ runner, state }: { runner: EvalRunner; state: EvalState }) {
+  const startOver = useStartOver(runner, state.photosDone);
+  return (
+    <Card>
+      {state.failure ? (
+        <>
+          <Text tone="danger" accessibilityRole="alert">{scoringProblem(state.failure)}</Text>
+          {startOver.confirming ? startOver.question : <Button label="Start over" variant="secondary" onPress={startOver.ask} />}
+        </>
+      ) : (
+        <>
+          <LoadingState label="Your PC is scoring the run." />
+          <Text tone="muted">{"You can leave this screen. The gate summary shows here when it's ready."}</Text>
         </>
       )}
     </Card>
@@ -162,12 +196,7 @@ export function EvalsScreen({ runner = getEvalRunner(), photos: addPhotosControl
 
       {state.phase === 'finishing' ? <LoadingState label="Asking your PC to score the run." /> : null}
 
-      {state.phase === 'scoring' ? (
-        <Card>
-          <LoadingState label="Your PC is scoring the run." />
-          <Text tone="muted">{"You can leave this screen. The gate summary shows here when it's ready."}</Text>
-        </Card>
-      ) : null}
+      {state.phase === 'scoring' ? <Scoring runner={runner} state={state} /> : null}
 
       {state.phase === 'error' ? (
         <>
@@ -178,15 +207,9 @@ export function EvalsScreen({ runner = getEvalRunner(), photos: addPhotosControl
 
       {state.phase === 'done' ? (
         <>
-          <Text>
-            {state.summary
-              ? state.partial
-                ? `Stopped early. Your PC scored the ${photos(state.photosDone)} it had read.`
-                : `Your PC scored all ${photos(state.total)}.`
-              : "Your PC scored the run. Open the report on your PC; the summary isn't on this phone."}
-          </Text>
-          {state.skipped.length > 0 ? <Text tone="muted">{`Skipped ${photos(state.skipped.length)} that wouldn't download.`}</Text> : null}
-          {state.refused.length > 0 ? <Text tone="muted">{`Your PC wouldn't take ${photos(state.refused.length)}, so ${state.refused.length === 1 ? 'it is' : 'they are'} left out of the score.`}</Text> : null}
+          {outcomeLines(state).map((line, index) => (
+            <Text key={line} tone={index === 0 ? undefined : 'muted'}>{line}</Text>
+          ))}
           <Summary state={state} />
           <Button label="Run again" variant="secondary" disabled={adding} onPress={() => void runner.start()} />
         </>

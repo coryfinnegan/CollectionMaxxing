@@ -9,7 +9,7 @@ import { failedRead, makeKit, uriOf } from './evalsTestKit';
 import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import type { ReadItem } from '@/features/scan/recognition/types';
-import { SCORING_POLL_MS, sendWaitMs } from './runner';
+import { PC_NOT_TAKING, SCORING_POLL_MS, sendWaitMs } from './runner';
 
 interface Result {
   photoId: string;
@@ -533,6 +533,19 @@ describe('the eval runner', () => {
       expect(evalsMock.run?.runId).toBe('run-held');
     });
 
+    it('ends in an error with Check again, not stuck on opening, when a run is already open and the PC cannot then be asked about it', async () => {
+      const kit = makeKit({ photos: 3, held: ['photo-001'] });
+      server.use(http.get('*/api/admin/evals/runs/open', () => HttpResponse.error()));
+
+      await kit.runner.start();
+
+      expect(kit.runner.getState().phase).toBe('error');
+      expect(kit.runner.getState().message).toMatch(/already holding a run/);
+      server.resetHandlers();
+      await kit.runner.recheck();
+      expect(kit.runner.getState()).toMatchObject({ phase: 'resumable', photosDone: 1, total: 3 });
+    });
+
     it('shows a run the PC is scoring, and its summary when it is done', async () => {
       const kit = makeKit({ photos: 2, held: ['photo-001', 'photo-002'] });
       evalsMock.run!.state = 'finishing';
@@ -653,6 +666,107 @@ describe('the eval runner', () => {
       expect(sentIds()).toEqual(['photo-002', 'photo-003']);
       expect(kit.outbox.getString('eval-outbox-v1')).toBeUndefined();
       expect(kit.runner.getState().phase).toBe('scoring');
+    });
+
+    describe('when the PC is restarting', () => {
+      it.each([502, 503, 504])('waits for a PC that answers %s for as long as it takes, and keeps the photo until it is taken', async (status) => {
+        const kit = makeKit({ photos: 2 });
+        evalsMock.failSends = Array.from({ length: 10 }, () => status);
+
+        await kit.runner.start();
+
+        expect(kit.sleeps).toHaveLength(10);
+        expect(evalsMock.attempts.filter((id) => id === 'photo-001')).toHaveLength(11);
+        expect(sentIds()).toEqual(['photo-001', 'photo-002']);
+        expect(kit.runner.getState()).toMatchObject({ phase: 'scoring', refused: [], pending: 0 });
+      });
+
+      it('counts only plain 500s in a row against a photo: an answer that says the PC is not there starts the count again', async () => {
+        const kit = makeKit({ photos: 1 });
+        evalsMock.failSends = [500, 500, 500, 500, 502, 500, 500, 500, 500];
+
+        await kit.runner.start();
+
+        expect(sentIds()).toEqual(['photo-001']);
+        expect(kit.runner.getState()).toMatchObject({ phase: 'scoring', refused: [] });
+      });
+
+      it('waits for the PC to take the finish when the proxy answers 502 meanwhile', async () => {
+        const kit = makeKit({ photos: 1 });
+        evalsMock.failNextFinish = 502;
+
+        await kit.runner.start();
+
+        expect(evalsMock.finishes).toHaveLength(2);
+        expect(kit.runner.getState().phase).toBe('scoring');
+      });
+
+      it('waits out a PC that is not answering while a photo downloads, and skips nothing', async () => {
+        const kit = makeKit({ photos: 3, downloadFailures: ['network', 502, 'network'] });
+
+        await kit.runner.start();
+
+        expect(kit.sleeps).toEqual([1000, 2000, 4000]);
+        expect(kit.runner.getState().skipped).toEqual([]);
+        expect(kit.downloaded).toEqual(kit.ids);
+        expect(sentIds()).toEqual(kit.ids);
+        expect(evalsMock.finishes).toEqual([{}]);
+        expect(evalsMock.run?.partial).toBe(false);
+      });
+
+      it('says it is waiting for the PC while a download waits', async () => {
+        const seen: string[] = [];
+        const kit = makeKit({ photos: 1, downloadFailures: ['network'], onSleep: () => void seen.push(kit.runner.getState().phase) });
+
+        await kit.runner.start();
+
+        expect(seen).toEqual(['waiting']);
+        expect(kit.runner.getState().phase).toBe('scoring');
+      });
+
+      it('skips a photo only when the PC gives a final answer about that photo, such as 404, and reads the others', async () => {
+        const kit = makeKit({ photos: 3, downloadFailures: [404] });
+
+        await kit.runner.start();
+
+        expect(kit.runner.getState().skipped).toEqual(['photo-001']);
+        expect(sentIds()).toEqual(['photo-002', 'photo-003']);
+        expect(kit.sleeps).toEqual([]);
+      });
+
+      it('stops with the readings kept when a download keeps answering with a server error, rather than skipping photo after photo', async () => {
+        const kit = makeKit({ photos: 3, downloadFailures: [500, 500, 500, 500, 500] });
+
+        await kit.runner.start();
+
+        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: PC_NOT_TAKING, skipped: [] });
+        expect(kit.downloaded).toEqual([]);
+        expect(evalsMock.finishes).toEqual([]);
+      });
+
+      it.each([401, 403])('stops with the readings kept when a download is answered %s, which says nothing about the photo', async (status) => {
+        const kit = makeKit({ photos: 3, downloadFailures: [status, status] });
+
+        await kit.runner.start();
+
+        expect(kit.runner.getState()).toMatchObject({ phase: 'error', message: PC_NOT_TAKING, skipped: [] });
+        expect(evalsMock.finishes).toEqual([]);
+      });
+
+      it('reads the photos it skipped again when the run is continued', async () => {
+        const kit = makeKit({ photos: 3, downloadFailures: [404] });
+        evalsMock.failSends = [{ status: 409, code: 'evals.results_not_writable' }];
+        await kit.runner.start();
+        expect(kit.runner.getState().skipped).toEqual(['photo-001']);
+
+        await kit.runner.recheck();
+        expect(kit.runner.getState().skipped).toEqual([]);
+        await kit.runner.continueRun();
+
+        expect(sentIds()).toEqual(['photo-002', 'photo-001', 'photo-003']);
+        expect(kit.runner.getState().skipped).toEqual([]);
+        expect(evalsMock.run?.partial).toBe(false);
+      });
     });
 
     describe('when the PC cannot take anything right now', () => {
@@ -1025,6 +1139,20 @@ describe('the eval runner', () => {
       expect(kit.sleeps).toEqual([SCORING_POLL_MS]);
     });
 
+    it('keeps why the PC cannot score the run, so the screen can say so, and clears it when it can', async () => {
+      const kit = makeKit({ photos: 2, held: ['photo-001', 'photo-002'] });
+      evalsMock.run!.state = 'finishing';
+      evalsMock.run!.failure = 'evals.results_not_writable';
+      evalsMock.scoredAfterPolls = 100;
+
+      await kit.runner.refresh();
+      expect(kit.runner.getState()).toMatchObject({ phase: 'scoring', failure: 'evals.results_not_writable' });
+
+      evalsMock.run!.failure = null;
+      await kit.runner.refresh();
+      expect(kit.runner.getState().failure).toBeUndefined();
+    });
+
     it('shows the gate summary once the PC has scored', async () => {
       const kit = makeKit({ photos: 2 });
       evalsMock.scoredAfterPolls = 3;
@@ -1053,6 +1181,25 @@ describe('the eval runner', () => {
       expect(evalsMock.finishes).toEqual([{ partial: true }]);
       expect(evalsMock.run?.partial).toBe(true);
       expect(kit.runner.getState()).toMatchObject({ phase: 'scoring', partial: true });
+    });
+
+    it('remembers that the owner stopped it, and that a run that was not stopped was not', async () => {
+      let stopped = false;
+      const kit: ReturnType<typeof makeKit> = makeKit({
+        photos: 3,
+        onRead: () => {
+          if (!stopped && kit.downloaded.length === 2) {
+            stopped = true;
+            kit.runner.stop();
+          }
+        },
+      });
+      await kit.runner.start();
+      expect(kit.runner.getState().stopped).toBe(true);
+
+      const whole = makeKit({ photos: 1 });
+      await whole.runner.start();
+      expect(whole.runner.getState().stopped).toBe(false);
     });
 
     it('stops while paused', async () => {
