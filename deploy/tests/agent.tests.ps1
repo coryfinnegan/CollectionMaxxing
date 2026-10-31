@@ -144,12 +144,16 @@ function Invoke-TestWatch {
             $paths.ExitFile = Join-Path $dir "issue-$issue-20261031-134500.exit.json"
             $paths.Worktree = [IO.Path]::Combine($repo, '.claude', 'worktrees', "agent-issue-$issue")
             if ($LockSpec.LogLines) { Set-Content -LiteralPath $paths.Log -Value $LockSpec.LogLines }
-            if ($LockSpec.ContainsKey('ExitCode')) { @{ exitCode = $LockSpec.ExitCode; timedOut = $false } | ConvertTo-Json | Set-Content -LiteralPath $paths.ExitFile }
+            $started = $script:AgentNow.AddMinutes(-[double]$LockSpec.MinutesAgo)
+            if ($LockSpec.ContainsKey('ExitCode')) {
+                $exitData = @{ exitCode = $LockSpec.ExitCode; timedOut = $false }
+                if ($LockSpec.ContainsKey('DurationSeconds')) { $exitData.endedUnix = $started.ToUnixTimeSeconds() + [long]$LockSpec.DurationSeconds }
+                $exitData | ConvertTo-Json | Set-Content -LiteralPath $paths.ExitFile
+            }
             if (-not $LockSpec.NoWorktree) {
                 New-Item -ItemType Directory -Force -Path $paths.Worktree | Out-Null
                 Set-Content -LiteralPath (Join-Path $paths.Worktree '.git') -Value 'gitdir: elsewhere'
             }
-            $started = $script:AgentNow.AddMinutes(-[double]$LockSpec.MinutesAgo)
             $lock = @{
                 issue = $issue; pid = [int]$LockSpec.ProcessId; started = $started.ToString('o'); startedUnix = $started.ToUnixTimeSeconds()
                 repoDir = $repo; worktree = $paths.Worktree; branch = "agent/issue-$issue"; log = $paths.Log; exitFile = $paths.ExitFile
@@ -716,6 +720,102 @@ Test-Case 'finish: only a worktree this service made is ever removed' {
     Assert-Equal 0 (Get-AgentCall 'git' ' branch -D').Count
     Assert-True $r.Inspected 'the owner''s checkout is untouched'
     Assert-Match $r.Log 'refusing to remove'
+}
+
+# ---- a run that fails at once must not burn the queue -----------------------------------------------------------------------
+
+function Get-AgentQuickLock {
+    <# A run that started 10 minutes ago and ended 2 minutes after it started, with the given exit code. #>
+    param([int]$ExitCode = 1, [int]$DurationSeconds = 120, [string[]]$LogLines = @('=== header ===', 'Error: not signed in'))
+    @{ Issue = 7; ProcessId = 3100; MinutesAgo = 10; ExitCode = $ExitCode; DurationSeconds = $DurationSeconds; LogLines = $LogLines }
+}
+
+Test-Case 'back-off: a non-zero exit within 5 minutes puts the issue back in the queue, says so once, pauses the service and is not counted' {
+    $now = $script:AgentNow.ToUnixTimeSeconds()
+    $lines = @(1..15 | ForEach-Object { "start line $('{0:00}' -f $_)" })
+    $lines[1] = 'Error: not signed in, key tmdb-secret-token-123456'
+    $r = Invoke-TestWatch -EnvLines @('CM_TMDB_API_KEY=tmdb-secret-token-123456') -State @{ day = 20261031; runs = 3 } -LockSpec (Get-AgentQuickLock -LogLines $lines) -Machine @{ Issues = @((New-AgentIssue 8)) } -Inspect {
+        param($root, $repo) Test-Path -LiteralPath ([IO.Path]::Combine($repo, '.claude', 'worktrees', 'agent-issue-7', '.git'))
+    }
+    Assert-Equal 'paused' $r.Result.Outcome 'the pass stops here: the next issue does not start'
+    $edit = Get-AgentCall 'gh' '^issue edit 7 '
+    Assert-Equal 1 $edit.Count
+    Assert-Equal "issue edit 7 --repo $script:AgentSlug --remove-label agent-working" ($edit[0].Arguments -join ' ') 'back in the queue: agent-task stays, agent-blocked is not added'
+    $comment = Get-AgentCall 'gh' '^issue comment 7 '
+    Assert-Equal 1 $comment.Count
+    $body = $comment[0].InputText
+    Assert-Match $body '^The agent couldn''t start \(exit 1; first log lines below, secrets hidden\)\. It will try again after 2026-10-31 15:05 -04:00\.'
+    Assert-Match $body 'start line 10'
+    Assert-False ($body -match 'start line 11') 'only the first 10 lines'
+    Assert-False $body.Contains('tmdb-secret-token-123456') 'secrets are hidden'
+    Assert-Equal 0 (Get-AgentCall 'gh' '^issue list').Count
+    Assert-Equal ($now + 3600) $r.State.pauseUntilUnix 'the first pause is 60 minutes'
+    Assert-Equal 1 $r.State.quickFailures
+    Assert-Equal 2 $r.State.runs 'a quick failure does not count against the daily cap'
+    Assert-Equal $null $r.Lock
+    Assert-True $r.Inspected 'the worktree is kept'
+    Assert-Match $r.Log 'WARN .*issue #7 .*paused'
+}
+
+Test-Case 'back-off: a second quick failure doubles the pause, up to 8 hours' {
+    $now = $script:AgentNow.ToUnixTimeSeconds()
+    foreach ($case in @(@{ Before = 0; Minutes = 60 }, @{ Before = 1; Minutes = 120 }, @{ Before = 2; Minutes = 240 }, @{ Before = 3; Minutes = 480 }, @{ Before = 4; Minutes = 480 }, @{ Before = 12; Minutes = 480 })) {
+        $r = Invoke-TestWatch -State @{ quickFailures = $case.Before; pauseUntilUnix = $now - 5 } -LockSpec (Get-AgentQuickLock)
+        Assert-Equal ($now + 60 * $case.Minutes) $r.State.pauseUntilUnix "after $($case.Before) earlier quick failures"
+        Assert-Equal ($case.Before + 1) $r.State.quickFailures
+    }
+}
+
+Test-Case 'back-off: while paused every pass exits with no call and no log line; when the time is up the queue is served again' {
+    $now = $script:AgentNow.ToUnixTimeSeconds()
+    $paused = Invoke-TestWatch -State @{ pauseUntilUnix = $now + 1800; quickFailures = 1 } -Machine @{ Issues = @((New-AgentIssue 8)) }
+    Assert-Equal 'paused' $paused.Result.Outcome
+    Assert-Equal 0 $paused.Result.ExitCode
+    Assert-Equal 0 $global:CmCalls.Count
+    Assert-Equal '' $paused.Log
+    $over = Invoke-TestWatch -State @{ pauseUntilUnix = $now - 1; quickFailures = 1 } -Machine @{ Issues = @((New-AgentIssue 8)) }
+    Assert-Equal 'started' $over.Result.Outcome
+    Assert-Equal 8 $over.Result.Issue
+}
+
+Test-Case 'back-off: a run that got past 5 minutes, or that did not fail quickly, resets the streak' {
+    $now = $script:AgentNow.ToUnixTimeSeconds()
+    $state = @{ quickFailures = 3; pauseUntilUnix = $now - 60 }
+    $slow = Invoke-TestWatch -State $state -LockSpec (Get-AgentQuickLock -DurationSeconds 600)
+    Assert-Match ((Get-AgentCall 'gh' '^issue edit 7 ')[0].Arguments -join ' ') '--add-label agent-blocked' 'a failure after 5 minutes is a normal block'
+    Assert-Equal 0 ([int]$slow.State.quickFailures)
+    Assert-False $slow.State.ContainsKey('pauseUntilUnix') -Message 'no pause is left over'
+    $clean = Invoke-TestWatch -State $state -LockSpec (Get-AgentQuickLock -ExitCode 0)
+    Assert-Match ((Get-AgentCall 'gh' '^issue edit 7 ')[0].Arguments -join ' ') '--add-label agent-blocked' 'exit 0 is not a startup failure'
+    Assert-Equal 0 ([int]$clean.State.quickFailures)
+    $done = Invoke-TestWatch -State $state -LockSpec (Get-AgentQuickLock -ExitCode 0) -Machine @{ IssueView = @{ 7 = @{ state = 'CLOSED'; labels = @('agent-task') } } }
+    Assert-Equal 0 ([int]$done.State.quickFailures) 'a finished issue resets it too'
+    $quiet = Invoke-TestWatch -LockSpec (Get-AgentQuickLock -DurationSeconds 600)
+    Assert-False $quiet.State.ContainsKey('quickFailures') -Message 'nothing is written when there was nothing to reset'
+}
+
+Test-Case 'back-off: only an unfinished, unmerged, open issue counts as a quick failure' {
+    $self = Invoke-TestWatch -LockSpec (Get-AgentQuickLock) -Machine @{ IssueView = @{ 7 = @{ state = 'OPEN'; labels = @('agent-task', 'agent-blocked', 'needs:cory') } } }
+    Assert-False $self.State.ContainsKey('pauseUntilUnix') -Message 'the agent blocked itself: that is an answer, not a startup failure'
+    $merged = Invoke-TestWatch -LockSpec (Get-AgentQuickLock) -Machine @{
+        IssueView = @{ 7 = @{ state = 'OPEN'; labels = @('agent-task') } }
+        Prs = @{ 'agent/issue-7' = @(@{ number = 21; state = 'MERGED'; mergedAt = '2026-10-31T17:56:30Z'; url = 'u' }) }
+    }
+    Assert-False $merged.State.ContainsKey('pauseUntilUnix') -Message 'it merged something, so it did start'
+    Assert-Match ((Get-AgentCall 'gh' '^issue edit 7 ')[0].Arguments -join ' ') '--add-label agent-blocked'
+    $unknown = Invoke-TestWatch -LockSpec @{ Issue = 7; ProcessId = 3100; MinutesAgo = 3; ExitCode = 1 }
+    Assert-False $unknown.State.ContainsKey('pauseUntilUnix') -Message 'no end time recorded, so the run length is unknown'
+    $killed = Invoke-TestWatch -LockSpec @{ Issue = 7; ProcessId = 3100; MinutesAgo = 181; Alive = $true }
+    Assert-False $killed.State.ContainsKey('pauseUntilUnix') -Message 'a run stopped for its time limit is not a quick failure'
+}
+
+Test-Case 'back-off: only a run counted on the day it started is taken off that day''s count, and never below zero' {
+    $zero = Invoke-TestWatch -State @{ day = 20261031; runs = 0 } -LockSpec (Get-AgentQuickLock)
+    Assert-Equal 0 $zero.State.runs
+    $other = Invoke-TestWatch -State @{ day = 20261030; runs = 5 } -LockSpec (Get-AgentQuickLock)
+    Assert-Equal 5 $other.State.runs 'a count from another day is left alone'
+    $none = Invoke-TestWatch -LockSpec (Get-AgentQuickLock)
+    Assert-False $none.State.ContainsKey('runs') -Message 'no count is invented'
 }
 
 # ---- text that goes into a public issue comment ---------------------------------------------------------------------------

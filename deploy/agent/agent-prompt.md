@@ -25,7 +25,7 @@ You run headless, in a git worktree of the owner's checkout, on the branch `{bra
 
 ## If you are blocked
 
-Blocked means: a product decision, money, anything that needs the owner's hands (his phone, an account, a credential), a delivery step that fails or never arrives, the 2 fix rounds used up, or an issue that is unclear or contradicts itself. Do not guess on those. Comment on the issue exactly what you need (quote a failing workflow step verbatim), then `gh issue edit {issue} --add-label agent-blocked --remove-label agent-working --remove-label agent-review`, add `--add-label needs:cory` too when it is the owner's call, and stop. If the issue was already closed by the merge, reopen it first with `gh issue reopen {issue}`.
+Blocked means: a product decision, money, anything that needs the owner's hands (the owner's phone, an account, a credential), a delivery step that fails or never arrives, the 2 fix rounds used up, or an issue that is unclear or contradicts itself. Do not guess on those. Comment on the issue exactly what you need (quote a failing workflow step verbatim), then `gh issue edit {issue} --add-label agent-blocked --remove-label agent-working --remove-label agent-review`, add `--add-label needs:cory` too when it is the owner's call, and stop. If the issue was already closed by the merge, reopen it first with `gh issue reopen {issue}`.
 
 ## Limits that always apply
 

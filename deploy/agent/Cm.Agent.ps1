@@ -23,6 +23,11 @@ $script:CmAgentDefaultMaxMinutes = 180
 # so the service cannot stay stuck behind an issue that was deleted or a gh that is not logged in.
 $script:CmAgentFinishAttempts = 12
 $script:CmAgentLogTailLines = 30
+$script:CmAgentLogHeadLines = 10
+# A non-zero exit sooner than this after the start is a failure to start (sign-in, limits, flags), not a failed piece of work.
+$script:CmAgentQuickFailureSeconds = 300
+$script:CmAgentPauseMinutes = 60
+$script:CmAgentPauseMaxMinutes = 480
 
 function New-CmAgentResult {
     <# Exit codes: 0 fine or nothing to do, 1 a run could not be started, 2 config refused, 3 GitHub not reachable. #>
@@ -430,14 +435,66 @@ function Start-CmAgentRun {
 
 # ---- closing out a run --------------------------------------------------------------------------------------------------------
 
+function Format-CmAgentLogLines {
+    <# Log lines as the inside of a fenced block: long lines cut, no fence of its own in them, a size cap. #>
+    param([string[]]$Lines = @())
+    if (@($Lines).Count -eq 0) { return '(the log is empty)' }
+    $cut = @($Lines | ForEach-Object { if ($_.Length -gt 400) { $_.Substring(0, 400) + ' ...' } else { $_ } })
+    $text = ($cut -join "`n") -replace '```', "'''"
+    if ($text.Length -gt 8000) { $text = '...' + $text.Substring($text.Length - 8000) }
+    $text
+}
+
 function Get-CmAgentLogTail {
     param([string]$Path, [int]$Lines = $script:CmAgentLogTailLines)
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return '(the log file is missing)' }
-    $tail = @(Get-Content -LiteralPath $Path -Tail $Lines | ForEach-Object { if ($_.Length -gt 400) { $_.Substring(0, 400) + ' ...' } else { $_ } })
-    if ($tail.Count -eq 0) { return '(the log is empty)' }
-    $text = ($tail -join "`n") -replace '```', "'''"
-    if ($text.Length -gt 8000) { $text = '...' + $text.Substring($text.Length - 8000) }
-    $text
+    Format-CmAgentLogLines -Lines @(Get-Content -LiteralPath $Path -Tail $Lines)
+}
+
+function Get-CmAgentLogHead {
+    param([string]$Path, [int]$Lines = $script:CmAgentLogHeadLines)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return '(the log file is missing)' }
+    Format-CmAgentLogLines -Lines @(Get-Content -LiteralPath $Path -TotalCount $Lines)
+}
+
+function Reset-CmAgentBackoff {
+    <# A run that got past the quick-failure window shows the sign-in and limits work, so the streak and any pause end. Writes nothing when there is nothing to reset. #>
+    param($Ctx)
+    $state = Read-CmState -Path $Ctx.StateFile
+    if ([int]$state.quickFailures -eq 0 -and -not $state.ContainsKey('pauseUntilUnix')) { return }
+    $state.quickFailures = 0
+    [void]$state.Remove('pauseUntilUnix')
+    Write-CmState -Path $Ctx.StateFile -State $state
+}
+
+function Register-CmAgentQuickFailure {
+    <#
+      A run that exited non-zero within CmAgentQuickFailureSeconds is almost certainly the machine, not the issue
+      (sign-in expired, usage limit, a flag refused). So the issue goes back in the queue instead of being blocked, the
+      service pauses (60 minutes, doubling per failure in a row, at most 8 hours), and the attempt is not counted against
+      the day's cap; otherwise one broken sign-in would block every queued issue in turn.
+    #>
+    param($Ctx, $Lock, [int]$ExitCode, [string[]]$QueueLabels)
+    $issue = [int]$Lock.issue
+    $now = Get-CmAgentNow
+    $state = Read-CmState -Path $Ctx.StateFile
+    $failures = [int]$state.quickFailures + 1
+    $minutes = [math]::Min($script:CmAgentPauseMaxMinutes, $script:CmAgentPauseMinutes * [math]::Pow(2, [math]::Min($failures - 1, 10)))
+    $until = $now.AddMinutes($minutes)
+    $startedDay = [int][DateTimeOffset]::FromUnixTimeSeconds([long]$Lock.startedUnix).ToOffset($now.Offset).ToString('yyyyMMdd')
+    if ([int]$state.day -eq $startedDay -and [int]$state.runs -gt 0) { $state.runs = [int]$state.runs - 1 }
+    $state.quickFailures = $failures
+    $state.pauseUntilUnix = $until.ToUnixTimeSeconds()
+    Write-CmState -Path $Ctx.StateFile -State $state
+    [void](Set-CmIssueLabels -Ctx $Ctx -Issue $issue -Remove $QueueLabels)
+    [void](Add-CmIssueComment -Ctx $Ctx -Issue $issue -Body (@(
+                "The agent couldn't start (exit $ExitCode; first log lines below, secrets hidden). It will try again after $($until.ToString('yyyy-MM-dd HH:mm zzz')).",
+                '',
+                '```text',
+                (Get-CmAgentLogHead -Path "$($Lock.log)"),
+                '```'
+            ) -join "`n"))
+    Write-CmLog "the agent run for issue #$issue failed within $($script:CmAgentQuickFailureSeconds / 60) minutes (exit code $ExitCode); the issue is back in the queue and new runs are paused until $($until.ToString('yyyy-MM-dd HH:mm zzz')) ($failures quick failure(s) in a row)" 'WARN'
 }
 
 function Remove-CmAgentWorktree {
@@ -494,7 +551,10 @@ function Complete-CmAgentRun {
       cleared, $false when GitHub could not be asked and the next pass should try again.
         issue closed         the run finished: queue labels come off; the worktree goes if its PR merged
         open, agent-blocked  the agent reported itself: nothing more to say
+        open, non-zero exit  within 5 minutes of the start, nothing merged: back in the queue, the service pauses
+                             (Register-CmAgentQuickFailure)
         open, anything else  it did not finish: blocked, with the exit code and the log tail
+      Every outcome except the quick failure ends the streak of quick failures.
     #>
     param($Ctx, $Settings, $Lock, [string]$Status)
     $issue = [int]$Lock.issue
@@ -516,21 +576,32 @@ function Complete-CmAgentRun {
     $exit = Read-CmState -Path "$($Lock.exitFile)"
     $merged = $null -ne (Get-CmAgentMergedPr -Ctx $Ctx -Branch $branch -SinceUnix ([long]$Lock.startedUnix))
     $queueLabels = @($view.Labels | Where-Object { $_ -in @('agent-working', 'agent-review') })
+    # Only a run that ended by itself with a non-zero code and a recorded end time can be judged quick; a run that was
+    # stopped for its time limit, or whose end nobody saw, is not.
+    $exitCode = if ($null -ne $exit.exitCode -and $exit.timedOut -ne $true) { [int]$exit.exitCode } else { $null }
+    $ranSeconds = if ($null -ne $exit.endedUnix) { [long]$exit.endedUnix - [long]$Lock.startedUnix } else { $null }
+    $quickFailure = ($null -ne $exitCode) -and ($exitCode -ne 0) -and ($null -ne $ranSeconds) -and ($ranSeconds -lt $script:CmAgentQuickFailureSeconds)
 
     if ($view.State -eq 'CLOSED') {
         [void](Set-CmIssueLabels -Ctx $Ctx -Issue $issue -Remove $queueLabels)
         if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
         Write-CmLog "issue #$issue is closed; its agent run is finished$(if ($merged) { ' and its pull request merged' })"
+        Reset-CmAgentBackoff -Ctx $Ctx
     }
     elseif ($view.Labels -contains 'agent-blocked' -and $view.Labels -notcontains 'agent-working') {
         if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
         Write-CmLog "the agent blocked issue #$issue itself; its worktree is kept"
+        Reset-CmAgentBackoff -Ctx $Ctx
+    }
+    elseif ($quickFailure -and -not $merged) {
+        Register-CmAgentQuickFailure -Ctx $Ctx -Lock $Lock -ExitCode $exitCode -QueueLabels $queueLabels
     }
     else {
         if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
         $body = Get-CmAgentBlockedBody -Lock $Lock -Exit $exit -Status $Status -Merged $merged -MaxMinutes $Settings.MaxMinutes -WorktreeRemoved $merged
         Set-CmAgentBlocked -Ctx $Ctx -Issue $issue -Remove $queueLabels -Body $body
         Write-CmLog "the agent run for issue #$issue did not finish ($Status); the issue is marked agent-blocked" 'WARN'
+        Reset-CmAgentBackoff -Ctx $Ctx
     }
     Remove-CmAgentLock -Ctx $Ctx
     $true
@@ -541,7 +612,7 @@ function Complete-CmAgentRun {
 function Invoke-CmAgentWatch {
     <#
       One pass of the scheduled watcher. Returns @{ Outcome; ExitCode; Reason; Issue }.
-        disabled / busy / running / cap / idle   exit 0, and (except `cap`, once a day) nothing is written
+        disabled / busy / running / paused / cap / idle   exit 0, and (except `cap`, once a day) nothing is written
         started                                  an agent was started for Issue
         dry-run                                  without -Apply: what would have started
         finish-pending                           an earlier run could not be closed out yet; nothing new starts
@@ -582,6 +653,8 @@ function Invoke-CmAgentWatchCore {
     }
 
     $state = Read-CmState -Path $Ctx.StateFile
+    # After runs that failed at once the service is paused (Register-CmAgentQuickFailure): no call until the time is up.
+    if ([long]$state.pauseUntilUnix -gt (Get-CmAgentNow).ToUnixTimeSeconds()) { return New-CmAgentResult 'paused' 0 }
     $today = [int](Get-CmAgentNow).ToString('yyyyMMdd')
     $runsToday = if ([int]$state.day -eq $today) { [int]$state.runs } else { 0 }
     if ($runsToday -ge $Settings.MaxRunsPerDay) {
