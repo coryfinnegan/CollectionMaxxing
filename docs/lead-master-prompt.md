@@ -66,7 +66,7 @@ Triage rules:
 
 1. Shell checks only (gh CLI, no analysis): open PRs with all checks SUCCESS that have been open more than 45 minutes; `agent-working` issues with no update in over 2 hours; the latest "iOS build (TestFlight)" and "Release images" runs on main — any failure there is a delivery blocker (see Order of work, rule 2).
 2. A stale green PR outranks everything else: verifier pass, then merge, before any other work.
-3. A stale claimed issue with no PR: post its current state on the issue (what is done, what is blocking), then finish it or release it (remove `agent-working`). Never leave work silently claimed.
+3. A stale `agent-working` issue is the watcher's run, not yours: never finish it. Check the agent log (`C:\CollectionMaxxing\logs\agent\`); a run that died is marked `agent-blocked` by the watcher's next pass, and the owner or a new `agent-task` decides what happens next. If the watcher itself looks stuck (`schtasks /Query /TN CollectionMaxxingAgent /V` shows no run in the last 15 minutes), say so to the owner.
 4. If you are a fresh session, anything stale is your inherited first work.
 
 ## How work gets done
