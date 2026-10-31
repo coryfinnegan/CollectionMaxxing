@@ -43,17 +43,36 @@ export const formFromItem = (item: ItemDto): ItemForm => ({
 
 const orNull = (text: string): string | null => (text.trim() ? text.trim() : null);
 
-/** The merge patch for the form. Blank text is sent as null, which clears the field. `today` is YYYY-MM-DD. */
+/**
+ * The merge patch for the form: only what the person changed from `original`, the version the form opened with.
+ * Fields they left alone stay out, so saving can never write an old value over someone else's newer one.
+ * Blank text is sent as null, which clears the field. `today` is YYYY-MM-DD. An untouched form gives `{}`.
+ */
 export function buildPatch(form: ItemForm, original: ItemDto, today: string): UpdateItemRequest {
-  const lent = form.status === 'lent';
-  return {
-    status: form.status,
-    condition: form.condition,
-    completeness: form.completeness,
-    locationId: form.locationId,
-    notes: orNull(form.notes),
-    acquiredOn: orNull(form.acquiredOn),
-    lentTo: lent ? orNull(form.lentTo) : null,
-    lentOn: lent ? (original.status === 'lent' && original.lentOn ? original.lentOn : today) : null,
-  };
+  const was = formFromItem(original);
+  const patch: UpdateItemRequest = {};
+  if (form.status !== was.status) patch.status = form.status;
+  if (form.condition !== was.condition) patch.condition = form.condition;
+  if (form.completeness !== was.completeness) patch.completeness = form.completeness;
+  if (form.locationId !== was.locationId) patch.locationId = form.locationId;
+  if (orNull(form.notes) !== orNull(was.notes)) patch.notes = orNull(form.notes);
+  if (orNull(form.acquiredOn) !== orNull(was.acquiredOn)) patch.acquiredOn = orNull(form.acquiredOn);
+
+  if (form.status === 'lent') {
+    if (original.status !== 'lent') {
+      // Newly lent: say to whom and from when.
+      patch.lentTo = orNull(form.lentTo);
+      patch.lentOn = today;
+    } else if (orNull(form.lentTo) !== orNull(was.lentTo)) {
+      patch.lentTo = orNull(form.lentTo);
+    }
+  } else if (original.status === 'lent') {
+    // No longer lent: the borrower and the date go with it.
+    patch.lentTo = null;
+    patch.lentOn = null;
+  }
+  return patch;
 }
+
+/** Whether the patch changes anything at all. */
+export const isEmptyPatch = (patch: UpdateItemRequest): boolean => Object.keys(patch).length === 0;

@@ -12,6 +12,7 @@ import { useGetStats } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { flattenTree } from '@/features/locations/tree';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
@@ -60,7 +61,7 @@ export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryG
             {title}
           </Text>
         )}
-        <LoadingState label="Loading your library…" />
+        <LibraryLoading label="Loading your library…" />
       </SafeAreaView>
     );
   }

@@ -39,26 +39,44 @@ describe('isValidDate', () => {
 });
 
 describe('buildPatch', () => {
-  it('turns the form back into a merge patch, with blanks as null', () => {
+  it('sends nothing for a form nobody touched', () => {
+    expect(buildPatch(formFromItem(item), item, '2026-10-13')).toEqual({});
+  });
+
+  it('sends only the fields that differ from the version the form opened with', () => {
+    const form = { ...formFromItem(item), condition: 'mint' as const };
+    expect(buildPatch(form, item, '2026-10-13')).toEqual({ condition: 'mint' });
+  });
+
+  it('sends blanked text as null, which clears the field', () => {
     const form = { ...formFromItem(item), notes: '  ', acquiredOn: '' };
-    const patch = buildPatch(form, item, '2026-10-13');
-    expect(patch.notes).toBeNull();
-    expect(patch.acquiredOn).toBeNull();
-    expect(patch.condition).toBe('good');
-    expect(patch.locationId).toBe('loc');
+    expect(buildPatch(form, item, '2026-10-13')).toEqual({ notes: null, acquiredOn: null });
+  });
+
+  it('does not count whitespace around unchanged text as an edit', () => {
+    const form = { ...formFromItem(item), notes: '  Slipcover missing ' };
+    expect(buildPatch(form, item, '2026-10-13')).toEqual({});
+  });
+
+  it('can clear a location or a condition', () => {
+    const form = { ...formFromItem(item), locationId: null, condition: null };
+    expect(buildPatch(form, item, '2026-10-13')).toEqual({ locationId: null, condition: null });
   });
 
   it('records the lent date when an item becomes lent', () => {
     const form = { ...formFromItem(item), status: 'lent' as const, lentTo: 'Sam' };
-    const patch = buildPatch(form, item, '2026-10-13');
-    expect(patch.lentTo).toBe('Sam');
-    expect(patch.lentOn).toBe('2026-10-13');
+    expect(buildPatch(form, item, '2026-10-13')).toEqual({ status: 'lent', lentTo: 'Sam', lentOn: '2026-10-13' });
   });
 
   it('clears the lent details when the item is no longer lent', () => {
     const lent = { ...item, status: 'lent', lentTo: 'Sam', lentOn: '2026-10-01' } as ItemDto;
     const patch = buildPatch({ ...formFromItem(lent), status: 'owned' }, lent, '2026-10-13');
-    expect(patch.lentTo).toBeNull();
-    expect(patch.lentOn).toBeNull();
+    expect(patch).toEqual({ status: 'owned', lentTo: null, lentOn: null });
+  });
+
+  it('keeps the original lent date when only the borrower changes', () => {
+    const lent = { ...item, status: 'lent', lentTo: 'Sam', lentOn: '2026-10-01' } as ItemDto;
+    const patch = buildPatch({ ...formFromItem(lent), lentTo: 'Alex' }, lent, '2026-10-13');
+    expect(patch).toEqual({ lentTo: 'Alex' });
   });
 });
