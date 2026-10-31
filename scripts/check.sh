@@ -13,6 +13,13 @@
 # CM_TEST_ONLY="CollectionMaxxing.Domain.Tests"). CI's backend-test matrix sets it so each shard runs its own
 # projects; unset, every test project runs. All the usual guards still apply to the lanes that run.
 #
+# CM_TEST_FILTER hands a VSTest filter expression (`dotnet test --filter`; xUnit v3 runs in its VSTest flavour here,
+# see tests/Directory.Build.targets) to every selected project; CI uses it with CM_TEST_ONLY to shard the two slow Api
+# suites across runners. Use FullyQualifiedName~ / !~ (contains / does not contain) and DisplayName~ / !~, joined with
+# & and | and grouped with (). A filter that matches nothing fails, because an empty shard would hide a coverage gap.
+# CM_SHARD_REPORT (a file path, with CM_TEST_FILTER) records "project listed-in-shard listed-in-suite ran" per
+# project; CI uploads it so the backend job can prove the shards add up to the whole suite (see ci.yml).
+#
 # The full output of the failing step is kept in the file named in the failure message.
 set -u
 
@@ -153,6 +160,32 @@ if [ -n "${CM_TEST_ONLY:-}" ]; then
   fi
   lanes=("${keep[@]}")
 fi
+test_filter="${CM_TEST_FILTER:-}"
+test_args=(--no-build --logger 'console;verbosity=minimal')
+if [ -n "$test_filter" ]; then
+  test_args+=(--filter "$test_filter")
+  # Discovery only (nothing runs, no Docker needed): how many tests the filter selects, and how many the project has.
+  count_listed() { # $1 = project, $2 = filter (may be empty), $3 = file for dotnet's output
+    local list_args=(--no-build --list-tests)
+    if [ -n "$2" ]; then list_args+=(--filter "$2"); fi
+    dotnet test "$1" "${list_args[@]}" >"$3" 2>&1
+    grep -cE '^    [^ ]' "$3" || true
+  }
+  [ -z "${CM_SHARD_REPORT:-}" ] || rm -f "$CM_SHARD_REPORT"
+  for lane in "${lanes[@]}"; do
+    name="${lane%%:*}"
+    proj="${lane#*:}"
+    log="$log_dir/list-$name.log"
+    listed=$(count_listed "$proj" "$test_filter" "$log")
+    if [ "$listed" -eq 0 ]; then
+      fail "test $name: CM_TEST_FILTER matches no tests (an empty shard would hide a coverage gap)" "filter: $test_filter"
+    fi
+    echo "$listed" >"$log_dir/test-$name.listed"
+    if [ -n "${CM_SHARD_REPORT:-}" ]; then
+      echo "$(count_listed "$proj" "" "$log_dir/list-$name-all.log")" >"$log_dir/test-$name.total"
+    fi
+  done
+fi
 test_wall_start=$SECONDS
 export CM_PERF_LOG="$log_dir/postgres-perf.log"
 rm -f "$CM_PERF_LOG"
@@ -162,7 +195,7 @@ for lane in "${lanes[@]}"; do
   proj="${lane#*:}"
   (
     start=$SECONDS
-    dotnet test "$proj" --no-build --logger 'console;verbosity=minimal' >"$log_dir/test-$name.log" 2>&1
+    dotnet test "$proj" "${test_args[@]}" >"$log_dir/test-$name.log" 2>&1
     echo "$?" >"$log_dir/test-$name.exit"
     echo "$((SECONDS - start))" >"$log_dir/test-$name.secs"
   ) &
@@ -190,7 +223,17 @@ for lane in "${lanes[@]}"; do
     [ -n "$details" ] || details=$(grep -v '^[[:space:]]*$' "$log" | tail -n "$max_lines")
     fail "test $name ($lpassed passed, $lfailed failed, $lskipped skipped)" "$details"
   fi
+  if [ -n "$test_filter" ] && [ "$lpassed" -eq 0 ]; then
+    fail "test $name: CM_TEST_FILTER ran no tests (an empty shard would hide a coverage gap)" "filter: $test_filter"
+  fi
   ok "test $name: $lpassed passed (${lane_seconds}s)"
+  if [ -n "$test_filter" ]; then
+    echo "     shard: $(cat "$log_dir/test-$name.listed") of $(cat "$log_dir/test-$name.total" 2>/dev/null || echo '?') listed tests"
+    if [ -n "${CM_SHARD_REPORT:-}" ]; then
+      mkdir -p "$(dirname "$CM_SHARD_REPORT")"
+      echo "$name $(cat "$log_dir/test-$name.listed") $(cat "$log_dir/test-$name.total") $lpassed" >>"$CM_SHARD_REPORT"
+    fi
+  fi
   failed=$((failed + lfailed)); passed=$((passed + lpassed)); skipped=$((skipped + lskipped))
   if [ "$lskipped" -gt 0 ]; then skipped_lanes="$skipped_lanes${skipped_lanes:+, }$name"; fi
 done

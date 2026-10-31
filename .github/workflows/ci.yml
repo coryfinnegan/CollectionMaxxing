@@ -17,6 +17,9 @@ jobs:
   # and the pwsh tooling suites each get their own runner and run at the same time. Every dotnet job warms the same
   # NuGet cache. No app phase anywhere here; the app job owns npm run check.
   backend-test:
+    # Without this, GitHub names a shard after every matrix value, filter included. None of these names is a required
+    # check (the ruleset requires `backend`, `app` and `e2e`), so the shard names are free to change.
+    name: backend-test (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -24,12 +27,63 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # Shards follow the measured lane times (run 40613989293): the two Postgres-heavy Api suites each get
-          # their own runner, the rest share a third. Rebalance when the timings drift.
-          - shard: api
+          # Shards follow the measured lane times (run 41143875942: api 671s, auth 390s, rest 273s). The two
+          # Postgres-heavy Api suites run every test one after another against one container and one API host
+          # (AssemblyInfo.cs in each), so they are sharded by test filter instead: every shard gets its own runner,
+          # container and host. Rebalance when the timings drift.
+          #
+          # A shard's `filter` is a VSTest expression (see CM_TEST_FILTER in scripts/check.sh). The shards of a suite
+          # are written as complements of each other, so a new namespace or class can never fall between them: the
+          # last shard is "everything not in the others" (De Morgan'd by hand, as VSTest cannot negate a group).
+          # Two checks keep that honest. scripts/check.sh fails a shard whose filter matches no tests, and every
+          # shard uploads how many tests it lists next to how many the whole suite lists; the `backend` job fails
+          # unless each suite's shards add up to exactly the suite (no test skipped, none run twice). Edit a filter
+          # and its complement together; the check names the suite that stopped adding up.
+          #
+          # api (Api.Tests): api-1 = Scanning.Identify + Scanning.Artwork; api-2 = the classes directly in Scanning
+          # (not its sub-namespaces); api-3 = everything else.
+          - shard: api-1
             projects: CollectionMaxxing.Api.Tests
-          - shard: auth
+            filter: >-
+              FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Identify.
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Artwork.
+          - shard: api-2
+            projects: CollectionMaxxing.Api.Tests
+            filter: >-
+              FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Identify.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Artwork.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Photo.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Provisional.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Events.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Quota.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Learning.
+          - shard: api-3
+            projects: CollectionMaxxing.Api.Tests
+            filter: >-
+              FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Identify.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.Artwork.
+              & ( FullyQualifiedName!~CollectionMaxxing.Api.Tests.Scanning.
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Photo.
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Provisional.
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Events.
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Quota.
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Scanning.Learning. )
+          # auth (Api.Tests.Auth): 626 of its 968 tests are the authorization matrix, one theory with a row per
+          # endpoint and kind of caller (87 each), so a class split would leave one shard with most of the time.
+          # auth-1 = the Authorization namespace without the Admin and NoLibraries rows; auth-2 = everything else.
+          - shard: auth-1
             projects: CollectionMaxxing.Api.Tests.Auth
+            filter: >-
+              FullyQualifiedName~CollectionMaxxing.Api.Tests.Authorization.
+              & DisplayName!~actor: Admin
+              & DisplayName!~actor: NoLibraries
+          - shard: auth-2
+            projects: CollectionMaxxing.Api.Tests.Auth
+            filter: >-
+              FullyQualifiedName!~CollectionMaxxing.Api.Tests.Authorization.
+              | DisplayName~actor: Admin
+              | DisplayName~actor: NoLibraries
           - shard: rest
             projects: >-
               CollectionMaxxing.Api.Tests.Library
@@ -53,7 +107,18 @@ jobs:
       - name: Test (${{ matrix.shard }})
         env:
           CM_TEST_ONLY: ${{ matrix.projects }}
+          CM_TEST_FILTER: ${{ matrix.filter }}
+          CM_SHARD_REPORT: ${{ runner.temp }}/shard-report/${{ matrix.shard }}.txt
         run: bash scripts/check.sh test
+      # Only sharded suites report (the `rest` shard has no filter): see the shard check in the `backend` job.
+      - name: Upload shard report
+        if: matrix.filter != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-report-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard-report/${{ matrix.shard }}.txt
+          if-no-files-found: error
+          retention-days: 1
 
   backend-format:
     runs-on: ubuntu-latest
@@ -102,6 +167,42 @@ jobs:
           test "${{ needs.backend-test.result }}" = success || { echo "backend-test: ${{ needs.backend-test.result }}"; exit 1; }
           test "${{ needs.backend-format.result }}" = success || { echo "backend-format: ${{ needs.backend-format.result }}"; exit 1; }
           test "${{ needs.backend-tooling.result }}" = success || { echo "backend-tooling: ${{ needs.backend-tooling.result }}"; exit 1; }
+      # The sharding guarantee. Each shard of a sliced suite uploaded "project, tests it lists, tests the whole suite
+      # lists, tests it ran" (scripts/check.sh, CM_SHARD_REPORT). Because the listings are counted the same way,
+      # shards that add up to the suite's total are, with their filters being complements, a partition: no test is
+      # skipped and none runs twice. A suite with fewer than two reports fails too, so a dropped shard cannot pass.
+      - name: Download shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shard-report-*
+          path: shard-reports
+          merge-multiple: true
+      - name: Verify the shards add up to each whole suite
+        run: |
+          awk -v want="CollectionMaxxing.Api.Tests CollectionMaxxing.Api.Tests.Auth" -v summary="$GITHUB_STEP_SUMMARY" '
+            BEGIN { bad = 0 }
+            {
+              k = split(FILENAME, parts, "/"); shard = parts[k]; sub(/\.txt$/, "", shard)
+              project = $1; listed = $2; total = $3; ran = $4
+              rows[++r] = sprintf("| %s | %s | %d | %d | %d |", shard, project, listed, ran, total)
+              n[project]++; sum[project] += listed; ranSum[project] += ran
+              if (listed == 0) { print "::error::" shard " listed no tests"; bad = 1 }
+              if ((project in suite) && suite[project] != total) { print "::error::" project ": shards disagree on the suite size"; bad = 1 }
+              suite[project] = total
+            }
+            END {
+              nw = split(want, w, " ")
+              for (i = 1; i <= nw; i++) {
+                p = w[i]
+                if (n[p] < 2) { print "::error::" p ": expected at least 2 shard reports, found " n[p] + 0; bad = 1; continue }
+                if (sum[p] != suite[p]) { print "::error::" p ": its shards list " sum[p] " tests but the suite lists " suite[p]; bad = 1; continue }
+                print p ": " n[p] " shards list " sum[p] " of " suite[p] " tests (ran " ranSum[p] ")"
+              }
+              print "| shard | suite | listed in shard | ran | listed in suite |" >> summary
+              print "| --- | --- | --: | --: | --: |" >> summary
+              for (j = 1; j <= r; j++) print rows[j] >> summary
+              exit bad
+            }' shard-reports/*.txt
 
   app:
     runs-on: ubuntu-latest
