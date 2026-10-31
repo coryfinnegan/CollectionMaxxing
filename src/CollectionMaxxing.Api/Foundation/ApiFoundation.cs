@@ -25,6 +25,7 @@ public static class ApiFoundation
         services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
         services.AddExceptionHandler<UniqueViolationExceptionHandler>();
         services.AddExceptionHandler<ForeignKeyViolationExceptionHandler>();
+        services.AddExceptionHandler<InvalidTextExceptionHandler>();
         services.AddExceptionHandler<ConcurrentUpdateExceptionHandler>();
         services.AddExceptionHandler<MalformedFormExceptionHandler>();
         services.AddExceptionHandler<CollectionMaxxing.Api.Auth.SessionStoreUnavailableExceptionHandler>();

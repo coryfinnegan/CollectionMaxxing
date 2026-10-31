@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog.Providers;
@@ -84,11 +85,12 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
     }
 
     [Fact]
-    public async Task Scope_library_ranks_your_librarys_own_releases_first()
+    public async Task Scope_library_ranks_the_manual_items_you_own_first()
     {
         var library = await CreateLibraryAsync();
         await CatalogSeed.AddAsync(Db, "Jurassic Park");
-        await CatalogSeed.AddAsync(Db, "Jurassic Park III", year: 2001, ownerLibraryId: library.Id);
+        var (_, ownReleaseId) = await CatalogSeed.AddAsync(Db, "Jurassic Park III", year: 2001, ownerLibraryId: library.Id);
+        await TestData.CreateItemAsync(Db, library, ownReleaseId);
         var client = ClientWith(library.ViewerId);
 
         (await TitlesAsync(await client.GetAsync("/api/v1/catalog/search?q=jurassic park&scope=library")))
@@ -384,6 +386,48 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
     }
 
     [Fact]
+    public async Task A_manual_item_stops_showing_as_owned_when_deleted_and_shows_again_when_restored()
+    {
+        var library = await CreateLibraryAsync();
+        var editor = ClientWith(library.EditorId);
+        var (itemUrl, releaseId, etag) = await AddManualGameAsync(editor, library.Id, "Hand Made Quest", "owned");
+
+        (await OwnedReleaseIdsAsync(editor, "hand made quest")).ShouldBe([releaseId]);
+
+        using var delete = new HttpRequestMessage(HttpMethod.Delete, itemUrl);
+        delete.Headers.TryAddWithoutValidation("If-Match", etag);
+        (await editor.SendAsync(delete)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        (await OwnedReleaseIdsAsync(editor, "hand made quest")).ShouldBeEmpty();
+
+        (await editor.PostAsync($"{itemUrl}:restore", null)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await OwnedReleaseIdsAsync(editor, "hand made quest")).ShouldBe([releaseId]);
+    }
+
+    [Fact]
+    public async Task A_manual_item_on_the_wishlist_is_not_shown_as_owned()
+    {
+        var library = await CreateLibraryAsync();
+        var editor = ClientWith(library.EditorId);
+        await AddManualGameAsync(editor, library.Id, "Hand Made Quest", "wishlist");
+
+        (await OwnedReleaseIdsAsync(editor, "hand made quest")).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_manual_title_with_no_item_left_is_still_found_but_not_shown_as_owned()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "Hand Made Quest", ownerLibraryId: library.Id);
+        var editor = ClientWith(library.EditorId);
+
+        var found = await ReadItemsAsync(editor, "q=hand made quest");
+
+        found.Count.ShouldBe(1);
+        found[0].GetProperty("ownedReleaseIds").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Owned_ids_never_carry_what_another_library_owns()
     {
         var mine = await CreateLibraryAsync();
@@ -560,6 +604,25 @@ public class CatalogSearchTests(ApiFixture api) : CatalogTest(api)
         (await client.GetAsync("/api/v1/catalog/search?q=alien")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await client.GetAsync("/api/v1/catalog/platforms")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
+
+    /// <summary>Adds a manual game to the library the way the add form does and returns the item's URL, its release and its ETag.</summary>
+    private static async Task<(string ItemUrl, Guid ReleaseId, string Etag)> AddManualGameAsync(HttpClient client, Guid libraryId, string title, string status)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/libraries/{libraryId}/items")
+        {
+            Content = JsonContent.Create(new { manual = new { kind = "game", title }, status }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var response = await client.SendAsync(request);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var item = await ReadJsonAsync(response);
+        return ($"/api/v1/libraries/{libraryId}/items/{item.GetProperty("id").GetGuid()}", item.GetProperty("releaseId").GetGuid(), response.Headers.ETag!.Tag);
+    }
+
+    /// <summary>The release ids the search marks as owned for the first result that matches <paramref name="title"/>.</summary>
+    private static async Task<List<Guid>> OwnedReleaseIdsAsync(HttpClient client, string title) =>
+        (await ReadItemsAsync(client, "q=" + Uri.EscapeDataString(title))).Single()
+            .GetProperty("ownedReleaseIds").EnumerateArray().Select(g => g.GetGuid()).ToList();
 
     private static async Task<List<JsonElement>> ReadItemsAsync(HttpClient client, string query)
     {

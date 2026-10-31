@@ -115,10 +115,27 @@ describe('Needs attention', () => {
     seed([kept(1)]);
     await renderWithProviders(<NeedsAttention libraryId={MOCK_LIBRARY_ID} />);
 
-    await fireEvent.press(await screen.findByLabelText('Link "Unreadable spine 1" to an item'));
-    await fireEvent.press(await screen.findByText('The Matrix'));
+    const sent: { method: string; path: string; body: Promise<unknown> }[] = [];
+    server.events.on('request:start', ({ request }) => {
+      if (request.method === 'GET') return;
+      sent.push({ method: request.method, path: new URL(request.url).pathname, body: request.clone().text() });
+    });
+    try {
+      await fireEvent.press(await screen.findByLabelText('Link "Unreadable spine 1" to an item'));
+      await fireEvent.press(await screen.findByText('The Matrix'));
+      await screen.findByText('Nothing needs attention.');
 
-    await screen.findByText('Nothing needs attention.');
+      // Linking is a resolve to that item: the guess is kept as a link, never thrown away like Delete does.
+      const matrix = itemsState.entries.find((e) => e.release.title === 'The Matrix')!.item.id;
+      const provisionalId = kept(1).id;
+      expect(sent.map((r) => `${r.method} ${r.path}`)).toEqual([`POST /api/v1/libraries/${MOCK_LIBRARY_ID}/provisionals/${provisionalId}:resolve`]);
+      expect(JSON.parse((await sent[0]!.body) as string)).toEqual({ itemId: matrix });
+      expect(scanMock.sessions.get(SESSION)!.provisionals).toEqual([
+        expect.objectContaining({ id: provisionalId, resolveAction: 'resolved_to_existing', createdItemId: matrix }),
+      ]);
+    } finally {
+      server.events.removeAllListeners();
+    }
   });
 
   it('deletes only on the second tap', async () => {

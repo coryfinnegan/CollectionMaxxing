@@ -1,6 +1,7 @@
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Libraries;
 using CollectionMaxxing.Api.Problems;
+using CollectionMaxxing.Api.Security;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.FeaturePrints;
 using CollectionMaxxing.Application.Common;
@@ -24,14 +25,16 @@ public static class CatalogEndpoints
             .Produces<Page<CatalogSearchResultDto>>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .WithRateLimitGroup(RateLimitGroup.Search);
 
         catalog.MapGet("/lookup", Lookup)
             .WithName("LookupCatalogCode").WithTags("Catalog")
             .Produces<CatalogLookupDto>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .WithRateLimitGroup(RateLimitGroup.Search);
 
         catalog.MapGet("/releases/{id:guid}", Release)
             .WithName("GetRelease").WithTags("Catalog")

@@ -23,6 +23,8 @@ const problem = (status: number, title: string) =>
 export const reviewMock = {
   /** Set to make the next commit fail as a whole (nothing is created), like a database rollback. */
   failNextCommit: false,
+  /** Set to make the next commit succeed on the server but lose its answer on the way (a dropped connection): the phone cannot tell. */
+  loseNextCommitAnswer: false,
   /** Every :search request the server received. */
   searches: [] as { sessionId: string; candidateId: string; text: string; contextWorkIds: string[] }[],
   /** Every commit request the server received. */
@@ -54,6 +56,7 @@ export const reviewMock = {
   reset() {
     this.searches = [];
     this.failNextCommit = false;
+    this.loseNextCommitAnswer = false;
     this.commits = [];
     this.restores = [];
     this.failNextRestore = false;
@@ -229,6 +232,10 @@ export const handlers = [
     reviewMock.made.set(session.id, itemIds);
     const result: CommitResultDto = { created: itemIds.length, skipped, itemIds };
     reviewMock.replays.set(`${session.id}:${key}`, result);
+    if (reviewMock.loseNextCommitAnswer) {
+      reviewMock.loseNextCommitAnswer = false;
+      return HttpResponse.error();
+    }
     return HttpResponse.json(result);
   }),
 

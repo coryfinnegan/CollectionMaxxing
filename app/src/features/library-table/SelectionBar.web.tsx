@@ -29,6 +29,9 @@ type Panel = 'move' | 'status' | 'tag' | 'delete' | null;
 
 const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
 
+/** A lend names who has it, and one bulk change can't name a person per item, so Lent out is set one item at a time. */
+const bulkStatuses = statuses.filter((status) => status !== 'lent');
+
 export function SelectionBar(props: Props) {
   const { count, selectedCount, capMessage, busy, locations, tags } = props;
   const [panel, setPanel] = useState<Panel>(null);
@@ -79,7 +82,7 @@ export function SelectionBar(props: Props) {
       {panel === 'status' ? (
         <Sheet title={`Set status of ${items(count)}`} onClose={() => setPanel(null)}>
           <View style={styles.wrap}>
-            {statuses.map((status) => (
+            {bulkStatuses.map((status) => (
               <Chip key={status} label={statusLabels[status]} accessibilityLabel={`Set status to ${statusLabels[status]}`} onPress={() => run(() => props.onStatus(status))} />
             ))}
           </View>

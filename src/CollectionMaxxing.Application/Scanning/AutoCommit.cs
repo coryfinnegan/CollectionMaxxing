@@ -79,7 +79,7 @@ public sealed class AutoCommit(
         {
             // A barcode-proof add teaches its link; a cover match never teaches a barcode link, even when the row
             // happens to carry a code from an earlier bound capture.
-            await learner.LearnAsync(session.Id, [candidate], cancellationToken);
+            await learner.LearnAsync(session, [candidate], cancellationToken);
         }
         return created;
     }
