@@ -464,14 +464,14 @@ Test-Case 'start: a second pass while that run lives starts nothing new' {
     Assert-Equal 0 $first.Inspected.Calls
 }
 
-Test-Case 'start: the model follows the tier label (mechanical haiku, critical opus, anything else sonnet)' {
-    Assert-Equal 'haiku' (Get-CmAgentModel @('agent-task', 'tier:mechanical'))
+Test-Case 'start: the model follows the tier label (critical opus, anything else sonnet; mechanical too, since haiku cannot act in auto mode)' {
+    Assert-Equal 'sonnet' (Get-CmAgentModel @('agent-task', 'tier:mechanical'))
     Assert-Equal 'opus' (Get-CmAgentModel @('agent-task', 'tier:critical'))
     Assert-Equal 'sonnet' (Get-CmAgentModel @('agent-task', 'tier:standard'))
     Assert-Equal 'sonnet' (Get-CmAgentModel @('agent-task'))
     Assert-Equal 'opus' (Get-CmAgentModel @('tier:mechanical', 'tier:critical')) 'the safer model wins a clash'
     $r = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7 @('agent-task', 'tier:mechanical'))) }
-    Assert-Match (Get-AgentStarts)[0].Arguments[0] ' -Model haiku '
+    Assert-Match (Get-AgentStarts)[0].Arguments[0] ' -Model sonnet '
 }
 
 Test-Case 'prompt: {issue} and {branch} are filled in everywhere and the written prompt is the one the run gets' {

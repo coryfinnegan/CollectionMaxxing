@@ -387,10 +387,13 @@ function Get-CmAgentLabelNames {
 }
 
 function Get-CmAgentModel {
-    <# tier:critical gets opus, tier:mechanical haiku, everything else sonnet. A clash goes to the stronger model. #>
+    <#
+      tier:critical gets opus, everything else sonnet, tier:mechanical included: a run is headless in --permission-mode auto,
+      and haiku gets no auto approvals there, so its every edit and command waits for a person and the run ends blocked
+      (issue #603, 2026-10-31). A clash goes to the stronger model.
+    #>
     param([string[]]$Labels = @())
     if ($Labels -contains 'tier:critical') { return 'opus' }
-    if ($Labels -contains 'tier:mechanical') { return 'haiku' }
     'sonnet'
 }
 
