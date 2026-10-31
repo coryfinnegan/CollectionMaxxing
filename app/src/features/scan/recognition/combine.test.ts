@@ -218,11 +218,25 @@ describe('addableItems', () => {
     expect(added.map((i) => [i.title, i.order])).toEqual([['Neuromancer', 8], ['Ubik', 9]]);
   });
 
-  it('leaves every other field of an added item as its own engine made it', () => {
+  it('leaves every other field of an added item as its own engine made it, and marks it unconfirmed', () => {
     const box = { x: 0.7, y: 0.1, width: 0.1, height: 0.6 };
     const original = item('Neuromancer', 3, { confidence: 'low', box, creator: 'William Gibson', kind: 'other', localId: 'v-1' });
     const [added] = addableItems([original], [item('Dune', 0)], T);
-    expect(added).toEqual({ ...original, order: 1 });
+    expect(added).toEqual({ ...original, order: 1, unconfirmed: true });
+  });
+
+  it('marks every added item unconfirmed: nothing but the model saw it, where the other engine found nothing', () => {
+    const added = addableItems([item('Neuromancer', 0), item('Ubik', 1)], [item('Dune', 0)], T);
+    expect(added.map((i) => i.unconfirmed)).toEqual([true, true]);
+  });
+
+  it('does not mark the existing items, or the candidates it leaves out', () => {
+    const existing = [item('Dune', 0, { box: spineAt(0.1) })];
+    const candidates = [item('Dune', 0, { box: spineAt(0.1) }), item('Emma', 1, { box: spineAt(0.4) })];
+    addableItems(candidates, existing, T);
+    expect(existing[0]).not.toHaveProperty('unconfirmed');
+    expect(candidates[0]).not.toHaveProperty('unconfirmed');
+    expect(candidates[1]).not.toHaveProperty('unconfirmed');
   });
 
   it('adds everything when nothing else is there yet', () => {

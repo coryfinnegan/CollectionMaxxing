@@ -67,6 +67,13 @@ describe('mapping the model words to the server words', () => {
     });
     expect(toIdentifyItem(game)).not.toHaveProperty('productCode');
   });
+
+  it('sends the unconfirmed mark of a read only the picture model made, and nothing for a read without it', () => {
+    const book: ReadItem = { localId: 'a', text: 'Ubik', title: 'Ubik', kind: 'book', order: 0, confidence: 'high' };
+    expect(toIdentifyItem({ ...book, unconfirmed: true })).toEqual({ localId: 'a', text: 'Ubik', title: 'Ubik', kind: 'book', unconfirmed: true });
+    expect(toIdentifyItem(book)).not.toHaveProperty('unconfirmed');
+    expect(toIdentifyItem({ ...book, unconfirmed: false })).not.toHaveProperty('unconfirmed');
+  });
 });
 
 describe('toItemBox: where a read sits, as the server takes it', () => {

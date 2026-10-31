@@ -63,5 +63,6 @@ export function toIdentifyItem(item: ReadItem): IdentifyItem {
   if (item.completeness) out.completeness = item.completeness;
   if (item.platform) out.platform = item.platform;
   if (item.productCode) out.productCode = item.productCode;
+  if (item.unconfirmed) out.unconfirmed = true;
   return out;
 }
