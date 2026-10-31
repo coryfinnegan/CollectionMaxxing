@@ -1,0 +1,37 @@
+name: Feature request
+description: Ask for something new or changed. The background agent builds it (see docs/requesting-work.md).
+title: "Area: short outcome"
+labels: [agent-task, type:feature, p3]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What I want
+      description: One or two sentences, in your own words.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What it's for, or what goes wrong today.
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The screen or flow (Library, an item, Scan, Review, Me, the web table).
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Observable behaviour, one per line.
+    validations:
+      required: true
+  - type: textarea
+    id: not
+    attributes:
+      label: Not this
+      description: Anything this must not change or include. Optional.
+  - type: markdown
+    attributes:
+      value: The repository is public. No passwords, keys, emails, addresses or photos of your home. Change the p3 label to p1, p2, p4 or p5 if the priority differs.
