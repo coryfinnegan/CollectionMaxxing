@@ -238,6 +238,11 @@ public static class CreateItem
                 return ItemErrors.Invalid("item.provider_ref_invalid", "Say which search result to add.", "providerRef");
             }
 
+            if (TextRules.Check(command.Notes, "notes") is { } badNotes)
+            {
+                return badNotes;
+            }
+
             if (command.Notes is { Length: > Item.MaxNotesLength })
             {
                 return ItemErrors.Invalid("item.notes_too_long", $"Notes can be at most {Item.MaxNotesLength} characters.", "notes");
@@ -245,6 +250,22 @@ public static class CreateItem
 
             if (command.Manual is { } manual)
             {
+                if (TextRules.Check(manual.Title, "manual.title") is { } badTitle)
+                {
+                    return badTitle;
+                }
+
+                if (manual.Creators is { } creators)
+                {
+                    foreach (var creator in creators)
+                    {
+                        if (TextRules.Check(creator, "manual.creators") is { } badCreator)
+                        {
+                            return badCreator;
+                        }
+                    }
+                }
+
                 if (string.IsNullOrWhiteSpace(manual.Title))
                 {
                     return ItemErrors.Invalid("item.title_required", "Give the item a title.", "manual.title");

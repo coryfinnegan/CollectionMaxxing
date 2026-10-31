@@ -138,12 +138,28 @@ public enum BulkAction
     Delete,
 }
 
-/// <summary>The change a bulk request applies to every listed item.</summary>
-public sealed record BulkItemsPatch(
-    Guid? LocationId = null,
-    ItemStatus? Status = null,
-    IReadOnlyList<Guid>? AddTagIds = null,
-    IReadOnlyList<Guid>? RemoveTagIds = null);
+/// <summary>
+/// The change a bulk request applies to every listed item. A <c>locationId</c> that is absent leaves locations alone; one sent as
+/// <c>null</c> clears them (the same merge-patch reading as <see cref="UpdateItemRequest"/>).
+/// </summary>
+public sealed record BulkItemsPatch
+{
+    private Guid? _locationId;
+
+    public Guid? LocationId { get => _locationId; init { _locationId = value; LocationIdSpecified = true; } }
+
+    public ItemStatus? Status { get; init; }
+
+    public IReadOnlyList<Guid>? AddTagIds { get; init; }
+
+    public IReadOnlyList<Guid>? RemoveTagIds { get; init; }
+
+    [JsonIgnore]
+    public bool LocationIdSpecified { get; private init; }
+
+    public BulkChange ToChange() => new(
+        LocationIdSpecified ? PatchValue<Guid?>.Of(LocationId) : default, Status, AddTagIds, RemoveTagIds);
+}
 
 /// <summary>Body of <c>POST …/items:restore</c>: undo the delete of up to 500 items at once.</summary>
 public sealed record RestoreItemsRequest(IReadOnlyList<Guid>? Ids = null);

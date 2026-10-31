@@ -653,6 +653,37 @@ describe('ItemEditScreen', () => {
     expect(entry().item.lentTo).toBe('Sam');
   });
 
+  it('will not lend an item out without saying who has it', async () => {
+    await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+
+    await fireEvent.press(screen.getByLabelText('Status Lent out'));
+    await fireEvent.press(screen.getByLabelText('Save changes'));
+
+    expect(await screen.findByText('Say who has it.')).toBeTruthy();
+    expect(mockRouter.back).not.toHaveBeenCalled();
+    expect(await patchBodies()).toEqual([]);
+
+    await fireEvent.changeText(screen.getByLabelText('Lent to'), 'Sam');
+    await fireEvent.press(screen.getByLabelText('Save changes'));
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(screen.queryByText('Say who has it.')).toBeNull();
+  });
+
+  it('lets the notes of an old lend that never had a name be changed', async () => {
+    entry().item.status = 'lent';
+    entry().item.lentTo = null;
+    entry().item.lentOn = '2026-09-20';
+    await renderWithProviders(<ItemEditScreen id={MATRIX} />);
+    await screen.findByLabelText('Notes');
+
+    await fireEvent.changeText(screen.getByLabelText('Notes'), 'Back soon');
+    await fireEvent.press(screen.getByLabelText('Save changes'));
+
+    await waitFor(() => expect(mockRouter.back).toHaveBeenCalled());
+    expect(await patchBodies()).toEqual([{ notes: 'Back soon' }]);
+  });
+
   it('records the local day when an item is lent in the evening', async () => {
     await renderWithProviders(<ItemEditScreen id={MATRIX} />);
     await screen.findByLabelText('Notes');

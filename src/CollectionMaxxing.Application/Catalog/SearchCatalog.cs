@@ -41,6 +41,11 @@ public static class SearchCatalog
                 return CatalogErrors.Invalid("catalog.query_required", "Type a title to search for.", "q");
             }
 
+            if (TextRules.Check(query.Q, "q") is { } badText)
+            {
+                return badText;
+            }
+
             if (query.Year is { } year && (year < 1 || year > 3000))
             {
                 return CatalogErrors.Invalid("catalog.year_invalid", "That year doesn't look right.", "year");
@@ -163,8 +168,9 @@ public static class SearchCatalog
             result.Releases.Any(r => mine.Contains(r.Id));
 
         /// <summary>
-        /// The releases the caller's libraries own (an existing Owned or Lent copy) or made for themselves. The table filters
-        /// already hide every other library's items and private releases, so what matches is the caller's by construction.
+        /// The releases the caller's libraries own: a live Owned or Lent copy, whether the release is shared or one a library made
+        /// for itself (a release with no live copy left is not owned). The table filters already hide every other library's items, so
+        /// what matches is the caller's by construction.
         /// </summary>
         private async Task<HashSet<Guid>> MyReleaseIdsAsync(List<Guid> releaseIds, CancellationToken cancellationToken)
         {
@@ -173,15 +179,11 @@ public static class SearchCatalog
                 return [];
             }
 
-            var owned = await db.Items.AsNoTracking()
+            return (await db.Items.AsNoTracking()
                 .Where(i => i.DeletedAt == null && Ownership.OwnershipQuery.OwnedStatuses.Contains(i.Status) && releaseIds.Contains(i.ReleaseId))
                 .Select(i => i.ReleaseId)
-                .ToListAsync(cancellationToken);
-            var local = await db.Releases.AsNoTracking()
-                .Where(r => releaseIds.Contains(r.Id) && r.OwnerLibraryId != null)
-                .Select(r => r.Id)
-                .ToListAsync(cancellationToken);
-            return owned.Concat(local).ToHashSet();
+                .ToListAsync(cancellationToken))
+                .ToHashSet();
         }
 
         private async Task<List<CatalogSearchResultDto>> SearchLocalAsync(string title, Query query, WorkKind? kind, CancellationToken cancellationToken)
