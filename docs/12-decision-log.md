@@ -539,3 +539,24 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
   - A code resolves only within its own platform.
   - A code printed with a region suffix (`SNS-8C-USA`) also matches the list's shorter form (`SNS-8C`).
   - Updating the table is a reviewed PR that regenerates it from a newer pinned commit.
+
+## ADR-032: The M3 decision is made; the gate now measures what ships (owner decision)
+
+- **Status:** **Accepted** (owner decision, 2026-10-31; written by the lead). Settles the M3 gate in docs/02 ("The M3 gate").
+- **Context:**
+  - docs/02 made M3 a decision gate: the Apple model ships as primary if, alone, it meets the bars; if it misses, the Vision text engine becomes primary and the model handles only what Vision can't resolve.
+  - On the golden set the model missed badly on shelves. On the two original book shelves it found 1–3 of 17 per shelf while Vision found 15–16, it took about 19 s a shelf, and every wrong automatic add came from titles it invented.
+  - The fallback was adopted: shelves show Vision's items first, and the model adds only the items Vision has none for. Those items are unconfirmed, so they go to review and are never added automatically (#555, #565).
+  - On single covers the model stays primary, with Vision's cover checks correcting format, kind and game codes.
+  - The gate kept measuring the model alone, a setup the app no longer uses. For example, it reported 57% automatic-add accuracy in a run where the app's own adds were 3 of 3 right.
+- **Decision:**
+  - The eval's pass/fail gate measures the **combined row**, which is what the app shows. On a shelf that is Vision's items plus the model's unconfirmed additions; on a single cover it is the model's read with the cover checks.
+  - The bars in docs/02 are unchanged.
+  - The model-only and Vision-only rows stay in the report for diagnosis.
+  - The "model beats the Vision text engine" measure is reported but is no longer part of the gate, because the question it answered is settled.
+- **Alternatives:**
+  - Keep the model-only gate: rejected, because it measures a configuration that doesn't ship.
+  - Drop the gate: rejected, because the bars are still the right bar for the product.
+- **Consequences:**
+  - Gate results before and after this change aren't comparable. The first report after the switch says so.
+  - The model's own shelf accuracy is no longer a gate. A later change that makes the model worse on shelves shows up only through the combined row.

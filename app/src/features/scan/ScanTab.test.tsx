@@ -12,7 +12,7 @@ import { setSessionContextStorage } from './session/sessionContext';
 import { setTrayStore } from './tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from './tray/trayStore';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }) }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), replace: jest.fn() }), useIsFocused: () => true }));
 // Entry routing, not the camera: the preview's own fallback is covered by the lazy boundary.
 jest.mock('./scanner/LazyCameraPreview', () => ({ LazyCameraPreview: () => null }));
 
@@ -70,7 +70,7 @@ describe('scan tab entry', () => {
     await renderWithProviders(<ScanTab />);
 
     expect(await screen.findByText('No library found.')).toBeTruthy();
-    expect(screen.getByText('Pair this iPhone again.')).toBeTruthy();
+    expect(screen.getByText('Create or join a library in Settings, then come back to scan.')).toBeTruthy();
     expect(screen.queryByTestId('scan-coach')).toBeNull();
     expect(screen.queryByLabelText('Close')).toBeNull();
   });

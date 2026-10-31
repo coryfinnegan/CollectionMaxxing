@@ -6,6 +6,7 @@ import {
   groupCandidates,
   groupOf,
   isAggregated,
+  isUnconfirmed,
   ownedCountOf,
   platformNameOf,
   preselectedOf,
@@ -81,6 +82,33 @@ describe('grouping', () => {
     expect(defaultChecked(candidate({ release: release(1, 'A'), alreadyOwnedCount: 1, decision: 'accepted' }), 'owned')).toBe(true);
     expect(defaultChecked(candidate({ resolution: 'ambiguous' }), 'pick')).toBe(false);
     expect(defaultChecked(candidate({ resolution: 'not_found' }), 'notFound')).toBe(false);
+  });
+
+  describe('a read only the picture model made', () => {
+    const unconfirmed = { title: 'Modern Comfort Food', kind: 'book', unconfirmed: true };
+
+    it('starts unchecked in Review, though it matched: the person opts in', () => {
+      const row = candidate({ resolution: 'matched', release: release(1, 'Modern Comfort Food'), inferred: unconfirmed as never });
+      expect(groupOf(row)).toBe('ready');
+      expect(isUnconfirmed(row)).toBe(true);
+      expect(defaultChecked(row, 'ready')).toBe(false);
+    });
+
+    it('is checked once the person has accepted it (on its card, or by a tap that was saved)', () => {
+      const row = candidate({ resolution: 'matched', release: release(1, 'Modern Comfort Food'), inferred: unconfirmed as never, decision: 'accepted' });
+      expect(defaultChecked(row, 'ready')).toBe(true);
+    });
+
+    it('does not change a ready row the other engine confirmed, or one with no read kept', () => {
+      const confirmed = candidate({ release: release(1, 'A'), inferred: { title: 'A', kind: 'book' } as never });
+      const bare = candidate({ release: release(2, 'B'), inferred: null });
+      const falsy = candidate({ release: release(3, 'C'), inferred: { unconfirmed: false } as never });
+      expect([confirmed, bare, falsy].map((c) => [isUnconfirmed(c), defaultChecked(c, 'ready')])).toEqual([
+        [false, true],
+        [false, true],
+        [false, true],
+      ]);
+    });
   });
 
   it('reads at most the top three alternatives, in either shape the API may use', () => {

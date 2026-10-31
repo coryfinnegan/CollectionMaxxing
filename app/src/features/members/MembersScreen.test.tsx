@@ -43,6 +43,28 @@ describe('MembersScreen', () => {
     expect(screen.getByLabelText('Role for Sam: Viewer')).toBeTruthy();
     expect(await screen.findByLabelText('Revoke invite for Alex')).toBeTruthy();
     expect(screen.getByText(/Safari on iPhone/)).toBeTruthy();
+    // The owner sees every member's devices, so a member with none says so.
+    expect(screen.getByText('No devices yet · Not seen yet')).toBeTruthy();
+  });
+
+  it.each(['editor', 'viewer'] as const)('shows a %s nothing about devices or last seen, which the server withholds', async (role) => {
+    asRole(role);
+    // What the API sends a non-owner: names and roles, with the devices and last-seen fields left out.
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/members', () =>
+        HttpResponse.json({
+          items: mockMembers.members.map(({ userId, displayName, role: memberRole, joinedAt }) => ({ userId, displayName, role: memberRole, joinedAt })),
+          nextCursor: null,
+        }),
+      ),
+    );
+    await renderWithProviders(<MembersScreen />);
+
+    expect(await screen.findByText('Sam')).toBeTruthy();
+    expect(screen.getByText('Robin')).toBeTruthy();
+    expect(screen.queryByText(/No devices yet/)).toBeNull();
+    expect(screen.queryByText(/Not seen yet/)).toBeNull();
+    expect(screen.queryByText(/Last seen/)).toBeNull();
   });
 
   it.each(['editor', 'viewer'] as const)('shows a %s a read-only list without invite data', async (role) => {
@@ -70,7 +92,9 @@ describe('MembersScreen', () => {
 
     expect(await screen.findByText(/^https:\/\/pc\.tailnet\.ts\.net\/join\//)).toBeTruthy();
     expect(screen.getByText(/^qr:/)).toBeTruthy();
-    expect(screen.getByText(/Add them to Tailscale first/)).toBeTruthy();
+    // The app is an ordinary website for the people invited: no network to join first, just the link to send.
+    expect(screen.getByText(/Send them the link yourself/)).toBeTruthy();
+    expect(screen.queryByText(/Tailscale/)).toBeNull();
     expect(screen.getByLabelText('Copy link')).toBeTruthy();
 
     await fireEvent.press(screen.getByLabelText('Close invite'));

@@ -17,8 +17,14 @@ public sealed class JobOptions
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 }
 
-/// <summary>A handler registered under a type name. <see cref="Invoke"/> deserializes the payload and calls the handler.</summary>
-public sealed record JobRegistration(string Type, Func<IServiceProvider, JsonElement, CancellationToken, Task> Invoke);
+/// <summary>
+/// A handler registered under a type name. <see cref="Invoke"/> deserializes the payload and calls the handler.
+/// <see cref="OnFailedForGood"/> is set when the handler also implements <see cref="IJobFailureHandler{TPayload}"/>.
+/// </summary>
+public sealed record JobRegistration(
+    string Type,
+    Func<IServiceProvider, JsonElement, CancellationToken, Task> Invoke,
+    Func<IServiceProvider, JsonElement, string, CancellationToken, Task>? OnFailedForGood = null);
 
 /// <summary>A job that should exist once per <see cref="Every"/> period, across all workers.</summary>
 public sealed record RecurringJobRegistration(string Type, TimeSpan Every);
@@ -44,12 +50,26 @@ public static class JobsRegistration
         where THandler : class, IJobHandler<TPayload>
     {
         services.TryAddScoped<THandler>();
-        services.AddSingleton(new JobRegistration(type, (provider, payload, cancellationToken) =>
+        Func<IServiceProvider, JsonElement, string, CancellationToken, Task>? onFailedForGood = null;
+        if (typeof(IJobFailureHandler<TPayload>).IsAssignableFrom(typeof(THandler)))
         {
-            var value = payload.Deserialize<TPayload>(Json)
-                ?? throw new InvalidOperationException($"Job payload for '{type}' is empty.");
-            return provider.GetRequiredService<THandler>().HandleAsync(value, cancellationToken);
-        }));
+            onFailedForGood = (provider, payload, error, cancellationToken) =>
+            {
+                var value = payload.Deserialize<TPayload>(Json)
+                    ?? throw new InvalidOperationException($"Job payload for '{type}' is empty.");
+                return ((IJobFailureHandler<TPayload>)provider.GetRequiredService<THandler>()).OnFailedForGoodAsync(value, error, cancellationToken);
+            };
+        }
+
+        services.AddSingleton(new JobRegistration(
+            type,
+            (provider, payload, cancellationToken) =>
+            {
+                var value = payload.Deserialize<TPayload>(Json)
+                    ?? throw new InvalidOperationException($"Job payload for '{type}' is empty.");
+                return provider.GetRequiredService<THandler>().HandleAsync(value, cancellationToken);
+            },
+            onFailedForGood));
         return services;
     }
 

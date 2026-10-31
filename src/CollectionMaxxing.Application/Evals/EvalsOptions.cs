@@ -13,6 +13,12 @@ public sealed class EvalsOptions
     /// <summary>The most a run upload may weigh (docs/09 and the brief: 2 MB).</summary>
     public const int MaxRunBytes = 2 * 1024 * 1024;
 
+    /// <summary>
+    /// The most one golden photo upload may weigh: 40 MB. A phone's original is far bigger than the 2048 px copy a share sheet makes
+    /// (a 2576 px scan is a few MB; a 48 MP HEIC or a ProRAW-sized JPEG is more), and this is the one route that takes a body this big.
+    /// </summary>
+    public const int MaxGoldenPhotoBytes = 40 * 1024 * 1024;
+
     public bool Enabled { get; set; }
 
     /// <summary>The golden folder: <c>shelf/</c> and <c>single/</c>, pictures with a truth file each. Read; drafts are written beside the pictures when it is writable.</summary>
@@ -64,6 +70,19 @@ public static class EvalErrors
 
     public static readonly DomainError ResultsNotWritable = new(
         ErrorKind.Conflict, "evals.results_not_writable", "The results folder could not be written. Check that it exists and is writable.");
+
+    public static readonly DomainError SetInvalid = Invalid("evals.set_invalid", "The set must be \"single\" or \"shelf\".", "set");
+
+    public static readonly DomainError IdInvalid = Invalid(
+        "evals.id_invalid",
+        $"A photo's name may use letters, digits, \"-\" and \"_\", up to {EvalIds.MaxLength} characters, and cannot be a name Windows reserves (like con or nul).",
+        "id");
+
+    public static readonly DomainError IdTaken = new(
+        ErrorKind.Conflict, "evals.id_taken", "That name is already used by another golden photo, in either set. Pick another.");
+
+    public static readonly DomainError GoldenNotWritable = new(
+        ErrorKind.Conflict, "evals.golden_not_writable", "The golden folder could not be written. Check that it is writable and that its single and shelf folders are plain folders.");
 
     public static DomainError Invalid(string code, string message, string field) => new(ErrorKind.Validation, code, message, field);
 }

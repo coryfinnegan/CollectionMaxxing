@@ -3,6 +3,9 @@ namespace CollectionMaxxing.Application.Evals;
 /// <summary>
 /// The regression check (docs/09, "AI eval" gate): no metric may move the wrong way by more than 2 points against
 /// <c>evals/baseline.json</c>. Percentages only; latencies are judged by the M3 gate, not here.
+/// The baseline holds each engine row's own numbers under that row's name (<c>apple_model.single.top1</c>) and never a gate measure,
+/// so moving the gate onto the combined row (ADR-032) changes what none of its keys mean: a key from a baseline taken before it
+/// is compared with the same row as ever, and the combined row's keys are new to such a baseline, not a regression.
 /// </summary>
 public static class EvalRegression
 {

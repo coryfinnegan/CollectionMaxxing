@@ -29,7 +29,8 @@ public sealed class PartialRunTests : IDisposable
         _golden.AddSingle("c2", StarFox);
         _golden.AddSingle("c3", StarFox);
         var title = right ? "Star Fox 64" : "Something Else Entirely";
-        var run = RunOf(Photo("c1", Apple, [Matched(title)])) with { Partial = partial };
+        // The phone reads every photo with both engines, and the gate measures the row built from the two (a single cover is the model's read).
+        var run = RunOf(Photo("c1", Apple, [Matched(title)]), Photo("c1", Vision, [Matched(title)])) with { Partial = partial };
         return (run, TruthsOf(_golden));
     }
 

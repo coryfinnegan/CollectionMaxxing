@@ -18,6 +18,8 @@ public sealed record EvalDeviceRequest(string? Model = null, string? OsVersion =
 /// <c>Tier</c> is the commit tier the pipeline assigned (T0, T1, T2); <c>Provisional</c> with <c>IsGuess</c> marks a kept guess (docs/16 §17).
 /// <c>ProductCode</c> is the code the phone found printed on a game (as in <c>/identify</c>, ADR-031), grounded the same way.
 /// <c>Box</c> is where the read sat in the photo (as in <c>/identify</c>): the same release read in two places is two items.
+/// <c>Unconfirmed</c> (as in <c>/identify</c>) marks a shelf read only the picture model made, where Vision found nothing: the PC keeps the mark
+/// with the grounded run and scores such a read as review (T2), never as an auto-add, whatever tier the phone claimed.
 /// </summary>
 public sealed record EvalReadItem(
     string? LocalId = null,
@@ -36,7 +38,8 @@ public sealed record EvalReadItem(
     bool? IsGuess = null,
     string? SegmentId = null,
     string? ProductCode = null,
-    ItemBox? Box = null);
+    ItemBox? Box = null,
+    bool? Unconfirmed = null);
 
 /// <summary>
 /// Reads an engine as its API name only (<c>apple_model</c>, <c>fm_text</c> or <c>vision_pipeline</c>). The stock enum converter would also take a number

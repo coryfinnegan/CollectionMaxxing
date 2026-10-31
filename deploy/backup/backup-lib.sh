@@ -4,6 +4,9 @@
 
 cm_log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) backup: $*"; }
 
+# The clock, in epoch seconds. A function so the tests can set the time.
+cm_now() { date +%s; }
+
 cm_timestamp() { date -u +%Y%m%d-%H%M%S; }
 
 # cm_retention_keep: reads backup names on stdin (anything containing YYYYMMDD-HHMMSS) and prints the ones to KEEP.
@@ -160,7 +163,19 @@ cm_write_manifest() {
 
 # cm_backup_run: one backup. Counts -> dump -> verify -> files archive -> manifest -> prune (only if everything worked)
 # -> heartbeat. Returns 0 on success, 1 on failure. A failed run never prunes anything.
+# While it runs, a marker file holds the start time, so the health check (cm_health_check) can tell "a backup is
+# running right now" from "no backup has run for a day". The marker is removed when the run ends, however it ends.
 cm_backup_run() {
+  local marker rc
+  marker="$(cm_run_marker)"
+  cm_now >"$marker" 2>/dev/null || true
+  cm_backup_steps
+  rc=$?
+  rm -f "$marker"
+  return "$rc"
+}
+
+cm_backup_steps() {
   local dir="${BACKUP_DIR:-/backups}" files_src="${FILES_DIR:-/data/files}" ts ok=1
   local before="" after="" schema=""
   ts="$(cm_timestamp)"
@@ -225,4 +240,108 @@ cm_seconds_until() {
   target="$(date -d "today $(printf '%02d:%02d' "$h" "$m")" +%s)"
   ((target <= now)) && target="$(date -d "tomorrow $(printf '%02d:%02d' "$h" "$m")" +%s)"
   echo $((target - now))
+}
+
+# ---- catching up on a missed night, and the health check ------------------------------------------------------------
+# A night is missed when Docker or the PC was off at 03:00, or when a deploy recreated this container while the run
+# was going (the new container used to wait a whole day for its next 03:00). Both are repaired the same way: when the
+# container starts, a backup runs at once if the newest successful backup is older than the last scheduled run.
+# That is "about a day" without a fixed threshold: a deploy at 03:00:30 that killed the 03:00:00 run catches up
+# straight away (the newest backup is only 24 h old, inside any 26 h rule, yet last night's backup is missing).
+
+# cm_run_marker: the file that exists while a backup runs. In the container's own /tmp, so it dies with the container.
+cm_run_marker() { echo "${CM_RUN_MARKER:-/tmp/cm-backup-running}"; }
+
+# cm_stamp_epoch NAME: the UTC epoch seconds of the YYYYMMDD-HHMMSS inside NAME. Fails if there is none.
+cm_stamp_epoch() {
+  [[ "$1" =~ ([0-9]{4})([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})([0-9]{2}) ]] || return 1
+  date -u -d "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]} ${BASH_REMATCH[4]}:${BASH_REMATCH[5]}:${BASH_REMATCH[6]}" +%s
+}
+
+# cm_newest_backup_epoch [BACKUP_DIR]: when the newest SUCCESSFUL backup started (epoch seconds). A backup is
+# successful when its manifest exists next to its dump: the manifest is written last, after the dump, the files archive
+# and the checks, so a run that died half way (a .partial file, a dump without a manifest) does not count.
+# Prints nothing and fails when there is no such backup.
+cm_newest_backup_epoch() {
+  local db="${1:-${BACKUP_DIR:-/backups}}/db" name
+  # shellcheck disable=SC2012
+  while IFS= read -r name; do
+    [[ -s "$db/${name%.manifest.json}.dump" ]] || continue
+    cm_stamp_epoch "$name" && return 0
+  done < <(ls -1 "$db" 2>/dev/null | grep -E '^collectionmaxxing-[0-9]{8}-[0-9]{6}\.manifest\.json$' | LC_ALL=C sort -r)
+  return 1
+}
+
+# cm_last_scheduled_epoch "M H * * *": the epoch seconds of the most recent HH:MM (container time zone) at or before now.
+cm_last_scheduled_epoch() {
+  local schedule="$1" m h rest now day target hhmm
+  read -r m h rest <<<"$schedule"
+  [[ "$m" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ && "$rest" == "* * *" ]] || return 1
+  ((m < 60 && h < 24)) || return 1
+  hhmm="$(printf '%02d:%02d' "$h" "$m")"
+  now="$(cm_now)"
+  day="$(date -d "@$now" +%Y-%m-%d)"
+  target="$(date -d "$day $hhmm" +%s)"
+  ((target > now)) && target="$(date -d "$day -1 day $hhmm" +%s)"
+  echo "$target"
+}
+
+# cm_backup_due "M H * * *" [BACKUP_DIR]: succeeds when a scheduled run was missed, which is when the newest successful
+# backup started before the last scheduled time (less CM_CATCHUP_GRACE_SECONDS, default 300, for a clock that is a
+# little off), or when there is no successful backup at all. Fails when the backups are up to date.
+cm_backup_due() {
+  local last newest grace="${CM_CATCHUP_GRACE_SECONDS:-300}"
+  last="$(cm_last_scheduled_epoch "$1")" || return 1
+  newest="$(cm_newest_backup_epoch "${2:-}")" || return 0
+  ((newest + grace < last))
+}
+
+# cm_catch_up "M H * * *": the first thing the daemon does. Runs a backup now if one is due, then returns either way
+# (a failed catch-up is logged and reported by the heartbeat; the nightly schedule carries on).
+cm_catch_up() {
+  if cm_backup_due "$1"; then
+    cm_log "the newest backup is older than the last scheduled run (or there is none), so backing up now to catch up"
+    cm_backup_run || cm_log "the catch-up backup failed; will try again at the next scheduled time"
+  else
+    cm_log "the newest backup is up to date; no catch-up needed"
+  fi
+  return 0
+}
+
+# cm_backup_running: succeeds while a backup is running (the marker is younger than CM_RUN_MAX_SECONDS, default 2 h,
+# so a run that hung is not healthy for ever).
+cm_backup_running() {
+  local marker started
+  marker="$(cm_run_marker)"
+  [[ -f "$marker" ]] || return 1
+  started="$(cat "$marker" 2>/dev/null)"
+  [[ "$started" =~ ^[0-9]+$ ]] || return 1
+  (($(cm_now) - started < ${CM_RUN_MAX_SECONDS:-7200}))
+}
+
+# cm_health_check: the container's HEALTHCHECK (backup.sh health). Prints one line saying why; exits 0 (healthy) or 1.
+# Unhealthy when Postgres cannot be reached, or when the newest successful backup is older than
+# CM_HEALTH_MAX_AGE_HOURS (default 30: the nightly gap of 24 h plus 6 h of slack). A backup that is running right now
+# counts as healthy, so a catch-up after a long gap does not look like a failure while it works. The deployer reads
+# this status and fails a deploy whose backup is not healthy.
+cm_health_check() {
+  local max_hours="${CM_HEALTH_MAX_AGE_HOURS:-30}" newest age
+  if ! pg_isready -q -t 5; then
+    echo "unhealthy: Postgres is not reachable"
+    return 1
+  fi
+  if cm_backup_running; then
+    echo "healthy: a backup is running"
+    return 0
+  fi
+  if ! newest="$(cm_newest_backup_epoch)"; then
+    echo "unhealthy: there is no successful backup yet"
+    return 1
+  fi
+  age=$(($(cm_now) - newest))
+  if ((age > max_hours * 3600)); then
+    echo "unhealthy: the newest successful backup is $((age / 3600)) h old (limit ${max_hours} h)"
+    return 1
+  fi
+  echo "healthy: the newest successful backup is $((age / 3600)) h old"
 }

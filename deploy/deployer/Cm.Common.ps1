@@ -166,14 +166,87 @@ function Test-CmPort {
     $null
 }
 
+function ConvertTo-CmPathKey {
+    <#
+      A path in a form that can be compared as text: forward slashes, no '.', '..' or empty parts, lower case, no
+      trailing slash. Purely lexical (it never touches the disk and works the same on Windows and Linux paths), so
+      'F:\Backups\X\' and 'f:/backups/x' are the same key, and 'F:\Backups\X\..\Y' is 'f:/backups/y'. A leading '//'
+      (the Docker Desktop way of writing '/var/run/...', or a UNC share) collapses to one '/'. A '..' never climbs
+      above a drive letter or the root. A relative path stays relative.
+    #>
+    param([string]$Path)
+    $p = ("$Path").Trim() -replace '\\', '/'
+    if (-not $p) { return '' }
+    $rooted = $p.StartsWith('/')
+    $parts = [System.Collections.Generic.List[string]]::new()
+    foreach ($part in ($p -split '/')) {
+        if ($part -eq '' -or $part -eq '.') { continue }
+        if ($part -eq '..') {
+            if ($parts.Count -gt 0 -and $parts[$parts.Count - 1] -ne '..') {
+                if ($parts[$parts.Count - 1] -notmatch '^[a-z]:$') { $parts.RemoveAt($parts.Count - 1) }
+            }
+            elseif (-not $rooted) { $parts.Add('..') }
+            continue
+        }
+        $parts.Add($part.ToLowerInvariant())
+    }
+    $prefix = if ($rooted) { '/' } else { '' }
+    $prefix + ($parts -join '/')
+}
+
+function Test-CmPathUnder {
+    <# True when Path is Root or inside it. Both are compared as ConvertTo-CmPathKey keys; a relative Path or Root never matches. #>
+    param([string]$Path, [string]$Root)
+    $p = ConvertTo-CmPathKey $Path
+    $r = ConvertTo-CmPathKey $Root
+    if (-not $p -or -not $r) { return $false }
+    $absolute = { param($k) $k.StartsWith('/') -or $k -match '^[a-z]:' }
+    if (-not (& $absolute $p) -or -not (& $absolute $r)) { return $false }
+    if ($p -eq $r) { return $true }
+    $p.StartsWith($r.TrimEnd('/') + '/')
+}
+
+function Get-CmAllowedMountRoots {
+    <#
+      The host folders a compose file may bind into a container: the backup, secrets, recognition and evals folders
+      named in .env (a relative one is read from the compose file's own folder, the way compose reads it), and the
+      places the compose file itself reaches by default: its own folder (./recognition), the clone's evals folder
+      (../evals/baseline.json) and the evals folder beside the clone (../../evals). Nothing else, so not the drive,
+      not C:\CollectionMaxxing itself (which holds .env, the state and the log), and not the home folder.
+    #>
+    param([hashtable]$EnvMap = @{}, [string]$ComposeFile = '')
+    $roots = [System.Collections.Generic.List[string]]::new()
+    $composeDir = if ($ComposeFile) { (ConvertTo-CmPathKey $ComposeFile) -replace '/[^/]*$', '' } else { '' }
+    foreach ($name in 'CM_BACKUP_DIR', 'CM_SECRETS_DIR', 'CM_RECOGNITION_DIR', 'CM_EVALS_DIR') {
+        $value = if ($EnvMap.ContainsKey($name)) { "$($EnvMap[$name])".Trim() } else { '' }
+        if (-not $value) { continue }
+        $key = ConvertTo-CmPathKey $value
+        if (-not ($key.StartsWith('/') -or $key -match '^[a-z]:')) {
+            if (-not $composeDir) { continue }
+            $key = ConvertTo-CmPathKey "$composeDir/$value"
+        }
+        $roots.Add($key)
+    }
+    if ($composeDir -and ($composeDir.StartsWith('/') -or $composeDir -match '^[a-z]:')) {
+        $roots.Add($composeDir)
+        $roots.Add((ConvertTo-CmPathKey "$composeDir/../evals"))
+        $roots.Add((ConvertTo-CmPathKey "$composeDir/../../evals"))
+    }
+    $roots.ToArray()
+}
+
 function Test-CmConfig {
     <#
       The config guard. Takes the parsed .env and the output of `docker compose config --format json`.
       Returns a list of problems; an empty list means the config may be used.
       Refuses: the four ports other apps use, any bind that is not 127.0.0.1, host networking, privileged containers,
-      and anything published by postgres.
+      anything published by postgres, added Linux capabilities (cap_add), the host process or IPC namespace
+      (pid: host, ipc: host), host devices, the Docker socket or engine pipe in any spelling, any bind mount of a host
+      folder that is not on the allow-list (Get-CmAllowedMountRoots; pass the compose file's path so its own default
+      folders count), and a named volume that is really a bind of a host folder (driver_opts). Messages name the
+      service and the container path, never a host path, because a host path may come from .env.
     #>
-    param([hashtable]$EnvMap = @{}, $ComposeConfig = $null)
+    param([hashtable]$EnvMap = @{}, $ComposeConfig = $null, [string]$ComposeFile = '')
     $problems = [System.Collections.Generic.List[string]]::new()
     foreach ($name in 'CM_API_PORT', 'CM_DASHBOARD_PORT') {
         if ($EnvMap.ContainsKey($name)) {
@@ -182,11 +255,32 @@ function Test-CmConfig {
         }
     }
     if ($null -ne $ComposeConfig -and $ComposeConfig.services) {
+        $allowed = @(Get-CmAllowedMountRoots -EnvMap $EnvMap -ComposeFile $ComposeFile)
         foreach ($service in $ComposeConfig.services.PSObject.Properties) {
             $name = $service.Name
             $def = $service.Value
             if ($def.network_mode -eq 'host') { $problems.Add("service '$name' uses host networking") }
             if ($def.privileged -eq $true) { $problems.Add("service '$name' is privileged") }
+            if (@($def.cap_add | Where-Object { $_ }).Count -gt 0) { $problems.Add("service '$name' adds Linux capabilities (cap_add)") }
+            if ("$($def.pid)" -eq 'host') { $problems.Add("service '$name' shares the host process namespace (pid: host)") }
+            if ("$($def.ipc)" -eq 'host') { $problems.Add("service '$name' shares the host IPC namespace (ipc: host)") }
+            if (@($def.devices | Where-Object { $_ }).Count -gt 0) { $problems.Add("service '$name' maps host devices (devices)") }
+            foreach ($v in @($def.volumes | Where-Object { $_ })) {
+                $type = "$($v.type)"
+                $target = "$($v.target)"
+                if ($type -in 'volume', 'tmpfs') { continue }
+                $source = "$($v.source)"
+                if ($source -match '(?i)docker[._]?sock|docker_engine|[\\/]var[\\/]run[\\/]docker' -or $target -match '(?i)docker[._]?sock') {
+                    $problems.Add("service '$name' mounts the Docker socket or engine pipe (container path $target)")
+                    continue
+                }
+                if ($type -ne 'bind') { $problems.Add("service '$name' has a '$type' mount at $target, a kind of mount the guard does not allow"); continue }
+                $inside = $false
+                foreach ($root in $allowed) { if (Test-CmPathUnder -Path $source -Root $root) { $inside = $true; break } }
+                if (-not $inside) {
+                    $problems.Add("service '$name' bind-mounts a host folder outside the folders it may use (container path $target); allowed are the backup, secrets, recognition and evals folders named in .env and the folders beside the compose file")
+                }
+            }
             $ports = @($def.ports | Where-Object { $_ })
             if ($name -eq 'postgres' -and $ports.Count -gt 0) { $problems.Add("service 'postgres' must not publish a port") }
             foreach ($p in $ports) {
@@ -195,6 +289,16 @@ function Test-CmConfig {
                 }
                 $err = Test-CmPort -Name "service '$name' published port" -Value $p.published
                 if ($err) { $problems.Add($err) }
+            }
+        }
+    }
+    if ($null -ne $ComposeConfig -and $ComposeConfig.volumes) {
+        foreach ($volume in $ComposeConfig.volumes.PSObject.Properties) {
+            $opts = $volume.Value.driver_opts
+            if ($null -eq $opts) { continue }
+            $names = @($opts.PSObject.Properties.Name)
+            if ($names -contains 'device' -or "$($opts.o)" -match '(?i)\bbind\b') {
+                $problems.Add("volume '$($volume.Name)' is a bind of a host folder in disguise (driver_opts)")
             }
         }
     }

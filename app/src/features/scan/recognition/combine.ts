@@ -109,10 +109,18 @@ export function nextOrder(items: ReadItem[]): number {
 }
 
 /**
+ * `item` as an item only the model saw: where it sits, the other engine found nothing. The server matches it like any read but keeps it for
+ * review, never adding it by itself (`ReadItem.unconfirmed`).
+ */
+export function asUnconfirmed(item: ReadItem): ReadItem {
+  return { ...item, unconfirmed: true };
+}
+
+/**
  * The candidates that are not an item already read (`isNewItem`), numbered after the existing items and otherwise left as their
- * engine made them (their own confidence, kind and box).
+ * engine made them (their own confidence, kind and box). Each is unconfirmed: nothing else saw it.
  */
 export function addableItems(candidates: ReadItem[], existing: ReadItem[], tuning: LocalTuning): ReadItem[] {
   const next = nextOrder(existing);
-  return candidates.filter((c) => isNewItem(c, existing, tuning)).map((item, i) => ({ ...item, order: next + i }));
+  return candidates.filter((c) => isNewItem(c, existing, tuning)).map((item, i) => asUnconfirmed({ ...item, order: next + i }));
 }

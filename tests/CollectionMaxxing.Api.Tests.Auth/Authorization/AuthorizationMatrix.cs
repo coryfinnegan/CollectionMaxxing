@@ -290,6 +290,7 @@ public static class AuthorizationMatrix
         // (who may reach each route with the evals on is tested in Evals/EvalsLockedTests).
         AdminOnly("GET", "/api/admin/evals/golden", NotFound),
         AdminOnly("GET", "/api/admin/evals/golden/{id}/image", NotFound),
+        AdminOnly("POST", "/api/admin/evals/golden/{set}/{id}", NotFound), // adding a golden photo from the phone: with the evals off the admin gets the same 404
         AdminOnly("POST", "/api/admin/evals/runs", NotFound),
         AdminOnly("GET", "/api/admin/evals/runs/latest", NotFound),
     ];

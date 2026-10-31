@@ -36,9 +36,21 @@ export function groupCandidates(list: readonly CandidateDto[]): Record<ReviewGro
   return groups;
 }
 
-/** Ready rows start checked, as does anything already accepted from a scanner card. Owned and undecided rows wait for a tap. */
+/**
+ * A shelf read only the picture model made, at a place the Vision pipeline found nothing: the server marks it in `inferred` and keeps it undecided,
+ * because the model can read a title that exists but is not on the shelf. A title nobody else saw is the person's to opt into.
+ */
+export function isUnconfirmed(c: Pick<CandidateDto, 'inferred'>): boolean {
+  const v = c.inferred as unknown;
+  return !!v && typeof v === 'object' && (v as Record<string, unknown>).unconfirmed === true;
+}
+
+/**
+ * Ready rows start checked, as does anything already accepted from a scanner card. Owned and undecided rows wait for a tap, and so does an
+ * unconfirmed read (`isUnconfirmed`) until the person accepts it.
+ */
 export const defaultChecked = (c: CandidateDto, group: ReviewGroup): boolean =>
-  group === 'ready' || (group === 'owned' && c.decision === 'accepted');
+  (group === 'ready' && (c.decision === 'accepted' || !isUnconfirmed(c))) || (group === 'owned' && c.decision === 'accepted');
 
 /** Only rows that name a release can become items. */
 export const canCommit = (c: CandidateDto, group: ReviewGroup): boolean => (group === 'ready' || group === 'owned') && !!c.release;

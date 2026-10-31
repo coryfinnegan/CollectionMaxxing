@@ -3,6 +3,25 @@ namespace CollectionMaxxing.Application.Evals;
 /// <summary>A picture ready to stream. The caller owns the stream.</summary>
 public sealed record GoldenImage(Stream Content, string ContentType, long Length);
 
+/// <summary>What happened to an added picture.</summary>
+public enum GoldenAddOutcome
+{
+    /// <summary>The file was created.</summary>
+    Added,
+
+    /// <summary>A file or folder named <c>&lt;id&gt;.*</c> is already in one of the two set folders, so nothing was written.</summary>
+    IdTaken,
+
+    /// <summary>The folder cannot take the file: it is read-only, a set folder is a link or not a folder, or the set or id was not plain. Nothing is left behind.</summary>
+    NotWritable,
+
+    /// <summary>The evals are off or the golden folder is missing.</summary>
+    Unavailable,
+}
+
+/// <summary>The result of adding a picture; <see cref="Photo"/> is its listing entry when <see cref="Outcome"/> is <see cref="GoldenAddOutcome.Added"/>.</summary>
+public sealed record GoldenAddResult(GoldenAddOutcome Outcome, GoldenPhotoDto? Photo = null);
+
 /// <summary>
 /// The golden folder on the PC. A request never names a file: it names an id, and the id is looked up in the listing the folder
 /// gives. Nothing outside the folder, and nothing that is not a picture, is ever opened for a request.
@@ -26,6 +45,13 @@ public interface IGoldenSet
 
     /// <summary>True when a draft truth file already exists for the picture (it is never overwritten: the owner may be editing it).</summary>
     bool HasDraft(string id);
+
+    /// <summary>
+    /// Creates <c>&lt;set&gt;/&lt;id&gt;.jpg|heic</c> holding <paramref name="content"/>, whole. Never replaces a file, and keeps an id unique across both
+    /// sets (so the listing never drops it). Only a plain set folder inside the golden folder is written to; the path is built from the two
+    /// names and the extension alone, and never leaves the golden folder. A failed write leaves nothing behind.
+    /// </summary>
+    GoldenAddResult Add(string goldenSet, string id, GoldenPhotoFormat format, ReadOnlyMemory<byte> content);
 
     /// <summary>Writes <c>&lt;id&gt;.truth.draft.json</c> beside the picture. False when the folder is read-only or the write failed.</summary>
     bool TryWriteDraft(string id, string json);

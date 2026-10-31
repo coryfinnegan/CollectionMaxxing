@@ -9,7 +9,14 @@ import { scanMock } from '@/mocks/scan';
 import { reviewMock } from '@/mocks/scan-review';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
+import { useGetStats } from '@/api/generated/items/items';
 import { NeedsAttention } from './NeedsAttention';
+
+/** Stands in for the library header, which keeps the item counts on screen (and so in the query cache). */
+function StatsProbe() {
+  useGetStats(MOCK_LIBRARY_ID);
+  return null;
+}
 
 const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
@@ -74,6 +81,34 @@ describe('Needs attention', () => {
     await waitFor(() => expect(itemsState.entries.length).toBe(before + 1));
     expect(itemsState.entries[itemsState.entries.length - 1]!.release.title).toBe('Unreadable spine 1');
     await screen.findByText('Nothing needs attention.');
+  });
+
+  it('refreshes the library counts after Add to library and Link to item', async () => {
+    seed([kept(1), kept(2)]);
+    let statsFetches = 0;
+    server.events.on('request:start', ({ request }) => {
+      if (new URL(request.url).pathname.endsWith('/stats')) statsFetches += 1;
+    });
+    try {
+      // The counts are on screen with the rows, as they are in the library views.
+      await renderWithProviders(
+        <>
+          <StatsProbe />
+          <NeedsAttention libraryId={MOCK_LIBRARY_ID} />
+        </>,
+      );
+      await screen.findByText('"Unreadable spine 1"');
+      await waitFor(() => expect(statsFetches).toBe(1));
+
+      await fireEvent.press(screen.getByLabelText('Add "Unreadable spine 1" to your library'));
+      await waitFor(() => expect(statsFetches).toBe(2));
+
+      await fireEvent.press(await screen.findByLabelText('Link "Unreadable spine 2" to an item'));
+      await fireEvent.press(await screen.findByText('The Matrix'));
+      await waitFor(() => expect(statsFetches).toBe(3));
+    } finally {
+      server.events.removeAllListeners();
+    }
   });
 
   it('links the guess to a picked item', async () => {

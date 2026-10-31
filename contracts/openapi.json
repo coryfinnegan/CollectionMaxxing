@@ -5975,6 +5975,124 @@
         }
       }
     },
+    "/api/admin/evals/golden/{set}/{id}": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "AddGoldenPhoto",
+        "parameters": [
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "*/*": {
+              "schema": {
+                "$ref": "#/components/schemas/Stream"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoldenPhotoDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/evals/runs": {
       "post": {
         "tags": [
@@ -7144,6 +7262,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "providerRef": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderRefDto"
+              }
+            ]
           }
         }
       },
@@ -7867,6 +7995,12 @@
                 "$ref": "#/components/schemas/ItemBox"
               }
             ]
+          },
+          "unconfirmed": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -8333,6 +8467,12 @@
               {
                 "$ref": "#/components/schemas/ItemBox"
               }
+            ]
+          },
+          "unconfirmed": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }
@@ -9739,6 +9879,21 @@
           }
         }
       },
+      "ProviderRefDto": {
+        "required": [
+          "provider",
+          "externalId"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          }
+        }
+      },
       "ProvisionalDto": {
         "required": [
           "id",
@@ -10224,6 +10379,16 @@
             "items": {
               "$ref": "#/components/schemas/ReleaseIdentifierDto"
             }
+          },
+          "providerRef": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderRefDto"
+              }
+            ]
           }
         }
       },
@@ -11027,6 +11192,10 @@
             }
           }
         }
+      },
+      "Stream": {
+        "type": "string",
+        "format": "binary"
       },
       "TagDto": {
         "required": [

@@ -6,12 +6,14 @@ import { useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { getItem, updateItem } from '@/api/generated/items/items';
-import type { ItemSummaryDto, UpdateItemRequest } from '@/api/generated/models';
+import type { ItemStatus, ItemSummaryDto, UpdateItemRequest } from '@/api/generated/models';
 import { ifMatchHeader } from '@/features/item/etag';
 import { useInvalidateLibrary } from '@/features/item/useItem';
+import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { Text } from '@/ui';
+import { statusPatch } from './statusPatch';
 
 export type CellOption = { value: string; label: string; depth?: number };
 
@@ -25,9 +27,9 @@ type Props = {
   onNotice: (text: string) => void;
 };
 
-const patchFor = (field: Props['field'], value: string): UpdateItemRequest =>
+const patchFor = (field: Props['field'], item: ItemSummaryDto, value: string): UpdateItemRequest =>
   field === 'status'
-    ? { status: value as UpdateItemRequest['status'] }
+    ? statusPatch(item.status, value as ItemStatus, localDateString())
     : { locationId: value === '' ? null : value };
 
 export function InlineCell({ libraryId, item, field, current, options, onNotice }: Props) {
@@ -56,7 +58,7 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
         onNotice(`Couldn't load "${item.title}" to change its ${noun}. Reload the list and try again.`);
         return;
       }
-      await updateItem(libraryId, item.id, patchFor(field, value), { headers: ifMatchHeader(tag) });
+      await updateItem(libraryId, item.id, patchFor(field, item, value), { headers: ifMatchHeader(tag) });
       onNotice('');
     } catch (error) {
       if (error instanceof ApiError && error.status === 412) {

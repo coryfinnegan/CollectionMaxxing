@@ -60,13 +60,17 @@ public sealed record EngineSummary(
 
 public sealed record SkippedPhoto(string PhotoId, string Reason);
 
-/// <summary>One line of the M3 gate table (docs/02): the measure, the bar, what the run measured, and pass / fail / no_data.</summary>
+/// <summary>One line of the M3 gate table (docs/02): the measure, the bar, what the run measured, and pass / fail / no_data (or info, for a measure that is shown but not part of the verdict).</summary>
 public sealed record GateMeasure(string Name, string Bar, string? Actual, string Status);
 
-/// <summary>The Apple model engine against the Vision text engine, on the pooled golden photos.</summary>
+/// <summary>The Apple model engine on its own against the Vision text engine, on the pooled golden photos. Information only since ADR-032: it is not part of the verdict.</summary>
 public sealed record VisionComparison(double? AppleTop1Pct, double? VisionTop1Pct, double? DeltaPoints, bool? AppleBeatsVision, long? AppleSingleP50Ms, long? VisionSingleP50Ms);
 
-/// <summary>The M3 verdict: <c>pass</c> (every measure met), <c>fail</c> (some measure missed) or <c>incomplete</c> (nothing missed, but something has no data yet).</summary>
+/// <summary>
+/// The M3 verdict: <c>pass</c> (every measure met), <c>fail</c> (some measure missed) or <c>incomplete</c> (nothing missed, but something has no data yet).
+/// <c>Engine</c> is the row the gate measured: <c>apple_vision</c>, the combined row, which is what the app shows, since ADR-032. Results written before
+/// that name <c>apple_model</c> there, so a reader can tell which kind of gate a result file holds.
+/// </summary>
 public sealed record GateTable(string Engine, string Verdict, IReadOnlyList<GateMeasure> Measures, VisionComparison Comparison);
 
 public sealed record RegressionItem(string Metric, double Baseline, double Actual, double Points);

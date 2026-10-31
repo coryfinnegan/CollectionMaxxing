@@ -94,3 +94,23 @@ describe('a game\'s product code', () => {
     expect(identifyRequestOf(snapOf(item)).items?.[0]).toMatchObject({ productCode: 'SLUS-20034', box: { x: 0.1, y: 0.1, width: 0.05, height: 0.7 } });
   });
 });
+
+describe('a read only the picture model made', () => {
+  it('goes with the read, so the server keeps it for review instead of adding it', () => {
+    const item = read('Modern Comfort Food', { kind: 'book', unconfirmed: true });
+    expect(identifyItemOf(item).unconfirmed).toBe(true);
+    expect(identifyRequestOf(snapOf(item)).items?.[0]).toMatchObject({ title: 'Modern Comfort Food', unconfirmed: true });
+    expect(picItemOf(item).payload.unconfirmed).toBe(true);
+  });
+
+  it('is not in the request at all for a read nothing doubts', () => {
+    const item = read('Alien');
+    expect(identifyItemOf(item)).not.toHaveProperty('unconfirmed');
+    expect(identifyRequestOf(snapOf(item)).items?.[0]).not.toHaveProperty('unconfirmed');
+  });
+
+  it('is marked on its own item only, in a snap with other reads', () => {
+    const request = identifyRequestOf(snapOf(read('Alien'), read('Ubik', { unconfirmed: true }), read('Dune')));
+    expect(request.items?.map((i) => i.unconfirmed)).toEqual([undefined, true, undefined]);
+  });
+});

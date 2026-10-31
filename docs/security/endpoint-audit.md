@@ -40,6 +40,7 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | POST | `/api/admin/catalog/releases/{id:guid}:verify` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | stub (501) |
 | GET | `/api/admin/evals/golden` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | eval report only; admin only, off by default |
 | GET | `/api/admin/evals/golden/{id}/image` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | eval report only; admin only, off by default |
+| POST | `/api/admin/evals/golden/{set}/{id}` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | adds one eval photo to the PC's golden folder (JPEG or HEIC by its bytes, at most 40 MB, never overwrites); admin only, off by default |
 | POST | `/api/admin/evals/runs` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | eval report only; admin only, off by default |
 | GET | `/api/admin/evals/runs/latest` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | eval report only; admin only, off by default |
 | GET | `/api/admin/jobs` | admin policy | platform admin only | Y | n/a (admin only; no per-user object) | AdminJobDto: `LastError` is raw job error text; admin only (accepted) |

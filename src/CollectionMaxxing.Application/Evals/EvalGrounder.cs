@@ -74,7 +74,8 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 items[i].IsGuess,
                 cleaned[i].SegmentId,
                 ReadOf(cleaned[i].Facts, cleaned[i].Profile, items[i].Read.Creator),
-                cleaned[i].Box));
+                cleaned[i].Box,
+                cleaned[i].Unconfirmed));
         }
 
         return grounded;

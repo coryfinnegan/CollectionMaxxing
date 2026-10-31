@@ -2,6 +2,7 @@
 // Like the real API: at most 500 ids, patch or delete, and `affected` counts only the live items it changed.
 import { HttpResponse, http } from 'msw';
 import type { BulkItemsRequest, TagDto } from '@/api/generated/models';
+import { localDateString } from '@/lib/dates';
 import { itemsState } from './items';
 
 export const mockTags: TagDto[] = [
@@ -23,7 +24,16 @@ export const handlers = [
       if (body.action === 'delete') {
         entry.item.deletedAt = new Date().toISOString();
       } else if (body.patch) {
-        if (body.patch.status) entry.item.status = body.patch.status;
+        if (body.patch.status) {
+          entry.item.status = body.patch.status;
+          // Like the real API: lending starts today, and any other status clears who it was lent to.
+          if (body.patch.status === 'lent') {
+            entry.item.lentOn ??= localDateString();
+          } else {
+            entry.item.lentTo = null;
+            entry.item.lentOn = null;
+          }
+        }
         if (body.patch.locationId !== undefined) entry.item.locationId = body.patch.locationId;
         const added = body.patch.addTagIds ?? [];
         entry.item.tagIds = [...new Set([...entry.item.tagIds, ...added])].filter((t) => !body.patch?.removeTagIds?.includes(t));

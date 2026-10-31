@@ -125,6 +125,7 @@ public sealed class CandidateResolver(
         candidate.AlreadyOwnedCount = 0;
         candidate.GuidanceCode = Reguide(candidate, resolution);
         var undecided = candidate.Decision == CandidateDecision.Undecided; // a decision the person already made is theirs; the job never overwrites it
+        var unconfirmed = StoredRead.IsUnconfirmed(candidate.InferredJson); // only the picture model saw it: a title nobody else read waits for the person
         var ownedAt = new List<string>();
         CandidateDecision? autoDecision = null;
         var firstOwned = 0;
@@ -179,8 +180,9 @@ public sealed class CandidateResolver(
                     ownedAt = OwnedAt(owned);
                     firstOwned = owned.Count;
 
-                    // An exactly owned release is skipped unless the session opted into copies; anything else is added.
-                    if (undecided)
+                    // An exactly owned release is skipped unless the session opted into copies; anything else is added. An unconfirmed
+                    // read is not added by default: it stays undecided, the person ticks it in Review (or Adds it on its card) to opt in.
+                    if (undecided && ((owned.Count > 0 && !copiesMode) || !unconfirmed))
                     {
                         autoDecision = owned.Count > 0 && !copiesMode ? CandidateDecision.Rejected : CandidateDecision.Accepted;
                         candidate.Decision = autoDecision.Value;
@@ -198,7 +200,8 @@ public sealed class CandidateResolver(
             candidate.AlternativesJson = CandidateJson.Serialize(alternatives);
         }
 
-        candidate.Tier = EvaluateTier(verdict, resolution, taken, facts, firstOwned, fromIdentifier, copiesMode, candidate.ShotKind);
+        candidate.Tier = EvaluateTier(
+            verdict, resolution, taken, facts, firstOwned, fromIdentifier, copiesMode, candidate.ShotKind, unconfirmed);
 
         if (resolution.ProductTitle is { } productTitle && candidate.VisibleText is null)
         {
@@ -463,7 +466,9 @@ public sealed class CandidateResolver(
     /// high-confidence spine or cover: <see cref="MatchScorer"/> Matched (the 0.90 + 0.08 lead rules,
     /// re-checked on the scores kept), every contender one work, the series-volume rule clear, the library not
     /// owning it, and a spine/cover shot (a loose item is always T2, never T1). Anything else is T2, reviewed by the
-    /// person. Pending has no tier yet. <paramref name="verdict"/> is the verdict after the veto.
+    /// person. Pending has no tier yet. <paramref name="verdict"/> is the verdict after the veto. An <paramref name="unconfirmed"/> read
+    /// (only the picture model saw it, where Vision found nothing) is T2 at most, however exactly the catalogue matched it: the model can
+    /// read a title that happens to exist, so a person confirms it. Only the tier moves; the candidates and the verdict are as scored.
     /// </summary>
     private ScanTier? EvaluateTier(
         ResolutionVerdict verdict,
@@ -473,11 +478,17 @@ public sealed class CandidateResolver(
         int firstOwned,
         bool fromIdentifier,
         bool copiesMode,
-        ShotKind shotKind)
+        ShotKind shotKind,
+        bool unconfirmed)
     {
         if (verdict == ResolutionVerdict.Pending)
         {
             return null;
+        }
+
+        if (unconfirmed)
+        {
+            return ScanTier.T2;
         }
 
         if (fromIdentifier && verdict == ResolutionVerdict.Matched && resolution.Options.Count == 1 && (firstOwned == 0 || copiesMode))

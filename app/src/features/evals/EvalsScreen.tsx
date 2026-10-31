@@ -3,6 +3,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '@/theme/tokens';
 import { Button, Card, LoadingState, Screen, Text, TextField } from '@/ui';
+import { AddEvalPhotos, deviceAddPhotos } from './AddEvalPhotos';
+import type { AddPhotosController } from './addPhotos';
 import { getEvalRunner } from './device';
 import type { EvalRunner, EvalState } from './runner';
 
@@ -39,9 +41,11 @@ function Summary({ state }: { state: EvalState }) {
   );
 }
 
-export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner }) {
+export function EvalsScreen({ runner = getEvalRunner(), photos }: { runner?: EvalRunner; photos?: AddPhotosController }) {
   const colors = useColors();
   const state = useSyncExternalStore(runner.subscribe, runner.getState);
+  const [addPhotos] = useState(() => photos ?? deviceAddPhotos());
+  const adding = useSyncExternalStore(addPhotos.subscribe, addPhotos.getState).phase === 'sending';
   const elapsed = useElapsed(state);
   const [note, setNote] = useState('');
   const working = state.phase === 'starting' || state.phase === 'running' || state.phase === 'paused';
@@ -49,7 +53,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
 
   return (
     <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
-    <Screen subtitle="Reads your PC's test photos on this iPhone and sends the readings back to be scored.">
+    <Screen subtitle="Reads your PC's test photos on this iPhone and sends the readings back to be scored." keyboardAvoiding>
       {state.phase === 'idle' ? (
         <>
           <Text tone="muted">Keep the phone awake, plugged in and out of direct sun. The photos are not kept on the phone and are not sent back.</Text>
@@ -60,7 +64,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
             placeholder="Leave empty unless the thresholds moved"
             maxLength={500}
           />
-          <Button label="Start the run" onPress={() => void runner.start({ baselineNote: note })} />
+          <Button label="Start the run" disabled={adding} onPress={() => void runner.start({ baselineNote: note })} />
         </>
       ) : null}
 
@@ -99,7 +103,7 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
       {state.phase === 'error' ? (
         <>
           <Text tone="danger" accessibilityRole="alert">{state.message}</Text>
-          <Button label="Try again" onPress={() => void runner.start()} />
+          <Button label="Try again" disabled={adding} onPress={() => void runner.start()} />
         </>
       ) : null}
 
@@ -114,9 +118,11 @@ export function EvalsScreen({ runner = getEvalRunner() }: { runner?: EvalRunner 
           {state.skipped.length > 0 ? <Text tone="muted">{`Skipped ${state.skipped.length} photos that wouldn't download.`}</Text> : null}
           <Summary state={state} />
           {state.partial ? <Button label="Continue with the rest" onPress={() => void runner.resume()} /> : null}
-          <Button label="Run again" variant="secondary" onPress={() => void runner.start()} />
+          <Button label="Run again" variant="secondary" disabled={adding} onPress={() => void runner.start()} />
         </>
       ) : null}
+
+      {working || state.phase === 'uploading' ? null : <AddEvalPhotos controller={addPhotos} />}
     </Screen>
     </SafeAreaView>
   );

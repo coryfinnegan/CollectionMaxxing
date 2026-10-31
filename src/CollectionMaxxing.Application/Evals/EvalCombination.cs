@@ -8,8 +8,9 @@ namespace CollectionMaxxing.Application.Evals;
 /// <summary>
 /// The virtual engine <c>apple_vision</c>: what the scanner shows on a shelf shot, the Vision text engine's items first and then the
 /// picture model's items Vision missed (the two find different spines). It is built here from what the phone uploaded, per photo,
-/// so it needs no phone engine of its own, and it is report-only: the M3 gate reads the real engines' rows and the regression
-/// check never had its metric keys, so neither moves.
+/// so it needs no phone engine of its own. It is the row the M3 gate measures (<see cref="M3Gate.MeasuredEngine"/>, ADR-032), because
+/// it is what the app shows. The regression check reads it like any engine under its own metric keys, which a baseline taken before
+/// it existed does not have (a metric the baseline does not know is new, not a regression).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -36,7 +37,7 @@ public static class EvalCombination
     /// <summary>
     /// One combined photo for every photo that has both an <c>apple_model</c> and a <c>vision_pipeline</c> row (and a truth file).
     /// A single-item picture (the single set, or a shelf-set photo labelled a single cover or a loose item) is not combined in
-    /// the scanner, so its combined row is the model's own.
+    /// the scanner, so its combined row is the model's own row whole (items, tiers, cover cue, time, thermal state).
     /// </summary>
     public static IReadOnlyList<GroundedPhoto> Of(IReadOnlyList<GroundedPhoto> photos, IReadOnlyDictionary<string, TruthEntry> truths)
     {
@@ -77,7 +78,12 @@ public static class EvalCombination
 
         // Both engines have to have answered for their items to be combined; if either did not, the items are the model's own.
         var both = apple.Outcome == Ok && vision.Outcome == Ok;
-        var modelAdded = both ? apple.Items.Where(model => !vision.Items.Any(visionItem => SameItem(model, visionItem))).ToList() : [];
+
+        // What the model adds beside Vision's items is unconfirmed, as in the scanner: nothing else saw it, so it is review (T2), never an
+        // auto-add, whatever tier the phone claimed. Vision's items, and every other row (a single, one engine failing), are not marked.
+        var modelAdded = both
+            ? apple.Items.Where(model => !vision.Items.Any(visionItem => SameItem(model, visionItem))).Select(model => model with { Unconfirmed = true }).ToList()
+            : [];
         var visionOnly = both && vision.Items.Any(visionItem => !apple.Items.Any(model => SameItem(model, visionItem)));
         return apple with
         {

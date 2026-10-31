@@ -32,6 +32,50 @@ public static class GetGoldenImage
     }
 }
 
+/// <summary>
+/// Use case: add one golden picture from the phone (<c>POST /api/admin/evals/golden/{set}/{id}</c>). The API reads the bytes, enforces the size
+/// cap and decides the kind from them; this checks the names and has the folder create the file.
+/// </summary>
+public static class AddGoldenPhoto
+{
+    public sealed class Handler(IGoldenSet golden)
+    {
+        /// <summary>What can be known before the body is read: the evals are on, the set is one of the two, and the id is a usable name.</summary>
+        public Result Check(string? set, string? id)
+        {
+            if (!golden.IsAvailable)
+            {
+                return Result.Failure(EvalErrors.NotFound);
+            }
+
+            if (set is null || !GoldenSets.All.Contains(set))
+            {
+                return Result.Failure(EvalErrors.SetInvalid);
+            }
+
+            return EvalIds.IsValid(id) && !GoldenPhotoNames.IsReserved(id!) ? Result.Success() : Result.Failure(EvalErrors.IdInvalid);
+        }
+
+        public Result<GoldenPhotoDto> Handle(string? set, string? id, GoldenPhotoFormat format, ReadOnlyMemory<byte> content)
+        {
+            var check = Check(set, id);
+            if (!check.IsSuccess)
+            {
+                return check.Error!;
+            }
+
+            var added = golden.Add(set!, id!, format, content);
+            return added.Outcome switch
+            {
+                GoldenAddOutcome.Added => added.Photo!,
+                GoldenAddOutcome.IdTaken => EvalErrors.IdTaken,
+                GoldenAddOutcome.Unavailable => EvalErrors.NotFound,
+                _ => EvalErrors.GoldenNotWritable,
+            };
+        }
+    }
+}
+
 /// <summary>Use case: the summary of the latest uploaded run (<c>GET /api/admin/evals/runs/latest</c>).</summary>
 public static class GetLatestEvalRun
 {
