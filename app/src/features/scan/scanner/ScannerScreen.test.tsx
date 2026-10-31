@@ -88,12 +88,26 @@ describe('scanner screen', () => {
   });
 
   it('shows "Nice scan!" and ticks before any network answer', async () => {
-    server.use(http.post('*/api/v1/libraries/:libraryId/scan-sessions', () => HttpResponse.error()));
-    const source = await scanner();
-    await act(async () => source.inject([code(DEV_CODES.duneOwned)]));
+    // The flash is on a real-clock timer (flashMs). On a loaded machine the act below can take longer than that, so the flash
+    // would expire before the assertions look at it. The clock is held still instead, and only moves when the test moves it.
+    jest.useFakeTimers();
+    try {
+      server.use(http.post('*/api/v1/libraries/:libraryId/scan-sessions', () => HttpResponse.error()));
+      const source = await scanner();
+      await act(async () => source.inject([code(DEV_CODES.duneOwned)]));
 
-    expect(screen.getByText('Nice scan!')).toBeTruthy();
-    expect(haptic).toContain('tick');
+      expect(screen.getByText('Nice scan!')).toBeTruthy();
+      expect(haptic).toContain('tick');
+      expect(scanMock.barcodeRequests).toHaveLength(0); // still no answer: the flash did not wait for the network
+
+      // And it goes away by itself once its time is up, not before.
+      await act(async () => void jest.advanceTimersByTime(tuning.flashMs - 1));
+      expect(screen.getByText('Nice scan!')).toBeTruthy();
+      await act(async () => void jest.advanceTimersByTime(1));
+      expect(screen.queryByText('Nice scan!')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('resolves the slow lookup over the event stream into the quiet queue, with no duplicate', async () => {

@@ -12,7 +12,7 @@ namespace CollectionMaxxing.Api.Tests.Authorization;
 /// must be in the authorization matrix. These tests read the real routing table, so they also catch endpoints
 /// added by code nobody remembered to list.
 /// </summary>
-public class EndpointPolicyTests(ApiFixture api)
+public class EndpointPolicyTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
     private static string Describe(RouteEndpoint endpoint) =>
         $"{string.Join("/", HttpMethods(endpoint))} {endpoint.RoutePattern.RawText}";

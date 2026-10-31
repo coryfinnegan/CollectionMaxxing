@@ -7,7 +7,12 @@ using CollectionMaxxing.Domain.Libraries;
 
 namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
 
-/// <summary>An interrupted <c>/identify</c> request never leaves an item pending forever, and the size limits hold to the byte.</summary>
+/// <summary>
+/// An interrupted <c>/identify</c> request never leaves an item pending forever, and the size limits hold to the byte.
+/// Serial: the client gives up after 800 ms, and the request must have reached the server and stored its candidate by then, which a busy
+/// machine can overrun on a fresh host.
+/// </summary>
+[Collection(RunsAlone.Name)]
 public class IdentifyReliabilityTests(ApiFixture api) : IdentifyTest(api)
 {
     private const int MaxItemBytes = 16 * 1024;

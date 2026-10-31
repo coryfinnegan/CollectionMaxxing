@@ -4,16 +4,24 @@ using Xunit;
 
 namespace CollectionMaxxing.Api.Tests.Support;
 
-/// <summary>One Postgres container and one running API for the whole assembly.</summary>
+/// <summary>
+/// One database and one API host for one test class: a clone of the assembly's migrated template (see <see cref="PostgresServer"/>), and a
+/// <see cref="TestApiFactory"/> pointed at it. Test classes get it through <c>IClassFixture&lt;ApiFixture&gt;</c> (<see cref="ApiTest"/> declares it),
+/// so classes run in parallel and never see each other's rows, clock, job queue or caches; the tests inside a class run one after another.
+/// To keep a class from running alongside any other, put it in a <c>[CollectionDefinition(..., DisableParallelization = true)]</c> collection.
+/// It has no constructor arguments because an assembly fixture cannot take another fixture (xUnit3005) and the Auth assembly also registers
+/// one shared instance, for a locked class that names <c>ApiFixture</c> but declares no class fixture.
+/// </summary>
 public sealed class ApiFixture : IAsyncLifetime
 {
-    public PostgresFixture Db { get; } = new();
+    /// <summary>This class's own database.</summary>
+    public PostgresFixture Db { get; private set; } = null!;
 
     public TestApiFactory Factory { get; private set; } = null!;
 
     public async ValueTask InitializeAsync()
     {
-        await Db.InitializeAsync();
+        Db = await PostgresServer.Shared.CreateDatabaseAsync();
         Factory = new TestApiFactory(Db.ConnectionString);
     }
 
@@ -37,7 +45,15 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
-        await Factory.DisposeAsync();
-        await Db.DisposeAsync();
+        GC.SuppressFinalize(this);
+        if (Factory is not null)
+        {
+            await Factory.DisposeAsync();
+        }
+
+        if (Db is not null)
+        {
+            await Db.DisposeAsync();
+        }
     }
 }

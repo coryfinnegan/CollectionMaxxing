@@ -65,6 +65,44 @@ public static class MatchScorer
     }
 
     /// <summary>
+    /// The titles of one scoring run, each made comparable once however many candidates it meets: the read's title, a
+    /// candidate's title, an author's name, and the read's title with a candidate's author taken out.
+    /// </summary>
+    private sealed class TitleCache
+    {
+        private readonly Dictionary<string, ComparableTitle> _titles = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, ComparableTitle?> _readWithoutCreator = new(StringComparer.Ordinal);
+
+        public TitleCache(string? readTitle) => Read = Of(readTitle);
+
+        public ComparableTitle Read { get; }
+
+        public ComparableTitle Of(string? text)
+        {
+            text ??= string.Empty;
+            if (!_titles.TryGetValue(text, out var title))
+            {
+                title = new ComparableTitle(text);
+                _titles[text] = title;
+            }
+
+            return title;
+        }
+
+        /// <summary>The read's title with this creator's name taken out, or null when the read does not carry it.</summary>
+        public ComparableTitle? ReadWithout(string creator)
+        {
+            if (!_readWithoutCreator.TryGetValue(creator, out var bare))
+            {
+                bare = Read.WithoutCreator(Of(creator));
+                _readWithoutCreator[creator] = bare;
+            }
+
+            return bare;
+        }
+    }
+
+    /// <summary>
     /// The score of one release, from 0 to 1, rounded to nine decimals so that exact boundaries compare exactly. An exact
     /// identifier match is 1.0 whatever the title says. A known platform mismatch caps the score at
     /// <see cref="ScoringThresholds.PlatformMismatchCap"/>, and different years in the two titles at
@@ -72,10 +110,13 @@ public static class MatchScorer
     /// when the read has no distance for it. <see cref="Evaluate"/> scores a whole set and treats a candidate without a
     /// distance as neutral once another has one.
     /// </summary>
-    public static double Score(ReadItem read, CandidateRelease release, ScoringProfile profile) =>
-        ScoreCore(read, release, profile, Answerable.Alone).Score;
+    public static double Score(ReadItem read, CandidateRelease release, ScoringProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        return ScoreCore(read, release, profile, Answerable.Alone, new TitleCache(read.Title)).Score;
+    }
 
-    private static ScoredRelease ScoreCore(ReadItem read, CandidateRelease release, ScoringProfile profile, Answerable answerable)
+    private static ScoredRelease ScoreCore(ReadItem read, CandidateRelease release, ScoringProfile profile, Answerable answerable, TitleCache titles)
     {
         ArgumentNullException.ThrowIfNull(read);
         ArgumentNullException.ThrowIfNull(release);
@@ -126,13 +167,14 @@ public static class MatchScorer
             {
                 // A spine reads title and author as one line: this release's own author, found in the read, is not part of
                 // its title, and finding it there is the creator signal a separate author field would have been.
-                var similarity = TitleNormalizer.TitleSimilarity(read.Title, release.Title);
+                var releaseTitle = titles.Of(release.Title);
+                var similarity = titles.Read.TitleSimilarity(releaseTitle);
                 foreach (var creator in release.Creators)
                 {
-                    if (TitleNormalizer.WithoutCreator(read.Title, creator) is { } bare)
+                    if (titles.ReadWithout(creator) is { } bare)
                     {
                         creatorInTitle = true;
-                        similarity = Math.Max(similarity, TitleNormalizer.TitleSimilarity(bare, release.Title));
+                        similarity = Math.Max(similarity, bare.TitleSimilarity(releaseTitle));
                     }
                 }
 
@@ -144,7 +186,7 @@ public static class MatchScorer
                 terms.Add(new ScoreTerm(TitleTerm, weights.Title, 0.0, false));
             }
 
-            titleYearConflict = TitleNormalizer.TitleYearsConflict(read.Title, release.Title);
+            titleYearConflict = titles.Read.YearsConflictWith(titles.Of(release.Title));
         }
 
         if (read.Format is not null || read.Kind is not null)
@@ -171,7 +213,7 @@ public static class MatchScorer
             // Two pieces of evidence, the better one counts: the author the reader named, and this release's own author
             // found printed in the title line. A spine's smaller print is often misread as the author (a fragment, the
             // publisher), and that must not hide the author the title line carries.
-            double? similarity = release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators) : null;
+            double? similarity = release.Creators.Count > 0 ? CreatorSimilarity(read.Creator, release.Creators, titles) : null;
             if (creatorInTitle)
             {
                 similarity = Math.Max(similarity ?? 0.0, 1.0);
@@ -189,7 +231,7 @@ public static class MatchScorer
             Add(
                 "edition",
                 weights.Edition,
-                string.IsNullOrWhiteSpace(release.Edition) ? null : TitleNormalizer.Similarity(read.Edition, release.Edition),
+                string.IsNullOrWhiteSpace(release.Edition) ? null : titles.Of(read.Edition).Similarity(titles.Of(release.Edition)),
                 answerable.Edition);
         }
 
@@ -239,8 +281,9 @@ public static class MatchScorer
         ArgumentNullException.ThrowIfNull(profile);
 
         var answerable = AnswerableIn(read, releases);
+        var titles = new TitleCache(read.Title);
         var ranked = releases
-            .Select(release => ScoreCore(read, release, profile, answerable))
+            .Select(release => ScoreCore(read, release, profile, answerable, titles))
             .OrderByDescending(scored => scored.Score)
             .ToList();
 
@@ -446,8 +489,11 @@ public static class MatchScorer
     private static double YearProximity(int readYear, int releaseYear) =>
         Math.Max(0.0, 1.0 - (0.25 * Math.Abs(readYear - releaseYear)));
 
-    private static double CreatorSimilarity(string readCreator, IReadOnlyList<string> creators) =>
-        creators.Max(creator => TitleNormalizer.Similarity(readCreator, creator));
+    private static double CreatorSimilarity(string readCreator, IReadOnlyList<string> creators, TitleCache titles)
+    {
+        var read = titles.Of(readCreator);
+        return creators.Max(creator => read.Similarity(titles.Of(creator)));
+    }
 
     // The phone reports a feature-print distance. Treating the print as a unit vector, the cosine similarity is
     // 1 - d^2 / 2: identical pictures (d = 0) give 1, unrelated ones about 0, and anything beyond d = sqrt(2) would be a

@@ -12,6 +12,7 @@ using CollectionMaxxing.Application.Libraries.Members;
 using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
+using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.EntityFrameworkCore;
 
@@ -450,18 +451,29 @@ public static class BuildExport
                         .ToLookup(t => t.ItemId, t => t.TagId);
                     var releaseIds = rows.Select(r => r.ReleaseId).Distinct().ToList();
                     // The shared barcodes and the ones this library taught, not a barcode only another library taught.
+                    // One list per release, shared by every item of it: the rows only read it.
                     var identifiers = (await db.ReleaseIdentifiers.AsNoTracking().UsableBy(library.Id).Where(i => releaseIds.Contains(i.ReleaseId))
                             .OrderBy(i => i.Type).ThenBy(i => i.Value)
                             .Select(i => new { i.ReleaseId, i.Type, i.Value }).ToListAsync(cancellationToken))
-                        .ToLookup(i => i.ReleaseId, i => new ExportIdentifier(EnumText(i.Type), i.Value));
+                        .GroupBy(i => i.ReleaseId)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => (IReadOnlyList<ExportIdentifier>)[.. group.Select(i => new ExportIdentifier(EnumText.ToText(i.Type), i.Value))]);
                     var names = await users.DisplayNamesAsync(rows.Select(r => r.CreatedBy).Distinct().ToList(), cancellationToken);
 
                     foreach (var row in rows)
                     {
-                        var tagIds = tagLinks[row.Id]
-                            .Where(library.TagNames.ContainsKey)
-                            .OrderBy(id => library.TagNames[id], StringComparer.OrdinalIgnoreCase).ThenBy(id => id)
-                            .ToList();
+                        IReadOnlyList<Guid> tagIds = [];
+                        IReadOnlyList<string> tagNames = [];
+                        if (tagLinks.Contains(row.Id))
+                        {
+                            tagIds = tagLinks[row.Id]
+                                .Where(library.TagNames.ContainsKey)
+                                .OrderBy(id => library.TagNames[id], StringComparer.OrdinalIgnoreCase).ThenBy(id => id)
+                                .ToList();
+                            tagNames = [.. tagIds.Select(id => library.TagNames[id])];
+                        }
+
                         string? locationPath = null;
                         if (row.LocationId is { } locationId)
                         {
@@ -476,22 +488,22 @@ public static class BuildExport
                             row.WorkId,
                             row.CustomTitle ?? TitleCaser.ToTitleCase(row.WorkTitle),
                             row.CustomTitle,
-                            EnumText(row.Kind),
-                            EnumText(row.Format),
+                            EnumText.ToText(row.Kind),
+                            EnumText.ToText(row.Format),
                             row.Platform,
                             row.ReleaseDate?.Year ?? row.OriginalYear,
-                            EnumText(row.Status),
-                            row.Condition is { } condition ? EnumText(condition) : null,
-                            row.Completeness is { } completeness ? EnumText(completeness) : null,
+                            EnumText.ToText(row.Status),
+                            row.Condition is { } condition ? EnumText.ToText(condition) : null,
+                            row.Completeness is { } completeness ? EnumText.ToText(completeness) : null,
                             row.LocationId,
                             locationPath,
                             tagIds,
-                            tagIds.Select(id => library.TagNames[id]).ToList(),
+                            tagNames,
                             row.Notes,
                             row.AcquiredOn,
                             row.LentTo,
                             row.LentOn,
-                            identifiers[row.ReleaseId].ToList(),
+                            identifiers.GetValueOrDefault(row.ReleaseId) ?? [],
                             names.GetValueOrDefault(row.CreatedBy),
                             row.CreatedAt,
                             row.UpdatedAt);
@@ -504,7 +516,5 @@ public static class BuildExport
                 }
             }
         }
-
-        private static string EnumText<T>(T value) where T : struct, Enum => JsonSerializer.Serialize(value, Json).Trim('"');
     }
 }

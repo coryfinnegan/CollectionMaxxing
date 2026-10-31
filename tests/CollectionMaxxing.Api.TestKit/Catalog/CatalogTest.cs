@@ -17,7 +17,11 @@ namespace CollectionMaxxing.Api.Tests.Catalog;
 /// <summary>Base of the catalogue tests: a client for any user, with fake providers and a throwaway cover folder.</summary>
 public abstract class CatalogTest(ApiFixture api) : ApiTest(api)
 {
-    protected string CoversRoot { get; } = Path.Combine(Path.GetTempPath(), "cm-covers-" + Guid.NewGuid().ToString("N"));
+    // The cover folder sits in a folder of this test's own: a test can put a file just outside it (a path traversal that must not be served),
+    // and that spot must not be the temp folder itself, which every test class running in parallel shares.
+    private readonly string _scratch = Path.Combine(Path.GetTempPath(), "cm-covers-" + Guid.NewGuid().ToString("N"));
+
+    protected string CoversRoot => Path.Combine(_scratch, "covers");
 
     public override async ValueTask InitializeAsync()
     {
@@ -29,7 +33,7 @@ public abstract class CatalogTest(ApiFixture api) : ApiTest(api)
     {
         try
         {
-            Directory.Delete(CoversRoot, recursive: true);
+            Directory.Delete(_scratch, recursive: true);
         }
         catch (IOException)
         {

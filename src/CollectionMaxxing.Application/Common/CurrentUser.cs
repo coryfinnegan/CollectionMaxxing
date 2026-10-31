@@ -36,13 +36,25 @@ public sealed class CurrentUser : ICurrentUser
 
     public IReadOnlyList<Guid> LibraryIds { get; private set; } = [];
 
-    public void Initialize(Guid userId, IEnumerable<Membership> memberships)
+    /// <summary>
+    /// Takes the caller's identity from the memberships the membership reader returned. The list is kept as given, so it
+    /// must not change afterwards; this runs on every authenticated request, so it makes no copy of it.
+    /// </summary>
+    /// <exception cref="ArgumentException">Two memberships name one library.</exception>
+    public void Initialize(Guid userId, IReadOnlyList<Membership> memberships)
     {
-        var list = memberships.ToList();
+        var libraryIds = new Guid[memberships.Count];
+        var roles = new Dictionary<Guid, LibraryRole>(memberships.Count);
+        for (var i = 0; i < memberships.Count; i++)
+        {
+            libraryIds[i] = memberships[i].LibraryId;
+            roles.Add(memberships[i].LibraryId, memberships[i].Role);
+        }
+
         UserId = userId;
-        Memberships = list;
-        LibraryIds = list.Select(m => m.LibraryId).ToArray();
-        _roles = list.ToDictionary(m => m.LibraryId, m => m.Role);
+        Memberships = memberships;
+        LibraryIds = libraryIds;
+        _roles = roles;
     }
 
     public LibraryRole? RoleIn(Guid libraryId) => _roles.TryGetValue(libraryId, out var role) ? role : null;
