@@ -462,7 +462,7 @@ public static class IdentifyItems
                         continue; // never auto-added
                     }
 
-                    await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken, coverFiles);
+                    await autoCommit.TryAddAsync(session, candidate, userId, currentUser.RoleIn(session.LibraryId), cancellationToken, coverFiles, lookups);
                 }
 
                 try

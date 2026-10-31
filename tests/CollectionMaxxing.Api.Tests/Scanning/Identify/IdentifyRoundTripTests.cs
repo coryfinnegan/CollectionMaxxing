@@ -24,8 +24,11 @@ namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
 // (every candidate, decision, score, alternative and ownership flag, byte for byte) and how many times the database is asked.
 public class IdentifyRoundTripTests : IdentifyTest
 {
-    /// <summary>The most database round trips one identify of <see cref="ShelfSize"/> reads may take. The count must not grow with the shelf.</summary>
-    private const int RoundTripCeiling = 60;
+    /// <summary>
+    /// The most database round trips one identify of <see cref="ShelfSize"/> reads may take. A query for each read would add
+    /// <see cref="ShelfSize"/> to the count, so this sits well under that.
+    /// </summary>
+    private const int RoundTripCeiling = 55;
 
     private const int ShelfSize = 30;
 
@@ -51,6 +54,23 @@ public class IdentifyRoundTripTests : IdentifyTest
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK, string.Join(" || ", Logs.Lines.Where(l => l.Contains("Exception", StringComparison.Ordinal))));
         var answer = Pin.Normalized(await response.Content.ReadAsStringAsync());
         Pin.Check("shelf-of-thirty.json", answer);
+    }
+
+    [Fact]
+    public async Task A_shelf_of_thirty_reads_is_answered_in_a_handful_of_round_trips_not_a_few_per_read()
+    {
+        var (client, sessionId) = await ArrangeShelfAsync();
+
+        _recorder.Clear();
+        var clock = Stopwatch.StartNew();
+        var response = await client.PostAsync(IdentifyUrl(sessionId), Json(ShelfBody()));
+        clock.Stop();
+        var trips = _recorder.Snapshot();
+
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"identify of {ShelfSize} reads: {trips.Count} round trips in {clock.ElapsedMilliseconds} ms{Environment.NewLine}{RoundTripRecorder.Report(trips)}");
+        trips.Count.ShouldBeLessThanOrEqualTo(RoundTripCeiling, RoundTripRecorder.Report(trips));
     }
 
     private async Task<(HttpClient Client, Guid SessionId)> ArrangeShelfAsync()

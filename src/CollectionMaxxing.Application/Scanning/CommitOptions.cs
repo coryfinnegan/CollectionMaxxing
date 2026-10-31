@@ -53,7 +53,8 @@ internal sealed record ResolvedReleases(Dictionary<Guid, Guid> ForCandidate, IRe
 internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
 {
     public async Task<ResolvedReleases> ResolveAsync(
-        ScanSession session, IReadOnlyList<ScanCandidate> accepted, DateTimeOffset now, CancellationToken cancellationToken)
+        ScanSession session, IReadOnlyList<ScanCandidate> accepted, DateTimeOffset now, CancellationToken cancellationToken,
+        AnswerLookups? lookups = null)
     {
         var result = accepted.ToDictionary(c => c.Id, c => c.MatchedReleaseId!.Value);
 
@@ -73,10 +74,14 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
         }
 
         var baseIds = edited.Select(c => c.MatchedReleaseId!.Value).Distinct().ToList();
-        var bases = await db.Releases.AsNoTracking().Where(r => baseIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
+        var bases = lookups is null
+            ? await db.Releases.AsNoTracking().Where(r => baseIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken)
+            : await lookups.RowsAsync(baseIds, cancellationToken);
         var workIds = bases.Values.Select(r => r.WorkId).Distinct().ToList();
-        var kinds = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.Kind, cancellationToken);
-        var platforms = await db.Platforms.AsNoTracking().ToListAsync(cancellationToken);
+        var kinds = lookups is null
+            ? await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.Kind, cancellationToken)
+            : await lookups.KindsAsync(workIds, cancellationToken);
+        var platforms = lookups is null ? await db.Platforms.AsNoTracking().ToListAsync(cancellationToken) : await lookups.PlatformsAsync(cancellationToken);
         var added = new Dictionary<(Guid Work, ReleaseFormat Format, Guid? Platform, string Edition), Guid>();
         var origins = new HashSet<Guid>();
 

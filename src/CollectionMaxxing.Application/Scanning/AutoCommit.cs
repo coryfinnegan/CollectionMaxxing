@@ -22,11 +22,12 @@ public sealed class AutoCommit(
     /// caller may add to the library, the session is still open, the person did not already reject it, and the
     /// candidate was not added already. Returns the created item ids, empty when the candidate stays for review.
     /// <paramref name="coverFiles"/> collects the cover files written, for the caller to delete when its save fails
-    /// (nothing points at them then); null collects nothing.
+    /// (nothing points at them then); null collects nothing. A caller adding from a whole picture passes its
+    /// <paramref name="lookups"/>, so the releases are read once for all of the adds instead of once for each.
     /// </summary>
     public async Task<IReadOnlyList<Guid>> TryAddAsync(
         ScanSession session, ScanCandidate candidate, Guid userId, LibraryRole? role, CancellationToken cancellationToken,
-        ICollection<string>? coverFiles = null)
+        ICollection<string>? coverFiles = null, AnswerLookups? lookups = null)
     {
         if (candidate.Tier is not (ScanTier.T0 or ScanTier.T1)
             || candidate.Tier is not { } tier
@@ -41,9 +42,9 @@ public sealed class AutoCommit(
         }
 
         var now = clock.GetUtcNow();
-        var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session, [candidate], now, cancellationToken);
+        var releaseFor = await new EditedReleases(db, ids).ResolveAsync(session, [candidate], now, cancellationToken, lookups);
         var releaseId = releaseFor.ForCandidate[candidate.Id];
-        foreach (var written in await covers.FetchMissingAsync([releaseId], cancellationToken))
+        foreach (var written in await covers.FetchMissingAsync([releaseId], cancellationToken, lookups))
         {
             coverFiles?.Add(written);
         }
