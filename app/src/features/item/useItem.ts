@@ -5,6 +5,7 @@ import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-q
 import { create } from 'zustand';
 import { createItem, deleteItem, restoreItem, updateItem, useGetItem } from '@/api/generated/items/items';
 import type { CreateItemRequest, ItemDetailDto, UpdateItemRequest } from '@/api/generated/models';
+import { ApiError } from '@/lib/http';
 import { ifMatchHeader } from './etag';
 
 /** The item and the ETag it was loaded with. The ETag goes back as If-Match on PATCH and DELETE. */
@@ -35,12 +36,19 @@ export function useInvalidateLibrary() {
 }
 
 export function useItemMutations(libraryId: string) {
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateLibrary();
   const onSettled = () => invalidate(libraryId);
   return {
     create: useMutation({
       mutationFn: ({ data, idempotencyKey }: { data: CreateItemRequest; idempotencyKey: string }) =>
         createItem(libraryId, data, { headers: { 'Idempotency-Key': idempotencyKey } }),
+      // A search result the server no longer keeps: ask the search again, which shows (and keeps) its hits afresh.
+      onError: (error) => {
+        if (error instanceof ApiError && error.problem.code === 'provider_hit.not_found') {
+          void queryClient.invalidateQueries({ queryKey: ['/api/v1/catalog/search'] });
+        }
+      },
       onSettled,
     }),
     update: useMutation({

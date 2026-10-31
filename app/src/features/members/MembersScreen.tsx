@@ -9,6 +9,7 @@ import { getListMembersQueryKey, useListMembers, useRemoveMember, useUpdateMembe
 import type { InviteDto, LibraryRole, MemberDto } from '@/api/generated/models';
 import { formatLastSeen } from '@/features/auth/DevicesScreen';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { friendlyError } from '@/lib/problem';
 import { useNow } from '@/lib/useNow';
 import { spacing } from '@/theme/tokens';
@@ -31,7 +32,7 @@ export function MembersScreen() {
   if (isLoading || me.isLoading || !libraryId) {
     return (
       <Screen title="Members">
-        <LoadingState label="Loading members…" />
+        <LibraryLoading label="Loading members…" />
       </Screen>
     );
   }
@@ -139,13 +140,17 @@ function Members({ libraryId, myId, isOwner }: { libraryId: string; myId: string
           {list.map((member) => {
             const isYou = member.userId === myId;
             const name = isYou ? `${member.displayName} (you)` : member.displayName;
-            const devices = member.devices?.length ? member.devices.join(', ') : 'No devices yet';
+            // Only the owner is sent each member's devices and last seen; for everyone else the fields are
+            // missing, which is not the same as "no devices", so the row shows nothing there.
+            const details = member.devices
+              ? `${member.devices.length ? member.devices.join(', ') : 'No devices yet'} · ${formatLastSeen(member.lastSeenAt)}`
+              : undefined;
             const canChange = isOwner && member.role !== 'owner';
             return (
               <ListRow
                 key={member.userId}
                 title={name}
-                subtitle={`${devices} · ${formatLastSeen(member.lastSeenAt)}`}
+                subtitle={details}
                 trailing={
                   canChange ? (
                     <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', justifyContent: 'flex-end' }}>

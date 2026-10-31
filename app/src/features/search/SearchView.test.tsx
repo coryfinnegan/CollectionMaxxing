@@ -4,7 +4,7 @@ import { onlineManager } from '@tanstack/react-query';
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import { delay, HttpResponse, http } from 'msw';
 import { setHapticDriver, type HapticDriver } from '@/lib/haptics';
-import { seed } from '@/mocks/catalog';
+import { seed, UNSAVED_ID } from '@/mocks/catalog';
 import { server } from '@/mocks/server';
 import type { OwnedCopy } from '@/features/offline/ownedIndex';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
@@ -279,7 +279,7 @@ describe('editions', () => {
     await typeQuery('alien');
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1980), VHS' }));
-    expect(onPick).toHaveBeenCalledWith(ALIEN_VHS);
+    expect(onPick).toHaveBeenCalledWith({ releaseId: ALIEN_VHS });
   });
 
   it('marks the editions the response says are owned', async () => {
@@ -292,6 +292,66 @@ describe('editions', () => {
     expect(await screen.findByText('In your library')).toBeTruthy();
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions, in your library' }));
     expect(await screen.findByText('You own 1')).toBeTruthy();
+  });
+});
+
+// The server gives every work and release that only a provider knows the same empty id. Rows and picks must tell
+// them apart by something else (#572); the mock catalog's three Doom results share it like the real thing.
+describe('results only a provider knows', () => {
+  const DOOM = 'Doom, id Software · 1993 · 1 edition';
+  const DOOM_II = 'Doom II, id Software · 1994 · 1 edition';
+  const DOOM_3 = 'Doom 3, id Software · 2004 · 1 edition';
+
+  it('really share the empty id in the mock, as on the server', () => {
+    const hits = seed().filter((result) => result.source === 'igdb');
+
+    expect(hits).toHaveLength(3);
+    expect(new Set(hits.map((hit) => hit.work.id))).toEqual(new Set([UNSAVED_ID]));
+    expect(new Set(hits.flatMap((hit) => hit.releases.map((release) => release.id)))).toEqual(new Set([UNSAVED_ID]));
+  });
+
+  it('lists every one of them as its own row', async () => {
+    await renderSearch();
+    await typeQuery('doom');
+
+    expect(await screen.findByRole('button', { name: DOOM })).toBeTruthy();
+    expect(screen.getByRole('button', { name: DOOM_II })).toBeTruthy();
+    expect(screen.getByRole('button', { name: DOOM_3 })).toBeTruthy();
+  });
+
+  it('opens the editions of the row you tapped, not the first row', async () => {
+    await renderSearch();
+    await typeQuery('doom');
+
+    await fireEvent.press(await screen.findByRole('button', { name: DOOM_II }));
+
+    expect(await screen.findByRole('header', { name: 'Doom II' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Doom (1993), Game disc, id Software' })).toBeNull();
+  });
+
+  it('opens the third row too, and the first after coming back', async () => {
+    await renderSearch();
+    await typeQuery('doom');
+    await fireEvent.press(await screen.findByRole('button', { name: DOOM_3 }));
+    expect(await screen.findByRole('button', { name: 'Doom 3 (2004), Game disc, Activision' })).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Back to results'));
+
+    await fireEvent.press(await screen.findByRole('button', { name: DOOM }));
+
+    expect(await screen.findByRole('button', { name: 'Doom (1993), Game disc, id Software' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Doom 3 (2004), Game disc, Activision' })).toBeNull();
+  });
+
+  it('picks the provider and id of the edition you chose', async () => {
+    const { onPick } = await renderSearch();
+    await typeQuery('doom');
+    await fireEvent.press(await screen.findByRole('button', { name: DOOM_II }));
+
+    await fireEvent.press(await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' }));
+
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith({ providerRef: { provider: 'igdb', externalId: 'doom-ii-1994' } });
   });
 });
 

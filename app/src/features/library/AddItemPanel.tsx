@@ -7,6 +7,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import type { CreateItemRequest, ReleaseFormat, WorkKind } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useItemMutations } from '@/features/item/useItem';
+import type { PickedRelease } from '@/features/search/pick';
 import { SearchView } from '@/features/search/SearchView';
 import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
@@ -50,7 +51,7 @@ export function AddItemPanel({ libraryId, onClose }: Props) {
   return (
     <Sheet title="Add an item" onClose={onClose}>
       {mode === 'search' ? (
-        <SearchStep onPick={(releaseId) => submit({ releaseId, addedVia: 'search' })} onManual={() => setMode('manual')} />
+        <SearchStep onPick={(picked) => submit({ ...picked, addedVia: 'search' })} onManual={() => setMode('manual')} />
       ) : null}
       {mode === 'manual' ? <ManualStep busy={create.isPending} onSubmit={submit} /> : null}
       {error ? (
@@ -67,7 +68,7 @@ export function AddItemPanel({ libraryId, onClose }: Props) {
   );
 }
 
-function SearchStep({ onPick, onManual }: { onPick: (releaseId: string) => void; onManual: () => void }) {
+function SearchStep({ onPick, onManual }: { onPick: (picked: PickedRelease) => void; onManual: () => void }) {
   return <SearchView onPick={onPick} onManual={onManual} />;
 }
 

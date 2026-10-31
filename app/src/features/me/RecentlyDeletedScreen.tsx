@@ -5,6 +5,7 @@ import type { DeletedItemDto } from '@/api/generated/models';
 import { getListDeletedItemsQueryKey, useListDeletedItems } from '@/api/generated/trash/trash';
 import { useRestoreItem } from '@/api/generated/items/items';
 import { useInvalidateLibrary } from '@/features/item/useItem';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { friendlyError } from '@/lib/problem';
 import { useNow } from '@/lib/useNow';
 import { Button, EmptyState, ListRow, Card, LoadingState, Screen, Text } from '@/ui';
@@ -23,7 +24,7 @@ export function RecentlyDeletedScreen() {
   if (isLoading || !libraryId) {
     return (
       <Screen title="Recently deleted">
-        <LoadingState label="Loading…" />
+        <LibraryLoading label="Loading…" />
       </Screen>
     );
   }

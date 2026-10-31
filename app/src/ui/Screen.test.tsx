@@ -69,7 +69,7 @@ describe('Screen keyboard avoidance', () => {
     expect(screen.getByTestId('keyboard-avoiding-scroll').props.keyboardShouldPersistTaps).toBe('handled');
   });
 
-  it('leaves other screens unchanged by default', async () => {
+  it('does not wrap other screens in a KeyboardAvoidingView by default', async () => {
     Platform.OS = 'ios';
     await render(
       <Screen subtitle="Library">
@@ -77,5 +77,15 @@ describe('Screen keyboard avoidance', () => {
       </Screen>,
     );
     expect(screen.queryByTestId('keyboard-avoiding-view')).toBeNull();
+  });
+
+  it('lets the first tap reach a control while the keyboard is up, on every screen', async () => {
+    Platform.OS = 'ios';
+    await render(
+      <Screen subtitle="Library">
+        <RNText>Body</RNText>
+      </Screen>,
+    );
+    expect(screen.getByTestId('screen-scroll').props.keyboardShouldPersistTaps).toBe('handled');
   });
 });

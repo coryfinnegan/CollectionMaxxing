@@ -8,7 +8,7 @@ import { renderWithProviders } from '@/test/render';
 import { DeleteAccountScreen, membersMessage } from './DeleteAccountScreen';
 import { registerLocalDataClearer } from './localData';
 
-const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn() };
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: jest.fn(() => true) };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
 const CONFIRM = 'Delete my account';
@@ -17,6 +17,8 @@ let nativeAuth: MemoryNativeAuth;
 beforeEach(() => {
   resetMockAccount();
   mockRouter.replace.mockClear();
+  mockRouter.back.mockClear();
+  mockRouter.canGoBack.mockReturnValue(true);
   resetMockAuth();
   nativeAuth = new MemoryNativeAuth();
   configureAuth({ platform: 'web', native: nativeAuth });
@@ -80,5 +82,28 @@ describe('DeleteAccountScreen', () => {
 
     expect(screen.queryByLabelText(CONFIRM)).toBeNull();
     expect(screen.getByText(/open CollectionMaxxing in a browser on your computer/)).toBeTruthy();
+  });
+
+  describe('Keep my account', () => {
+    it('goes back when there is history', async () => {
+      await renderWithProviders(<DeleteAccountScreen />);
+
+      await fireEvent.press(screen.getByLabelText('Keep my account'));
+
+      expect(mockRouter.back).toHaveBeenCalled();
+      expect(mockRouter.replace).not.toHaveBeenCalled();
+      expect(mockAccount.deleted).toBe(false);
+    });
+
+    it('on a fresh load, with no history, lands on Me instead of nowhere', async () => {
+      mockRouter.canGoBack.mockReturnValue(false);
+      await renderWithProviders(<DeleteAccountScreen />);
+
+      await fireEvent.press(screen.getByLabelText('Keep my account'));
+
+      expect(mockRouter.replace).toHaveBeenCalledWith('/me');
+      expect(mockRouter.back).not.toHaveBeenCalled();
+      expect(mockAccount.deleted).toBe(false);
+    });
   });
 });

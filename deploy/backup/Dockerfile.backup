@@ -9,6 +9,12 @@ RUN apt-get update \
 COPY backup-lib.sh backup.sh /opt/cm/
 RUN chmod 0555 /opt/cm/backup.sh /opt/cm/backup-lib.sh
 
+# Unhealthy when Postgres cannot be reached or the newest successful backup is over 30 hours old (a backup that is
+# running right now counts as healthy; see cm_health_check). The deployer fails a deploy whose backup is not healthy,
+# so the first probe comes after 10 seconds: a fresh container is "healthy" well inside the deployer's service check
+# (12 tries, 5 seconds apart). A failing probe only counts after the start period and 3 retries.
+HEALTHCHECK --interval=10s --timeout=10s --start-period=60s --retries=3 CMD ["/opt/cm/backup.sh", "health"]
+
 # The base image's entrypoint starts a database server; this image only runs the job.
 ENTRYPOINT ["/opt/cm/backup.sh"]
 CMD []

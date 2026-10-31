@@ -37,6 +37,8 @@ test.describe('visual', () => {
     await page.getByRole('link', { name: 'Open The Matrix' }).click();
     await expect(page).toHaveURL(new RegExp(`/item/${matrix}$`));
     await expect(page.getByRole('heading', { name: 'The Matrix' })).toBeVisible();
+    // The editing buttons wait for the role; the shot is of the finished screen.
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
     await expectShot(page, 'item-detail');
   });
 
@@ -282,7 +284,9 @@ async function openCommitToast(page: Page, open: (path: string) => Promise<void>
   await openSeededReview(page, open);
   await page.getByRole('button', { name: 'Add 2 items' }).click();
   await expect(page.getByText('Added 2 items')).toBeVisible();
-  // The celebration dismisses itself; the toast below keeps the words and the Undo.
+  // The celebration dismisses itself; the toast below keeps the words and the Undo. Wait to see it first: its entrance can
+  // start late on a busy page (Playwright counts it hidden until then), and "hidden" alone would pass before it ever showed.
+  await expect(page.getByTestId('commit-celebration')).toBeVisible();
   await expect(page.getByTestId('commit-celebration')).toBeHidden({ timeout: 10_000 });
   await page.getByRole('button', { name: 'Undo' }).scrollIntoViewIfNeeded();
 }

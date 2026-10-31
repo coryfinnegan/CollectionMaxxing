@@ -40,6 +40,8 @@ describe('ExportScreen', () => {
     await fireEvent.press(screen.getByLabelText('Start export'));
 
     expect(await screen.findByText(/The export didn't finish/)).toBeTruthy();
+    // Nobody here runs a server to look at: the advice is to try again, not to read logs.
+    expect(screen.queryByText(/server logs|your computer/)).toBeNull();
     expect(screen.queryByLabelText('Download export')).toBeNull();
     mockAccount.exportOutcome = 'ready';
     await fireEvent.press(screen.getByLabelText('Start the export again'));
