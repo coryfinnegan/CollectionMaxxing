@@ -41,15 +41,41 @@ trap cleanup EXIT
 
 dsql() { docker exec -i "$src" psql -U collectionmaxxing -d collectionmaxxing -X -v ON_ERROR_STOP=1 "$@"; }
 
+# oneline: docker's error text (several lines) as one line, so a FAIL line carries all of it through the runner.
+oneline() { printf '%s' "$1" | tr '\r\n' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//'; }
+
+# ---- the image -----------------------------------------------------------------------------------------------------------
+# `docker run` pulls a missing image on its own, and a registry that hiccups (rate limit, a reset connection) then fails
+# the whole suite with only "Run 'docker run --help'" to show for it. Pull it first, up to 3 times with a growing pause,
+# and keep docker's own words for the failure message.
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  pulled=0
+  pull_err=""
+  for attempt in 1 2 3; do
+    if pull_err="$(docker pull --quiet "$IMAGE" 2>&1 >/dev/null)"; then pulled=1; break; fi
+    echo "restore drill tests: pulling $IMAGE failed (attempt $attempt of 3): $(oneline "$pull_err")" >&2
+    ((attempt < 3)) && sleep $((attempt * 5))
+  done
+  if ((pulled == 0)); then
+    bad "setup" "could not pull $IMAGE after 3 tries: $(oneline "$pull_err")"
+    echo "SUMMARY passed=$pass failed=$fail"
+    exit 1
+  fi
+fi
+
 # ---- the stand-in live database, seeded with known rows -----------------------------------------------------------------
-docker run -d --name "$src" --network none -e POSTGRES_USER=collectionmaxxing -e POSTGRES_DB=collectionmaxxing \
-  -e POSTGRES_PASSWORD=test-only-not-a-secret "$IMAGE" >/dev/null || { bad "setup" "could not start $IMAGE"; echo "SUMMARY passed=$pass failed=$fail"; exit 1; }
+if ! run_err="$(docker run -d --name "$src" --network none -e POSTGRES_USER=collectionmaxxing -e POSTGRES_DB=collectionmaxxing \
+  -e POSTGRES_PASSWORD=test-only-not-a-secret "$IMAGE" 2>&1 >/dev/null)"; then
+  bad "setup" "could not start $IMAGE: $(oneline "$run_err")"
+  echo "SUMMARY passed=$pass failed=$fail"
+  exit 1
+fi
 ready=0
 for _ in $(seq 1 60); do
   docker exec "$src" pg_isready -h 127.0.0.1 -U collectionmaxxing >/dev/null 2>&1 && { ready=1; break; }
   sleep 1
 done
-((ready == 1)) || { bad "setup" "the source database never became ready"; echo "SUMMARY passed=$pass failed=$fail"; exit 1; }
+((ready == 1)) || { bad "setup" "the source database never became ready: $(oneline "$(docker logs --tail 5 "$src" 2>&1)")"; echo "SUMMARY passed=$pass failed=$fail"; exit 1; }
 
 dsql >/dev/null <<'SQL'
 create table items (id int primary key, title text not null);

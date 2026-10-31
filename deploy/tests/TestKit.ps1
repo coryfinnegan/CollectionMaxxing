@@ -50,10 +50,18 @@ function Get-ShellSuiteResult {
     #>
     param([Parameter(Mandatory)][string]$Suite, [string[]]$Lines = @(), [Parameter(Mandatory)][int]$ExitCode)
     $passed = @($Lines | Where-Object { $_ -like 'PASS *' }).Count
-    $failed = @($Lines | Where-Object { $_ -like 'FAIL *' })
+    # A FAIL line keeps the lines printed right after it (up to 12, until the next PASS, FAIL or SUMMARY line): they are
+    # often the real error, such as the stderr of a docker command that could not start. Dropping them hid it.
+    $failed = @()
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($Lines[$i] -notlike 'FAIL *') { continue }
+        $text = $Lines[$i]
+        for ($j = $i + 1; $j -lt $Lines.Count -and $j -le $i + 12 -and $Lines[$j] -notmatch '^(PASS|FAIL|SUMMARY) '; $j++) { $text += "`n     $($Lines[$j])" }
+        $failed += $text
+    }
     if ($passed -eq 0 -and $failed.Count -eq 0) { $failed = @("FAIL $Suite ran nothing:`n     $($Lines | Select-Object -Last 5 | Out-String)") }
     if ($ExitCode -ne 0) {
-        $tail = ($Lines | Select-Object -Last 3) -join "`n     "
+        $tail = ($Lines | Select-Object -Last 12) -join "`n     "
         $failed = @($failed) + @("FAIL $Suite exited with code $ExitCode, so its $passed PASS lines prove nothing:`n     $tail")
     }
     elseif (@($Lines | Where-Object { $_ -like 'SUMMARY *' }).Count -eq 0) {
