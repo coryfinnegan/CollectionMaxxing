@@ -2,7 +2,6 @@
 // Like the real API: at most 500 ids, patch or delete, and `affected` counts only the live items it changed.
 import { HttpResponse, http } from 'msw';
 import type { BulkItemsRequest, TagDto } from '@/api/generated/models';
-import { localDateString } from '@/lib/dates';
 import { itemsState } from './items';
 
 export const mockTags: TagDto[] = [
@@ -20,16 +19,18 @@ export const handlers = [
     if (ids.length === 0) return problem(400, 'Choose at least one item.');
     if (ids.length > 500) return problem(400, 'Bulk actions take at most 500 items.');
     const entries = itemsState.entries.filter((e) => ids.includes(e.item.id) && !e.item.deletedAt);
+    // Like the real API: a bulk change carries no name, so it can only keep a lend that already has one.
+    if (body.patch?.status === 'lent' && entries.some((e) => e.item.status !== 'lent' || !e.item.lentTo)) {
+      return problem(400, 'Say who has it before marking an item as lent out.');
+    }
     for (const entry of entries) {
       if (body.action === 'delete') {
         entry.item.deletedAt = new Date().toISOString();
       } else if (body.patch) {
         if (body.patch.status) {
           entry.item.status = body.patch.status;
-          // Like the real API: lending starts today, and any other status clears who it was lent to.
-          if (body.patch.status === 'lent') {
-            entry.item.lentOn ??= localDateString();
-          } else {
+          // Like the real API: any status but Lent out clears who it was lent to.
+          if (body.patch.status !== 'lent') {
             entry.item.lentTo = null;
             entry.item.lentOn = null;
           }

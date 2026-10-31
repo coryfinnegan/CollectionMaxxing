@@ -232,7 +232,13 @@ public class PurgeDeletedItemsTests(PostgresFixture db) : DatabaseTest(db)
         {
             context.ItemFeaturePrints.Add(new ItemFeaturePrint
             {
-                Id = Guid.CreateVersion7(), LibraryId = library.Id, ItemId = moved, ReleaseId = manual, Revision = 1, Data = [1, 2, 3], CreatedAt = DeletedAt,
+                Id = Guid.CreateVersion7(),
+                LibraryId = library.Id,
+                ItemId = moved,
+                ReleaseId = manual,
+                Revision = 1,
+                Data = [1, 2, 3],
+                CreatedAt = DeletedAt,
             });
             await context.SaveChangesAsync();
         }
@@ -268,7 +274,12 @@ public class PurgeDeletedItemsTests(PostgresFixture db) : DatabaseTest(db)
             manual = Guid.CreateVersion7();
             context.Releases.Add(new Domain.Catalog.Release
             {
-                Id = manual, WorkId = workId, Format = Domain.Catalog.ReleaseFormat.Dvd, Source = Domain.Catalog.ReleaseSource.User, OwnerLibraryId = library.Id, CreatedAt = DeletedAt,
+                Id = manual,
+                WorkId = workId,
+                Format = Domain.Catalog.ReleaseFormat.Dvd,
+                Source = Domain.Catalog.ReleaseSource.User,
+                OwnerLibraryId = library.Id,
+                CreatedAt = DeletedAt,
             });
             await context.SaveChangesAsync();
         }

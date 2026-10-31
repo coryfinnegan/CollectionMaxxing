@@ -25,7 +25,12 @@ public class AccountPurgeCatalogueTests(ApiFixture api) : DeletionTest(api)
             sharedWorkId = await context.Releases.IgnoreQueryFilters().Where(r => r.OwnerLibraryId == null).Select(r => r.WorkId).SingleAsync();
             context.Releases.Add(new Release
             {
-                Id = Guid.CreateVersion7(), WorkId = sharedWorkId, Format = ReleaseFormat.Dvd, Source = ReleaseSource.User, OwnerLibraryId = libraryId, CreatedAt = SeedTime,
+                Id = Guid.CreateVersion7(),
+                WorkId = sharedWorkId,
+                Format = ReleaseFormat.Dvd,
+                Source = ReleaseSource.User,
+                OwnerLibraryId = libraryId,
+                CreatedAt = SeedTime,
             });
             await context.SaveChangesAsync();
         }
