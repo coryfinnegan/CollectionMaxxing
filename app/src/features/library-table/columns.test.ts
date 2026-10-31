@@ -1,4 +1,4 @@
-import { defaultColumns, loadColumns, saveColumns, sortForColumn, STORAGE_KEY, toggleColumn } from './columns';
+import { defaultColumns, loadColumns, saveColumns, sortArrow, sortForColumn, STORAGE_KEY, toggleColumn } from './columns';
 
 const store = new Map<string, string>();
 const fakeStorage = {
@@ -66,5 +66,13 @@ describe('column choice', () => {
     expect(sortForColumn('location')).toBeUndefined();
     expect(sortForColumn('status')).toBeUndefined();
     expect(sortForColumn('cover')).toBeUndefined();
+  });
+
+  it('points the sort arrow the way the sort runs', () => {
+    expect(sortArrow('title')).toBe('↑');
+    expect(sortArrow('year')).toBe('↑');
+    expect(sortArrow('platform')).toBe('↑');
+    // A leading "-" is newest first: the biggest date on top.
+    expect(sortArrow('-addedAt')).toBe('↓');
   });
 });

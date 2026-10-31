@@ -116,6 +116,26 @@ describe('tray store', () => {
     expect(store.getState().problem).toMatch(/no longer here/);
   });
 
+  it('after a commit closes the session, the scans still waiting go to a new session under their own key', async () => {
+    const { store, storage } = make();
+    store.getState().setSessionId('session-1');
+    store.getState().scan(code('SENT'));
+    store.getState().plan();
+    store.getState().confirm('key-1');
+    store.getState().scan(code('WAITING'));
+    store.getState().plan();
+
+    store.getState().closeSession();
+
+    const restarted = make(storage).store; // what is left is saved, so a killed app finds it
+    expect(restarted.getState().lines.map((l) => l.code)).toEqual(['WAITING']);
+    expect(restarted.getState().sessionId).toBeNull();
+    const { sent, deps: d } = deps({ createSession: async () => 'session-2' });
+    await flushTray(restarted, d);
+    expect(sent.map((s) => [s.sessionId, s.batch.key, s.batch.entries.map((e) => e.value)])).toEqual([['session-2', 'key-2', ['WAITING']]]);
+    expect(restarted.getState().lines.map((l) => l.sentCopies)).toEqual([1]);
+  });
+
   it('sends at most 50 codes per request', async () => {
     const { store } = make();
     for (let i = 0; i < 120; i++) store.getState().scan(code(`code-${i}`));

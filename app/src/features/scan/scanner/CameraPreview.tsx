@@ -10,7 +10,11 @@ import { Button, Text } from '@/ui';
 import type { VisionCameraSource } from './ScannerSource';
 import { createSilentSnapshot } from './silentSnapshot';
 
-export default function CameraPreview({ source }: { source: VisionCameraSource }) {
+/**
+ * `active` is whether the scanner's screen is the one being looked at. The camera is only running then: a tab that is not showing
+ * must not keep the camera on (privacy and battery).
+ */
+export default function CameraPreview({ source, active = true }: { source: VisionCameraSource; active?: boolean }) {
   const { hasPermission, canRequestPermission, requestPermission, status } = useCameraPermission();
   const device = useCameraDevice('back');
   const [flash, setFlash] = useState(source.flash);
@@ -94,7 +98,7 @@ export default function CameraPreview({ source }: { source: VisionCameraSource }
       </View>
     );
   }
-  return <Camera style={StyleSheet.absoluteFill} device={device} isActive outputs={[output, photoOutput]} torchMode={flash ? 'on' : 'off'} />;
+  return <Camera style={StyleSheet.absoluteFill} device={device} isActive={active} outputs={[output, photoOutput]} torchMode={flash ? 'on' : 'off'} />;
 }
 
 const toFileUri = (path: string) => (path.startsWith('file://') ? path : `file://${path}`);

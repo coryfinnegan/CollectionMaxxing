@@ -103,6 +103,7 @@ internal static class CandidateJson
 /// <summary>Maps candidates to their response shape, loading the releases they point at in a few queries.</summary>
 internal static class CandidateProjection
 {
+    /// <summary>The response shape of each of <paramref name="candidates"/>, in the same order.</summary>
     public static async Task<List<CandidateDto>> ToDtosAsync(
         IAppDbContext db, IReadOnlyList<ScanCandidate> candidates, CancellationToken cancellationToken)
     {

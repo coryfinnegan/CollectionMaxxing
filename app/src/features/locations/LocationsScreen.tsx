@@ -1,6 +1,8 @@
 // Me → Locations: the reference slice. A tree list with add, rename and delete, all through the generated hooks.
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
+import { useMyRole } from '@/features/me/useMyRole';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { friendlyError } from '@/lib/problem';
 import { spacing } from '@/theme/tokens';
 import { Button, Card, EmptyState, ListRow, LoadingState, Screen, Text, TextField } from '@/ui';
@@ -12,7 +14,7 @@ export function LocationsScreen() {
   if (loadingLibrary || !libraryId) {
     return (
       <Screen title="Locations">
-        <LoadingState label="Loading your locations…" />
+        <LibraryLoading label="Loading your locations…" />
       </Screen>
     );
   }
@@ -22,6 +24,8 @@ export function LocationsScreen() {
 function LocationsList({ libraryId }: { libraryId: string }) {
   const { locations, isLoading, isError, refetch } = useLocationsList(libraryId);
   const { create, rename, remove } = useLocationMutations(libraryId);
+  // Viewers look at the tree; adding, renaming and deleting are for owners and editors (the server says 403 to the rest).
+  const { canEdit } = useMyRole();
   const rows = useMemo(() => flattenTree(locations), [locations]);
 
   const [newName, setNewName] = useState('');
@@ -64,24 +68,26 @@ function LocationsList({ libraryId }: { libraryId: string }) {
   };
 
   return (
-    <Screen title="Locations" subtitle="Where things live: rooms, shelves, boxes.">
-      <Card>
-        {parent ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <Text variant="label" style={{ flex: 1 }}>{`Adding inside ${parent.name}`}</Text>
-            <Button label="Cancel" variant="secondary" onPress={() => setParentId(null)} />
-          </View>
-        ) : null}
-        <TextField
-          label="New location"
-          value={newName}
-          onChangeText={setNewName}
-          onSubmitEditing={add}
-          placeholder="Shelf 3"
-          error={addError}
-        />
-        <Button label="Add location" onPress={add} busy={create.isPending} />
-      </Card>
+    <Screen title="Locations" subtitle="Where things live: rooms, shelves, boxes." keyboardAvoiding>
+      {canEdit ? (
+        <Card>
+          {parent ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <Text variant="label" style={{ flex: 1 }}>{`Adding inside ${parent.name}`}</Text>
+              <Button label="Cancel" variant="secondary" onPress={() => setParentId(null)} />
+            </View>
+          ) : null}
+          <TextField
+            label="New location"
+            value={newName}
+            onChangeText={setNewName}
+            onSubmitEditing={add}
+            placeholder="Shelf 3"
+            error={addError}
+          />
+          <Button label="Add location" onPress={add} busy={create.isPending} />
+        </Card>
+      ) : null}
 
       {rowError ? (
         <Text tone="danger" accessibilityRole="alert">
@@ -106,7 +112,7 @@ function LocationsList({ libraryId }: { libraryId: string }) {
             // The row is already visible from the optimistic update, but until the server
             // answers there is nothing real to add inside, rename or delete.
             const pending = isPendingLocation(location.id);
-            return editingId === location.id ? (
+            return canEdit && editingId === location.id ? (
               <View key={location.id} style={{ gap: spacing.sm, paddingVertical: spacing.sm, paddingLeft: depth * spacing.xl }}>
                 <TextField label={`Rename ${location.name}`} value={editName} onChangeText={setEditName} autoFocus />
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -121,32 +127,34 @@ function LocationsList({ libraryId }: { libraryId: string }) {
                 title={location.name}
                 depth={depth}
                 trailing={
-                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                    <Button
-                      label="Add inside"
-                      accessibilityLabel={`Add inside ${location.name}`}
-                      variant="secondary"
-                      disabled={pending}
-                      onPress={() => setParentId(location.id)}
-                    />
-                    <Button
-                      label="Rename"
-                      accessibilityLabel={`Rename ${location.name}`}
-                      variant="secondary"
-                      disabled={pending}
-                      onPress={() => {
-                        setEditingId(location.id);
-                        setEditName(location.name);
-                      }}
-                    />
-                    <Button
-                      label="Delete"
-                      accessibilityLabel={`Delete ${location.name}`}
-                      variant="danger"
-                      disabled={pending}
-                      onPress={() => deleteLocation(location.id)}
-                    />
-                  </View>
+                  canEdit ? (
+                    <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                      <Button
+                        label="Add inside"
+                        accessibilityLabel={`Add inside ${location.name}`}
+                        variant="secondary"
+                        disabled={pending}
+                        onPress={() => setParentId(location.id)}
+                      />
+                      <Button
+                        label="Rename"
+                        accessibilityLabel={`Rename ${location.name}`}
+                        variant="secondary"
+                        disabled={pending}
+                        onPress={() => {
+                          setEditingId(location.id);
+                          setEditName(location.name);
+                        }}
+                      />
+                      <Button
+                        label="Delete"
+                        accessibilityLabel={`Delete ${location.name}`}
+                        variant="danger"
+                        disabled={pending}
+                        onPress={() => deleteLocation(location.id)}
+                      />
+                    </View>
+                  ) : undefined
                 }
               />
             );
