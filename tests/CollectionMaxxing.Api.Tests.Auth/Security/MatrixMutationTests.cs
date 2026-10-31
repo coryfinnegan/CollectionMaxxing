@@ -11,7 +11,7 @@ namespace CollectionMaxxing.Api.Tests.Security;
 /// must name that endpoint. This is the same fault as deleting the <c>RequireLibraryRole</c> call from the endpoint's source, without touching the
 /// source. (<see cref="MatrixCompletenessTests"/> proves the audit's rules on made-up endpoints.)
 /// </summary>
-public class MatrixMutationTests(ApiFixture api)
+public class MatrixMutationTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
     private IReadOnlyList<EndpointFacts> Real => EndpointFacts.Read(api.Factory.Services.GetRequiredService<EndpointDataSource>());
 

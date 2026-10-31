@@ -24,7 +24,7 @@ namespace CollectionMaxxing.Api.Tests.Security;
 /// an exception message, a file path or SQL. The 500s are provoked by a service that throws an exception whose message is full of things that
 /// must never reach a client.
 /// </summary>
-public sealed class ProductionErrorTests(ApiFixture api) : IAsyncLifetime
+public sealed class ProductionErrorTests(ApiFixture api) : IAsyncLifetime, IClassFixture<ApiFixture>
 {
     private const string Poison = "SELECT password_hash FROM users WHERE name = 'hunter2' -- Npgsql.PostgresException C:\\src\\Secret.cs:line 42";
 
