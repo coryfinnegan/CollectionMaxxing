@@ -53,6 +53,17 @@ public static class JobsRegistration
         return services;
     }
 
+    /// <summary>
+    /// Registers the daily removal of expired replay keys, provider answers and recovery codes (<see cref="CleanExpiredRows"/>).
+    /// Called once from <c>Program.cs</c>; needs <c>AddJobs()</c>.
+    /// </summary>
+    public static IServiceCollection AddExpiredRowCleanup(this IServiceCollection services)
+    {
+        services.AddJobHandler<CleanExpiredRowsPayload, CleanExpiredRows.Cleaner>(CleanExpiredRows.JobType);
+        services.AddRecurringJob(CleanExpiredRows.JobType, CleanExpiredRows.Every);
+        return services;
+    }
+
     /// <summary>Registers the handler that runs jobs of <paramref name="type"/>. Each feature calls this for its own jobs.</summary>
     public static IServiceCollection AddJobHandler<TPayload, THandler>(this IServiceCollection services, string type)
         where THandler : class, IJobHandler<TPayload>
