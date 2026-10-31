@@ -1,0 +1,722 @@
+# The issue agent: a scheduled watcher that turns labelled GitHub issues into one headless Claude Code run each.
+# Dot-source after deployer/Cm.Common.ps1; it has no side effects when loaded.
+#
+# COST MODEL (read this before changing anything)
+#   * A watcher pass is plain PowerShell plus `gh` calls. It never starts a model. The common pass (nothing queued) is
+#     one `gh issue list` call; a pass with the switch off, the daily cap reached or a run still alive makes none.
+#   * A model only runs inside Run-AgentIssue.ps1, started detached by a pass that found an issue, one run at a time.
+#
+# SAFETY MODEL
+#   * Every external command goes through Invoke-Cm (see Cm.Common.ps1), so a test can prove which commands would run.
+#     Anything that changes the machine or GitHub is -Mutating and only runs with -Apply; without it the pass prints
+#     what it would do. The detached start and the process table have their own seams (Start-CmProcess,
+#     Get-CmProcessInfo) for the same reason.
+#   * Only issues authored by the repo owner are ever worked. The watcher never removes a folder it did not make.
+#   * Anything posted to a public issue goes through Hide-CmAgentText first.
+#Requires -Version 7.0
+
+# An issue carrying any of these is somebody's: another run, a blocked one, or waiting for the owner.
+$script:CmAgentSkipLabels = @('agent-working', 'agent-blocked', 'needs:cory', 'status:blocked')
+$script:CmAgentDefaultMaxRuns = 8
+$script:CmAgentDefaultMaxMinutes = 180
+# A run that GitHub could not be asked about is retried every pass; after this many passes (an hour) the lock is dropped
+# so the service cannot stay stuck behind an issue that was deleted or a gh that is not logged in.
+$script:CmAgentFinishAttempts = 12
+$script:CmAgentLogTailLines = 30
+$script:CmAgentLogHeadLines = 10
+# A non-zero exit sooner than this after the start is a failure to start (sign-in, limits, flags), not a failed piece of work.
+$script:CmAgentQuickFailureSeconds = 300
+$script:CmAgentPauseMinutes = 60
+$script:CmAgentPauseMaxMinutes = 480
+
+function New-CmAgentResult {
+    <# Exit codes: 0 fine or nothing to do, 1 a run could not be started, 2 config refused, 3 GitHub not reachable. #>
+    param([string]$Outcome, [int]$Code = 0, [string]$Reason = '', [int]$Issue = 0)
+    [pscustomobject]@{ Outcome = $Outcome; ExitCode = $Code; Reason = $Reason; Issue = $Issue }
+}
+
+function Get-CmAgentNow {
+    if ($global:CmAgentNow) { return [DateTimeOffset](& $global:CmAgentNow) }
+    [DateTimeOffset]::Now
+}
+
+function New-CmAgentContext {
+    param(
+        [string]$Root = 'C:\CollectionMaxxing',
+        [string]$Repo = 'coryfinnegan/CollectionMaxxing',
+        [string]$AgentDir = $PSScriptRoot
+    )
+    [pscustomobject]@{
+        Root            = $Root
+        Repo            = $Repo
+        Owner           = ($Repo -split '/')[0]
+        EnvFile         = Join-Path $Root '.env'
+        StateFile       = Join-Path $Root 'state/agent-state.json'
+        LockFile        = Join-Path $Root 'state/agent.lock'
+        WatcherLockFile = Join-Path $Root 'state/agent-watcher.lock'
+        LogFile         = Join-Path $Root 'logs/agent-watcher.log'
+        RunLogDir       = Join-Path $Root 'logs/agent'
+        DeployerClone   = Join-Path $Root 'repo'   # the deployer's own checkout: never a place to make worktrees
+        PromptFile      = Join-Path $AgentDir 'agent-prompt.md'
+        RunnerScript    = Join-Path $AgentDir 'Run-AgentIssue.ps1'
+    }
+}
+
+# ---- settings from .env ------------------------------------------------------------------------------------------------
+
+function Get-CmAgentSettings {
+    <#
+      On unless CM_AGENT_ENABLED says 0, false, off or no (the same words as CM_PRUNE_IMAGES). The checkout defaults to
+      the owner's usual place under the home folder, resolved at run time so no account name is written in the repo.
+      A number that is not a number falls back to its default; 0 runs a day pauses new runs.
+    #>
+    param([hashtable]$EnvMap = @{})
+    $number = {
+        param($name, $default, $min)
+        $n = 0
+        if ([int]::TryParse("$($EnvMap[$name])".Trim(), [ref]$n) -and $n -ge $min) { $n } else { $default }
+    }
+    $repo = "$($EnvMap['CM_AGENT_REPO'])".Trim()
+    if (-not $repo) { $repo = [IO.Path]::Combine("$HOME", 'source', 'repos', 'CollectionMaxxing') }
+    [pscustomobject]@{
+        Enabled        = ("$($EnvMap['CM_AGENT_ENABLED'])".Trim().ToLowerInvariant() -notin @('0', 'false', 'off', 'no'))
+        Repo           = $repo
+        MaxRunsPerDay  = [int](& $number 'CM_AGENT_MAX_RUNS_PER_DAY' $script:CmAgentDefaultMaxRuns 0)
+        MaxMinutes     = [int](& $number 'CM_AGENT_MAX_MINUTES' $script:CmAgentDefaultMaxMinutes 1)
+    }
+}
+
+function Get-CmAgentSecrets {
+    <# The .env values that must never reach a public issue comment. Values under 6 characters are left out: they would mask half the log. #>
+    param([hashtable]$EnvMap = @{})
+    @($EnvMap.GetEnumerator() |
+        Where-Object { $_.Key -match '(PASSWORD|SECRET|TOKEN|API_KEY|_KEY$|HEARTBEAT)' -and "$($_.Value)".Length -ge 6 } |
+        ForEach-Object { "$($_.Value)" })
+}
+
+function Hide-CmAgentText {
+    <# For text that is about to be posted on GitHub: known secrets, terminal colour codes, token shapes and the home folder. #>
+    param([string]$Text)
+    $Text = Hide-CmSecrets $Text
+    $Text = [regex]::Replace($Text, '\x1b\[[0-9;?]*[ -/]*[@-~]', '')
+    foreach ($pattern in 'gh[pousr]_[A-Za-z0-9]{20,}', 'github_pat_[A-Za-z0-9_]{20,}', 'sk-ant-[A-Za-z0-9_\-]{10,}',
+        'eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{5,}') {
+        $Text = [regex]::Replace($Text, $pattern, '***')
+    }
+    $Text = [regex]::Replace($Text, '(?i)\b(authorization:\s*)(bearer|basic|token)\s+\S+', '$1$2 ***')
+    $homeFolder = "$HOME"
+    if ($homeFolder.Length -gt 3) {
+        foreach ($form in @($homeFolder, ($homeFolder -replace '\\', '/'))) {
+            $Text = [regex]::Replace($Text, [regex]::Escape($form), '~', 'IgnoreCase')
+        }
+    }
+    $Text
+}
+
+# ---- seams: the process table, a detached start, the claude lookup ---------------------------------------------------------
+
+function Get-CmProcessInfo {
+    <# Id, Name and StartTime (UTC) of a running process, or $null when there is none. Tests set $global:CmProcessTable. #>
+    param([int]$Id)
+    if ($global:CmProcessTable) { return & $global:CmProcessTable $Id }
+    if ($env:CM_TEST -eq '1') { throw 'CM_TEST=1 but no fake process table is installed; refusing to read the real one.' }
+    $p = Get-Process -Id $Id -ErrorAction SilentlyContinue
+    if (-not $p) { return $null }
+    $started = $null
+    try { $started = $p.StartTime.ToUniversalTime() } catch { }
+    [pscustomobject]@{ Id = $p.Id; Name = $p.ProcessName; StartTime = $started }
+}
+
+function Start-CmProcess {
+    <#
+      Starts a process and returns it (it has .Id, and .WaitForExit / .ExitCode when real). Like a -Mutating Invoke-Cm
+      call, without -Apply it is printed and nothing starts. Tests set $global:CmStartProcess.
+    #>
+    param([Parameter(Mandatory)][string]$File, [string]$Arguments = '', [string]$WorkingDirectory = '', [switch]$NoNewWindow)
+    $display = (@($File, $Arguments) | Where-Object { $_ }) -join ' '
+    if (-not $global:CmApply) {
+        Write-CmLog "dry run, would start: $display"
+        return [pscustomobject]@{ Id = 0; DryRun = $true }
+    }
+    if ($global:CmStartProcess) { return & $global:CmStartProcess $File $Arguments $WorkingDirectory }
+    if ($env:CM_TEST -eq '1') { throw "CM_TEST=1 but no fake process starter is installed; refusing to start '$display' for real." }
+    $splat = @{ FilePath = $File; PassThru = $true }
+    if ($Arguments) { $splat.ArgumentList = $Arguments }   # one string, passed through as the command line
+    if ($WorkingDirectory) { $splat.WorkingDirectory = $WorkingDirectory }
+    if ($NoNewWindow) { $splat.NoNewWindow = $true } else { $splat.WindowStyle = 'Hidden' }
+    $process = Start-Process @splat
+    $null = $process.Handle   # keeps the exit code readable after the process ends
+    $process
+}
+
+function Resolve-CmAgentClaude {
+    <# The claude to run: the one on PATH, else the native installer's folder. Resolved here so no account name is written in the repo. #>
+    if ($null -ne $global:CmClaudePath) { if ($global:CmClaudePath) { return $global:CmClaudePath } else { return $null } }
+    $found = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { return $found.Source }
+    foreach ($name in 'claude.exe', 'claude') {
+        $candidate = [IO.Path]::Combine("$HOME", '.local', 'bin', $name)
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    $null
+}
+
+# ---- choosing the issue ---------------------------------------------------------------------------------------------------------
+
+function Get-CmAgentLabelNames {
+    param($Item)
+    @(@($Item.labels) | ForEach-Object { if ($_ -is [string]) { $_ } else { $_.name } } | Where-Object { $_ })
+}
+
+function Get-CmAgentModel {
+    <# tier:critical gets opus, tier:mechanical haiku, everything else sonnet. A clash goes to the stronger model. #>
+    param([string[]]$Labels = @())
+    if ($Labels -contains 'tier:critical') { return 'opus' }
+    if ($Labels -contains 'tier:mechanical') { return 'haiku' }
+    'sonnet'
+}
+
+function Get-CmAgentPriority {
+    <# p1 (highest) to p5; no p label counts as p3. With several, the highest wins. #>
+    param([string[]]$Labels = @())
+    $best = $null
+    foreach ($label in $Labels) {
+        if ($label -match '^p([1-5])$') { $p = [int]$Matches[1]; if ($null -eq $best -or $p -lt $best) { $best = $p } }
+    }
+    if ($null -eq $best) { 3 } else { $best }
+}
+
+function Select-CmAgentIssue {
+    <#
+      From the `gh issue list` rows: only agent-task issues authored by the owner (the repo is public; guard-issues.yml
+      closes everyone else's, and this checks anyway) that carry none of the skip labels. Highest priority first,
+      then oldest, then lowest number. Returns the chosen row or $null.
+    #>
+    param($Issues, [string]$Owner)
+    $rows = foreach ($issue in @($Issues)) {
+        if ($null -eq $issue) { continue }
+        $labels = Get-CmAgentLabelNames $issue
+        if ($labels -notcontains 'agent-task') { continue }
+        if ("$($issue.author.login)" -ine $Owner) { continue }
+        if (@($labels | Where-Object { $_ -in $script:CmAgentSkipLabels }).Count -gt 0) { continue }
+        $created = ConvertTo-CmUtc $issue.createdAt
+        [pscustomobject]@{
+            Number   = [int]$issue.number
+            Title    = "$($issue.title)"
+            Labels   = $labels
+            Priority = Get-CmAgentPriority $labels
+            Created  = if ($created) { $created } else { [DateTime]::MaxValue }
+            Model    = Get-CmAgentModel $labels
+        }
+    }
+    @($rows) | Sort-Object -Property Priority, Created, Number | Select-Object -First 1
+}
+
+# ---- GitHub ---------------------------------------------------------------------------------------------------------------------
+
+function Set-CmIssueLabels {
+    <# One `gh issue edit`. Only labels that are known to be there are passed to --remove-label. #>
+    param($Ctx, [int]$Issue, [string[]]$Add = @(), [string[]]$Remove = @())
+    if (@($Add).Count -eq 0 -and @($Remove).Count -eq 0) { return $true }
+    $arguments = @('issue', 'edit', "$Issue", '--repo', $Ctx.Repo)
+    foreach ($label in $Add) { $arguments += @('--add-label', $label) }
+    foreach ($label in $Remove) { $arguments += @('--remove-label', $label) }
+    $r = Invoke-Cm -Command 'gh' -Arguments $arguments -Mutating
+    $r.ExitCode -eq 0
+}
+
+function Add-CmIssueComment {
+    <# The body goes in on standard input: no quoting problems, no length limit, and nothing secret on a command line. #>
+    param($Ctx, [int]$Issue, [string]$Body)
+    $r = Invoke-Cm -Command 'gh' -Arguments @('issue', 'comment', "$Issue", '--repo', $Ctx.Repo, '--body-file', '-') -Mutating -InputText (Hide-CmAgentText $Body)
+    $r.ExitCode -eq 0
+}
+
+function Get-CmAgentIssueState {
+    <# State (OPEN or CLOSED) and label names of one issue, or $null when GitHub could not be asked. #>
+    param($Ctx, [int]$Issue)
+    $r = Invoke-Cm -Command 'gh' -Arguments @('issue', 'view', "$Issue", '--repo', $Ctx.Repo, '--json', 'state,labels')
+    if ($r.ExitCode -ne 0) { return $null }
+    try { $o = ($r.Output -join "`n") | ConvertFrom-Json } catch { return $null }
+    if ($null -eq $o) { return $null }
+    [pscustomobject]@{ State = "$($o.state)".ToUpperInvariant(); Labels = @(Get-CmAgentLabelNames $o) }
+}
+
+function Get-CmAgentMergedPr {
+    <#
+      The pull request from the run's branch that merged after the run started, or $null. An older merge of the same
+      branch name (an issue that was reopened) does not count. Also $null when GitHub cannot be asked: then nothing is
+      cleaned up.
+    #>
+    param($Ctx, [string]$Branch, [long]$SinceUnix = 0)
+    $r = Invoke-Cm -Command 'gh' -Arguments @('pr', 'list', '--repo', $Ctx.Repo, '--head', $Branch, '--state', 'all', '--json', 'number,state,mergedAt,url')
+    if ($r.ExitCode -ne 0) { return $null }
+    try { $prs = ($r.Output -join "`n") | ConvertFrom-Json } catch { return $null }
+    @($prs | Where-Object { $_ -and $_.mergedAt -and ([DateTimeOffset]::new((ConvertTo-CmUtc $_.mergedAt)).ToUnixTimeSeconds() -ge $SinceUnix - 60) }) | Select-Object -First 1
+}
+
+# ---- paths of one run -------------------------------------------------------------------------------------------------------
+
+function Get-CmAgentRunPaths {
+    param($Ctx, [string]$RepoDir, [int]$Issue, [DateTimeOffset]$Now)
+    $stamp = $Now.ToString('yyyyMMdd-HHmmss')
+    [pscustomobject]@{
+        Branch   = "agent/issue-$Issue"
+        Worktree = [IO.Path]::Combine($RepoDir, '.claude', 'worktrees', "agent-issue-$Issue")
+        Log      = Join-Path $Ctx.RunLogDir "issue-$Issue-$stamp.log"
+        Prompt   = Join-Path $Ctx.RunLogDir "issue-$Issue-$stamp.prompt.md"
+        Exit     = Join-Path $Ctx.RunLogDir "issue-$Issue-$stamp.exit.json"
+    }
+}
+
+function Expand-CmAgentPrompt {
+    param([string]$TemplatePath, [int]$Issue, [string]$Branch)
+    (Get-Content -LiteralPath $TemplatePath -Raw).Replace('{issue}', "$Issue").Replace('{branch}', $Branch)
+}
+
+function Get-CmAgentRunnerArguments {
+    <# The command line of conhost.exe: a headless console running the runner, so no window ever appears. #>
+    param([string]$Pwsh, [string]$RunnerScript, [int]$Issue, [string]$Model, [string]$Claude, $Paths, [int]$MaxMinutes)
+    "--headless `"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$RunnerScript`" -Issue $Issue -Model $Model -Claude `"$Claude`" " +
+    "-PromptFile `"$($Paths.Prompt)`" -LogFile `"$($Paths.Log)`" -ExitFile `"$($Paths.Exit)`" -WorkDir `"$($Paths.Worktree)`" -MaxMinutes $MaxMinutes"
+}
+
+function Get-CmAgentPwsh {
+    [IO.Path]::Combine($PSHOME, $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' }))
+}
+
+function Get-CmAgentTaskAction {
+    <# The /TR text of the scheduled task. schtasks allows 261 characters. #>
+    param([string]$Pwsh, [string]$Script, [string]$Root)
+    "conhost.exe --headless `"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Script`" -Root `"$Root`" -Apply"
+}
+
+# ---- the lock and the day's count ---------------------------------------------------------------------------------------------
+
+function Read-CmAgentLock {
+    param($Ctx)
+    if (-not (Test-Path -LiteralPath $Ctx.LockFile)) { return $null }
+    $lock = Read-CmState -Path $Ctx.LockFile
+    if (-not ($lock.ContainsKey('issue') -and $lock.ContainsKey('pid') -and $lock.ContainsKey('startedUnix'))) {
+        Write-CmLog "the agent lock at $($Ctx.LockFile) cannot be read, so it is cleared (no issue can be marked blocked for it)" 'WARN'
+        Remove-CmAgentLock -Ctx $Ctx
+        return $null
+    }
+    $lock
+}
+
+function Remove-CmAgentLock {
+    param($Ctx)
+    if ($global:CmApply -and (Test-Path -LiteralPath $Ctx.LockFile)) { Remove-Item -LiteralPath $Ctx.LockFile -Force -ErrorAction SilentlyContinue }
+}
+
+function Get-CmAgentRunStatus {
+    <# 'running' (alive, inside its time limit), 'timeout' (alive, past it) or 'exited' (its process is gone). #>
+    param($Lock, [int]$MaxMinutes)
+    $now = Get-CmAgentNow
+    $started = [long]$Lock.startedUnix
+    $info = Get-CmProcessInfo -Id ([int]$Lock.pid)
+    $alive = $false
+    if ($info) {
+        $alive = $true
+        if ($info.StartTime) {
+            # An id that now belongs to a process started well after the run did is somebody else's (ids are reused).
+            $utc = ConvertTo-CmUtc $info.StartTime
+            $processStarted = [DateTimeOffset]::new($utc).ToUnixTimeSeconds()
+            if ($processStarted -gt $started + 120) { $alive = $false }
+        }
+    }
+    if (-not $alive) { return 'exited' }
+    if (($now.ToUnixTimeSeconds() - $started) / 60.0 -gt $MaxMinutes) { return 'timeout' }
+    'running'
+}
+
+# ---- starting a run -----------------------------------------------------------------------------------------------------------
+
+function Test-CmAgentSetup {
+    <# A problem with the machine that would make a run pointless, as text, or $null. Checked before an issue is claimed. #>
+    param($Ctx, $Settings)
+    $repo = $Settings.Repo
+    if (Test-CmPathUnder -Path $repo -Root $Ctx.DeployerClone) {
+        return "CM_AGENT_REPO ($repo) is the deployer's own clone or inside it; set CM_AGENT_REPO in .env to your own checkout"
+    }
+    if (-not (Test-Path -LiteralPath $repo -PathType Container)) { return "the checkout '$repo' does not exist; set CM_AGENT_REPO in .env" }
+    if (-not (Test-Path -LiteralPath (Join-Path $repo '.git'))) { return "'$repo' is not a git checkout (it has no .git); set CM_AGENT_REPO in .env" }
+    if (-not (Test-Path -LiteralPath $Ctx.PromptFile)) { return "the prompt template $($Ctx.PromptFile) is missing" }
+    if (-not (Resolve-CmAgentClaude)) { return 'claude was not found on PATH or in the .local\bin folder of this account; install Claude Code for it' }
+    $null
+}
+
+function New-CmAgentWorktree {
+    <# Makes (or reuses) the run's worktree from the origin/main the caller just fetched. Returns @{ Ok; Reused; Error }. A leftover from an earlier run is reused untouched. #>
+    param($Ctx, [string]$RepoDir, $Paths)
+    $fail = { param($text) [pscustomobject]@{ Ok = $false; Reused = $false; Error = $text } }
+    if (Test-Path -LiteralPath $Paths.Worktree) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Paths.Worktree '.git'))) {
+            return & $fail "$($Paths.Worktree) exists but is not a git worktree; remove that folder and queue the issue again"
+        }
+        Write-CmLog "reusing the worktree left by an earlier run at $($Paths.Worktree)"
+        return [pscustomobject]@{ Ok = $true; Reused = $true; Error = '' }
+    }
+    [void](Invoke-Cm -Command 'git' -Arguments @('-C', $RepoDir, 'worktree', 'prune') -Mutating)   # forget registrations whose folder is gone
+    $branch = Invoke-Cm -Command 'git' -Arguments @('-C', $RepoDir, 'rev-parse', '--verify', '--quiet', "refs/heads/$($Paths.Branch)")
+    $add = if ($branch.ExitCode -eq 0) { @('-C', $RepoDir, 'worktree', 'add', $Paths.Worktree, $Paths.Branch) }
+    else { @('-C', $RepoDir, 'worktree', 'add', $Paths.Worktree, '-b', $Paths.Branch, 'origin/main') }
+    $r = Invoke-Cm -Command 'git' -Arguments $add -Mutating
+    if ($r.ExitCode -ne 0) { return & $fail "git worktree add failed (exit $($r.ExitCode)): $(@($r.Output | Select-Object -Last 3) -join ' ')" }
+    [pscustomobject]@{ Ok = $true; Reused = $false; Error = '' }
+}
+
+function Set-CmAgentBlocked {
+    <# Marks an issue blocked and says why. Used by every path that gives up on a run. #>
+    param($Ctx, [int]$Issue, [string[]]$Remove, [string]$Body)
+    [void](Set-CmIssueLabels -Ctx $Ctx -Issue $Issue -Add @('agent-blocked') -Remove $Remove)
+    [void](Add-CmIssueComment -Ctx $Ctx -Issue $Issue -Body $Body)
+}
+
+function Start-CmAgentRun {
+    param($Ctx, $Settings, $Pick, [hashtable]$State)
+    $issue = $Pick.Number
+    $problem = Test-CmAgentSetup -Ctx $Ctx -Settings $Settings
+    if ($problem) {
+        Write-CmLog "not starting the agent for issue #${issue}: $problem" 'ERROR'
+        return New-CmAgentResult 'config-error' 2 $problem $issue
+    }
+    $repoDir = $Settings.Repo
+    $claude = Resolve-CmAgentClaude
+    $now = Get-CmAgentNow
+    $paths = Get-CmAgentRunPaths -Ctx $Ctx -RepoDir $repoDir -Issue $issue -Now $now
+
+    # Fetch before claiming: a network blip then costs nothing on the issue and the next pass simply tries again.
+    $fetch = Invoke-Cm -Command 'git' -Arguments @('-C', $repoDir, 'fetch', 'origin') -Mutating
+    if ($fetch.ExitCode -ne 0) {
+        Write-CmLog "git fetch origin failed (exit $($fetch.ExitCode)) in $repoDir; issue #$issue is left alone and the next pass tries again" 'WARN'
+        return New-CmAgentResult 'fetch-failed' 3 'git fetch origin failed' $issue
+    }
+    # Claim: from here on no other pass picks this issue.
+    if (-not (Set-CmIssueLabels -Ctx $Ctx -Issue $issue -Add @('agent-working'))) {
+        Write-CmLog "could not add agent-working to issue #$issue; not starting" 'WARN'
+        return New-CmAgentResult 'claim-failed' 3 'gh issue edit failed' $issue
+    }
+    [void](Add-CmIssueComment -Ctx $Ctx -Issue $issue -Body ("Picked up at $($now.ToString('yyyy-MM-dd HH:mm zzz')) by the background agent (model: $($Pick.Model)). " +
+            "It works in the branch ``$($paths.Branch)`` and will comment here when it opens a pull request or gets stuck."))
+    # Counted now, so a crash after this point does not hand out a free run.
+    $today = [int]$now.ToString('yyyyMMdd')
+    $State.runs = $(if ([int]$State.day -eq $today) { [int]$State.runs } else { 0 }) + 1
+    $State.day = $today
+    Write-CmState -Path $Ctx.StateFile -State $State
+
+    $fail = {
+        param($reason)
+        Write-CmLog "could not start the agent for issue #${issue}: $reason" 'ERROR'
+        Set-CmAgentBlocked -Ctx $Ctx -Issue $issue -Remove @('agent-working') -Body ("The background agent could not start: $reason`n`nNothing was run. Remove ``agent-blocked`` to queue it again.")
+        New-CmAgentResult 'start-failed' 1 $reason $issue
+    }
+    $worktree = New-CmAgentWorktree -Ctx $Ctx -RepoDir $repoDir -Paths $paths
+    if (-not $worktree.Ok) { return & $fail "the worktree could not be made: $($worktree.Error)" }
+
+    $prompt = Expand-CmAgentPrompt -TemplatePath $Ctx.PromptFile -Issue $issue -Branch $paths.Branch
+    if ($global:CmApply) {
+        New-Item -ItemType Directory -Force -Path $Ctx.RunLogDir | Out-Null
+        [IO.File]::WriteAllText($paths.Prompt, $prompt, [Text.UTF8Encoding]::new($false))
+    }
+    $runner = Get-CmAgentRunnerArguments -Pwsh (Get-CmAgentPwsh) -RunnerScript $Ctx.RunnerScript -Issue $issue -Model $Pick.Model -Claude $claude -Paths $paths -MaxMinutes $Settings.MaxMinutes
+    try { $process = Start-CmProcess -File 'conhost.exe' -Arguments $runner }
+    catch { return & $fail "the run could not be launched ($($_.Exception.Message))" }
+    if ($process.DryRun) { return New-CmAgentResult 'dry-run' 0 '' $issue }
+
+    Write-CmState -Path $Ctx.LockFile -State @{
+        issue = $issue; pid = [int]$process.Id; startedUnix = $now.ToUnixTimeSeconds(); model = $Pick.Model
+        repoDir = $repoDir; worktree = $paths.Worktree; branch = $paths.Branch; log = $paths.Log; exitFile = $paths.Exit; attempts = 0
+    }
+    Write-CmLog "started the agent for issue #$issue (model $($Pick.Model)); process $($process.Id), log $($paths.Log)"
+    New-CmAgentResult 'started' 0 '' $issue
+}
+
+# ---- closing out a run --------------------------------------------------------------------------------------------------------
+
+function Format-CmAgentLogLines {
+    <# Log lines as the inside of a fenced block: long lines cut, no fence of its own in them, a size cap. #>
+    param([string[]]$Lines = @())
+    if (@($Lines).Count -eq 0) { return '(the log is empty)' }
+    $cut = @($Lines | ForEach-Object { if ($_.Length -gt 400) { $_.Substring(0, 400) + ' ...' } else { $_ } })
+    $text = ($cut -join "`n") -replace '```', "'''"
+    if ($text.Length -gt 8000) { $text = '...' + $text.Substring($text.Length - 8000) }
+    $text
+}
+
+function Get-CmAgentLogTail {
+    param([string]$Path, [int]$Lines = $script:CmAgentLogTailLines)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return '(the log file is missing)' }
+    Format-CmAgentLogLines -Lines @(Get-Content -LiteralPath $Path -Tail $Lines)
+}
+
+function Get-CmAgentLogHead {
+    param([string]$Path, [int]$Lines = $script:CmAgentLogHeadLines)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return '(the log file is missing)' }
+    Format-CmAgentLogLines -Lines @(Get-Content -LiteralPath $Path -TotalCount $Lines)
+}
+
+function Reset-CmAgentBackoff {
+    <# A run that got past the quick-failure window shows the sign-in and limits work, so the streak and any pause end. Writes nothing when there is nothing to reset. #>
+    param($Ctx)
+    $state = Read-CmState -Path $Ctx.StateFile
+    if ([int]$state.quickFailures -eq 0 -and -not $state.ContainsKey('pauseUntilUnix')) { return }
+    $state.quickFailures = 0
+    [void]$state.Remove('pauseUntilUnix')
+    Write-CmState -Path $Ctx.StateFile -State $state
+}
+
+function Register-CmAgentQuickFailure {
+    <#
+      A run that exited non-zero within CmAgentQuickFailureSeconds is almost certainly the machine, not the issue
+      (sign-in expired, usage limit, a flag refused). So the issue goes back in the queue instead of being blocked, the
+      service pauses (60 minutes, doubling per failure in a row, at most 8 hours), and the attempt is not counted against
+      the day's cap; otherwise one broken sign-in would block every queued issue in turn.
+    #>
+    param($Ctx, $Lock, [int]$ExitCode, [string[]]$QueueLabels)
+    $issue = [int]$Lock.issue
+    $now = Get-CmAgentNow
+    $state = Read-CmState -Path $Ctx.StateFile
+    $failures = [int]$state.quickFailures + 1
+    $minutes = [math]::Min($script:CmAgentPauseMaxMinutes, $script:CmAgentPauseMinutes * [math]::Pow(2, [math]::Min($failures - 1, 10)))
+    $until = $now.AddMinutes($minutes)
+    $startedDay = [int][DateTimeOffset]::FromUnixTimeSeconds([long]$Lock.startedUnix).ToOffset($now.Offset).ToString('yyyyMMdd')
+    if ([int]$state.day -eq $startedDay -and [int]$state.runs -gt 0) { $state.runs = [int]$state.runs - 1 }
+    $state.quickFailures = $failures
+    $state.pauseUntilUnix = $until.ToUnixTimeSeconds()
+    Write-CmState -Path $Ctx.StateFile -State $state
+    [void](Set-CmIssueLabels -Ctx $Ctx -Issue $issue -Remove $QueueLabels)
+    [void](Add-CmIssueComment -Ctx $Ctx -Issue $issue -Body (@(
+                "The agent couldn't start (exit $ExitCode; first log lines below, secrets hidden). It will try again after $($until.ToString('yyyy-MM-dd HH:mm zzz')).",
+                '',
+                '```text',
+                (Get-CmAgentLogHead -Path "$($Lock.log)"),
+                '```'
+            ) -join "`n"))
+    Write-CmLog "the agent run for issue #$issue failed within $($script:CmAgentQuickFailureSeconds / 60) minutes (exit code $ExitCode); the issue is back in the queue and new runs are paused until $($until.ToString('yyyy-MM-dd HH:mm zzz')) ($failures quick failure(s) in a row)" 'WARN'
+}
+
+function Remove-CmAgentWorktree {
+    <# Removes a finished run's worktree and branch. Only the exact folder and branch this service names for the issue; anything else is refused. #>
+    param([string]$RepoDir, [string]$Worktree, [string]$Branch, [int]$Issue)
+    $expected = [IO.Path]::Combine($RepoDir, '.claude', 'worktrees', "agent-issue-$Issue")
+    if ((ConvertTo-CmPathKey $Worktree) -ne (ConvertTo-CmPathKey $expected) -or $Branch -ne "agent/issue-$Issue") {
+        Write-CmLog "refusing to remove '$Worktree' (branch '$Branch'): it is not the worktree this service makes for issue #$Issue" 'WARN'
+        return
+    }
+    if (Test-Path -LiteralPath $expected) {
+        $r = Invoke-Cm -Command 'git' -Arguments @('-C', $RepoDir, 'worktree', 'remove', '--force', $expected) -Mutating
+        if ($r.ExitCode -ne 0) { Write-CmLog "could not remove the worktree $expected (exit $($r.ExitCode)); left in place" 'WARN' }
+    }
+    $b = Invoke-Cm -Command 'git' -Arguments @('-C', $RepoDir, 'branch', '-D', $Branch) -Mutating
+    if ($b.ExitCode -ne 0) { Write-CmLog "could not delete the local branch $Branch (exit $($b.ExitCode)); left in place" 'WARN' }
+}
+
+function Get-CmAgentBlockedBody {
+    param($Lock, $Exit, [string]$Status, [bool]$Merged, [int]$MaxMinutes, [bool]$WorktreeRemoved)
+    $now = Get-CmAgentNow
+    $started = [DateTimeOffset]::FromUnixTimeSeconds([long]$Lock.startedUnix).ToOffset($now.Offset)
+    $ranMinutes = [math]::Max(0, [math]::Round(($now.ToUnixTimeSeconds() - [long]$Lock.startedUnix) / 60.0))
+    $timedOut = ($Status -eq 'timeout') -or ($Exit.timedOut -eq $true)
+    $code = if ($null -ne $Exit.exitCode) { [int]$Exit.exitCode } else { $null }
+    if ($Merged) { $why = 'its pull request merged, but the issue is still open (the PR may be missing `Closes #N`), so it would be picked up again' }
+    elseif ($timedOut) { $why = "it ran longer than $MaxMinutes minutes and was stopped" }
+    elseif ($null -ne $code -and $code -ne 0) { $why = "the run ended with exit code $code" }
+    elseif ($null -ne $code) { $why = 'the run ended cleanly (exit code 0) but did not merge a pull request or report that it was blocked' }
+    else { $why = 'the run ended without finishing and no exit code was recorded (the process was killed, or the PC restarted)' }
+    $exitText = if ($null -ne $code) { "exit code $code" } elseif ($timedOut) { 'stopped by the time limit' } else { 'no exit code recorded' }
+    $worktreeText = if ($WorktreeRemoved) { 'removed (its pull request merged)' } else { "kept at ``$($Lock.worktree)`` with whatever the run left in it; the next run reuses it" }
+    @(
+        "The background agent stopped without finishing this issue: $why.",
+        '',
+        "- Started: $($started.ToString('yyyy-MM-dd HH:mm zzz')), ran about $ranMinutes minutes ($exitText)",
+        "- Branch: ``$($Lock.branch)``",
+        "- Worktree: $worktreeText",
+        "- Full log: ``$($Lock.log)``",
+        '',
+        "Last $script:CmAgentLogTailLines lines of the log (secrets hidden):",
+        '',
+        '```text',
+        (Get-CmAgentLogTail -Path "$($Lock.log)"),
+        '```',
+        '',
+        'To run it again, remove `agent-blocked`; `agent-task` is still on the issue.'
+    ) -join "`n"
+}
+
+function Complete-CmAgentRun {
+    <#
+      Closes out a run whose process is gone (or was just killed for its time limit). Returns $true when the lock was
+      cleared, $false when GitHub could not be asked and the next pass should try again.
+        issue closed         the run finished: queue labels come off; the worktree goes if its PR merged
+        open, agent-blocked  the agent reported itself: nothing more to say
+        open, non-zero exit  within 5 minutes of the start, nothing merged: back in the queue, the service pauses
+                             (Register-CmAgentQuickFailure)
+        open, anything else  it did not finish: blocked, with the exit code and the log tail
+      Every outcome except the quick failure ends the streak of quick failures.
+    #>
+    param($Ctx, $Settings, $Lock, [string]$Status)
+    $issue = [int]$Lock.issue
+    $branch = "$($Lock.branch)"
+    $repoDir = "$($Lock.repoDir)"
+    $view = Get-CmAgentIssueState -Ctx $Ctx -Issue $issue
+    if (-not $view) {
+        $attempts = [int]$Lock.attempts + 1
+        if ($attempts -ge $script:CmAgentFinishAttempts) {
+            Write-CmLog "gave up closing out the run for issue #$issue after $attempts tries because GitHub could not be asked; the lock is dropped, so check the issue by hand" 'ERROR'
+            Remove-CmAgentLock -Ctx $Ctx
+            return $true
+        }
+        $Lock.attempts = $attempts
+        Write-CmState -Path $Ctx.LockFile -State $Lock
+        Write-CmLog "could not read issue #$issue from GitHub to close out its run (try $attempts of $script:CmAgentFinishAttempts); will try again next pass" 'WARN'
+        return $false
+    }
+    $exit = Read-CmState -Path "$($Lock.exitFile)"
+    $merged = $null -ne (Get-CmAgentMergedPr -Ctx $Ctx -Branch $branch -SinceUnix ([long]$Lock.startedUnix))
+    $queueLabels = @($view.Labels | Where-Object { $_ -in @('agent-working', 'agent-review') })
+    # Only a run that ended by itself with a non-zero code and a recorded end time can be judged quick; a run that was
+    # stopped for its time limit, or whose end nobody saw, is not.
+    $exitCode = if ($null -ne $exit.exitCode -and $exit.timedOut -ne $true) { [int]$exit.exitCode } else { $null }
+    $ranSeconds = if ($null -ne $exit.endedUnix) { [long]$exit.endedUnix - [long]$Lock.startedUnix } else { $null }
+    $quickFailure = ($null -ne $exitCode) -and ($exitCode -ne 0) -and ($null -ne $ranSeconds) -and ($ranSeconds -lt $script:CmAgentQuickFailureSeconds)
+
+    if ($view.State -eq 'CLOSED') {
+        [void](Set-CmIssueLabels -Ctx $Ctx -Issue $issue -Remove $queueLabels)
+        if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
+        Write-CmLog "issue #$issue is closed; its agent run is finished$(if ($merged) { ' and its pull request merged' })"
+        Reset-CmAgentBackoff -Ctx $Ctx
+    }
+    elseif ($view.Labels -contains 'agent-blocked' -and $view.Labels -notcontains 'agent-working') {
+        if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
+        Write-CmLog "the agent blocked issue #$issue itself; its worktree is kept"
+        Reset-CmAgentBackoff -Ctx $Ctx
+    }
+    elseif ($quickFailure -and -not $merged) {
+        Register-CmAgentQuickFailure -Ctx $Ctx -Lock $Lock -ExitCode $exitCode -QueueLabels $queueLabels
+    }
+    else {
+        if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
+        $body = Get-CmAgentBlockedBody -Lock $Lock -Exit $exit -Status $Status -Merged $merged -MaxMinutes $Settings.MaxMinutes -WorktreeRemoved $merged
+        Set-CmAgentBlocked -Ctx $Ctx -Issue $issue -Remove $queueLabels -Body $body
+        Write-CmLog "the agent run for issue #$issue did not finish ($Status); the issue is marked agent-blocked" 'WARN'
+        Reset-CmAgentBackoff -Ctx $Ctx
+    }
+    Remove-CmAgentLock -Ctx $Ctx
+    $true
+}
+
+# ---- one watcher pass -----------------------------------------------------------------------------------------------------------
+
+function Invoke-CmAgentWatch {
+    <#
+      One pass of the scheduled watcher. Returns @{ Outcome; ExitCode; Reason; Issue }.
+        disabled / busy / running / paused / cap / idle   exit 0, and (except `cap`, once a day) nothing is written
+        started                                  an agent was started for Issue
+        dry-run                                  without -Apply: what would have started
+        finish-pending                           an earlier run could not be closed out yet; nothing new starts
+        config-error 2, gh-failed 3, fetch-failed 3, start-failed 1, claim-failed 3, crashed 1
+    #>
+    param($Ctx)
+    $envMap = Read-CmEnvFile -Path $Ctx.EnvFile
+    $settings = Get-CmAgentSettings -EnvMap $envMap
+    if (-not $settings.Enabled) { return New-CmAgentResult 'disabled' 0 }
+    Initialize-Cm -Apply $global:CmApply -LogFile $Ctx.LogFile -Secrets (Get-CmAgentSecrets $envMap)
+    $held = $null
+    if ($global:CmApply) {
+        # Two passes at once would both pick the same issue; the second leaves at once.
+        $held = Enter-CmLock -Path $Ctx.WatcherLockFile
+        if (-not $held) { return New-CmAgentResult 'busy' 0 }
+    }
+    try { return Invoke-CmAgentWatchCore -Ctx $Ctx -Settings $settings }
+    catch {
+        $message = "the agent watcher crashed: $($_.Exception.Message)"
+        Write-CmLog $message 'ERROR'
+        return New-CmAgentResult 'crashed' 1 $message
+    }
+    finally { Exit-CmLock $held }
+}
+
+function Invoke-CmAgentWatchCore {
+    param($Ctx, $Settings)
+    $lock = Read-CmAgentLock -Ctx $Ctx
+    if ($lock) {
+        $status = Get-CmAgentRunStatus -Lock $lock -MaxMinutes $Settings.MaxMinutes
+        if ($status -eq 'running') { return New-CmAgentResult 'running' 0 }
+        if ($status -eq 'timeout') {
+            Write-CmLog "the agent run for issue #$($lock.issue) is past its $($Settings.MaxMinutes) minute limit; stopping process $($lock.pid) and everything it started" 'WARN'
+            [void](Invoke-Cm -Command 'taskkill' -Arguments @('/PID', "$($lock.pid)", '/T', '/F') -Mutating)
+        }
+        $closed = @(Complete-CmAgentRun -Ctx $Ctx -Settings $Settings -Lock $lock -Status $status) | Select-Object -Last 1
+        if (-not $closed) { return New-CmAgentResult 'finish-pending' 0 }
+    }
+
+    $state = Read-CmState -Path $Ctx.StateFile
+    # After runs that failed at once the service is paused (Register-CmAgentQuickFailure): no call until the time is up.
+    if ([long]$state.pauseUntilUnix -gt (Get-CmAgentNow).ToUnixTimeSeconds()) { return New-CmAgentResult 'paused' 0 }
+    $today = [int](Get-CmAgentNow).ToString('yyyyMMdd')
+    $runsToday = if ([int]$state.day -eq $today) { [int]$state.runs } else { 0 }
+    if ($runsToday -ge $Settings.MaxRunsPerDay) {
+        if ([int]$state.capNotedDay -ne $today) {
+            Write-CmLog "the daily cap of $($Settings.MaxRunsPerDay) runs is reached; no more agents start today (CM_AGENT_MAX_RUNS_PER_DAY in .env)"
+            $state.day = $today
+            $state.runs = $runsToday
+            $state.capNotedDay = $today
+            Write-CmState -Path $Ctx.StateFile -State $state
+        }
+        return New-CmAgentResult 'cap' 0
+    }
+
+    $list = Invoke-Cm -Command 'gh' -Arguments @('issue', 'list', '--repo', $Ctx.Repo, '--state', 'open', '--label', 'agent-task', '--limit', '100', '--json', 'number,title,labels,author,createdAt')
+    if ($list.ExitCode -ne 0) {
+        Write-CmLog "gh issue list failed (exit $($list.ExitCode)): $(@($list.Output | Select-Object -First 2) -join ' ')" 'WARN'
+        return New-CmAgentResult 'gh-failed' 3 'gh issue list failed'
+    }
+    try { $rows = @(($list.Output -join "`n") | ConvertFrom-Json | Where-Object { $null -ne $_ }) }
+    catch {
+        Write-CmLog 'gh issue list printed something that is not JSON' 'WARN'
+        return New-CmAgentResult 'gh-failed' 3 'gh issue list printed something that is not JSON'
+    }
+    $pick = Select-CmAgentIssue -Issues $rows -Owner $Ctx.Owner
+    if (-not $pick) { return New-CmAgentResult 'idle' 0 }
+    Write-CmLog "picked issue #$($pick.Number) '$($pick.Title)' (p$($pick.Priority), model $($pick.Model))"
+    Start-CmAgentRun -Ctx $Ctx -Settings $Settings -Pick $pick -State $state
+}
+
+# ---- the runner (what the watcher starts) ----------------------------------------------------------------------------------------
+
+function Get-CmAgentShellLine {
+    <# The one line cmd.exe runs: claude, the prompt file on its standard input (a long prompt does not survive a command line), output appended to the log. #>
+    param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile)
+    "`"$Claude`" -p --permission-mode auto --model $Model < `"$PromptFile`" >> `"$LogFile`" 2>&1"
+}
+
+function Invoke-CmAgentRunner {
+    <#
+      Runs claude for one issue to the end and records how it ended in the exit file, which the next watcher pass reads.
+      Enforces the time limit itself: while an agent runs, Task Scheduler may not start the watcher again.
+    #>
+    param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile, [string]$ExitFile, [string]$WorkDir, [int]$MaxMinutes, [int]$Issue)
+    Initialize-Cm -Apply $true
+    $dir = Split-Path -Parent $LogFile
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $began = Get-CmAgentNow
+    Add-Content -LiteralPath $LogFile -Encoding utf8 -Value ('=== {0} agent for issue #{1} starting (model {2}, limit {3} minutes) ===' -f $began.ToString('yyyy-MM-dd HH:mm:ss'), $Issue, $Model, $MaxMinutes)
+    $line = Get-CmAgentShellLine -Claude $Claude -Model $Model -PromptFile $PromptFile -LogFile $LogFile
+    $shell = if ($env:ComSpec) { $env:ComSpec } else { 'cmd.exe' }
+    $process = Start-CmProcess -File $shell -Arguments "/d /s /c `"$line`"" -WorkingDirectory $WorkDir -NoNewWindow
+    $limitMs = [int][math]::Min([double][int]::MaxValue, [double]$MaxMinutes * 60000)
+    $finished = $process.WaitForExit($limitMs)
+    $code = $null
+    if ($finished) {
+        $code = [int]$process.ExitCode
+        Add-Content -LiteralPath $LogFile -Encoding utf8 -Value "=== ended with exit code $code ==="
+    }
+    else {
+        [void](Invoke-Cm -Command 'taskkill' -Arguments @('/PID', "$($process.Id)", '/T', '/F') -Mutating)
+        Add-Content -LiteralPath $LogFile -Encoding utf8 -Value "=== stopped after the $MaxMinutes minute limit ==="
+    }
+    Write-CmState -Path $ExitFile -State @{ exitCode = $code; timedOut = (-not $finished); endedUnix = (Get-CmAgentNow).ToUnixTimeSeconds() }
+    if ($null -ne $code) { $code } else { 124 }
+}
