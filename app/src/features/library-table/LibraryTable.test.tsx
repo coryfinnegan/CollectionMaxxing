@@ -1,5 +1,7 @@
-import { configure, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, configure, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
+import { localDateString } from '@/lib/dates';
+import { mockMe } from '@/mocks/data';
 import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -44,6 +46,19 @@ afterEach(() => server.events.removeAllListeners());
 afterAll(() => install(undefined));
 
 const ID = (n: number) => `c0000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+const asRole = (role: 'owner' | 'editor' | 'viewer') =>
+  server.use(
+    http.get('*/api/v1/me', () =>
+      HttpResponse.json({ ...mockMe(), memberships: [{ libraryId: mockMe().memberships[0]!.libraryId, role }] }),
+    ),
+  );
+
+/** The rows have loaded and so has the caller's role: the selection column appears once an editor is known. */
+const loaded = async () => {
+  await screen.findByText('The Matrix');
+  await screen.findByLabelText('Select all loaded items');
+};
 
 describe('LibraryTable', () => {
   it('switches to Needs attention from its chip, and back', async () => {
@@ -144,7 +159,7 @@ describe('LibraryTable', () => {
 
   it('selects with click, shift-click and the header checkbox', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
 
     await fireEvent.press(screen.getByTestId(`row-${ID(1)}`));
     expect(await screen.findByText('1 selected')).toBeTruthy();
@@ -158,7 +173,7 @@ describe('LibraryTable', () => {
 
   it('exposes rows as checkboxes with names that toggle selection', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
     const box = screen.getByLabelText('Select The Matrix');
     expect(box.props.accessibilityRole).toBe('checkbox');
     expect(box.props.accessibilityState.checked).toBe(false);
@@ -173,7 +188,7 @@ describe('LibraryTable', () => {
 
   it('moves exactly the selected items from the Move to action', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
     await fireEvent.press(screen.getByLabelText('Select The Matrix'));
     await fireEvent.press(screen.getByLabelText('Select Dune'));
     await fireEvent.press(screen.getByLabelText('Move to'));
@@ -193,7 +208,7 @@ describe('LibraryTable', () => {
   it('says in plain words when only some items were changed', async () => {
     server.use(http.post(/items:bulk$/, () => HttpResponse.json({ affected: 1 })));
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
     await fireEvent.press(screen.getByLabelText('Select The Matrix'));
     await fireEvent.press(screen.getByLabelText('Select Dune'));
     await fireEvent.press(screen.getByLabelText('Set status'));
@@ -205,12 +220,15 @@ describe('LibraryTable', () => {
     ).toBeTruthy();
   });
 
-  it('deletes the selected items after confirmation', async () => {
+  it('deletes the selected items after confirmation, and says where to bring them back from', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
     await fireEvent.press(screen.getByLabelText('Select The Matrix'));
     await fireEvent.press(screen.getByLabelText('Delete'));
     expect(await screen.findByText('Delete 1 item?')).toBeTruthy();
+    // A deleted item's own page is gone; the way back is Me, then Recently deleted.
+    expect(screen.getByText(/Me, then Recently deleted/)).toBeTruthy();
+    expect(screen.queryByText(/from its page/)).toBeNull();
     expect(bulkRequests()).toHaveLength(0);
     await fireEvent.press(screen.getByLabelText('Delete 1 item'));
     expect(await screen.findByText('Deleted 1 item.')).toBeTruthy();
@@ -226,7 +244,7 @@ describe('LibraryTable', () => {
     server.use(http.get('*/api/v1/libraries/:libraryId/items', () => HttpResponse.json({ items: many, nextCursor: null })));
     await renderWithProviders(<LibraryTable title="Library" />);
     await screen.findByText('Item 0');
-    await fireEvent.press(screen.getByLabelText('Select all loaded items'));
+    await fireEvent.press(await screen.findByLabelText('Select all loaded items'));
 
     expect(await screen.findByText('520 selected')).toBeTruthy();
     expect(screen.getByText('520 selected. Bulk actions change 500 at a time, so they apply to the first 500.')).toBeTruthy();
@@ -240,19 +258,46 @@ describe('LibraryTable', () => {
 
   it('changes a status inline with If-Match', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
     await fireEvent.press(screen.getByLabelText('Change status of The Matrix, now Owned'));
     await fireEvent.press(await screen.findByLabelText('Set status of The Matrix to Wishlist'));
 
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(patches()[0].headers.get('if-match')).toBe('"v1"');
-    expect(patches()[0].body).toEqual({ status: 'wishlist' });
+    // Not lent out, so any stale borrower is cleared along with the status.
+    expect(patches()[0].body).toEqual({ status: 'wishlist', lentTo: null, lentOn: null });
     await waitFor(() => expect(screen.getByLabelText('Change status of The Matrix, now Wishlist')).toBeTruthy());
+  });
+
+  it('clears who it was lent to when an item leaves Lent out', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await loaded();
+    await fireEvent.press(await screen.findByLabelText('Change status of GoldenEye 007, now Lent out'));
+    await fireEvent.press(await screen.findByLabelText('Set status of GoldenEye 007 to Owned'));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0].body).toEqual({ status: 'owned', lentTo: null, lentOn: null });
+    await waitFor(() => {
+      const goldeneye = itemsState.entries.find((e) => e.work.title === 'GoldenEye 007')!.item;
+      expect(goldeneye.status).toBe('owned');
+      expect(goldeneye.lentTo).toBeNull();
+      expect(goldeneye.lentOn).toBeNull();
+    });
+  });
+
+  it('lends an item out with the name blank and today as the date, like the edit form', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await loaded();
+    await fireEvent.press(screen.getByLabelText('Change status of The Matrix, now Owned'));
+    await fireEvent.press(await screen.findByLabelText('Set status of The Matrix to Lent out'));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0].body).toEqual({ status: 'lent', lentTo: null, lentOn: localDateString() });
   });
 
   it('changes a location inline', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
     await fireEvent.press(screen.getByLabelText('Change location of Dune, now Shelf 2'));
     await fireEvent.press(await screen.findByLabelText('Set location of Dune to No location'));
     await waitFor(() => expect(patches()).toHaveLength(1));
@@ -261,7 +306,7 @@ describe('LibraryTable', () => {
 
   it('reloads the row and explains when someone else changed the item (412)', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
-    await screen.findByText('The Matrix');
+    await loaded();
     await fireEvent.press(screen.getByLabelText('Change status of The Matrix, now Owned'));
     const option = await screen.findByLabelText('Set status of The Matrix to Wishlist');
     // Someone else edits the item after the editor opened.
@@ -298,5 +343,110 @@ describe('LibraryTable', () => {
     await renderWithProviders(<LibraryTable title="Library" />);
     await screen.findByText('The Matrix');
     expect(screen.getByTestId('library-table-scroll').props.horizontal).toBe(true);
+  });
+});
+
+describe('LibraryTable sort arrow', () => {
+  it('points up for an ascending sort and down for newest first', async () => {
+    store.set(STORAGE_KEY, JSON.stringify(['title', 'year', 'added']));
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await screen.findByText('The Matrix');
+
+    // The list opens newest first, which is the Added column's sort.
+    expect(screen.getByText('Added ↓')).toBeTruthy();
+    expect(screen.queryByText(/Added ↑/)).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText('Sort by Title'));
+    expect(await screen.findByText('Title ↑')).toBeTruthy();
+    expect(screen.queryByText(/^Added ./)).toBeNull();
+    expect(screen.getByText('Added')).toBeTruthy();
+  });
+});
+
+describe('LibraryTable Add item', () => {
+  it('has an Add item button in the header that opens the Add an item panel and closes it again', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await screen.findByText('The Matrix');
+
+    await fireEvent.press(await screen.findByLabelText('Add item'));
+    expect(await screen.findByText('Add an item')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Add item'));
+    expect(screen.queryByText('Add an item')).toBeNull();
+  });
+
+  it('adds an item by hand and lists it in the table', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await screen.findByText('The Matrix');
+
+    await fireEvent.press(await screen.findByLabelText('Add item'));
+    await fireEvent.press(screen.getByLabelText('None of these? Add it yourself'));
+    await fireEvent.press(screen.getByLabelText('Kind Games'));
+    await fireEvent.changeText(screen.getByLabelText('Title'), 'Zelda homebrew');
+    await fireEvent.changeText(screen.getByLabelText('Year'), '2001');
+    await fireEvent.press(screen.getByLabelText('Format Cartridge'));
+    await fireEvent.press(screen.getByLabelText('Add to library'));
+
+    await waitFor(() => expect(screen.queryByText('Add an item')).toBeNull());
+    expect(await screen.findByLabelText('Open Zelda homebrew')).toBeTruthy();
+  });
+
+  it.each(['owner', 'editor'] as const)('offers Add item to an %s', async (role) => {
+    asRole(role);
+    await renderWithProviders(<LibraryTable title="Library" />);
+    expect(await screen.findByLabelText('Add item')).toBeTruthy();
+  });
+});
+
+describe('LibraryTable for a viewer', () => {
+  /** Waits until the role has arrived, so a missing control is the role's doing and not a slow answer. */
+  const viewerLoaded = async () => {
+    let askedWho = false;
+    server.events.on('request:end', ({ request }) => {
+      if (new URL(request.url).pathname.endsWith('/api/v1/me')) askedWho = true;
+    });
+    asRole('viewer');
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await screen.findByText('The Matrix');
+    await waitFor(() => expect(askedWho).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  };
+
+  it('shows no Add item, no selection boxes and no bulk actions', async () => {
+    await viewerLoaded();
+
+    expect(screen.queryByLabelText('Add item')).toBeNull();
+    expect(screen.queryByLabelText('Select all loaded items')).toBeNull();
+    expect(screen.queryByLabelText('Select The Matrix')).toBeNull();
+    // Clicking a row selects nothing, so no bar of bulk actions can appear.
+    await fireEvent.press(screen.getByTestId(`row-${ID(1)}`));
+    expect(screen.queryByText(/selected$/)).toBeNull();
+    for (const name of ['Move to', 'Set status', 'Add tag', 'Delete']) {
+      expect(screen.queryByLabelText(name)).toBeNull();
+    }
+  });
+
+  it('shows status and location as plain text, with nothing to change them', async () => {
+    await viewerLoaded();
+
+    expect(screen.queryByLabelText(/^Change status of/)).toBeNull();
+    expect(screen.queryByLabelText(/^Change location of/)).toBeNull();
+    expect(screen.getAllByText('Owned').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Living room').length).toBeGreaterThan(0);
+    // Looking is still allowed.
+    expect(screen.getByLabelText('Open The Matrix')).toBeTruthy();
+    expect(screen.getByLabelText('Search')).toBeTruthy();
+  });
+
+  it('does not tell a viewer to use Add item on an empty shelf', async () => {
+    server.use(http.get('*/api/v1/libraries/:libraryId/items', () => HttpResponse.json({ items: [], nextCursor: null })));
+    asRole('viewer');
+    await renderWithProviders(<LibraryTable title="Library" />);
+
+    expect(await screen.findByText('Nothing here yet.')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText(/Use Add item/)).toBeNull());
+    expect(await screen.findByText(/once an owner or editor adds them/)).toBeTruthy();
   });
 });
