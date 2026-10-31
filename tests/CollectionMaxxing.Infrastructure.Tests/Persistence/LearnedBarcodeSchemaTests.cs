@@ -86,6 +86,51 @@ public class LearnedBarcodeSchemaTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task A_link_written_without_an_id_the_way_the_previous_release_writes_it_is_accepted()
+    {
+        // A failed deploy rolls back to the previous image against this schema; that image inserts (type, value, release_id) only.
+        var release = await TestData.CreateReleaseAsync(Db);
+
+        await InsertWithoutIdAsync(release);
+
+        (await LibrariesOfAsync(release)).ShouldBe([null]);
+    }
+
+    [Fact]
+    public async Task A_second_shared_link_written_without_an_id_is_still_refused()
+    {
+        var release = await TestData.CreateReleaseAsync(Db);
+        await InsertWithoutIdAsync(release);
+
+        var failure = await Should.ThrowAsync<PostgresException>(() => InsertWithoutIdAsync(release));
+
+        failure.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+        failure.ConstraintName.ShouldBe("ux_release_identifiers_shared");
+    }
+
+    [Fact]
+    public async Task The_id_column_fills_itself_in_the_database()
+    {
+        await using var connection = new NpgsqlConnection(Db.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select column_default from information_schema.columns where table_name = 'release_identifiers' and column_name = 'id'", connection);
+
+        ((string?)await command.ExecuteScalarAsync(TestContext.Current.CancellationToken)).ShouldBe("gen_random_uuid()");
+    }
+
+    private async Task InsertWithoutIdAsync(Guid releaseId)
+    {
+        await using var connection = new NpgsqlConnection(Db.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "insert into release_identifiers (type, value, release_id) values ('gtin13', @value, @release)", connection);
+        command.Parameters.AddWithValue("value", Code);
+        command.Parameters.AddWithValue("release", releaseId);
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task A_barcode_link_names_a_library_that_exists()
     {
         var release = await TestData.CreateReleaseAsync(Db);

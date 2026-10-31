@@ -139,6 +139,32 @@ public class LearnedBarcodeMigrationTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task After_the_migration_the_previous_release_can_still_write_links_without_an_id()
+    {
+        // A failed deploy rolls back to the previous image against the migrated schema; it inserts (type, value, release_id) only.
+        var (connectionString, drop) = await CreateScratchDatabaseAsync();
+        try
+        {
+            await using var context = new AppDbContext(AppDbContextOptions.Create(connectionString), new CurrentUser());
+            var migrator = context.GetService<IMigrator>();
+            await migrator.MigrateAsync(Before, TestContext.Current.CancellationToken);
+            await SeedOldSchemaAsync(connectionString);
+            await migrator.MigrateAsync(After, TestContext.Current.CancellationToken);
+
+            await ExecuteAsync(connectionString, $"""
+                insert into release_identifiers (type, value, release_id) values ('gtin13', '0000000000009', '{Release1}')
+                """);
+
+            (await QueryAsync(connectionString, "select count(*)::text from release_identifiers where value = '0000000000009' and id is not null"))
+                .ShouldBe(["1"]);
+        }
+        finally
+        {
+            await drop();
+        }
+    }
+
+    [Fact]
     public async Task After_the_migration_another_library_can_learn_the_same_barcode_for_the_same_release()
     {
         var (connectionString, drop) = await CreateScratchDatabaseAsync();

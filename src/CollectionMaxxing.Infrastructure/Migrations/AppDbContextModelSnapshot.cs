@@ -480,7 +480,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
-                        .HasColumnName("id");
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
 
                     b.Property<Guid?>("LearnedBySessionId")
                         .HasColumnType("uuid")

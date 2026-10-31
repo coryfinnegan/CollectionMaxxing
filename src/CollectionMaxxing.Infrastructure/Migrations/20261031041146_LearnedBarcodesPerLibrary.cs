@@ -25,7 +25,8 @@ namespace CollectionMaxxing.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // The new key. Every existing row gets its own value; the default is only there to fill them in.
+            // The new key. Every existing row gets its own value from the default, and the default stays: if a deploy fails its
+            // smoke test the previous image runs against this schema, and it inserts links without an id.
             migrationBuilder.Sql("ALTER TABLE release_identifiers ADD COLUMN id uuid NOT NULL DEFAULT gen_random_uuid();");
 
             migrationBuilder.DropPrimaryKey(
@@ -36,8 +37,6 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                 name: "pk_release_identifiers",
                 table: "release_identifiers",
                 column: "id");
-
-            migrationBuilder.Sql("ALTER TABLE release_identifiers ALTER COLUMN id DROP DEFAULT;");
 
             migrationBuilder.AddColumn<Guid>(
                 name: "library_id",

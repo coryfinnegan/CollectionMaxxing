@@ -86,8 +86,10 @@ internal sealed class ReleaseIdentifierConfiguration : IEntityTypeConfiguration<
         // link beside the shared one. A nullable library cannot be part of a key, so the row has a key of its own and two
         // partial unique indexes say what must be unique: (type, value, release) among shared links, and the same with
         // the library among learned ones.
+        // The database fills the id in and keeps doing so for good: a deploy that fails its smoke test rolls back to an image that
+        // inserts (type, value, release_id) without one, and it must still be able to write links.
         builder.HasKey(i => i.Id);
-        builder.Property(i => i.Id).ValueGeneratedOnAdd();
+        builder.Property(i => i.Id).HasDefaultValueSql("gen_random_uuid()");
         builder.Property(i => i.Type).HasSnakeCaseEnum();
         builder.Property(i => i.Value).HasMaxLength(64).IsRequired();
 
