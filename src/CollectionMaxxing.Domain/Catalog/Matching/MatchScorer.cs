@@ -30,12 +30,14 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// on its title and the kind alone.
 /// </para>
 /// <para>
-/// Four guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
+/// Five guards keep a wrong release from being auto-added. A year inside both titles must be the same year ("Madden NFL
 /// 2005" is not "Madden NFL 2004"), and the year in a title is never taken for the release year. A known platform or
 /// title-year conflict caps the score below the Matched threshold. Matched needs at least two signals that were
 /// actually compared (both sides present), or an exact barcode match; thinner evidence is at most Ambiguous. And when
 /// the title and the kind are the only signals compared, only an exact title (after normalising) can match: the
 /// providers asked for a book answer only books, so the kind agrees with every candidate and is no evidence for one.
+/// A read title with fewer than three letters ("2000s", "1999", "24") is at most Ambiguous too: it is too thin to tell
+/// one item from another, so a person confirms it (see <see cref="HasTooFewLettersToTrust"/>).
 /// </para>
 /// </remarks>
 public static class MatchScorer
@@ -45,6 +47,9 @@ public static class MatchScorer
 
     /// <summary>A Match needs this many signals compared on both sides, unless a barcode matched exactly.</summary>
     private const int MinimumComparedSignals = 2;
+
+    /// <summary>A Match needs a read title with at least this many letters (see <see cref="HasTooFewLettersToTrust"/>).</summary>
+    private const int MinimumTitleLetters = 3;
 
     private const string TitleTerm = "title";
     private const string TypeTerm = "type";
@@ -224,8 +229,8 @@ public static class MatchScorer
     /// <summary>
     /// Scores every candidate, orders them best first (ties keep their input order) and decides the outcome from the best
     /// score and its lead over the second. No candidates is NotFound. A best score that rests on fewer than two compared
-    /// signals (and is not an exact barcode match), on a known conflict, or on a near title with only the kind compared
-    /// besides it, is at most Ambiguous.
+    /// signals (and is not an exact barcode match), on a known conflict, on a near title with only the kind compared
+    /// besides it, or on a read title with fewer than three letters, is at most Ambiguous.
     /// </summary>
     public static MatchResult Evaluate(ReadItem read, IReadOnlyList<CandidateRelease> releases, ScoringProfile profile)
     {
@@ -248,7 +253,10 @@ public static class MatchScorer
         var outcome = Classify(best.Score, ranked.Count > 1 ? ranked[1].Score : null, profile.Thresholds);
         if (outcome == MatchOutcome.Matched
             && !best.IsExactIdentifierMatch
-            && (best.ComparedSignals < MinimumComparedSignals || best.HasKnownConflict || RestsOnANearTitleAlone(best)))
+            && (best.ComparedSignals < MinimumComparedSignals
+                || best.HasKnownConflict
+                || RestsOnANearTitleAlone(best)
+                || HasTooFewLettersToTrust(read.Title)))
         {
             outcome = MatchOutcome.Ambiguous;
         }
@@ -266,6 +274,17 @@ public static class MatchScorer
         best.Terms.Where(t => t.Compared).All(t => t.Name is TitleTerm or TypeTerm)
         && best.Terms.FirstOrDefault(t => t.Name == TitleTerm) is { } title
         && Math.Round(title.Value, Decimals) < 1.0;
+
+    /// <summary>
+    /// The read's title has fewer than <see cref="MinimumTitleLetters"/> letters (digits, punctuation and spaces are not letters),
+    /// like "2000s", "1999" or "24": there is too little in it to tell one item from another, so even the same title is no proof
+    /// the read is that item. In the thirteenth eval run the model read "2000s", a fragment of a "2000 Walt Disney World" tape,
+    /// and it was Matched, an automatic add, to a book titled "2000s". Such a read keeps its candidates and their scores and is at
+    /// most Ambiguous, so a person confirms it. The price: a real title of this kind ("1984", "Up") is reviewed rather than added
+    /// by itself. An exact identifier match is not held back (the caller checks it first).
+    /// </summary>
+    private static bool HasTooFewLettersToTrust(string? title) =>
+        !string.IsNullOrWhiteSpace(title) && title.Count(char.IsLetter) < MinimumTitleLetters;
 
     /// <summary>
     /// The outcome rules: Matched when the best score is at least <see cref="ScoringThresholds.MatchedScore"/> and its
