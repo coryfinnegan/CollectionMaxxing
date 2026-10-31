@@ -2,6 +2,7 @@ using System.Text.Json;
 using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Libraries.Members;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Items;
@@ -92,8 +93,9 @@ internal static class ItemProjection
         return found == tagIds.Count;
     }
 
-    public static async Task<LoadedRelease?> LoadReleaseAsync(IAppDbContext db, Guid releaseId, CancellationToken cancellationToken) =>
-        (await LoadReleasesAsync(db, [releaseId], cancellationToken)).SingleOrDefault();
+    public static async Task<LoadedRelease?> LoadReleaseAsync(
+        IAppDbContext db, IReadOnlyCollection<Guid> libraryIds, Guid releaseId, CancellationToken cancellationToken) =>
+        (await LoadReleasesAsync(db, libraryIds, [releaseId], cancellationToken)).SingleOrDefault();
 
     /// <summary>
     /// A release with its work, through the change tracker first, so a release (or work) this same unit of work just
@@ -115,9 +117,13 @@ internal static class ItemProjection
         return new ReleaseWithWork(release, work);
     }
 
-    /// <summary>Loads releases with their works, platforms and identifiers as a set (one query per table), in id order. Unknown ids are skipped.</summary>
+    /// <summary>
+    /// Loads releases with their works, platforms and identifiers as a set (one query per table), in id order. Unknown ids are skipped.
+    /// The identifiers are the ones <paramref name="libraryIds"/> may use: the shared ones, and the ones those libraries taught
+    /// themselves, never a barcode only another library taught.
+    /// </summary>
     public static async Task<IReadOnlyList<LoadedRelease>> LoadReleasesAsync(
-        IAppDbContext db, IEnumerable<Guid> releaseIds, CancellationToken cancellationToken)
+        IAppDbContext db, IReadOnlyCollection<Guid> libraryIds, IEnumerable<Guid> releaseIds, CancellationToken cancellationToken)
     {
         var ordered = releaseIds.Order().ToList();
         if (ordered.Count == 0)
@@ -133,6 +139,7 @@ internal static class ItemProjection
             ? new Dictionary<Guid, Platform>()
             : await db.Platforms.AsNoTracking().Where(p => platformIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
         var identifiers = await db.ReleaseIdentifiers.AsNoTracking()
+            .UsableBy(libraryIds)
             .Where(i => ordered.Contains(i.ReleaseId))
             .OrderBy(i => i.Type).ThenBy(i => i.Value)
             .Select(i => new { i.ReleaseId, Dto = new ReleaseIdentifierDto(i.Type, i.Value) })

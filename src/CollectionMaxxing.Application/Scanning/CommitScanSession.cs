@@ -170,7 +170,7 @@ public static class CommitScanSession
                 }
             }
 
-            await learner.LearnAsync(session.Id, accepted, cancellationToken); // the next scan of these barcodes is a local hit
+            await learner.LearnAsync(session, accepted, cancellationToken); // the next scan of these barcodes is a local hit
 
             // A commit that added nothing (nothing was accepted yet) leaves the session open for the person to carry on.
             var unusedPhotos = new List<PhotoFile>();

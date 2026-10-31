@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -32,7 +33,8 @@ public static class SearchCatalog
         IEnumerable<ICatalogProvider> providers,
         CatalogOptions options,
         ILogger<Handler> logger,
-        IProviderHitStore? hits = null)
+        IProviderHitStore? hits = null,
+        ICurrentUser? currentUser = null)
     {
         public async Task<Result<Page<CatalogSearchResultDto>>> HandleAsync(Query query, CancellationToken cancellationToken)
         {
@@ -209,7 +211,9 @@ public static class SearchCatalog
 
             var releaseIds = rows.Select(r => r.Release.Id).ToList();
             var platformsById = await LoadPlatformsAsync(rows.Select(r => r.Release.PlatformId), cancellationToken);
+            // The shared barcodes and the ones the caller's own libraries taught; never one only another library taught.
             var identifiers = (await db.ReleaseIdentifiers.AsNoTracking()
+                    .UsableBy(currentUser?.LibraryIds ?? [])
                     .Where(i => releaseIds.Contains(i.ReleaseId))
                     .OrderBy(i => i.Type).ThenBy(i => i.Value)
                     .ToListAsync(cancellationToken))

@@ -72,7 +72,7 @@ public sealed class ResolvePendingCandidate(
             return ResolveOutcome.Done;
         }
 
-        var local = await resolver.FindLocalAsync([identifier], cancellationToken);
+        var local = await resolver.FindLocalAsync(job.LibraryId, [identifier], cancellationToken);
         BarcodeResolution answer;
         if (local.TryGetValue(identifier.Value, out var releaseIds))
         {
