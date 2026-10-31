@@ -48,6 +48,31 @@ export const mockPlatforms: PlatformDto[] = [
   platform(3, 'PlayStation 2', 'PS2', 'Sony'),
 ];
 
+/**
+ * The id the real server gives a work and a release that only a provider knows (`Guid.Empty`): every such result
+ * shares it, so nothing in the app may tell results apart by id. The release names itself in `providerRef` instead.
+ */
+export const UNSAVED_ID = '00000000-0000-0000-0000-000000000000';
+
+/** A search result only a provider knows, shaped like the server's: the empty id on the work and on its one release. */
+const providerResult = (
+  externalId: string,
+  title: string,
+  year: number,
+  publisher: string,
+  format: ReleaseDto['format'] = 'game_disc',
+): CatalogSearchResultDto => {
+  const w: WorkDto = { ...work(0, 'game', title, year, ['id Software']), id: UNSAVED_ID };
+  const providerRef = { provider: 'igdb', externalId };
+  return {
+    work: w,
+    releases: [release(0, w, format, { id: UNSAVED_ID, workId: UNSAVED_ID, source: 'provider', publisher, providerRef })],
+    score: 0.5,
+    source: 'igdb',
+    ownedReleaseIds: [],
+  };
+};
+
 /** Fresh seed data for the catalog. */
 export const seed = (): CatalogSearchResultDto[] => {
   const alien = work(1, 'film', 'Alien', 1979, ['Ridley Scott']);
@@ -59,13 +84,27 @@ export const seed = (): CatalogSearchResultDto[] => {
     { work: arrival, releases: [release(3, arrival, 'bluray')], score: 0.9, source: 'local', ownedReleaseIds: [] },
     { work: neuromancer, releases: [release(4, neuromancer, 'paperback')], score: 0.9, source: 'local', ownedReleaseIds: [] },
     { work: mario, releases: [release(5, mario, 'game_cartridge', { platform: mockPlatforms[0]! })], score: 0.9, source: 'local', ownedReleaseIds: [] },
+    // Three provider-only works, all with the empty id (the regression guard for #572): picking the 2nd must open the 2nd.
+    providerResult('doom-1993', 'Doom', 1993, 'id Software'),
+    providerResult('doom-ii-1994', 'Doom II', 1994, 'GT Interactive'),
+    providerResult('doom-3-2004', 'Doom 3', 2004, 'Activision'),
   ];
 };
 
 const entries = seed();
 
+const isSaved = (e: CatalogSearchResultDto) => e.work.id !== UNSAVED_ID;
+
+/** Releases the catalog has saved: the ones `releaseId` can name. */
 export const catalogReleases = (): { work: WorkDto; release: ReleaseDto }[] =>
-  entries.flatMap((e) => e.releases.map((r) => ({ work: e.work, release: r })));
+  entries.filter(isSaved).flatMap((e) => e.releases.map((r) => ({ work: e.work, release: r })));
+
+/** The provider-only releases a search showed, found by the `providerRef` an add sends. */
+export const providerHitFor = (ref: { provider: string; externalId: string }): { work: WorkDto; release: ReleaseDto } | undefined =>
+  entries
+    .filter((e) => !isSaved(e))
+    .flatMap((e) => e.releases.map((r) => ({ work: e.work, release: r })))
+    .find((c) => c.release.providerRef?.provider === ref.provider && c.release.providerRef.externalId === ref.externalId);
 
 export const handlers = [
   http.get('*/api/v1/catalog/search', ({ request }) => {

@@ -16,6 +16,7 @@ import { useOnline } from '@/features/offline/hooks';
 import type { OwnedCopy } from '@/features/offline/ownedIndex';
 import { friendlyError } from '@/lib/problem';
 import { Button, Chip, Cover, EmptyState, ListRow, LoadingState, Text, TextField } from '@/ui';
+import { pickedReleaseOf, resultKey, type PickedRelease } from './pick';
 import { useRecentSearches } from './recent';
 import { EditionRow, representativeCoverOf, WorkRow, yearSpanOf } from './rows';
 
@@ -37,7 +38,8 @@ export type OfflineSearchSource = {
 };
 
 export type SearchViewProps = {
-  onPick(releaseId: string): void;
+  /** The picked edition: its catalog id, or the provider and id of one only a provider knows. */
+  onPick(picked: PickedRelease): void;
   /** Absent when the host has no manual-entry path (the scanner): no-matches then offers no action. */
   onManual?(): void;
   initialQuery?: string;
@@ -62,7 +64,8 @@ export function SearchView({ onPick, onManual, initialQuery = '', scope, offline
   const [kind, setKind] = useState<WorkKind | null>(null);
   const [platform, setPlatform] = useState<PlatformDto | null>(null);
   const [yearText, setYearText] = useState('');
-  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  // The opened result, by a key unique per result: provider-only works all share one id (#572).
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const q = useDebounced(text.trim());
   const year = parseYear(yearText);
   const online = useOnline();
@@ -90,8 +93,8 @@ export function SearchView({ onPick, onManual, initialQuery = '', scope, offline
     if (live && asked(q) && !answer.isLoading && !answer.isError && items.length > 0) save(q);
   }, [live, q, answer.isLoading, answer.isError, items, save]);
 
-  const selected = selectedWorkId ? (items.find((r) => r.work.id === selectedWorkId) ?? null) : null;
-  if (selected) return <Editions result={selected} onBack={() => setSelectedWorkId(null)} onPick={onPick} />;
+  const selected = selectedKey ? (items.find((r, i) => resultKey(r, i) === selectedKey) ?? null) : null;
+  if (selected) return <Editions result={selected} onBack={() => setSelectedKey(null)} onPick={onPick} />;
 
   const pickKind = (next: WorkKind | null) => {
     setKind(next);
@@ -143,7 +146,7 @@ export function SearchView({ onPick, onManual, initialQuery = '', scope, offline
         onRecent={setText}
         onClearRecent={clear}
         onManual={onManual}
-        onOpen={(result) => setSelectedWorkId(result.work.id)}
+        onOpen={(key) => setSelectedKey(key)}
       />
     </View>
   );
@@ -168,7 +171,7 @@ function SearchBody({
   onRecent(term: string): void;
   onClearRecent(): void;
   onManual?(): void;
-  onOpen(result: CatalogSearchResultDto): void;
+  onOpen(key: string): void;
 }) {
   if (!asked(q)) {
     if (recent.length === 0) {
@@ -230,8 +233,8 @@ function SearchBody({
   return (
     <View style={styles.rows}>
       {answer.items.map((result, i) => (
-        // Provider works share the empty id, so the index keeps keys apart.
-        <WorkRow key={`${result.work.id}-${i}`} result={result} ownedReleaseIds={new Set(result.ownedReleaseIds)} onPress={() => onOpen(result)} />
+        // Provider works share the empty id, so each row is keyed (and opened) by its provider and id instead.
+        <WorkRow key={resultKey(result, i)} result={result} ownedReleaseIds={new Set(result.ownedReleaseIds)} onPress={() => onOpen(resultKey(result, i))} />
       ))}
     </View>
   );
@@ -267,7 +270,7 @@ function Editions({
 }: {
   result: CatalogSearchResultDto;
   onBack(): void;
-  onPick(releaseId: string): void;
+  onPick(picked: PickedRelease): void;
 }) {
   const owned = new Set(result.ownedReleaseIds);
   const { work, releases } = result;
@@ -301,7 +304,7 @@ function Editions({
       <View style={styles.rows}>
         {releases.map((release, i) => (
           // Provider releases share the empty id, so the index keeps keys apart.
-          <EditionRow key={`${release.id}-${i}`} release={release} ownedCount={owned.has(release.id) ? 1 : 0} onPress={() => onPick(release.id)} />
+          <EditionRow key={`${release.id}-${i}`} release={release} ownedCount={owned.has(release.id) ? 1 : 0} onPress={() => onPick(pickedReleaseOf(release))} />
         ))}
       </View>
     </View>

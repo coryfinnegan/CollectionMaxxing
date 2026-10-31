@@ -93,6 +93,73 @@ describe('AddItemPanel Search view adoption (#458)', () => {
     expect(JSON.parse(sent[0]!)).toMatchObject({ releaseId: ALIEN_VHS, addedVia: 'search' });
   });
 
+  it('adds the provider-only result you picked by its provider and id, not by the shared empty id', async () => {
+    const sent: string[] = [];
+    server.use(
+      http.post('*/api/v1/libraries/:libraryId/items', async ({ request }) => {
+        sent.push(await request.text());
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+    const onClose = jest.fn();
+    await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
+    await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'doom');
+    await fireEvent.press(await screen.findByRole('button', { name: 'Doom II, id Software · 1994 · 1 edition' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(sent).toHaveLength(1);
+    const body = JSON.parse(sent[0]!) as Record<string, unknown>;
+    expect(body).toMatchObject({ providerRef: { provider: 'igdb', externalId: 'doom-ii-1994' }, addedVia: 'search' });
+    expect(body).not.toHaveProperty('releaseId');
+  });
+
+  it('adds a provider-only result through the mock API and closes', async () => {
+    const onClose = jest.fn();
+    await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
+    await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'doom');
+    await fireEvent.press(await screen.findByRole('button', { name: 'Doom 3, id Software · 2004 · 1 edition' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Doom 3 (2004), Game disc, Activision' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('says an expired result expired, and asks the search again so the retry works', async () => {
+    server.use(
+      http.post(
+        '*/api/v1/libraries/:libraryId/items',
+        () =>
+          HttpResponse.json(
+            { title: 'Not found', status: 404, code: 'provider_hit.not_found' },
+            { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+          ),
+        { once: true },
+      ),
+    );
+    const searches: string[] = [];
+    const heard = ({ request }: { request: Request }) => {
+      if (request.url.includes('/api/v1/catalog/search')) searches.push(request.url);
+    };
+    server.events.on('request:start', heard);
+    try {
+      const onClose = jest.fn();
+      await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
+      await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'doom');
+      await fireEvent.press(await screen.findByRole('button', { name: 'Doom II, id Software · 1994 · 1 edition' }));
+      await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' });
+      const asked = searches.length;
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' }));
+
+      expect(await screen.findByText('That search result has expired. Try adding it again.')).toBeTruthy();
+      await waitFor(() => expect(searches.length).toBeGreaterThan(asked));
+      expect(onClose).not.toHaveBeenCalled();
+
+      await fireEvent.press(await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' }));
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    } finally {
+      server.events.removeListener('request:start', heard);
+    }
+  });
+
   it('opens the manual form from the no-matches state', async () => {
     const onClose = jest.fn();
     await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);

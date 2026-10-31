@@ -46,6 +46,12 @@ describe('friendlyError', () => {
     expect(loggedErrors()[0]).toContain('kaboom');
   });
 
+  it('tells an expired search result apart from a missing thing and says what to do', () => {
+    expect(friendlyError(new ApiError(404, { title: 'Not found', code: 'provider_hit.not_found' }))).toBe(
+      'That search result has expired. Try adding it again.',
+    );
+  });
+
   it('keeps turning API failures into their friendly copy', () => {
     expect(friendlyError(new ApiError(404, { title: 'Not found' }))).toBe("That's no longer here. Refresh and try again.");
     expect(friendlyError(new ApiError(409, { title: 'Already in your library.' }))).toBe('Already in your library.');
