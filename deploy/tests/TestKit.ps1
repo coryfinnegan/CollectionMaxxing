@@ -10,6 +10,7 @@ function Test-Case {
     $global:CmCalls = [System.Collections.Generic.List[object]]::new()
     $global:CmRunner = $null
     $global:CmSleep = { param($s) }   # never really sleep
+    $global:CmNow = $null             # the real clock, unless a test sets one
     Initialize-Cm -Apply $false
     try {
         & $Body
@@ -21,6 +22,7 @@ function Test-Case {
     finally {
         $global:CmRunner = $null
         $global:CmAuth0Runner = $null
+        $global:CmNow = $null
     }
 }
 
@@ -143,6 +145,16 @@ function New-FakeMachine {
         RmFails                 image refs (repo:tag) whose `docker image rm` fails
         RmAllFail               make every `docker image rm` fail
         ListFails               make `docker image ls` fail
+        Issues                  the fake GitHub: a List of issues (number, title, body, labels, state, comments, updatedAt) that
+                                `gh issue list|create|comment|close` read and change; pass one list to every poll of a test
+                                so the issues carry over
+        GhFails                 make every `gh issue ...` call fail (offline, not logged in)
+        GhThrows                make every `gh issue ...` call throw
+        PullThrows              make `docker pull` throw (an unexpected crash in the deployer)
+        BackupHealth            what the backup container's health reports: healthy (default), unhealthy, starting, none (no health check)
+        BackupContainerMissing  `compose ps -q backup` lists no container
+        BackupPsFails           make `compose ps -q backup` fail
+        BackupInspectFails      make the `docker inspect` of the backup container fail
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -158,11 +170,13 @@ function New-FakeMachine {
     $m.HelperFails = $false; $m.RepoDirty = $false; $m.RepoBranch = 'main'; $m.MergeFails = $false; $m.ComposeAt = @{}; $m.ComposeConfigFor = @{}
     $m.RepoHead = ('f0' * 20); $m.MergeMovesTo = $null; $m.ChangedFiles = @(); $m.DiffFails = $false; $m.DumpExit = 0; $m.DumpWritesTo = $null
     $m.ImageRows = [System.Collections.Generic.List[string]]::new(); $m.ContainerImages = @(); $m.RmFails = @(); $m.RmAllFail = $false; $m.ListFails = $false
+    $m.Issues = [System.Collections.Generic.List[object]]::new(); $m.GhFails = $false; $m.GhThrows = $false; $m.PullThrows = $false
+    $m.BackupHealth = 'healthy'; $m.BackupContainerMissing = $false; $m.BackupPsFails = $false; $m.BackupInspectFails = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
     $global:CmRunner = {
-        param($Command, $Arguments, $Env, $Mutating)
+        param($Command, $Arguments, $Env, $Mutating, $InputText)
         $m = $global:CmMachine
         $display = Format-CmCommand -Command $Command -Arguments $Arguments -Env $Env
         # For a compose call, remember which file it was given and what was in it at that moment (the deployer deletes its temp copies).
@@ -171,13 +185,13 @@ function New-FakeMachine {
             $fi = [array]::IndexOf($Arguments, '-f')
             if ($fi -ge 0) { $composeFile = $Arguments[$fi + 1]; if (Test-Path -LiteralPath $composeFile) { $composeText = (Get-Content -LiteralPath $composeFile -Raw).Trim() } }
         }
-        $global:CmCalls.Add([pscustomobject]@{ Command = $Command; Arguments = $Arguments; Env = $Env; Mutating = $Mutating; Display = $display; ComposeFile = $composeFile; ComposeText = $composeText })
+        $global:CmCalls.Add([pscustomobject]@{ Command = $Command; Arguments = $Arguments; Env = $Env; Mutating = $Mutating; Display = $display; ComposeFile = $composeFile; ComposeText = $composeText; InputText = $InputText })
         $ok = { param($lines = @()) [pscustomobject]@{ ExitCode = 0; Output = @($lines) } }
         $fail = { param($code = 1) [pscustomobject]@{ ExitCode = $code; Output = @() } }
         $line = $Arguments -join ' '
         switch ($Command) {
             'docker' {
-                if ($line -match '^pull') { if ($line -match ':main(\s|$)') { $m.MainPulls++ }; if ($m.PullFails) { return & $fail } return & $ok }
+                if ($line -match '^pull') { if ($m.PullThrows) { throw 'docker exploded' }; if ($line -match ':main(\s|$)') { $m.MainPulls++ }; if ($m.PullFails) { return & $fail } return & $ok }
                 if ($line -match '^image inspect (\S+)') {
                     $ref = $Matches[1]
                     $repo = $ref.Substring(0, $ref.LastIndexOf(':'))
@@ -194,12 +208,25 @@ function New-FakeMachine {
                     } | ConvertTo-Json -Depth 6 -Compress
                     return & $ok @($json)
                 }
+                if ($line -match '^inspect \S+ --format \{\{json \.State\.Health\}\}') {
+                    # The backup container's health (what its HEALTHCHECK, backup.sh health, last reported).
+                    if ($m.BackupInspectFails) { return & $fail 1 }
+                    if ($m.BackupHealth -eq 'none') { return & $ok @('null') }
+                    $said = if ($m.BackupHealth -eq 'unhealthy') { 'unhealthy: the newest successful backup is 31 h old (limit 30 h)' } else { 'healthy: the newest successful backup is 3 h old' }
+                    $health = [ordered]@{ Status = $m.BackupHealth; FailingStreak = 0; Log = @(@{ Start = '2026-10-31T11:59:00Z'; ExitCode = 0; Output = "$said`n" }) }
+                    return & $ok @(($health | ConvertTo-Json -Depth 5 -Compress))
+                }
                 if ($line -match '^inspect ') {
                     if ($m.ApiInspectFails) { return & $fail 1 }
                     $running = if ($m.RunningRevision) { $m.RunningRevision } elseif ("$($m.Up)" -match '^[0-9a-f]{40}$') { $m.Up } else { $m.Sha }
                     return & $ok @($running)
                 }
                 if ($line -match '^compose .* ps -q --status') { return & $ok @($m.RunningServices) }
+                if ($line -match '^compose .* ps -q backup$') {
+                    if ($m.BackupPsFails) { return & $fail 1 }
+                    if ($m.BackupContainerMissing) { return & $ok @() }
+                    return & $ok @('fake-backup-container')
+                }
                 if ($line -match '^compose .* ps -q \w+') { if ($m.ApiContainerMissing) { return & $ok @() } return & $ok @('fake-api-container') }
                 if ($line -match '^compose .* ps --format json') {
                     if ($m.PsFails) { return & $fail 1 }
@@ -243,6 +270,39 @@ function New-FakeMachine {
                 return & $ok
             }
             'gh' {
+                if ($line -match '^issue ') {
+                    # The fake GitHub: $m.Issues is the repository's issue list. Bodies and comments arrive on standard input.
+                    if ($m.GhThrows) { throw 'gh exploded' }
+                    if ($m.GhFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('error connecting to api.github.com') } }
+                    $stamp = (Get-CmNow).ToString('o')
+                    if ($line -match '^issue list ') {
+                        $rows = @($m.Issues | Where-Object { $_.state -eq 'open' -and $_.labels -contains 'alert' } | ForEach-Object { [ordered]@{ number = $_.number; body = $_.body; updatedAt = $_.updatedAt } })
+                        return & $ok @((ConvertTo-Json -InputObject $rows -Depth 4 -Compress))
+                    }
+                    if ($line -match '^issue create ') {
+                        $labels = @(); $title = ''
+                        for ($i = 0; $i -lt $Arguments.Count - 1; $i++) {
+                            if ($Arguments[$i] -eq '--label') { $labels += $Arguments[$i + 1] }
+                            if ($Arguments[$i] -eq '--title') { $title = $Arguments[$i + 1] }
+                        }
+                        $number = 101 + $m.Issues.Count
+                        $m.Issues.Add([pscustomobject]@{ number = $number; title = $title; body = "$InputText"; labels = $labels; state = 'open'
+                                comments = [System.Collections.Generic.List[string]]::new(); closeComment = ''; updatedAt = $stamp })
+                        return & $ok @("https://github.com/coryfinnegan/CollectionMaxxing/issues/$number")
+                    }
+                    if ($line -match '^issue (comment|close) (\d+) ') {
+                        $verb = $Matches[1]; $number = [int]$Matches[2]
+                        $issue = @($m.Issues | Where-Object { $_.number -eq $number })[0]
+                        if (-not $issue) { return [pscustomobject]@{ ExitCode = 1; Output = @('GraphQL: Could not resolve to an Issue') } }
+                        if ($verb -eq 'comment') { $issue.comments.Add("$InputText"); $issue.updatedAt = $stamp; return & $ok @("https://github.com/coryfinnegan/CollectionMaxxing/issues/$number#issuecomment-1") }
+                        if ($issue.state -eq 'closed') { return & $ok @("! Issue #$number is already closed") }
+                        $at = [array]::IndexOf($Arguments, '--comment')
+                        if ($at -ge 0) { $issue.closeComment = "$($Arguments[$at + 1])" }
+                        $issue.state = 'closed'; $issue.updatedAt = $stamp
+                        return & $ok @("Closed issue #$number")
+                    }
+                    return & $ok
+                }
                 if ($line -match '^attestation verify oci://\S+collectionmaxxing-(\w+)@sha256:([0-9a-f]+)') {
                     if ($m.BadAttest -contains $Matches[1]) { return & $fail }
                     if (@($m.ExtraDigests[$Matches[1]]) -contains $Matches[2]) { return & $fail }

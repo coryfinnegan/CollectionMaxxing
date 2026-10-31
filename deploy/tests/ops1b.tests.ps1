@@ -255,7 +255,7 @@ Test-Case 'attestation: a tampered artifact exits non-zero before anything is ch
         Assert-True ($r.Result.ExitCode -ne 0) "tampered $bad"
         Assert-Equal 0 (Get-Calls 'docker' '*run --rm migrate*').Count
         Assert-Equal 0 (Get-Calls 'docker' '*up -d*').Count
-        $changing = @(Get-MutatingCalls | Where-Object { $_.Display -notmatch '^docker pull|^git ' })
+        $changing = @(Get-MutatingCalls | Where-Object { $_.Display -notmatch '^docker pull|^git | gh issue ' })   # the alert issue on GitHub is the one other write
         Assert-Equal 0 $changing.Count "only pulls and the repo fetch ran: $(($changing | ForEach-Object Display) -join ' | ')"
         Assert-Equal $script:Sha1 $r.State.current.sha
     }
