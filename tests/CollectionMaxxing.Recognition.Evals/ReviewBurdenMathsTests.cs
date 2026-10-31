@@ -143,7 +143,7 @@ public sealed class ReviewBurdenMathsTests : IDisposable
     {
         var below = M3Gate.Evaluate(new Dictionary<string, EngineSummary>
         {
-            [M3Gate.Engine] = new EngineSummary(
+            [EvalCombination.Engine] = new EngineSummary(
                 new SliceMetrics(0, 0, 0, 0, 0, 0, null, null, null, null, null, null, null, null, 0, null, 0, null, 0, 0, null, 0, null, null, null, null,
                     new Dictionary<string, KindMetrics>(), new Dictionary<string, int>(), new Dictionary<string, KindMetrics>(),
                     T1Auto: 200, AutoAdds: 200, CorrectAutoAdds: 197, AutoAddPrecisionPct: 98.5),
@@ -155,7 +155,7 @@ public sealed class ReviewBurdenMathsTests : IDisposable
 
         var atBar = M3Gate.Evaluate(new Dictionary<string, EngineSummary>
         {
-            [M3Gate.Engine] = new EngineSummary(
+            [EvalCombination.Engine] = new EngineSummary(
                 new SliceMetrics(0, 0, 0, 0, 0, 0, null, null, null, null, null, null, null, null, 0, null, 0, null, 0, 0, null, 0, null, null, null, null,
                     new Dictionary<string, KindMetrics>(), new Dictionary<string, int>(), new Dictionary<string, KindMetrics>(),
                     T1Auto: 100, AutoAdds: 100, CorrectAutoAdds: 99, AutoAddPrecisionPct: 99),

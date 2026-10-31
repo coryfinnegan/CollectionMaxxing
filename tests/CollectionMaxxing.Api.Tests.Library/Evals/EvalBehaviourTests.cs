@@ -319,7 +319,7 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         var latest = await ReadJsonAsync(await admin.GetAsync($"{Base}/runs/latest"));
 
         latest.GetProperty("runId").GetString().ShouldBe(posted.GetProperty("runId").GetString());
-        latest.GetProperty("gate").GetProperty("engine").GetString().ShouldBe("apple_model");
+        latest.GetProperty("gate").GetProperty("engine").GetString().ShouldBe("apple_vision"); // the row the gate measures since ADR-032: what the app shows
     }
 
     [Fact]

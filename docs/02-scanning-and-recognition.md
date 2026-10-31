@@ -100,6 +100,8 @@ The Apple model engine ships as primary if, on the golden photo set, it:
 
 If it misses, the Vision text engine becomes primary and the model handles only items the text engine can't resolve. Both engines feed the same `/identify` endpoint, so nothing else changes.
 
+The decision was made (ADR-032): the fallback was adopted for shelves, and the model stays primary on single covers. The eval gate now measures the combined row, which is what the app shows, against the same bars.
+
 ### Not used, and why
 
 | Option | Why not |
