@@ -67,8 +67,40 @@ function Format-CmCommand {
     (@($envPart, $Command, $argPart) | Where-Object { $_ }) -join ' '
 }
 
+function Invoke-CmRealTimed {
+    <#
+      Runs a command that must not hang its caller: it gets no standard input, and when it has not finished after
+      TimeoutSeconds it is stopped together with its children and reported as exit code 124. Output is its standard output
+      followed by its standard error, one string per line. Never throws.
+    #>
+    param([string]$Command, [string[]]$Arguments, [hashtable]$Env, [int]$TimeoutSeconds)
+    try {
+        $start = [Diagnostics.ProcessStartInfo]::new($Command)
+        foreach ($argument in @($Arguments)) { $start.ArgumentList.Add([string]$argument) }
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.RedirectStandardInput = $true
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        foreach ($key in $Env.Keys) { $start.Environment[[string]$key] = [string]$Env[$key] }
+        $process = [Diagnostics.Process]::Start($start)
+        $process.StandardInput.Close()
+        $out = $process.StandardOutput.ReadToEndAsync()
+        $err = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $process.Kill($true) } catch { }
+            return [pscustomobject]@{ ExitCode = 124; Output = @("timed out after $TimeoutSeconds seconds") }
+        }
+        $process.WaitForExit()   # lets the output readers finish
+        $text = $out.Result + [Environment]::NewLine + $err.Result
+        [pscustomobject]@{ ExitCode = $process.ExitCode; Output = @(($text -split "`r?`n") | Where-Object { $_ -ne '' }) }
+    }
+    catch { [pscustomobject]@{ ExitCode = 127; Output = @("$($_.Exception.Message)") } }
+}
+
 function Invoke-CmReal {
-    param([string]$Command, [string[]]$Arguments, [hashtable]$Env, [string]$InputText = '')
+    param([string]$Command, [string[]]$Arguments, [hashtable]$Env, [string]$InputText = '', [int]$TimeoutSeconds = 0)
+    if ($TimeoutSeconds -gt 0) { return Invoke-CmRealTimed -Command $Command -Arguments $Arguments -Env $Env -TimeoutSeconds $TimeoutSeconds }
     $saved = @{}
     foreach ($key in $Env.Keys) {
         $saved[$key] = [Environment]::GetEnvironmentVariable($key)
@@ -95,13 +127,16 @@ function Invoke-Cm {
       -Mutating marks a command that changes the machine. It is only run in apply mode; otherwise it is printed and a
       fake success is returned, and it never reaches the runner.
       -InputText goes to the command's standard input, so a secret never appears on a command line or in the log.
+      -TimeoutSeconds (real runs only; a test's fake runner is handed it as a sixth argument) stops a command that has not
+      finished by then and reports exit code 124, for a read that must not be able to hold a lock for ever.
     #>
     param(
         [Parameter(Mandatory)][string]$Command,
         [string[]]$Arguments = @(),
         [hashtable]$Env = @{},
         [switch]$Mutating,
-        [string]$InputText = ''
+        [string]$InputText = '',
+        [int]$TimeoutSeconds = 0
     )
     $display = Format-CmCommand -Command $Command -Arguments $Arguments -Env $Env
     if ($Mutating -and -not $global:CmApply) {
@@ -109,12 +144,12 @@ function Invoke-Cm {
         return [pscustomobject]@{ ExitCode = 0; Output = @(); DryRun = $true; Display = $display }
     }
     if ($global:CmRunner) {
-        return & $global:CmRunner $Command $Arguments $Env $Mutating.IsPresent $InputText
+        return & $global:CmRunner $Command $Arguments $Env $Mutating.IsPresent $InputText $TimeoutSeconds
     }
     if ($env:CM_TEST -eq '1') {
         throw "CM_TEST=1 but no fake runner is installed; refusing to run '$display' for real."
     }
-    Invoke-CmReal -Command $Command -Arguments $Arguments -Env $Env -InputText $InputText
+    Invoke-CmReal -Command $Command -Arguments $Arguments -Env $Env -InputText $InputText -TimeoutSeconds $TimeoutSeconds
 }
 
 function Use-CmPortableTools {
