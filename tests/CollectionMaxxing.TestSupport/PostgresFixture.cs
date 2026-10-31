@@ -11,103 +11,50 @@ using Xunit;
 namespace CollectionMaxxing.TestSupport;
 
 /// <summary>
-/// One real Postgres container per test assembly. Register it with
-/// <c>[assembly: AssemblyFixture(typeof(PostgresFixture))]</c> and inherit <see cref="DatabaseTest"/>
-/// to get a clean, fully migrated database at the start of every test.
+/// A real, fully migrated Postgres database that tests reset to empty before each test (<see cref="ResetAsync"/>). It comes in two forms:
+/// <list type="bullet">
+/// <item>Registered as <c>[assembly: AssemblyFixture(typeof(PostgresFixture))]</c> it owns a Postgres container, one database in it, and every
+/// test of the assembly shares them (inherit <see cref="DatabaseTest"/>).</item>
+/// <item>Handed out by <see cref="PostgresServer.CreateDatabaseAsync"/> it is one database, cloned from the server's migrated template, that
+/// belongs to a single test class; disposing it drops the database. That is how test classes run in parallel without sharing data.</item>
+/// </list>
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    static PostgresFixture()
-    {
-        // Testcontainers asks for a newer Docker API than old daemons (e.g. Docker Desktop 24, API 1.43) accept,
-        // and Docker 29+ refuses anything older than 1.44. Pin the client to whatever the local daemon reports,
-        // unless the caller already chose a version.
-        if (Environment.GetEnvironmentVariable("DOCKER_API_VERSION") is null && TryGetDaemonApiVersion() is { } version)
-        {
-            Environment.SetEnvironmentVariable("DOCKER_API_VERSION", version);
-        }
-    }
+    static PostgresFixture() => PostgresSupport.PinDockerApiVersion();
 
-    private static string? TryGetDaemonApiVersion()
-    {
-        try
-        {
-            using var docker = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = "version --format {{.Server.APIVersion}}",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            });
-            if (docker is null || !docker.WaitForExit(TimeSpan.FromSeconds(15)) || docker.ExitCode != 0)
-            {
-                return null;
-            }
-
-            var version = docker.StandardOutput.ReadToEnd().Trim();
-            return version.Length > 0 ? version : null;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return null; // no docker CLI on PATH: let Testcontainers use its default
-        }
-    }
-
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17").Build();
+    private readonly PostgreSqlContainer? _container;
+    private readonly PostgresServer? _server;
+    private readonly string? _database;
+    private readonly string? _cloneConnectionString;
     private Respawner? _respawner;
 
-    public string ConnectionString => _container.GetConnectionString();
+    /// <summary>The form that owns a container (an assembly fixture). xUnit needs exactly one public constructor.</summary>
+    public PostgresFixture() => _container = PostgresSupport.BuildContainer();
+
+    /// <summary>The form that is a database cloned on a shared <see cref="PostgresServer"/>.</summary>
+    internal PostgresFixture(PostgresServer server, string database, string connectionString)
+    {
+        _server = server;
+        _database = database;
+        _cloneConnectionString = connectionString;
+    }
+
+    public string ConnectionString => _cloneConnectionString ?? _container!.GetConnectionString();
 
     public async ValueTask InitializeAsync()
     {
-        // One line for the quality gate's report: check.* sets CM_PERF_LOG, and the gate counts the containers a run
-        // starts and their cost. (Test output never reaches the gate's logs: the console logger swallows it.)
         var started = Stopwatch.GetTimestamp();
-        await _container.StartAsync();
+        await _container!.StartAsync();
         var containerUp = Stopwatch.GetTimestamp();
 
-        // Apply the real migrations, so every test run also proves they work.
-        await using (var context = CreateContext())
-        {
-            await context.Database.MigrateAsync();
-        }
-
-        await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.OpenAsync();
-        _respawner = await Respawner.CreateAsync(connection, new RespawnerOptions
-        {
-            DbAdapter = DbAdapter.Postgres,
-            SchemasToInclude = ["public"],
-            TablesToIgnore = [new Respawn.Graph.Table("__EFMigrationsHistory")],
-        });
-        var ready = Stopwatch.GetTimestamp();
-        if (Environment.GetEnvironmentVariable("CM_PERF_LOG") is { Length: > 0 } path)
-        {
-            // Parallel lanes append from several processes at once; concurrent appends can hit a
-            // sharing-violation IOException on Windows. Retry briefly, then give up: a lost perf
-            // line is cosmetic, a failed lane is not.
-            var line = $"[cm-perf] postgres ready in {Seconds(started, ready)}s (container {Seconds(started, containerUp)}s, migrate {Seconds(containerUp, ready)}s){Environment.NewLine}";
-            for (var attempt = 0; ; attempt++)
-            {
-                try
-                {
-                    File.AppendAllText(path, line);
-                    break;
-                }
-                catch (IOException) when (attempt < 4)
-                {
-                    await Task.Delay(50);
-                }
-                catch (IOException)
-                {
-                    break;
-                }
-            }
-        }
-
-        static string Seconds(long from, long to) => ((to - from) / (double)Stopwatch.Frequency).ToString("F1");
+        await PostgresSupport.MigrateAsync(ConnectionString);
+        _respawner = await PostgresSupport.CreateRespawnerAsync(ConnectionString);
+        await PostgresSupport.WritePerfLineAsync(started, containerUp, Stopwatch.GetTimestamp());
     }
+
+    /// <summary>Builds the reset for a cloned database (a clone is already migrated).</summary>
+    internal async Task PrepareCloneAsync() => _respawner = await PostgresSupport.CreateRespawnerAsync(ConnectionString);
 
     /// <summary>Deletes all rows in every table (the schema stays).</summary>
     public async Task ResetAsync()
@@ -130,5 +77,15 @@ public sealed class PostgresFixture : IAsyncLifetime
             new DbContextOptionsBuilder<AppDbContext>(AppDbContextOptions.Create(ConnectionString)).AddInterceptors(interceptor).Options,
             currentUser ?? new CurrentUser());
 
-    public async ValueTask DisposeAsync() => await _container.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        if (_container is not null)
+        {
+            await _container.DisposeAsync();
+        }
+        else
+        {
+            await _server!.DropDatabaseAsync(_database!);
+        }
+    }
 }

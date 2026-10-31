@@ -9,7 +9,7 @@ namespace CollectionMaxxing.Api.Tests.Security;
 /// <c>docs/security/endpoint-audit.md</c> is the written audit. It stays true because this test fails when an endpoint is missing from its
 /// table, when the table lists an endpoint that does not exist, and when a row disagrees with the code about who may call it.
 /// </summary>
-public partial class EndpointAuditDocTests(ApiFixture api)
+public partial class EndpointAuditDocTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
     private sealed record Row(string Method, string Route, string Policy, string Who);
 

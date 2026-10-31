@@ -11,7 +11,7 @@ namespace CollectionMaxxing.Api.Tests.Health;
 /// can be verified against the running server instead of the image registry. Anonymous, like the other
 /// <c>/health/*</c> probes, and likewise outside the OpenAPI document.
 /// </summary>
-public sealed class VersionEndpointTests(ApiFixture api)
+public sealed class VersionEndpointTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
     private const string Url = "/health/version";
     private const string Sha = "0123456789abcdef0123456789abcdef01234567";

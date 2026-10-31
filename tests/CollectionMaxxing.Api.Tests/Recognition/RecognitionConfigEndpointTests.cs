@@ -12,7 +12,7 @@ namespace CollectionMaxxing.Api.Tests.Recognition;
 /// <c>GET /api/v1/recognition/config</c> (SCAN-2d): the settings the phone fetches, so tuning needs no iOS build. Who may call it
 /// is also a row in the authorization matrix; these tests are about what comes back.
 /// </summary>
-public sealed class RecognitionConfigEndpointTests(ApiFixture api) : IDisposable
+public sealed class RecognitionConfigEndpointTests(ApiFixture api) : IDisposable, IClassFixture<ApiFixture>
 {
     private const string Url = "/api/v1/recognition/config";
 

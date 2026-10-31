@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace CollectionMaxxing.Domain.Catalog.Matching;
 
@@ -7,32 +6,8 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// Title comparison for matching (docs/02 section 6): case, accents, punctuation, a leading or trailing article, roman
 /// numerals and "&amp;" versus "and" do not matter, and a small misread is forgiven.
 /// </summary>
-public static partial class TitleNormalizer
+public static class TitleNormalizer
 {
-    // Roman numerals up to twenty, written with two or more letters. A single I, V or X is left alone on purpose: it is
-    // far more often a letter ("Mega Man X", "V for Vendetta", "Malcolm X") than a number, and turning "Mega Man X"
-    // into "Mega Man 10" would match the wrong game.
-    private static readonly Dictionary<string, string> RomanNumerals = new(StringComparer.Ordinal)
-    {
-        ["ii"] = "2",
-        ["iii"] = "3",
-        ["iv"] = "4",
-        ["vi"] = "6",
-        ["vii"] = "7",
-        ["viii"] = "8",
-        ["ix"] = "9",
-        ["xi"] = "11",
-        ["xii"] = "12",
-        ["xiii"] = "13",
-        ["xiv"] = "14",
-        ["xv"] = "15",
-        ["xvi"] = "16",
-        ["xvii"] = "17",
-        ["xviii"] = "18",
-        ["xix"] = "19",
-        ["xx"] = "20",
-    };
-
     private static readonly (char To, string From)[] Accents =
     [
         ('a', "àáâãäåāăą"), ('c', "çćč"), ('d', "ďđ"), ('e', "èéêëēĕėęě"), ('g', "ğ"), ('i', "ìíîïĩīĭįı"),
@@ -42,8 +17,11 @@ public static partial class TitleNormalizer
 
     private static readonly Dictionary<char, string> AccentMap = BuildAccentMap();
 
-    [GeneratedRegex(@"^(.*?),\s*(the|a|an)\s*$", RegexOptions.CultureInvariant)]
-    private static partial Regex TrailingArticle();
+    // Folding turns one character into at most this many ("&" becomes " and "), so a buffer of this many per character holds the fold.
+    private const int MostFoldedPerChar = 5;
+
+    // A title this short is worked on the stack; a longer one gets a buffer of its own.
+    private const int MostStackedTitleLength = 128;
 
     /// <summary>
     /// Reduces a title to a comparison key. "The Matrix" and "Matrix, The" give the same key, as do "Final Fantasy VII" and
@@ -56,28 +34,27 @@ public static partial class TitleNormalizer
             return string.Empty;
         }
 
-        var text = Fold(title);
-        var trailing = TrailingArticle().Match(text);
-        if (trailing.Success)
+        var capacity = title.Length * MostFoldedPerChar;
+        Span<char> buffer = title.Length <= MostStackedTitleLength ? stackalloc char[capacity] : new char[capacity];
+        var folded = buffer[..Fold(title, buffer)];
+
+        // "Matrix, The" is "The Matrix", and a leading article is dropped from a title of more than one word, so the
+        // article of "Matrix, The" is dropped with it: the key is the words before the comma, unless there are none.
+        var trailing = TrailingArticle(folded, out var article, out var beforeComma);
+        var length = Compact(trailing ? beforeComma : folded, buffer);
+        if (trailing)
         {
-            text = trailing.Groups[2].Value + " " + trailing.Groups[1].Value;
+            return length > 0 ? new string(buffer[..length]) : new string(article);
         }
 
-        var tokens = Tokenize(text);
-        if (tokens.Count > 1 && tokens[0] is "the" or "a" or "an")
+        var words = buffer[..length];
+        var firstEnd = words.IndexOf(' ');
+        if (firstEnd > 0 && words[..firstEnd] is "the" or "a" or "an")
         {
-            tokens.RemoveAt(0);
+            words = words[(firstEnd + 1)..];
         }
 
-        for (var i = 0; i < tokens.Count; i++)
-        {
-            if (RomanNumerals.TryGetValue(tokens[i], out var digits))
-            {
-                tokens[i] = digits;
-            }
-        }
-
-        return string.Join(' ', tokens);
+        return new string(words);
     }
 
     /// <summary>
@@ -138,261 +115,37 @@ public static partial class TitleNormalizer
     /// or a bracket) earns <see cref="MainTitleCredit"/> of that comparison when it is the better one; two main titles are
     /// never compared with each other, so two subtitles of one series ("Zelda: Ocarina of Time", "Zelda: Majora's Mask")
     /// stay apart. The same words in any order are the same here, which suits names ("Odell, Mara" is "Mara Odell");
-    /// <see cref="TitleSimilarity"/> is the stricter comparison for titles.
+    /// <see cref="TitleSimilarity"/> is the stricter comparison for titles. To compare one title with many, make each a
+    /// <see cref="ComparableTitle"/> once.
     /// </summary>
-    public static double Similarity(string? a, string? b) => TitlesAlike(a, b, wordOrderCredit: 1.0);
+    public static double Similarity(string? a, string? b) => new ComparableTitle(a).Similarity(new ComparableTitle(b));
 
     /// <summary>
     /// <see cref="Similarity"/> for two titles: the same words in another order score <see cref="ReorderedWordsCredit"/>
     /// at most, so only a title that is the same once the article, case, accents, punctuation, numerals and "&amp;" are
     /// set aside (and a year on one side only) scores 1.
     /// </summary>
-    public static double TitleSimilarity(string? a, string? b) => TitlesAlike(a, b, ReorderedWordsCredit);
-
-    private static double TitlesAlike(string? a, string? b, double wordOrderCredit)
-    {
-        var whole = WholeSimilarity(a, b, wordOrderCredit);
-        if (whole >= 1.0)
-        {
-            return whole;
-        }
-
-        var best = whole;
-        if (MainTitle(a) is { } mainA)
-        {
-            best = Math.Max(best, MainTitleCredit * WholeSimilarity(mainA, b, wordOrderCredit));
-        }
-
-        if (MainTitle(b) is { } mainB)
-        {
-            best = Math.Max(best, MainTitleCredit * WholeSimilarity(a, mainB, wordOrderCredit));
-        }
-
-        return best;
-    }
-
-    /// <summary>
-    /// A read title with this creator's name taken out, when the read carries it: a spine reads title and author as one line
-    /// ("DUNE FRANK HERBERT", "ODELL harbor light keepers"). The surname must be there (publishers often print it alone);
-    /// then it and any other word of the name are removed, the last time each appears. Null when the surname isn't in the read,
-    /// or when nothing of the title would be left (a book titled after its author keeps its words). Normalised.
-    /// </summary>
-    internal static string? WithoutCreator(string? readTitle, string? creator)
-    {
-        var read = Tokenize(Normalize(readTitle));
-        var name = Tokenize(Normalize(creator));
-        if (read.Count < 2 || name.Count == 0 || name[^1] is not { Length: >= MinSurnameLength } surname
-            || surname.All(char.IsAsciiDigit) || !read.Contains(surname))
-        {
-            return null;
-        }
-
-        foreach (var word in name.Distinct(StringComparer.Ordinal))
-        {
-            var at = read.LastIndexOf(word);
-            if (at >= 0)
-            {
-                read.RemoveAt(at);
-            }
-        }
-
-        return read.Count == 0 ? null : string.Join(' ', read);
-    }
-
-    private const int MinSurnameLength = 3;
-
-    /// <summary>The part before a subtitle, or null when the title has none (or nothing would be left of it).</summary>
-    private static string? MainTitle(string? title)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            return null;
-        }
-
-        var cut = title.Length;
-        foreach (var marker in SubtitleMarkers)
-        {
-            var at = title.IndexOf(marker, StringComparison.Ordinal);
-            if (at > 0 && at < cut)
-            {
-                cut = at;
-            }
-        }
-
-        if (cut == title.Length)
-        {
-            return null;
-        }
-
-        var main = title[..cut];
-        return Normalize(main).Length == 0 ? null : main;
-    }
-
-    private static readonly string[] SubtitleMarkers = [":", " - ", " – ", " — ", "("];
-
-    private static double WholeSimilarity(string? a, string? b, double wordOrderCredit)
-    {
-        var left = Normalize(a);
-        var right = Normalize(b);
-        if (left.Length == 0 || right.Length == 0)
-        {
-            return 0.0;
-        }
-
-        if (YearsConflict(left, right))
-        {
-            return Core(left, right, wordOrderCredit);
-        }
-
-        var leftNoYear = WithoutTrailingYear(left);
-        var rightNoYear = WithoutTrailingYear(right);
-        var best = Core(left, right, wordOrderCredit);
-        if (leftNoYear != left)
-        {
-            best = Math.Max(best, Core(leftNoYear, right, wordOrderCredit));
-        }
-
-        if (rightNoYear != right)
-        {
-            best = Math.Max(best, Core(left, rightNoYear, wordOrderCredit));
-        }
-
-        if (leftNoYear != left && rightNoYear != right)
-        {
-            best = Math.Max(best, Core(leftNoYear, rightNoYear, wordOrderCredit));
-        }
-
-        return best;
-    }
-
-    /// <summary>
-    /// True when both titles contain a four digit year (1900 to 2099) and the years are not the same: an annual series
-    /// ("Madden NFL 2005" against "Madden NFL 2004"). A year that only one title has is not a conflict.
-    /// </summary>
-    internal static bool TitleYearsConflict(string? a, string? b) => YearsConflict(Normalize(a), Normalize(b));
-
-    private static bool YearsConflict(string normalizedLeft, string normalizedRight)
-    {
-        var left = YearsIn(normalizedLeft);
-        var right = YearsIn(normalizedRight);
-        return left.Count > 0 && right.Count > 0 && !left.SetEquals(right);
-    }
-
-    private static HashSet<int> YearsIn(string normalized)
-    {
-        var years = new HashSet<int>();
-        foreach (var token in normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (IsYear(token, out var year))
-            {
-                years.Add(year);
-            }
-        }
-
-        return years;
-    }
-
-    private static string WithoutTrailingYear(string normalized)
-    {
-        var space = normalized.LastIndexOf(' ');
-        return space > 0 && IsYear(normalized.AsSpan(space + 1), out _) ? normalized[..space] : normalized;
-    }
-
-    private static bool IsYear(ReadOnlySpan<char> token, out int year)
-    {
-        year = 0;
-        if (token.Length != 4)
-        {
-            return false;
-        }
-
-        foreach (var c in token)
-        {
-            if (!char.IsAsciiDigit(c))
-            {
-                return false;
-            }
-        }
-
-        year = ((token[0] - '0') * 1000) + ((token[1] - '0') * 100) + ((token[2] - '0') * 10) + (token[3] - '0');
-        return year is >= 1900 and <= 2099;
-    }
-
-    private static double Core(string left, string right, double wordOrderCredit)
-    {
-        if (left == right)
-        {
-            return 1.0;
-        }
-
-        var edit = 1.0 - ((double)EditDistance(left, right) / Math.Max(left.Length, right.Length));
-
-        var leftTokens = left.Split(' ');
-        var rightTokens = right.Split(' ');
-        var leftSet = new HashSet<string>(leftTokens, StringComparer.Ordinal);
-        var rightSet = new HashSet<string>(rightTokens, StringComparer.Ordinal);
-        var shared = leftSet.Count(rightSet.Contains);
-        var union = leftSet.Count + rightSet.Count - shared;
-        var overlap = union == 0 ? 0.0 : (double)shared / union;
-        if (overlap >= 1.0)
-        {
-            // Every word is shared but the two strings are not the same (that returned above): the order differs, or a word
-            // is repeated on one side. Names read in either order; a title is credited less.
-            overlap = wordOrderCredit;
-        }
-
-        var score = Math.Max(edit, overlap);
-
-        if (!NumberTokens(leftSet).SetEquals(NumberTokens(rightSet)))
-        {
-            score *= 0.75;
-        }
-
-        return Math.Clamp(score, 0.0, 1.0);
-    }
-
-    private static HashSet<string> NumberTokens(HashSet<string> tokens) =>
-        [.. tokens.Where(t => t.All(char.IsAsciiDigit))];
-
-    private static int EditDistance(string a, string b)
-    {
-        var previous = new int[b.Length + 1];
-        var current = new int[b.Length + 1];
-        for (var j = 0; j <= b.Length; j++)
-        {
-            previous[j] = j;
-        }
-
-        for (var i = 1; i <= a.Length; i++)
-        {
-            current[0] = i;
-            for (var j = 1; j <= b.Length; j++)
-            {
-                var substitution = previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
-                current[j] = Math.Min(Math.Min(previous[j] + 1, current[j - 1] + 1), substitution);
-            }
-
-            (previous, current) = (current, previous);
-        }
-
-        return previous[b.Length];
-    }
+    public static double TitleSimilarity(string? a, string? b) => new ComparableTitle(a).TitleSimilarity(new ComparableTitle(b));
 
     // Lower case, accents folded, "&" as "and", apostrophes and periods dropped (so "Player's" is "players" and "Bros." is
-    // "bros"), every other symbol a space.
-    private static string Fold(string title)
+    // "bros"), every other symbol a space. Returns how much of the destination it filled.
+    private static int Fold(string title, Span<char> destination)
     {
-        var builder = new StringBuilder(title.Length + 8);
+        var length = 0;
         foreach (var raw in title)
         {
             var c = char.ToLowerInvariant(raw);
-            if (AccentMap.TryGetValue(c, out var plain))
+
+            // Every accented letter is outside ASCII, so an ASCII character needs no lookup.
+            if (c >= 0x80 && AccentMap.TryGetValue(c, out var plain))
             {
-                builder.Append(plain);
+                plain.CopyTo(destination[length..]);
+                length += plain.Length;
             }
             else if (c == '&')
             {
-                builder.Append(" and ");
+                " and ".CopyTo(destination[length..]);
+                length += 5;
             }
             else if (c is '\'' or '’' or '‘' or '`' or '.')
             {
@@ -400,19 +153,106 @@ public static partial class TitleNormalizer
             }
             else if (char.IsLetterOrDigit(c) || c == ',')
             {
-                builder.Append(c);
+                destination[length++] = c;
             }
             else
             {
-                builder.Append(' ');
+                destination[length++] = ' ';
             }
         }
 
-        return builder.ToString();
+        return length;
     }
 
-    private static List<string> Tokenize(string folded) =>
-        [.. folded.Replace(',', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries)];
+    // "matrix, the": a comma, then one of the three articles, then nothing but spaces (the fold leaves no other white
+    // space). The comma is the one before the article, so what comes before it is everything else.
+    private static bool TrailingArticle(ReadOnlySpan<char> folded, out ReadOnlySpan<char> article, out ReadOnlySpan<char> beforeComma)
+    {
+        var end = folded.TrimEnd(' ').Length;
+        foreach (var candidate in (ReadOnlySpan<string>)["the", "an", "a"])
+        {
+            if (!folded[..end].EndsWith(candidate, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var before = folded[..(end - candidate.Length)].TrimEnd(' ');
+            if (before.Length > 0 && before[^1] == ',')
+            {
+                article = folded[(end - candidate.Length)..end];
+                beforeComma = before[..^1];
+                return true;
+            }
+        }
+
+        article = default;
+        beforeComma = default;
+        return false;
+    }
+
+    // The words of the text (it is split at spaces and commas), with roman numerals as digits, joined by single spaces
+    // and written to the front of the destination, which may be the buffer the text lies in: a word is never written
+    // past where it was read from. Returns the length written.
+    private static int Compact(ReadOnlySpan<char> text, Span<char> destination)
+    {
+        var length = 0;
+        var at = 0;
+        while (at < text.Length)
+        {
+            while (at < text.Length && text[at] is ' ' or ',')
+            {
+                at++;
+            }
+
+            var start = at;
+            while (at < text.Length && text[at] is not (' ' or ','))
+            {
+                at++;
+            }
+
+            if (at == start)
+            {
+                break;
+            }
+
+            if (length > 0)
+            {
+                destination[length++] = ' ';
+            }
+
+            var word = text[start..at];
+            var written = Numeral(word) is { } digits ? digits : word;
+            written.CopyTo(destination[length..]);
+            length += written.Length;
+        }
+
+        return length;
+    }
+
+    // Roman numerals up to twenty, written with two or more letters. A single I, V or X is left alone on purpose: it is
+    // far more often a letter ("Mega Man X", "V for Vendetta", "Malcolm X") than a number, and turning "Mega Man X"
+    // into "Mega Man 10" would match the wrong game.
+    private static string? Numeral(ReadOnlySpan<char> word) => word switch
+    {
+        "ii" => "2",
+        "iii" => "3",
+        "iv" => "4",
+        "vi" => "6",
+        "vii" => "7",
+        "viii" => "8",
+        "ix" => "9",
+        "xi" => "11",
+        "xii" => "12",
+        "xiii" => "13",
+        "xiv" => "14",
+        "xv" => "15",
+        "xvi" => "16",
+        "xvii" => "17",
+        "xviii" => "18",
+        "xix" => "19",
+        "xx" => "20",
+        _ => null,
+    };
 
     private static Dictionary<char, string> BuildAccentMap()
     {

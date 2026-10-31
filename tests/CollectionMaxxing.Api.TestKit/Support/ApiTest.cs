@@ -6,8 +6,11 @@ using Xunit;
 
 namespace CollectionMaxxing.Api.Tests.Support;
 
-/// <summary>Base class for tests that call the API: empties the database first and offers small helpers.</summary>
-public abstract class ApiTest(ApiFixture api) : IAsyncLifetime
+/// <summary>
+/// Base class for tests that call the API: empties the database first and offers small helpers. Every class that derives from it gets its own
+/// database and API host (<see cref="ApiFixture"/> is a class fixture), and classes run in parallel.
+/// </summary>
+public abstract class ApiTest(ApiFixture api) : IAsyncLifetime, IClassFixture<ApiFixture>
 {
     protected ApiFixture Api { get; } = api;
 
