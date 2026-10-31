@@ -63,6 +63,68 @@ Test-Case 'release: every job that moves :main waits for all build legs and thei
     }
 }
 
+# ---- the CI gate: :main moves only after CI succeeded for this same commit -------------------------------------------------
+
+function Test-JobNeeds {
+    <# True when the job block waits for the named job (needs: x, needs: [x, y] or a list). #>
+    param([string[]]$Block, [string]$Job)
+    for ($i = 0; $i -lt $Block.Count; $i++) {
+        if ($Block[$i] -notmatch '^\s+needs:\s*(.*)$') { continue }
+        if ($Matches[1] -match "(^|[\s\[,'""])$([regex]::Escape($Job))($|[\s\],'""])") { return $true }
+        for ($j = $i + 1; $j -lt $Block.Count -and $Block[$j] -match '^\s+-\s+(\S+)'; $j++) {
+            if ($Matches[1] -match "^['""]?$([regex]::Escape($Job))['""]?$") { return $true }
+        }
+        return $false
+    }
+    $false
+}
+
+function Get-ReleaseCode {
+    <# The workflow file with comments removed, as one string. #>
+    (Get-Content -LiteralPath $script:ReleaseWorkflow | ForEach-Object { $_ -replace '(^|\s+)#.*$', '$1' }) -join "`n"
+}
+
+Test-Case 'release: every job that moves :main also waits for the CI gate and needs its verdict to be a pass' {
+    $jobs = Get-ReleaseJobs
+    Assert-True ($jobs.Contains('ci-gate')) 'the ci-gate job exists'
+    $movers = @($jobs.Keys | Where-Object { ($jobs[$_] -join "`n") -match ':main' })
+    foreach ($name in $movers) {
+        Assert-True (Test-JobNeeds $jobs[$name] 'ci-gate') "$name moves :main without waiting for ci-gate"
+        Assert-Match ($jobs[$name] -join "`n") "needs\.ci-gate\.outputs\.passed\s*==\s*'true'" "$name must run only when the gate's verdict is passed=true (a cancelled CI ends the gate without failing it)"
+    }
+}
+
+Test-Case 'release: the CI gate asks for the CI run of this very commit and may read workflow runs' {
+    $jobs = Get-ReleaseJobs
+    $text = $jobs['ci-gate'] -join "`n"
+    Assert-Match $text 'SHA:\s*\$\{\{\s*github\.sha\s*\}\}' 'the gate is told this commit (github.sha), not the branch'
+    Assert-Match $text 'scripts/wait-for-ci\.sh' 'the gate runs the wait-for-ci script'
+    Assert-Match $text 'actions:\s*read' 'the gate may read workflow runs'
+    Assert-Match $text 'passed:\s*\$\{\{\s*steps\.[A-Za-z0-9_-]+\.outputs\.passed\s*\}\}' 'the gate publishes passed as a job output'
+    Assert-False ($text -match 'packages:|id-token:|attestations:|contents:\s*write') 'the gate holds no write permission'
+    Assert-True (Test-Path -LiteralPath (Join-Path $PSScriptRoot '../../scripts/wait-for-ci.sh')) 'the script the gate runs exists'
+}
+
+Test-Case 'release: the workflow still starts on the push to main, which is the identity the deployer checks' {
+    # The deployer requires a certificate for release.yml at refs/heads/main with the image's commit as the source digest.
+    # A workflow_run trigger would stamp the run with main's latest commit instead of the one CI tested.
+    $code = Get-ReleaseCode
+    Assert-Match $code '(?m)^on:\s*\r?\n\s+push:\s*\r?\n\s+branches:\s*\[main\]' 'the workflow runs on pushes to main'
+    Assert-False ($code -match 'workflow_run') 'the workflow is not started by workflow_run'
+    Assert-False ($code -match '(?m)^\s+(pull_request|pull_request_target|workflow_dispatch|schedule):') 'no other trigger can produce an attested image'
+}
+
+Test-Case 'release: the attestation steps and the names the deployer checks are intact' {
+    $code = Get-ReleaseCode
+    Assert-Match $code 'actions/attest-build-provenance@[0-9a-f]{40}' 'the attestation action is pinned and present'
+    Assert-Match $code 'subject-digest:\s*\$\{\{\s*steps\.build\.outputs\.digest\s*\}\}' 'the attestation covers the pushed digest'
+    Assert-Match $code 'push-to-registry:\s*true' 'the attestation is pushed with the image'
+    Assert-Match $code '(?m)^name:\s*Release images\s*$' 'the workflow keeps its name'
+    Assert-True (Test-Path -LiteralPath (Join-Path $PSScriptRoot '../../.github/workflows/release.yml')) 'the deployer verifies .github/workflows/release.yml'
+    $deployer = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../deployer/Cm.Deploy.ps1') -Raw
+    Assert-Match $deployer '\.github/workflows/release\.yml' 'the deployer still names release.yml as the signer workflow'
+}
+
 Test-Case 'release: the :main promotion covers api, migrate and backup together' {
     $jobs = Get-ReleaseJobs
     $movers = @($jobs.Keys | Where-Object { ($jobs[$_] -join "`n") -match ':main' })

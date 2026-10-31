@@ -212,6 +212,8 @@ function Get-RealComposeConfig {
         CM_AUTH0_WEB_CLIENT_SECRET = 'test-secret'; CM_AUTH0_MANAGEMENT_CLIENT_ID = 'test-mgmt'; CM_AUTH0_MANAGEMENT_CLIENT_SECRET = 'test-secret' } + $EnvValues
         Set-Content -LiteralPath $envFile -Value ($values.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" })
         $compose = Join-Path $PSScriptRoot '../docker-compose.yml'
+        $script:LastRealComposeEnv = $values       # for the tests that run the config guard on it
+        $script:LastRealComposeFile = (Resolve-Path -LiteralPath $compose).Path
         $r = Invoke-CmReal -Command 'docker' -Arguments @('compose', '--env-file', $envFile, '-f', $compose, '-p', 'collectionmaxxing', 'config', '--format', 'json') -Env @{}
         if ($r.ExitCode -ne 0) { throw "docker compose config failed: $($r.Output -join ' ')" }
         ($r.Output -join "`n") | ConvertFrom-Json
@@ -233,7 +235,26 @@ Test-Case 'compose: the only published ports are 127.0.0.1:5480 and 127.0.0.1:18
         } | Sort-Object)
     Assert-Equal '127.0.0.1:18888 127.0.0.1:5480' ($published -join ' ')
     Assert-Equal 0 @($config.services.postgres.ports | Where-Object { $_ }).Count 'postgres is not published'
-    Assert-Equal 0 @(Test-CmConfig -EnvMap @{ CM_API_PORT = '5480'; CM_DASHBOARD_PORT = '18888' } -ComposeConfig $config).Count
+    $envMap = @{ CM_API_PORT = '5480'; CM_DASHBOARD_PORT = '18888' } + $script:LastRealComposeEnv
+    Assert-Equal 0 @(Test-CmConfig -EnvMap $envMap -ComposeConfig $config -ComposeFile $script:LastRealComposeFile).Count
+}
+
+Test-Case 'compose: the current file passes the whole config guard, bind mounts included, and has bind mounts for the guard to check' {
+    $config = Get-RealComposeConfig
+    $binds = @($config.services.PSObject.Properties | ForEach-Object { foreach ($v in @($_.Value.volumes)) { if ($v -and $v.type -eq 'bind') { $v } } })
+    Assert-True ($binds.Count -ge 5) "the real file binds secrets, recognition, evals (2), the baseline and the backup folder, got $($binds.Count)"
+    $problems = @(Test-CmConfig -EnvMap $script:LastRealComposeEnv -ComposeConfig $config -ComposeFile $script:LastRealComposeFile)
+    Assert-Equal 0 $problems.Count ($problems -join '; ')
+    $noEnv = @(Test-CmConfig -EnvMap @{} -ComposeConfig $config -ComposeFile $script:LastRealComposeFile)
+    Assert-True ($noEnv.Count -ge 1) 'without the .env folders the guard has nothing to allow the secrets and backup folders with'
+}
+
+Test-Case 'compose: a bind mount added to the current file outside the allow-list is caught' {
+    $config = Get-RealComposeConfig
+    $config.services.api.volumes = @($config.services.api.volumes) + [pscustomobject]@{ type = 'bind'; source = (Join-Path ([IO.Path]::GetPathRoot($script:LastRealComposeFile)) 'Users'); target = '/mnt/home' }
+    $problems = @(Test-CmConfig -EnvMap $script:LastRealComposeEnv -ComposeConfig $config -ComposeFile $script:LastRealComposeFile)
+    Assert-Equal 1 $problems.Count ($problems -join '; ')
+    Assert-Match $problems[0] '/mnt/home'
 }
 
 Test-Case 'compose: the config guard catches a forbidden port set through .env' {

@@ -9,6 +9,11 @@ x-hardening: &hardening
   security_opt:
     - no-new-privileges:true
 
+# Logging: every service sets the same `logging:` block, Docker's json-file driver capped at 5 files of 20 MB (at most
+# 100 MB a container), so a chatty container can never fill the disk. A container's json-file log belongs to the
+# container: a redeploy recreates the api and backup containers and their logs go with them. The cap is what this is
+# for; it is not how logs are kept. (The Aspire dashboard holds the OpenTelemetry copy in memory.)
+
 services:
   postgres:
     <<: *hardening
@@ -16,6 +21,11 @@ services:
     # fresh pull. Bump deliberately (read the release notes first), then update the digest to match.
     image: postgres:17.11@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     environment:
       POSTGRES_DB: collectionmaxxing
       POSTGRES_USER: collectionmaxxing
@@ -33,6 +43,11 @@ services:
     <<: *hardening
     image: ghcr.io/coryfinnegan/collectionmaxxing-migrate:${CM_TAG:?CM_TAG is passed by the deployer}
     restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     environment:
       ConnectionStrings__collectionmaxxing: Host=postgres;Database=collectionmaxxing;Username=collectionmaxxing;Password=${POSTGRES_PASSWORD}
     depends_on:
@@ -43,6 +58,11 @@ services:
     <<: *hardening
     image: ghcr.io/coryfinnegan/collectionmaxxing-api:${CM_TAG:?CM_TAG is passed by the deployer}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     cap_drop:
       - ALL
     ports:
@@ -119,6 +139,11 @@ services:
     # Pinned like postgres above (9.0.0 is what :9.0 resolved to when this was frozen). Same rule: bump deliberately.
     image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0.0@sha256:d595645ca7f5c075174db998302d8fb09e040516b14dfcb06dd02996659e1c77
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     ports:
       - "127.0.0.1:${CM_DASHBOARD_PORT:-18888}:18888"
     environment:
@@ -130,6 +155,11 @@ services:
     <<: *hardening
     image: ghcr.io/coryfinnegan/collectionmaxxing-backup:${CM_TAG:?CM_TAG is passed by the deployer}
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     environment:
       PGHOST: postgres
       PGDATABASE: collectionmaxxing

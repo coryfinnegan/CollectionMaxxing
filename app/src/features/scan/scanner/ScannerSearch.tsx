@@ -9,6 +9,7 @@ import { newIdempotencyKey } from '@/features/item/etag';
 import { useItemMutations } from '@/features/item/useItem';
 import { staleCopyMessage } from '@/features/offline/copy';
 import { getOwnedCache } from '@/features/offline/ownedCache';
+import type { PickedRelease } from '@/features/search/pick';
 import { SearchView } from '@/features/search/SearchView';
 import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
@@ -24,10 +25,10 @@ export function ScannerSearch({ libraryId, onClose }: { libraryId: string; onClo
   const [error, setError] = useState<string | null>(null);
   const cache = getOwnedCache(libraryId);
 
-  const pick = (releaseId: string) => {
+  const pick = (picked: PickedRelease) => {
     // Acquired is the day it was added (#441): the device stamps its local day, so an
     // evening add stays on today. The server defaults the same day when it is missing.
-    const dated: CreateItemRequest = { releaseId, addedVia: 'search', acquiredOn: localDateString() };
+    const dated: CreateItemRequest = { ...picked, addedVia: 'search', acquiredOn: localDateString() };
     const payload = JSON.stringify(dated);
     if (payload !== lastPayload.current) {
       key.current = newIdempotencyKey();

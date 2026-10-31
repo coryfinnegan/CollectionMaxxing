@@ -69,3 +69,7 @@ Only if the live database is gone or corrupt. Slow down; nothing here is urgent 
 5. Start the stack, open the app, and spot-check a few items and covers.
 
 If an off-site copy is ever switched on (README step 11), copy one back next to each other as `db` and `files` in a temp folder and drill that folder the same way.
+
+### A migration went wrong: the dump taken just before it
+
+When a release may change the schema, the deployer first dumps the database to `<CM_BACKUP_DIR>\pre-migrate\pre-migrate-<12 hex of the release>-<time>.dump` and only then migrates (the newest 5 are kept; [README.md](README.md), "Before a migration"). It is a plain `pg_dump -Fc` file, so step 3 above applies to it. It has no manifest and no files archive, and the drill reads only `db\`, so the drill does not cover it: the covers still come from the newest nightly `files-<time>.tar.gz`. The 12 hex digits in a dump's name are the release that was about to be migrated, so the dump holds the data as it was just before that release.

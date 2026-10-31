@@ -1,5 +1,6 @@
 import { ApiError } from './http';
 import { logger } from './auth/log';
+import { configureAuth, resetAuth } from './auth/session';
 import { friendlyError } from './problem';
 
 jest.mock('./auth/log', () => ({ logger: { warn: jest.fn(), error: jest.fn() } }));
@@ -46,11 +47,25 @@ describe('friendlyError', () => {
     expect(loggedErrors()[0]).toContain('kaboom');
   });
 
+  it('tells an expired search result apart from a missing thing and says what to do', () => {
+    expect(friendlyError(new ApiError(404, { title: 'Not found', code: 'provider_hit.not_found' }))).toBe(
+      'That search result has expired. Try adding it again.',
+    );
+  });
+
   it('keeps turning API failures into their friendly copy', () => {
     expect(friendlyError(new ApiError(404, { title: 'Not found' }))).toBe("That's no longer here. Refresh and try again.");
     expect(friendlyError(new ApiError(409, { title: 'Already in your library.' }))).toBe('Already in your library.');
 
     expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('asks for a sign-in again on every platform when the session ended, never to pair a device', () => {
+    for (const platform of ['web', 'native'] as const) {
+      configureAuth({ platform });
+      expect(friendlyError(new ApiError(401, { title: 'Unauthorized' }))).toBe('Your session ended. Sign in again.');
+    }
+    resetAuth();
   });
 
   it('keeps the caller fallback for API failures without their own copy', () => {

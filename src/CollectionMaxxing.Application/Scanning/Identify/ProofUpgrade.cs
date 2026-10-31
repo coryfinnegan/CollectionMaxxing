@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Items;
+using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,11 +15,17 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// </summary>
 internal static class ProofUpgrade
 {
-    /// <summary>Upgrades the bound item from the candidate's answer. True when the item was upgraded.</summary>
+    /// <summary>
+    /// Upgrades the bound item from the candidate's answer. True when the item was upgraded. <paramref name="role"/> is the
+    /// sender's role in the library at this moment (<see cref="EditionProofAccess"/>): a viewer's proof never changes an item,
+    /// whichever path finished it.
+    /// </summary>
     public static async Task<bool> TryApplyAsync(
-        IAppDbContext db, ScanSession session, ScanCandidate candidate, Guid itemId, TimeProvider clock, CancellationToken cancellationToken)
+        IAppDbContext db, ScanSession session, ScanCandidate candidate, Guid itemId, LibraryRole? role, TimeProvider clock,
+        CancellationToken cancellationToken)
     {
-        if (candidate is not { Resolution: CandidateResolution.Matched, MatchedReleaseId: { } releaseId })
+        if (!EditionProofAccess.Allows(role)
+            || candidate is not { Resolution: CandidateResolution.Matched, MatchedReleaseId: { } releaseId })
         {
             return false;
         }

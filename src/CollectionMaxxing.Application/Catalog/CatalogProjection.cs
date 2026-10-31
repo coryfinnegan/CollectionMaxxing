@@ -24,7 +24,7 @@ internal static class CatalogProjection
     public static ReleaseDto ToReleaseDto(ProviderRelease p) =>
         new(UnsavedId, UnsavedId, TitleCaser.ToTitleCase(p.Title), p.Format ?? ReleaseFormat.Unknown, null, null, p.Edition, p.Publisher, null, p.Year,
             p.Creators, null, null, p.CoverUrl, ReleaseSource.Provider,
-            p.Identifiers.Select(i => new ReleaseIdentifierDto(i.Type, i.Value)).ToList());
+            p.Identifiers.Select(i => new ReleaseIdentifierDto(i.Type, i.Value)).ToList(), new ProviderRefDto(p.Provider, p.ExternalId));
 
     /// <summary>
     /// A key under which a provider result and a catalogue release of the same product collide. Callers that know the

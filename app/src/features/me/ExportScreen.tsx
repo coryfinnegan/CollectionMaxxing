@@ -60,11 +60,11 @@ export function ExportScreen() {
         </Text>
       ) : null}
       <Card>
-        <Text>One zip with your items as a spreadsheet (CSV) and as JSON. Your photos stay on your server.</Text>
+        <Text>One zip with your items as a spreadsheet (CSV) and as JSON. It doesn&apos;t include photos.</Text>
         {failed ? (
           <>
             <Text tone="danger" accessibilityRole="alert">
-              The export didn&apos;t finish. Start it again, and if it keeps failing, check the server logs on your computer.
+              The export didn&apos;t finish. Start it again. If it still fails, try again in a few minutes.
             </Text>
             <Button label="Start the export again" busy={start.isPending} onPress={begin} />
           </>
