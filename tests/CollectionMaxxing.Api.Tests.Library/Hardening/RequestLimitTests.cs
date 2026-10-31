@@ -10,7 +10,11 @@ using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Api.Tests.Hardening;
 
-/// <summary>API4 (unrestricted resource consumption): batches, page sizes and time are bounded. (Upload sizes and shapes: Scanning/Photo/PhotoUploadTests.)</summary>
+/// <summary>
+/// API4 (unrestricted resource consumption): batches, page sizes and time are bounded. (Upload sizes and shapes: Scanning/Photo/PhotoUploadTests.)
+/// Serial: the app runs with a one-second request time limit here, which a busy machine can overrun for an ordinary request (a 50-code batch).
+/// </summary>
+[Collection(RunsAlone.Name)]
 public class RequestLimitTests : ScanTest
 {
     public RequestLimitTests(ApiFixture api)

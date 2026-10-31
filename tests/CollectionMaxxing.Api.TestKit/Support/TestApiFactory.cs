@@ -13,6 +13,12 @@ namespace CollectionMaxxing.Api.Tests.Support;
 /// <summary>The real API pipeline, pointed at the test Postgres, with the header-based test sign-in.</summary>
 public sealed class TestApiFactory(string connectionString) : WebApplicationFactory<Program>
 {
+    // Where this factory's hosts keep what they write to disk. The app's defaults are folders beside the test binaries (data/covers,
+    // data/exports, secrets/keyring), which every host of every test class in the process would share while classes run in parallel
+    // (cover files are named by content, so two classes storing the same picture would meet in the same file). Tests that
+    // point a folder somewhere else of their own still win: their configuration is added after this one.
+    private readonly string _scratch = Path.Combine(Path.GetTempPath(), "cm-api-" + Guid.NewGuid().ToString("N"));
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Development, because the OpenAPI document is only served there.
@@ -22,6 +28,9 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:collectionmaxxing"] = connectionString,
+                ["Catalog:CoversRoot"] = Path.Combine(_scratch, "covers"),
+                ["Exports:Path"] = Path.Combine(_scratch, "exports"),
+                ["Auth:SecretsPath"] = Path.Combine(_scratch, "secrets"),
 
                 // Tests sign in over and over from one address; the rate limit is tested on its own (Auth/RateLimitTests).
                 ["Auth:RateLimit:PermitLimit"] = "100000",
@@ -63,5 +72,36 @@ public sealed class TestApiFactory(string connectionString) : WebApplicationFact
                     TokenEndpoint = "https://tenant.auth0.test/oauth/token",
                 });
         });
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        DeleteScratch();
+        GC.SuppressFinalize(this);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            DeleteScratch();
+        }
+    }
+
+    private void DeleteScratch()
+    {
+        try
+        {
+            if (Directory.Exists(_scratch))
+            {
+                Directory.Delete(_scratch, recursive: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // best effort: a host that is still shutting down may hold a file open, and a temp folder is no loss
+        }
     }
 }

@@ -14,7 +14,7 @@ namespace CollectionMaxxing.Api.Tests.Security;
 /// routing table (not a hand-made list), so a route added tomorrow is covered without anyone remembering it. A bearer call is not affected:
 /// it carries no ambient credential for a hostile page to ride on.
 /// </summary>
-public partial class CsrfEveryWriteRouteTests(ApiFixture api)
+public partial class CsrfEveryWriteRouteTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
     private static readonly HashSet<string> Safe = new(StringComparer.OrdinalIgnoreCase) { "GET", "HEAD", "OPTIONS", "TRACE" };
 
