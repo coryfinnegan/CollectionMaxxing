@@ -63,6 +63,8 @@ test.describe('visual', () => {
     await page.getByRole('button', { name: 'About and privacy' }).click();
     await expect(page).toHaveURL(/\/about$/);
     await expect(page.getByText('Provider data')).toBeVisible();
+    // The sidebar's library list loads on its own clock; wait for it so the snapshot is one state (as members is).
+    await expect(page.getByRole('link', { name: 'Join a library' })).toBeVisible();
     await expectShot(page, 'about');
   });
 
