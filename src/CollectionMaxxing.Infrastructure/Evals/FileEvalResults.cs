@@ -33,9 +33,11 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
         Directory.CreateDirectory(folder);
         var summaryJson = JsonSerializer.Serialize(summary, Json);
 
-        await WriteAsync(UniqueDatedPath(folder, summary), summaryJson, cancellationToken);
         await WriteAsync(Path.Combine(folder, LatestRun), JsonSerializer.Serialize(run, Json), cancellationToken);
         await WriteAsync(Path.Combine(folder, Report), reportMarkdown, cancellationToken);
+        // Written only once the other files succeeded: a retry after one of them failed (report.md locked by another program) never finds its own
+        // dated file missing and numbers up a second one for the same run.
+        await WriteAsync(UniqueDatedPath(folder, summary), summaryJson, cancellationToken);
         await WriteAsync(Path.Combine(folder, LatestSummary), summaryJson, cancellationToken); // last: its presence says the run is complete
     }
 
