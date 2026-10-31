@@ -50,20 +50,28 @@ public static class GetStats
             var byDecade = Counts();
             await foreach (var bucket in buckets.WithCancellation(cancellationToken))
             {
-                switch (bucket.Status)
+                // Beside the collection: counted on their own, in none of the totals or breakdowns.
+                if (!ItemStatuses.IsInCollection(bucket.Status))
                 {
-                    case ItemStatus.Wishlist:
+                    if (bucket.Status == ItemStatus.Wishlist)
+                    {
                         wishlist += bucket.Count;
-                        continue;
-                    case ItemStatus.Sold:
+                    }
+                    else
+                    {
                         sold += bucket.Count;
-                        continue;
-                    case ItemStatus.Lent:
-                        lent += bucket.Count;
-                        break;
-                    case ItemStatus.Missing:
-                        missing += bucket.Count;
-                        break;
+                    }
+
+                    continue;
+                }
+
+                if (bucket.Status == ItemStatus.Lent)
+                {
+                    lent += bucket.Count;
+                }
+                else if (bucket.Status == ItemStatus.Missing)
+                {
+                    missing += bucket.Count;
                 }
 
                 total += bucket.Count;
