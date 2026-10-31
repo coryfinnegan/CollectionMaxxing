@@ -30,6 +30,7 @@ builder.Services.AddWebApp();
 builder.Services.AddInfrastructure();
 builder.Services.AddJobs();
 builder.Services.AddJobPruning();
+builder.Services.AddExpiredRowCleanup();
 builder.Services.AddAccounts();
 builder.Services.AddSignIn();
 builder.Services.AddInvites();
