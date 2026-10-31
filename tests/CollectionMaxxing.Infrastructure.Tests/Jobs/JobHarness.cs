@@ -112,6 +112,13 @@ public sealed class JobHarness : IAsyncDisposable
         return await scope.ServiceProvider.GetRequiredService<IJobQueue>().EnqueueAsync(type, payload, options);
     }
 
+    /// <summary>Queues several jobs of one type the way a feature does when it has a list of them.</summary>
+    public async Task<IReadOnlyList<Guid?>> EnqueueManyAsync(string type, IReadOnlyList<JobToEnqueue> jobs)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IJobQueue>().EnqueueManyAsync(type, jobs);
+    }
+
     public static async Task<List<Job>> JobsAsync(PostgresFixture db)
     {
         await using var context = db.CreateContext();

@@ -29,6 +29,26 @@ public sealed class CandidateResolver(
     private static readonly TraceStep LocalHit = new("catalogue", "hit", 0);
 
     /// <summary>
+    /// Reads, for all of <paramref name="answers"/> at once, what <see cref="ApplyAsync"/> would read for each on its own about the
+    /// releases the catalogue already holds for them. Pass the result to every <see cref="ApplyAsync"/> of those answers.
+    /// </summary>
+    public async Task<AnswerLookups> LookUpAsync(Guid libraryId, IEnumerable<BarcodeResolution> answers, CancellationToken cancellationToken)
+    {
+        var lookups = NewLookups(libraryId);
+        var releaseIds = answers
+            .Where(a => a.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
+            .SelectMany(a => a.Options.Take(MaxAlternatives))
+            .Select(o => o.LocalReleaseId)
+            .OfType<Guid>()
+            .Distinct()
+            .ToList();
+        await lookups.LoadAsync(releaseIds, cancellationToken);
+        return lookups;
+    }
+
+    private AnswerLookups NewLookups(Guid libraryId) => new(db, ownership, libraryId);
+
+    /// <summary>
     /// The releases the catalogue already has for each barcode (docs/02 section 3, step 1), by the barcode's digits, as
     /// <paramref name="libraryId"/> may use them: links from providers are for everyone, but a link a person taught
     /// by hand answers only in the library that taught it.
@@ -91,12 +111,16 @@ public sealed class CandidateResolver(
     /// three, who already owns it, and what to do by default. Saves nothing; the caller saves.
     /// <paramref name="fromIdentifier"/> is true when the answer comes from a barcode (a normalized identifier), the only
     /// path that can reach T0. <paramref name="copiesMode"/> is true when the session opted into copies: an exact-owned
-    /// barcode hit is accepted (and T0) instead of skipped; a T1 never is (docs/16 §15).
+    /// barcode hit is accepted (and T0) instead of skipped; a T1 never is (docs/16 §15). A caller with many answers passes the
+    /// <paramref name="lookups"/> it got from <see cref="LookUpAsync"/>, so the releases they point at are read once for all of
+    /// them; the answer written is the same without it.
     /// </summary>
     public async Task ApplyAsync(
         Guid libraryId, ScanCandidate candidate, BarcodeResolution resolution, CancellationToken cancellationToken,
-        bool fromIdentifier = false, bool copiesMode = false)
+        bool fromIdentifier = false, bool copiesMode = false, AnswerLookups? lookups = null)
     {
+        lookups ??= NewLookups(libraryId);
+
         // The options' releases are ensured before the verdict is final: the veto and the tier read what the options
         // point at (a local option carries no title of its own), and a vetoed match is Ambiguous however high it scored.
         var ensured = new List<EnsuredRelease>();
@@ -111,6 +135,7 @@ public sealed class CandidateResolver(
                     : await releases.EnsureAsync(option.Provider!, libraryId, cancellationToken));
             }
 
+            await lookups.TrackAsync([.. ensured.Where(e => !e.IsNew).Select(e => e.Id)], cancellationToken);
             await ShareSameNovelCoversAsync(ensured, donorCovers, cancellationToken);
         }
 
@@ -141,12 +166,13 @@ public sealed class CandidateResolver(
         if (verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
         {
             var alternatives = new List<StoredAlternative>();
-            var known = await CandidateProjection.LoadReleasesAsync(
-                db, [libraryId], ensured.Where(e => !e.IsNew).Select(e => e.Id).ToList(), cancellationToken);
+            var saved = ensured.Where(e => !e.IsNew).Select(e => e.Id).ToList();
+            var known = await lookups.KnownAsync(saved, cancellationToken);
+            var owners = await lookups.OwnedAsync(saved, cancellationToken);
             var ownership = new List<OwnershipDto>(ensured.Count);
             foreach (var release in ensured)
             {
-                ownership.Add(await OwnedAsync(libraryId, release, cancellationToken));
+                ownership.Add(release.IsNew ? OwnershipQuery.None : owners[release.Id]);
             }
 
             // #516: a close call lists what the library already owns first, so a

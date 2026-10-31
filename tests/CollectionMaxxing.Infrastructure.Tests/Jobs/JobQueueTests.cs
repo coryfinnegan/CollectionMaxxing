@@ -60,6 +60,100 @@ public class JobQueueTests(PostgresFixture db) : DatabaseTest(db)
         (await JobHarness.JobsAsync(Db)).Count.ShouldBe(4);
     }
 
+    private static JobToEnqueue Keyed(string label, string? key = null, DateTimeOffset? runAfter = null) =>
+        new(new Ping(label), key is null && runAfter is null ? null : new JobEnqueueOptions(runAfter, key));
+
+    [Fact]
+    public async Task Enqueueing_many_jobs_queues_each_and_answers_with_their_ids_in_the_order_given()
+    {
+        await using var harness = new JobHarness(Db);
+
+        var ids = await harness.EnqueueManyAsync(JobHarness.PingType, [Keyed("a", "k:a"), Keyed("b"), Keyed("c", "k:c")]);
+
+        ids.Count.ShouldBe(3);
+        ids.ShouldAllBe(id => id != null);
+        var stored = await JobHarness.JobsAsync(Db);
+        stored.Select(j => j.Id).ShouldBe(ids.Select(id => id!.Value), ignoreOrder: true);
+        stored.ShouldAllBe(j => j.Type == JobHarness.PingType && j.Status == JobStatus.Pending);
+    }
+
+    [Fact]
+    public async Task Enqueueing_many_jobs_with_nothing_to_queue_answers_with_nothing()
+    {
+        await using var harness = new JobHarness(Db);
+
+        (await harness.EnqueueManyAsync(JobHarness.PingType, [])).ShouldBeEmpty();
+        (await JobHarness.JobsAsync(Db)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Enqueueing_many_jobs_skips_a_key_that_is_already_pending_and_says_so_in_that_place()
+    {
+        await using var harness = new JobHarness(Db);
+        await harness.EnqueueAsync(JobHarness.PingType, new Ping("old"), new JobEnqueueOptions(DedupeKey: "k:b"));
+
+        var ids = await harness.EnqueueManyAsync(JobHarness.PingType, [Keyed("a", "k:a"), Keyed("b", "k:b"), Keyed("c")]);
+
+        ids.Select(id => id is not null).ToArray().ShouldBe([true, false, true]);
+        (await JobHarness.JobsAsync(Db)).Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Enqueueing_many_jobs_with_one_key_twice_queues_the_first_only()
+    {
+        await using var harness = new JobHarness(Db);
+
+        var ids = await harness.EnqueueManyAsync(JobHarness.PingType, [Keyed("first", "k:x"), Keyed("second", "k:x"), Keyed("third", "k:x")]);
+
+        ids.Select(id => id is not null).ToArray().ShouldBe([true, false, false]);
+        (await JobHarness.JobsAsync(Db)).Count.ShouldBe(1);
+        await harness.Runner.RunNextAsync("w", CancellationToken.None);
+        harness.Log.Ran.ShouldBe(["first"]);
+    }
+
+    [Fact]
+    public async Task Jobs_enqueued_together_run_in_the_order_they_were_given()
+    {
+        await using var harness = new JobHarness(Db);
+        var labels = Enumerable.Range(0, 12).Select(i => $"job-{i:D2}").ToList();
+
+        await harness.EnqueueManyAsync(JobHarness.PingType, [.. labels.Select(l => Keyed(l, $"k:{l}"))]);
+        while (await harness.Runner.RunNextAsync("w", CancellationToken.None))
+        {
+        }
+
+        harness.Log.Ran.ShouldBe(labels);
+    }
+
+    [Fact]
+    public async Task A_job_given_a_later_run_time_waits_for_it_though_queued_in_a_batch()
+    {
+        await using var harness = new JobHarness(Db);
+        var later = harness.Time.GetUtcNow().AddMinutes(30);
+
+        await harness.EnqueueManyAsync(JobHarness.PingType, [Keyed("later", runAfter: later), Keyed("now")]);
+        await harness.Runner.RunNextAsync("w", CancellationToken.None);
+        (await harness.Runner.RunNextAsync("w", CancellationToken.None)).ShouldBeFalse();
+        harness.Time.Advance(TimeSpan.FromMinutes(31));
+        await harness.Runner.RunNextAsync("w", CancellationToken.None);
+
+        harness.Log.Ran.ShouldBe(["now", "later"]);
+    }
+
+    [Fact]
+    public async Task Batches_that_share_keys_and_name_them_in_opposite_orders_queue_each_key_once_and_never_deadlock()
+    {
+        await using var harness = new JobHarness(Db);
+        var forwards = Enumerable.Range(0, 20).Select(i => Keyed($"f{i}", $"k:{i}")).ToArray();
+        var backwards = forwards.Reverse().Select(j => Keyed("b", ((JobEnqueueOptions)j.Options!).DedupeKey)).ToArray();
+
+        var results = await Task.WhenAll(
+            Enumerable.Range(0, 6).Select(i => Task.Run(() => harness.EnqueueManyAsync(JobHarness.PingType, i % 2 == 0 ? forwards : backwards))));
+
+        results.SelectMany(r => r).Count(id => id is not null).ShouldBe(20);
+        (await JobHarness.JobsAsync(Db)).Count.ShouldBe(20);
+    }
+
     [Fact]
     public async Task A_recurring_job_is_queued_once_per_period_however_many_workers_run()
     {

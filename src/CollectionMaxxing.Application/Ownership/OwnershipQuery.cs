@@ -57,6 +57,44 @@ public sealed class OwnershipQuery(IAppDbContext db)
         return new OwnershipDto(exact.Count > 0, exact.Count, exact, soft);
     }
 
+    /// <summary>
+    /// <see cref="ForReleaseAsync"/> for each of <paramref name="releaseIds"/> at once: the same answer per release (a release the caller
+    /// cannot see, or that does not exist, is <see cref="None"/>), from one query for the releases, one for the copies of all their
+    /// works and, when a copy has a location, one for the library's locations, however many releases are asked about.
+    /// </summary>
+    public async Task<Dictionary<Guid, OwnershipDto>> ForEachReleaseAsync(
+        Guid libraryId, IReadOnlyCollection<Guid> releaseIds, CancellationToken cancellationToken)
+    {
+        if (releaseIds.Count == 0)
+        {
+            return [];
+        }
+
+        // The release filter hides other libraries' private releases.
+        var asked = await db.Releases.AsNoTracking()
+            .Where(r => releaseIds.Contains(r.Id))
+            .Select(r => new { r.Id, r.WorkId, r.Format, r.PlatformId })
+            .ToListAsync(cancellationToken);
+        var answers = releaseIds.Distinct().ToDictionary(id => id, _ => None);
+        if (asked.Count == 0)
+        {
+            return answers;
+        }
+
+        var rows = await CopiesOfWorksAsync(libraryId, asked.Select(a => a.WorkId).Distinct().ToList(), cancellationToken);
+        var rowsOfWork = rows.ToLookup(r => r.Copy.WorkId);
+        foreach (var release in asked)
+        {
+            var ofWork = rowsOfWork[release.WorkId].ToList();
+            var exact = ofWork.Where(r => r.Copy.ReleaseId == release.Id).Select(r => r.Copy).ToList();
+            var soft = ofWork.Where(r => r.Copy.ReleaseId != release.Id && (r.Copy.Format, r.PlatformId) != (release.Format, release.PlatformId))
+                .Select(r => r.Copy).ToList();
+            answers[release.Id] = new OwnershipDto(exact.Count > 0, exact.Count, exact, soft);
+        }
+
+        return answers;
+    }
+
     public async Task<OwnershipDto> ForWorkAsync(Guid libraryId, Guid workId, CancellationToken cancellationToken)
     {
         var rows = await CopiesOfWorksAsync(libraryId, [workId], cancellationToken);

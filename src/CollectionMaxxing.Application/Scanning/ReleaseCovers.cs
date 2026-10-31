@@ -21,11 +21,16 @@ public sealed class ReleaseCovers(
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(12);
 
     /// <summary>Adds the assets and sets the releases' covers (saved by the caller). Returns the files written, to delete if the save fails.</summary>
-    public async Task<IReadOnlyList<string>> FetchMissingAsync(IReadOnlyCollection<Guid> releaseIds, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<string>> FetchMissingAsync(
+        IReadOnlyCollection<Guid> releaseIds, CancellationToken cancellationToken, AnswerLookups? lookups = null)
     {
-        var releases = await db.Releases
-            .Where(r => releaseIds.Contains(r.Id) && r.CoverAssetId == null && r.ProviderPayloadsJson != null)
-            .ToListAsync(cancellationToken);
+        // With the lookups of a whole picture, a release already read that has a cover (or names none) is not asked for again.
+        var toRead = lookups is null ? releaseIds : await lookups.MayLackCoverAsync(releaseIds, cancellationToken);
+        var releases = toRead.Count == 0
+            ? []
+            : await db.Releases
+                .Where(r => toRead.Contains(r.Id) && r.CoverAssetId == null && r.ProviderPayloadsJson != null)
+                .ToListAsync(cancellationToken);
         // Plus what the caller just added and hasn't saved yet (an edited edition): it is no rows until the save.
         var seen = releases.Select(r => r.Id).ToHashSet();
         releases.AddRange(db.Releases.Local
