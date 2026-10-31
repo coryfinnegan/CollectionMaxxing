@@ -626,7 +626,7 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
     [Theory]
     [InlineData("evals.ocr_too_many_lines", "count")]
     [InlineData("evals.ocr_line_invalid", "long_text")]
-    [InlineData("evals.ocr_line_invalid", "x_over_one")]
+    [InlineData("evals.ocr_line_invalid", "x_over_one")] // 1.5: values within 0.01 of 0 to 1 are clamped instead (EvalBadPhotoTests)
     [InlineData("evals.ocr_line_invalid", "y_below_zero")]
     [InlineData("evals.ocr_line_invalid", "width_over_one")]
     [InlineData("evals.ocr_line_invalid", "no_height")]
@@ -642,8 +642,8 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         {
             "count" => [.. Enumerable.Range(0, 1001).Select(i => OcrLine($"Line {i}"))],
             "long_text" => [OcrLine(new string('t', 201))],
-            "x_over_one" => [OcrLine("Dune", x: 1.01)],
-            "y_below_zero" => [OcrLine("Dune", y: -0.01)],
+            "x_over_one" => [OcrLine("Dune", x: 1.5)],
+            "y_below_zero" => [OcrLine("Dune", y: -0.5)],
             "width_over_one" => [OcrLine("Dune", width: 2)],
             "no_height" => [new { text = "Dune", x = 0.1, y = 0.1, width = 0.1 }],
             "no_text" => [new { x = 0.1, y = 0.1, width = 0.1, height = 0.1 }],

@@ -65,7 +65,7 @@ public sealed record IdentifyItem(
     ItemBox? Box = null);
 
 /// <summary>
-/// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 40 items, 256 KB). <c>FellBackFrom</c> says why
+/// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 120 items, 256 KB). <c>FellBackFrom</c> says why
 /// the preferred engine wasn't used (a deliberate addition, SCAN-2a), or carries the classifier's reshoot signal (#344);
 /// <c>ShotKind</c> says what the phone's framing said the shot was (#338); <c>Kind</c> is a shelf read unless the phone says
 /// cover; <c>CandidateId</c> ties a cover read to the T2 row it was shot for, upgrading it in place (#344);

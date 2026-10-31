@@ -344,20 +344,48 @@ public class IdentifyBehaviourTests(ApiFixture api) : IdentifyTest(api)
 
     // ---- limits ----------------------------------------------------------------------------------------------------
 
+    // A real shelf here has 46 books and the Vision engine reads one item per spine, so 40 refused a whole shelf (2026-10-30).
     [Fact]
-    public async Task Forty_items_are_accepted_and_forty_one_are_refused()
+    public async Task A_hundred_items_are_accepted_and_a_hundred_and_twenty_one_are_refused_and_the_refusal_is_logged()
     {
         var library = await CreateLibraryAsync();
         using var viewer = As(library, LibraryRole.Viewer);
         var sessionId = await StartSessionAsync(viewer, library.Id);
 
-        var forty = await IdentifyAsync(viewer, sessionId, null, Enumerable.Range(0, 40).Select(i => (object)Read(title: $"Title {i}", kind: "book")).ToArray());
-        var fortyOne = await IdentifyAsync(viewer, sessionId, null, Enumerable.Range(0, 41).Select(i => (object)Read(title: $"Title {i}", kind: "book")).ToArray());
+        var hundred = await IdentifyAsync(viewer, sessionId, null, Enumerable.Range(0, 100).Select(i => (object)Read(title: $"Title {i}", kind: "book")).ToArray());
+        var tooMany = await IdentifyAsync(viewer, sessionId, null, Enumerable.Range(0, 121).Select(i => (object)Read(title: $"Title {i}", kind: "book")).ToArray());
 
-        forty.StatusCode.ShouldBe(HttpStatusCode.OK, await forty.Content.ReadAsStringAsync());
-        fortyOne.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await fortyOne.Content.ReadAsStringAsync()).ShouldContain("urn:collectionmaxxing:problem:");
-        (await CountCandidatesAsync(sessionId)).ShouldBe(40);
+        hundred.StatusCode.ShouldBe(HttpStatusCode.OK, await hundred.Content.ReadAsStringAsync());
+        tooMany.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await tooMany.Content.ReadAsStringAsync()).ShouldContain("urn:collectionmaxxing:problem:");
+        (await CountCandidatesAsync(sessionId)).ShouldBe(100);
+        Logs.Lines.ShouldContain(line => line.Contains("Identify refused", StringComparison.Ordinal) && line.Contains("scan.too_many_items", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_hundred_items_with_every_provider_stalled_still_answer_within_the_budget_and_stay_pending_for_the_job()
+    {
+        Options.ResolveBudget = TimeSpan.FromMilliseconds(500);
+        Options.JobResolveBudget = TimeSpan.FromMilliseconds(300);
+        Games.Behaviour = ct => Task.Delay(Timeout.Infinite, ct);
+        Books.Behaviour = ct => Task.Delay(Timeout.Infinite, ct);
+        var library = await CreateLibraryAsync();
+        using var viewer = As(library, LibraryRole.Viewer);
+        var sessionId = await StartSessionAsync(viewer, library.Id);
+        var reads = Enumerable.Range(0, 100).Select(i => (object)Read(title: $"Zorblax Quest {i}", kind: i % 2 == 0 ? "game" : "book")).ToArray();
+
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var response = await IdentifyAsync(viewer, sessionId, null, reads);
+        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(20), "the providers are asked within one budget, not once per item");
+        var candidates = (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().ToList();
+        candidates.Count.ShouldBe(100);
+        candidates.ShouldAllBe(c => Resolution(c) == "pending");
+        await using var context = Db.CreateContext();
+        (await context.Database.SqlQueryRaw<int>("""select count(*)::int as "Value" from jobs where payload::text like '%' || {0} || '%'""", sessionId.ToString()).SingleAsync())
+            .ShouldBeGreaterThanOrEqualTo(100, "each pending item has a job to finish it");
     }
 
     [Fact]

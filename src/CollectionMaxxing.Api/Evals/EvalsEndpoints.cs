@@ -89,24 +89,31 @@ public static class EvalsEndpoints
         IOptions<JsonOptions> json,
         SubmitEvalRun.Handler handler,
         IHostApplicationLifetime lifetime,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        // Every refusal is logged with its problem code (never the body), so a 400 can be explained from the server log.
+        var logger = loggerFactory.CreateLogger("CollectionMaxxing.Api.Evals.SubmitEvalRun");
+
         // Off means 404 before anything about the body is looked at.
         if (!golden.IsAvailable)
         {
-            return EvalErrors.NotFound.ToProblem();
+            return Refused(logger, EvalErrors.NotFound);
         }
 
         var request = http.Request;
         if (!IsJson(request.ContentType))
         {
-            return ProblemResults.Problem(
-                StatusCodes.Status415UnsupportedMediaType, "Unsupported media type", "Send the run as application/json.", "evals.json_required");
+            return Refused(
+                logger,
+                "evals.json_required",
+                ProblemResults.Problem(
+                    StatusCodes.Status415UnsupportedMediaType, "Unsupported media type", "Send the run as application/json.", "evals.json_required"));
         }
 
         if (request.ContentLength > EvalsOptions.MaxRunBytes)
         {
-            return TooLarge();
+            return Refused(logger, "evals.body_too_large", TooLarge());
         }
 
         var limit = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
@@ -122,12 +129,12 @@ public static class EvalsEndpoints
         }
         catch (BadHttpRequestException)
         {
-            return TooLarge(); // the server's own cap tripped on a body sent without a length
+            return Refused(logger, "evals.body_too_large", TooLarge()); // the server's own cap tripped on a body sent without a length
         }
 
         if (body is null)
         {
-            return TooLarge();
+            return Refused(logger, "evals.body_too_large", TooLarge());
         }
 
         EvalRunRequest? parsed;
@@ -135,14 +142,15 @@ public static class EvalsEndpoints
         {
             parsed = JsonSerializer.Deserialize<EvalRunRequest>(body, StrictOptions(json.Value.SerializerOptions));
         }
-        catch (JsonException)
+        catch (JsonException exception)
         {
-            return BadBody();
+            // The path inside the body names the member that could not be read (never its value).
+            return Refused(logger, "evals.body_invalid", BadBody(), exception.Path);
         }
 
         if (parsed is null)
         {
-            return BadBody();
+            return Refused(logger, "evals.body_invalid", BadBody());
         }
 
         var input = new EvalRunInput(
@@ -182,7 +190,27 @@ public static class EvalsEndpoints
         // belongs to the PC, not to the connection. It stops when the app shuts down, not when the phone goes away (and the
         // upload timeout, which cancels the same token, no longer cuts it short either).
         var result = await handler.HandleAsync(input, lifetime.ApplicationStopping);
-        return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : Refused(logger, result.Error!);
+    }
+
+    private static IResult Refused(ILogger logger, CollectionMaxxing.Domain.Common.DomainError error)
+    {
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Eval run refused: {ProblemCode} at {Field}.", error.Code, error.Field);
+        }
+
+        return error.ToProblem();
+    }
+
+    private static IResult Refused(ILogger logger, string code, IResult problem, string? field = null)
+    {
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("Eval run refused: {ProblemCode} at {Field}.", code, field);
+        }
+
+        return problem;
     }
 
     private static bool IsJson(string? contentType) =>
