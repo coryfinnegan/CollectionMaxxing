@@ -276,7 +276,7 @@ Open an issue as yourself (issues by anyone else are never worked) and add the l
 | `agent-blocked` | The agent stopped and said why in a comment, or the watcher found the run dead; remove the label to try again | the agent or the watcher |
 | `needs:cory`, `status:blocked` | Not the agent's to move; the watcher skips these | you or the agent |
 | `p1` to `p5` | Order of work (`p1` first, then oldest) | you |
-| `tier:mechanical` / `tier:critical` | Model: `haiku` / `opus`. Anything else runs `sonnet` | you |
+| `tier:critical` | Model: `opus`. Anything else runs `sonnet`, `tier:mechanical` included: the runs are headless in auto permission mode, and `haiku` gets no auto approvals there | you |
 
 ### How one run goes
 
