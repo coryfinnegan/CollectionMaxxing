@@ -2,7 +2,6 @@
 import { ApiError } from './http';
 import { logger } from './auth/log';
 import { PasskeyCancelledError, PasskeyUnsupportedError, ReauthCancelledError } from './auth/errors';
-import { isWeb } from './auth/session';
 
 const fieldCopy: Record<string, string> = {
   name: 'Give it a name.',
@@ -30,7 +29,7 @@ export function friendlyError(error: unknown, fallback = "That didn't work. Try 
       if (field) return fieldCopy[field.toLowerCase()] ?? problem.errors[field]?.[0] ?? fallback;
     }
     if (error.isReauthRequired) return "Sign in again to confirm it's you, then try again.";
-    if (status === 401) return isWeb() ? 'Your session ended. Sign in again.' : 'Your session ended. Pair this device again.';
+    if (status === 401) return 'Your session ended. Sign in again.';
     if (status === 403) return "You don't have permission to change this library.";
     if (status === 404) return "That's no longer here. Refresh and try again.";
     if (status === 412) return 'Someone changed this. Reload to see the latest.';

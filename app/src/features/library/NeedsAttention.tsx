@@ -13,6 +13,7 @@ import { ApiError } from '@/lib/http';
 import type { ProvisionalDto, ScanMediaHint } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
 import { newIdempotencyKey } from '@/features/item/etag';
+import { invalidateLibraryItems } from '@/features/item/useItem';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { boundScanStore } from '@/features/review/boundScan';
 import { deleteKept, promoteKept, resolveKept } from '@/features/review/provisionals';
@@ -80,11 +81,9 @@ function KeptRow({ libraryId, provisional: p, location, canAct }: { libraryId: s
   const boundRow = p.sessionId && p.candidateId ? { sessionId: p.sessionId, candidateId: p.candidateId } : null;
   const crop = p.cropUrl ? (ownArtworkUrl(p.cropUrl) ?? null) : null;
   const caption = [MEDIA_LABEL[p.mediaHint], location].filter(Boolean).join(' · ') || 'Guessed from a scan';
+  // Adding or linking a kept row changes the item lists and the library counts (the heading and the filter chips).
   const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['provisionals', libraryId] }),
-      queryClient.invalidateQueries({ queryKey: ['library-items', libraryId] }),
-    ]);
+    Promise.all([queryClient.invalidateQueries({ queryKey: ['provisionals', libraryId] }), invalidateLibraryItems(queryClient, libraryId)]);
 
   const promote = async () => {
     setBusy('promote');

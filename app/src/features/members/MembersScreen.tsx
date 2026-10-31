@@ -139,13 +139,17 @@ function Members({ libraryId, myId, isOwner }: { libraryId: string; myId: string
           {list.map((member) => {
             const isYou = member.userId === myId;
             const name = isYou ? `${member.displayName} (you)` : member.displayName;
-            const devices = member.devices?.length ? member.devices.join(', ') : 'No devices yet';
+            // Only the owner is sent each member's devices and last seen; for everyone else the fields are
+            // missing, which is not the same as "no devices", so the row shows nothing there.
+            const details = member.devices
+              ? `${member.devices.length ? member.devices.join(', ') : 'No devices yet'} · ${formatLastSeen(member.lastSeenAt)}`
+              : undefined;
             const canChange = isOwner && member.role !== 'owner';
             return (
               <ListRow
                 key={member.userId}
                 title={name}
-                subtitle={`${devices} · ${formatLastSeen(member.lastSeenAt)}`}
+                subtitle={details}
                 trailing={
                   canChange ? (
                     <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', justifyContent: 'flex-end' }}>

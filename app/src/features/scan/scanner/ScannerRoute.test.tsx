@@ -23,7 +23,8 @@ describe('scanner route without a library', () => {
     library.mockReturnValue({ libraryId: undefined, isLoading: false });
     await renderWithProviders(<ScannerRoute />);
     expect(screen.getByText('No library found.')).toBeTruthy();
-    expect(screen.getByText('Pair this iPhone again.')).toBeTruthy();
+    expect(screen.getByText('Create or join a library in Settings, then come back to scan.')).toBeTruthy();
+    expect(screen.queryByText(/Pair this/)).toBeNull();
   });
 
   it('hides Close when embedded in the Scan tab', async () => {
