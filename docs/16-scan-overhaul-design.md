@@ -125,7 +125,9 @@ local queue + last snapshot):
 - `toReview` — candidates in Ambiguous/NotFound/Error or unactioned provisionals
 - `owned` — exact-owned hits this session (informational; duplicates protection, not a failure)
 
-**Segment strip** (new horizontal strip in shoot order; each cell = snap thumbnail
+**Segment strip** (not in the app: it was built but never placed on a screen, and was
+removed as unused; the live counters above are what shipped. The design is kept for
+reference.) (new horizontal strip in shoot order; each cell = snap thumbnail
 from `snapStore` + state dot):
 
 ```text
