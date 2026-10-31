@@ -46,7 +46,8 @@ public sealed record CommitOptions(
 /// <summary>
 /// Picks the release each accepted candidate is added as. Usually the one it matched. A candidate the person edited (format,
 /// platform or edition) is added as the release of the same work that has those: one the catalogue already holds (or the
-/// library's own), else a new release the library keeps for itself. Saves nothing; the commit saves everything at once.
+/// library's own, or one this request added a moment ago), else a new release the library keeps for itself. A match is found
+/// whether it is a stored row or one a provider returned in this request. Saves nothing; the caller saves everything at once.
 /// <see cref="ResolvedReleases.Origins"/> are the matched releases an edit moved away from: the commit still fetches their
 /// covers, or the shared release the person saw would stay coverless.
 /// </summary>
@@ -79,17 +80,33 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
         var bases = lookups is null
             ? await db.Releases.AsNoTracking().Where(r => baseIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken)
             : await lookups.RowsAsync(baseIds, cancellationToken);
+
+        // A match a provider returned in this request is no row until the save: the tracker holds it, and its work.
+        foreach (var unsaved in db.Releases.Local.Where(r => baseIds.Contains(r.Id) && !bases.ContainsKey(r.Id)).ToList())
+        {
+            bases[unsaved.Id] = unsaved;
+        }
+
         var workIds = bases.Values.Select(r => r.WorkId).Distinct().ToList();
         var kinds = lookups is null
             ? await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id)).ToDictionaryAsync(w => w.Id, w => w.Kind, cancellationToken)
             : await lookups.KindsAsync(workIds, cancellationToken);
+        foreach (var unsaved in db.Works.Local.Where(w => workIds.Contains(w.Id) && !kinds.ContainsKey(w.Id)).ToList())
+        {
+            kinds[unsaved.Id] = unsaved.Kind;
+        }
+
         var platforms = lookups is null ? await db.Platforms.AsNoTracking().ToListAsync(cancellationToken) : await lookups.PlatformsAsync(cancellationToken);
         var added = new Dictionary<(Guid Work, ReleaseFormat Format, Guid? Platform, string Edition), Guid>();
         var origins = new HashSet<Guid>();
 
         foreach (var candidate in edited)
         {
-            var origin = bases[candidate.MatchedReleaseId!.Value];
+            if (!bases.TryGetValue(candidate.MatchedReleaseId!.Value, out var origin))
+            {
+                continue; // a release nobody can read: nothing to base an edited one on, so the match stands as it is
+            }
+
             var format = candidate.EditedFormat
                 ?? (origin.Format == ReleaseFormat.Unknown
                     && readFormats.TryGetValue(candidate.Id, out var read)
@@ -129,6 +146,17 @@ internal sealed class EditedReleases(IAppDbContext db, IIdGenerator ids)
         if (siblings.FirstOrDefault(r => SameEdition(r.Edition, edition)) is { } found)
         {
             return found.Id;
+        }
+
+        // One an earlier read of this request added is no row until the save, but it is the release this read means too.
+        var unsaved = db.Releases.Local
+            .Where(r => r.WorkId == origin.WorkId && r.Format == format && r.PlatformId == platformId
+                && (r.OwnerLibraryId == null || r.OwnerLibraryId == session.LibraryId) && SameEdition(r.Edition, edition))
+            .OrderBy(r => r.OwnerLibraryId != null)
+            .FirstOrDefault();
+        if (unsaved is not null)
+        {
+            return unsaved.Id;
         }
 
         var release = new Release
