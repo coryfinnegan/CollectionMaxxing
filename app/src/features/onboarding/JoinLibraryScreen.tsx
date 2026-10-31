@@ -44,7 +44,7 @@ export function JoinLibraryScreen() {
   const found = preview.data;
   return (
     <SafeAreaView testID="safe-area" style={{ flex: 1, backgroundColor: colors.ground }}>
-      <Screen title="Join a library" showTitleOnPhone subtitle={joinPrompt}>
+      <Screen title="Join a library" showTitleOnPhone subtitle={joinPrompt} keyboardAvoiding>
         <Card>
           <TextField
             label="Invite link or code"
