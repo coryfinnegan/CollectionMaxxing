@@ -112,6 +112,7 @@ services:
       # results land in evals/results, both under CM_EVALS_DIR (default C:\CollectionMaxxing\evals, beside the repo clone,
       # never inside it: the photos are private). report.md and drafts there hold real titles; only the dated aggregate
       # files may be copied into the repo's evals/results/. The routes answer 404 while the golden folder is empty.
+      # The golden folder is writable because the phone adds photos to it (POST /api/admin/evals/golden/{set}/{id}).
       Evals__Enabled: ${CM_EVALS_ENABLED:-true}
       Evals__GoldenPath: /evals/golden
       Evals__ResultsPath: /evals/results
@@ -125,7 +126,7 @@ services:
       - files:/data/files
       - ${CM_SECRETS_DIR:?set in .env}:/secrets
       - ${CM_RECOGNITION_DIR:-./recognition}:/config:ro
-      - ${CM_EVALS_DIR:-../../evals}/golden:/evals/golden:ro
+      - ${CM_EVALS_DIR:-../../evals}/golden:/evals/golden
       - ${CM_EVALS_DIR:-../../evals}/results:/evals/results
       - ../evals/baseline.json:/evals/baseline.json:ro
     depends_on:
