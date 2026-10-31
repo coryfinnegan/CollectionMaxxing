@@ -14,7 +14,7 @@ import { describeCandidate, isPictureCandidate, ownershipLine, slideDuration } f
 import { OwnedCard } from './OwnedCard';
 import { PickAlternatives } from './PickAlternatives';
 import { WishlistCard } from './WishlistCard';
-import { answerLineCap, CARD_WIDTH, clampFontScale, estimateStripHeight, staleLineCap } from './stripHeight';
+import { answerLineCap, CARD_WIDTH, clampFontScale, estimateStripHeight, noteLineCap, staleLineCap } from './stripHeight';
 
 export { useReduceMotion };
 export { CARD_WIDTH } from './stripHeight';
@@ -33,6 +33,11 @@ function OwnedAnswerLine({ code, scale }: { code: string | null; scale: number }
       <Text variant="label" tone={said?.owned || answer.wishlistItemId ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
         {line}
       </Text>
+      {said?.note ? (
+        <Text variant="caption" tone="muted" numberOfLines={noteLineCap(scale)}>
+          {said.note}
+        </Text>
+      ) : null}
       {answer.staleMessage ? (
         <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}
@@ -55,6 +60,11 @@ function SoftAnswerLine({ releaseId, soldItemId, scale }: { releaseId: string; s
       <Text variant="label" tone={said.owned ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
         {said.text}
       </Text>
+      {said.note ? (
+        <Text variant="caption" tone="muted" numberOfLines={noteLineCap(scale)}>
+          {said.note}
+        </Text>
+      ) : null}
       {answer.staleMessage ? (
         <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}

@@ -199,8 +199,8 @@ describe('what a card says about the wishlist, what was sold and what is missing
     const copy = (status: string) => ({ platform: null, format: 'dvd', locationPath: 'Bedroom', status });
     const nothing = { owned: [], softMatches: [], wishlistItemId: null, soldItemId: null };
 
-    expect(ownershipLine({ ...nothing, owned: [copy('missing')] })?.text).toBe('Already own — DVD, Bedroom · marked missing');
-    expect(ownershipLine({ ...nothing, owned: [copy('missing'), copy('owned')] })?.text).toBe('Already own — DVD, Bedroom · 2 copies');
-    expect(ownershipLine({ ...nothing, owned: [copy('lent')] })?.text).toBe('Already own — DVD, Bedroom');
+    expect(ownershipLine({ ...nothing, owned: [copy('missing')] })).toEqual({ text: 'Already own — DVD, Bedroom', owned: true, note: 'Marked missing' });
+    expect(ownershipLine({ ...nothing, owned: [copy('missing'), copy('owned')] })).toMatchObject({ text: 'Already own — DVD, Bedroom · 2 copies', note: null });
+    expect(ownershipLine({ ...nothing, owned: [copy('lent')] })).toMatchObject({ text: 'Already own — DVD, Bedroom', note: null });
   });
 });

@@ -25,8 +25,10 @@ export type CardCopy = {
 export const WISHLIST_COPY = 'On your wishlist';
 /** A release the library had and let go (sold, traded, given away): informational, the card's normal actions stay. */
 export const SOLD_COPY = 'You sold this';
-/** Added to the owned line of a copy that is marked missing: it is still yours, you just can't find it. */
+/** Added to the owned heading of a copy that is marked missing: it is still yours, you just can't find it. */
 export const MARKED_MISSING = ' · marked missing';
+/** The same, as the short line a card shows under its owned line (the owned line itself keeps its room for the place). */
+export const MARKED_MISSING_NOTE = 'Marked missing';
 
 /** An auto-add that still stands: it is already in the library, with Undo on offer. */
 export const ADDED_COPY = 'Added to your library';
@@ -68,16 +70,16 @@ export function ownershipLine(answer: {
   softMatches: { platform: string | null; format: string | null; locationPath: string | null }[];
   wishlistItemId: string | null;
   soldItemId: string | null;
-}): { text: string; owned: boolean } | null {
+}): { text: string; owned: boolean; note: string | null } | null {
   const first = answer.owned[0];
   if (first) {
     const line = alreadyOwnLine(first.platform ?? formatName(first.format), first.locationPath, answer.owned.length);
-    return { text: answer.owned.every((c) => c.status === 'missing') ? `${line}${MARKED_MISSING}` : line, owned: true };
+    return { text: line, owned: true, note: answer.owned.every((c) => c.status === 'missing') ? MARKED_MISSING_NOTE : null };
   }
-  if (answer.wishlistItemId) return { text: WISHLIST_COPY, owned: false };
-  if (answer.soldItemId) return { text: SOLD_COPY, owned: false };
+  if (answer.wishlistItemId) return { text: WISHLIST_COPY, owned: false, note: null };
+  if (answer.soldItemId) return { text: SOLD_COPY, owned: false, note: null };
   const soft = answer.softMatches[0];
-  return soft ? { text: alsoOwnLine(soft.platform ?? formatName(soft.format), soft.locationPath), owned: false } : null;
+  return soft ? { text: alsoOwnLine(soft.platform ?? formatName(soft.format), soft.locationPath), owned: false, note: null } : null;
 }
 
 /** "Also own — VHS, Bedroom" for a soft match: the same work in another shape (docs/02 §7). */

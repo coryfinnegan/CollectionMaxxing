@@ -53,11 +53,26 @@ test.describe('visual', () => {
     await expectShot(page, 'sold');
   });
 
-  test('item detail wishlist', async ({ page, open }) => {
-    await open('/item/c0000000-0000-4000-8000-000000000006');
-    await expect(page.getByRole('heading', { name: 'Blade Runner' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'I got it' })).toBeVisible();
-    await expectShot(page, 'item-detail-wishlist');
+  // The item's actions sit below the facts, so these two shoot a taller window to show them: the move that fits where the item is
+  // (I got it on the wishlist; Lend…, Mark as missing and Sold or gave it away on an owned item), then Edit, Move and Delete.
+  test.describe('item actions', () => {
+    test.use({ viewport: { width: 1280, height: 1000 } });
+
+    test('item detail wishlist', async ({ page, open }) => {
+      await open('/item/c0000000-0000-4000-8000-000000000006');
+      await expect(page.getByRole('heading', { name: 'Blade Runner' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'I got it' })).toBeVisible();
+      await expectShot(page, 'item-detail-wishlist');
+    });
+
+    test('item detail owned', async ({ page, open }) => {
+      await open('/library');
+      await page.getByRole('link', { name: 'Open The Matrix' }).click();
+      await expect(page.getByRole('heading', { name: 'The Matrix' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Sold or gave it away' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+      await expectShot(page, 'item-detail-owned');
+    });
   });
 
   // The scanner's cards for a release on the wishlist, one you sold, one you own but cannot find, and an ordinary owned one.
@@ -66,7 +81,7 @@ test.describe('visual', () => {
     await expect(page.getByText('On your wishlist')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Got it: Metroid Prime' })).toBeVisible();
     await expect(page.getByText('You sold this')).toBeVisible();
-    await expect(page.getByText('Already own — Nintendo 64, Game room › Shelf 1 · marked missing')).toBeVisible();
+    await expect(page.getByText('Marked missing')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Found it: Pong' })).toBeVisible();
     // The cards slide in; the shot is of the settled strip.
     await page.waitForTimeout(600);

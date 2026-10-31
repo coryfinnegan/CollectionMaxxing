@@ -10,9 +10,9 @@ import { StyleSheet } from 'react-native-unistyles';
 import type { CandidateDto } from '@/api/generated/models';
 import { useOwnedLookup } from '@/features/offline/hooks';
 import { Button, Text } from '@/ui';
-import { alreadyOwnLine, formatName, MARKED_MISSING, type CardCopy } from './copy';
+import { alreadyOwnLine, formatName, MARKED_MISSING_NOTE, type CardCopy } from './copy';
 import type { CardActions } from './ResultCards';
-import { answerLineCap, staleLineCap } from './stripHeight';
+import { answerLineCap, noteLineCap, staleLineCap } from './stripHeight';
 
 export function OwnedCard({ candidate, copy, actions, scale }: { candidate: CandidateDto; copy: CardCopy; actions: CardActions; scale: number }) {
   const releaseId = candidate.release?.id ?? null;
@@ -20,10 +20,9 @@ export function OwnedCard({ candidate, copy, actions, scale }: { candidate: Cand
   const first = answer.owned[0];
   // Every copy is marked missing: it is yours, you just can't find it, so the way forward is Found it.
   const allMissing = !!first && answer.owned.every((c) => c.status === 'missing');
-  const base = first
+  const line = first
     ? alreadyOwnLine(first.platform ?? formatName(first.format), first.locationPath, answer.owned.length)
     : (copy.status ?? 'Already own');
-  const line = allMissing ? `${base}${MARKED_MISSING}` : base;
   const accepted = candidate.decision === 'accepted';
   const busy = !!actions.busy?.[candidate.id];
   const moved = actions.moved?.[candidate.id];
@@ -38,6 +37,11 @@ export function OwnedCard({ candidate, copy, actions, scale }: { candidate: Cand
       <Text variant="label" tone="accent" accessibilityLiveRegion="polite" numberOfLines={answerLineCap(scale)}>
         {line}
       </Text>
+      {allMissing ? (
+        <Text variant="caption" tone="muted" numberOfLines={noteLineCap(scale)}>
+          {MARKED_MISSING_NOTE}
+        </Text>
+      ) : null}
       {first && answer.staleMessage ? (
         <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}

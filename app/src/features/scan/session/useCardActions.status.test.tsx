@@ -174,7 +174,8 @@ describe('the missing card', () => {
     answerMissing();
     await renderWithProviders(<Harness cards={[pong()]} />);
 
-    expect(await screen.findByText('Already own — Atari 2600, Game room › Shelf 1 · marked missing')).toBeTruthy();
+    expect(await screen.findByText('Already own — Atari 2600, Game room › Shelf 1')).toBeTruthy();
+    expect(screen.getByText('Marked missing')).toBeTruthy();
     expect(screen.getByLabelText('Found it: Pong')).toBeTruthy();
     expect(screen.queryByLabelText('Add another copy of Pong')).toBeNull();
   });
@@ -209,6 +210,7 @@ describe('the missing card', () => {
     await renderWithProviders(<Harness cards={[pong()]} />);
 
     expect(await screen.findByText('Already own — Atari 2600, Game room › Shelf 1')).toBeTruthy();
+    expect(screen.queryByText('Marked missing')).toBeNull();
     expect(screen.getByLabelText('Add another copy of Pong')).toBeTruthy();
     expect(screen.queryByLabelText('Found it: Pong')).toBeNull();
   });
@@ -256,6 +258,7 @@ describe('the cards offline, from the phone\'s own copy', () => {
   it('says you own a missing one, marked missing', async () => {
     await renderWithProviders(<Harness cards={[FAILED('5051889000020')]} />);
 
-    expect(await screen.findByText('Already own — DVD, Garage · marked missing')).toBeTruthy();
+    expect(await screen.findByText('Already own — DVD, Garage')).toBeTruthy();
+    expect(screen.getByText('Marked missing')).toBeTruthy();
   });
 });

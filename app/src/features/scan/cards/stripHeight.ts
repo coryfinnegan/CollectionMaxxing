@@ -20,6 +20,8 @@ const COVER_HEIGHT = 66; // Cover 44 wide at the 2:3 cover ratio
 /** Ownership answer lines at single size; the matching caps scale with Dynamic Type. */
 const ANSWER_LABEL_LINES = 3;
 const STALE_LINES = 2;
+/** One note line under the answer: "Marked missing". */
+const NOTE_LINES = 1;
 /** Latin characters per card line at single size; wide characters count double. Conservative on purpose. */
 const UNITS_PER_LINE = 18;
 const LABEL_LH = typeScale.label.lineHeight as number;
@@ -43,6 +45,7 @@ function buttonHeight(label: string, scale: number, width: number = CARD_INNER_W
 /** Line caps matching the estimator ceilings, so a cap only binds past what the strip already fits. */
 export const answerLineCap = (scale: number): number => Math.ceil(ANSWER_LABEL_LINES * scale);
 export const staleLineCap = (scale: number): number => Math.ceil(STALE_LINES * scale);
+export const noteLineCap = (scale: number): number => Math.ceil(NOTE_LINES * scale);
 
 function estimateCardHeight(candidate: CandidateDto, actions: CardActions, scale: number): number {
   const copy: CardCopy = describeCandidate(candidate);
@@ -55,7 +58,7 @@ function estimateCardHeight(candidate: CandidateDto, actions: CardActions, scale
   const section = (h: number): void => {
     height += spacing.sm + h;
   };
-  const answerBlock = (): number => answerLineCap(scale) * labelLH + staleLineCap(scale) * captionLH;
+  const answerBlock = (): number => answerLineCap(scale) * labelLH + (staleLineCap(scale) + noteLineCap(scale)) * captionLH;
   const accepted = candidate.decision === 'accepted';
   if (copy.kind === 'owned') {
     section(answerBlock());
