@@ -6,7 +6,7 @@ namespace CollectionMaxxing.Application.Items;
 
 // Response shapes of the items endpoints (docs/04). Fields are the contract: change them deliberately.
 
-/// <summary>An item as it appears in a list: enough to draw a row or a card.</summary>
+/// <summary>An item as it appears in a list: enough to draw a row or a card. <c>LentTo</c> is who has it, for a lent item, else null.</summary>
 public sealed record ItemSummaryDto(
     Guid Id,
     Guid ReleaseId,
@@ -21,7 +21,8 @@ public sealed record ItemSummaryDto(
     Guid? LocationId,
     string? CoverUrl,
     DateTimeOffset CreatedAt,
-    bool EditionVerified);
+    bool EditionVerified,
+    string? LentTo = null);
 
 /// <summary>
 /// Your copy of a release. <c>CreatedBy</c> is who added it and <c>CreatedByName</c> is that person's display name (the "Added by" line);
@@ -60,10 +61,18 @@ public sealed record ItemDetailDto(ItemDto Item, WorkDto Work, ReleaseDto Releas
 /// <summary>What a bulk change did.</summary>
 public sealed record BulkItemsResultDto(int Affected);
 
-/// <summary>Counts for the library's stats screen.</summary>
+/// <summary>
+/// Counts for the library's stats screen. <c>Total</c> and every breakdown count the collection only (owned, lent and
+/// missing: what you have). The four counts after them say how many items sit beside it: on the wishlist, sold, lent out
+/// (already inside <c>Total</c>) and missing (also inside it).
+/// </summary>
 public sealed record StatsDto(
     int Total,
     IReadOnlyDictionary<string, int> ByKind,
     IReadOnlyDictionary<string, int> ByFormat,
     IReadOnlyDictionary<string, int> ByPlatform,
-    IReadOnlyDictionary<string, int> ByDecade);
+    IReadOnlyDictionary<string, int> ByDecade,
+    int WishlistCount,
+    int SoldCount,
+    int LentCount,
+    int MissingCount);

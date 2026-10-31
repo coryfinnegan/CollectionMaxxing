@@ -332,13 +332,142 @@ describe('Add item', () => {
   });
 });
 
+describe('the library is what you have', () => {
+  it('asks for no status, so the server answers with owned, lent and missing', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    expect(listRequests().length).toBeGreaterThan(0);
+    expect(listRequests().every((u) => !u.searchParams.has('status'))).toBe(true);
+  });
+
+  it('leaves the wishlisted and the sold out of the grid, and keeps the missing one in', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+    await fireEvent.press(screen.getByLabelText('Games'));
+
+    expect(await screen.findByText('Pong')).toBeTruthy();
+    expect(screen.queryByText('Hades')).toBeNull(); // wishlisted
+    expect(screen.queryByText('Tetris')).toBeNull(); // sold
+  });
+
+  it('badges a lent tile with who has it, and a missing tile as missing', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+    await fireEvent.press(screen.getByLabelText('Games'));
+
+    expect(await screen.findByText('Lent to Sam')).toBeTruthy();
+    expect(screen.getByLabelText('GoldenEye 007, Cartridge, Nintendo 64, lent to Sam')).toBeTruthy();
+    expect(screen.getByText('Missing')).toBeTruthy();
+    expect(screen.getByLabelText('Pong, Cartridge, Atari 2600, missing')).toBeTruthy();
+    // An ordinary tile carries no state badge.
+    expect(screen.getByLabelText('Super Mario 64, Cartridge, Nintendo 64')).toBeTruthy();
+  });
+});
+
+describe('Wishlist and Lent out, beside the library', () => {
+  it('shows a quiet pill for each, with its count, under the heading', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+
+    expect(await screen.findByText('Wishlist 2')).toBeTruthy();
+    expect(screen.getByText('Lent out 1')).toBeTruthy();
+    expect(screen.getByLabelText('Wishlist, 2 items')).toBeTruthy();
+    expect(screen.getByLabelText('Lent out, 1 item')).toBeTruthy();
+  });
+
+  it('opens the Wishlist screen from its pill, and the Lent out screen from its pill', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+
+    await fireEvent.press(await screen.findByLabelText('Wishlist, 2 items'));
+    expect(mockRouter.push).toHaveBeenLastCalledWith('/wishlist');
+
+    await fireEvent.press(screen.getByLabelText('Lent out, 1 item'));
+    expect(mockRouter.push).toHaveBeenLastCalledWith('/lent-out');
+  });
+
+  it('shows a pill only when its count is above zero', async () => {
+    itemsState.entries.filter((e) => e.item.status === 'wishlist').forEach((e) => (e.item.status = 'owned'));
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('Lent out 1');
+
+    expect(screen.queryByText(/^Wishlist \d/)).toBeNull();
+    expect(screen.queryByLabelText(/^Wishlist, /)).toBeNull();
+  });
+
+  it('shows no pills at all when there is nothing beside the library', async () => {
+    itemsState.entries.forEach((e) => {
+      if (e.item.status === 'wishlist') e.item.status = 'owned';
+      if (e.item.status === 'lent') {
+        e.item.status = 'owned';
+        e.item.lentTo = null;
+      }
+    });
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    expect(screen.queryByText(/^Lent out \d/)).toBeNull();
+    expect(screen.queryByText(/^Wishlist \d/)).toBeNull();
+  });
+
+  it('has no pills inside the Wishlist, Lent out or Sold views', async () => {
+    for (const [title, status, anItem] of [
+      ['Wishlist', 'wishlist', 'Blade Runner'],
+      ['Lent out', 'lent', 'GoldenEye 007'],
+      ['Sold', 'sold', 'Tetris'],
+    ] as const) {
+      const view = await renderWithProviders(<LibraryView title={title} fixedStatus={status} />);
+      expect(await screen.findByText(anItem)).toBeTruthy();
+      expect(screen.queryByText(/^Wishlist \d/)).toBeNull();
+      expect(screen.queryByText(/^Lent out \d/)).toBeNull();
+      await view.unmount();
+    }
+  });
+});
+
+describe('the Sold view', () => {
+  it('asks for sold items only, and is not counted as the library', async () => {
+    await renderWithProviders(<LibraryView title="Sold" fixedStatus="sold" />);
+
+    expect(await screen.findByText('Tetris')).toBeTruthy();
+    expect(screen.queryByText('The Matrix')).toBeNull();
+    expect(listRequests().every((u) => u.searchParams.get('status') === 'sold')).toBe(true);
+    // The header counts what is sold, not the library.
+    expect(screen.getByText('1 item')).toBeTruthy();
+  });
+
+  it('has its own empty state, in the owners words', async () => {
+    itemsState.entries = itemsState.entries.filter((e) => e.item.status !== 'sold');
+    await renderWithProviders(<LibraryView title="Sold" fixedStatus="sold" />);
+
+    expect(await screen.findByText('Nothing sold.')).toBeTruthy();
+    expect(screen.getByText('Items you sell or give away land here, out of your library.')).toBeTruthy();
+    expect(screen.queryByLabelText('Scan your first shelf')).toBeNull();
+  });
+
+  it('gives the empty Wishlist its own words too', async () => {
+    itemsState.entries = itemsState.entries.filter((e) => e.item.status !== 'wishlist');
+    await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" />);
+
+    expect(await screen.findByText('Nothing on your wishlist.')).toBeTruthy();
+    expect(screen.getByText('Scan something in a store and tap Wishlist, or add it from search.')).toBeTruthy();
+  });
+
+  it('searches its own list, named for what it holds', async () => {
+    await renderWithProviders(<LibraryView title="Sold" fixedStatus="sold" />);
+    await screen.findByText('Tetris');
+
+    expect(screen.getByPlaceholderText('Search what you sold')).toBeTruthy();
+  });
+});
+
 describe('Library heading', () => {
   it('names the library with its count in one plain heading', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
     expect(screen.getByRole('header', { name: 'Library' })).toBeTruthy();
-    expect(screen.getByText('35 items')).toBeTruthy();
+    // What you have: owned, lent and missing. The two wishlisted and the one sold item are not counted.
+    expect(screen.getByText('34 items')).toBeTruthy();
   });
 
   it('carries no themed chrome: no perch, no swatches, no shelves, no state dragons', async () => {

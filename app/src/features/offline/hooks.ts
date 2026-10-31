@@ -13,7 +13,7 @@ import {
 } from '@/api/generated/items/items';
 import { getCommitScanSessionMutationKey, getDecideCandidateMutationKey } from '@/api/generated/scanning/scanning';
 import { useGetOwnership } from '@/api/generated/ownership/ownership';
-import type { GetOwnershipParams } from '@/api/generated/models';
+import type { GetOwnershipParams, ItemStatus } from '@/api/generated/models';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { useLibraryStore } from '@/state/library';
 import { NOT_IN_LIBRARY, staleCopyMessage } from './copy';
@@ -58,7 +58,16 @@ const toServerKey = (query: OwnedQuery): GetOwnershipParams | null => {
   return null;
 };
 
-const fromServer = (c: { itemId: string; releaseId: string; workId: string; title: string; format: string; platform?: string | null; locationPath?: string | null }): OwnedCopy => ({
+const fromServer = (c: {
+  itemId: string;
+  releaseId: string;
+  workId: string;
+  title: string;
+  format: string;
+  platform?: string | null;
+  locationPath?: string | null;
+  status?: ItemStatus;
+}): OwnedCopy => ({
   itemId: c.itemId,
   releaseId: c.releaseId,
   workId: c.workId,
@@ -66,6 +75,7 @@ const fromServer = (c: { itemId: string; releaseId: string; workId: string; titl
   format: c.format,
   platform: c.platform ?? null,
   locationPath: c.locationPath ?? null,
+  status: c.status ?? 'owned',
 });
 
 /**
@@ -87,7 +97,7 @@ export function useOwnedLookup(query: OwnedQuery | null, now: () => number = Dat
   });
 
   const local = useMemo<OwnedLookup>(
-    () => (state && query ? state.index.lookup(query) : { owned: [], softMatches: [] }),
+    () => (state && query ? state.index.lookup(query) : { owned: [], softMatches: [], wishlistItemId: null, soldItemId: null }),
     [state, query],
   );
 
@@ -95,7 +105,17 @@ export function useOwnedLookup(query: OwnedQuery | null, now: () => number = Dat
   if (answer) {
     const owned = answer.copies.map(fromServer);
     const softMatches = answer.sameWorkOtherFormat.map(fromServer);
-    return { owned, softMatches, source: 'server', notInLibrary: owned.length === 0, notInLibraryText: NOT_IN_LIBRARY, staleMessage: null, syncedAt: state?.syncedAt ?? null };
+    return {
+      owned,
+      softMatches,
+      wishlistItemId: answer.wishlistItemId ?? null,
+      soldItemId: answer.soldItemId ?? null,
+      source: 'server',
+      notInLibrary: owned.length === 0,
+      notInLibraryText: NOT_IN_LIBRARY,
+      staleMessage: null,
+      syncedAt: state?.syncedAt ?? null,
+    };
   }
 
   const waiting = online && !!params && (server.isPending || server.isFetching) && !server.isError;

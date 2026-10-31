@@ -32,6 +32,62 @@ test.describe('visual', () => {
     await expectShot(page, 'library-grid');
   });
 
+  // The library on a phone: the Wishlist and Lent out pills under the heading (the wide layout has them in its sidebar).
+  test.describe('on a phone', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('library phone', async ({ page, open }) => {
+      await open('/library');
+      await expect(page.getByRole('button', { name: 'Wishlist, 2 items' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Lent out, 1 item' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'The Matrix, DVD' })).toBeVisible();
+      await expectShot(page, 'library-phone');
+    });
+  });
+
+  // What you sold, kept out of the library: the same view with a fixed status and its own empty words.
+  test('sold', async ({ page, open }) => {
+    await open('/sold');
+    await expect(page.getByRole('heading', { name: 'Sold' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open Tetris' })).toBeVisible();
+    await expectShot(page, 'sold');
+  });
+
+  // The item's actions sit below the facts, so these two shoot a taller window to show them: the move that fits where the item is
+  // (I got it on the wishlist; Lend…, Mark as missing and Sold or gave it away on an owned item), then Edit, Move and Delete.
+  test.describe('item actions', () => {
+    test.use({ viewport: { width: 1280, height: 1000 } });
+
+    test('item detail wishlist', async ({ page, open }) => {
+      await open('/item/c0000000-0000-4000-8000-000000000006');
+      await expect(page.getByRole('heading', { name: 'Blade Runner' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'I got it' })).toBeVisible();
+      await expectShot(page, 'item-detail-wishlist');
+    });
+
+    test('item detail owned', async ({ page, open }) => {
+      await open('/library');
+      await page.getByRole('link', { name: 'Open The Matrix' }).click();
+      await expect(page.getByRole('heading', { name: 'The Matrix' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Sold or gave it away' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+      await expectShot(page, 'item-detail-owned');
+    });
+  });
+
+  // The scanner's cards for a release on the wishlist, one you sold, one you own but cannot find, and an ordinary owned one.
+  test('scan cards', async ({ page, open }) => {
+    await open('/scan-cards');
+    await expect(page.getByText('On your wishlist')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Got it: Metroid Prime' })).toBeVisible();
+    await expect(page.getByText('You sold this')).toBeVisible();
+    await expect(page.getByText('Marked missing')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Found it: Pong' })).toBeVisible();
+    // The cards slide in; the shot is of the settled strip.
+    await page.waitForTimeout(600);
+    await expectShot(page, 'scan-cards');
+  });
+
   test('item detail', async ({ page, open }) => {
     await open('/library');
     await page.getByRole('link', { name: 'Open The Matrix' }).click();

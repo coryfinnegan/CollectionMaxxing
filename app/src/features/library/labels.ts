@@ -7,6 +7,7 @@ import type {
   ReleaseFormat,
   WorkKind,
 } from '@/api/generated/models';
+import { BESIDE_COLLECTION, IN_COLLECTION } from './statuses';
 
 /** The platform's name, whichever shape the release arrived in (a full release object or review's flat wire name). */
 export function platformNameOf(r: ReleaseDto): string | null {
@@ -72,6 +73,7 @@ export const completenessLabels: Record<Present<ItemCompleteness>, string> = {
 
 export const kinds = Object.keys(kindLabels) as WorkKind[];
 export const formats = Object.keys(formatLabels) as ReleaseFormat[];
-export const statuses = Object.keys(statusLabels) as ItemStatus[];
+/** Every status, the library's three first and wishlist and sold after them (see statuses.ts). */
+export const statuses: ItemStatus[] = [...IN_COLLECTION, ...BESIDE_COLLECTION];
 export const conditions = Object.keys(conditionLabels) as Present<ItemCondition>[];
 export const completenesses = Object.keys(completenessLabels) as Present<ItemCompleteness>[];

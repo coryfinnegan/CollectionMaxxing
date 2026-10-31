@@ -313,9 +313,9 @@ describe('strip height', () => {
   });
 
   it('fits an owned card with its answer and three actions', () => {
-    // 8 pad + 66 header + 8 + 88 answer ceilings (3 label lines, 2 caption)
+    // 8 pad + 66 header + 8 + 105 answer ceilings (3 label lines, 2 caption, 1 caption note: "Marked missing")
     // + 8 + 140 buttons + 8 + 2 border. The old fixed 300 cut the buttons off (#373).
-    expect(estimateStripHeight([jawsDvd], triState(), 1)).toBe(328);
+    expect(estimateStripHeight([jawsDvd], triState(), 1)).toBe(345);
   });
 
   it('fits a close call with two picks, the longer button wrapping', () => {
@@ -338,7 +338,7 @@ describe('strip height', () => {
     const double = estimateStripHeight([jawsDvd], triState(), 2);
 
     expect(double).toBeGreaterThan(single);
-    expect(double).toBe(656);
+    expect(double).toBe(724);
     expect(estimateStripHeight([jawsDvd], triState(), 9)).toBe(estimateStripHeight([jawsDvd], triState(), 3));
     expect(estimateStripHeight([jawsDvd], triState(), 0.5)).toBe(single);
   });

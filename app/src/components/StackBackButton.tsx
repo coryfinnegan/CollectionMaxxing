@@ -6,16 +6,20 @@
 // the page. The scanner stays out: its own Close owns that flow (an empty slot
 // keeps the header title centered there).
 import { type Href, usePathname, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { goBackOr } from '@/lib/navigation';
-import { useColors } from '@/theme/tokens';
+import { useColors, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { usePressFeedback } from '@/ui';
 
-/** Where a fresh load of a pushed screen lands: the hub that links to it. */
-function parentHub(pathname: string): Href {
+/**
+ * Where a fresh load of a pushed screen lands: the hub that links to it. `hasMe` is false on the wide web, which has no Me (its sidebar
+ * lists the Me pages directly), so the screens Me links to land on the library there.
+ */
+function parentHub(pathname: string, hasMe: boolean): Href {
   if (pathname === '/evals') return '/settings';
+  if (pathname === '/sold') return hasMe ? '/me' : '/library';
   if (pathname === '/settings' || pathname === '/members' || pathname === '/about' || pathname.startsWith('/me/')) return '/me';
   return '/library';
 }
@@ -34,8 +38,10 @@ export function StackBackButton() {
   const pathname = usePathname();
   const colors = useColors();
   const press = usePressFeedback('none');
+  const { width } = useWindowDimensions();
+  const hasMe = !(Platform.OS === 'web' && width >= WIDE_BREAKPOINT);
   if (pathname === '/scanner') return <View style={styles.slot} />;
-  const goBack = () => goBackOr(router, parentHub(pathname));
+  const goBack = () => goBackOr(router, parentHub(pathname, hasMe));
   return (
     <Animated.View style={press.style}>
       <Pressable

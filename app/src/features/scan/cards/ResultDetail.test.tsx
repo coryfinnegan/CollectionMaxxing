@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
+import { resetOwnershipMock, upsertOwned } from '@/mocks/ownership';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -10,6 +11,7 @@ import { setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
 import { ResultDetail } from './ResultDetail';
 import { useCardsStore } from './cardsStore';
+import { useMovedStore } from './movedStore';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
 
@@ -30,6 +32,7 @@ const seedSession = async (code: string) => {
 beforeEach(() => {
   scanMock.reset();
   useCardsStore.getState().reset();
+  useMovedStore.getState().reset();
 });
 afterEach(() => setTrayStore(undefined));
 
@@ -73,6 +76,93 @@ describe('result detail', () => {
 
     expect(await screen.findByText('Not in your library')).toBeTruthy();
     expect(screen.queryByLabelText('Add to library')).toBeNull();
+  });
+
+  it('says a release on the wishlist is on the wishlist, offers Got it, and does not offer to add it', async () => {
+    const candidate = await seedSession(DEV_CODES.wishlisted);
+    expect(candidate.wishlistItemId).toBeTruthy();
+    useCardsStore.getState().merge([candidate], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('On your wishlist')).toBeTruthy();
+    expect(screen.getByLabelText('Got it: Metroid Prime')).toBeTruthy();
+    expect(screen.queryByText(/You own this/)).toBeNull();
+    expect(screen.queryByLabelText('Add to library')).toBeNull();
+    expect(screen.queryByLabelText('Wishlist')).toBeNull();
+  });
+
+  it('shows a wishlist card as in your library once Got it was tapped anywhere, with an Undo and no second Got it', async () => {
+    const candidate = await seedSession(DEV_CODES.wishlisted);
+    useCardsStore.getState().merge([candidate], { announce: false });
+    useMovedStore.getState().set(candidate.id, {
+      itemId: candidate.wishlistItemId!,
+      message: 'In your library',
+      to: 'owned',
+      restore: { status: 'wishlist', acquiredOn: null },
+    });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('In your library')).toBeTruthy();
+    expect(screen.getByLabelText('Undo: Metroid Prime')).toBeTruthy();
+    expect(screen.queryByLabelText('Got it: Metroid Prime')).toBeNull();
+    expect(screen.queryByText('On your wishlist')).toBeNull();
+  });
+
+  it('says in your library, with no Got it, when the release is already owned by the time the card is opened', async () => {
+    const candidate = await seedSession(DEV_CODES.wishlisted);
+    useCardsStore.getState().merge([candidate], { announce: false });
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership', () =>
+        HttpResponse.json({
+          owned: true,
+          count: 1,
+          sameWorkOtherFormat: [],
+          copies: [
+            { itemId: candidate.wishlistItemId, releaseId: candidate.release!.id, workId: candidate.release!.workId, title: 'Metroid Prime', format: 'game_disc', platform: 'GameCube', status: 'owned', locationId: null, locationPath: null },
+          ],
+          wishlistItemId: null,
+          soldItemId: null,
+        }),
+      ),
+    );
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('In your library')).toBeTruthy();
+    expect(screen.queryByLabelText('Got it: Metroid Prime')).toBeNull();
+    expect(screen.queryByText('On your wishlist')).toBeNull();
+  });
+
+  it('adds a muted "You sold this" to a release you sold, and keeps the add buttons', async () => {
+    const candidate = await seedSession(DEV_CODES.sold);
+    expect(candidate.soldItemId).toBeTruthy();
+    useCardsStore.getState().merge([{ ...candidate, decision: 'undecided' }], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('Not in your library')).toBeTruthy();
+    expect(screen.getByText('You sold this')).toBeTruthy();
+    expect(screen.getByLabelText('Add to library')).toBeTruthy();
+  });
+
+  it('says a missing copy is marked missing, and offers Found it', async () => {
+    resetOwnershipMock();
+    upsertOwned({
+      itemId: 'd0000000-0000-4000-8000-000000000008',
+      deleted: false,
+      releaseId: 'c1000000-0000-4000-8000-000000000008',
+      workId: 'c2000000-0000-4000-8000-000000000008',
+      title: 'Pong',
+      format: 'game_cartridge',
+      platform: 'Atari 2600',
+      identifiers: [],
+      locationPath: 'Game room › Shelf 1',
+      status: 'missing',
+    });
+    const candidate = await seedSession(DEV_CODES.missing);
+    useCardsStore.getState().merge([candidate], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('You own this: Game room › Shelf 1 · marked missing')).toBeTruthy();
+    expect(screen.getByLabelText('Found it: Pong')).toBeTruthy();
   });
 
   it('finds the card from the session when the app restarted since the scan', async () => {

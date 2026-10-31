@@ -90,7 +90,8 @@ public static class ResolveProvisional
                 candidate.Resolution = CandidateResolution.Matched;
                 candidate.GuidanceCode = null; // linked: a resolved row carries no guidance
                 candidate.AlreadyOwnedCount = owned.Count;
-                candidate.TraceJson = CandidateJson.Serialize(trace with { OwnedAt = CandidateResolver.OwnedAt(owned) });
+                candidate.TraceJson = CandidateJson.Serialize(
+                    trace with { OwnedAt = CandidateResolver.OwnedAt(owned), WishlistItemId = owned.WishlistItemId, SoldItemId = owned.SoldItemId });
             }
 
             await db.SaveChangesAsync(cancellationToken);

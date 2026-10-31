@@ -1,11 +1,18 @@
-import { screen } from '@testing-library/react-native';
+import { fireEvent, screen } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { mockMe } from '@/mocks/data';
+import { resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { MeScreen } from './MeScreen';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
+
+beforeEach(() => {
+  mockPush.mockClear();
+  resetItems();
+});
 
 const asRole = (role: 'owner' | 'editor' | 'viewer') =>
   server.use(
@@ -13,6 +20,39 @@ const asRole = (role: 'owner' | 'editor' | 'viewer') =>
       HttpResponse.json({ ...mockMe(), memberships: [{ libraryId: mockMe().memberships[0]!.libraryId, role }] }),
     ),
   );
+
+describe('MeScreen Sold row', () => {
+  it('keeps what you sold out of the way: a Sold row with its count, beside Recently deleted', async () => {
+    await renderWithProviders(<MeScreen />);
+
+    expect(await screen.findByText('Sold')).toBeTruthy();
+    expect(await screen.findByLabelText('Sold, 1 item')).toBeTruthy();
+    expect(screen.getByText('Recently deleted')).toBeTruthy();
+  });
+
+  it('does not count what you sold as part of the library on the Me card', async () => {
+    await renderWithProviders(<MeScreen />);
+
+    // The library has 34 items (owned, lent and missing). The sold one is counted on its own row.
+    expect(await screen.findByText(/34 items/)).toBeTruthy();
+  });
+
+  it('opens the Sold page from its row', async () => {
+    await renderWithProviders(<MeScreen />);
+
+    await fireEvent.press(await screen.findByLabelText('Sold, 1 item'));
+
+    expect(mockPush).toHaveBeenCalledWith('/sold');
+  });
+
+  it('shows the Sold row to a viewer too, who can look at what was sold but not change it', async () => {
+    asRole('viewer');
+    await renderWithProviders(<MeScreen />);
+
+    expect(await screen.findByLabelText('Sold, 1 item')).toBeTruthy();
+    expect(screen.queryByText('Recently deleted')).toBeNull();
+  });
+});
 
 describe('MeScreen Members row', () => {
   it('tells an owner they can invite people and manage roles', async () => {

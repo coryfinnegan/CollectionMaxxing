@@ -231,7 +231,7 @@ public abstract class ScanTest(ApiFixture api) : ApiTest(api)
     /// <summary>A release the library owns one copy of, found by <paramref name="code"/> (a UPC-A or EAN-13).</summary>
     protected async Task<(Guid ReleaseId, Guid ItemId)> OwnAsync(
         TestLibrary library, string title, string? code, ReleaseFormat format = ReleaseFormat.GameCartridge, WorkKind kind = WorkKind.Game,
-        int? year = 1996, Guid? platformId = null, Guid? locationId = null)
+        int? year = 1996, Guid? platformId = null, Guid? locationId = null, ItemStatus status = ItemStatus.Owned)
     {
         Identifier? id = null;
         if (code is not null)
@@ -241,9 +241,13 @@ public abstract class ScanTest(ApiFixture api) : ApiTest(api)
 
         var (_, releaseId) = await CatalogSeed.AddAsync(
             Db, title, kind, year, platformId, barcode: id?.Value, barcodeType: id?.Type ?? IdentifierType.Gtin13, format: format);
-        var itemId = await TestData.CreateItemAsync(Db, library, releaseId, locationId);
+        var itemId = await TestData.CreateItemAsync(Db, library, releaseId, locationId, status: status);
         return (releaseId, itemId);
     }
+
+    /// <summary>Adds another copy of a release the library already has, in the given status; later calls are later copies.</summary>
+    protected async Task<Guid> AddCopyAsync(TestLibrary library, Guid releaseId, ItemStatus status, int addedMinutes = 0) =>
+        await TestData.CreateItemAsync(Db, library, releaseId, status: status, addedAfter: TimeSpan.FromMinutes(addedMinutes));
 
     /// <summary>Adds a release to the catalogue without any owner, found by <paramref name="code"/>.</summary>
     protected async Task<Guid> CatalogAsync(

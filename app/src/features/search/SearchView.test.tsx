@@ -417,6 +417,7 @@ describe('offline answers', () => {
     format: 'dvd',
     platform: null,
     locationPath: 'Living room › Shelf B',
+    status: 'owned',
     ...overrides,
   });
 

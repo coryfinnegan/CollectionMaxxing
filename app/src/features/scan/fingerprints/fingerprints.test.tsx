@@ -4,6 +4,9 @@ import { render, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { clearLocalData } from '@/features/me/localData';
+import { getOwnedCache, MemoryOwnedStorage, setOwnedStorage } from '@/features/offline/ownedCache';
+import { createOwnedIndex } from '@/features/offline/ownedIndex';
+import { entry } from '@/features/offline/testData';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
 import { identifyMock } from '@/mocks/identify';
 import { scanMock } from '@/mocks/scan';
@@ -437,6 +440,33 @@ describe('the bridge', () => {
     await waitFor(() => expect(store.unsynced()).toEqual([]));
     expect(pcs.puts).toHaveLength(1);
     view.unmount();
+  });
+
+  it('prunes the print of an item that is sold or on the wishlist, and keeps the ones you have (owned, lent, missing)', async () => {
+    setOwnedStorage(new MemoryOwnedStorage());
+    useLibraryStore.setState({ activeLibraryId: MOCK_LIBRARY_ID });
+    server.use(http.get('*/api/v1/me', () => HttpResponse.json({ id: 'user-1', memberships: [{ libraryId: MOCK_LIBRARY_ID, role: 'viewer' }] })));
+    new FakePrintsServer().use();
+    const store = freshStore(LIB, 'user-1');
+    const created = '2026-10-01T00:00:00.000Z';
+    const statuses = ['owned', 'lent', 'missing', 'sold', 'wishlist'] as const;
+    statuses.forEach((_, i) => store.put(printRow(i + 1, { synced: true, createdAt: created })));
+    // The owned copy has every item, each with its status: the snapshot carries the wishlist and sold items now.
+    getOwnedCache(LIB).commit({
+      index: createOwnedIndex(statuses.map((status, i) => entry({ itemId: printRow(i + 1).itemId, status }))),
+      cursor: 'c',
+      syncedAt: Date.parse('2026-10-02T00:00:00.000Z'),
+    });
+    const view = await render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <FingerprintBridge vision={noVision} cover={noCover} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(store.size).toBe(3));
+    expect(store.all().map((r) => r.itemId).sort()).toEqual([1, 2, 3].map((n) => printRow(n).itemId));
+    view.unmount();
+    setOwnedStorage(undefined);
   });
 
   it('for a viewer restores but never calls PUT', async () => {

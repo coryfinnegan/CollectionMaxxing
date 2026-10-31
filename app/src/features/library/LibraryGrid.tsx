@@ -1,10 +1,10 @@
 // The library as a grid of covers with search, filter chips, sort, pull to refresh and infinite scroll.
-// Wishlist and Lent out are the same view with a fixed status.
+// The library is what you have (owned, lent, missing). Wishlist, Lent out and Sold are the same view with a fixed status.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlatList, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -17,6 +17,7 @@ import { flattenTree } from '@/features/locations/tree';
 import { useMyRole } from '@/features/me/useMyRole';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
+import { WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
@@ -25,10 +26,11 @@ import { formatLabels, formats, kindLabels, kinds } from './labels';
 import { NeedsAttention, useProvisionals } from './NeedsAttention';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
 import { useDebounced, useItems } from './useItems';
+import { emptyCopy, itemsLabel, type LibraryViewName, viewCount, viewOf } from './views';
 
 export type LibraryGridProps = {
   title: string;
-  /** Set for the Wishlist and Lent out views. */
+  /** Set for the Wishlist, Lent out and Sold views. */
   fixedStatus?: ItemStatus;
   /** Hides the content title: pushed pages on the phone already name themselves in the stack header (#303). */
   hideTitle?: boolean;
@@ -36,15 +38,21 @@ export type LibraryGridProps = {
 
 type Panel = 'format' | 'platform' | 'location' | 'sort' | 'add' | null;
 
-/** The search box names the count, and reads naturally at any count ("Search your 1 item"). */
-export const searchPlaceholder = (total: number | undefined) =>
-  total === undefined ? 'Search your library' : total === 1 ? 'Search your 1 item' : `Search your ${total} items`;
-
-const emptyCopy: Record<string, { title: string; body: string }> = {
-  library: { title: 'Nothing here yet.', body: 'Point your camera at a shelf or a stack of cases.' },
-  wishlist: { title: 'Your wishlist is empty.', body: 'Add something you want to own and it shows up here.' },
-  lent: { title: 'Nothing is lent out.', body: 'Lend an item from its page and it shows up here.' },
+const besideSearch: Record<Exclude<LibraryViewName, 'library'>, string> = {
+  wishlist: 'Search your wishlist',
+  lent: 'Search what you lent out',
+  sold: 'Search what you sold',
 };
+
+/** The search box names the count, and reads naturally at any count ("Search your 1 item"). The other views name what they hold. */
+export const searchPlaceholder = (total: number | undefined, view: LibraryViewName = 'library') =>
+  view !== 'library'
+    ? besideSearch[view]
+    : total === undefined
+      ? 'Search your library'
+      : total === 1
+        ? 'Search your 1 item'
+        : `Search your ${total} items`;
 
 export function LibraryGrid({ title, fixedStatus, hideTitle }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
@@ -109,7 +117,11 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
   const { filters } = state;
   const filter = (patch: Partial<typeof filters>) => setState((current) => changeFilter(current, patch));
   const locationName = locations.find((l) => l.id === filters.locationId)?.name;
-  const view = fixedStatus === 'wishlist' ? 'wishlist' : fixedStatus === 'lent' ? 'lent' : 'library';
+  const view = viewOf(fixedStatus);
+  // The Library counts what you have; Wishlist, Lent out and Sold count their own.
+  const shown = viewCount(counts, view);
+  // The wide web layout has a sidebar for Wishlist and Lent out; everywhere else they are two quiet pills under the heading.
+  const hasSidebar = Platform.OS === 'web' && windowWidth >= WIDE_BREAKPOINT;
 
   const closeAnd = (patch: Partial<typeof filters>) => {
     filter(patch);
@@ -118,9 +130,10 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
 
   const header = (
     <View style={styles.header}>
-      {hideTitle ? null : (
-        <LibraryHeading title={title} subtitle={counts?.total === undefined ? undefined : `${counts.total} ${counts.total === 1 ? 'item' : 'items'}`} />
-      )}
+      {hideTitle ? null : <LibraryHeading title={title} subtitle={shown === undefined ? undefined : itemsLabel(shown)} />}
+      {view === 'library' && !hasSidebar ? (
+        <BesideLibrary wishlist={counts?.wishlistCount ?? 0} lent={counts?.lentCount ?? 0} onOpen={(href) => router.push(href)} />
+      ) : null}
       {canEdit ? (
         <View style={styles.headerRow}>
           <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
@@ -133,7 +146,7 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
         label="Search"
         value={search}
         onChangeText={setSearch}
-        placeholder={searchPlaceholder(counts?.total)}
+        placeholder={searchPlaceholder(counts?.total, view)}
         returnKeyType="search"
         autoCapitalize="none"
         autoCorrect={false}
@@ -338,8 +351,33 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
   );
 }
 
+/**
+ * Two quiet pills under the Library heading: the places that live beside the library. Each shows only when it has something,
+ * and opens its own screen. Not tabs and not a mode: the Library stays what you have.
+ */
+function BesideLibrary({ wishlist, lent, onOpen }: { wishlist: number; lent: number; onOpen: (href: '/wishlist' | '/lent-out') => void }) {
+  if (wishlist <= 0 && lent <= 0) return null;
+  return (
+    <View style={styles.pills}>
+      {wishlist > 0 ? (
+        <Chip label={`Wishlist ${wishlist}`} accessibilityLabel={`Wishlist, ${itemsLabel(wishlist)}`} onPress={() => onOpen('/wishlist')} />
+      ) : null}
+      {lent > 0 ? <Chip label={`Lent out ${lent}`} accessibilityLabel={`Lent out, ${itemsLabel(lent)}`} onPress={() => onOpen('/lent-out')} /> : null}
+    </View>
+  );
+}
+
+/** The small badge on a tile that is yours but not on the shelf: who has it, or that it is missing. */
+function stateBadge(item: ItemSummaryDto): string | null {
+  if (item.status === 'lent') return item.lentTo ? `Lent to ${item.lentTo}` : 'Lent out';
+  if (item.status === 'missing') return 'Missing';
+  return null;
+}
+
 function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width: number; index: number; onPress: () => void }) {
   const details = [formatLabels[item.format], item.platform].filter(Boolean).join(', ');
+  const badge = stateBadge(item);
+  const spoken = badge ? `${details}, ${badge.charAt(0).toLowerCase()}${badge.slice(1)}` : details;
   const reduceMotion = useReduceMotion();
   return (
     <Animated.View
@@ -349,7 +387,7 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={item.editionVerified ? `${item.title}, ${details}` : `${item.title}, ${details}, edition unverified`}
+        accessibilityLabel={item.editionVerified ? `${item.title}, ${spoken}` : `${item.title}, ${spoken}, edition unverified`}
         onPress={onPress}
         testID={`item-${item.id}`}
         style={styles.tilePressable}
@@ -360,6 +398,7 @@ function ItemTile({ item, width, index, onPress }: { item: ItemSummaryDto; width
         </Text>
         <View style={styles.badges}>
           <FormatBadge label={formatLabels[item.format]} />
+          {badge ? <FormatBadge label={badge} /> : null}
           {item.editionVerified ? null : <FormatBadge label="Edition unverified" />}
         </View>
       </Pressable>
@@ -372,6 +411,7 @@ const styles = StyleSheet.create((theme) => ({
   column: { gap: theme.spacing.md },
   header: { gap: theme.spacing.md, paddingBottom: theme.spacing.md },
   titleBlock: { gap: theme.spacing.xs },
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: theme.spacing.md },
   chipRow: { gap: theme.spacing.sm },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },

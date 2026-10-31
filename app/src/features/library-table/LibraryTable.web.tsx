@@ -4,7 +4,7 @@
 import '@/theme/unistyles';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { bulkItems, getStats } from '@/api/generated/items/items';
@@ -15,6 +15,7 @@ import { useInvalidateLibrary } from '@/features/item/useItem';
 import { AddItemPanel } from '@/features/library/AddItemPanel';
 import { formatLabels, formats, kindLabels, kinds, statusLabels, statuses } from '@/features/library/labels';
 import { changeFilter, defaultState, hasActiveFilter, type ListState } from '@/features/library/query';
+import { emptyCopy, viewOf } from '@/features/library/views';
 import { useDebounced, useItems } from '@/features/library/useItems';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
@@ -29,6 +30,7 @@ import { ColumnChooser } from './ColumnChooser.web';
 import { columnDefs, type ColumnId, loadColumns, saveColumns, sortArrow, sortForColumn } from './columns';
 import { onGridKeyDown } from './gridKeys.web';
 import { InlineCell } from './InlineCell.web';
+import { MovedToast, type TableMove } from './MovedToast.web';
 import { clearSelection, clickRow, emptySelection, selectedInOrder, type Selection, togglePage } from './selection';
 import { SelectionBar } from './SelectionBar.web';
 
@@ -76,6 +78,9 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
   const [columns, setColumns] = useState<ColumnId[]>(loadColumns);
   const [selection, setSelection] = useState<Selection>(emptySelection());
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  /** The last status change that took a row out of the library (to the wishlist or Sold), so the toast can say so and offer Undo. */
+  const [moved, setMoved] = useState<TableMove | null>(null);
+  const clearMoved = useCallback(() => setMoved(null), []);
   const [busy, setBusy] = useState(false);
   /** "Needs attention" (#345): kept rows instead of the table. Only the library view has it, not Wishlist or Lent out. */
   const [attention, setAttention] = useState(false);
@@ -190,6 +195,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
             current={statusLabels[item.status]}
             options={statusOptions}
             onNotice={(text) => setNotice(text ? { ok: false, text } : null)}
+            onMoved={setMoved}
           />
         );
       case 'added':
@@ -217,6 +223,8 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
       }}
       animation="no-results"
     />
+  ) : fixedStatus ? (
+    <EmptyState title={emptyCopy[viewOf(fixedStatus)].title} body={emptyCopy[viewOf(fixedStatus)].body} animation="empty-library" />
   ) : (
     <EmptyState
       title="Nothing here yet."
@@ -446,6 +454,14 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         )}
       </ScrollView>
       <View style={styles.snackbarPad}>
+        {moved ? (
+          <MovedToast
+            libraryId={libraryId}
+            moved={moved}
+            onClear={clearMoved}
+            onNotice={(text) => setNotice({ ok: false, text })}
+          />
+        ) : null}
         <UndoSnackbar />
       </View>
     </View>

@@ -1,5 +1,7 @@
 // Mock Items endpoints. They behave like the real API: ETag on GET, If-Match required on PATCH and DELETE
 // (412 on mismatch, 428 when missing), Idempotency-Key on create, cursor pagination, soft delete with restore.
+// The list follows the server's rule: with no status it is only what you have (owned, lent, missing); a status
+// asks for exactly that status, so the Wishlist, Sold and Lent out views see their own items.
 import { HttpResponse, http } from 'msw';
 import type {
   CreateItemRequest,
@@ -87,14 +89,26 @@ const makeEntry = (n: number, minutesAfterStart: number, [title, kind, format, p
   return { item, work, release, version: 1 };
 };
 
+/** After the filler, so the ids above keep their numbers: one item you can't find, and one you let go. */
+const beside: Row[] = [
+  ['Pong', 'game', 'game_cartridge', 'Atari 2600', 1972, 'missing', null],
+  ['Tetris', 'game', 'game_cartridge', 'Game Boy', 1989, 'sold', null],
+];
+
+const FILLER = 28;
+
 /** Fresh seed: the hand-written rows plus enough owned filler to need a second page. */
 export const seed = (): MockItem[] => {
   const base = rows.map((row, i) => makeEntry(i + 1, rows.length - i, row));
-  const filler = Array.from({ length: 28 }, (_, i) =>
+  const filler = Array.from({ length: FILLER }, (_, i) =>
     makeEntry(rows.length + i + 1, -(i + 1), [`Shelf filler ${String(i + 1).padStart(2, '0')}`, 'book', 'paperback', null, 1990 + i, 'owned', GAME_ROOM]),
   );
-  return [...base, ...filler];
+  const extra = beside.map((row, i) => makeEntry(rows.length + FILLER + i + 1, -(FILLER + i + 1), row));
+  return [...base, ...filler, ...extra];
 };
+
+/** The server's ItemStatuses.InCollection: what the list shows when it is asked for no status. */
+const IN_THE_LIBRARY: readonly ItemStatus[] = ['owned', 'lent', 'missing'];
 
 export const itemsState: { entries: MockItem[]; replays: Map<string, { body: string; response: ItemDto }> } = {
   entries: seed(),
@@ -137,6 +151,7 @@ const summary = ({ item, work, release }: MockItem): ItemSummaryDto => ({
   coverUrl: release.coverUrl,
   createdAt: item.createdAt,
   editionVerified: item.editionVerified,
+  lentTo: item.status === 'lent' ? item.lentTo : null,
 });
 
 const detail = (entry: MockItem): ItemDetailDto => ({
@@ -174,7 +189,7 @@ export const handlers = [
     if (q('kind')) list = list.filter((i) => i.kind === q('kind'));
     if (q('format')) list = list.filter((i) => i.format === q('format'));
     if (q('platform')) list = list.filter((i) => i.platform?.toLowerCase() === q('platform')?.toLowerCase());
-    if (q('status')) list = list.filter((i) => i.status === q('status'));
+    list = q('status') ? list.filter((i) => i.status === q('status')) : list.filter((i) => IN_THE_LIBRARY.includes(i.status));
     if (q('locationId')) list = list.filter((i) => i.locationId === q('locationId'));
     if (q('editionVerified') !== undefined) list = list.filter((i) => i.editionVerified === (q('editionVerified') === 'true'));
     list.sort(sorters[q('sort') ?? '-addedAt'] ?? sorters['-addedAt']);

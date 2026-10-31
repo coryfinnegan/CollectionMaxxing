@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Scanning.Learning;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Items;
@@ -9,13 +10,14 @@ namespace CollectionMaxxing.Application.Ownership;
 
 /// <summary>
 /// The one definition of "do I own this?", shared by the ownership endpoint and the scanner. A copy counts when it isn't
-/// deleted and its status is Owned or Lent. Only the given library's items are ever read, and releases made by other
+/// deleted and its status is in the collection (<see cref="ItemStatuses.InCollection"/>: owned, lent or missing; a missing
+/// copy is still yours). A wishlisted or sold copy never counts as owned, but the answer names it
+/// (<see cref="OwnershipDto.WishlistItemId"/>, <see cref="OwnershipDto.SoldItemId"/>) so the scanner can say "on your wishlist"
+/// or "you sold this". Only the given library's items are ever read, and releases made by other
 /// libraries are invisible, so nothing leaks across libraries.
 /// </summary>
 public sealed class OwnershipQuery(IAppDbContext db)
 {
-    public static readonly ItemStatus[] OwnedStatuses = [ItemStatus.Owned, ItemStatus.Lent];
-
     public static readonly OwnershipDto None = new(false, 0, [], []);
 
     /// <summary>
@@ -51,10 +53,7 @@ public sealed class OwnershipQuery(IAppDbContext db)
         var askedIds = asked.Select(a => a.Id).ToHashSet();
 
         var rows = await CopiesOfWorksAsync(libraryId, workIds, cancellationToken);
-        var exact = rows.Where(r => askedIds.Contains(r.Copy.ReleaseId)).Select(r => r.Copy).ToList();
-        var soft = rows.Where(r => !askedIds.Contains(r.Copy.ReleaseId) && !shapes.Contains((r.Copy.Format, r.PlatformId)))
-            .Select(r => r.Copy).ToList();
-        return new OwnershipDto(exact.Count > 0, exact.Count, exact, soft);
+        return Answer(rows, askedIds, shapes);
     }
 
     /// <summary>
@@ -85,11 +84,7 @@ public sealed class OwnershipQuery(IAppDbContext db)
         var rowsOfWork = rows.ToLookup(r => r.Copy.WorkId);
         foreach (var release in asked)
         {
-            var ofWork = rowsOfWork[release.WorkId].ToList();
-            var exact = ofWork.Where(r => r.Copy.ReleaseId == release.Id).Select(r => r.Copy).ToList();
-            var soft = ofWork.Where(r => r.Copy.ReleaseId != release.Id && (r.Copy.Format, r.PlatformId) != (release.Format, release.PlatformId))
-                .Select(r => r.Copy).ToList();
-            answers[release.Id] = new OwnershipDto(exact.Count > 0, exact.Count, exact, soft);
+            answers[release.Id] = Answer(rowsOfWork[release.WorkId].ToList(), [release.Id], [(release.Format, release.PlatformId)]);
         }
 
         return answers;
@@ -98,7 +93,7 @@ public sealed class OwnershipQuery(IAppDbContext db)
     public async Task<OwnershipDto> ForWorkAsync(Guid libraryId, Guid workId, CancellationToken cancellationToken)
     {
         var rows = await CopiesOfWorksAsync(libraryId, [workId], cancellationToken);
-        var copies = rows.Select(r => r.Copy).ToList();
+        var copies = rows.Where(r => ItemStatuses.IsInCollection(r.Copy.Status)).Select(r => r.Copy).ToList();
         return new OwnershipDto(copies.Count > 0, copies.Count, copies, []);
     }
 
@@ -130,6 +125,34 @@ public sealed class OwnershipQuery(IAppDbContext db)
 
     private sealed record CopyRow(OwnedCopyDto Copy, Guid? PlatformId);
 
+    /// <summary>
+    /// The one answer, for the single and the batched paths alike: from every live item of the asked releases' works, the copies in the
+    /// collection of exactly these releases, the same work in another shape (soft), and the wishlist and sold facts. A wishlisted or sold
+    /// copy is never a copy and never a soft match.
+    /// </summary>
+    private static OwnershipDto Answer(IReadOnlyList<CopyRow> rows, HashSet<Guid> askedIds, HashSet<(ReleaseFormat Format, Guid? PlatformId)> shapes)
+    {
+        var have = rows.Where(r => ItemStatuses.IsInCollection(r.Copy.Status)).ToList();
+        var exact = have.Where(r => askedIds.Contains(r.Copy.ReleaseId)).Select(r => r.Copy).ToList();
+        var soft = have.Where(r => !askedIds.Contains(r.Copy.ReleaseId) && !shapes.Contains((r.Copy.Format, r.PlatformId)))
+            .Select(r => r.Copy).ToList();
+        return new OwnershipDto(exact.Count > 0, exact.Count, exact, soft, WishlistItemOf(rows, askedIds), SoldItemOf(rows, askedIds));
+    }
+
+    /// <summary>The oldest live wishlist item for any of the releases asked about, or null.</summary>
+    private static Guid? WishlistItemOf(IEnumerable<CopyRow> rows, HashSet<Guid> askedReleaseIds) =>
+        rows.Where(r => r.Copy.Status == ItemStatus.Wishlist && askedReleaseIds.Contains(r.Copy.ReleaseId))
+            .Select(r => (Guid?)r.Copy.ItemId).FirstOrDefault();
+
+    /// <summary>The most recently added live sold copy of any of the releases asked about, or null (rows are oldest first).</summary>
+    private static Guid? SoldItemOf(IEnumerable<CopyRow> rows, HashSet<Guid> askedReleaseIds) =>
+        rows.Where(r => r.Copy.Status == ItemStatus.Sold && askedReleaseIds.Contains(r.Copy.ReleaseId))
+            .Select(r => (Guid?)r.Copy.ItemId).LastOrDefault();
+
+    /// <summary>
+    /// Every live item of the library for these works, in any status, oldest first. The callers pick the ones in the collection
+    /// as copies and the wishlisted and sold ones as facts, so the status rule lives in <see cref="ItemStatuses"/> alone.
+    /// </summary>
     private async Task<List<CopyRow>> CopiesOfWorksAsync(Guid libraryId, IReadOnlyCollection<Guid> workIds, CancellationToken cancellationToken)
     {
         var rows = await (
@@ -140,7 +163,6 @@ public sealed class OwnershipQuery(IAppDbContext db)
             from platform in platforms.DefaultIfEmpty()
             where item.LibraryId == libraryId
                 && item.DeletedAt == null
-                && OwnedStatuses.Contains(item.Status)
                 && workIds.Contains(release.WorkId)
             orderby item.CreatedAt, item.Id
             select new
@@ -156,7 +178,7 @@ public sealed class OwnershipQuery(IAppDbContext db)
                 item.LocationId,
             }).ToListAsync(cancellationToken);
 
-        var paths = rows.Any(r => r.LocationId is not null)
+        var paths = rows.Any(r => r.LocationId is not null && ItemStatuses.IsInCollection(r.Status))
             ? await LocationPathsAsync(libraryId, cancellationToken)
             : [];
 

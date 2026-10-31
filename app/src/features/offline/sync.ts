@@ -3,7 +3,7 @@
 import { getOwnershipSnapshot } from '@/api/generated/ownership/ownership';
 import { ApiError } from '@/lib/http';
 import { getOwnedCache, type OwnedCache } from './ownedCache';
-import type { SnapshotEntry } from './ownedIndex';
+import { createOwnedIndex, type OwnedIndex, type SnapshotEntry } from './ownedIndex';
 
 export type SnapshotPage = { entries: SnapshotEntry[]; nextCursor: string; hasMore: boolean };
 export type FetchPage = (args: { since: string | null }) => Promise<SnapshotPage>;
@@ -37,6 +37,7 @@ export const fetchSnapshotPage =
         platform: e.platform ?? null,
         identifiers: e.identifiers ?? [],
         locationPath: e.locationPath ?? null,
+        status: e.status ?? null,
       })),
     };
   };
@@ -63,17 +64,22 @@ async function doSync(cache: OwnedCache, fetchPage: FetchPage, now: () => number
   let pages = 0;
   let changed = 0;
   let resetOnce = false;
+  // The copy the last release saved answers (as all in the library) until a whole new one has arrived: its pages gather here and
+  // are saved together, so a sync that dies partway leaves the old copy whole instead of replacing it with a half-new one.
+  let aside: { index: OwnedIndex; cursor: string | null } | null = cache.state.legacy ? { index: createOwnedIndex(), cursor: null } : null;
   try {
     for (;;) {
       const { index, cursor, syncedAt } = cache.state;
+      const since = aside ? aside.cursor : cursor;
       let page: SnapshotPage;
       try {
-        page = await fetchPage({ since: cursor });
+        page = await fetchPage({ since });
       } catch (error) {
         // A cursor the server no longer accepts: forget the copy and pull everything once.
-        if (cursor && !resetOnce && error instanceof ApiError && error.status === 400) {
+        if (since && !resetOnce && error instanceof ApiError && error.status === 400) {
           resetOnce = true;
-          cache.clear();
+          if (aside) aside = { index: createOwnedIndex(), cursor: null };
+          else cache.clear();
           continue;
         }
         throw error;
@@ -81,6 +87,14 @@ async function doSync(cache: OwnedCache, fetchPage: FetchPage, now: () => number
       pages += 1;
       if (pages > MAX_PAGES) throw new Error('The ownership snapshot did not finish.');
       changed += page.entries.length;
+      if (aside) {
+        aside = { index: aside.index.apply(page.entries), cursor: page.nextCursor };
+        if (!page.hasMore) {
+          cache.commit({ index: aside.index, cursor: aside.cursor, syncedAt: now() });
+          return { ok: true, pages, changed };
+        }
+        continue;
+      }
       cache.commit({
         index: index.apply(page.entries),
         cursor: page.nextCursor,

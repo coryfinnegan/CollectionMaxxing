@@ -52,6 +52,140 @@ describe('first sync', () => {
   });
 });
 
+describe('statuses in the saved copy', () => {
+  const wishlisted = { ...upsertShape('wishlist'), itemId: '00000050-0000-4000-8000-000000000000' };
+  function upsertShape(status: 'wishlist' | 'sold') {
+    return {
+      itemId: 'x',
+      deleted: false,
+      releaseId: '00000150-0000-4000-8000-000000000000',
+      workId: '00000250-0000-4000-8000-000000000000',
+      title: 'Alien',
+      format: 'dvd' as const,
+      platform: null,
+      identifiers: ['5051889000006'],
+      locationPath: null,
+      status,
+    };
+  }
+
+  it('keeps the wishlist and sold items, with their status, and answers about them after a fresh start', async () => {
+    upsertOwned(wishlisted);
+    upsertOwned({ ...upsertShape('sold'), itemId: '00000051-0000-4000-8000-000000000000', releaseId: '00000151-0000-4000-8000-000000000000', identifiers: ['5051889000013'] });
+    await syncLibrary(LIB);
+
+    setOwnedStorage(storage); // a new app launch
+
+    const index = getOwnedCache(LIB).state.index;
+    expect(index.size).toBe(3); // Jaws twice and Dune: the wishlisted and the sold are not the library
+    expect(index.lookup('5051889000006').wishlistItemId).toBe(wishlisted.itemId);
+    expect(index.lookup('5051889000006').owned).toEqual([]);
+    expect(index.lookup('5051889000013').soldItemId).toBe('00000051-0000-4000-8000-000000000000');
+  });
+
+  it('follows an item that moves from the wishlist to owned as a changed entry, not a tombstone', async () => {
+    upsertOwned(wishlisted);
+    await syncLibrary(LIB);
+    expect(getOwnedCache(LIB).state.index.lookup('5051889000006').wishlistItemId).toBe(wishlisted.itemId);
+
+    upsertOwned({ ...wishlisted, status: 'owned' });
+    await syncLibrary(LIB);
+
+    const answer = getOwnedCache(LIB).state.index.lookup('5051889000006');
+    expect(answer.wishlistItemId).toBeNull();
+    expect(answer.owned.map((c) => c.itemId)).toEqual([wishlisted.itemId]);
+  });
+
+  // What the last release wrote: eight columns per item (no status), only items in the library, and a cursor that would skip the
+  // wishlist and sold items for good. Its rows are Jaws on VHS, and Dune.
+  const v1Blob = (rows: unknown[][] = [
+    ['00000001-0000-4000-8000-000000000000', '00000101-0000-4000-8000-000000000000', '00000201-0000-4000-8000-000000000000', 'Jaws', 'vhs', null, ['0042100005264'], 'Living room › Shelf B'],
+    ['00000003-0000-4000-8000-000000000000', '00000103-0000-4000-8000-000000000000', '00000203-0000-4000-8000-000000000000', 'Dune', 'paperback', null, ['9780306406157'], 'Office › Shelf 1'],
+  ]) => JSON.stringify({ v: 1, cursor: '3', syncedAt: 5, rows });
+  const seedV1 = (blob: string = v1Blob()) => {
+    storage.set('owned-index-v1:' + LIB, blob);
+    storage.set('owned-index-v1:libraries', JSON.stringify([LIB]));
+    setOwnedStorage(storage); // a new app launch over the old copy
+  };
+
+  it('keeps answering from a copy saved before statuses were kept, as owned, until the first full sync of this kind has saved', () => {
+    seedV1();
+
+    const state = getOwnedCache(LIB).state;
+
+    expect(state.index.lookup('042100005264').owned.map((c) => [c.title, c.status, c.locationPath])).toEqual([['Jaws', 'owned', 'Living room › Shelf B']]);
+    expect(state.index.lookup('9780306406157').owned).toHaveLength(1);
+    expect(state.index.size).toBe(2);
+    expect(state.syncedAt).toBe(5); // the answer says how old it is, truthfully
+    expect(state.cursor).toBeNull(); // so the first sync pulls everything, wishlist and sold items included
+    expect(storage.getString('owned-index-v1:' + LIB)).toBeDefined(); // nothing is deleted just for starting up
+  });
+
+  it('keeps the old copy when the first sync of this kind fails, so a phone opened offline in a store still answers', async () => {
+    seedV1();
+    ownershipMock.failNext = 500;
+
+    const result = await syncLibrary(LIB);
+
+    expect(result.ok).toBe(false);
+    expect(getOwnedCache(LIB).state.index.lookup('042100005264').owned).toHaveLength(1);
+    expect(storage.getString('owned-index-v1:' + LIB)).toBeDefined();
+    expect(storage.getString('owned-index-v2:' + LIB)).toBeUndefined();
+    setOwnedStorage(storage); // and after a restart it still does
+    expect(getOwnedCache(LIB).state.index.lookup('042100005264').owned).toHaveLength(1);
+  });
+
+  it('keeps the whole old copy when a many-page first sync fails partway, rather than a half-new one', async () => {
+    seedV1();
+    const cache = getOwnedCache(LIB);
+    const seen: (string | null)[] = [];
+    const failingSecondPage: FetchPage = async ({ since }) => {
+      seen.push(since);
+      if (since === null) return { entries: [entry({ identifiers: ['4006381333931'], status: 'wishlist' })], nextCursor: 'p1', hasMore: true };
+      throw new Error('the second page never arrived');
+    };
+
+    const result = await syncOwned(cache, failingSecondPage);
+
+    expect(result.ok).toBe(false);
+    expect(seen).toEqual([null, 'p1']);
+    expect(cache.state.index.lookup('042100005264').owned).toHaveLength(1); // the old rows
+    expect(cache.state.index.lookup('4006381333931').wishlistItemId).toBeNull(); // and none of the new one's
+    expect(storage.getString('owned-index-v1:' + LIB)).toBeDefined();
+  });
+
+  it('replaces the old copy with the full new one once it has all arrived, then deletes the old', async () => {
+    // The old copy holds an item that is gone from the library now: the full sync must not leave it behind.
+    seedV1(v1Blob([['00000999-0000-4000-8000-000000000000', '00000199-0000-4000-8000-000000000000', '00000299-0000-4000-8000-000000000000', 'Long gone', 'vhs', null, ['4006381333931'], null]]));
+    upsertOwned({ ...upsertShape('wishlist'), itemId: '00000050-0000-4000-8000-000000000000' });
+
+    const result = await syncLibrary(LIB, () => 9_000);
+
+    expect(result.ok).toBe(true);
+    const { index, cursor, syncedAt } = getOwnedCache(LIB).state;
+    expect(index.lookup('4006381333931').owned).toEqual([]); // the stale row is gone
+    expect(index.lookup('5051889000006').wishlistItemId).toBe('00000050-0000-4000-8000-000000000000');
+    expect(index.size).toBe(3);
+    expect(cursor).not.toBeNull();
+    expect(syncedAt).toBe(9_000);
+    expect(storage.getString('owned-index-v1:' + LIB)).toBeUndefined();
+    expect(storage.getString('owned-index-v2:' + LIB)).toBeDefined();
+    // From here on it is an ordinary copy: a later sync is a delta from its cursor.
+    setOwnedStorage(storage);
+    expect(getOwnedCache(LIB).state.cursor).toBe(cursor);
+  });
+
+  it('forgets the old release copy on sign-out too', () => {
+    storage.set('owned-index-v1:' + LIB, '{}');
+    storage.set('owned-index-v1:libraries', JSON.stringify([LIB]));
+
+    clearOwnedData();
+
+    expect(storage.getString('owned-index-v1:' + LIB)).toBeUndefined();
+    expect(storage.getString('owned-index-v1:libraries')).toBeUndefined();
+  });
+});
+
 describe('delta sync', () => {
   it('adds a new item, updates an edited one and removes a tombstoned one', async () => {
     await syncLibrary(LIB);

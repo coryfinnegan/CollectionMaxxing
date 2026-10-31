@@ -16,6 +16,7 @@ export const entry = (overrides: Partial<SnapshotEntry> = {}): SnapshotEntry => 
     platform: null,
     identifiers: [],
     locationPath: null,
+    status: 'owned',
     ...overrides,
   };
 };
@@ -30,4 +31,5 @@ export const tombstone = (itemId: string): SnapshotEntry => ({
   platform: null,
   identifiers: [],
   locationPath: null,
+  status: null,
 });

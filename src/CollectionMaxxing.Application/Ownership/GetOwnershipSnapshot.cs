@@ -10,11 +10,14 @@ using Microsoft.EntityFrameworkCore;
 namespace CollectionMaxxing.Application.Ownership;
 
 /// <summary>
-/// Use case: a delta of owned items for the phone's offline cache. Changes are ordered by "updated at, then id", and the
+/// Use case: a delta of the library's items for the phone's offline cache. Changes are ordered by "updated at, then id", and the
 /// cursor is the last position handed out, so a write that lands while the phone is paging gets a later position and is
-/// picked up by the next call rather than skipped or repeated. With no cursor the answer is everything owned now;
-/// with one, every item changed since, including tombstones for items deleted or no longer owned (kept 30 days). An item removed for
-/// good (an undone scan commit) has no row left, so its <see cref="ItemTombstone"/> stands in: same order, same cursor.
+/// picked up by the next call rather than skipped or repeated. With no cursor the answer is every live item now;
+/// with one, every item changed since, including tombstones for items deleted (kept 30 days). Each live entry carries its
+/// status, so the cache keeps the collection (owned, lent, missing) apart from the wishlist and the sold items and answers
+/// "you own this", "on your wishlist" and "you sold this" offline; an item that moves between statuses is a changed entry, not a
+/// tombstone. An item removed for good (an undone scan commit) has no row left, so its <see cref="ItemTombstone"/> stands in:
+/// same order, same cursor.
 /// </summary>
 public static class GetOwnershipSnapshot
 {
@@ -50,7 +53,7 @@ public static class GetOwnershipSnapshot
             }
             else
             {
-                changed = changed.Where(i => i.DeletedAt == null && OwnershipQuery.OwnedStatuses.Contains(i.Status));
+                changed = changed.Where(i => i.DeletedAt == null);
             }
 
             var rows = await changed
@@ -78,7 +81,7 @@ public static class GetOwnershipSnapshot
                 rows.RemoveAt(rows.Count - 1);
             }
 
-            var releaseIds = rows.Where(r => r.IsOwned).Select(r => r.ReleaseId).Distinct().ToList();
+            var releaseIds = rows.Where(r => r.IsLive).Select(r => r.ReleaseId).Distinct().ToList();
 
             var releases = await (
                 from release in db.Releases.AsNoTracking()
@@ -98,19 +101,20 @@ public static class GetOwnershipSnapshot
                 .GroupBy(i => i.ReleaseId)
                 .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(i => i.Value).Distinct().Order().ToList());
 
-            var paths = rows.Any(r => r.IsOwned && r.LocationId is not null)
+            var paths = rows.Any(r => r.IsLive && r.InCollection && r.LocationId is not null)
                 ? await ownership.LocationPathsAsync(query.LibraryId, cancellationToken)
                 : [];
 
             var entries = new List<OwnershipSnapshotEntryDto>(rows.Count);
             foreach (var row in rows)
             {
-                if (row.IsOwned && releases.TryGetValue(row.ReleaseId, out var release))
+                if (row.IsLive && releases.TryGetValue(row.ReleaseId, out var release))
                 {
                     entries.Add(new OwnershipSnapshotEntryDto(
                         row.Id, false, release.Id, release.WorkId, TitleCaser.ToTitleCase(release.Title), release.Format, release.Platform,
                         identifiers.GetValueOrDefault(release.Id) ?? [],
-                        row.LocationId is { } loc && paths.TryGetValue(loc, out var path) ? path : null));
+                        row.InCollection && row.LocationId is { } loc && paths.TryGetValue(loc, out var path) ? path : null,
+                        row.Status));
                 }
                 else
                 {
@@ -137,7 +141,9 @@ public static class GetOwnershipSnapshot
 
         private sealed record Row(Guid Id, Guid ReleaseId, Domain.Items.ItemStatus Status, DateTimeOffset? DeletedAt, Guid? LocationId, DateTimeOffset UpdatedAt)
         {
-            public bool IsOwned => DeletedAt is null && OwnershipQuery.OwnedStatuses.Contains(Status);
+            public bool IsLive => DeletedAt is null;
+
+            public bool InCollection => ItemStatuses.IsInCollection(Status);
         }
     }
 }

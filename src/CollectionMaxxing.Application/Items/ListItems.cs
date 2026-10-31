@@ -12,7 +12,8 @@ namespace CollectionMaxxing.Application.Items;
 
 /// <summary>
 /// Use case: list a library's items with filters, a sort and cursor pagination. Every sort is "a key, then the id", so the
-/// order is total and a page boundary never repeats or skips an item. Deleted items are left out.
+/// order is total and a page boundary never repeats or skips an item. Deleted items are left out. With no status filter the
+/// list is the collection (<see cref="ItemStatuses.InCollection"/>); a status filter returns exactly that status.
 /// </summary>
 public static class ListItems
 {
@@ -69,6 +70,8 @@ public static class ListItems
         public Guid? CoverAssetId { get; init; }
 
         public bool EditionVerified { get; init; }
+
+        public string? LentTo { get; init; }
 
         public DateTimeOffset CreatedAt { get; init; }
     }
@@ -142,7 +145,7 @@ public static class ListItems
             var items = page.Select(r => new ItemSummaryDto(
                 r.Id, r.ReleaseId, r.WorkId, r.HasCustomTitle ? r.Title : TitleCaser.ToTitleCase(r.Title), r.Kind, r.Format,
                 r.PlatformName, r.Year, r.Status, r.Condition, r.LocationId, ItemProjection.CoverUrl(r.CoverAssetId), r.CreatedAt,
-                r.EditionVerified)).ToList();
+                r.EditionVerified, r.LentTo)).ToList();
             return new Page<ItemSummaryDto>(items, more ? Encode(sort, page[^1]) : null);
         }
 
@@ -171,9 +174,14 @@ public static class ListItems
             var libraryId = query.LibraryId;
             var items = db.Items.AsNoTracking().Where(i => i.LibraryId == libraryId && i.DeletedAt == null);
 
+            // No status asks for the library: what you have. Wishlist and sold items only show when asked for by name.
             if (status is { } wantedStatus)
             {
                 items = items.Where(i => i.Status == wantedStatus);
+            }
+            else
+            {
+                items = items.Where(i => ItemStatuses.InCollection.Contains(i.Status));
             }
 
             if (query.EditionVerified is { } verified)
@@ -253,6 +261,7 @@ public static class ListItems
                     ? x.Item.CustomCoverAssetId
                     : x.Release.CoverAssetId ?? x.Work.CoverAssetId,
                 EditionVerified = x.Item.EditionVerified,
+                LentTo = x.Item.Status == ItemStatus.Lent ? x.Item.LentTo : null,
                 CreatedAt = x.Item.CreatedAt,
             });
         }

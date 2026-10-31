@@ -95,7 +95,14 @@ public static class TestData
     }
 
     /// <summary>Adds an item (of a fresh release unless one is given) and returns its id.</summary>
-    public static async Task<Guid> CreateItemAsync(PostgresFixture db, TestLibrary library, Guid? releaseId = null, Guid? locationId = null, string? customTitle = null)
+    public static async Task<Guid> CreateItemAsync(
+        PostgresFixture db,
+        TestLibrary library,
+        Guid? releaseId = null,
+        Guid? locationId = null,
+        string? customTitle = null,
+        ItemStatus status = ItemStatus.Owned,
+        TimeSpan? addedAfter = null)
     {
         var item = new Item
         {
@@ -104,12 +111,12 @@ public static class TestData
             ReleaseId = releaseId ?? await CreateReleaseAsync(db),
             LocationId = locationId,
             CustomTitle = customTitle,
-            Status = ItemStatus.Owned,
+            Status = status,
             CoverChoice = CoverChoice.Release,
             AddedVia = AddedVia.Manual,
-            CreatedAt = Now,
+            CreatedAt = Now + (addedAfter ?? TimeSpan.Zero),
             CreatedBy = library.OwnerId,
-            UpdatedAt = Now,
+            UpdatedAt = Now + (addedAfter ?? TimeSpan.Zero),
         };
 
         await using var context = db.CreateContext();

@@ -124,6 +124,54 @@ public class OwnershipForEachReleaseTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task Missing_counts_as_owned_and_wishlist_and_sold_are_named_without_counting_the_same_for_a_whole_shelf_as_for_one_release()
+    {
+        var library = await TestData.CreateLibraryAsync(Db);
+        var other = await TestData.CreateLibraryAsync(Db);
+
+        var lost = await ReleaseAsync("Pong", ReleaseFormat.GameCartridge);
+        var want = await ReleaseAsync("Metroid", ReleaseFormat.GameCartridge);
+        var letGo = await ReleaseAsync("Tetris", ReleaseFormat.GameCartridge);
+        var everything = await ReleaseAsync("Zelda", ReleaseFormat.GameCartridge);
+        var theirs = await ReleaseAsync("Mario", ReleaseFormat.GameCartridge);
+        await CopyAsync(library, lost, ItemStatus.Missing);
+        await CopyAsync(library, want, ItemStatus.Wishlist, minute: 1);
+        await CopyAsync(library, want, ItemStatus.Wishlist, minute: 2);
+        await CopyAsync(library, letGo, ItemStatus.Sold, minute: 1);
+        await CopyAsync(library, letGo, ItemStatus.Sold, minute: 5);
+        await CopyAsync(library, everything, ItemStatus.Owned, minute: 1);
+        await CopyAsync(library, everything, ItemStatus.Wishlist, minute: 2);
+        await CopyAsync(library, everything, ItemStatus.Sold, minute: 3);
+        await CopyAsync(other, theirs, ItemStatus.Wishlist);
+        await CopyAsync(other, theirs, ItemStatus.Sold);
+
+        var ids = new[] { lost, want, letGo, everything, theirs };
+        await using var context = Db.CreateContext(library.ActingAs(LibraryRole.Editor));
+        var ownership = new OwnershipQuery(context);
+
+        var each = await ownership.ForEachReleaseAsync(library.Id, ids, TestContext.Current.CancellationToken);
+
+        foreach (var id in ids)
+        {
+            Json(each[id]).ShouldBe(Json(await ownership.ForReleaseAsync(library.Id, id, TestContext.Current.CancellationToken)), $"release {id}");
+        }
+
+        each[lost].Owned.ShouldBeTrue(); // still yours, you just can't find it
+        each[lost].Copies.Single().Status.ShouldBe(ItemStatus.Missing);
+        each[want].Owned.ShouldBeFalse();
+        each[want].WishlistItemId.ShouldNotBeNull();
+        each[want].SoldItemId.ShouldBeNull();
+        each[letGo].Owned.ShouldBeFalse();
+        each[letGo].SoldItemId.ShouldNotBeNull();
+        each[letGo].WishlistItemId.ShouldBeNull();
+        each[everything].Count.ShouldBe(1);
+        each[everything].WishlistItemId.ShouldNotBeNull();
+        each[everything].SoldItemId.ShouldNotBeNull();
+        each[theirs].WishlistItemId.ShouldBeNull(); // another library's wishlist never shows
+        each[theirs].SoldItemId.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task A_whole_shelf_is_asked_in_a_fixed_number_of_queries()
     {
         var library = await TestData.CreateLibraryAsync(Db);

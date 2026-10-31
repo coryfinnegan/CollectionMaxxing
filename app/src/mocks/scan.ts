@@ -12,7 +12,11 @@ const problem = (status: number, title: string) =>
 
 type Known = {
   release: ReleaseDto;
-  owned: { itemId: string; locationPath: string }[];
+  /** The copies in the library (owned, lent or missing). */
+  owned: { itemId: string; locationPath: string; status?: 'owned' | 'missing' }[];
+  /** The library's wishlist item for this release, and its most recent sold copy (never part of `owned`). */
+  wishlistItemId?: string;
+  soldItemId?: string;
   /** Starts pending and resolves when a test (or the dev timer) calls `resolvePending`. */
   slow?: boolean;
 };
@@ -48,6 +52,20 @@ const known = (): Record<string, Known> => ({
     owned: [{ itemId: 'd0000000-0000-4000-8000-000000000002', locationPath: 'Game room › Shelf 1' }],
   },
   [DEV_CODES.slow]: { release: release(5, 'Zelda: Ocarina of Time', 'game_cartridge', 'Nintendo 64', 1998, []), owned: [], slow: true },
+  [DEV_CODES.wishlisted]: {
+    release: release(6, 'Metroid Prime', 'game_disc', 'GameCube', 2002, []),
+    owned: [],
+    wishlistItemId: 'd0000000-0000-4000-8000-000000000006',
+  },
+  [DEV_CODES.sold]: {
+    release: release(7, 'Tetris', 'game_cartridge', 'Game Boy', 1989, []),
+    owned: [],
+    soldItemId: 'd0000000-0000-4000-8000-000000000007',
+  },
+  [DEV_CODES.missing]: {
+    release: release(8, 'Pong', 'game_cartridge', 'Atari 2600', 1977, []),
+    owned: [{ itemId: 'd0000000-0000-4000-8000-000000000008', locationPath: 'Game room › Shelf 1', status: 'missing' }],
+  },
 });
 
 export type MockSession = {
@@ -118,15 +136,23 @@ export const scanMock = {
   },
 };
 
-/** Like the server (CandidateResolver): a matched release the library does not own yet comes back already accepted; the person unticks what they don't want. */
-const resolved = (entry: Known): Partial<CandidateDto> => ({
-  resolution: 'matched',
-  score: 1,
-  release: entry.release,
-  alreadyOwnedCount: entry.owned.length,
-  ownedAt: entry.owned.map((o) => o.locationPath),
-  decision: entry.owned.length === 0 ? 'accepted' : 'undecided',
-});
+/**
+ * Like the server (CandidateResolver): a matched release the library does not own yet comes back already accepted; the person unticks
+ * what they don't want. One on the wishlist (and not owned) comes back skipped, with its wishlist item named: Got it is how it comes in.
+ */
+const resolved = (entry: Known): Partial<CandidateDto> => {
+  const onWishlist = entry.owned.length === 0 && !!entry.wishlistItemId;
+  return {
+    resolution: 'matched',
+    score: 1,
+    release: entry.release,
+    alreadyOwnedCount: entry.owned.length,
+    ownedAt: entry.owned.map((o) => o.locationPath),
+    wishlistItemId: entry.wishlistItemId ?? null,
+    soldItemId: entry.soldItemId ?? null,
+    decision: onWishlist ? 'rejected' : entry.owned.length === 0 ? 'accepted' : 'undecided',
+  };
+};
 
 /** The session's live counters, bucketed like the server: added, then owned, then rejected, else to review. */
 function countSession(session: MockSession) {
@@ -210,10 +236,12 @@ const ownershipFor = (code: string): OwnershipDto => {
       title: entry!.release.title,
       format: entry!.release.format,
       platform: entry!.release.platform?.name ?? null,
-      status: 'owned',
+      status: o.status ?? 'owned',
       locationId: null,
       locationPath: o.locationPath,
     })),
+    wishlistItemId: entry?.wishlistItemId ?? null,
+    soldItemId: entry?.soldItemId ?? null,
   };
 };
 

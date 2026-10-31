@@ -266,7 +266,77 @@ describe('LibraryTable', () => {
     expect(patches()[0].headers.get('if-match')).toBe('"v1"');
     // Not lent out, so any stale borrower is cleared along with the status.
     expect(patches()[0].body).toEqual({ status: 'wishlist', lentTo: null, lentOn: null });
-    await waitFor(() => expect(screen.getByLabelText('Change status of The Matrix, now Wishlist')).toBeTruthy());
+    // A wishlisted item is not in the library, so the row leaves it.
+    await waitFor(() => expect(screen.queryByLabelText('Change status of The Matrix, now Owned')).toBeNull());
+    expect(screen.queryByLabelText('Change status of The Matrix, now Wishlist')).toBeNull();
+  });
+
+  describe('a row that leaves the library for the wishlist or Sold', () => {
+    const move = async (title: string, now: string, to: string) => {
+      await renderWithProviders(<LibraryTable title="Library" />);
+      await loaded();
+      await fireEvent.press(await screen.findByLabelText(`Change status of ${title}, now ${now}`));
+      await fireEvent.press(await screen.findByLabelText(`Set status of ${title} to ${to}`));
+      await waitFor(() => expect(patches()).toHaveLength(1));
+    };
+
+    it('says it moved to the wishlist, with an Undo, instead of the row just vanishing', async () => {
+      await move('The Matrix', 'Owned', 'Wishlist');
+
+      expect(await screen.findByText('Moved to Wishlist')).toBeTruthy();
+      expect(screen.getByLabelText('Undo')).toBeTruthy();
+      await waitFor(() => expect(screen.queryByLabelText('Change status of The Matrix, now Owned')).toBeNull());
+    });
+
+    it('says it moved to Sold', async () => {
+      await move('The Matrix', 'Owned', 'Sold');
+
+      expect(await screen.findByText('Moved to Sold')).toBeTruthy();
+      expect(patches()[0].body).toEqual({ status: 'sold', lentTo: null, lentOn: null });
+    });
+
+    it('puts the row back, as it was, when Undo is pressed', async () => {
+      await move('The Matrix', 'Owned', 'Wishlist');
+      await fireEvent.press(await screen.findByLabelText('Undo'));
+
+      await waitFor(() => expect(patches()).toHaveLength(2));
+      expect(patches()[1].body).toEqual({ status: 'owned', lentTo: null, lentOn: null });
+      // With the version the first change produced, not the one the table loaded with.
+      expect(patches()[1].headers.get('if-match')).toBe('"v2"');
+      expect(await screen.findByLabelText('Change status of The Matrix, now Owned')).toBeTruthy();
+      await waitFor(() => expect(screen.queryByText('Moved to Wishlist')).toBeNull());
+    });
+
+    it('lends it to the same person again when a lent item is undone', async () => {
+      await move('GoldenEye 007', 'Lent out', 'Sold');
+      await screen.findByText('Moved to Sold');
+
+      await fireEvent.press(screen.getByLabelText('Undo'));
+
+      await waitFor(() => expect(patches()).toHaveLength(2));
+      expect(patches()[1].body).toEqual({ status: 'lent', lentTo: 'Sam', lentOn: localDateString() });
+      expect(await screen.findByLabelText('Change status of GoldenEye 007, now Lent out')).toBeTruthy();
+    });
+
+    it('says why an Undo was refused when someone changed the item since, and leaves it as it is', async () => {
+      await move('The Matrix', 'Owned', 'Wishlist');
+      await screen.findByText('Moved to Wishlist');
+      itemsState.entries.find((e) => e.work.title === 'The Matrix')!.version += 1; // someone else saved it
+
+      await fireEvent.press(screen.getByLabelText('Undo'));
+
+      expect(await screen.findByText("Couldn't undo. It changed since, so it stays as it is.")).toBeTruthy();
+      expect(itemsState.entries.find((e) => e.work.title === 'The Matrix')!.item.status).toBe('wishlist');
+      expect(screen.queryByText('Moved to Wishlist')).toBeNull();
+    });
+
+    it('shows no toast for a status that stays in the library', async () => {
+      await move('The Matrix', 'Owned', 'Missing');
+
+      expect(await screen.findByLabelText('Change status of The Matrix, now Missing')).toBeTruthy();
+      expect(screen.queryByText(/^Moved to /)).toBeNull();
+      expect(screen.queryByLabelText('Undo')).toBeNull();
+    });
   });
 
   it('clears who it was lent to when an item leaves Lent out', async () => {

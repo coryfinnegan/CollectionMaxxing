@@ -11,7 +11,7 @@
 // back to a route name either.
 import { fireEvent } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
 import { StackBackButton } from '@/components/StackBackButton';
 import { renderWithProviders } from '@/test/render';
 
@@ -69,8 +69,11 @@ beforeEach(() => {
   mockPathname.current = '/settings';
   Platform.OS = 'ios';
 });
+let dimensionsSpy: jest.SpyInstance | undefined;
 afterEach(() => {
   Platform.OS = originalOs;
+  dimensionsSpy?.mockRestore();
+  dimensionsSpy = undefined;
 });
 
 type Header = (props: { options?: Record<string, unknown> }) => ReactElement;
@@ -293,6 +296,40 @@ describe('the back button', () => {
     await pressHeaderBack(headerFor(captured, pathname.slice(1)), optionsFor(captured, pathname.slice(1)));
 
     expect(mockRouter.replace).toHaveBeenCalledWith(hub);
+  });
+
+  it('from a fresh load of /sold on the phone lands on Me, the hub that links to it', async () => {
+    mockRouter.canGoBack.mockReturnValue(false);
+    mockPathname.current = '/sold';
+    const captured = await captureLayout(PagesLayout);
+
+    await pressHeaderBack(headerFor(captured, 'sold'), optionsFor(captured, 'sold'));
+
+    expect(mockRouter.replace).toHaveBeenCalledWith('/me');
+  });
+
+  it('from a fresh load of /sold on the narrow web lands on Me too: the bottom bar has it', async () => {
+    Platform.OS = 'web';
+    dimensionsSpy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 600, height: 900, scale: 1, fontScale: 1 });
+    mockRouter.canGoBack.mockReturnValue(false);
+    mockPathname.current = '/sold';
+    const captured = await captureLayout(PagesLayout);
+
+    await pressHeaderBack(headerFor(captured, 'sold'), optionsFor(captured, 'sold'));
+
+    expect(mockRouter.replace).toHaveBeenCalledWith('/me');
+  });
+
+  it('from a fresh load of /sold on the wide web lands on the library: there is no Me there', async () => {
+    Platform.OS = 'web';
+    dimensionsSpy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 1280, height: 800, scale: 1, fontScale: 1 });
+    mockRouter.canGoBack.mockReturnValue(false);
+    mockPathname.current = '/sold';
+    const captured = await captureLayout(PagesLayout);
+
+    await pressHeaderBack(headerFor(captured, 'sold'), optionsFor(captured, 'sold'));
+
+    expect(mockRouter.replace).toHaveBeenCalledWith('/library');
   });
 
   it.each(['/wishlist', '/lent-out'])('from a fresh load of %s lands on the library', async (pathname) => {

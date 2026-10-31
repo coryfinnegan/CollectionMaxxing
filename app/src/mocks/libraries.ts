@@ -1,4 +1,5 @@
-// Mock library-level endpoints: stats, computed from the mock items.
+// Mock library-level endpoints: stats, computed from the mock items. Like the server, the total and every breakdown
+// count only what you have (owned, lent, missing); wishlist, sold, lent and missing are counted beside them.
 import { HttpResponse, http } from 'msw';
 import type { StatsDto } from '@/api/generated/models';
 import { itemsState } from './items';
@@ -11,9 +12,15 @@ const count = (values: (string | null | undefined)[]): Record<string, number> =>
 
 /** Stats for the live (not deleted) mock items. */
 export const seed = (): StatsDto => {
-  const live = itemsState.entries.filter((e) => !e.item.deletedAt);
+  const all = itemsState.entries.filter((e) => !e.item.deletedAt);
+  const live = all.filter((e) => e.item.status !== 'wishlist' && e.item.status !== 'sold');
+  const withStatus = (status: string) => all.filter((e) => e.item.status === status).length;
   return {
     total: live.length,
+    wishlistCount: withStatus('wishlist'),
+    soldCount: withStatus('sold'),
+    lentCount: withStatus('lent'),
+    missingCount: withStatus('missing'),
     byKind: count(live.map((e) => e.work.kind)),
     byFormat: count(live.map((e) => e.release.format)),
     byPlatform: count(live.map((e) => e.release.platform?.name)),

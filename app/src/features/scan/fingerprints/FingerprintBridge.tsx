@@ -6,6 +6,7 @@ import { AppState, Platform } from 'react-native';
 import { useGetMe } from '@/api/generated/account/account';
 import { registerLocalDataClearer } from '@/features/me/localData';
 import { getOwnedCache } from '@/features/offline/ownedCache';
+import { inLibrary } from '@/features/offline/ownedIndex';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { useLibraryStore } from '@/state/library';
 import { useCardsStore } from '../cards/cardsStore';
@@ -56,7 +57,8 @@ export function FingerprintBridge({ vision, cover }: { vision?: PrintVision; cov
     const dropRemoved = () =>
       void dropRemovedItems({
         store,
-        ownedItemIds: new Set(owned.state.index.entries().map((e) => e.itemId)),
+        // What you have, not what you want or sold: the copy holds every item with its status, and a print of a sold or wishlisted item goes.
+        ownedItemIds: new Set(owned.state.index.entries().filter(inLibrary).map((e) => e.itemId)),
         syncedAt: owned.state.syncedAt,
       });
     const restore = async () => {

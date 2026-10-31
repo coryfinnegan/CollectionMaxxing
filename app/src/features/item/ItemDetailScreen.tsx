@@ -1,27 +1,36 @@
-// Item detail: cover, facts, location breadcrumb, other copies, and Edit / Move / Delete (with Undo).
+// Item detail: cover, facts, location breadcrumb, other copies, and Edit / Move / Delete (with Undo). Beside them, the move
+// that fits where the item is (I got it, Found it, Got it back, Mark as missing, Sold or gave it away): one tap, one PATCH, with Undo.
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { ItemDetailDto } from '@/api/generated/models';
+import type { ItemDetailDto, UpdateItemRequest } from '@/api/generated/models';
 import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLabels } from '@/features/library/labels';
+import { isInCollection } from '@/features/library/statuses';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { useMyRole } from '@/features/me/useMyRole';
 import { boundScanStore } from '@/features/review/boundScan';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
+import { ApiError } from '@/lib/http';
 import { useGoBackOr } from '@/lib/navigation';
 import { friendlyError } from '@/lib/problem';
-import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
+import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Snackbar, Text } from '@/ui';
 import { sharedCoverTag } from '@/ui/motion';
 import { breadcrumb } from './breadcrumb';
 import { headerThemeFromCover } from './coverColor';
+import { movesFor, patchFor, restoreOf, STATUS_MOVES, type StatusMoveName } from './statusMoves';
 import { UndoSnackbar } from './UndoSnackbar';
 import { useCoverAccent } from './useCoverAccent';
 import { useItemDetail, useItemMutations, useUndoStore } from './useItem';
+
+const MOVE_TOAST_MS = 10_000;
+
+/** A move that worked: what the toast says, and the patch (with the version it produced) that takes it back. */
+type DoneMove = { message: string; restore: UpdateItemRequest; etag: string | null };
 
 export function ItemDetailScreen({ id }: { id: string }) {
   const { libraryId, isLoading } = useActiveLibraryId();
@@ -47,6 +56,12 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   const setDeleted = useUndoStore((s) => s.setDeleted);
   const [moving, setMoving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [done, setDone] = useState<DoneMove | null>(null);
+  useEffect(() => {
+    if (!done) return;
+    const timer = setTimeout(() => setDone(null), MOVE_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [done]);
   // The header band takes its color from the cover when it can; without a cover
   // (or an unreadable one) it is the token surface, and either way the text on
   // it was contrast-checked. Detail screens only: lists never derive color.
@@ -71,6 +86,10 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   }
 
   const { item, work, release } = detail;
+  const moves = movesFor(item.status);
+  // "Also in your library" is what you have: a wishlisted or sold copy of the same work is not one of the copies.
+  const otherCopies = detail.otherCopies.filter((copy) => isInCollection(copy.status));
+  const copiesInLibrary = otherCopies.length + (isInCollection(item.status) ? 1 : 0);
   const title = item.customTitle ?? work.title;
   const facts = [formatLabels[release.format], release.platform?.name, release.year ?? work.originalYear, release.publisher]
     .filter(Boolean)
@@ -87,6 +106,36 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
           refetch();
         },
         onError: (e) => setMessage(friendlyError(e)),
+      },
+    );
+  };
+
+  // One tap, one PATCH with the version this screen loaded; the toast offers Undo, which sends the old values back.
+  const runMove = (name: StatusMoveName) => {
+    setMessage(null);
+    setDone(null);
+    const patch = patchFor(name);
+    const restore = restoreOf(item, patch);
+    update.mutate(
+      { id, data: patch, etag },
+      {
+        onSuccess: (response) => setDone({ message: STATUS_MOVES[name].done, restore, etag: response.headers.get('etag') }),
+        onError: (e) => setMessage(friendlyError(e)),
+      },
+    );
+  };
+
+  const undoMove = () => {
+    if (!done?.etag) return;
+    setMessage(null);
+    update.mutate(
+      { id, data: done.restore, etag: done.etag },
+      {
+        onSuccess: () => setDone(null),
+        onError: (e) => {
+          setDone(null);
+          setMessage(e instanceof ApiError && e.status === 412 ? "Couldn't undo. It changed since, so it stays as it is." : friendlyError(e));
+        },
       },
     );
   };
@@ -146,7 +195,7 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         <Text>{item.notes ?? 'None'}</Text>
       </Card>
 
-      {detail.otherCopies.length > 0 ? <Text tone="muted">{`${detail.otherCopies.length + 1} copies of this work`}</Text> : null}
+      {otherCopies.length > 0 ? <Text tone="muted">{`${copiesInLibrary} ${copiesInLibrary === 1 ? 'copy' : 'copies'} of this work`}</Text> : null}
 
       {message ? (
         <Text tone="danger" accessibilityRole="alert">
@@ -155,9 +204,23 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
       ) : null}
 
       {/* Viewers look; only owners and editors change things (the server refuses the rest with a 403). */}
+      {canEdit && (moves.primary || item.status === 'owned') ? (
+        <View style={styles.actions}>
+          {moves.primary ? (
+            <Button label={STATUS_MOVES[moves.primary].label} haptic="commit" busy={update.isPending} onPress={() => runMove(moves.primary!)} />
+          ) : null}
+          {item.status === 'owned' ? (
+            <Button label="Lend…" variant="secondary" onPress={() => router.push({ pathname: '/item/[id]/edit', params: { id, status: 'lent' } })} />
+          ) : null}
+          {moves.more.map((name) => (
+            <Button key={name} label={STATUS_MOVES[name].label} variant="secondary" disabled={update.isPending} onPress={() => runMove(name)} />
+          ))}
+        </View>
+      ) : null}
+
       {canEdit ? (
         <View style={styles.actions}>
-          <Button label="Edit" onPress={() => router.push(`/item/${id}/edit`)} />
+          <Button label="Edit" variant={moves.primary ? 'secondary' : 'primary'} onPress={() => router.push(`/item/${id}/edit`)} />
           <Button label="Move" variant="secondary" onPress={() => setMoving(!moving)} />
           <Button label="Delete" variant="danger" haptic="commit" onPress={del} busy={remove.isPending} />
         </View>
@@ -177,7 +240,8 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         </Sheet>
       ) : null}
 
-      <OtherCopies copies={detail.otherCopies} locations={locations} onOpen={(copyId) => router.push(`/item/${copyId}`)} />
+      <OtherCopies copies={otherCopies} locations={locations} onOpen={(copyId) => router.push(`/item/${copyId}`)} />
+      {done ? <Snackbar message={done.message} actionLabel={done.etag ? 'Undo' : undefined} onAction={undoMove} /> : null}
       <UndoSnackbar />
     </Screen>
   );

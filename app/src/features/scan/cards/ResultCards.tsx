@@ -10,10 +10,11 @@ import { Button, Cover, Text } from '@/ui';
 import { useOwnedLookup } from '@/features/offline/hooks';
 import { alternativesOf } from '@/features/review/grouping';
 import { isLocalCard } from './cardsStore';
-import { alreadyOwnLine, alsoOwnLine, describeCandidate, formatName, isPictureCandidate, slideDuration } from './copy';
+import { describeCandidate, isPictureCandidate, ownershipLine, slideDuration } from './copy';
 import { OwnedCard } from './OwnedCard';
 import { PickAlternatives } from './PickAlternatives';
-import { answerLineCap, CARD_WIDTH, clampFontScale, estimateStripHeight, staleLineCap } from './stripHeight';
+import { WishlistCard } from './WishlistCard';
+import { answerLineCap, CARD_WIDTH, clampFontScale, estimateStripHeight, noteLineCap, staleLineCap } from './stripHeight';
 
 export { useReduceMotion };
 export { CARD_WIDTH } from './stripHeight';
@@ -24,21 +25,19 @@ export { CARD_WIDTH } from './stripHeight';
  */
 function OwnedAnswerLine({ code, scale }: { code: string | null; scale: number }) {
   const answer = useOwnedLookup(code);
-  const first = answer.owned[0];
-  const soft = answer.softMatches[0];
-  const line = first
-    ? alreadyOwnLine(first.platform ?? formatName(first.format), first.locationPath, answer.owned.length)
-    : soft
-      ? alsoOwnLine(soft.platform ?? formatName(soft.format), soft.locationPath)
-      : answer.notInLibrary
-        ? answer.notInLibraryText
-        : null;
+  const said = ownershipLine(answer);
+  const line = said?.text ?? (answer.notInLibrary ? answer.notInLibraryText : null);
   if (!line) return null;
   return (
     <View accessibilityLiveRegion="polite">
-      <Text variant="label" tone={first ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
+      <Text variant="label" tone={said?.owned || answer.wishlistItemId ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
         {line}
       </Text>
+      {said?.note ? (
+        <Text variant="caption" tone="muted" numberOfLines={noteLineCap(scale)}>
+          {said.note}
+        </Text>
+      ) : null}
       {answer.staleMessage ? (
         <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}
@@ -48,21 +47,24 @@ function OwnedAnswerLine({ code, scale }: { code: string | null; scale: number }
   );
 }
 
-/** A new card's soft matches, informational only: Add stays the default (docs/02 §7). */
-function SoftAnswerLine({ releaseId, scale }: { releaseId: string; scale: number }) {
+/**
+ * A new card's other facts, informational only: Add stays the default (docs/02 §7). The same work in another shape, or that the
+ * library sold this release (the candidate says so online, the phone's own copy offline).
+ */
+function SoftAnswerLine({ releaseId, soldItemId, scale }: { releaseId: string; soldItemId: string | null; scale: number }) {
   const answer = useOwnedLookup({ releaseId });
-  const exact = answer.owned[0];
-  const soft = answer.softMatches[0];
-  const found = exact ?? soft;
-  if (!found) return null;
-  const line = exact
-    ? alreadyOwnLine(exact.platform ?? formatName(exact.format), exact.locationPath, answer.owned.length)
-    : alsoOwnLine(soft!.platform ?? formatName(soft!.format), soft!.locationPath);
+  const said = ownershipLine({ ...answer, soldItemId: answer.soldItemId ?? soldItemId });
+  if (!said) return null;
   return (
     <View accessibilityLiveRegion="polite">
-      <Text variant="label" tone={exact ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
-        {line}
+      <Text variant="label" tone={said.owned ? 'accent' : 'muted'} numberOfLines={answerLineCap(scale)}>
+        {said.text}
       </Text>
+      {said.note ? (
+        <Text variant="caption" tone="muted" numberOfLines={noteLineCap(scale)}>
+          {said.note}
+        </Text>
+      ) : null}
       {answer.staleMessage ? (
         <Text variant="caption" tone="muted" numberOfLines={staleLineCap(scale)}>
           {answer.staleMessage}
@@ -104,6 +106,12 @@ export type CardActions = {
   busy?: Record<string, boolean>;
   /** Candidates already put on the wishlist from their card. */
   wishlisted?: Record<string, true>;
+  /** Got it on a wishlist card, Found it on a missing one: the item becomes owned with one PATCH. */
+  onMoveItem?(candidate: CandidateDto, itemId: string, move: 'got-it' | 'found'): void;
+  /** Undo of the move above: puts the item back as it was. */
+  onUndoMoveItem?(candidate: CandidateDto): void;
+  /** Cards whose item was moved from the card (anywhere: the strip and the result screen share this), with what the card says now ("In your library"). */
+  moved?: Record<string, { message: string; canUndo: boolean }>;
 };
 
 export function ResultCard({ candidate, actions, reduceMotion }: { candidate: CandidateDto; actions: CardActions; reduceMotion: boolean }) {
@@ -169,6 +177,8 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
         </Pressable>
         {copy.kind === 'owned' ? (
           <OwnedCard candidate={candidate} copy={copy} actions={actions} scale={scale} />
+        ) : copy.kind === 'wishlist' ? (
+          <WishlistCard candidate={candidate} copy={copy} actions={actions} />
         ) : (
           <>
             {copy.status ? (
@@ -179,7 +189,9 @@ export function ResultCard({ candidate, actions, reduceMotion }: { candidate: Ca
             {(copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode ? (
               <OwnedAnswerLine code={candidate.rawCode} scale={scale} />
             ) : null}
-            {copy.kind === 'new' && candidate.release ? <SoftAnswerLine releaseId={candidate.release.id} scale={scale} /> : null}
+            {copy.kind === 'new' && candidate.release ? (
+              <SoftAnswerLine releaseId={candidate.release.id} soldItemId={candidate.soldItemId ?? null} scale={scale} />
+            ) : null}
             {copy.kind === 'added' && actions.onUndoAutoCommit ? (
               <Button
                 label="Undo"

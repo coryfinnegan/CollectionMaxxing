@@ -153,12 +153,14 @@ public static class DecideCandidate
             candidate.GuidanceCode = null; // picked: a resolved row carries no guidance
             candidate.Score = chosen?.Score ?? candidate.Score;
             candidate.AlreadyOwnedCount = owned.Count;
-            candidate.TraceJson = CandidateJson.Serialize(trace with { OwnedAt = CandidateResolver.OwnedAt(owned) });
+            candidate.TraceJson = CandidateJson.Serialize(
+                trace with { OwnedAt = CandidateResolver.OwnedAt(owned), WishlistItemId = owned.WishlistItemId, SoldItemId = owned.SoldItemId });
 
-            // Picking is a choice to add this one, unless the library already has it: then the person has to say so.
+            // Picking is a choice to add this one, unless the library already has it, or has it on the wishlist (Got it, on its card,
+            // is how that one comes in): then the person has to say so.
             if (!decisionGiven)
             {
-                candidate.Decision = owned.Count > 0 ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                candidate.Decision = owned.Count > 0 || owned.WishlistItemId is not null ? CandidateDecision.Rejected : CandidateDecision.Accepted;
             }
 
             return null;

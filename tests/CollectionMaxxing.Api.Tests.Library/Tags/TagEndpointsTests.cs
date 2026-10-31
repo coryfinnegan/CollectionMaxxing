@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.TestSupport;
 
@@ -181,6 +182,24 @@ public class TagEndpointsTests(ApiFixture api) : ApiTest(api)
         var response = await ClientFor(library, LibraryRole.Editor).DeleteAsync(TagUrl(library.Id, Guid.CreateVersion7()));
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_tags_item_count_is_the_items_in_your_library_so_it_agrees_with_the_list_filtered_by_that_tag()
+    {
+        var library = await CreateLibraryAsync();
+        var editor = ClientFor(library, LibraryRole.Editor);
+        var tag = await TestData.CreateTagAsync(Db, library.Id, "Vinyl");
+        foreach (var status in new[] { ItemStatus.Owned, ItemStatus.Lent, ItemStatus.Missing, ItemStatus.Wishlist, ItemStatus.Sold })
+        {
+            await TestData.AttachTagAsync(Db, library.Id, await TestData.CreateItemAsync(Db, library, status: status), tag);
+        }
+
+        var count = await ItemCountOfAsync(editor, library.Id);
+
+        var listed = await ReadJsonAsync(await editor.GetAsync($"/api/v1/libraries/{library.Id}/items?tag=Vinyl"));
+        count.ShouldBe(3); // owned, lent and missing: not the wishlisted or the sold one
+        listed.GetProperty("items").GetArrayLength().ShouldBe(count);
     }
 
     /// <summary>The <c>itemCount</c> of the library's only tag.</summary>
