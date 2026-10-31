@@ -11,6 +11,11 @@
   Phases are restore, build, format, test and app; with no arguments all of them run. CI runs one phase per step so
   timings and failures localize (the backend job skips the app phase; the app job owns npm run check).
   Full output of the last failing step is kept in the file named in the failure message.
+
+  Environment: CM_TEST_ONLY limits the test phase to the named test projects (whitespace-separated basenames).
+  CM_TEST_FILTER hands a VSTest filter expression (`dotnet test --filter`) to every selected project; see check.sh for
+  the syntax. A filter that matches nothing fails, because an empty CI shard would hide a coverage gap.
+  CM_SHARD_REPORT (a file path, with CM_TEST_FILTER) records "project listed-in-shard listed-in-suite ran" per project.
 #>
 [CmdletBinding()]
 param(
@@ -147,25 +152,59 @@ if (Test-Want 'test') {
 # Every tests/ project except the two support libraries (see tests/Directory.Build.targets), each in its own process at
 # the same time. A project that needs Postgres starts its own container, so lanes never see each other's data.
 $skipLibs = @('CollectionMaxxing.TestSupport', 'CollectionMaxxing.Api.TestKit')
-$lanes = Get-ChildItem 'tests/*/*.csproj' | Where-Object { $_.BaseName -notin $skipLibs } | Sort-Object FullName
+$lanes = @(Get-ChildItem 'tests/*/*.csproj' | Where-Object { $_.BaseName -notin $skipLibs } | Sort-Object FullName)
+if ($env:CM_TEST_ONLY) {
+  $only = @($env:CM_TEST_ONLY -split '\s+' | Where-Object { $_ })
+  $lanes = @($lanes | Where-Object { $_.BaseName -in $only })
+  if ($lanes.Count -eq 0) {
+    Write-Host "test: CM_TEST_ONLY matched no test projects ('$($env:CM_TEST_ONLY)')"
+    exit 2
+  }
+}
+$testFilter = $env:CM_TEST_FILTER
+$listedCounts = @{}
+$totalCounts = @{}
+if ($testFilter) {
+  # Discovery only (nothing runs, no Docker needed): how many tests the filter selects, and how many the project has.
+  function Get-ListedCount([string]$Proj, [string]$Filter, [string]$Log) {
+    $listArgs = @('--no-build', '--list-tests')
+    if ($Filter) { $listArgs += @('--filter', $Filter) }
+    $out = @(& dotnet test $Proj @listArgs 2>&1 | ForEach-Object { "$_" })
+    Set-Content -Path $Log -Value $out
+    @($out | Where-Object { $_ -match '^    \S' }).Count
+  }
+  if ($env:CM_SHARD_REPORT) { Remove-Item -Force -ErrorAction SilentlyContinue $env:CM_SHARD_REPORT }
+  foreach ($lane in $lanes) {
+    $listLog = Join-Path $logDir ("list-" + $lane.BaseName + ".log")
+    $listedCounts[$lane.BaseName] = Get-ListedCount $lane.FullName $testFilter $listLog
+    if ($listedCounts[$lane.BaseName] -eq 0) {
+      Write-Failure "test $($lane.BaseName): CM_TEST_FILTER matches no tests (an empty shard would hide a coverage gap)" @("filter: $testFilter") $listLog
+    }
+    if ($env:CM_SHARD_REPORT) {
+      $totalCounts[$lane.BaseName] = Get-ListedCount $lane.FullName '' (Join-Path $logDir ("list-" + $lane.BaseName + "-all.log"))
+    }
+  }
+}
 $perfLog = Join-Path $logDir 'postgres-perf.log'
 Remove-Item -Force -ErrorAction SilentlyContinue $perfLog
 $root = (Get-Location).Path
 $wallTimer = [System.Diagnostics.Stopwatch]::StartNew()
 $jobs = foreach ($lane in $lanes) {
   Start-Job -ScriptBlock {
-    param($Root, $Proj, $Log, $PerfLog)
+    param($Root, $Proj, $Log, $PerfLog, $Filter)
     Set-Location $Root
     $env:DOTNET_NOLOGO = '1'
     $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
     $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
     $env:CM_PERF_LOG = $PerfLog
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
-    dotnet test $Proj --no-build --logger 'console;verbosity=minimal' > $Log 2>&1
+    $testArgs = @('--no-build', '--logger', 'console;verbosity=minimal')
+    if ($Filter) { $testArgs += @('--filter', $Filter) }
+    dotnet test $Proj @testArgs > $Log 2>&1
     $code = $LASTEXITCODE
     $timer.Stop()
     [pscustomobject]@{ Name = [System.IO.Path]::GetFileNameWithoutExtension($Proj); Code = $code; Seconds = [int][math]::Ceiling($timer.Elapsed.TotalSeconds) }
-  } -ArgumentList @($root, $lane.FullName, (Join-Path $logDir ("test-" + $lane.BaseName + ".log")), $perfLog)
+  } -ArgumentList @($root, $lane.FullName, (Join-Path $logDir ("test-" + $lane.BaseName + ".log")), $perfLog, $testFilter)
 }
 $jobs | Wait-Job | Out-Null
 $wallTimer.Stop()
@@ -200,7 +239,18 @@ foreach ($lane in $lanes) {
     }
     Write-Failure "test $name ($lpassed passed, $lfailed failed, $lskipped skipped)" $details $log
   }
+  if ($testFilter -and ($lpassed -eq 0)) {
+    Write-Failure "test ${name}: CM_TEST_FILTER ran no tests (an empty shard would hide a coverage gap)" @("filter: $testFilter") $log
+  }
   Write-Ok "test ${name}: $lpassed passed ($($result.Seconds)s)"
+  if ($testFilter) {
+    $total = if ($totalCounts.ContainsKey($name)) { $totalCounts[$name] } else { '?' }
+    Write-Host "     shard: $($listedCounts[$name]) of $total listed tests"
+    if ($env:CM_SHARD_REPORT) {
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $env:CM_SHARD_REPORT) | Out-Null
+      Add-Content -Path $env:CM_SHARD_REPORT -Value "$name $($listedCounts[$name]) $total $lpassed"
+    }
+  }
   $failed += $lfailed; $passed += $lpassed; $skipped += $lskipped
   if ($lskipped -gt 0) { $skippedLanes += $name }
 }
