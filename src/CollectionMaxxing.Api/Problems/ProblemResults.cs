@@ -25,7 +25,7 @@ public static class ProblemResults
             "This endpoint is part of the v1 contract but has not been built yet.",
             "not_implemented");
 
-    /// <summary>Turns a business-rule failure into 400 (validation), 404 (not found) or 409 (conflict).</summary>
+    /// <summary>Turns a business-rule failure into 400 (validation), 403 (forbidden), 404 (not found) or 409 (conflict).</summary>
     public static IResult ToProblem(this DomainError error) => error.Kind switch
     {
         ErrorKind.Validation => TypedResults.ValidationProblem(
@@ -34,6 +34,7 @@ public static class ProblemResults
             extensions: Extensions(error.Code)),
         ErrorKind.NotFound => Problem(StatusCodes.Status404NotFound, "Not found", error.Message, error.Code),
         ErrorKind.Conflict => Problem(StatusCodes.Status409Conflict, "Conflict", error.Message, error.Code),
+        ErrorKind.Forbidden => Problem(StatusCodes.Status403Forbidden, "Forbidden", error.Message, error.Code),
         _ => throw new ArgumentOutOfRangeException(nameof(error)),
     };
 

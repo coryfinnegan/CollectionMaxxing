@@ -244,10 +244,18 @@ public static class IdentifyItems
         /// resolved through the same identify path as a fresh read — scored as a cover. A match on the bound item's own
         /// work upgrades its release link in place and verifies it; anything else leaves a T2 row for review and the item
         /// is never touched, and a proof never auto-adds. Safe to retry: the same <c>snapId</c> gets the same row back.
+        /// Only an owner or editor may send one (<see cref="EditionProofAccess"/>); a viewer gets a 403 before anything is read.
         /// </summary>
         private async Task<Result<CandidatesDto>> HandleBoundItemAsync(
             Command command, ScanSession session, Guid userId, CancellationToken cancellationToken)
         {
+            // Before anything is looked up or written: a proof can rewrite an item, which a viewer may not do, and the answer
+            // must not depend on whether the item exists (a viewer could otherwise tell real item ids from made-up ones).
+            if (!EditionProofAccess.Allows(currentUser.RoleIn(session.LibraryId)))
+            {
+                return EditionProofAccess.EditorRequired;
+            }
+
             var input = command.Input;
             var itemId = input.BoundItemId!.Value;
             var item = await db.Items.FirstOrDefaultAsync(
@@ -363,7 +371,7 @@ public static class IdentifyItems
                 }
 
                 await resolver.ApplyAsync(session.LibraryId, candidate, answer, cancellationToken);
-                if (!await ProofUpgrade.TryApplyAsync(db, session, candidate, itemId, clock, cancellationToken)
+                if (!await ProofUpgrade.TryApplyAsync(db, session, candidate, itemId, currentUser.RoleIn(session.LibraryId), clock, cancellationToken)
                     && candidate.Resolution != CandidateResolution.Pending)
                 {
                     candidate.Tier = ScanTier.T2; // a proof that disagrees is reviewed; the item is never touched
