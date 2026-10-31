@@ -3,7 +3,7 @@ using System.Text;
 namespace CollectionMaxxing.Domain.Catalog.Matching;
 
 /// <summary>
-/// Headline casing for display (#353): provider titles arrive sentence-cased ("So you want to be a wizard") or all-caps
+/// Headline casing for display: provider titles arrive sentence-cased ("So you want to be a wizard") or all-caps
 /// and would look sloppy next to well-cased ones, so every read path shows <see cref="ToTitleCase"/> of the stored title.
 /// Stored titles stay verbatim, and a person's CustomTitle never passes through here.
 /// </summary>

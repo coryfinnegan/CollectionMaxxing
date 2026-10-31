@@ -507,6 +507,93 @@ public class ExportTests(ApiFixture api) : ApiTest(api)
     }
 
     [Fact]
+    public async Task A_tab_or_a_carriage_return_in_front_of_a_formula_is_neutralised_too()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await TestData.CreateReleaseAsync(Db);
+        var titles = new[] { "\t=SUM(1;1)", "\r=SUM(2;2)" };
+        await using (var context = Db.CreateContext())
+        {
+            context.Items.AddRange(titles.Select(title => NewItem(library, releaseId, title)));
+            await context.SaveChangesAsync();
+        }
+
+        await using var host = new Host(Api);
+        var rows = ParseCsv((await ExportAsync(host, library.OwnerId))["items.csv"]);
+
+        rows.Select(r => r["title"]).Order().ShouldBe(new[] { "'\t=SUM(1;1)", "'\r=SUM(2;2)" }.Order());
+    }
+
+    /// <summary>Adds an item with no title of its own, of a new work and one release of it.</summary>
+    private async Task<Guid> AddUntitledItemAsync(TestLibrary library, string workTitle, int? originalYear, DateOnly? releaseDate)
+    {
+        await using var context = Db.CreateContext();
+        var work = new Work
+        {
+            Id = Guid.CreateVersion7(),
+            Kind = WorkKind.Film,
+            Title = workTitle,
+            SortTitle = workTitle,
+            NormalizedTitle = workTitle.ToLowerInvariant(),
+            OriginalYear = originalYear,
+            CreatedAt = Start,
+        };
+        var release = new Release
+        {
+            Id = Guid.CreateVersion7(),
+            WorkId = work.Id,
+            Format = ReleaseFormat.Dvd,
+            ReleaseDate = releaseDate,
+            Source = ReleaseSource.Provider,
+            CreatedAt = Start,
+        };
+        var item = NewItem(library, release.Id);
+        context.Works.Add(work);
+        context.Releases.Add(release);
+        context.Items.Add(item);
+        await context.SaveChangesAsync();
+        return item.Id;
+    }
+
+    [Fact]
+    public async Task The_year_is_the_editions_own_and_falls_back_to_the_works_when_the_edition_has_no_date()
+    {
+        var library = await CreateLibraryAsync();
+        var reissue = await AddUntitledItemAsync(library, "Reissued Film", originalYear: 1985, releaseDate: new DateOnly(2003, 6, 1));
+        var undated = await AddUntitledItemAsync(library, "Undated Film", originalYear: 1972, releaseDate: null);
+        await using var host = new Host(Api);
+
+        var files = await ExportAsync(host, library.OwnerId);
+
+        var csv = ParseCsv(files["items.csv"]).ToDictionary(r => r["title"], r => r["year"]);
+        csv["Reissued Film"].ShouldBe("2003", "the edition's year, not the work's 1985");
+        csv["Undated Film"].ShouldBe("1972");
+        var json = JsonDocument.Parse(files["items.json"]).RootElement.EnumerateArray()
+            .ToDictionary(e => e.GetProperty("id").GetGuid(), e => e.GetProperty("year").GetInt32());
+        json[reissue].ShouldBe(2003);
+        json[undated].ShouldBe(1972);
+    }
+
+    [Fact]
+    public async Task A_work_title_with_no_title_of_the_persons_own_is_exported_title_cased()
+    {
+        var library = await CreateLibraryAsync();
+        var plain = await AddUntitledItemAsync(library, "the legend of zelda", originalYear: 1986, releaseDate: null);
+        await using (var context = Db.CreateContext())
+        {
+            context.Items.Add(NewItem(library, await TestData.CreateReleaseAsync(Db, title: "the matrix"), "own title, kept as typed"));
+            await context.SaveChangesAsync();
+        }
+
+        await using var host = new Host(Api);
+        var files = await ExportAsync(host, library.OwnerId);
+
+        ParseCsv(files["items.csv"]).Select(r => r["title"]).Order().ShouldBe(new[] { "own title, kept as typed", "The Legend of Zelda" }.Order());
+        var json = JsonDocument.Parse(files["items.json"]).RootElement.EnumerateArray().ToDictionary(e => e.GetProperty("id").GetGuid());
+        json[plain].GetProperty("title").GetString().ShouldBe("The Legend of Zelda");
+    }
+
+    [Fact]
     public async Task Another_user_cannot_see_poll_or_download_an_export_that_is_not_theirs()
     {
         var seeded = await SeedAsync();

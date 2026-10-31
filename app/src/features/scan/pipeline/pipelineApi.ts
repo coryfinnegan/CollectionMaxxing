@@ -1,7 +1,7 @@
 // The pipeline's calls to the API, through the generated client. Identify and :art are JSON; :verify-cover posts the
 // cover capture (multipart), the one picture that leaves the phone from the pipeline.
 import { identifyItems, scoreCandidateArtwork, verifyCoverArtwork } from '@/api/generated/scanning/scanning';
-import type { CandidateDto, IdentifyRequest } from '@/api/generated/models';
+import type { CandidateDto, CreateScanSessionRequest, IdentifyRequest } from '@/api/generated/models';
 import { ApiError } from '@/lib/http';
 import { createSessionOnce } from '../session/sessionApi';
 
@@ -11,7 +11,8 @@ export interface ArtDistance {
 }
 
 export interface PipelineApi {
-  createSession(libraryId: string): Promise<string>;
+  /** Makes the library's scan session, with the context (location, status, media, channel) Review inherits. */
+  createSession(libraryId: string, body?: CreateScanSessionRequest): Promise<string>;
   /** One call per snap. The server answers every item it could settle at once and streams the rest. */
   identify(sessionId: string, request: IdentifyRequest): Promise<CandidateDto[]>;
   /** The artwork distances for one close call. Resolves to the re-scored candidate, or undefined when the server leaves it as it is (409). */

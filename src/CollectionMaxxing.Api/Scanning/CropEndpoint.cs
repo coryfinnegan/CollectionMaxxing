@@ -1,4 +1,4 @@
-using System.Buffers;
+using CollectionMaxxing.Api.Http;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Application.Scanning.Photo;
 using CollectionMaxxing.Application.Scanning.Provisional;
@@ -82,7 +82,8 @@ internal static class CropEndpoint
                     return Bad("scan.crop_one_file", "Send exactly one file.");
                 }
 
-                file = await ReadCappedAsync(section.Body, cancellationToken);
+                // A part has no declared length, so it is read in chunks. Null is a picture over the cap.
+                file = await BoundedBody.ReadAsync(section.Body, JpegSanitizer.CropMaxBytes, declaredLength: null, cancellationToken);
                 if (file is null)
                 {
                     return TooLarge();
@@ -107,32 +108,6 @@ internal static class CropEndpoint
 
         var result = await handler.HandleAsync(new UploadCandidateCrop.Command(id, cid, file), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToProblem();
-    }
-
-    /// <summary>Reads at most <see cref="JpegSanitizer.CropMaxBytes"/> bytes. Null when there is more: the rest is never read.</summary>
-    private static async Task<byte[]?> ReadCappedAsync(Stream body, CancellationToken cancellationToken)
-    {
-        using var buffer = new MemoryStream();
-        var chunk = ArrayPool<byte>.Shared.Rent(16 * 1024);
-        try
-        {
-            int read;
-            while ((read = await body.ReadAsync(chunk, cancellationToken)) > 0)
-            {
-                if (buffer.Length + read > JpegSanitizer.CropMaxBytes)
-                {
-                    return null;
-                }
-
-                buffer.Write(chunk, 0, read);
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(chunk);
-        }
-
-        return buffer.ToArray();
     }
 
     private static IResult Bad(string code, string detail) => ProblemResults.Problem(StatusCodes.Status400BadRequest, "Bad request", detail, code);

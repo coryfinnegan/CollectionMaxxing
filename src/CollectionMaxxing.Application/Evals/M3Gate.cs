@@ -3,9 +3,9 @@ using System.Globalization;
 namespace CollectionMaxxing.Application.Evals;
 
 /// <summary>
-/// The M3 gate (docs/02, "The M3 gate"): what the app shows must meet every bar below on the golden photos. Since ADR-032 that is the
-/// combined row (<see cref="MeasuredEngine"/>, built by <see cref="EvalCombination"/>): on a shelf Vision's items plus the model's
-/// unconfirmed additions, on a single cover the model's own read with the cover checks. The bars are the ones docs/02 always had.
+/// The M3 gate (docs/02, "The M3 gate"): what the app shows must meet every bar below on the golden photos. That is the
+/// combined row (<see cref="MeasuredEngine"/>, built by <see cref="EvalCombination"/>, ADR-032): on a shelf Vision's items plus the model's
+/// unconfirmed additions, on a single cover the model's own read with the cover checks. The bars are the ones in docs/02.
 /// Pure: the numbers come from <see cref="EvalScorer"/>. A measure with no photos behind it is <c>no_data</c>, which keeps
 /// the verdict from saying <c>pass</c> on a golden set that does not cover everything yet.
 /// </summary>
@@ -22,7 +22,7 @@ namespace CollectionMaxxing.Application.Evals;
 /// </remarks>
 public static class M3Gate
 {
-    /// <summary>The Apple model's own row. The gate no longer measures it (ADR-032); it is read for the model's timeouts and for the comparison with Vision text.</summary>
+    /// <summary>The Apple model's own row. The gate does not measure it (ADR-032); it is read for the model's timeouts and for the comparison with Vision text.</summary>
     public const string Engine = "apple_model";
     public const string VisionEngine = "vision_pipeline";
 
@@ -77,8 +77,8 @@ public static class M3Gate
             measures.Add(Measure($"top3.{kind}", $">= {target.Top3:0.#}%", actual is null ? null : $"{actual:0.##}%", actual is { } a ? a >= target.Top3 : null));
         }
 
-        // Information, not a bar (ADR-032): the question of whether the model beats Vision text is settled. It compares the model's own row
-        // with Vision's, shows the numbers, and the verdict ignores it.
+        // Information, not a bar (ADR-032): it compares the model's own row with Vision's, shows the numbers, and the verdict
+        // ignores it.
         var modelTop1 = OverallTop1(model);
         var visionTop1 = OverallTop1(vision);
         var beats = modelTop1 is { } at && visionTop1 is { } vt ? at > vt : (bool?)null;
