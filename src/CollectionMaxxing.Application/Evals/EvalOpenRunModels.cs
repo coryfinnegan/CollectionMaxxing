@@ -20,6 +20,8 @@ public sealed record EvalRunPhoto(string Id, string Set);
 /// What the PC keeps of an open run besides its photos (<c>run.json</c>): who opened it, the golden photos it covers in reading order, and where
 /// it is. <c>Refused</c> lists the photos the PC refused alone (with the problem code), so the phone does not read them again and the score lists
 /// them as skipped. <c>Failure</c> is the last problem scoring hit (for example a results folder that could not be written); the PC tries again.
+/// <c>OpenedBy</c> is the person who opened the run: the background grounding acts as them, with the libraries they belong to when it grounds a photo
+/// (null when unknown, and then it grounds as nobody).
 /// </summary>
 public sealed record OpenRunHeader(
     string RunId,
@@ -32,7 +34,8 @@ public sealed record OpenRunHeader(
     bool Partial = false,
     DateTimeOffset? FinishedAt = null,
     IReadOnlyList<SkippedPhoto>? Refused = null,
-    string? Failure = null);
+    string? Failure = null,
+    Guid? OpenedBy = null);
 
 /// <summary>
 /// One photo as the phone sent it, after its checks: the engine results that passed and, for each that did not, why. Kept until the PC has grounded

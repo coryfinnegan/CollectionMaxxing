@@ -43,6 +43,7 @@ public static class OpenEvalRun
         IEvalRunStore store,
         EvalRunCoordinator coordinator,
         IIdGenerator ids,
+        ICurrentUser currentUser,
         TimeProvider clock,
         ILogger<Handler> logger)
     {
@@ -95,7 +96,8 @@ public static class OpenEvalRun
                 new EvalDevice(input.Device!.Model!.Trim(), input.Device.OsVersion!.Trim(), input.Device.AppVersion!.Trim()),
                 input.ConfigVersion!.Trim(),
                 note,
-                photos);
+                photos,
+                OpenedBy: currentUser.UserId);
             try
             {
                 store.Create(header);

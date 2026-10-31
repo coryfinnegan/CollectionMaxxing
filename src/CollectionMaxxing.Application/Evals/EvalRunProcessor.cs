@@ -1,3 +1,5 @@
+using CollectionMaxxing.Application.Accounts;
+using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Domain.Common;
 using Microsoft.Extensions.Logging;
 
@@ -66,6 +68,8 @@ public sealed class EvalRunProcessor(
     IEvalRunStore store,
     EvalRunCoordinator coordinator,
     EvalRunScoring scoring,
+    CurrentUser currentUser,
+    IMembershipReader memberships,
     TimeProvider clock,
     ILogger<EvalRunProcessor> logger)
 {
@@ -99,7 +103,7 @@ public sealed class EvalRunProcessor(
                 continue;
             }
 
-            await GroundAsync(header.RunId, photo.Id, progress, cancellationToken);
+            await GroundAsync(header, photo.Id, progress, cancellationToken);
             return EvalRunStep.Worked;
         }
 
@@ -111,8 +115,9 @@ public sealed class EvalRunProcessor(
         return header.State == OpenRunState.Finishing ? await ScoreAsync(header.RunId, progress, cancellationToken) : EvalRunStep.Idle;
     }
 
-    private async Task GroundAsync(string runId, string photoId, EvalRunProgress progress, CancellationToken cancellationToken)
+    private async Task GroundAsync(OpenRunHeader header, string photoId, EvalRunProgress progress, CancellationToken cancellationToken)
     {
+        var runId = header.RunId;
         long version = 0;
         try
         {
@@ -133,6 +138,13 @@ public sealed class EvalRunProcessor(
             {
                 logger.LogWarning("A stored eval photo could not be read, so it was dropped and will be asked for again.");
                 return;
+            }
+
+            // A job has no signed-in caller. It acts as the person who opened the run, with the libraries they belong to now, so it sees the
+            // catalogue as the one-shot route and the scanner do for them (a release a library made for itself is private to its members).
+            if (header.OpenedBy is { } opener)
+            {
+                currentUser.Initialize(opener, await memberships.GetMembershipsAsync(opener, cancellationToken));
             }
 
             var grounded = new List<GroundedPhoto>(photo.Results.Count);

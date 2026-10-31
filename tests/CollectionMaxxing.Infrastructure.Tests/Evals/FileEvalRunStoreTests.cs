@@ -71,6 +71,23 @@ public sealed class FileEvalRunStoreTests : IDisposable
     }
 
     [Fact]
+    public void The_person_who_opened_the_run_comes_back_with_it_and_a_run_written_without_one_reads_as_nobody()
+    {
+        var opener = Guid.CreateVersion7();
+        var store = Store();
+
+        store.Create(Header() with { OpenedBy = opener });
+        Store().Load()!.OpenedBy.ShouldBe(opener);
+
+        File.WriteAllText(
+            Path.Combine(_golden.Results, "open-run", "run.json"),
+            """{ "runId": "old", "openedAt": "2026-10-31T12:00:00+00:00", "device": { "model": "m", "osVersion": "o", "appVersion": "a" }, "configVersion": "c", "photos": [], "state": "Open" }""");
+        var older = Store().Load()!;
+        older.RunId.ShouldBe("old");
+        older.OpenedBy.ShouldBeNull();
+    }
+
+    [Fact]
     public void A_stored_photo_comes_back_with_its_enums_items_and_notes()
     {
         var store = Store();
