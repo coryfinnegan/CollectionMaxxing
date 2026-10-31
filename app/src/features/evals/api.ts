@@ -1,12 +1,35 @@
 // The eval routes (EVAL-1a, and adding golden photos from the phone), owner only. The photo itself is downloaded by `files.ts`, not through this client.
-import { addGoldenPhoto, listGoldenPhotos, submitEvalRun } from '@/api/generated/admin/admin';
-import type { EvalRunRequest, EvalRunResult, GoldenPhotoDto } from '@/api/generated/models';
+import {
+  addGoldenPhoto,
+  discardEvalRun,
+  finishEvalRun,
+  getOpenEvalRun,
+  listGoldenPhotos,
+  openEvalRun,
+  storeEvalPhoto,
+} from '@/api/generated/admin/admin';
+import type { EvalOpenRunRequest, EvalOpenRunStatus, EvalPhotoResult, EvalPhotoStored, GoldenPhotoDto } from '@/api/generated/models';
+import { ApiError } from '@/lib/http';
+
+/** The problem codes that say the run the phone was working on is no longer there to take photos. */
+export const RUN_GONE_CODES = ['evals.no_open_run', 'evals.run_not_open'] as const;
 
 export interface EvalApi {
   /** Rejects with the server's error (404 evals off, 403 not the owner). */
   list(): Promise<GoldenPhotoDto[]>;
-  /** `partial: true` marks a cancelled run; the server shows it as "N of M photos" and never counts it as a pass or a baseline. */
-  submit(body: EvalRunRequest): Promise<EvalRunResult>;
+  /** The run the PC holds, with the photos it has, or undefined when there is none. Rejects with the server's error otherwise (404 evals off, 403 not the owner). */
+  openRun(): Promise<EvalOpenRunStatus | undefined>;
+  /** Opens a run on the PC. Rejects with an `ApiError`: 409 `evals.run_open` when one is already open. */
+  startRun(body: EvalOpenRunRequest): Promise<EvalOpenRunStatus>;
+  /**
+   * Sends one photo's readings (every engine) and resolves once the PC has them stored: it grounds them later, in the background. Sending a photo again
+   * replaces it. Rejects with an `ApiError` when the PC refuses the photo (400, which is final) or the run is gone (404/409).
+   */
+  sendPhoto(photoId: string, results: EvalPhotoResult[]): Promise<EvalPhotoStored>;
+  /** Tells the PC to score the run once it has grounded what it holds. `partial: true` is a run stopped early. */
+  finishRun(partial: boolean): Promise<EvalOpenRunStatus>;
+  /** Throws the open run, and everything the PC stored for it, away. */
+  discardRun(): Promise<void>;
 }
 
 export const evalApi: EvalApi = {
@@ -15,10 +38,38 @@ export const evalApi: EvalApi = {
     if (response.status !== 200) throw new Error(`The golden list answered ${response.status}.`);
     return response.data;
   },
-  async submit(body) {
-    const response = await submitEvalRun(body);
-    if (response.status !== 200) throw new Error(`The run was not saved (${response.status}).`);
+  async openRun() {
+    try {
+      const response = await getOpenEvalRun();
+      if (response.status !== 200) throw new Error(`The open run answered ${response.status}.`);
+      return response.data;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404 && error.problem.code === 'evals.no_open_run') return undefined;
+      throw error;
+    }
+  },
+  async startRun(body) {
+    const response = await openEvalRun(body);
+    if (response.status !== 201) throw new Error(`The run was not opened (${response.status}).`);
     return response.data;
+  },
+  async sendPhoto(photoId, results) {
+    const response = await storeEvalPhoto(photoId, { results });
+    if (response.status !== 200) throw new Error(`The photo was not saved (${response.status}).`);
+    return response.data;
+  },
+  async finishRun(partial) {
+    const response = await finishEvalRun(partial ? { partial: true } : {});
+    if (response.status !== 202) throw new Error(`The run was not finished (${response.status}).`);
+    return response.data;
+  },
+  async discardRun() {
+    try {
+      await discardEvalRun();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404 && error.problem.code === 'evals.no_open_run') return; // already gone
+      throw error;
+    }
   },
 };
 
