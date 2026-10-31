@@ -4,19 +4,22 @@
 
 .DESCRIPTION
   Plain PowerShell plus `gh`; it never starts a model by itself. Each pass:
-    1. reads C:\CollectionMaxxing\.env (CM_AGENT_ENABLED, CM_AGENT_REPO, CM_AGENT_MAX_RUNS_PER_DAY, CM_AGENT_MAX_MINUTES);
-       with the agent switched off it exits at once;
+    1. reads C:\CollectionMaxxing\.env (CM_AGENT_ENABLED, CM_AGENT_REPO, CM_AGENT_MAX_RUNS_PER_DAY, CM_AGENT_MAX_MINUTES,
+       and CM_SECRETS_DIR for the long-lived Claude Code token in agent\claude-token); with the agent switched off it
+       exits at once;
     2. closes out an earlier run whose process is gone (or kills one past its time limit) and marks its issue
        agent-blocked when it did not finish;
     3. stops when a run is still alive or the daily cap is reached;
     4. otherwise asks GitHub for open issues labelled agent-task (one call), picks the most urgent one written by the
-       repo owner, claims it (agent-working), makes a worktree from origin/main in the owner's checkout and starts
-       `claude -p` on it, detached, in a headless console. The watcher then exits; the next pass finds the run done.
+       repo owner, checks that Claude Code can sign in (a token file, else `claude auth status`; signed out means
+       nothing is picked and one alert issue is opened for the owner), claims the issue (agent-working), makes a worktree
+       from origin/main in the owner's checkout and starts `claude -p` on it, detached, in a headless console. The
+       watcher then exits; the next pass finds the run done.
 
   Without -Apply this script changes nothing: it makes the read-only gh calls and prints what a real pass would do.
   -WhatIf does the same.
-  Exit codes: 0 fine or nothing to do, 1 a run could not be started, 2 config refused (no checkout, no claude),
-  3 GitHub not reachable.
+  Exit codes: 0 fine or nothing to do, 1 a run could not be started, 2 config refused (no checkout, no claude, Claude
+  Code signed out), 3 GitHub not reachable.
 
 .EXAMPLE
   pwsh -NoProfile -File Watch-AgentIssues.ps1            # dry run: prints what it would do

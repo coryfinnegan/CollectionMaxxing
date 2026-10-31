@@ -13,6 +13,9 @@
 #     failing is not asked again for 15 minutes (the alert is kept and filed when gh works), and at most 10 issue
 #     writes (create, comment, close) happen a day.
 #   * Everything that leaves the PC goes through Hide-CmAlertText first.
+#   * The issue agent (deploy/agent) files a kind of its own the same way: it passes its definition to Invoke-CmAlertRaise,
+#     which may also say who opens it (Opener), what its log is called (LogName), that it has no commits to show
+#     (NoCommits) and how often it may repeat itself (RepeatSeconds).
 # CM_ALERT_ISSUES=0 in .env (or the process environment) turns issue filing off; the log line and the ping stay.
 #Requires -Version 7.0
 
@@ -42,6 +45,13 @@ function Format-CmAlertTime {
     param([DateTime]$Utc, [switch]$Seconds)
     $format = if ($Seconds) { 'yyyy-MM-dd HH:mm:ss' } else { 'yyyy-MM-dd HH:mm' }
     $Utc.ToUniversalTime().ToString($format, [Globalization.CultureInfo]::InvariantCulture) + ' UTC'
+}
+
+function Get-CmAlertRepeat {
+    <# Seconds between two comments on one open issue: an hour, unless the kind's definition says otherwise. #>
+    param($Def)
+    if ($Def -and $Def['RepeatSeconds']) { return [long]$Def['RepeatSeconds'] }
+    $script:CmAlertRepeatSeconds
 }
 
 function Get-CmShortSha {
@@ -277,15 +287,20 @@ function Format-CmAlertBody {
     $lines.Add("| Kind | $tick$Kind$tick |")
     $lines.Add("| When | $(Format-CmAlertTime $Seen -Seconds) |")
     if ("$($Result.Outcome)" -and "$($Result.Outcome)" -ne $Kind) { $lines.Add("| Outcome | $tick$($Result.Outcome)$tick (exit $($Result.ExitCode)) |") }
-    $lines.Add("| Running commit | $(if ($deployed) { "$tick$deployed$tick" } else { 'none on record' }) |")
-    $lines.Add("| New commit | $(if ($new) { "$tick$new$tick" } else { 'not known at this point' }) |")
+    if (-not $Def['NoCommits']) {
+        $lines.Add("| Running commit | $(if ($deployed) { "$tick$deployed$tick" } else { 'none on record' }) |")
+        $lines.Add("| New commit | $(if ($new) { "$tick$new$tick" } else { 'not known at this point' }) |")
+    }
     $lines.Add('')
     $lines.Add("**What to do:** $($Def.Todo.Replace('{LOG}', $Ctx.LogFile))")
     $lines.Add('')
-    $lines.Add("The deployer on the PC opened this issue. While the problem lasts it adds a comment at most once an hour, and it closes this issue by itself when $($Def.Cleared). Secrets are hidden in everything it posts.")
+    $opener = if ($Def['Opener']) { $Def['Opener'] } else { 'The deployer' }
+    $logName = if ($Def['LogName']) { $Def['LogName'] } else { 'deployer log' }
+    $often = if ((Get-CmAlertRepeat $Def) -ge 86400) { 'a day' } else { 'an hour' }
+    $lines.Add("$opener on the PC opened this issue. While the problem lasts it adds a comment at most once $often, and it closes this issue by itself when $($Def.Cleared). Secrets are hidden in everything it posts.")
     $lines.Add('')
     $lines.Add('<details>')
-    $lines.Add("<summary>Last $($script:CmAlertLogLines) lines of the deployer log</summary>")
+    $lines.Add("<summary>Last $($script:CmAlertLogLines) lines of the $logName</summary>")
     $lines.Add('')
     $lines.Add('```text')
     $lines.Add((Get-CmAlertLogTail -Ctx $Ctx))
@@ -413,8 +428,8 @@ function Invoke-CmAlertRaise {
       Invoke-CmAlertRetryPending, so a failure that happens once (a rolled-back deploy is followed by quiet polls) still
       reaches GitHub when gh works again; SeenAt (a retry) is when it first happened.
     #>
-    param($Ctx, [string]$Kind, $Result, [hashtable]$EnvMap, [long]$SeenAt = 0)
-    $def = (Get-CmAlertKinds)[$Kind]
+    param($Ctx, [string]$Kind, $Result, [hashtable]$EnvMap, [long]$SeenAt = 0, $Def = $null)
+    $def = if ($Def) { $Def } else { (Get-CmAlertKinds)[$Kind] }
     if (-not $def) { Write-CmLog "no alert issue was filed: '$Kind' is not a kind of alert the deployer knows" 'WARN'; return }
     $retry = $SeenAt -gt 0
     $now = Get-CmNow
@@ -443,7 +458,7 @@ function Invoke-CmAlertRaise {
             return
         }
         $lastAt = ConvertTo-CmLong $entry['lastAt']
-        if ($lastAt -gt 0 -and ($nowSec - $lastAt) -lt $script:CmAlertRepeatSeconds) { return }
+        if ($lastAt -gt 0 -and ($nowSec - $lastAt) -lt (Get-CmAlertRepeat $def)) { return }
         if ($nowSec -lt (ConvertTo-CmLong $entry['retryAt'])) { & $defer; return }
         if (-not (Test-CmAlertWriteBudget -Book $book -Now $now)) { & $defer; return }
 
@@ -455,7 +470,7 @@ function Invoke-CmAlertRaise {
             return
         }
         # Without a readable state file nothing is remembered between polls, so the issue's own last-update time keeps this to one comment an hour.
-        if ($found.Number -gt 0 -and -not $book.Persist -and $found.UpdatedAt -and ($now - $found.UpdatedAt).TotalSeconds -lt $script:CmAlertRepeatSeconds) { return }
+        if ($found.Number -gt 0 -and -not $book.Persist -and $found.UpdatedAt -and ($now - $found.UpdatedAt).TotalSeconds -lt (Get-CmAlertRepeat $def)) { return }
 
         if ($found.Number -gt 0) {
             $text = Format-CmAlertComment -Kind $Kind -Result $Result -EnvMap $EnvMap -Now $now -Count (ConvertTo-CmLong $entry['count'])

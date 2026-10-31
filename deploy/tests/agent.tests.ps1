@@ -27,19 +27,24 @@ function New-AgentMachine {
         BranchExists    the local branch agent/issue-N already exists
         StartThrows     the detached start throws (claude or pwsh missing)
         Claude          what the claude lookup finds ('' = nothing)
+        SignedIn        what `claude auth status` says: $true (default), $false, or 'garbled' (no JSON at all)
+        AlertIssues     the alert issues on GitHub (a list that outlives one machine, so a second pass sees the first one's)
+        CreateExit, CloseExit    exit codes of `gh issue create` and `gh issue close`
         TaskExists      `schtasks /Query` finds the task
         Procs           process id -> @{ Id; Name; StartTime } the process table lists
     #>
     param([hashtable]$Opt = @{})
     $m = @{
         Now = $script:AgentNow; Issues = @(); IssueView = @{}; Prs = @{}
-        ListExit = 0; ViewExit = 0; EditExit = 0; CommentExit = 0; FetchExit = 0; WorktreeAddExit = 0
+        ListExit = 0; ViewExit = 0; EditExit = 0; CommentExit = 0; FetchExit = 0; WorktreeAddExit = 0; CreateExit = 0; CloseExit = 0
         BranchExists = $false; StartThrows = $false; NextProcess = 4242; Procs = @{}; Claude = 'C:\fake\claude.exe'; TaskExists = $false
+        SignedIn = $true; AlertIssues = [System.Collections.Generic.List[object]]::new()
     }
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     $global:CmCalls.Clear()
     $global:CmAgentMachine = $m
     $global:CmAgentNow = { $global:CmAgentMachine.Now }
+    $global:CmNow = $m.Now.UtcDateTime   # the alert code keeps its own clock
     $global:CmClaudePath = $m.Claude
     $global:CmProcessTable = { param($id) $global:CmAgentMachine.Procs[$id] }
     $global:CmStartProcess = {
@@ -60,8 +65,37 @@ function New-AgentMachine {
         $ok = { param($lines = @()) [pscustomobject]@{ ExitCode = 0; Output = @($lines) } }
         $exit = { param($code) [pscustomobject]@{ ExitCode = $code; Output = @("fake failure $code") } }
         $line = $Arguments -join ' '
+        if ($Command -eq $m.Claude -and $line -eq 'auth status') {
+            if ($m.SignedIn -is [string]) { return & $ok @('Error: unknown command') }
+            $json = [ordered]@{ loggedIn = [bool]$m.SignedIn; authMethod = $(if ($m.SignedIn) { 'claude.ai' } else { 'none' }); apiProvider = 'firstParty' }
+            return [pscustomobject]@{ ExitCode = $(if ($m.SignedIn) { 0 } else { 1 }); Output = @(($json | ConvertTo-Json) -split "`n") }
+        }
         switch ($Command) {
             'gh' {
+                if ($line -match '^issue list .*--label alert ') {
+                    $open = @($m.AlertIssues | Where-Object { $_.state -eq 'OPEN' } | ForEach-Object { @{ number = $_.number; body = $_.body; updatedAt = '2026-10-31T10:00:00Z' } })
+                    return & $ok @((ConvertTo-Json -InputObject @($open) -Depth 5 -Compress))
+                }
+                if ($line -match '^issue create ') {
+                    if ($m.CreateExit) { return & $exit $m.CreateExit }
+                    $number = 9000 + $m.AlertIssues.Count + 1
+                    $title = if ($Arguments -contains '--title') { $Arguments[[array]::IndexOf($Arguments, '--title') + 1] } else { '' }
+                    $labels = @(for ($i = 0; $i -lt $Arguments.Count - 1; $i++) { if ($Arguments[$i] -eq '--label') { $Arguments[$i + 1] } })
+                    $m.AlertIssues.Add([pscustomobject]@{ number = $number; title = $title; body = $InputText; labels = $labels; state = 'OPEN'; comments = [System.Collections.Generic.List[string]]::new() })
+                    return & $ok @("https://github.com/$($Arguments[[array]::IndexOf($Arguments, '--repo') + 1])/issues/$number")
+                }
+                if ($line -match '^issue (comment|close) (\d+)') {
+                    $alert = @($m.AlertIssues | Where-Object { $_.number -eq [int]$Matches[2] })
+                    if ($alert.Count -gt 0) {
+                        if ($Matches[1] -eq 'close') {
+                            if ($m.CloseExit) { return & $exit $m.CloseExit }
+                            $alert[0].state = 'CLOSED'
+                            $alert[0].comments.Add($Arguments[[array]::IndexOf($Arguments, '--comment') + 1])
+                        }
+                        else { $alert[0].comments.Add($InputText) }
+                        return & $ok
+                    }
+                }
                 if ($line -match '^issue list') {
                     if ($m.ListExit) { return & $exit $m.ListExit }
                     return & $ok @((ConvertTo-Json -InputObject @($m.Issues) -Depth 6 -Compress))
@@ -921,6 +955,320 @@ Test-Case 'runner: the exit file is replaced atomically and holds nothing secret
     finally { Remove-TestRoot $root; $global:CmFakeProcess = $null }
 }
 
+# ---- staying signed in: the long-lived token and the sign-in check ----------------------------------------------------------------
+
+# Shaped like nothing the generic token masks know, so only hiding the exact value can keep it out of a log tail.
+$script:AgentToken = 'tok-9f8a7b6c5d4e3f2a1b0c-not-a-real-token'
+$script:AgentClaude = 'C:\fake\claude.exe'
+
+function Set-AgentTokenFile {
+    <#
+      Saves the token the way the owner does (one line, in agent\claude-token under the secrets folder) and points the root's .env
+      at that folder, as a real install's CM_SECRETS_DIR does; -DefaultFolder leaves CM_SECRETS_DIR out instead, so the
+      file is looked for under <root>\secrets. Returns the path of the file.
+    #>
+    param([string]$Root, [string]$Token = $script:AgentToken, [string]$SecretsDir = '', [switch]$DefaultFolder)
+    $secrets = if ($SecretsDir) { $SecretsDir } else { Join-Path $Root 'secrets' }
+    $envFile = Join-Path $Root '.env'
+    if (Test-Path -LiteralPath $envFile) {
+        $lines = @(Get-Content -LiteralPath $envFile | Where-Object { $_ -notmatch '^CM_SECRETS_DIR=' })
+        if (-not $DefaultFolder) { $lines += "CM_SECRETS_DIR=$secrets" }
+        Set-Content -LiteralPath $envFile -Value $lines
+    }
+    $dir = [IO.Path]::Combine($secrets, 'agent')
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $file = Join-Path $dir 'claude-token'
+    Set-Content -LiteralPath $file -Value $Token
+    $file
+}
+
+function Get-AgentAuthCalls { Get-AgentCall $script:AgentClaude '^auth status$' }
+
+function Get-AgentPickedUp {
+    <# Whether the pass touched the queued issue: any gh edit or comment on it, a fetch, a worktree or a start. #>
+    param([int]$Issue)
+    (Get-AgentCall 'gh' "^issue (edit|comment) $Issue ").Count + (Get-AgentCall 'git' '.').Count + (Get-AgentStarts).Count
+}
+
+function Invoke-AgentRunnerTest {
+    <# Runs the runner once against a throwaway root with a fake child. Returns what the child was started with and what was written down. #>
+    param([string]$Token = '', [int]$ExitCode = 0, [switch]$PointAtMissingFile)
+    New-AgentMachine @{} | Out-Null
+    $root = New-TestRoot
+    try {
+        $dir = Join-Path $root 'logs/agent'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $log = Join-Path $dir 'issue-7-x.log'; $exitFile = Join-Path $dir 'issue-7-x.exit.json'
+        $tokenFile = ''
+        if ($Token) { $tokenFile = Set-AgentTokenFile -Root $root -Token $Token }
+        elseif ($PointAtMissingFile) { $tokenFile = Join-Path $root 'secrets/agent/claude-token' }
+        $global:CmFakeProcess = New-FakeAgentProcess -ExitCode $ExitCode
+        $global:CmStartProcess = {
+            param($File, $Arguments, $WorkingDirectory, $Env)
+            $global:CmCalls.Add([pscustomobject]@{
+                    Command = 'start'; Arguments = @($Arguments); Env = $Env; Mutating = $true; Display = "$File $Arguments"; InputText = ''
+                    File = $File; WorkingDirectory = $WorkingDirectory; RunnerEnv = [Environment]::GetEnvironmentVariable('CLAUDE_CODE_OAUTH_TOKEN')
+                })
+            $global:CmFakeProcess
+        }
+        $splat = @{ Claude = $script:AgentClaude; Model = 'sonnet'; PromptFile = 'p'; LogFile = $log; ExitFile = $exitFile; WorkDir = $root; MaxMinutes = 5; Issue = 7 }
+        if ($tokenFile) { $splat.TokenFile = $tokenFile }
+        $code = Invoke-CmAgentRunner @splat
+        [pscustomobject]@{
+            Code = $code; Start = (Get-AgentStarts)[0]; Log = (Get-Content -LiteralPath $log -Raw)
+            ExitFile = (Get-Content -LiteralPath $exitFile -Raw); RunnerEnvAfter = [Environment]::GetEnvironmentVariable('CLAUDE_CODE_OAUTH_TOKEN')
+        }
+    }
+    finally { Remove-TestRoot $root; $global:CmFakeProcess = $null }
+}
+
+Test-Case 'token: the runner gives the token to the claude child through its environment, and nowhere else' {
+    $r = Invoke-AgentRunnerTest -Token $script:AgentToken
+    Assert-Equal 'CLAUDE_CODE_OAUTH_TOKEN' (@($r.Start.Env.Keys) -join ',') 'the child gets exactly this one variable'
+    Assert-Equal $script:AgentToken $r.Start.Env['CLAUDE_CODE_OAUTH_TOKEN'] 'trimmed, without the newline the file ends in'
+    Assert-Equal $null $r.Start.RunnerEnv 'the runner''s own environment never holds it while the child starts'
+    Assert-Equal $null $r.RunnerEnvAfter
+    Assert-False ($r.Start.Arguments[0].Contains($script:AgentToken)) 'not on the command line'
+    Assert-False $r.Start.Display.Contains($script:AgentToken)
+    Assert-False $r.Log.Contains($script:AgentToken) 'not in the log'
+    Assert-False $r.ExitFile.Contains($script:AgentToken) 'not in the exit file'
+    Assert-Match $r.Log 'sign-in: the long-lived token'
+    Assert-Equal 0 $r.Code
+}
+
+Test-Case 'token: without a token file the child gets no extra environment and the CLI''s own sign-in is used, as before' {
+    foreach ($case in @(@{}, @{ PointAtMissingFile = $true })) {
+        $r = Invoke-AgentRunnerTest @case
+        Assert-Equal 0 @($r.Start.Env.Keys).Count
+        Assert-Match $r.Log 'sign-in: the CLI''s own'
+        Assert-False $r.Log.Contains('long-lived')
+    }
+}
+
+Test-Case 'token: a start prints the names of the child''s variables in a dry run, never their values' {
+    Initialize-Cm -Apply $false
+    $out = (Start-CmProcess -File 'cmd.exe' -Arguments '/c exit' -Env @{ CLAUDE_CODE_OAUTH_TOKEN = $script:AgentToken } 6>&1 | Out-String)
+    Assert-Match $out 'dry run, would start: cmd\.exe /c exit'
+    Assert-Match $out 'CLAUDE_CODE_OAUTH_TOKEN'
+    Assert-False $out.Contains($script:AgentToken)
+}
+
+Test-Case 'token: the file is read as one line; quotes, a NAME= prefix and blank or commented lines around it are ignored' {
+    $root = New-TestRoot
+    try {
+        $file = Join-Path $root 'claude-token'
+        foreach ($case in @(
+                @("  $script:AgentToken  `n", $script:AgentToken), @("`n# the long-lived token`n$script:AgentToken`nsecond line`n", $script:AgentToken),
+                @("`"$script:AgentToken`"", $script:AgentToken), @("CLAUDE_CODE_OAUTH_TOKEN=$script:AgentToken", $script:AgentToken),
+                @("export CLAUDE_CODE_OAUTH_TOKEN='$script:AgentToken'", $script:AgentToken), @('', $null), @("   `n`n", $null), @('two words', $null))) {
+            [IO.File]::WriteAllText($file, $case[0])
+            Assert-Equal $case[1] (Read-CmAgentToken -Path $file) "file text [$($case[0])]"
+        }
+        Assert-Equal $null (Read-CmAgentToken -Path (Join-Path $root 'missing')) 'no file'
+        Assert-Equal $null (Read-CmAgentToken -Path '') 'no path'
+    }
+    finally { Remove-TestRoot $root }
+}
+
+Test-Case 'token: the file is looked for in the secrets folder, CM_SECRETS_DIR when .env names one, outside the repo' {
+    $ctx = New-CmAgentContext -Root (Join-Path ([IO.Path]::GetTempPath()) 'cm-agent-root') -Repo $script:AgentSlug -AgentDir $script:AgentDir
+    Assert-Equal ([IO.Path]::Combine($ctx.Root, 'secrets', 'agent', 'claude-token')) (Get-CmAgentSettings -EnvMap @{} -Root $ctx.Root).TokenFile
+    Assert-Equal ([IO.Path]::Combine('/vault', 'agent', 'claude-token')) (Get-CmAgentSettings -EnvMap @{ CM_SECRETS_DIR = '/vault' } -Root $ctx.Root).TokenFile
+    Assert-Equal ([IO.Path]::Combine($ctx.Root, 'secrets', 'agent', 'claude-token')) (Get-CmAgentSettings -EnvMap @{ CM_SECRETS_DIR = '  ' } -Root $ctx.Root).TokenFile 'a blank value is no value'
+}
+
+Test-Case 'token: the watcher hands the runner the path of the token file and never the token, and says nothing when there is none' {
+    $with = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7)) } -Setup { param($root, $repo) [void](Set-AgentTokenFile -Root $root -DefaultFolder) }
+    Assert-Equal 'started' $with.Result.Outcome
+    $line = (Get-AgentStarts)[0].Arguments[0]
+    Assert-Match $line ' -WorkDir "[^"]*agent-issue-7" -TokenFile "[^"]*secrets[\\/]agent[\\/]claude-token" -MaxMinutes 180$'
+    Assert-False $line.Contains($script:AgentToken)
+    foreach ($text in @($with.Log, ($with.Lock | ConvertTo-Json), ($with.State | ConvertTo-Json), $with.Screen)) { Assert-False ("$text".Contains($script:AgentToken)) 'the token is in no state, lock or log' }
+    Assert-Equal 0 @($global:CmCalls | Where-Object { ($_.Arguments -join ' ').Contains($script:AgentToken) -or $_.InputText.Contains($script:AgentToken) }).Count
+    $without = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7)) }
+    Assert-False ((Get-AgentStarts)[0].Arguments[0].Contains('-TokenFile')) 'no token file: the runner is started as it always was'
+    $elsewhere = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7)) } -Setup {
+        param($root, $repo)
+        [void](Set-AgentTokenFile -Root $root -SecretsDir (Join-Path $root 'vault'))
+    }
+    Assert-Match (Get-AgentStarts)[0].Arguments[0] ' -TokenFile "[^"]*vault[\\/]agent[\\/]claude-token" '
+}
+
+Test-Case 'token: it is hidden in the log tails the watcher posts, whatever shape it has' {
+    $lines = @('=== agent for issue #7 starting ===', "env dump: CLAUDE_CODE_OAUTH_TOKEN=$script:AgentToken", "and $script:AgentToken again", ('trace sk-ant-oat01-' + ('Zz9' * 20)))
+    $setup = { param($root, $repo) [void](Set-AgentTokenFile -Root $root) }
+    $blocked = Invoke-TestWatch -LockSpec @{ Issue = 7; ProcessId = 3100; MinutesAgo = 50; ExitCode = 1; LogLines = $lines } -Setup $setup
+    $body = (Get-AgentCall 'gh' '^issue comment 7 ')[0].InputText
+    Assert-False $body.Contains($script:AgentToken) 'hidden in the 30-line tail'
+    Assert-False ($body -match 'sk-ant-oat01') 'and a token of the usual shape is hidden even when the file is gone'
+    Assert-Match $body 'CLAUDE_CODE_OAUTH_TOKEN=\*\*\*'
+    $quick = Invoke-TestWatch -LockSpec (Get-AgentQuickLock -LogLines $lines) -Setup $setup
+    $head = (Get-AgentCall 'gh' '^issue comment 7 ')[0].InputText
+    Assert-Match $head 'couldn''t start'
+    Assert-False $head.Contains($script:AgentToken) 'hidden in the first-lines comment of a quick failure too'
+    Assert-False $quick.Log.Contains($script:AgentToken)
+}
+
+Test-Case 'sign-in: signed out with no token file picks nothing, touches no queued issue, and opens one alert issue' {
+    $r = Invoke-TestWatch -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7), (New-AgentIssue 8)) }
+    Assert-Equal 'signed-out' $r.Result.Outcome
+    Assert-Equal 2 $r.Result.ExitCode
+    Assert-Equal 1 (Get-AgentAuthCalls).Count
+    Assert-Equal 0 ((Get-AgentPickedUp 7) + (Get-AgentPickedUp 8)) 'no claim, no comment, no fetch, no worktree, no start'
+    Assert-Equal $null $r.Lock
+    Assert-False $r.State.ContainsKey('quickFailures') 'a missing sign-in is not a failed run'
+    Assert-False $r.State.ContainsKey('runs') 'and no run was counted'
+    $create = Get-AgentCall 'gh' '^issue create '
+    Assert-Equal 1 $create.Count 'exactly one alert issue'
+    Assert-Equal 1 (Get-MutatingCalls).Count 'and nothing else changed'
+    $line = $create[0].Arguments -join ' '
+    Assert-Match $line "--repo $script:AgentSlug "
+    Assert-Match $line '--label alert --label type:infra --label needs:cory --label p1'
+    Assert-False ($line -match 'agent-task') 'it is for the owner; the agent must never be handed its own sign-in'
+    $body = $create[0].InputText
+    Assert-Match $body '<!-- cm-alert:agent-signed-out -->'
+    Assert-Match $body 'claude setup-token'
+    Assert-Match $body 'agent\\claude-token'
+    Assert-Match $body 'CM_SECRETS_DIR'
+    Assert-Match $body 'Do not paste the token'
+    Assert-Match $body 'signed in again'
+    Assert-False ($body -match 'Running commit|deployer') 'it is not worded as a deploy alert'
+    Assert-Match $r.Log 'WARN .*signed out'
+    Assert-Match $r.Log 'opened alert issue #9001 for ''agent-signed-out'''
+}
+
+Test-Case 'sign-in: the alert is once per problem: later passes open nothing, and comment once a day at most' {
+    $first = Invoke-TestWatch -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)) }
+    $alerts = $first.Machine.AlertIssues
+    Assert-Equal 1 $alerts.Count
+    $second = Invoke-TestWatch -State $first.State -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)); AlertIssues = $alerts; Now = $script:AgentNow.AddMinutes(5) }
+    Assert-Equal 'signed-out' $second.Result.Outcome
+    Assert-Equal 1 $alerts.Count
+    Assert-Equal 0 $alerts[0].comments.Count 'nothing new to say'
+    Assert-Equal 1 $global:CmCalls.Count 'while the alert is open a pass is one local call to claude: no gh at all'
+    Assert-Equal 0 (Get-AgentCall 'gh' '.').Count
+    $third = Invoke-TestWatch -State $second.State -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)); AlertIssues = $alerts; Now = $script:AgentNow.AddHours(25) }
+    Assert-Equal 1 $alerts.Count 'a day on there is still one issue'
+    Assert-Equal 1 $alerts[0].comments.Count
+    Assert-Match $alerts[0].comments[0] '^Again at 2026-11-01 '
+    Assert-Equal 0 (Get-AgentPickedUp 7)
+}
+
+Test-Case 'sign-in: while the alert is open and nothing is queued, a pass still looks, so the alert closes as soon as the CLI is signed in' {
+    $out = Invoke-TestWatch -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)) }
+    $alerts = $out.Machine.AlertIssues
+    $still = Invoke-TestWatch -State $out.State -Machine @{ SignedIn = $false; Issues = @(); AlertIssues = $alerts }
+    Assert-Equal 'signed-out' $still.Result.Outcome 'nothing queued, still signed out, still one alert'
+    $back = Invoke-TestWatch -State $still.State -Machine @{ SignedIn = $true; Issues = @(); AlertIssues = $alerts }
+    Assert-Equal 'idle' $back.Result.Outcome
+    Assert-Equal 'CLOSED' $alerts[0].state
+    Assert-False $back.State.alerts.kinds.ContainsKey('agent-signed-out')
+}
+
+Test-Case 'sign-in: when Claude Code is signed in again the alert issue is closed and the queue is served' {
+    $out = Invoke-TestWatch -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)) }
+    $alerts = $out.Machine.AlertIssues
+    $in = Invoke-TestWatch -State $out.State -Machine @{ SignedIn = $true; Issues = @((New-AgentIssue 7)); AlertIssues = $alerts }
+    Assert-Equal 'started' $in.Result.Outcome
+    Assert-Equal 7 $in.Result.Issue
+    Assert-Equal 'CLOSED' $alerts[0].state
+    $close = Get-AgentCall 'gh' '^issue close 9001 '
+    Assert-Equal 1 $close.Count
+    Assert-Match ($close[0].Arguments -join ' ') '--comment Resolved at 2026-10-31 18:05 UTC: Claude Code is signed in again'
+    Assert-Equal 0 (Get-AgentCall 'gh' '^issue create').Count 'and no new alert'
+    Assert-False $in.State.alerts.kinds.ContainsKey('agent-signed-out') 'forgotten once closed'
+    Assert-Equal 1 $in.State.runs 'the run the pass started is counted, so the state written after the close was not overwritten by an older copy'
+    Assert-True $in.State.ContainsKey('alerts')
+    $again = Invoke-TestWatch -State $in.State -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 8)); AlertIssues = $alerts; Now = $script:AgentNow.AddHours(3) }
+    Assert-Equal 2 $alerts.Count 'if it signs out again that is a new problem and a new issue'
+}
+
+Test-Case 'sign-in: saving the token file clears the alert too, without asking the CLI' {
+    $out = Invoke-TestWatch -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)) }
+    $alerts = $out.Machine.AlertIssues
+    $r = Invoke-TestWatch -State $out.State -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)); AlertIssues = $alerts } -Setup { param($root, $repo) [void](Set-AgentTokenFile -Root $root) }
+    Assert-Equal 'started' $r.Result.Outcome
+    Assert-Equal 'CLOSED' $alerts[0].state
+    Assert-Match $alerts[0].comments[0] 'a token file is saved'
+    Assert-Equal 0 (Get-AgentAuthCalls).Count 'the token is what the runs use, so the CLI''s own sign-in does not matter'
+}
+
+Test-Case 'sign-in: with a token file a signed-out CLI changes nothing: no check, no alert, the run starts' {
+    $r = Invoke-TestWatch -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)) } -Setup { param($root, $repo) [void](Set-AgentTokenFile -Root $root) }
+    Assert-Equal 'started' $r.Result.Outcome
+    Assert-Equal 0 (Get-AgentAuthCalls).Count
+    Assert-Equal 0 (Get-AgentCall 'gh' '^issue create').Count
+}
+
+Test-Case 'sign-in: signed in, the check is one read-only local call before the claim, and only when something is queued' {
+    $r = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7)) }
+    Assert-Equal 'started' $r.Result.Outcome
+    $check = Get-AgentAuthCalls
+    Assert-Equal 1 $check.Count
+    Assert-False $check[0].Mutating 'it only reads'
+    $order = @($global:CmCalls | ForEach-Object { $_.Command + ' ' + ($_.Arguments -join ' ') })
+    $iList = [array]::FindIndex($order, [Predicate[string]] { param($s) $s -like 'gh issue list*' })
+    $iCheck = [array]::FindIndex($order, [Predicate[string]] { param($s) $s -like '* auth status' })
+    $iClaim = [array]::FindIndex($order, [Predicate[string]] { param($s) $s -like 'gh issue edit*' })
+    Assert-True ($iList -ge 0 -and $iList -lt $iCheck -and $iCheck -lt $iClaim) "order was: $($order -join ' | ')"
+    Assert-Equal 0 (Get-AgentCall 'gh' '^issue create').Count
+    $idle = Invoke-TestWatch -Machine @{ Issues = @() }
+    Assert-Equal 'idle' $idle.Result.Outcome
+    Assert-Equal 0 (Get-AgentAuthCalls).Count 'a quiet pass never starts claude'
+    foreach ($blocked in @(@{ State = @{ pauseUntilUnix = $script:AgentNow.ToUnixTimeSeconds() + 1800 } }, @{ State = @{ day = 20261031; runs = 8 } }, @{ LockSpec = @{ Issue = 7; ProcessId = 3100; MinutesAgo = 20; Alive = $true } })) {
+        $held = Invoke-TestWatch @blocked -Machine @{ Issues = @((New-AgentIssue 8)) }
+        Assert-Equal 0 $global:CmCalls.Count "a $($held.Result.Outcome) pass makes no call at all"
+    }
+}
+
+Test-Case 'sign-in: when the CLI cannot say, the pass carries on exactly as it did before the check existed' {
+    $r = Invoke-TestWatch -Machine @{ SignedIn = 'garbled'; Issues = @((New-AgentIssue 7)) }
+    Assert-Equal 'started' $r.Result.Outcome
+    Assert-Equal 1 (Get-AgentAuthCalls).Count
+    Assert-Equal 0 (Get-AgentCall 'gh' '^issue create').Count
+}
+
+Test-Case 'sign-in: a gh that cannot file the alert still stops the pickup, and the next pass tries again after a wait' {
+    $r = Invoke-TestWatch -Machine @{ SignedIn = $false; CreateExit = 1; Issues = @((New-AgentIssue 7)) }
+    Assert-Equal 'signed-out' $r.Result.Outcome
+    Assert-Equal 0 (Get-AgentPickedUp 7)
+    Assert-Match $r.Log 'WARN .*could not write the alert issue for ''agent-signed-out'''
+    Assert-True ([long]$r.State.alerts.kinds['agent-signed-out'].retryAt -gt $script:AgentNow.ToUnixTimeSeconds()) 'gh is left alone for 15 minutes'
+}
+
+Test-Case 'sign-in: CM_ALERT_ISSUES=0 files no issue, but the signed-out CLI still stops the pickup and is logged' {
+    $r = Invoke-TestWatch -EnvLines @('CM_ALERT_ISSUES=0') -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)) }
+    Assert-Equal 'signed-out' $r.Result.Outcome
+    Assert-Equal 0 (Get-AgentCall 'gh' '^issue (create|comment|list.*alert)').Count
+    Assert-Equal 0 (Get-AgentPickedUp 7)
+    Assert-Match $r.Log 'WARN .*signed out'
+}
+
+Test-Case 'sign-in: a dry run says what it would do and changes nothing' {
+    $r = Invoke-TestWatch -DryRun -Machine @{ SignedIn = $false; Issues = @((New-AgentIssue 7)) }
+    Assert-Equal 'signed-out' $r.Result.Outcome
+    Assert-Equal 0 (Get-MutatingCalls).Count
+    Assert-Equal 0 $r.State.Count
+    Assert-Match $r.Screen 'dry run, would run: .*gh issue create'
+}
+
+Test-Case 'sign-in: the alert is the owner''s: it is never labelled for the agent and its text names the one fix' {
+    $kind = Get-CmAgentAlertKind
+    Assert-Equal 'alert,type:infra,needs:cory,p1' (@($kind.Labels) -join ',')
+    Assert-Equal 1 $kind.After
+    Assert-True ($kind.Title -and $kind.Summary -and $kind.Todo -and $kind.Cleared)
+    foreach ($needle in 'claude setup-token', 'agent\claude-token', 'deploy/README.md') { Assert-True $kind.Todo.Contains($needle) "the instructions should say: $needle" }
+    Assert-False ($kind.Todo -match 'sk-ant') 'and show no token'
+}
+
+Test-Case 'sign-in: the watcher''s own load chain brings in the alert code (the tests load everything, the PC loads only this)' {
+    $common = Join-Path $script:AgentDir '../deployer/Cm.Common.ps1'
+    $agent = Join-Path $script:AgentDir 'Cm.Agent.ps1'
+    $out = & pwsh -NoProfile -Command ". '$common'; . '$agent'; (Get-Command Invoke-CmAlertRaise, Invoke-CmAlertClear, Get-CmAlertBook, Read-CmStateStrict -ErrorAction Stop).Count"
+    Assert-Equal 0 $LASTEXITCODE
+    Assert-Equal 4 ("$out".Trim())
+}
+
 # ---- the installer -------------------------------------------------------------------------------------------------------------
 
 $script:AgentInstall = Join-Path $script:AgentDir 'Install-AgentWatcher.ps1'
@@ -1021,6 +1369,19 @@ Test-Case 'docs: the README names the labels and the commands of the agent servi
     foreach ($needle in 'agent-task', 'agent-working', 'agent-review', 'agent-blocked', 'needs:cory', 'Install-AgentWatcher.ps1', 'logs\agent', 'CollectionMaxxingAgent') {
         Assert-True ($readme.Contains($needle)) "the README should mention $needle"
     }
+}
+
+Test-Case 'docs: the README says how to set the token up once, where it goes, and what happens when Claude Code is signed out' {
+    $readme = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../README.md') -Raw
+    foreach ($needle in 'Keep it signed in', 'claude setup-token', 'CLAUDE_CODE_OAUTH_TOKEN', 'agent\claude-token', 'CM_SECRETS_DIR', 'ConvertFrom-SecureString',
+        'claude auth status', 'agent-signed-out', 'Issue agent: Claude Code is signed out', 'loggedIn: false') {
+        Assert-True ($readme.Contains($needle)) "the README should mention $needle"
+    }
+    $file = Get-CmAgentTokenFile -EnvMap @{ CM_SECRETS_DIR = 'S' } -Root 'R'
+    Assert-True ($file.EndsWith("agent$([IO.Path]::DirectorySeparatorChar)claude-token")) 'the README and the watcher name the same file'
+    Assert-Equal 'Issue agent: Claude Code is signed out' (Get-CmAgentAlertKind).Title 'and the alert is the one the README describes'
+    $example = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../.env.example') -Raw
+    Assert-True ($example.Contains('CM_SECRETS_DIR')) 'the secrets folder setting the token file hangs off is in .env.example'
 }
 
 Test-Case 'retired: the old Muse watcher script is gone' {
