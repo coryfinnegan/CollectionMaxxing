@@ -37,6 +37,7 @@ export const fetchSnapshotPage =
         platform: e.platform ?? null,
         identifiers: e.identifiers ?? [],
         locationPath: e.locationPath ?? null,
+        status: e.status ?? null,
       })),
     };
   };

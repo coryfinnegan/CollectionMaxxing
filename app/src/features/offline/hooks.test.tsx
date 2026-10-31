@@ -103,6 +103,64 @@ describe('useOwnedLookup offline', () => {
   });
 });
 
+describe('useOwnedLookup: wishlist and sold', () => {
+  const ALIEN = { releaseId: '00000160-0000-4000-8000-000000000000', workId: '00000260-0000-4000-8000-000000000000' };
+  const row = (n: number, status: 'wishlist' | 'sold' | 'missing') => ({
+    itemId: `0000006${n}-0000-4000-8000-000000000000`,
+    deleted: false,
+    ...ALIEN,
+    title: 'Alien',
+    format: 'dvd' as const,
+    platform: null,
+    identifiers: ['5051889000000'],
+    locationPath: null,
+    status,
+  });
+
+  function Facts({ releaseId }: { releaseId: string }) {
+    const a = useOwnedLookup({ releaseId });
+    return (
+      <>
+        <Text>{`source:${a.source}`}</Text>
+        <Text>{`owned:${a.owned.map((c) => `${c.title} ${c.status}`).join(',') || 'none'}`}</Text>
+        <Text>{`wishlist:${a.wishlistItemId ?? 'none'}`}</Text>
+        <Text>{`sold:${a.soldItemId ?? 'none'}`}</Text>
+      </>
+    );
+  }
+
+  it('says offline that a release is on the wishlist, and that it is not owned', async () => {
+    upsertOwned(row(1, 'wishlist'));
+    await syncLibrary(MOCK_LIBRARY_ID, () => 0);
+    onlineManager.setOnline(false);
+
+    await renderWithProviders(<Facts releaseId={ALIEN.releaseId} />);
+
+    expect(await screen.findByText('wishlist:00000061-0000-4000-8000-000000000000')).toBeTruthy();
+    expect(screen.getByText('owned:none')).toBeTruthy();
+    expect(screen.getByText('source:local')).toBeTruthy();
+  });
+
+  it('says offline that a release was sold, and that it is not owned', async () => {
+    upsertOwned(row(2, 'sold'));
+    await syncLibrary(MOCK_LIBRARY_ID, () => 0);
+    onlineManager.setOnline(false);
+
+    await renderWithProviders(<Facts releaseId={ALIEN.releaseId} />);
+    expect(await screen.findByText('sold:00000062-0000-4000-8000-000000000000')).toBeTruthy();
+    expect(screen.getByText('owned:none')).toBeTruthy();
+  });
+
+  it('takes the facts from the server when it answers', async () => {
+    upsertOwned(row(1, 'wishlist'));
+    await renderWithProviders(<Facts releaseId={ALIEN.releaseId} />);
+
+    expect(await screen.findByText('source:server')).toBeTruthy();
+    expect(screen.getByText('wishlist:00000061-0000-4000-8000-000000000000')).toBeTruthy();
+    expect(screen.getByText('owned:none')).toBeTruthy();
+  });
+});
+
 describe('useOwnedLookup online', () => {
   it('lets the server answer win and shows no stale notice', async () => {
     server.use(

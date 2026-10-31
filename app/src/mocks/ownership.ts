@@ -1,9 +1,10 @@
 // Mock of GET /libraries/{id}/ownership/snapshot: pages, a cursor, and tombstones for deleted items.
 // The cursor is the sequence number of the last change handed out. Tests change the mock library with the helpers below.
-// GET /libraries/{id}/ownership answers from the same entries, like the real OwnershipQuery: exact copies plus
-// same-work other-shape soft matches.
+// Every live item is in the snapshot with its status; only owned, lent and missing are the library.
+// GET /libraries/{id}/ownership answers from the same entries, like the real OwnershipQuery: exact copies in the library, plus
+// same-work other-shape soft matches, plus the wishlist item and the most recent sold copy of the release asked about.
 import { HttpResponse, http } from 'msw';
-import type { OwnedCopyDto, OwnershipSnapshotEntryDto } from '@/api/generated/models';
+import type { ItemStatus, OwnedCopyDto, OwnershipSnapshotEntryDto } from '@/api/generated/models';
 import { MOCK_LIBRARY_ID } from './data';
 
 type Change = { seq: number; entry: OwnershipSnapshotEntryDto };
@@ -37,9 +38,13 @@ const owned = (n: number, title: string, format: OwnershipSnapshotEntryDto['form
   platform: null,
   identifiers,
   locationPath,
+  status: 'owned',
 });
 
-/** Adds or replaces an owned item. */
+/** The server's ItemStatuses.InCollection: what counts as owned. */
+const inTheLibrary = (status: ItemStatus | null | undefined): boolean => status === undefined || status === null || status === 'owned' || status === 'lent' || status === 'missing';
+
+/** Adds or replaces an item. */
 export function upsertOwned(entry: OwnershipSnapshotEntryDto) {
   ownershipMock.changes.push({ seq: ++ownershipMock.seq, entry });
   learnWork(entry);
@@ -57,6 +62,7 @@ export function deleteOwned(itemId: string) {
     platform: null,
     identifiers: [],
     locationPath: null,
+    status: null,
   });
 }
 
@@ -87,7 +93,7 @@ const toCopy = (e: OwnershipSnapshotEntryDto): OwnedCopyDto => ({
   title: e.title ?? 'Unknown item',
   format: e.format ?? 'other',
   platform: e.platform,
-  status: 'owned',
+  status: e.status ?? 'owned',
   locationId: null,
   locationPath: e.locationPath,
 });
@@ -101,16 +107,22 @@ export const handlers = [
     if (params.libraryId !== MOCK_LIBRARY_ID) {
       return HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404, headers: { 'Content-Type': 'application/problem+json' } });
     }
-    const entries = latestEntries().filter((e) => e.releaseId && e.workId && e.format);
-    const exact = entries.filter(
+    const everything = latestEntries().filter((e) => e.releaseId && e.workId && e.format);
+    const asked = everything.filter(
       (e) =>
         (releaseId && e.releaseId === releaseId) ||
         (code && e.identifiers.some((i) => i === code || (digits(i) !== '' && digits(i) === digits(code)))) ||
         (workId && !releaseId && !code && e.workId === workId),
     );
+    // Only what you have is owned or a soft match; the wishlist and sold items are named on their own.
+    const entries = everything.filter((e) => inTheLibrary(e.status));
+    const exact = asked.filter((e) => inTheLibrary(e.status));
+    const byRelease = !!releaseId || !!code;
+    const wishlisted = byRelease ? asked.filter((e) => e.status === 'wishlist').map((e) => e.itemId).sort()[0] : undefined;
+    const sold = byRelease ? asked.filter((e) => e.status === 'sold').map((e) => e.itemId).sort().at(-1) : undefined;
     // Soft matches: other copies of the same work in another shape. The work comes from the catalog mapping
     // when nothing is owned exactly (an unowned release of an owned work), like the server's ForReleasesAsync.
-    const works = new Set(exact.map((e) => e.workId));
+    const works = new Set(asked.map((e) => e.workId));
     if (workId) works.add(workId);
     if (releaseId && releaseWorks.has(releaseId)) works.add(releaseWorks.get(releaseId)!);
     if (code && barcodeWorks.has(code)) works.add(barcodeWorks.get(code)!);
@@ -118,7 +130,14 @@ export const handlers = [
     const soft = entries.filter(
       (e) => works.has(e.workId) && !exact.some((x) => x.itemId === e.itemId) && !shapes.has(`${e.format}::${e.platform ?? ''}`),
     );
-    return HttpResponse.json({ owned: exact.length > 0, count: exact.length, copies: exact.map(toCopy), sameWorkOtherFormat: soft.map(toCopy) });
+    return HttpResponse.json({
+      owned: exact.length > 0,
+      count: exact.length,
+      copies: exact.map(toCopy),
+      sameWorkOtherFormat: soft.map(toCopy),
+      wishlistItemId: wishlisted ?? null,
+      soldItemId: sold ?? null,
+    });
   }),
   http.get('*/api/v1/libraries/:libraryId/ownership/snapshot', ({ params, request }) => {
     if (params.libraryId !== MOCK_LIBRARY_ID) {
@@ -137,7 +156,7 @@ export const handlers = [
       return HttpResponse.json({ title: "That cursor isn't valid.", status: 400 }, { status: 400, headers: { 'Content-Type': 'application/problem+json' } });
     }
 
-    // From scratch: only what is owned now. With a cursor: every change since, tombstones included.
+    // From scratch: every live item now, with its status. With a cursor: every change since, tombstones included.
     const latest = new Map<string, Change>();
     for (const change of ownershipMock.changes) latest.set(change.entry.itemId, change);
     const pending = [...latest.values()]

@@ -126,8 +126,8 @@ const pinnedAnswer = (overrides: Partial<SearchAnswer> = {}): SearchAnswer => ({
 
 // The scanner's offline answers (#459): two owned copies and the stale line.
 const offlineCopies: OwnedCopy[] = [
-  { itemId: 'item-alien', releaseId: 'e2000000-0000-4000-8000-000000000001', workId: ALIEN, title: 'Alien', format: 'dvd', platform: null, locationPath: 'Living room › Shelf B' },
-  { itemId: 'item-aliens', releaseId: null, workId: null, title: 'Aliens', format: 'bluray', platform: null, locationPath: 'Living room › Shelf B' },
+  { itemId: 'item-alien', releaseId: 'e2000000-0000-4000-8000-000000000001', workId: ALIEN, title: 'Alien', format: 'dvd', platform: null, locationPath: 'Living room › Shelf B', status: 'owned' },
+  { itemId: 'item-aliens', releaseId: null, workId: null, title: 'Aliens', format: 'bluray', platform: null, locationPath: 'Living room › Shelf B', status: 'owned' },
 ];
 const offlineSource = { searchTitles: () => offlineCopies, staleLine: 'Based on your last sync, 2 h ago' };
 

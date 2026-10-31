@@ -1,5 +1,6 @@
 // The saved copy of what each library owns: one blob per library in MMKV (memory on the web and in tests), holding the
 // entries, the sync cursor and the time of the last complete sync. Nothing about another library is ever in the blob.
+import type { ItemStatus } from '@/api/generated/models';
 import { createOwnedIndex, type OwnedIndex, type SnapshotEntry } from './ownedIndex';
 
 /** The slice of MMKV the cache needs (the same shape the scan tray uses). */
@@ -22,15 +23,29 @@ export class MemoryOwnedStorage implements OwnedStorage {
   }
 }
 
-const VERSION = 1;
+// Version 2 keeps each item's status (the wishlist and sold items are in the copy now). A version 1 copy is dropped on load,
+// which makes the next sync pull everything once, so the wishlist and sold facts are never missing from an old copy.
+const VERSION = 2;
 const blobKey = (libraryId: string) => `owned-index-v${VERSION}:${libraryId}`;
 const LIBRARIES_KEY = `owned-index-v${VERSION}:libraries`;
+const legacyBlobKey = (libraryId: string) => `owned-index-v1:${libraryId}`;
+const LEGACY_LIBRARIES_KEY = 'owned-index-v1:libraries';
 
 /** Entries saved as short arrays: 5,000 items stay well under 1.5 MB. */
-type Row = [itemId: string, releaseId: string | null, workId: string | null, title: string | null, format: string | null, platform: string | null, identifiers: string[], locationPath: string | null];
+type Row = [
+  itemId: string,
+  releaseId: string | null,
+  workId: string | null,
+  title: string | null,
+  format: string | null,
+  platform: string | null,
+  identifiers: string[],
+  locationPath: string | null,
+  status: ItemStatus | null,
+];
 type Blob = { v: number; cursor: string | null; syncedAt: number | null; rows: Row[] };
 
-const toRow = (e: SnapshotEntry): Row => [e.itemId, e.releaseId, e.workId, e.title, e.format, e.platform, e.identifiers, e.locationPath];
+const toRow = (e: SnapshotEntry): Row => [e.itemId, e.releaseId, e.workId, e.title, e.format, e.platform, e.identifiers, e.locationPath, e.status];
 const fromRow = (r: Row): SnapshotEntry => ({
   itemId: r[0],
   deleted: false,
@@ -41,6 +56,7 @@ const fromRow = (r: Row): SnapshotEntry => ({
   platform: r[5],
   identifiers: r[6],
   locationPath: r[7],
+  status: r[8] ?? null,
 });
 
 export type OwnedState = {
@@ -92,6 +108,7 @@ export class OwnedCache {
 
   private load(): OwnedState {
     try {
+      this.storage.remove(legacyBlobKey(this.libraryId)); // an older copy has no statuses; this one starts over
       const text = this.storage.getString(blobKey(this.libraryId));
       if (!text) return emptyState();
       const blob = JSON.parse(text) as Blob;
@@ -109,9 +126,9 @@ export class OwnedCache {
   }
 }
 
-function readLibraries(storage: OwnedStorage): string[] {
+function readLibraries(storage: OwnedStorage, key: string = LIBRARIES_KEY): string[] {
   try {
-    const parsed: unknown = JSON.parse(storage.getString(LIBRARIES_KEY) ?? '[]');
+    const parsed: unknown = JSON.parse(storage.getString(key) ?? '[]');
     return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
   } catch {
     return [];
@@ -144,11 +161,13 @@ export function getOwnedCache(libraryId: string): OwnedCache {
 /** Sign-out and unpair: forget every library's copy. */
 export function clearOwnedData() {
   const store = (storage ??= openStorage());
-  for (const id of new Set([...readLibraries(store), ...caches.keys()])) {
+  for (const id of new Set([...readLibraries(store), ...readLibraries(store, LEGACY_LIBRARIES_KEY), ...caches.keys()])) {
     store.remove(blobKey(id));
+    store.remove(legacyBlobKey(id));
     caches.get(id)?.clear();
   }
   store.remove(LIBRARIES_KEY);
+  store.remove(LEGACY_LIBRARIES_KEY);
 }
 
 /** Tests swap in their own storage (and start clean). */

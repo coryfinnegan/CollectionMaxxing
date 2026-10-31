@@ -52,6 +52,75 @@ describe('first sync', () => {
   });
 });
 
+describe('statuses in the saved copy', () => {
+  const wishlisted = { ...upsertShape('wishlist'), itemId: '00000050-0000-4000-8000-000000000000' };
+  function upsertShape(status: 'wishlist' | 'sold') {
+    return {
+      itemId: 'x',
+      deleted: false,
+      releaseId: '00000150-0000-4000-8000-000000000000',
+      workId: '00000250-0000-4000-8000-000000000000',
+      title: 'Alien',
+      format: 'dvd' as const,
+      platform: null,
+      identifiers: ['5051889000006'],
+      locationPath: null,
+      status,
+    };
+  }
+
+  it('keeps the wishlist and sold items, with their status, and answers about them after a fresh start', async () => {
+    upsertOwned(wishlisted);
+    upsertOwned({ ...upsertShape('sold'), itemId: '00000051-0000-4000-8000-000000000000', releaseId: '00000151-0000-4000-8000-000000000000', identifiers: ['5051889000013'] });
+    await syncLibrary(LIB);
+
+    setOwnedStorage(storage); // a new app launch
+
+    const index = getOwnedCache(LIB).state.index;
+    expect(index.size).toBe(3); // Jaws twice and Dune: the wishlisted and the sold are not the library
+    expect(index.lookup('5051889000006').wishlistItemId).toBe(wishlisted.itemId);
+    expect(index.lookup('5051889000006').owned).toEqual([]);
+    expect(index.lookup('5051889000013').soldItemId).toBe('00000051-0000-4000-8000-000000000000');
+  });
+
+  it('follows an item that moves from the wishlist to owned as a changed entry, not a tombstone', async () => {
+    upsertOwned(wishlisted);
+    await syncLibrary(LIB);
+    expect(getOwnedCache(LIB).state.index.lookup('5051889000006').wishlistItemId).toBe(wishlisted.itemId);
+
+    upsertOwned({ ...wishlisted, status: 'owned' });
+    await syncLibrary(LIB);
+
+    const answer = getOwnedCache(LIB).state.index.lookup('5051889000006');
+    expect(answer.wishlistItemId).toBeNull();
+    expect(answer.owned.map((c) => c.itemId)).toEqual([wishlisted.itemId]);
+  });
+
+  it('drops a copy saved before statuses were kept, so the next sync pulls everything again', async () => {
+    // What the last release wrote: no status in the rows, and a cursor that would skip the wishlist and sold items for good.
+    storage.set('owned-index-v1:' + LIB, JSON.stringify({ v: 1, cursor: '3', syncedAt: 5, rows: [] }));
+    setOwnedStorage(storage);
+
+    const cache = getOwnedCache(LIB);
+
+    expect(cache.state.cursor).toBeNull();
+    expect(cache.state.syncedAt).toBeNull();
+    expect(storage.getString('owned-index-v1:' + LIB)).toBeUndefined();
+    await syncLibrary(LIB);
+    expect(getOwnedCache(LIB).state.index.size).toBe(3);
+  });
+
+  it('forgets the old release copy on sign-out too', () => {
+    storage.set('owned-index-v1:' + LIB, '{}');
+    storage.set('owned-index-v1:libraries', JSON.stringify([LIB]));
+
+    clearOwnedData();
+
+    expect(storage.getString('owned-index-v1:' + LIB)).toBeUndefined();
+    expect(storage.getString('owned-index-v1:libraries')).toBeUndefined();
+  });
+});
+
 describe('delta sync', () => {
   it('adds a new item, updates an edited one and removes a tombstoned one', async () => {
     await syncLibrary(LIB);

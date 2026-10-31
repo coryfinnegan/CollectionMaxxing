@@ -1,4 +1,4 @@
-import { createOwnedIndex } from './ownedIndex';
+import { createOwnedIndex, type SnapshotEntry } from './ownedIndex';
 import { entry, tombstone } from './testData';
 
 describe('OwnedIndex.lookup', () => {
@@ -33,9 +33,10 @@ describe('OwnedIndex.lookup', () => {
   });
 
   it('says nothing is owned for an unknown or invalid code', () => {
-    expect(index.lookup('4006381333931')).toEqual({ owned: [], softMatches: [] });
-    expect(index.lookup('not a code')).toEqual({ owned: [], softMatches: [] });
-    expect(index.lookup('')).toEqual({ owned: [], softMatches: [] });
+    const nothing = { owned: [], softMatches: [], wishlistItemId: null, soldItemId: null };
+    expect(index.lookup('4006381333931')).toEqual(nothing);
+    expect(index.lookup('not a code')).toEqual(nothing);
+    expect(index.lookup('')).toEqual(nothing);
   });
 
   it('looks up by release id and by work id', () => {
@@ -76,6 +77,92 @@ describe('OwnedIndex.lookup', () => {
       'Living room › Shelf B',
       'Basement',
     ]);
+  });
+});
+
+describe('OwnedIndex: what you have, what you want, and what you sold', () => {
+  const code = '0042100005264';
+  const release = { releaseId: 'release-jaws', workId: 'work-jaws', identifiers: [code], title: 'Jaws' };
+  const own = (status: SnapshotEntry['status'], id: string) => entry({ ...release, itemId: id, status });
+
+  it('counts owned, lent and missing copies as owned', () => {
+    const index = createOwnedIndex([own('owned', 'a'), own('lent', 'b'), own('missing', 'c')]);
+
+    expect(index.lookup({ releaseId: 'release-jaws' }).owned.map((c) => [c.itemId, c.status])).toEqual([
+      ['a', 'owned'],
+      ['b', 'lent'],
+      ['c', 'missing'],
+    ]);
+    expect(index.size).toBe(3);
+  });
+
+  it('never counts a wishlisted or a sold copy as owned, and names each on its own', () => {
+    const index = createOwnedIndex([own('wishlist', 'w1'), own('sold', 's1')]);
+
+    for (const query of [code, { releaseId: 'release-jaws' }]) {
+      const answer = index.lookup(query);
+      expect(answer.owned).toEqual([]);
+      expect(answer.wishlistItemId).toBe('w1');
+      expect(answer.soldItemId).toBe('s1');
+    }
+    expect(index.size).toBe(0);
+  });
+
+  it('names the oldest wishlist item and the most recent sold copy', () => {
+    const index = createOwnedIndex([own('wishlist', 'w2'), own('wishlist', 'w1'), own('sold', 's1'), own('sold', 's3'), own('sold', 's2')]);
+
+    const answer = index.lookup({ releaseId: 'release-jaws' });
+    expect(answer.wishlistItemId).toBe('w1');
+    expect(answer.soldItemId).toBe('s3');
+  });
+
+  it('keeps the facts apart when the release is also owned', () => {
+    const answer = createOwnedIndex([own('owned', 'a'), own('wishlist', 'w1')]).lookup({ releaseId: 'release-jaws' });
+
+    expect(answer.owned.map((c) => c.itemId)).toEqual(['a']);
+    expect(answer.wishlistItemId).toBe('w1');
+    expect(answer.soldItemId).toBeNull();
+  });
+
+  it('names no wishlist or sold item when asked about a whole work', () => {
+    const answer = createOwnedIndex([own('owned', 'a'), own('wishlist', 'w1'), own('sold', 's1')]).lookup({ workId: 'work-jaws' });
+
+    expect(answer.owned.map((c) => c.itemId)).toEqual(['a']);
+    expect(answer.wishlistItemId).toBeNull();
+    expect(answer.soldItemId).toBeNull();
+  });
+
+  it('does not offer a wishlisted copy in another format as a soft match, and does not call it this release wishlist item', () => {
+    const dvd = entry({ title: 'Jaws', workId: 'work-jaws', releaseId: 'release-dvd', format: 'dvd', status: 'wishlist', itemId: 'w-dvd' });
+    const vhs = entry({ ...release, itemId: 'v', format: 'vhs', status: 'owned' });
+
+    const answer = createOwnedIndex([dvd, vhs]).lookup({ releaseId: 'release-dvd' });
+    expect(answer.wishlistItemId).toBe('w-dvd');
+    expect(answer.owned).toEqual([]);
+    expect(answer.softMatches.map((c) => c.itemId)).toEqual(['v']); // the library's VHS copy, in the same work
+    expect(createOwnedIndex([dvd]).lookup({ releaseId: 'release-jaws' }).softMatches).toEqual([]);
+  });
+
+  it('reads an entry saved without a status as owned', () => {
+    const index = createOwnedIndex([entry({ ...release, itemId: 'old', status: null })]);
+
+    expect(index.lookup({ releaseId: 'release-jaws' }).owned.map((c) => c.status)).toEqual(['owned']);
+    expect(index.size).toBe(1);
+  });
+
+  it('moves an item from the wishlist to owned when a later change says so', () => {
+    const before = createOwnedIndex([own('wishlist', 'x')]);
+    const after = before.apply([own('owned', 'x')]);
+
+    expect(before.lookup({ releaseId: 'release-jaws' }).wishlistItemId).toBe('x');
+    expect(after.lookup({ releaseId: 'release-jaws' }).wishlistItemId).toBeNull();
+    expect(after.lookup({ releaseId: 'release-jaws' }).owned.map((c) => c.itemId)).toEqual(['x']);
+  });
+
+  it('leaves the wishlisted and the sold out of the scanner title search', () => {
+    const index = createOwnedIndex([own('owned', 'a'), entry({ title: 'Jaws 2', status: 'wishlist' }), entry({ title: 'Jaws 3', status: 'sold' })]);
+
+    expect(index.searchTitles('jaws').map((c) => c.title)).toEqual(['Jaws']);
   });
 });
 
