@@ -41,10 +41,14 @@ public sealed class ResolvePendingCandidate(
     ScanningOptions options,
     IJobQueue jobs,
     TimeProvider clock,
-    ILogger<ResolvePendingCandidate> logger) : IJobHandler<SubmitBarcodes.ResolveJob>
+    ILogger<ResolvePendingCandidate> logger) : IJobHandler<SubmitBarcodes.ResolveJob>, IJobFailureHandler<SubmitBarcodes.ResolveJob>
 {
     public async Task HandleAsync(SubmitBarcodes.ResolveJob job, CancellationToken cancellationToken) =>
         await RunAsync(job, cancellationToken);
+
+    /// <summary>The job failed for good (retries used up): the code becomes an Error instead of waiting for days.</summary>
+    public Task OnFailedForGoodAsync(SubmitBarcodes.ResolveJob job, string lastError, CancellationToken cancellationToken) =>
+        ResolveGaveUp.SettleAsync(db, sessionLock, logger, job.LibraryId, job.SessionId, job.CandidateId, lastError, cancellationToken);
 
     public async Task<ResolveOutcome> RunAsync(SubmitBarcodes.ResolveJob job, CancellationToken cancellationToken)
     {
@@ -127,11 +131,7 @@ public sealed class ResolvePendingCandidate(
             var quotaSpent = candidate.Resolution == CandidateResolution.Pending && UpcQuotaWindow.IsSpent(answer);
             if (candidate.Resolution == CandidateResolution.Pending && !quotaSpent)
             {
-                candidate.Resolution = CandidateResolution.Error; // gave up; the person can search by hand
-                candidate.Tier = ScanTier.T2;
-                candidate.GuidanceCode = candidate.GuidanceCode is { } keep && GuidanceCodes.IsReshoot(keep)
-                    ? keep
-                    : GuidanceCodes.For(null, CandidateResolution.Error, candidate.Source, candidate.RawCode, quotaSpent: false);
+                ResolveGaveUp.Apply(candidate); // gave up; the person can search by hand
             }
 
             try

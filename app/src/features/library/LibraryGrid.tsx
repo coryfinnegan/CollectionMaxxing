@@ -13,12 +13,13 @@ import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { flattenTree } from '@/features/locations/tree';
+import { useMyRole } from '@/features/me/useMyRole';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
-import { spacing, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
+import { gridColumns, tileWidthFor } from './gridLayout';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
 import { NeedsAttention, useProvisionals } from './NeedsAttention';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
@@ -28,8 +29,6 @@ export type LibraryGridProps = {
   title: string;
   /** Set for the Wishlist and Lent out views. */
   fixedStatus?: ItemStatus;
-  /** Opens with the Add an item panel showing (Library's own Add item entry point). */
-  openAdd?: boolean;
   /** Hides the content title: pushed pages on the phone already name themselves in the stack header (#303). */
   hideTitle?: boolean;
 };
@@ -46,7 +45,7 @@ const emptyCopy: Record<string, { title: string; body: string }> = {
   lent: { title: 'Nothing is lent out.', body: 'Lend an item from its page and it shows up here.' },
 };
 
-export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryGridProps) {
+export function LibraryGrid({ title, fixedStatus, hideTitle }: LibraryGridProps) {
   const { libraryId, isLoading: loadingLibrary } = useActiveLibraryId();
   const { theme } = useUnistyles();
   // Plain objects: SafeAreaView lives outside the babel-processed tree, so a
@@ -64,7 +63,7 @@ export function LibraryGrid({ title, fixedStatus, openAdd, hideTitle }: LibraryG
       </SafeAreaView>
     );
   }
-  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} openAdd={openAdd} hideTitle={hideTitle} />;
+  return <Grid libraryId={libraryId} title={title} fixedStatus={fixedStatus} hideTitle={hideTitle} />;
 }
 
 /** The library heading: the title with its count, in the one design. Pushed views hide it; their stack header names them. */
@@ -79,17 +78,22 @@ function LibraryHeading({ title, subtitle }: { title: string; subtitle?: string 
   );
 }
 
-function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGridProps & { libraryId: string }) {
+function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & { libraryId: string }) {
   const router = useRouter();
   const { theme } = useUnistyles();
   const safe = { flex: 1, backgroundColor: theme.colors.ground };
-  const { width } = useWindowDimensions();
-  const columns = width >= WIDE_BREAKPOINT ? 6 : 3;
-  const tileWidth = Math.floor((width - spacing.lg * 2 - spacing.md * (columns - 1)) / columns);
+  const { canEdit } = useMyRole();
+  const { width: windowWidth } = useWindowDimensions();
+  // Columns follow the grid's own width, not the window's: the web sidebar takes 220 px, so counting the window
+  // lays out tiles that run off the right edge. Until the grid has been measured the window is the best guess.
+  const [gridWidth, setGridWidth] = useState<number | null>(null);
+  const available = gridWidth ?? windowWidth;
+  const columns = gridColumns(available);
+  const tileWidth = tileWidthFor(available, columns);
 
   const [chosen, setState] = useState<ListState>(defaultState());
   const [search, setSearch] = useState('');
-  const [panel, setPanel] = useState<Panel>(openAdd ? 'add' : null);
+  const [panel, setPanel] = useState<Panel>(null);
   /** "Needs attention" (#345): kept rows instead of the grid. Only the library view has it, not Wishlist or Lent out. */
   const [attention, setAttention] = useState(false);
   const { items: attentionItems } = useProvisionals(!fixedStatus ? libraryId : undefined);
@@ -116,11 +120,13 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       {hideTitle ? null : (
         <LibraryHeading title={title} subtitle={counts?.total === undefined ? undefined : `${counts.total} ${counts.total === 1 ? 'item' : 'items'}`} />
       )}
-      <View style={styles.headerRow}>
-        <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
-      </View>
+      {canEdit ? (
+        <View style={styles.headerRow}>
+          <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
+        </View>
+      ) : null}
 
-      {panel === 'add' ? <AddItemPanel libraryId={libraryId} onClose={() => setPanel(null)} /> : null}
+      {canEdit && panel === 'add' ? <AddItemPanel libraryId={libraryId} onClose={() => setPanel(null)} /> : null}
 
       <TextField
         label="Search"
@@ -307,6 +313,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
         testID="library-grid"
         data={list.items}
         numColumns={columns}
+        onLayout={(event) => setGridWidth(Math.round(event.nativeEvent.layout.width))}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         columnWrapperStyle={styles.column}

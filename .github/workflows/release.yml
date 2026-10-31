@@ -2,10 +2,20 @@
 #
 # On every push to main it builds the api, migrate and backup images, pushes them to GHCR tagged with the commit SHA
 # only, and signs a build attestation for each. A second job (promote) then moves the moving "main" tag onto all three,
-# but only after every leg AND its attestation succeeded, so :main always names a complete, attested set. The deployer
-# on the owner's PC reads api:main for the newest commit and verifies each attestation with
+# but only after every leg AND its attestation succeeded AND CI (ci.yml) succeeded for this same commit (the ci-gate
+# job), so :main always names a complete, attested, tested set. The deployer on the owner's PC reads api:main for the
+# newest commit and verifies each attestation with
 # `gh attestation verify --signer-workflow <owner>/<repo>/.github/workflows/release.yml`, requiring the certificate to
-# say refs/heads/main, so the file name "release.yml" matters: do not rename it without changing the deployer.
+# say refs/heads/main at the image's commit, so the file name "release.yml" matters: do not rename it without changing
+# the deployer.
+#
+# Why the CI gate waits inside this workflow instead of using `on: workflow_run` after CI: a workflow_run run is
+# stamped with the LATEST commit on main (its GITHUB_SHA and GITHUB_REF are the default branch's tip, not the commit
+# CI tested), and the attestation certificate's source digest comes from that. If main moved while CI ran, the images
+# would be built and attested for a commit CI never saw, or the certificate and the image would name different
+# commits and the deployer would refuse them. Starting on the push keeps the identity the deployer checks (this file,
+# refs/heads/main, the pushed commit); the gate then asks GitHub for the CI run of exactly github.sha
+# (scripts/wait-for-ci.sh). The images build while CI runs, so the gate adds no time when CI is the slower of the two.
 #
 # After copying: make the three GHCR packages public (Package settings > Change visibility), once, so the PC can pull
 # without logging in. They contain no secrets or data.
@@ -23,6 +33,29 @@ concurrency:
   cancel-in-progress: false # let a started build finish; the deployer only ever wants the newest main
 
 jobs:
+  ci-gate:
+    # Waits for CI to finish on THIS commit. CI is cancelled by a newer push to main (its concurrency group), and then
+    # this job ends without a verdict to promote (passed=false) rather than failing. Anything else that is not a
+    # success, a CI that failed or timed out or never showed up, fails the job, so promote is skipped and :main stays
+    # on the last tested commit. Fixing CI and re-running the failed jobs of this run releases the commit.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # read the CI run of this commit
+    outputs:
+      passed: ${{ steps.ci.outputs.passed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Wait for CI on this commit
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: bash scripts/wait-for-ci.sh
+
   images:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -106,8 +139,11 @@ jobs:
 
   promote:
     # Moves :main onto this commit's images. needs: images means this runs only when every leg built, pushed AND
-    # attested, so :main always names a complete set and the deployer never chases a partial release.
-    needs: images
+    # attested, so :main always names a complete set and the deployer never chases a partial release. needs: ci-gate
+    # with its passed output means CI also succeeded for this very commit: the SHA-tagged images of a red or
+    # superseded commit stay unreferenced (the deployer only ever picks a commit by reading :main).
+    needs: [images, ci-gate]
+    if: needs.ci-gate.outputs.passed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

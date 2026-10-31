@@ -70,7 +70,7 @@ describe('scan tab entry', () => {
     await renderWithProviders(<ScanTab />);
 
     expect(await screen.findByText('No library found.')).toBeTruthy();
-    expect(screen.getByText('Pair this iPhone again.')).toBeTruthy();
+    expect(screen.getByText('Create or join a library in Settings, then come back to scan.')).toBeTruthy();
     expect(screen.queryByTestId('scan-coach')).toBeNull();
     expect(screen.queryByLabelText('Close')).toBeNull();
   });

@@ -99,7 +99,7 @@ export function SelectionBar(props: Props) {
 
       {panel === 'delete' ? (
         <Sheet title={`Delete ${items(count)}?`} onClose={() => setPanel(null)}>
-          <Text tone="muted">They leave your library. You can restore one from its page for a while.</Text>
+          <Text tone="muted">They leave your library. For 30 days you can bring them back from Me, then Recently deleted.</Text>
           <View style={styles.confirm}>
             <Button label={`Delete ${items(count)}`} variant="danger" onPress={() => run(props.onDelete)} />
             <Button label="Keep them" variant="secondary" onPress={() => setPanel(null)} />

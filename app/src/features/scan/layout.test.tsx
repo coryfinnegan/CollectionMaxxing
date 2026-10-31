@@ -84,7 +84,7 @@ describe('scan layout', () => {
     const onClose = jest.fn();
     await renderWithProviders(<ScannerRoute onClose={onClose} />);
     expect(await screen.findByText('No library found.')).toBeTruthy();
-    expect(screen.getByText('Pair this iPhone again.')).toBeTruthy();
+    expect(screen.getByText('Create or join a library in Settings, then come back to scan.')).toBeTruthy();
     expect(screen.getByTestId('scanner-fallback-safe-area')).toBeTruthy();
     fireEvent.press(screen.getByLabelText('Close'));
     expect(onClose).toHaveBeenCalledTimes(1);
