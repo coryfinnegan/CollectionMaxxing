@@ -3,8 +3,8 @@ import type { EvalState } from './runner';
 
 const photos = (count: number) => `${count} ${count === 1 ? 'photo' : 'photos'}`;
 
-/** The reasons the PC lists a photo as skipped when the photo itself was not scored (the others, such as a trimmed list, say what was cut from a photo that was). */
-const NOT_SCORED = new Set(['no_truth', 'invalid_truth', 'unknown_photo', 'grounding_failed']);
+/** The reasons the PC lists a photo as skipped when the photo itself was not scored (the others, such as a trimmed list or a refusal, say what happened to a photo that was). */
+export const NOT_SCORED = new Set(['no_truth', 'invalid_truth', 'unknown_photo', 'grounding_failed']);
 
 /** What the PC says when it could not score a run at all: the plain reason, and that it keeps trying. */
 export function scoringProblem(code: string | undefined): string {

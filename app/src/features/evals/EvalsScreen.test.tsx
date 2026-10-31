@@ -68,6 +68,20 @@ describe('EvalsScreen', () => {
     expect(screen.getByText('Your PC scored 2 photos.')).toBeTruthy();
   });
 
+  it('counts only the photos the PC could not score, not refused photos or notes on photos it did', async () => {
+    const kit = makeKit({ photos: 1 });
+    evalsMock.skipped = [
+      { photoId: 'photo-100', reason: 'no_truth' },
+      { photoId: 'photo-101', reason: 'evals.thermal_required' }, // refused: left out of this count
+      { photoId: 'photo-102', reason: 'trimmed_items_120_of_151' }, // scored, with a note: left out of this count
+    ];
+    await renderWithProviders(<EvalsScreen runner={kit.runner} />);
+    await press('Start the run');
+
+    expect(await screen.findByText(/M3 gate: pass/)).toBeTruthy();
+    expect(screen.getByText("1 photo weren't scored (no truth file yet or not found).")).toBeTruthy();
+  });
+
   it('says the PC is scoring and that the owner can leave, until the summary is ready', async () => {
     evalsMock.scoredAfterPolls = 1000;
     const kit = makeKit({ photos: 1, onSleep: () => new Promise<void>(() => undefined) });
