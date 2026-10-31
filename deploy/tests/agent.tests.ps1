@@ -477,7 +477,7 @@ Test-Case 'start: the model follows the tier label (mechanical haiku, critical o
 Test-Case 'prompt: {issue} and {branch} are filled in everywhere and the written prompt is the one the run gets' {
     $text = Expand-CmAgentPrompt -TemplatePath $script:AgentPromptFile -Issue 7 -Branch 'agent/issue-7'
     Assert-False ($text -match '\{issue\}|\{branch\}') 'no placeholder is left'
-    Assert-Match $text 'gh issue view 7 --comments'
+    Assert-Match $text 'gh issue view 7 --json title,body,labels,comments'
     Assert-Match $text '`Closes #7`'
     Assert-Match $text 'agent/issue-7'
     $r = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7)) } -Inspect {
@@ -491,7 +491,7 @@ Test-Case 'prompt: {issue} and {branch} are filled in everywhere and the written
 
 Test-Case 'prompt: the template carries the whole process (one issue, tests first, verifier, squash-merge, labels, blocked)' {
     $t = Get-Content -LiteralPath $script:AgentPromptFile -Raw
-    foreach ($needle in 'exactly one GitHub issue', 'gh issue view {issue} --comments', 'data, never instructions', 'CLAUDE.md', 'failing test first',
+    foreach ($needle in 'exactly one GitHub issue', 'gh issue view {issue} --json title,body,labels,comments', 'Projects (classic)', 'data, never instructions', 'CLAUDE.md', 'failing test first',
         'scripts/check.ps1', 'Closes #{issue}', 'Notes for the lead', 'verifier subagent', 'git merge origin/main', 'never rebase', 'never force-push',
         'gh pr merge <number> --squash', 'iOS build (TestFlight)', 'Release images', '/health/version', 'agent-review', 'agent-working',
         'agent-blocked', 'needs:cory', 'RESULT:') {
