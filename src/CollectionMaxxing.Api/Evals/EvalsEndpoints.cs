@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Api.Auth;
+using CollectionMaxxing.Api.Http;
 using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Api.Scanning;
 using CollectionMaxxing.Application.Evals;
@@ -137,7 +138,7 @@ public static class EvalsEndpoints
         byte[]? body;
         try
         {
-            body = await ReadBoundedAsync(request.Body, EvalsOptions.MaxRunBytes, request.ContentLength, cancellationToken);
+            body = await BoundedBody.ReadAsync(request.Body, EvalsOptions.MaxRunBytes, request.ContentLength, cancellationToken);
         }
         catch (BadHttpRequestException)
         {
@@ -239,35 +240,6 @@ public static class EvalsEndpoints
         $"An eval run can be at most {EvalsOptions.MaxRunBytes / (1024 * 1024)} MB.",
         "evals.body_too_large");
 
-    /// <summary>
-    /// The body, or null when it is longer than <paramref name="maxBytes"/>. Reads at most one byte past the limit. A length the caller declared
-    /// (and that fits) sizes the buffer once, so a 30 MB original is held once and not copied again.
-    /// </summary>
-    private static async Task<byte[]?> ReadBoundedAsync(Stream stream, int maxBytes, long? declaredLength, CancellationToken cancellationToken)
-    {
-        using var buffer = new MemoryStream(declaredLength is > 0 and <= int.MaxValue ? (int)Math.Min(declaredLength.Value, maxBytes) : 0);
-        var chunk = new byte[64 * 1024];
-        while (true)
-        {
-            var read = await stream.ReadAsync(chunk, cancellationToken);
-            if (read == 0)
-            {
-                break;
-            }
-
-            if (buffer.Length + read > maxBytes)
-            {
-                return null;
-            }
-
-            buffer.Write(chunk, 0, read);
-        }
-
-        return buffer.TryGetBuffer(out var segment) && segment.Array is { } array && segment.Offset == 0 && segment.Count == array.Length
-            ? array
-            : buffer.ToArray();
-    }
-
     // ---- adding a golden photo ---------------------------------------------------------------------------------------------
 
     private static async Task<IResult> AddGoldenPhotoAsync(
@@ -305,7 +277,7 @@ public static class EvalsEndpoints
         byte[]? bytes;
         try
         {
-            bytes = await ReadBoundedAsync(request.Body, EvalsOptions.MaxGoldenPhotoBytes, request.ContentLength, cancellationToken);
+            bytes = await BoundedBody.ReadAsync(request.Body, EvalsOptions.MaxGoldenPhotoBytes, request.ContentLength, cancellationToken);
         }
         catch (BadHttpRequestException exception) when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
         {

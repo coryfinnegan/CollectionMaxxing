@@ -35,6 +35,7 @@ public static class BoundedBody
             var filled = await stream.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, cancellationToken);
             if (filled < head.Length)
             {
+                // The body ended short of its declared length: the answer is what arrived, not the array that was made for more.
                 return head.AsSpan(0, filled).ToArray();
             }
         }
