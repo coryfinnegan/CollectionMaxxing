@@ -9007,6 +9007,12 @@
           },
           "editionVerified": {
             "type": "boolean"
+          },
+          "lentTo": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

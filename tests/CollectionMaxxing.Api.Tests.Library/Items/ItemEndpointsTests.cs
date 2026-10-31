@@ -564,6 +564,20 @@ public class ItemEndpointsTests(ApiFixture api) : ApiTest(api)
     }
 
     [Fact]
+    public async Task A_lent_item_in_the_list_says_who_has_it_and_no_other_row_names_a_borrower()
+    {
+        var (library, viewer) = await ArrangeShelfAsync();
+        var page = await ReadJsonAsync(await viewer.GetAsync(ItemsUrl(library.Id)));
+        var alien = page.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("title").GetString() == "Alien");
+        await ItemSeed.SetLentToAsync(Db, alien.GetProperty("id").GetGuid(), "Sam");
+
+        var rows = (await ReadJsonAsync(await viewer.GetAsync(ItemsUrl(library.Id)))).GetProperty("items").EnumerateArray().ToList();
+
+        rows.Single(i => i.GetProperty("title").GetString() == "Alien").GetProperty("lentTo").GetString().ShouldBe("Sam");
+        rows.Where(i => i.GetProperty("title").GetString() != "Alien").ShouldAllBe(i => i.GetProperty("lentTo").ValueKind == JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task The_list_filters_by_location_and_by_tag_name()
     {
         var (library, viewer) = await ArrangeShelfAsync();

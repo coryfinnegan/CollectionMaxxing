@@ -117,6 +117,13 @@ public static class ItemSeed
         return item.Id;
     }
 
+    /// <summary>Names the borrower straight in the table (the item is then lent out, as the API keeps it).</summary>
+    public static async Task SetLentToAsync(PostgresFixture db, Guid itemId, string borrower)
+    {
+        await using var context = db.CreateContext();
+        await context.Database.ExecuteSqlInterpolatedAsync($"update items set status = 'lent', lent_to = {borrower} where id = {itemId}");
+    }
+
     /// <summary>Clears <c>edition_verified</c> straight in the table, to stand in for a T1 auto-add.</summary>
     public static async Task SetEditionUnverifiedAsync(PostgresFixture db, Guid itemId)
     {

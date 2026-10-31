@@ -6,7 +6,7 @@ namespace CollectionMaxxing.Application.Items;
 
 // Response shapes of the items endpoints (docs/04). Fields are the contract: change them deliberately.
 
-/// <summary>An item as it appears in a list: enough to draw a row or a card.</summary>
+/// <summary>An item as it appears in a list: enough to draw a row or a card. <c>LentTo</c> is who has it, for a lent item, else null.</summary>
 public sealed record ItemSummaryDto(
     Guid Id,
     Guid ReleaseId,
@@ -21,7 +21,8 @@ public sealed record ItemSummaryDto(
     Guid? LocationId,
     string? CoverUrl,
     DateTimeOffset CreatedAt,
-    bool EditionVerified);
+    bool EditionVerified,
+    string? LentTo = null);
 
 /// <summary>
 /// Your copy of a release. <c>CreatedBy</c> is who added it and <c>CreatedByName</c> is that person's display name (the "Added by" line);

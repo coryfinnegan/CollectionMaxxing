@@ -71,6 +71,8 @@ public static class ListItems
 
         public bool EditionVerified { get; init; }
 
+        public string? LentTo { get; init; }
+
         public DateTimeOffset CreatedAt { get; init; }
     }
 
@@ -143,7 +145,7 @@ public static class ListItems
             var items = page.Select(r => new ItemSummaryDto(
                 r.Id, r.ReleaseId, r.WorkId, r.HasCustomTitle ? r.Title : TitleCaser.ToTitleCase(r.Title), r.Kind, r.Format,
                 r.PlatformName, r.Year, r.Status, r.Condition, r.LocationId, ItemProjection.CoverUrl(r.CoverAssetId), r.CreatedAt,
-                r.EditionVerified)).ToList();
+                r.EditionVerified, r.LentTo)).ToList();
             return new Page<ItemSummaryDto>(items, more ? Encode(sort, page[^1]) : null);
         }
 
@@ -259,6 +261,7 @@ public static class ListItems
                     ? x.Item.CustomCoverAssetId
                     : x.Release.CoverAssetId ?? x.Work.CoverAssetId,
                 EditionVerified = x.Item.EditionVerified,
+                LentTo = x.Item.Status == ItemStatus.Lent ? x.Item.LentTo : null,
                 CreatedAt = x.Item.CreatedAt,
             });
         }
