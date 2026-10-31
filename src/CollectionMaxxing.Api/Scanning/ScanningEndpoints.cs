@@ -54,8 +54,8 @@ public static class ScanningEndpoints
             .RequireScanSessionRole(LibraryRole.Viewer)
             .WithRateLimitGroup(RateLimitGroup.Barcodes);
 
-        // What the phone read from one picture (text only, never an image). The body is read inside the handler, after the
-        // session filters, and bounded; see IdentifyEndpoint.
+        // What the phone read from one picture (text only, never an image). The body is read bounded, once, by whichever of the
+        // limiter (for the item count) and the handler asks first; see IdentifyBody.
         sessions.MapPost("/{id:guid}/identify", Identify.IdentifyEndpoint.HandleAsync)
             .WithName("IdentifyItems").WithTags("Scanning")
             .Accepts<IdentifyRequest>("application/json")
@@ -65,7 +65,7 @@ public static class ScanningEndpoints
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
             .RequireScanSessionRole(LibraryRole.Viewer)
-            .WithRateLimitGroup(RateLimitGroup.Identify);
+            .WithRateLimitGroup(Identify.IdentifyBody.RateLimit);
 
         // The feature-print distances the phone measured for a close call; the server re-scores. The body is read inside the
         // handler, after the session filters, and bounded; see ArtworkEndpoint.

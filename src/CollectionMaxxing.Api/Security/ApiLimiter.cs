@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using System.Threading.RateLimiting;
 using CollectionMaxxing.Api.Auth;
 using CollectionMaxxing.Api.Problems;
@@ -79,8 +78,6 @@ public sealed class ApiLimiter : IDisposable
 /// <summary>Decides which groups a request belongs to, takes its permits and answers 429 (Problem Details, with Retry-After) when one is empty.</summary>
 public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter, ClientAddressResolver addresses)
 {
-    private const int MaxBodyToRead = 1024 * 1024;
-
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path;
@@ -94,8 +91,8 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
         // The specific group first, so a refused call does not also use up the caller's general allowance.
         if (context.GetEndpoint()?.Metadata.GetMetadata<RateLimitGroup>() is { } group)
         {
-            var permits = group.CostPerItem ? await CountItemsAsync(context.Request) : 1;
-            if (limiter.TryTake(group.Name, key, permits) is { } refused)
+            var permits = group.Cost is { } cost ? await cost(context) : 1;
+            if (permits > 0 && limiter.TryTake(group.Name, key, permits) is { } refused)
             {
                 await Refuse(context, refused);
                 return;
@@ -116,45 +113,6 @@ public sealed class ApiLimitsMiddleware(RequestDelegate next, ApiLimiter limiter
         CurrentSession.UserId(context.User) is { } userId
             ? "u:" + userId.ToString("N", CultureInfo.InvariantCulture)
             : "ip:" + addresses.Resolve(context);
-
-    /// <summary>How many items an identify call carries: the length of the body's <c>items</c> array, at least 1. A body we can't read costs 1; the endpoint judges it.</summary>
-    private static async Task<int> CountItemsAsync(HttpRequest request)
-    {
-        if (request.ContentLength is > MaxBodyToRead)
-        {
-            return 1;
-        }
-
-        try
-        {
-            request.EnableBuffering(bufferThreshold: 64 * 1024, bufferLimit: MaxBodyToRead);
-            using var document = await JsonDocument.ParseAsync(request.Body);
-            if (document.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                // The endpoint reads property names without regard to case, so the count must too.
-                foreach (var property in document.RootElement.EnumerateObject())
-                {
-                    if (string.Equals(property.Name, "items", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return property.Value.ValueKind == JsonValueKind.Array ? Math.Max(1, property.Value.GetArrayLength()) : 1;
-                    }
-                }
-            }
-
-            return 1;
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException)
-        {
-            return 1;
-        }
-        finally
-        {
-            if (request.Body.CanSeek)
-            {
-                request.Body.Position = 0;
-            }
-        }
-    }
 
     private static async Task Refuse(HttpContext context, TimeSpan wait)
     {
