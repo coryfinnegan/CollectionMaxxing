@@ -110,31 +110,6 @@ jobs:
           CM_TEST_FILTER: ${{ matrix.filter }}
           CM_SHARD_REPORT: ${{ runner.temp }}/shard-report/${{ matrix.shard }}.txt
         run: bash scripts/check.sh test
-      - name: TEMP timings per class
-        if: always() && matrix.filter != ''
-        run: |
-          python3 - <<'PY'
-          import glob, re, collections
-          by = collections.defaultdict(lambda: [0, 0.0])
-          for f in glob.glob('**/TestResults/*.trx', recursive=True):
-              x = open(f, encoding='utf-8').read()
-              for m in re.finditer(r'<UnitTestResult [^>]*?testName="([^"]*)"[^>]*?duration="([0-9:.]+)"', x):
-                  name, dur = m.group(1), m.group(2)
-                  h, mi, se = dur.split(':')
-                  secs = int(h) * 3600 + int(mi) * 60 + float(se)
-                  base = name.split('(')[0]
-                  cls = base.rsplit('.', 1)[0]
-                  if 'AuthorizationMatrixTests' in cls:
-                      am = re.search(r'actor: (\w+)\)', name)
-                      cls += ' [' + (am.group(1) if am else '?') + ']'
-                  by[cls][0] += 1
-                  by[cls][1] += secs
-          tot = 0.0
-          for cls, (n, secs) in sorted(by.items(), key=lambda kv: -kv[1][1]):
-              tot += secs
-              print(f'TIMING {secs:8.1f}s {n:4d} {cls}')
-          print(f'TIMING {tot:8.1f}s total')
-          PY
       # Only sharded suites report (the `rest` shard has no filter): see the shard check in the `backend` job.
       - name: Upload shard report
         if: matrix.filter != ''
