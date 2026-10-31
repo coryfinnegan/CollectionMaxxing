@@ -13,12 +13,13 @@ import type { ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { flattenTree } from '@/features/locations/tree';
+import { useMyRole } from '@/features/me/useMyRole';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { friendlyError } from '@/lib/problem';
-import { spacing, WIDE_BREAKPOINT } from '@/theme/tokens';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { maybeEntering, maybeLayout, motionMs, sharedCoverTag, staggerDelay } from '@/ui/motion';
 import { AddItemPanel } from './AddItemPanel';
+import { gridColumns, tileWidthFor } from './gridLayout';
 import { formatLabels, formats, kindLabels, kinds } from './labels';
 import { NeedsAttention, useProvisionals } from './NeedsAttention';
 import { changeFilter, defaultState, hasActiveFilter, type ListState, sortLabel, sortOptions } from './query';
@@ -83,9 +84,14 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
   const router = useRouter();
   const { theme } = useUnistyles();
   const safe = { flex: 1, backgroundColor: theme.colors.ground };
-  const { width } = useWindowDimensions();
-  const columns = width >= WIDE_BREAKPOINT ? 6 : 3;
-  const tileWidth = Math.floor((width - spacing.lg * 2 - spacing.md * (columns - 1)) / columns);
+  const { canEdit } = useMyRole();
+  const { width: windowWidth } = useWindowDimensions();
+  // Columns follow the grid's own width, not the window's: the web sidebar takes 220 px, so counting the window
+  // lays out tiles that run off the right edge. Until the grid has been measured the window is the best guess.
+  const [gridWidth, setGridWidth] = useState<number | null>(null);
+  const available = gridWidth ?? windowWidth;
+  const columns = gridColumns(available);
+  const tileWidth = tileWidthFor(available, columns);
 
   const [chosen, setState] = useState<ListState>(defaultState());
   const [search, setSearch] = useState('');
@@ -116,11 +122,13 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
       {hideTitle ? null : (
         <LibraryHeading title={title} subtitle={counts?.total === undefined ? undefined : `${counts.total} ${counts.total === 1 ? 'item' : 'items'}`} />
       )}
-      <View style={styles.headerRow}>
-        <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
-      </View>
+      {canEdit ? (
+        <View style={styles.headerRow}>
+          <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
+        </View>
+      ) : null}
 
-      {panel === 'add' ? <AddItemPanel libraryId={libraryId} onClose={() => setPanel(null)} /> : null}
+      {canEdit && panel === 'add' ? <AddItemPanel libraryId={libraryId} onClose={() => setPanel(null)} /> : null}
 
       <TextField
         label="Search"
@@ -307,6 +315,7 @@ function Grid({ libraryId, title, fixedStatus, openAdd, hideTitle }: LibraryGrid
         testID="library-grid"
         data={list.items}
         numColumns={columns}
+        onLayout={(event) => setGridWidth(Math.round(event.nativeEvent.layout.width))}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         columnWrapperStyle={styles.column}

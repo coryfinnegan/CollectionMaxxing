@@ -1,5 +1,6 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
+import { mockMe } from '@/mocks/data';
 import { itemsState, resetItems } from '@/mocks/items';
 import { server } from '@/mocks/server';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
@@ -24,6 +25,14 @@ beforeEach(() => {
 
 afterAll(() => setRecentStorage(undefined));
 afterEach(() => server.events.removeAllListeners());
+
+const asRole = (role: 'owner' | 'editor' | 'viewer') =>
+  server.use(
+    http.get('*/api/v1/me', () =>
+      HttpResponse.json({ ...mockMe(), memberships: [{ libraryId: mockMe().memberships[0]!.libraryId, role }] }),
+    ),
+  );
+const layout = (width: number) => ({ nativeEvent: { layout: { x: 0, y: 0, width, height: 800 } } });
 
 describe('the Library header', () => {
   // ADR-024: TestFlight tells testers about new builds and installs them, so the app no longer asks the server.
@@ -222,12 +231,66 @@ describe('content title', () => {
   });
 });
 
+describe('grid columns', () => {
+  /** The first row of covers: how many tiles it holds and how wide each one is. */
+  const firstRow = () => {
+    const tile = screen.getByTestId('item-c0000000-0000-4000-8000-000000000001').parent;
+    const row = tile?.parent;
+    const style = tile?.props.style as { width: number } | undefined;
+    return { tiles: Array.isArray(row?.props.children) ? row.props.children.length : 1, width: style?.width };
+  };
+
+  it('counts columns in the width of the grid itself, not the window (the web sidebar takes 220 px)', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    // A 1280 px window minus the sidebar leaves 1060 px: six tiles fit, and all six are laid out inside it.
+    await fireEvent(screen.getByTestId('library-grid'), 'layout', layout(1060));
+    await waitFor(() => expect(firstRow().tiles).toBe(6));
+    const { width } = firstRow();
+    expect(width! * 6 + 12 * 5 + 32).toBeLessThanOrEqual(1060);
+
+    // Squeeze it, like a narrower window: fewer, wider tiles.
+    await fireEvent(screen.getByTestId('library-grid'), 'layout', layout(548));
+    await waitFor(() => expect(firstRow().tiles).toBe(3));
+    expect(firstRow().width).toBeGreaterThan(width!);
+  });
+});
+
+describe('editing controls follow the role', () => {
+  it.each(['owner', 'editor'] as const)('shows Add item to an %s', async (role) => {
+    asRole(role);
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    expect(await screen.findByLabelText('Add item')).toBeTruthy();
+  });
+
+  it('shows a viewer no Add item', async () => {
+    let askedWho = false;
+    server.events.on('request:end', ({ request }) => {
+      if (new URL(request.url).pathname.endsWith('/api/v1/me')) askedWho = true;
+    });
+    asRole('viewer');
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+    // Wait for the role to arrive, so the missing button is the role's doing and not just a slow answer.
+    await waitFor(() => expect(askedWho).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(screen.queryByLabelText('Add item')).toBeNull();
+    expect(screen.getByLabelText('Search')).toBeTruthy();
+  });
+});
+
 describe('Add item', () => {
   it('adds a catalog match through the Search view editions pick', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Add item'));
+    await fireEvent.press(await screen.findByLabelText('Add item'));
     await fireEvent.changeText(screen.getByLabelText('Search the catalog'), 'alien');
     // Alien has a DVD and a VHS release; open the work and pick the DVD.
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
@@ -242,7 +305,7 @@ describe('Add item', () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Add item'));
+    await fireEvent.press(await screen.findByLabelText('Add item'));
     await fireEvent.press(screen.getByLabelText('None of these? Add it yourself'));
     await fireEvent.press(screen.getByLabelText('Add to library'));
     expect(await screen.findByText('Give it a title.')).toBeTruthy();
