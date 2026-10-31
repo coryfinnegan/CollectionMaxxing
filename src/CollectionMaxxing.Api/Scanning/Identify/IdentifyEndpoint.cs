@@ -22,6 +22,7 @@ internal static class IdentifyEndpoint
         // Every refusal is logged with its problem code (never the body), so a 400 can be explained from the server log.
         var logger = loggerFactory.CreateLogger("CollectionMaxxing.Api.Scanning.Identify.IdentifyEndpoint");
         var outcome = await IdentifyBody.ReadAsync(http);
+        outcome.ReadFailure?.Throw(); // the body could not be read: fail with the read's own exception
         if (outcome.Refusal is { } refusal)
         {
             return Refused(logger, refusal.Code, refusal.Problem, refusal.Field);
