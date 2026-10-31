@@ -6,6 +6,7 @@ import type { CandidateDto, DecideCandidateRequest, ReleaseDto } from '@/api/gen
 import { newIdempotencyKey } from '@/features/item/etag';
 import { invalidateLibraryItems } from '@/features/item/useItem';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
+import { syncLibrary } from '@/features/offline/sync';
 import { flushDiscardOutbox } from '@/features/scan/session/discards';
 import { loadSessionMemory, resolveReviewDefaults } from '@/features/scan/session/sessionContext';
 import { useLibraryRole } from '@/features/scan/session/useScanSession';
@@ -28,6 +29,9 @@ export type Toast = { message: string; sessionId: string; undoKey: string; canUn
 
 /** Undo was refused: it is too late (the commit is a couple of minutes old) or an item was changed since. The items stay as they are. */
 const UNDO_REFUSED = "Couldn't undo. These items were added a while ago or have changed since, so they stay in your library.";
+
+/** A new scan has started since the commit, so reopening the old one would lose the new one. The items stay. */
+const UNDO_NEW_SCAN = "Couldn't undo because you've started a new scan. The items stay in your library.";
 
 export function useReview({
   libraryId,
@@ -177,6 +181,10 @@ export function useReview({
     inFlight.current = true;
     setCommitting(true);
     setCommitError(null);
+    // What the phone still owes the server goes first. A keep or a discard queued offline would be refused once the commit
+    // closes the session, and a discarded row that was accepted on a scanner card would still be added.
+    await flushProvisionalOutbox({ libraryId, onStale: () => void loadIntoCards(sessionId).catch(() => {}) }).catch(() => 0);
+    await flushDiscardOutbox({ libraryId }).catch(() => 0);
     // Staged pick-one selections resolve first: each chosen edition PATCHes its row, which lands
     // matched and checked, so the one commit below adds exactly what Add N counted. A pick that
     // cannot be saved stops the whole commit: nothing is added then.
@@ -210,9 +218,12 @@ export function useReview({
       const result = await commitDraft(sessionId, fresh, settled, attempt.current.key);
       // The library list shows the new items by itself (#448): no pull-to-refresh.
       await invalidateLibraryItems(queryClient, libraryId);
+      void syncLibrary(libraryId); // the offline "do I own this" copy learns the new items now, not at the next sync
       attempt.current = null;
-      for (const c of chosen) useCardsStore.getState().remove(c.id);
-      store.getState().clear();
+      // The session is closed. Its rows go (the ones not added would otherwise return, ticked, in the next Review and fail
+      // there), and so do the tray lines the server has in full. Scans still waiting on the phone stay and start the next session.
+      useCardsStore.getState().endSession();
+      store.getState().closeSession();
       setDraft(emptyDraft());
       const message = `Added ${result.created} ${result.created === 1 ? 'item' : 'items'}`;
       celebrationKey.current += 1;
@@ -234,13 +245,20 @@ export function useReview({
 
   const undo = async () => {
     if (!toast?.canUndo || undoing.current) return;
+    // Scans that were waiting on the phone may already have started a new session. Reopening this one would strand them.
+    const current = store.getState().sessionId;
+    if (current && current !== toast.sessionId) {
+      setToast({ ...toast, message: UNDO_NEW_SCAN, canUndo: false });
+      return;
+    }
     undoing.current = true;
     setCelebration(null); // undone is not a moment to celebrate
     try {
       await undoCommit(toast.sessionId, toast.undoKey);
       // The taken-back items leave the library list by themselves (#448).
       await invalidateLibraryItems(queryClient, libraryId);
-      // The commit cleared the tray (and with it the session): Review has the session and its results back now.
+      void syncLibrary(libraryId); // the taken-back items leave the offline "do I own this" copy too
+      // The commit closed the tray's session: Review has the session and its results back now.
       store.getState().setSessionId(toast.sessionId);
       setDraft(emptyDraft());
       setToast({ ...toast, message: 'Undone. What you scanned is back in Review.', canUndo: false });
