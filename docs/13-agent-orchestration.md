@@ -187,7 +187,7 @@ Then **a week of real use**. Every bug you hit becomes a failing test and a fix.
 5. **PR.** It says `Closes #NN`, what changed, which tests were added, anything the lead needs (packages, hot files), and screenshots for web UI (Playwright).
 6. **CI** runs on GitHub's Linux runners.
 7. **Verifier** returns PASS or findings. The builder fixes them, for up to 2 rounds; after that the lead decides.
-8. **Integrate.** The lead rebases onto `main`, regenerates hot files (migration, client, lockfile), runs the full suite and squash-merges. **One merge at a time**, so `main` stays green. Each merge deploys to your PC ([10](10-hosting-and-devops.md)).
+8. **Integrate.** The lead merges `main` into the branch (never a rebase), regenerates hot files (migration, client, lockfile), runs the full suite and squash-merges. **One merge at a time**, so `main` stays green. Each merge deploys to your PC ([10](10-hosting-and-devops.md)).
 9. **Report.** At the end of a wave, the lead posts a summary for you: what merged, what to test, and what's blocked.
 
 ### The task brief
