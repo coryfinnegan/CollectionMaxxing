@@ -3,14 +3,17 @@
 import '@/theme/unistyles';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { ItemDetailDto } from '@/api/generated/models';
 import { completenessLabels, conditionLabels, formatLabels, kindLabels, statusLabels } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
+import { useMyRole } from '@/features/me/useMyRole';
 import { boundScanStore } from '@/features/review/boundScan';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
+import { useGoBackOr } from '@/lib/navigation';
 import { friendlyError } from '@/lib/problem';
 import { Button, Card, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Screen, Sheet, Text } from '@/ui';
 import { sharedCoverTag } from '@/ui/motion';
@@ -25,7 +28,7 @@ export function ItemDetailScreen({ id }: { id: string }) {
   if (isLoading || !libraryId) {
     return (
       <Screen>
-        <LoadingState label="Loading this item…" />
+        <LibraryLoading label="Loading this item…" />
       </Screen>
     );
   }
@@ -39,6 +42,8 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
   const { detail, etag, isLoading, isError, error, refetch } = useItemDetail(libraryId, id);
   const { locations } = useLocationsList(libraryId);
   const { update, remove } = useItemMutations(libraryId);
+  const { canEdit } = useMyRole();
+  const leave = useGoBackOr('/library');
   const setDeleted = useUndoStore((s) => s.setDeleted);
   const [moving, setMoving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -59,6 +64,8 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
     return (
       <Screen>
         <EmptyState title="Couldn't load this item" body={friendlyError(error)} actionLabel="Try again" onAction={() => refetch()} />
+        {/* The item this screen just deleted answers 404 from here on; Undo must outlive that. */}
+        <UndoSnackbar />
       </Screen>
     );
   }
@@ -91,7 +98,8 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
       {
         onSuccess: () => {
           setDeleted({ libraryId, id, title });
-          router.back();
+          // With no history (a fresh load) this lands on the library, where the Undo snackbar waits.
+          leave();
         },
         onError: (e) => setMessage(friendlyError(e)),
       },
@@ -106,13 +114,15 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         {item.editionVerified ? null : (
           <>
             <FormatBadge label="Edition unverified" />
-            <Button
-              label="Scan barcode to verify edition"
-              onPress={() => {
-                boundScanStore.getState().bind({ libraryId, itemId: id, title, kind: 'itemBarcode' });
-                router.push('/scanner');
-              }}
-            />
+            {canEdit && Platform.OS !== 'web' ? (
+              <Button
+                label="Scan barcode to verify edition"
+                onPress={() => {
+                  boundScanStore.getState().bind({ libraryId, itemId: id, title, kind: 'itemBarcode' });
+                  router.push('/scanner');
+                }}
+              />
+            ) : null}
           </>
         )}
         {work.creators.length ? (
@@ -144,13 +154,16 @@ function Detail({ libraryId, id }: { libraryId: string; id: string }) {
         </Text>
       ) : null}
 
-      <View style={styles.actions}>
-        <Button label="Edit" onPress={() => router.push(`/item/${id}/edit`)} />
-        <Button label="Move" variant="secondary" onPress={() => setMoving(!moving)} />
-        <Button label="Delete" variant="danger" haptic="commit" onPress={del} busy={remove.isPending} />
-      </View>
+      {/* Viewers look; only owners and editors change things (the server refuses the rest with a 403). */}
+      {canEdit ? (
+        <View style={styles.actions}>
+          <Button label="Edit" onPress={() => router.push(`/item/${id}/edit`)} />
+          <Button label="Move" variant="secondary" onPress={() => setMoving(!moving)} />
+          <Button label="Delete" variant="danger" haptic="commit" onPress={del} busy={remove.isPending} />
+        </View>
+      ) : null}
 
-      {moving ? (
+      {canEdit && moving ? (
         <Sheet title="Move to" onClose={() => setMoving(false)}>
           {flattenTree(locations).map(({ location, depth }) => (
             <ListRow

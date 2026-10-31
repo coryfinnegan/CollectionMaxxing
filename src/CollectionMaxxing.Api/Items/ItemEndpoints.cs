@@ -136,7 +136,7 @@ public static class ItemEndpoints
         var result = await handler.HandleAsync(
             new CreateItem.Command(
                 libraryId, idempotencyKey, body.ReleaseId, manual, body.Status, body.Condition, body.Completeness, body.LocationId,
-                body.Notes, body.AcquiredOn, body.AddedVia, body.TagIds),
+                body.Notes, body.AcquiredOn, body.AddedVia, body.TagIds, body.ProviderRef),
             cancellationToken);
         if (!result.IsSuccess)
         {

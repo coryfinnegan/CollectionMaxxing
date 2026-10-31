@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
+import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
 import { getTrayStore, useTrayValue } from '@/features/scan/tray/storage';
 import { useColors } from '@/theme/tokens';
-import { LoadingState, Screen } from '@/ui';
+import { Screen } from '@/ui';
 import { boundScanStore, boundTitleOf } from './boundScan';
 import { ReviewScreen } from './ReviewScreen';
 
@@ -17,7 +18,7 @@ export function ReviewRoute() {
     <SafeAreaView testID="review-safe-area" edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.ground }}>
       {isLoading || !libraryId ? (
         <Screen>
-          <LoadingState label="Loading…" />
+          <LibraryLoading label="Loading…" />
         </Screen>
       ) : (
         <ReviewScreen
