@@ -27,7 +27,12 @@ public static class SearchCatalog
     public sealed record Query(string? Q, string? Kind, string? Platform, int? Year, int? Limit, string? Scope = null);
 
     public sealed class Handler(
-        IAppDbContext db, ILocalCatalogSearch local, IEnumerable<ICatalogProvider> providers, CatalogOptions options, ILogger<Handler> logger)
+        IAppDbContext db,
+        ILocalCatalogSearch local,
+        IEnumerable<ICatalogProvider> providers,
+        CatalogOptions options,
+        ILogger<Handler> logger,
+        IProviderHitStore? hits = null)
     {
         public async Task<Result<Page<CatalogSearchResultDto>>> HandleAsync(Query query, CancellationToken cancellationToken)
         {
@@ -64,13 +69,14 @@ public static class SearchCatalog
 
             var local = await SearchLocalAsync(title, query, kind, cancellationToken);
             var results = local.ToList();
+            var providerHits = new List<ProviderRelease>();
 
             // Providers add what the catalogue doesn't have yet. Skip them when the catalogue alone fills the page.
             if (results.Count < limit)
             {
                 var known = local.SelectMany(r => r.Releases.Select(rel => CatalogProjection.DuplicateKey(
                     r.Work.Title, rel.Year, rel.Platform?.Name))).ToHashSet(StringComparer.Ordinal);
-                results.AddRange(await SearchProvidersAsync(title, query, kind, limit, known, cancellationToken));
+                results.AddRange(await SearchProvidersAsync(title, query, kind, limit, known, providerHits, cancellationToken));
             }
 
             var mine = await MyReleaseIdsAsync(
@@ -94,7 +100,43 @@ public static class SearchCatalog
                 .Take(limit)
                 .ToList();
 
+            await KeepShownHitsAsync(ordered, providerHits, cancellationToken);
             return new Page<CatalogSearchResultDto>(ordered);
+        }
+
+        /// <summary>
+        /// Keeps the provider hits the page actually shows, so an add can name one by provider and id (<see cref="ProviderRefDto"/>).
+        /// A store that fails never fails the search: the hit just can't be added until the next search shows it again.
+        /// </summary>
+        private async Task KeepShownHitsAsync(
+            IReadOnlyList<CatalogSearchResultDto> shown, List<ProviderRelease> providerHits, CancellationToken cancellationToken)
+        {
+            if (hits is null || providerHits.Count == 0)
+            {
+                return;
+            }
+
+            var refs = shown.SelectMany(r => r.Releases).Select(r => r.ProviderRef).OfType<ProviderRefDto>().ToHashSet();
+            var keep = providerHits.Where(h => refs.Contains(new ProviderRefDto(h.Provider, h.ExternalId))).ToList();
+            if (keep.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await hits.SaveAsync(keep, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // The store may fail in any way; none of them may fail the search.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                logger.LogWarning(exception, "Couldn't keep the provider hits a search showed; they can't be added until searched again.");
+            }
         }
 
         /// <summary>
@@ -230,7 +272,8 @@ public static class SearchCatalog
         }
 
         private async Task<List<CatalogSearchResultDto>> SearchProvidersAsync(
-            string title, Query query, WorkKind? kind, int limit, HashSet<string> known, CancellationToken cancellationToken)
+            string title, Query query, WorkKind? kind, int limit, HashSet<string> known, List<ProviderRelease> providerHits,
+            CancellationToken cancellationToken)
         {
             var asked = providers.Where(p => kind is null || p.Supports(kind.Value)).ToList();
             if (asked.Count == 0)
@@ -258,6 +301,7 @@ public static class SearchCatalog
             return CatalogProjection.GroupProviderReleases(scored)
                 .Select(g =>
                 {
+                    providerHits.AddRange(g.Releases.Select(r => r.Release));
                     var face = g.Releases[0];
                     var work = CatalogProjection.ToWorkDto(face.Release);
                     var cover = face.Release.CoverUrl ?? g.Releases.Select(r => r.Release.CoverUrl).FirstOrDefault(c => c is not null);

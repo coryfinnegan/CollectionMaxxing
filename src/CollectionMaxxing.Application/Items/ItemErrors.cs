@@ -9,10 +9,15 @@ public static class ItemErrors
 {
     public const string PreconditionFailedCode = "item.precondition_failed";
     public const string KeyReusedCode = "idempotency.key_reused";
+    public const string ProviderHitNotFoundCode = "provider_hit.not_found";
 
     public static readonly DomainError NotFound = new(ErrorKind.NotFound, "item.not_found", "That item doesn't exist.");
 
     public static readonly DomainError ReleaseNotFound = new(ErrorKind.NotFound, "release.not_found", "That release doesn't exist.");
+
+    /// <summary>The search result an add named is no longer kept (a day passed, or the server never showed it). Searching again shows it afresh.</summary>
+    public static readonly DomainError ProviderHitNotFound =
+        new(ErrorKind.NotFound, ProviderHitNotFoundCode, "That search result has expired. Search again to add it.");
 
     public static readonly DomainError LocationNotFound = new(ErrorKind.NotFound, "location.not_found", "That location doesn't exist.");
 
