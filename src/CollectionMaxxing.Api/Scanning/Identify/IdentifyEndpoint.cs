@@ -76,7 +76,8 @@ internal static class IdentifyEndpoint
                 ? null!
                 : new IdentifyItemInput(
                     i.LocalId, i.SegmentId, i.Text, i.Title, i.Creator, i.Edition, i.Completeness, i.Kind, i.Format, i.Year, i.Platform, i.LocalMatchReleaseId, i.ProductCode,
-                    i.Box is { } box ? new ReadBoxInput(box.X, box.Y, box.Width, box.Height) : null))
+                    i.Box is { } box ? new ReadBoxInput(box.X, box.Y, box.Width, box.Height) : null,
+                    i.Unconfirmed == true))
                 .ToList(),
             parsed.ShotKind,
             parsed.Kind ?? IdentifyKind.Shelf,

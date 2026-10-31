@@ -47,6 +47,9 @@ public sealed record ItemBox(double? X = null, double? Y = null, double? Width =
 /// characters: when the server's table says it belongs to one game, the read is identified as that game (ADR-031).
 /// <c>Box</c> is where the read sits in the picture (optional): two reads of one release in one place are one item read twice,
 /// in two places they are two items. Without a box (an older phone) two reads of one release are one item.
+/// <c>Unconfirmed</c> (optional, false when left out) marks a read only the picture model made, at a place the Vision text engine found
+/// nothing on a shelf shot: the catalogue may match it exactly, but nothing else saw it, so the server gives it commit tier T2 at most
+/// (reviewed by the person, never auto-added). The candidates, their order and the verdict are not changed by it.
 /// </summary>
 public sealed record IdentifyItem(
     string? LocalId = null,
@@ -62,7 +65,8 @@ public sealed record IdentifyItem(
     string? Platform = null,
     Guid? LocalMatchReleaseId = null,
     string? ProductCode = null,
-    ItemBox? Box = null);
+    ItemBox? Box = null,
+    bool? Unconfirmed = null);
 
 /// <summary>
 /// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 120 items, 256 KB). <c>FellBackFrom</c> says why

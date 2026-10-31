@@ -8,6 +8,8 @@ import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import { failedRead, makeKit, uriOf } from './evalsTestKit';
 import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
+import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
+import type { ReadItem } from '@/features/scan/recognition/types';
 
 interface Result {
   photoId: string;
@@ -25,6 +27,7 @@ interface Result {
     kind?: string;
     box?: { x: number; y: number; width: number; height: number };
     productCode?: string;
+    unconfirmed?: boolean;
   }[];
   unreadableCount: number;
   latencyMs: number;
@@ -510,6 +513,43 @@ describe('the eval runner', () => {
         expect(item).not.toHaveProperty('isGuess');
       }
     }
+  });
+
+  describe('a read only the picture model made', () => {
+    const readOf = (title: string, extra: Partial<ReadItem> = {}): ReadItem => ({
+      localId: `id-${title}`,
+      text: title,
+      title,
+      kind: 'book',
+      order: 0,
+      confidence: 'high',
+      ...extra,
+    });
+
+    it('is sent with its mark, and a read without the mark is sent without it', async () => {
+      const items = [readOf('Ubik', { unconfirmed: true }), readOf('Dune', { order: 1 })];
+      const spy = jest.spyOn(EngineSelector.prototype, 'read').mockImplementation(async (_still, onItem) => {
+        items.forEach(onItem);
+        return { items, unreadableCount: 0, engine: 'apple_model', timings: { totalMs: 1, visionMs: 0, modelMs: 1 } };
+      });
+      try {
+        const kit = makeKit({ photos: 1 });
+        await kit.runner.start();
+        const model = runs()[0].results.find((r) => r.engine === 'apple_model');
+        expect(model?.items.map((i) => [i.title, i.unconfirmed])).toEqual([['Ubik', true], ['Dune', undefined]]);
+        expect(model?.items[1]).not.toHaveProperty('unconfirmed');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('is not marked in an ordinary run: the model row is read alone and no engine row has a read nothing confirmed', async () => {
+      const kit = makeKit({ photos: 4 });
+      await kit.runner.start();
+      for (const row of runs()[0].results) {
+        for (const item of row.items) expect(item).not.toHaveProperty('unconfirmed');
+      }
+    });
   });
 
   it('stamps one segment id on each read and reconciles capturedCount with it', async () => {

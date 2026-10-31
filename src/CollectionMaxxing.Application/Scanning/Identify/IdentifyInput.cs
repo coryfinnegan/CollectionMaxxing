@@ -16,6 +16,8 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// One item as the phone sent it (the API maps its request to this). Nothing here is an image. <c>Box</c> is where the read sits in
 /// the picture (x, y, width, height, each 0 to 1, origin top left); an older phone, or a read with no position, sends none. A box
 /// is a hint: one that cannot be used (see <see cref="ReadBoxInput.Clamped"/>) is the same as none and never refuses the read.
+/// <c>Unconfirmed</c> marks a shelf read only the picture model made, at a place the Vision text engine found nothing: it is matched like
+/// any read, but its commit tier is T2 at most, so nothing adds it by itself (<see cref="CandidateResolver"/>).
 /// </summary>
 public sealed record IdentifyItemInput(
     string? LocalId,
@@ -31,7 +33,8 @@ public sealed record IdentifyItemInput(
     string? Platform,
     Guid? LocalMatchReleaseId,
     string? ProductCode = null,
-    ReadBoxInput? Box = null);
+    ReadBoxInput? Box = null,
+    bool Unconfirmed = false);
 
 /// <summary>
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
@@ -56,8 +59,9 @@ public static class IdentifyErrors
         new(ErrorKind.Conflict, "scan.snap_in_use", "That snapId was already used. Send a new snapId for a new picture.");
 }
 
-/// <summary>An item after cleaning: the facts to ground, the phone's claim about a known release, the profile chosen for it, and where it sits (null when the phone said nothing).</summary>
-internal sealed record CleanItem(string? LocalId, string? SegmentId, ReadFacts Facts, Guid? LocalMatchReleaseId, ScoringProfileKind Profile, ReadBox? Box = null);
+/// <summary>An item after cleaning: the facts to ground, the phone's claim about a known release, the profile chosen for it, where it sits (null when the phone said nothing), and whether only the picture model saw it.</summary>
+internal sealed record CleanItem(
+    string? LocalId, string? SegmentId, ReadFacts Facts, Guid? LocalMatchReleaseId, ScoringProfileKind Profile, ReadBox? Box = null, bool Unconfirmed = false);
 
 /// <summary>Validates and cleans what the phone sent: limits, control characters, lengths.</summary>
 internal static class IdentifyCleaning
@@ -212,7 +216,8 @@ internal static class IdentifyCleaning
             var facts = ReadSanitizer.Sanitize(read);
             var profile = ScoringProfileSelector.Choose(facts.Completeness, facts.Kind, facts.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
             return new CleanItem(
-                Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile, item.Box?.Clamped());
+                Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile, item.Box?.Clamped(),
+                item.Unconfirmed);
         }).ToList();
 
     /// <summary>Strips control and invisible formatting characters (a newline or tab becomes a space), trims, and cuts to length. Empty becomes null.</summary>
@@ -284,12 +289,19 @@ internal sealed record StoredRead
 
     public string? Profile { get; init; }
 
+    /// <summary>
+    /// True when only the picture model saw the read, at a place Vision found nothing. Kept in the read (a jsonb column, so no schema
+    /// change) because the commit tier is decided again after the first answer: by the background job, and after the artwork re-score.
+    /// Written only when true.
+    /// </summary>
+    public bool? Unconfirmed { get; init; }
+
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public static string Serialize(ReadFacts facts, ScoringProfileKind profile) => JsonSerializer.Serialize(
+    public static string Serialize(ReadFacts facts, ScoringProfileKind profile, bool unconfirmed = false) => JsonSerializer.Serialize(
         new StoredRead
         {
             Title = facts.Title,
@@ -303,6 +315,7 @@ internal sealed record StoredRead
             ProductCode = facts.ProductCode,
             ReadAs = facts.ReadAs,
             Profile = profile.ToString(),
+            Unconfirmed = unconfirmed ? true : null,
         },
         Options);
 
@@ -325,6 +338,9 @@ internal sealed record StoredRead
         var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
         return (facts, profile);
     }
+
+    /// <summary>Whether a stored read was marked unconfirmed (false when it was not, or cannot be read).</summary>
+    public static bool IsUnconfirmed(string? inferredJson) => ReadStored(inferredJson)?.Unconfirmed == true;
 
     /// <summary>The kind a stored read named, or null when it named none (or the read cannot be read).</summary>
     public static WorkKind? KindOf(string? inferredJson) => Parse<WorkKind>(ReadStored(inferredJson)?.Kind);

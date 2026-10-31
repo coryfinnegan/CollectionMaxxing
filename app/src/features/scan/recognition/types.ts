@@ -28,6 +28,12 @@ export interface ReadItem {
   box?: Rect;
   order: number;
   confidence: ModelConfidence;
+  /**
+   * Set on a shelf shot's item that only the picture model read, at a place where the Vision pipeline found nothing (`addableItems`). The model can read
+   * a title that happens to exist, so the server matches such an item but keeps it for review (tier T2 at most) instead of adding it. An item Vision
+   * read, or that the model read where Vision did, is never unconfirmed; neither is any item of a single cover or of a model-only read.
+   */
+  unconfirmed?: boolean;
 }
 
 export type EngineName = 'apple_model' | 'vision_pipeline' | 'fm_text';

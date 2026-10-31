@@ -7867,6 +7867,12 @@
                 "$ref": "#/components/schemas/ItemBox"
               }
             ]
+          },
+          "unconfirmed": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -8333,6 +8339,12 @@
               {
                 "$ref": "#/components/schemas/ItemBox"
               }
+            ]
+          },
+          "unconfirmed": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }

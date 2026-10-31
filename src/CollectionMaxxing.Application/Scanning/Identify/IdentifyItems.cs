@@ -138,7 +138,7 @@ public static class IdentifyItems
                         Resolution = CandidateResolution.Pending,
                         Decision = CandidateDecision.Undecided,
                         GuidanceCode = GuidanceCodes.For(input.FellBackFrom, CandidateResolution.Pending, source, null, quotaSpent: false),
-                        InferredJson = StoredRead.Serialize(item.Facts, item.Profile),
+                        InferredJson = StoredRead.Serialize(item.Facts, item.Profile, item.Unconfirmed),
                         IdempotencyKey = $"snap:{snapId:N}:{i}",
                         CreatedAt = now,
                     };
@@ -219,7 +219,7 @@ public static class IdentifyItems
                 entry.Property(c => c.LocalId).CurrentValue = item.LocalId;
                 entry.Property(c => c.SnapId).CurrentValue = snapId;
                 entry.Property(c => c.Resolution).CurrentValue = CandidateResolution.Pending;
-                entry.Property(c => c.InferredJson).CurrentValue = StoredRead.Serialize(item.Facts, item.Profile);
+                entry.Property(c => c.InferredJson).CurrentValue = StoredRead.Serialize(item.Facts, item.Profile, item.Unconfirmed);
                 entry.Property(c => c.GuidanceCode).CurrentValue = GuidanceCodes.For(
                     input.FellBackFrom, CandidateResolution.Pending, candidate.Source, candidate.RawCode, quotaSpent: false);
                 if (item.Facts.ShownText is { } text)
@@ -312,7 +312,7 @@ public static class IdentifyItems
                     Resolution = CandidateResolution.Pending,
                     Decision = CandidateDecision.Undecided,
                     GuidanceCode = GuidanceCodes.For(input.FellBackFrom, CandidateResolution.Pending, source, null, quotaSpent: false),
-                    InferredJson = StoredRead.Serialize(proof.Facts, proof.Profile),
+                    InferredJson = StoredRead.Serialize(proof.Facts, proof.Profile, proof.Unconfirmed),
                     IdempotencyKey = $"snap:{snapId:N}:0",
                     CreatedAt = now,
                 };

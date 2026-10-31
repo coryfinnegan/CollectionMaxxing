@@ -11,7 +11,7 @@ import { AppleModelEngine } from './AppleModelEngine';
 import { withCoverCue } from './CoverCueEngine';
 import { FmTextEngine } from './FmTextEngine';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
-import { addableItems, enrichedItems, fillPlace, isNewItem, nextOrder } from './combine';
+import { addableItems, asUnconfirmed, enrichedItems, fillPlace, isNewItem, nextOrder } from './combine';
 import type { CoverFormatTuning } from './defaults';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
@@ -95,7 +95,9 @@ export class EngineSelector {
    * A shelf shot: Vision's items first, streamed at once (it reads a shelf in about a second and finds most of the spines, where the model
    * takes many times longer and invents titles); then the model reads, and adds only the items it found where Vision found nothing. A
    * model item on a Vision item changes nothing but what that item lacks: Vision keeps the title, box, localId and order, and takes the
-   * model's kind and format (Vision's `other` searches books too), creator, platform, edition and completeness.
+   * model's kind and format (Vision's `other` searches books too), creator, platform, edition and completeness. A model item added where
+   * Vision found nothing is `unconfirmed`: the model sometimes reads a title that exists but is not on the shelf, so the server matches it
+   * but keeps it for review instead of adding it. A single cover and a model-only read never are.
    *
    * The snap's engine and fellBackFrom say what the model did, not who found most of the items, so the model's health stays readable
    * in the stats: when a model tier answered, the snap is that tier's, with the reason the picture read failed if the text tier had to
@@ -121,14 +123,14 @@ export class EngineSelector {
     }
     const found = vision?.items ?? [];
 
-    // A model item streams if it is somewhere Vision found nothing, numbered after Vision's. One on a Vision item adds what that item lacks (its
-    // kind, its format), and the Vision item streams again under its own localId, so the receipt row updates in place. The reading the model
-    // ends with supersedes what streamed.
+    // A model item streams if it is somewhere Vision found nothing, numbered after Vision's, and it is unconfirmed: nothing else saw it, so the
+    // server keeps it for review instead of adding it. One on a Vision item adds what that item lacks (its kind, its format), and the Vision item
+    // streams again under its own localId, so the receipt row updates in place. The reading the model ends with supersedes what streamed.
     const current = [...found];
     let next = nextOrder(found);
     const streamNew = (item: ReadItem) => {
       if (isNewItem(item, found, local)) {
-        emit({ ...item, order: next++ });
+        emit(asUnconfirmed({ ...item, order: next++ }));
         return;
       }
       const filled = fillPlace(current, item, local);

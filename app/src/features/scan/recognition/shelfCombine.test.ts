@@ -111,6 +111,94 @@ describe('a shelf shot read by the picture model', () => {
     expect(streamed[2].localId).toBe(added.localId);
   });
 
+  describe('a model item nothing else saw is unconfirmed', () => {
+    // The model invents a title that happens to exist ("food for comfort" for "Modern Comfort Food"). Where Vision found nothing at its place
+    // nothing confirms it, so the server keeps it for review; where Vision has an item at the same place it is that item read again.
+    const model = () => [
+      modelItem('Dune', 'Dune', 0, { kind: 'other', creator: 'Frank Herbert' }),
+      modelItem('Emma', 'Emma', 1, { kind: 'other' }),
+      modelItem('Neuromancer', 'Neuromancer', 2, { creator: 'William Gibson' }),
+    ];
+
+    it('marks the item the model added at a new place, in what streams and in the reading the model ends with', async () => {
+      visionReads([visionItem('Dune', column(0.1), 0), visionItem('Emma', column(0.4), 1)]);
+      const { selector } = selectorFor({ ...shelf, read: okRead(model()) });
+      const streamed: ReadItem[] = [];
+      const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+      const added = reading.items.find((i) => i.title === 'Neuromancer');
+      expect(added?.unconfirmed).toBe(true);
+      expect(streamed.find((i) => i.title === 'Neuromancer')?.unconfirmed).toBe(true);
+      expect(streamed.find((i) => i.title === 'Neuromancer')?.localId).toBe(added?.localId);
+    });
+
+    it('does not mark the Vision items, nor a model item that merged onto one (the same place is the same item)', async () => {
+      visionReads([visionItem('Dune', column(0.1), 0), visionItem('Emma', column(0.4), 1)]);
+      const { selector } = selectorFor({ ...shelf, read: okRead(model()) });
+      const streamed: ReadItem[] = [];
+      const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+      const known = reading.items.filter((i) => i.title === 'Dune' || i.title === 'Emma');
+      expect(known).toHaveLength(2);
+      known.forEach((i) => expect(i).not.toHaveProperty('unconfirmed'));
+      expect(known.find((i) => i.title === 'Dune')?.creator).toBe('Frank Herbert'); // it did take what the model knew, and is still not unconfirmed
+      streamed.filter((i) => i.title !== 'Neuromancer').forEach((i) => expect(i).not.toHaveProperty('unconfirmed'));
+    });
+
+    it('marks every model item when Vision found nothing on the shelf', async () => {
+      visionReads([]);
+      const { selector } = selectorFor({ ...shelf, read: okRead(model()) });
+      const reading = await selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+
+      expect(reading.items.map((i) => [i.title, i.unconfirmed])).toEqual([['Dune', true], ['Emma', true], ['Neuromancer', true]]);
+    });
+
+    it('marks a model item added from a half of a wide shot when Vision found nothing at its place', async () => {
+      visionReads([visionItem('Alpha', column(0.05), 0)]);
+      const LEFT: Rect = { x: 0, y: 0, width: 0.475, height: 1 };
+      const RIGHT: Rect = { x: 0.375, y: 0, width: 0.625, height: 1 };
+      const within = (region: Rect, name: string, x: number) => line(name, (x - region.x) / region.width, 0.1, 0.05 / region.width, 0.6);
+      const scenes: Record<string, Scene> = {
+        [STILL.uri]: {
+          read: okRead([modelItem('Alpha', 'Alpha', 0), modelItem('Delta', 'Delta', 1), modelItem('Echo', 'Echo', 2), modelItem('Zulu', 'Zulu', 3)]),
+          text: [spine('Alpha', 0.05), spine('Delta', 0.6), spine('Echo', 0.8), spine('Zulu', 0.92)],
+          rectangles: [column(0.05), column(0.6), column(0.8), column(0.92)],
+        },
+        [`${STILL.uri}#crop1`]: { read: okRead([modelItem('Alpha', 'Alpha', 0)]), text: [within(LEFT, 'Alpha', 0.05)] },
+        [`${STILL.uri}#crop2`]: { read: okRead([modelItem('Delta', 'Delta', 0), modelItem('Echo', 'Echo', 1)]), text: [within(RIGHT, 'Delta', 0.6), within(RIGHT, 'Echo', 0.8)] },
+      };
+      const small: RecognitionSettings = { ...S, splitting: { ...S.splitting, halvesWhenItemsOver: 3 } };
+      const selector = new EngineSelector({ vision: new RecordingVision(scenes), settings: () => small, newId: testIds, cropper: new FakeCropper() });
+      const reading = await selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+
+      expect(reading.items.map((i) => [i.title, i.unconfirmed])).toEqual([['Alpha', undefined], ['Delta', true], ['Echo', true]]);
+    });
+
+    it('marks nothing on a single cover, however the model read it', async () => {
+      const cover: Scene = { ...shelf, read: okRead([modelItem('Dune', 'Dune', 0)]) };
+      const reading = await selectorFor(cover).selector.read(STILL, () => {}, { shotKind: 'single_cover' });
+
+      expect(reading.items.length).toBeGreaterThan(0);
+      reading.items.forEach((i) => expect(i).not.toHaveProperty('unconfirmed'));
+    });
+
+    it('marks nothing when asked to read with the model alone, as the eval does for its model row', async () => {
+      const reading = await selectorFor(shelf).selector.read(STILL, () => {}, { shotKind: 'shelf_segment', combine: false });
+
+      expect(titles(reading.items)).toEqual(['Dune', 'Emma']);
+      reading.items.forEach((i) => expect(i).not.toHaveProperty('unconfirmed'));
+    });
+
+    it('marks nothing when the Vision pipeline reads the shelf alone because the model gave no reading', async () => {
+      const failing: Scene = { ...shelf, read: failedRead('declined'), extract: failedRead('declined') };
+      const reading = await selectorFor(failing).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+
+      expect(reading.engine).toBe('vision_pipeline');
+      expect(reading.items.length).toBeGreaterThan(0);
+      reading.items.forEach((i) => expect(i).not.toHaveProperty('unconfirmed'));
+    });
+  });
+
   it('adds a model item whose title a Vision item has when it sits in a different place', async () => {
     visionReads([visionItem('Dune', column(0.1), 0)]);
     const { selector } = selectorFor({
