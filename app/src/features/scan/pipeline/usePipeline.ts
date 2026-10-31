@@ -36,7 +36,11 @@ export function usePipeline({
   onOutcome?: (found: boolean) => void;
   /** Review's "Snap cover": every picture from this screen upgrades this row in place. */
   boundCover?: { candidateId: string; onDone(): void };
-  /** False while the scanner's screen is not the one being looked at: nothing is retried, and no barcode is noticed. */
+  /**
+   * False while the scanner's screen is not the one being looked at (another tab, Review on top, the app in the background): the
+   * camera's barcodes are not noticed. Sending what is already waiting goes on regardless: the person waits for the answers
+   * on Review, which sits on top of the scanner.
+   */
   active?: boolean;
   /** The context a session opened by a picture starts with. It is read when that session is made, so it may change meanwhile. */
   sessionBody?: CreateScanSessionRequest;
@@ -79,13 +83,13 @@ export function usePipeline({
     return () => pipeline.stop();
   }, [pipeline]);
 
-  // What is waiting is sent now and retried until it gets through, but only while the screen is showing: it starts again when it is back.
+  // What is waiting is sent now and retried until it gets through, whether or not the screen is showing.
   useEffect(() => {
-    if (!pipeline || !active) return;
+    if (!pipeline) return;
     void pipeline.flush();
     const timer = setInterval(() => void pipeline.flush(), resendMs);
     return () => clearInterval(timer);
-  }, [pipeline, resendMs, active]);
+  }, [pipeline, resendMs]);
 
   useEffect(() => {
     if (!notice) return;
@@ -97,8 +101,8 @@ export function usePipeline({
   const sessionId = useTrayValue(tray, (s) => s.sessionId, null);
   useEffect(() => {
     pipeline?.sweep();
-    if (active) void pipeline?.flush();
-  }, [pipeline, sessionId, active]);
+    void pipeline?.flush();
+  }, [pipeline, sessionId]);
 
   const snaps = useStore(store, (s) => s.snaps);
   const unreadableCount = useStore(store, (s) => s.unreadableCount);

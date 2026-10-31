@@ -1,7 +1,8 @@
-// The scanner does nothing while its screen is not the one being looked at (another tab is open, or the app is in the
-// background): no barcodes are read, no pictures taken and sent, and nothing keeps retrying. When the screen comes back
-// everything works again. The tab bar keeps the Scan tab mounted (docs.expo.dev "Native tabs": tab screens render eagerly),
-// so the screen itself has to stop.
+// The camera side of the scanner does nothing while its screen is not the one being looked at (another tab is open, Review is
+// on top, or the app is in the background): no barcodes are read and no pictures are taken. When the screen comes back it
+// all works again. The tab bar keeps the Scan tab mounted (docs.expo.dev "Native tabs": tab screens render eagerly), so the
+// screen itself has to stop. Sending what was already taken is not camera work: it goes on, because Review is pushed on top of
+// the scanner and the person waits there for the answers.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import { useEffect, useState } from 'react';
@@ -15,6 +16,7 @@ import { FakeFrameSignals, STEADY_TEXT_VIEW } from '../autosnap/FakeFrameSignals
 import type { Resizer } from '../autosnap/snapPhoto';
 import type { SnapEvent } from '../autosnap/useAutoSnap';
 import { useCardsStore } from '../cards/cardsStore';
+import { picItemOf } from '../pipeline/payload';
 import { makeKit, readItem, readingOf, resetKit } from '../pipeline/testKit';
 import { getTrayStore, setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
@@ -131,7 +133,7 @@ describe('a scanner whose screen is not showing', () => {
     await waitFor(() => expect(lines()).toHaveLength(1));
   });
 
-  it('does not keep retrying what is waiting to be sent, and picks it up again when the screen comes back', async () => {
+  it('keeps retrying what is waiting to be sent while the screen is away, and sends it without the screen coming back', async () => {
     let attempts = 0;
     let offline = true;
     server.use(
@@ -144,18 +146,18 @@ describe('a scanner whose screen is not showing', () => {
     await act(async () => source.inject([{ value: DEV_CODES.duneOwned, symbology: 'ean-13' }]));
     await waitFor(() => expect(attempts).toBeGreaterThan(0));
 
-    await setActive(false);
+    await setActive(false); // Review is pushed on top, and the person waits there
     await wait(60); // lets an attempt that was already on its way finish
     const before = attempts;
     await wait(200); // several retry intervals
-    expect(attempts).toBe(before);
+    expect(attempts).toBeGreaterThan(before);
 
     offline = false;
-    await setActive(true);
     await waitFor(() => expect(scanMock.sessions.size).toBeGreaterThan(0));
+    expect(getTrayStore(MOCK_LIBRARY_ID).getState().online).toBe(true);
   });
 
-  it('does not keep retrying a picture that is waiting to be sent, and sends it when the screen comes back', async () => {
+  it('keeps retrying a picture that is waiting to be sent while the screen is away, and sends it without the screen coming back', async () => {
     const kit = makeKit();
     kit.reader.script(readingOf([readItem('Dune')]));
     let offline = true;
@@ -174,10 +176,65 @@ describe('a scanner whose screen is not showing', () => {
     await wait(60);
     const before = creates;
     await wait(200);
-    expect(creates).toBe(before);
+    expect(creates).toBeGreaterThan(before);
 
     offline = false;
-    await setActive(true);
     await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
+  });
+
+  it('sends a picture that failed once and is waiting out its backoff while the screen is away', async () => {
+    const kit = makeKit();
+    let clock = 1_000_000;
+    kit.store.getState().addSnap({
+      snapId: 'snap-waiting',
+      libraryId: MOCK_LIBRARY_ID,
+      trigger: 'shutter',
+      createdAt: 1,
+      thumbUri: 'file:///snaps/x.jpg',
+      phase: 'read',
+      sent: false,
+      items: [picItemOf(readItem('Dune'))],
+      unreadableCount: 0,
+      engine: 'apple_model',
+    });
+    let broken = true;
+    let tries = 0;
+    server.use(
+      http.post('*/api/v1/scan-sessions/:id/identify', () => {
+        tries += 1;
+        return broken ? HttpResponse.json({ title: 'Server problem', status: 500 }, { status: 500, headers: { 'Content-Type': 'application/problem+json' } }) : undefined;
+      }),
+    );
+    await open({ pipeline: { ...kit.deps, now: () => clock }, initiallyActive: false });
+    await waitFor(() => expect(tries).toBe(1)); // the first try fails; the next waits out its backoff
+    await wait(120);
+    expect(tries).toBe(1);
+
+    broken = false;
+    clock += 60_000; // the wait is over; Review is still on top
+    await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
+    expect(kit.store.getState().snaps[0]).toMatchObject({ snapId: 'snap-waiting', sent: true });
+  });
+
+  it('sends what a previous run left waiting as soon as the scanner mounts, before its screen was ever the active one', async () => {
+    const kit = makeKit();
+    kit.store.getState().addSnap({
+      snapId: 'snap-left-behind',
+      libraryId: MOCK_LIBRARY_ID,
+      trigger: 'shutter',
+      createdAt: 1,
+      thumbUri: 'file:///snaps/x.jpg',
+      phase: 'read',
+      sent: false,
+      items: [picItemOf(readItem('Dune'))],
+      unreadableCount: 0,
+      engine: 'apple_model',
+    });
+    getTrayStore(MOCK_LIBRARY_ID).getState().scan({ value: DEV_CODES.duneOwned, symbology: 'ean-13' });
+
+    await open({ pipeline: kit.deps, initiallyActive: false });
+
+    await waitFor(() => expect(identifyMock.requests).toHaveLength(1));
+    await waitFor(() => expect(scanMock.barcodeRequests.map((r) => r.codes)).toEqual([[DEV_CODES.duneOwned]]));
   });
 });

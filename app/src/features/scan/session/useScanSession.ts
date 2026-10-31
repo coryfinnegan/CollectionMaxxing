@@ -60,7 +60,10 @@ export function useScanSession({
   sessionBody?: CreateScanSessionRequest;
   /** Review's "Scan barcode": stable reads go to this row instead of the tray, one read only. */
   boundCapture?: { submit(code: { value: string; symbology: string }): Promise<void> };
-  /** False while the scanner's screen is not the one being looked at: no barcodes are read and nothing is retried. */
+  /**
+   * False while the scanner's screen is not the one being looked at (another tab, Review on top, the app in the background): no
+   * barcodes are read. Sending what is already waiting goes on regardless: the person waits for the answers on Review.
+   */
   active?: boolean;
 }) {
   const { resendMs = 5000, flashMs = 1000 } = tuning;
@@ -149,13 +152,11 @@ export function useScanSession({
   }, [sources, store, deps, boundCapture, active]);
 
   // Anything waiting (including from before the app was killed) is sent now and retried until it gets through.
-  // Not while the scanner's screen is away: it starts again, and sends at once, when the screen comes back.
   useEffect(() => {
-    if (!active) return;
     void flushTray(store, deps);
     const timer = setInterval(() => void flushTray(store, deps), resendMs);
     return () => clearInterval(timer);
-  }, [store, deps, resendMs, active]);
+  }, [store, deps, resendMs]);
 
   // Follow the session: queued discards from before the app was killed land first, then load what is there
   // (a resumed session), then stream updates. Discarded and rejected candidates never merge back into cards.

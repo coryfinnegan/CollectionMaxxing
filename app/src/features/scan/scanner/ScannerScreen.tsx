@@ -66,8 +66,9 @@ type Props = {
   /** Review's "Scan barcode": the camera reads for this row, and leaves once the read is sent. */
   boundScan?: BoundScan & { onDone(): void; onCancel(): void };
   /**
-   * Whether this screen is the one being looked at (its tab is selected, the app is in front). The tab bar keeps the Scan tab
-   * mounted, so when this is false the scanner reads no barcodes, takes no pictures and retries nothing. Defaults to true.
+   * Whether this screen is the one being looked at (its tab is selected, nothing is on top of it, the app is in front). The tab bar
+   * keeps the Scan tab mounted, so when this is false the scanner reads no barcodes and takes no pictures. Sending what was already
+   * taken goes on: Review is pushed on top of the scanner and the person waits there for the answers. Defaults to true.
    */
   active?: boolean;
 };
