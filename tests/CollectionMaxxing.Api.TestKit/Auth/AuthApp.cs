@@ -37,6 +37,10 @@ public sealed class AuthApp : IAsyncDisposable
                 {
                     ["ConnectionStrings:collectionmaxxing"] = connectionString,
                     ["Auth:SecretsPath"] = _secretsPath,
+
+                    // Not the app's default folders beside the test binaries: test classes run in parallel and would share them.
+                    ["Catalog:CoversRoot"] = Path.Combine(_secretsPath, "covers"),
+                    ["Exports:Path"] = Path.Combine(_secretsPath, "exports"),
                     ["Auth:RateLimit:PermitLimit"] = "10000",
                     ["Auth:RateLimit:AccountPermitLimit"] = "10000",
                     ["Auth:RateLimit:NewAccountsPerHour"] = "10000",

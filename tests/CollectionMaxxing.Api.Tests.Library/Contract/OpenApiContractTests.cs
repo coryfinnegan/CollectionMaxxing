@@ -8,7 +8,7 @@ namespace CollectionMaxxing.Api.Tests.Contract;
 /// The API contract (docs/04, "Contract workflow"). <c>contracts/openapi.json</c> is committed; the app's real
 /// OpenAPI document must equal it. The TypeScript client is generated from the committed file.
 /// </summary>
-public class OpenApiContractTests(ApiFixture api)
+public class OpenApiContractTests(ApiFixture api) : IClassFixture<ApiFixture>
 {
     public const string UpdateCommand = "dotnet build src/CollectionMaxxing.Api -p:UpdateContract=true";
 
