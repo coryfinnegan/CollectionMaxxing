@@ -243,8 +243,7 @@ public static class ItemEndpoints
             BulkAction.Delete => BulkOperation.Delete,
             _ => (BulkOperation?)null,
         };
-        var patch = body.Patch is { } p ? new BulkChange(p.LocationId, p.Status, p.AddTagIds, p.RemoveTagIds) : null;
-        var result = await handler.HandleAsync(new BulkItems.Command(libraryId, body.Ids, operation, patch), cancellationToken);
+        var result = await handler.HandleAsync(new BulkItems.Command(libraryId, body.Ids, operation, body.Patch?.ToChange()), cancellationToken);
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error!.ToItemProblem();
     }
 
