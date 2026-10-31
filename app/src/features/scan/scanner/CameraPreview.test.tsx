@@ -1,14 +1,15 @@
 // The live camera asks for permission while it can still be asked; when access is denied or restricted it explains
 // and links to Settings instead of dead-ending.
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Linking } from 'react-native';
 import { useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { renderWithProviders } from '@/test/render';
 import CameraPreview from './CameraPreview';
 import type { VisionCameraSource } from './ScannerSource';
 
+const mockCamera = jest.fn((_props: { isActive: boolean }) => null);
 jest.mock('react-native-vision-camera', () => ({
-  Camera: () => null,
+  Camera: (props: { isActive: boolean }) => mockCamera(props),
   useCameraDevice: jest.fn(),
   useCameraPermission: jest.fn(),
   usePhotoOutput: () => ({}),
@@ -27,6 +28,7 @@ const grant = (status: string, requestPermission = jest.fn()) => {
 
 beforeEach(() => {
   device.mockReturnValue({ id: 'back' });
+  mockCamera.mockClear();
 });
 
 describe('camera permission', () => {
@@ -80,5 +82,24 @@ describe('camera permission', () => {
     await renderWithProviders(<CameraPreview source={source} />);
 
     expect(await screen.findByText('No camera found on this device.')).toBeTruthy();
+  });
+});
+
+describe('the camera is only running while the scanner is on screen', () => {
+  const running = () => mockCamera.mock.calls.at(-1)?.[0].isActive;
+
+  it('runs while the scanner is active', async () => {
+    grant('authorized');
+    await renderWithProviders(<CameraPreview source={source} active />);
+    expect(running()).toBe(true);
+  });
+
+  it('is off when the scanner is not active, and on again when it is', async () => {
+    grant('authorized');
+    const { rerender } = await render(<CameraPreview source={source} active={false} />);
+    expect(running()).toBe(false);
+
+    await rerender(<CameraPreview source={source} active />);
+    expect(running()).toBe(true);
   });
 });

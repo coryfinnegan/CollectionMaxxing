@@ -6,6 +6,7 @@ import { createProvisional, deleteProvisional, promoteProvisional, resolveProvis
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { ownArtworkUrl } from '@/features/scan/pipeline/artStep';
 import type { PicSnap } from '@/features/scan/pipeline/pipelineStore';
+import { isTryAgainLater } from '@/features/scan/session/discards';
 import { MemoryKeyValueStore, type KeyValueStore } from '@/features/scan/tray/trayStore';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
@@ -62,9 +63,6 @@ export type KeepResult =
 
 const inFlight = new Set<string>();
 
-/** Anything but an HTTP answer, or a server-side failure: worth queueing and trying again. */
-const isOffline = (error: unknown): boolean => !(error instanceof ApiError) || error.status >= 500;
-
 /** Whether this row may be kept: anything still open. Accepted and added rows are successes, never keeps. */
 export const keepable = (candidate: Pick<CandidateDto, 'decision' | 'createdItemId'>): boolean =>
   candidate.decision !== 'accepted' && !candidate.createdItemId;
@@ -100,7 +98,7 @@ export async function keepAsUnverified(args: {
         try {
           ({ assetId: cropAssetId } = await transport.uploadCrop(sessionId, candidate.id, file));
         } catch (error) {
-          if (!isOffline(error)) throw error;
+          if (!isTryAgainLater(error)) throw error;
           getProvisionalOutbox().enqueue({ libraryId, sessionId, candidateId: candidate.id, cropUri });
           return { ok: true, queued: true };
         }
@@ -112,7 +110,7 @@ export async function keepAsUnverified(args: {
       return { ok: true };
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) return { ok: false, reason: 'stale' };
-      if (!isOffline(error)) throw error;
+      if (!isTryAgainLater(error)) throw error;
       getProvisionalOutbox().enqueue({ libraryId, sessionId, candidateId: candidate.id, cropUri });
       return { ok: true, queued: true };
     }
@@ -188,8 +186,9 @@ export const setProvisionalOutbox = (next: ProvisionalOutbox | undefined) => {
 
 /**
  * Sends one library's queued keeps, oldest first. A keep that lands merges its retired row; a 409 means it landed
- * before (a lost answer): the entry is dropped and the caller reloads. A 4xx drops the entry (retrying a refused
- * request never helps: the session is gone); offline or a 5xx stops the flush. Returns what is still queued.
+ * before (a lost answer): the entry is dropped and the caller reloads. A final refusal (403, 404 and the like) drops
+ * the entry (retrying never helps: the session is gone); offline, a 5xx, or a refusal that may pass (401, 408, 429)
+ * stops the flush and keeps the entry. Returns what is still queued.
  */
 export async function flushProvisionalOutbox(args: { libraryId: string; onStale?: () => void }): Promise<number> {
   const queue = getProvisionalOutbox();
@@ -207,7 +206,7 @@ export async function flushProvisionalOutbox(args: { libraryId: string; onStale?
         try {
           ({ assetId: cropAssetId } = await transport.uploadCrop(entry.sessionId, entry.candidateId, file));
         } catch (error) {
-          if (!isOffline(error)) {
+          if (!isTryAgainLater(error)) {
             queue.remove(entry.candidateId);
             continue;
           }
@@ -225,11 +224,8 @@ export async function flushProvisionalOutbox(args: { libraryId: string; onStale?
         args.onStale?.();
         continue;
       }
-      if (error instanceof ApiError && error.status < 500) {
-        queue.remove(entry.candidateId);
-        continue;
-      }
-      return queue.list(args.libraryId).length;
+      if (isTryAgainLater(error)) return queue.list(args.libraryId).length;
+      queue.remove(entry.candidateId); // a final refusal (403, 404 and the like): the session is gone, or the row with it
     }
   }
   return 0;
