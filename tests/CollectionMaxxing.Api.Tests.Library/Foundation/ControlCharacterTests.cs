@@ -72,6 +72,26 @@ public class ControlCharacterTests(ApiFixture api) : ApiTest(api)
     }
 
     [Fact]
+    public async Task A_nul_in_the_catalogue_search_text_is_a_400_that_names_the_field()
+    {
+        var library = await CreateLibraryAsync();
+
+        var response = await ClientFor(library, LibraryRole.Viewer).GetAsync("/api/v1/catalog/search?q=a%00b");
+
+        await AssertRefusedAsync(response, "q");
+    }
+
+    [Fact]
+    public async Task A_nul_in_a_new_librarys_name_is_a_400_that_names_the_field()
+    {
+        var userId = await TestData.CreateUserAsync(Db);
+
+        var response = await Api.CreateClient(userId).PostAsJsonAsync("/api/v1/libraries", new { name = "Home\u0000" });
+
+        await AssertRefusedAsync(response, "name");
+    }
+
+    [Fact]
     public async Task A_nul_in_a_location_name_is_a_400_that_names_the_field()
     {
         var library = await CreateLibraryAsync();
