@@ -23,7 +23,9 @@
 # CM_SHARD_REPORT (a file path, with CM_TEST_FILTER) records "project listed-in-shard listed-in-suite ran" per
 # project; CI uploads it so the backend job can prove the shards add up to the whole suite (see ci.yml).
 #
-# The full output of the failing step is kept in the file named in the failure message.
+# The full output of the failing step is kept in the file named in the failure message. The logs live in a folder of this
+# checkout's own under the temp folder (collectionmaxxing-check/<folder name>-<checksum of the path>), so gate runs in
+# parallel worktrees never read each other's logs.
 set -u
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -34,7 +36,16 @@ export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
 solution="CollectionMaxxing.slnx"
 max_lines=15
-log_dir="${TMPDIR:-/tmp}/collectionmaxxing-check"
+
+# Agents run this gate at the same time in different worktrees of one PC, so the logs cannot share a folder: a run
+# would read the format.log another run just wrote. The folder name is the checkout's folder name (so a person can tell
+# which is which) plus a checksum of its full path (so two worktrees that end in the same name still differ). The same
+# checkout gets the same folder every run.
+checkout_root="$(pwd -P)"
+checkout_name="$(basename "$checkout_root")"
+checkout_name="${checkout_name//[^A-Za-z0-9._-]/_}"
+checkout_id="$(printf '%s' "$checkout_root" | cksum | cut -d' ' -f1)"
+log_dir="${TMPDIR:-/tmp}/collectionmaxxing-check/${checkout_name:0:40}-$checkout_id"
 mkdir -p "$log_dir"
 script_start=$SECONDS
 
@@ -270,8 +281,12 @@ fi
 
 # ---- app (only once the Expo app exists) -----------------------------------------------------------------------
 if want app && [ -f app/package.json ]; then
-  # The app gate's own logs land here too, so one upload carries app.log and the test.log it points to (#260).
-  export CM_APP_CHECK_LOG_DIR="$log_dir/app"
+  # The app gate's own logs land here too, so one upload carries app.log and the test.log it points to (#260). On CI the
+  # workflow names the folder it uploads; anywhere else a value in the environment is ignored, because one left behind
+  # by an earlier run would send every checkout back to a single shared folder.
+  if [ "${GITHUB_ACTIONS:-}" != "true" ] || [ -z "${CM_APP_CHECK_LOG_DIR:-}" ]; then
+    export CM_APP_CHECK_LOG_DIR="$log_dir/app"
+  fi
   run_step app npm run check --prefix app --silent
   if [ "$code" -ne 0 ]; then
     fail "app (npm run check)" "$(grep -v '^[[:space:]]*$' "$log" | tail -n "$max_lines")"
