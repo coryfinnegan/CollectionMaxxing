@@ -12,18 +12,20 @@ import { listTags } from '@/api/generated/tags/tags';
 import type { BulkItemsRequest, ItemStatus, ItemSummaryDto } from '@/api/generated/models';
 import { UndoSnackbar } from '@/features/item/UndoSnackbar';
 import { useInvalidateLibrary } from '@/features/item/useItem';
+import { AddItemPanel } from '@/features/library/AddItemPanel';
 import { formatLabels, formats, kindLabels, kinds, statusLabels, statuses } from '@/features/library/labels';
 import { changeFilter, defaultState, hasActiveFilter, type ListState } from '@/features/library/query';
 import { useDebounced, useItems } from '@/features/library/useItems';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { NeedsAttention, useProvisionals } from '@/features/library/NeedsAttention';
+import { useMyRole } from '@/features/me/useMyRole';
 import { localDateString } from '@/lib/dates';
 import { friendlyError } from '@/lib/problem';
 import { Button, Chip, Cover, EmptyState, FormatBadge, ListRow, LoadingState, Sheet, Text, TextField } from '@/ui';
 import { capForBulk, resultMessage } from './bulk';
 import { ColumnChooser } from './ColumnChooser.web';
-import { columnDefs, type ColumnId, loadColumns, saveColumns, sortForColumn } from './columns';
+import { columnDefs, type ColumnId, loadColumns, saveColumns, sortArrow, sortForColumn } from './columns';
 import { onGridKeyDown } from './gridKeys.web';
 import { InlineCell } from './InlineCell.web';
 import { clearSelection, clickRow, emptySelection, selectedInOrder, type Selection, togglePage } from './selection';
@@ -31,7 +33,7 @@ import { SelectionBar } from './SelectionBar.web';
 
 export type LibraryTableProps = { title: string; fixedStatus?: ItemStatus };
 
-type Panel = 'columns' | 'format' | 'platform' | 'location' | null;
+type Panel = 'add' | 'columns' | 'format' | 'platform' | 'location' | null;
 
 const CHECK_WIDTH = 44;
 
@@ -64,6 +66,8 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
   const router = useRouter();
   const invalidate = useInvalidateLibrary();
   const queryClient = useQueryClient();
+  // Owners and editors change things. Viewers (and a caller whose role has not arrived yet) get a read-only table.
+  const { canEdit } = useMyRole();
 
   const [chosen, setState] = useState<ListState>(defaultState());
   const [search, setSearch] = useState('');
@@ -90,7 +94,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
   const capped = capForBulk(selectedIds);
   const locationName = (id: string | null) => locations.find((l) => l.id === id)?.name;
   const visible = columnDefs.filter((c) => columns.includes(c.id));
-  const tableWidth = CHECK_WIDTH + visible.reduce((sum, c) => sum + c.width, 0);
+  const tableWidth = (canEdit ? CHECK_WIDTH : 0) + visible.reduce((sum, c) => sum + c.width, 0);
 
   const filter = (patch: Partial<typeof filters>) => {
     setState((current) => changeFilter(current, patch));
@@ -161,18 +165,22 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         return <Text tone={item.platform ? undefined : 'muted'}>{item.platform ?? '—'}</Text>;
       case 'year':
         return <Text tone={item.year ? undefined : 'muted'}>{item.year ?? '—'}</Text>;
-      case 'location':
+      case 'location': {
+        const current = locationName(item.locationId) ?? 'No location';
+        if (!canEdit) return <Text tone={item.locationId ? undefined : 'muted'}>{current}</Text>;
         return (
           <InlineCell
             libraryId={libraryId}
             item={item}
             field="location"
-            current={locationName(item.locationId) ?? 'No location'}
+            current={current}
             options={locationOptions}
             onNotice={(text) => setNotice(text ? { ok: false, text } : null)}
           />
         );
+      }
       case 'status':
+        if (!canEdit) return <Text>{statusLabels[item.status]}</Text>;
         return (
           <InlineCell
             libraryId={libraryId}
@@ -209,7 +217,11 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
       animation="no-results"
     />
   ) : (
-    <EmptyState title="Nothing here yet." body="Use Add item to put something on your shelf." animation="empty-library" />
+    <EmptyState
+      title="Nothing here yet."
+      body={canEdit ? 'Use Add item to put something on your shelf.' : 'Items show up here once an owner or editor adds them.'}
+      animation="empty-library"
+    />
   );
 
   const allSelected = rowIds.length > 0 && rowIds.every((id) => selection.ids.has(id));
@@ -218,9 +230,16 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={styles.page}>
-        <Text variant="title" accessibilityRole="header">
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text variant="title" accessibilityRole="header" style={styles.titleText}>
+            {title}
+          </Text>
+          {canEdit ? (
+            <Button label="Add item" variant="secondary" onPress={() => setPanel(panel === 'add' ? null : 'add')} />
+          ) : null}
+        </View>
+
+        {canEdit && panel === 'add' ? <AddItemPanel libraryId={libraryId} onClose={() => setPanel(null)} /> : null}
 
         <TextField
           label="Search"
@@ -320,14 +339,16 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
         <ScrollView horizontal testID="library-table-scroll" style={styles.tableScroll}>
           <View role="grid" accessibilityLabel={`${title} table`} {...gridKeys} style={styles.grid(tableWidth)}>
             <View role="row" style={styles.headerRow}>
-              <View role="cell" style={styles.checkCell}>
-                <Checkbox
-                  label="Select all loaded items"
-                  checked={allSelected}
-                  mixed={someSelected && !allSelected}
-                  onPress={() => setSelection((s) => togglePage(s, rowIds))}
-                />
-              </View>
+              {canEdit ? (
+                <View role="cell" style={styles.checkCell}>
+                  <Checkbox
+                    label="Select all loaded items"
+                    checked={allSelected}
+                    mixed={someSelected && !allSelected}
+                    onPress={() => setSelection((s) => togglePage(s, rowIds))}
+                  />
+                </View>
+              ) : null}
               {visible.map((column) => {
                 const sort = sortForColumn(column.id);
                 const active = sort !== undefined && sort === filters.sort;
@@ -343,7 +364,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                       >
                         <Text variant="label" tone={active ? 'accent' : 'ink'}>
                           {column.label}
-                          {active ? ' ↑' : ''}
+                          {active ? ` ${sortArrow(sort)}` : ''}
                         </Text>
                       </Pressable>
                     ) : (
@@ -366,16 +387,19 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
                   testID={`row-${item.id}`}
                   // The checkbox is the keyboard stop for a row; the row itself is for mouse clicks.
                   focusable={false}
-                  onPress={(event) => setSelection((s) => clickRow(s, rowIds, item.id, modifiers(event)))}
+                  // Selecting rows only feeds the bulk actions, which a viewer does not have.
+                  onPress={canEdit ? (event) => setSelection((s) => clickRow(s, rowIds, item.id, modifiers(event))) : undefined}
                   style={styles.row(selected)}
                 >
-                  <View role="cell" style={styles.checkCell}>
-                    <Checkbox
-                      label={`Select ${item.title}`}
-                      checked={selected}
-                      onPress={(event) => setSelection((s) => clickRow(s, rowIds, item.id, { ...modifiers(event), toggle: !modifiers(event).shift }))}
-                    />
-                  </View>
+                  {canEdit ? (
+                    <View role="cell" style={styles.checkCell}>
+                      <Checkbox
+                        label={`Select ${item.title}`}
+                        checked={selected}
+                        onPress={(event) => setSelection((s) => clickRow(s, rowIds, item.id, { ...modifiers(event), toggle: !modifiers(event).shift }))}
+                      />
+                    </View>
+                  ) : null}
                   {visible.map((column) => (
                     <View key={column.id} role="cell" style={styles.cell(column.width)}>
                       {cell(item, column.id)}
@@ -401,7 +425,7 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           </View>
         ) : null}
 
-        {someSelected ? (
+        {canEdit && someSelected ? (
           <SelectionBar
             count={capped.ids.length}
             selectedCount={selectedIds.length}
@@ -503,6 +527,8 @@ const styles = StyleSheet.create((theme) => ({
   loading: { padding: theme.spacing.lg, gap: theme.spacing.lg },
   root: { flex: 1, backgroundColor: theme.colors.ground },
   page: { padding: theme.spacing.lg, gap: theme.spacing.lg },
+  titleRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: theme.spacing.md },
+  titleText: { flexShrink: 1 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   cellPress: { minHeight: 44, justifyContent: 'center' },
