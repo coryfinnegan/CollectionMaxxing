@@ -105,4 +105,68 @@ public class EnumTextTests
         error.ParamName.ShouldBe("text");
         error.Message.ShouldStartWith($"'{text}' is not a WorkKind.");
     }
+
+    [Fact]
+    public void TryParse_gives_back_the_member_with_that_text()
+    {
+        EnumText.TryParse<ItemCompleteness>("n_a", out var value).ShouldBeTrue();
+
+        value.ShouldBe(ItemCompleteness.NotApplicable);
+    }
+
+    [Theory]
+    [InlineData("nonsense")]
+    [InlineData("NotApplicable")]
+    [InlineData("N_A")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void TryParse_of_an_unknown_text_is_false(string? text)
+    {
+        EnumText.TryParse<ItemCompleteness>(text, out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ParseOrNull_is_null_for_a_missing_or_unknown_text()
+    {
+        EnumText.ParseOrNull<WorkKind>("game").ShouldBe(WorkKind.Game);
+        EnumText.ParseOrNull<WorkKind>("nonsense").ShouldBeNull();
+        EnumText.ParseOrNull<WorkKind>(null).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Reading_and_writing_a_spelling_allocates_nothing_once_it_is_warm()
+    {
+        var kinds = Enum.GetValues<ReleaseFormat>();
+        var texts = Array.ConvertAll(kinds, EnumText.ToText);
+        var checksum = 0;
+        for (var warmup = 0; warmup < 3; warmup++)
+        {
+            checksum += Roundtrip(kinds, texts);
+        }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var round = 0; round < 100; round++)
+        {
+            checksum += Roundtrip(kinds, texts);
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        checksum.ShouldBeGreaterThan(0);
+    }
+
+    private static int Roundtrip(ReleaseFormat[] kinds, string[] texts)
+    {
+        var sum = 0;
+        for (var i = 0; i < kinds.Length; i++)
+        {
+            sum += EnumText.ToText(kinds[i]).Length;
+            sum += (int)EnumText.Parse<ReleaseFormat>(texts[i]);
+            sum += EnumText.TryParse<ReleaseFormat>(texts[i], out var parsed) ? (int)parsed : 0;
+            sum += EnumText.ParseOrNull<ReleaseFormat>(texts[i]) is { } maybe ? (int)maybe : 0;
+        }
+
+        return sum;
+    }
 }
