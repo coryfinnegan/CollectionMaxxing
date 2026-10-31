@@ -107,7 +107,7 @@ describe('the owned card actions', () => {
     expect(await screen.findByText('Added to this scan')).toBeTruthy();
     expect(scanMock.sessions.get(SESSION)!.candidates[0]!.decision).toBe('accepted');
     // Accepting alone adds nothing: the copy is created when the scan is committed at Review.
-    expect(itemsState.entries).toHaveLength(35);
+    expect(itemsState.entries).toHaveLength(37);
   });
 
   it('moves the copy to the session spot, undone with one tap', async () => {
@@ -118,7 +118,7 @@ describe('the owned card actions', () => {
 
     expect(await screen.findByText('Moved to Game room › Shelf 1.')).toBeTruthy();
     expect(itemsState.entries.find((e) => e.item.id === DUNE_ITEM_ID)!.item.locationId).toBe(SHELF_1);
-    expect(itemsState.entries).toHaveLength(35);
+    expect(itemsState.entries).toHaveLength(37);
 
     await press('Undo');
 
@@ -144,7 +144,7 @@ describe('the owned card actions', () => {
 
     await waitFor(() => expect(screen.queryByText('Dune')).toBeNull());
     expect(scanMock.sessions.get(SESSION)!.candidates[0]!.decision).toBe('rejected');
-    expect(itemsState.entries).toHaveLength(35);
+    expect(itemsState.entries).toHaveLength(37);
   });
 
   it('says when the copy is gone instead of moving nothing', async () => {
@@ -233,7 +233,7 @@ describe('the auto-added card', () => {
     expect(screen.queryByText('Added to your library')).toBeNull();
     expect(scanMock.sessions.get(SESSION)!.candidates[0]!.createdItemId).toBeNull();
     expect(itemsState.entries.some((e) => e.item.id === AUTO_ITEM_ID)).toBe(false);
-    expect(itemsState.entries).toHaveLength(35);
+    expect(itemsState.entries).toHaveLength(37);
     expect(reviewMock.autoUndos).toEqual([{ sessionId: SESSION, key: expect.any(String), candidateId: 'c-added' }]);
   });
 

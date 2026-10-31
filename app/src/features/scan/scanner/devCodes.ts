@@ -9,6 +9,10 @@ export const DEV_CODES = {
   unknown: '0000000000000',
   slow: '4006381333931',
   unreadable: '9999999999999',
+  // In the mock library only, and not in the dev menu's six: one on the wishlist, one sold, one owned but marked missing.
+  wishlisted: '9786000000028',
+  sold: '9786000000035',
+  missing: '9786000000042',
 } as const;
 
 export const DEV_SIX_CODES: { value: string; symbology: string }[] = [

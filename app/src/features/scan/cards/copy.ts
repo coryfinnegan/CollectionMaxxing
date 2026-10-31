@@ -14,9 +14,19 @@ export type CardCopy = {
   subtitle: string;
   /** The line that matters: "Already own — …", "Looking up…", the not-found or error copy. */
   status: string | null;
-  /** `pick` is a picture's close call the person has to settle; it has no Add yet. */
-  kind: 'pending' | 'owned' | 'new' | 'added' | 'pick' | 'not_found' | 'error';
+  /**
+   * `pick` is a picture's close call the person has to settle; it has no Add yet. `wishlist` is a release on the library's wishlist
+   * that it does not own yet: its action is Got it, not Add.
+   */
+  kind: 'pending' | 'owned' | 'wishlist' | 'new' | 'added' | 'pick' | 'not_found' | 'error';
 };
+
+/** A release on the wishlist the library does not own yet. Never "You own this". */
+export const WISHLIST_COPY = 'On your wishlist';
+/** A release the library had and let go (sold, traded, given away): informational, the card's normal actions stay. */
+export const SOLD_COPY = 'You sold this';
+/** Added to the owned line of a copy that is marked missing: it is still yours, you just can't find it. */
+export const MARKED_MISSING = ' · marked missing';
 
 /** An auto-add that still stands: it is already in the library, with Undo on offer. */
 export const ADDED_COPY = 'Added to your library';
@@ -46,6 +56,28 @@ export function alreadyOwnLine(what: string | null, where: string | null, count:
   const head = [what, where].filter(Boolean).join(', ');
   const line = head ? `Already own — ${head}` : 'Already own';
   return count > 1 ? `${line} · ${count} copies` : line;
+}
+
+/**
+ * The one line a card says about what the library holds of a release, from an ownership answer (the server's, or the phone's own
+ * copy when offline): what you own first, then the wishlist, then what you sold, then the same work in another shape. Null when
+ * there is nothing to say. `owned` leads: a copy in the library is the answer the person is standing at the shelf for.
+ */
+export function ownershipLine(answer: {
+  owned: { platform: string | null; format: string | null; locationPath: string | null; status: string }[];
+  softMatches: { platform: string | null; format: string | null; locationPath: string | null }[];
+  wishlistItemId: string | null;
+  soldItemId: string | null;
+}): { text: string; owned: boolean } | null {
+  const first = answer.owned[0];
+  if (first) {
+    const line = alreadyOwnLine(first.platform ?? formatName(first.format), first.locationPath, answer.owned.length);
+    return { text: answer.owned.every((c) => c.status === 'missing') ? `${line}${MARKED_MISSING}` : line, owned: true };
+  }
+  if (answer.wishlistItemId) return { text: WISHLIST_COPY, owned: false };
+  if (answer.soldItemId) return { text: SOLD_COPY, owned: false };
+  const soft = answer.softMatches[0];
+  return soft ? { text: alsoOwnLine(soft.platform ?? formatName(soft.format), soft.locationPath), owned: false } : null;
 }
 
 /** "Also own — VHS, Bedroom" for a soft match: the same work in another shape (docs/02 §7). */
@@ -86,6 +118,8 @@ function describePicture(c: CandidateDto): CardCopy {
       // Owned leads: "Already own" is the answer the person is standing at the shelf for, even when the match is a close call.
       if (c.alreadyOwnedCount > 0)
         return { title, subtitle, status: alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount), kind: 'owned' };
+      // On the wishlist and not owned: Got it is the action. A close call has no matched release, so it never gets here.
+      if (c.wishlistItemId) return { title, subtitle, status: WISHLIST_COPY, kind: 'wishlist' };
       if (c.resolution === 'ambiguous') return { title, subtitle, status: reshootOf(c) ?? 'Pick one', kind: 'pick' };
       return { title, subtitle, status: null, kind: 'new' };
     }
@@ -116,11 +150,18 @@ export function describeCandidate(c: CandidateDto): CardCopy {
         .join(' · ');
       if (c.createdItemId != null) return { title: release?.title ?? code, subtitle, status: ADDED_COPY, kind: 'added' };
       const owned = c.alreadyOwnedCount > 0;
+      const wishlisted = !owned && !!c.wishlistItemId;
       return {
         title: release?.title ?? code,
         subtitle,
-        status: owned ? alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount) : c.resolution === 'ambiguous' ? 'Closest match' : null,
-        kind: owned ? 'owned' : 'new',
+        status: owned
+          ? alreadyOwnLine(ownedWhat(c), c.ownedAt[0] ?? null, c.alreadyOwnedCount)
+          : wishlisted
+            ? WISHLIST_COPY
+            : c.resolution === 'ambiguous'
+              ? 'Closest match'
+              : null,
+        kind: owned ? 'owned' : wishlisted ? 'wishlist' : 'new',
       };
     }
   }

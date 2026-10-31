@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
 import type { CandidateDto } from '@/api/generated/models';
 import { formatLabels } from '@/features/library/labels';
+import { useOwnedLookup } from '@/features/offline/hooks';
 import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Cover, EmptyState, FormatBadge, Screen, Text } from '@/ui';
@@ -19,7 +20,7 @@ import { uploadCover, useCoverStore } from '../detail/coverPhoto';
 import { FixItPanel } from '../detail/FixItPanel';
 import { PhotoViewer } from '../detail/PhotoViewer';
 import { useSnapContext } from '../detail/snapContext';
-import { describeCandidate } from './copy';
+import { describeCandidate, MARKED_MISSING, SOLD_COPY } from './copy';
 import { useCardsStore } from './cardsStore';
 
 export function ResultDetail({ id }: { id: string }) {
@@ -35,6 +36,8 @@ export function ResultDetail({ id }: { id: string }) {
   const sessionId = useTrayValue(libraryId ? getTrayStore(libraryId) : undefined, (s) => s.sessionId, null);
   const { canAdd } = useLibraryRole(libraryId);
   const actions = useCardActions({ libraryId: libraryId ?? '', sessionId, canAdd });
+  // The server's answer (the phone's own copy offline) says whether the copies you own are marked missing.
+  const lookup = useOwnedLookup(candidate?.release?.id ? { releaseId: candidate.release.id } : null);
 
   // Opened cold (the app restarted since the scan): load the session to find the card.
   useEffect(() => {
@@ -56,7 +59,10 @@ export function ResultDetail({ id }: { id: string }) {
   const release = candidate.release;
   const owned = candidate.alreadyOwnedCount > 0;
   const added = copy.kind === 'added';
-  const addable = canAdd && !!release && !owned && !added;
+  const wishlistCard = copy.kind === 'wishlist';
+  const moved = actions.moved?.[candidate.id];
+  const missingCopy = lookup.owned.length > 0 && lookup.owned.every((c) => c.status === 'missing') ? lookup.owned[0] : null;
+  const addable = canAdd && !!release && !owned && !added && !wishlistCard;
   const busy = !!actions.busy?.[candidate.id];
   const error = actions.errors?.[candidate.id];
   const accepted = candidate.decision === 'accepted';
@@ -108,9 +114,9 @@ export function ResultDetail({ id }: { id: string }) {
         {owned ? (
           <>
             <Text variant="heading">
-              {candidate.alreadyOwnedCount === 1
+              {(candidate.alreadyOwnedCount === 1
                 ? `You own this${candidate.ownedAt[0] ? `: ${candidate.ownedAt[0]}` : ''}`
-                : `You own ${candidate.alreadyOwnedCount} copies`}
+                : `You own ${candidate.alreadyOwnedCount} copies`) + (missingCopy ? MARKED_MISSING : '')}
             </Text>
             {candidate.alreadyOwnedCount === 1
               ? null
@@ -120,13 +126,40 @@ export function ResultDetail({ id }: { id: string }) {
                   </Text>
                 ))}
           </>
+        ) : wishlistCard ? (
+          <Text variant="heading">{moved ?? copy.status}</Text>
         ) : copy.kind === 'new' ? (
-          <Text variant="heading">Not in your library</Text>
+          <>
+            <Text variant="heading">Not in your library</Text>
+            {candidate.soldItemId || lookup.soldItemId ? <Text tone="muted">{SOLD_COPY}</Text> : null}
+          </>
         ) : copy.kind === 'added' ? (
           <Text variant="heading">{copy.status}</Text>
         ) : (
           <Text>{copy.status}</Text>
         )}
+        {canAdd && wishlistCard && !moved && candidate.wishlistItemId ? (
+          <Button
+            label="Got it"
+            accessibilityLabel={`Got it: ${copy.title}`}
+            busy={busy}
+            onPress={() => actions.onMoveItem?.(candidate, candidate.wishlistItemId!, 'got-it')}
+          />
+        ) : null}
+        {canAdd && owned && missingCopy && !moved ? (
+          <Button
+            label="Found it"
+            accessibilityLabel={`Found it: ${copy.title}`}
+            busy={busy}
+            onPress={() => actions.onMoveItem?.(candidate, missingCopy.itemId, 'found')}
+          />
+        ) : null}
+        {moved ? (
+          <>
+            {owned ? <Text tone="accent">{moved}</Text> : null}
+            {canAdd ? <Button label="Undo" variant="secondary" accessibilityLabel={`Undo: ${copy.title}`} disabled={busy} onPress={() => actions.onUndoMoveItem?.(candidate)} /> : null}
+          </>
+        ) : null}
         {addable && !accepted && !wishlisted ? (
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
             <Button label="Add to library" busy={busy} onPress={() => actions.onAdd(candidate)} />

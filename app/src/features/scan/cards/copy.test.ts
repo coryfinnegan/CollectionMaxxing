@@ -1,6 +1,6 @@
 import type { CandidateDto } from '@/api/generated/models';
 import { useCardsStore, announcementFor } from './cardsStore';
-import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, QUOTA_COPY, reviewButtonLabel, reviewStatusLine, slideDuration, summaryLine } from './copy';
+import { alreadyOwnLine, alsoOwnLine, BARCODE_LOOKUP_FAILED_COPY, describeCandidate, NOT_FOUND_COPY, ownershipLine, QUOTA_COPY, reviewButtonLabel, reviewStatusLine, slideDuration, summaryLine } from './copy';
 
 const candidate = (over: Partial<CandidateDto>): CandidateDto =>
   ({
@@ -164,5 +164,43 @@ describe('cards store', () => {
   it('does not buzz for cards loaded when resuming', () => {
     expect(useCardsStore.getState().merge([candidate({})], { announce: false })).toHaveLength(0);
     expect(useCardsStore.getState().merge([candidate({ seq: 2 })])).toHaveLength(0);
+  });
+});
+
+describe('what a card says about the wishlist, what was sold and what is missing', () => {
+  it('calls a release on the wishlist (and not owned) "On your wishlist", a kind of its own', () => {
+    expect(describeCandidate(candidate({ wishlistItemId: 'w1' }))).toMatchObject({ status: 'On your wishlist', kind: 'wishlist' });
+  });
+
+  it('lets owning it lead: a release that is owned and also on the wishlist is an owned card', () => {
+    expect(describeCandidate(candidate({ alreadyOwnedCount: 1, ownedAt: ['Shelf'], wishlistItemId: 'w1' })).kind).toBe('owned');
+  });
+
+  it('leaves a release you sold as an ordinary new card: its normal actions stay', () => {
+    expect(describeCandidate(candidate({ soldItemId: 's1' }))).toMatchObject({ status: null, kind: 'new' });
+  });
+
+  it('calls a picture of a wishlisted release the same thing', () => {
+    expect(describeCandidate(candidate({ source: 'picture_apple_model', rawCode: null, wishlistItemId: 'w1' })).kind).toBe('wishlist');
+  });
+
+  it('says one line about the library: owned first, then the wishlist, then sold, then the same work in another shape', () => {
+    const copy = (status: string) => ({ platform: null, format: 'dvd', locationPath: 'Bedroom', status });
+    const nothing = { owned: [], softMatches: [], wishlistItemId: null, soldItemId: null };
+
+    expect(ownershipLine({ ...nothing, owned: [copy('owned')], wishlistItemId: 'w', soldItemId: 's' })?.text).toBe('Already own — DVD, Bedroom');
+    expect(ownershipLine({ ...nothing, wishlistItemId: 'w', soldItemId: 's', softMatches: [copy('owned')] })?.text).toBe('On your wishlist');
+    expect(ownershipLine({ ...nothing, soldItemId: 's', softMatches: [copy('owned')] })?.text).toBe('You sold this');
+    expect(ownershipLine({ ...nothing, softMatches: [copy('owned')] })?.text).toBe('Also own — DVD, Bedroom');
+    expect(ownershipLine(nothing)).toBeNull();
+  });
+
+  it('says a copy that is marked missing is still owned, and only when every copy is', () => {
+    const copy = (status: string) => ({ platform: null, format: 'dvd', locationPath: 'Bedroom', status });
+    const nothing = { owned: [], softMatches: [], wishlistItemId: null, soldItemId: null };
+
+    expect(ownershipLine({ ...nothing, owned: [copy('missing')] })?.text).toBe('Already own — DVD, Bedroom · marked missing');
+    expect(ownershipLine({ ...nothing, owned: [copy('missing'), copy('owned')] })?.text).toBe('Already own — DVD, Bedroom · 2 copies');
+    expect(ownershipLine({ ...nothing, owned: [copy('lent')] })?.text).toBe('Already own — DVD, Bedroom');
   });
 });

@@ -1,12 +1,14 @@
 // + Add and Wishlist on a card, with a busy flag and a friendly error per card. On an owned card: Add another
 // copy (the same accept the commit path adds), Move it here (a location-only patch, undone from the toast), and
 // Skip (the owned default; the card goes away and nothing is added). Move hides without a target location.
+// On a wishlist card Got it, and on a missing one Found it, move the item to owned with one PATCH (with Undo).
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getItem } from '@/api/generated/items/items';
 import type { CandidateDto } from '@/api/generated/models';
 import { breadcrumb } from '@/features/item/breadcrumb';
+import { moveItem, undoItemMove, type MovedItem } from '@/features/item/moveStatus';
 import { invalidateLibraryItems } from '@/features/item/useItem';
 import { useLocationsList } from '@/features/locations/useLocations';
 import { getOwnedCache } from '@/features/offline/ownedCache';
@@ -63,6 +65,9 @@ export function useCardActions({
   }, [moveToast]);
 
   const [wishlisted, setWishlisted] = useState<Record<string, true>>({});
+  // Cards whose item was moved to owned from the card (Got it, Found it), and what takes each back.
+  const [moved, setMoved] = useState<Record<string, MovedItem>>({});
+  const movedMessages = useMemo(() => Object.fromEntries(Object.entries(moved).map(([id, m]) => [id, m.message])), [moved]);
 
   // The session spot by name for the toast; "here" when the list cannot say (it is the spot in the session chip).
   const placeOf = useCallback(
@@ -139,8 +144,32 @@ export function useCardActions({
       errors,
       busy,
       wishlisted,
+      moved: movedMessages,
       moveTo,
       moveToast,
+      onMoveItem: (c, itemId, move) =>
+        void run(c, async () => {
+          const done = await moveItem(libraryId, itemId, move);
+          setMoved((m) => ({ ...m, [c.id]: done }));
+          // A failed refresh must not hide the move: the periodic sync retries it quietly.
+          refreshAfterMove(queryClient, libraryId).catch(() => undefined);
+        }),
+      onUndoMoveItem: (c) =>
+        void run(c, async () => {
+          const done = moved[c.id];
+          if (!done) return;
+          try {
+            await undoItemMove(libraryId, done);
+          } catch (error) {
+            // Changed since (or gone): it stays where it is, and the card stops offering to undo.
+            if (error instanceof ApiError && (error.status === 412 || error.status === 404)) {
+              setMoved(({ [c.id]: _gone, ...rest }) => rest);
+            }
+            throw error;
+          }
+          setMoved(({ [c.id]: _undone, ...rest }) => rest);
+          refreshAfterMove(queryClient, libraryId).catch(() => undefined);
+        }),
       onOpen: (c) => router.push({ pathname: '/result/[id]', params: { id: c.id } }),
       onAdd: (c) => {
         if (sessionId) void run(c, () => acceptCandidate(sessionId, c));
@@ -181,7 +210,7 @@ export function useCardActions({
         router.push('/scanner');
       },
     }),
-    [canAdd, errors, busy, wishlisted, moveTo, moveToast, router, sessionId, run, libraryId, move, undoMove, queryClient],
+    [canAdd, errors, busy, wishlisted, movedMessages, moved, moveTo, moveToast, router, sessionId, run, libraryId, move, undoMove, queryClient],
   );
   return actions;
 }

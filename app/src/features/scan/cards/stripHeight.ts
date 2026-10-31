@@ -66,6 +66,16 @@ function estimateCardHeight(candidate: CandidateDto, actions: CardActions, scale
       if (actions.onSkip) buttons.push(buttonHeight('Skip', scale));
       section(buttons.reduce((sum, h) => sum + h, 0) + spacing.xs * Math.max(0, buttons.length - 1));
     }
+  } else if (copy.kind === 'wishlist') {
+    // "On your wishlist", then Got it and Skip (or, once moved, the new line and Undo: never taller).
+    section(textLines(copy.status ?? '', CARD_INNER_WIDTH, scale) * labelLH);
+    if (actions.canAdd) {
+      const buttons = [buttonHeight('Got it', scale)];
+      if (actions.onSkip) buttons.push(buttonHeight('Skip', scale));
+      section(buttons.reduce((sum, h) => sum + h, 0) + spacing.xs * Math.max(0, buttons.length - 1));
+    }
+    const error = actions.errors?.[candidate.id];
+    if (error) section(textLines(error, CARD_INNER_WIDTH, scale) * captionLH);
   } else {
     if (copy.status) section(textLines(copy.status, CARD_INNER_WIDTH, scale) * labelLH);
     if ((copy.kind === 'pending' || copy.kind === 'error') && candidate.rawCode) section(answerBlock());

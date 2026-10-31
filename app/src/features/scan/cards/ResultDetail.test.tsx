@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
+import { resetOwnershipMock, upsertOwned } from '@/mocks/ownership';
 import { scanMock } from '@/mocks/scan';
 import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
@@ -73,6 +74,52 @@ describe('result detail', () => {
 
     expect(await screen.findByText('Not in your library')).toBeTruthy();
     expect(screen.queryByLabelText('Add to library')).toBeNull();
+  });
+
+  it('says a release on the wishlist is on the wishlist, offers Got it, and does not offer to add it', async () => {
+    const candidate = await seedSession(DEV_CODES.wishlisted);
+    expect(candidate.wishlistItemId).toBeTruthy();
+    useCardsStore.getState().merge([candidate], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('On your wishlist')).toBeTruthy();
+    expect(screen.getByLabelText('Got it: Metroid Prime')).toBeTruthy();
+    expect(screen.queryByText(/You own this/)).toBeNull();
+    expect(screen.queryByLabelText('Add to library')).toBeNull();
+    expect(screen.queryByLabelText('Wishlist')).toBeNull();
+  });
+
+  it('adds a muted "You sold this" to a release you sold, and keeps the add buttons', async () => {
+    const candidate = await seedSession(DEV_CODES.sold);
+    expect(candidate.soldItemId).toBeTruthy();
+    useCardsStore.getState().merge([{ ...candidate, decision: 'undecided' }], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('Not in your library')).toBeTruthy();
+    expect(screen.getByText('You sold this')).toBeTruthy();
+    expect(screen.getByLabelText('Add to library')).toBeTruthy();
+  });
+
+  it('says a missing copy is marked missing, and offers Found it', async () => {
+    resetOwnershipMock();
+    upsertOwned({
+      itemId: 'd0000000-0000-4000-8000-000000000008',
+      deleted: false,
+      releaseId: 'c1000000-0000-4000-8000-000000000008',
+      workId: 'c2000000-0000-4000-8000-000000000008',
+      title: 'Pong',
+      format: 'game_cartridge',
+      platform: 'Atari 2600',
+      identifiers: [],
+      locationPath: 'Game room › Shelf 1',
+      status: 'missing',
+    });
+    const candidate = await seedSession(DEV_CODES.missing);
+    useCardsStore.getState().merge([candidate], { announce: false });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('You own this: Game room › Shelf 1 · marked missing')).toBeTruthy();
+    expect(screen.getByLabelText('Found it: Pong')).toBeTruthy();
   });
 
   it('finds the card from the session when the app restarted since the scan', async () => {
