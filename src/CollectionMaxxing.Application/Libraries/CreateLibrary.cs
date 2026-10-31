@@ -58,6 +58,11 @@ public static class CreateLibrary
                 return LibraryErrors.NameTooLong;
             }
 
+            if (TextRules.Check(trimmed, "name") is { } badText)
+            {
+                return badText;
+            }
+
             var userId = currentUser.UserId ?? throw new InvalidOperationException("Creating a library needs a signed-in caller; the endpoint requires authorization.");
             var library = new Library(ids.NewId(), trimmed, time.GetUtcNow());
             var max = Math.Max(0, options.Value.MaxOwnedPerUser);

@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Common;
+using CollectionMaxxing.Application.Scanning.Learning;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Domain.Items;
@@ -17,10 +18,13 @@ public sealed class OwnershipQuery(IAppDbContext db)
 
     public static readonly OwnershipDto None = new(false, 0, [], []);
 
-    /// <summary>Copies of the releases that carry this barcode. 13-digit codes may be stored as ISBN or GTIN; the digits identify the product.</summary>
+    /// <summary>
+    /// Copies of the releases that carry this barcode. 13-digit codes may be stored as ISBN or GTIN; the digits identify the product.
+    /// A barcode another library taught by hand does not count here.
+    /// </summary>
     public async Task<OwnershipDto> ForCodeAsync(Guid libraryId, Identifier identifier, CancellationToken cancellationToken)
     {
-        var releaseIds = await (from i in db.ReleaseIdentifiers.AsNoTracking()
+        var releaseIds = await (from i in db.ReleaseIdentifiers.AsNoTracking().UsableBy(libraryId)
                                 join r in db.Releases.AsNoTracking() on i.ReleaseId equals r.Id
                                 where i.Value == identifier.Value
                                 select r.Id).Distinct().ToListAsync(cancellationToken);

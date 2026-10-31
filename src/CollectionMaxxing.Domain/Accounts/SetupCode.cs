@@ -8,7 +8,7 @@ public enum SetupCodePurpose
 
 /// <summary>
 /// A one-time recovery code printed on the server (<c>cm-admin recovery-code &lt;email&gt;</c>) for one named account. Only its hash is
-/// stored. (The table keeps its old name, <c>setup_codes</c>; there is no setup code any more, ADR-027.)
+/// stored. (The table is still named <c>setup_codes</c>; recovery is the only purpose left, ADR-027.)
 /// </summary>
 public sealed class SetupCode
 {

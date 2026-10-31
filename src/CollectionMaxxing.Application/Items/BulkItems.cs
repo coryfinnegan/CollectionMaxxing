@@ -12,8 +12,8 @@ public enum BulkOperation
     Delete,
 }
 
-/// <summary>The change a bulk patch applies to every listed item.</summary>
-public sealed record BulkChange(Guid? LocationId, ItemStatus? Status, IReadOnlyList<Guid>? AddTagIds, IReadOnlyList<Guid>? RemoveTagIds);
+/// <summary>The change a bulk patch applies to every listed item. A location that is not set is left alone; set to null it clears every item's location.</summary>
+public sealed record BulkChange(PatchValue<Guid?> LocationId, ItemStatus? Status, IReadOnlyList<Guid>? AddTagIds, IReadOnlyList<Guid>? RemoveTagIds);
 
 /// <summary>Use case: patch or delete many items at once. All or nothing: one id that isn't in this library fails the whole call.</summary>
 public static class BulkItems
@@ -44,7 +44,7 @@ public static class BulkItems
 
             var patch = command.Patch;
             if (operation == BulkOperation.Patch
-                && (patch is null || (patch.LocationId is null && patch.Status is null
+                && (patch is null || (!patch.LocationId.IsSet && patch.Status is null
                     && patch.AddTagIds is not { Count: > 0 } && patch.RemoveTagIds is not { Count: > 0 })))
             {
                 return ItemErrors.Invalid("bulk.patch_required", "Say what to change.", "patch");
@@ -87,10 +87,16 @@ public static class BulkItems
         private async Task<DomainError?> ApplyPatchAsync(
             List<Item> items, BulkChange patch, Guid libraryId, DateTimeOffset now, CancellationToken cancellationToken)
         {
+            // A lend names who has it and a bulk change carries no name, so it can only keep a lend that already has one.
+            if (patch.Status == ItemStatus.Lent && items.Exists(i => i.Status != ItemStatus.Lent || i.LentTo is null))
+            {
+                return ItemErrors.LentToRequired("status");
+            }
+
             var add = patch.AddTagIds?.Distinct().ToList() ?? [];
             var remove = patch.RemoveTagIds?.Distinct().ToList() ?? [];
 
-            if (patch.LocationId is { } locationId
+            if (patch.LocationId is { IsSet: true, Value: { } locationId }
                 && !await ItemProjection.LocationInLibraryAsync(db, libraryId, locationId, cancellationToken))
             {
                 return ItemErrors.LocationNotFound;
@@ -101,7 +107,6 @@ public static class BulkItems
                 return ItemErrors.TagNotFound;
             }
 
-            var today = DateOnly.FromDateTime(now.UtcDateTime);
             var itemIds = items.Select(i => i.Id).ToList();
             var existing = add.Count + remove.Count == 0
                 ? []
@@ -109,20 +114,15 @@ public static class BulkItems
 
             foreach (var item in items)
             {
-                if (patch.LocationId is { } newLocation)
+                if (patch.LocationId.IsSet)
                 {
-                    item.LocationId = newLocation;
+                    item.LocationId = patch.LocationId.Value;
                 }
 
                 if (patch.Status is { } status)
                 {
                     item.Status = status;
-                    if (status == ItemStatus.Lent)
-                    {
-                        // Lending starts today, with no borrower named (the edit form can add one); an existing lend keeps its own.
-                        item.LentOn ??= today;
-                    }
-                    else
+                    if (status != ItemStatus.Lent)
                     {
                         // An item that isn't lent out has no borrower, so a later lend never shows the old one.
                         item.LentTo = null;

@@ -21,7 +21,7 @@ public static class GetItem
                 return ItemErrors.NotFound;
             }
 
-            var loaded = await ItemProjection.LoadReleaseAsync(db, item.ReleaseId, cancellationToken);
+            var loaded = await ItemProjection.LoadReleaseAsync(db, [query.LibraryId], item.ReleaseId, cancellationToken);
             if (loaded is null)
             {
                 return ItemErrors.NotFound;

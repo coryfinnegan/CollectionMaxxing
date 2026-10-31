@@ -16,6 +16,16 @@ Test-Case 'compose: every service caps its json-file log at 5 files of 20 MB, so
     }
 }
 
+Test-Case 'compose: the API can write the golden folder, so a photo added from the phone is saved, and only reads the baseline' {
+    $config = Get-RealComposeConfig
+    $mounts = @($config.services.api.volumes)
+    $golden = $mounts | Where-Object { $_.target -eq '/evals/golden' }
+    Assert-True ($null -ne $golden) 'the api mounts the golden folder at /evals/golden'
+    Assert-True (-not $golden.read_only) 'the golden folder is mounted read-write (POST /api/admin/evals/golden/{set}/{id} saves into it)'
+    $baseline = $mounts | Where-Object { $_.target -eq '/evals/baseline.json' }
+    Assert-True ([bool]$baseline.read_only) 'the baseline stays read-only: only a commit to the repo changes it'
+}
+
 Test-Case 'compose: the logging block does not trip the deployer''s config guard' {
     # The guard is called the way the deployer calls it (the .env values and the compose file's path), so the
     # stack's own bind mounts are allowed and only a logging problem could fail this.

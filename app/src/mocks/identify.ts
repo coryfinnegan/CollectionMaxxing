@@ -108,6 +108,9 @@ const lookup = (text: string) => {
   return Object.values(scanMock.catalog).find((e) => key(e.release.title) === wanted);
 };
 
+// Picture reads come back undecided here, unlike a barcode match (scan.ts), which the server accepts by itself when the library
+// does not own it. The real server also accepts a picture read once the Vision text engine saw it too; pipeline/locked.test.tsx
+// (LOCKED) still pins `undecided` for these mock reads, so changing it is a decision for whoever lifts that lock.
 const resolved = (entry: NonNullable<ReturnType<typeof lookup>>): Partial<CandidateDto> => ({
   resolution: 'matched',
   score: 0.95,

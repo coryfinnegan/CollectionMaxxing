@@ -1,5 +1,5 @@
 // Result detail (docs/06 M4): your own photo with the item boxed on it, the card's facts, where owned copies live, the add buttons,
-// Wrong item? Fix it, and Use my photo (the one place a picture is sent, and only the crop of this item, only when an editor taps).
+// Wrong item? Fix it, and Use my photo (sends only the crop of this item, and only when an editor taps).
 // First: this module needs Unistyles configured before it runs (#305).
 import '@/theme/unistyles';
 import { useEffect, useState, type ReactNode } from 'react';

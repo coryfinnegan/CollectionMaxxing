@@ -285,14 +285,57 @@ describe('LibraryTable', () => {
     });
   });
 
-  it('lends an item out with the name blank and today as the date, like the edit form', async () => {
+  it('asks who has an item before lending it out, then sends the name and today as the date', async () => {
     await renderWithProviders(<LibraryTable title="Library" />);
     await loaded();
     await fireEvent.press(screen.getByLabelText('Change status of The Matrix, now Owned'));
     await fireEvent.press(await screen.findByLabelText('Set status of The Matrix to Lent out'));
 
+    // Nothing is sent until there is a name.
+    expect(await screen.findByLabelText('Who has The Matrix')).toBeTruthy();
+    expect(screen.getByLabelText('Lend The Matrix').props.accessibilityState.disabled).toBe(true);
+    expect(patches()).toHaveLength(0);
+
+    await fireEvent.changeText(screen.getByLabelText('Who has The Matrix'), '  Sam ');
+    await fireEvent.press(screen.getByLabelText('Lend The Matrix'));
+
     await waitFor(() => expect(patches()).toHaveLength(1));
-    expect(patches()[0].body).toEqual({ status: 'lent', lentTo: null, lentOn: localDateString() });
+    expect(patches()[0].headers.get('if-match')).toBe('"v1"');
+    expect(patches()[0].body).toEqual({ status: 'lent', lentTo: 'Sam', lentOn: localDateString() });
+    await waitFor(() => expect(screen.getByLabelText('Change status of The Matrix, now Lent out')).toBeTruthy());
+  });
+
+  it('sends nothing when lending out is cancelled', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await loaded();
+    await fireEvent.press(screen.getByLabelText('Change status of The Matrix, now Owned'));
+    await fireEvent.press(await screen.findByLabelText('Set status of The Matrix to Lent out'));
+    await fireEvent.press(await screen.findByLabelText('Cancel lending The Matrix'));
+
+    expect(await screen.findByLabelText('Change status of The Matrix, now Owned')).toBeTruthy();
+    expect(patches()).toHaveLength(0);
+  });
+
+  it('does not ask for a name when an item that is already lent out is set to Lent out again', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await loaded();
+    await fireEvent.press(await screen.findByLabelText('Change status of GoldenEye 007, now Lent out'));
+    await fireEvent.press(await screen.findByLabelText('Set status of GoldenEye 007 to Lent out'));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(screen.queryByLabelText('Who has GoldenEye 007')).toBeNull();
+    expect(patches()[0].body).toEqual({ status: 'lent' });
+  });
+
+  it('offers every status for a bulk change except Lent out, which needs a name per item', async () => {
+    await renderWithProviders(<LibraryTable title="Library" />);
+    await loaded();
+    await fireEvent.press(screen.getByLabelText('Select The Matrix'));
+    await fireEvent.press(screen.getByLabelText('Set status'));
+
+    expect(await screen.findByLabelText('Set status to Owned')).toBeTruthy();
+    expect(screen.getByLabelText('Set status to Wishlist')).toBeTruthy();
+    expect(screen.queryByLabelText('Set status to Lent out')).toBeNull();
   });
 
   it('changes a location inline', async () => {

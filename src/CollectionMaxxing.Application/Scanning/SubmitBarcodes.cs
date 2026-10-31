@@ -81,6 +81,7 @@ public static class SubmitBarcodes
             // untracked, so the second phase reads it fresh instead of inheriting this phase's instance.
             List<ScanCandidate> candidates;
             List<ScanCandidate> fresh;
+            Guid libraryId;
             await using (await sessionLock.AcquireAsync(command.SessionId, cancellationToken))
             {
                 var session = await ScanSessions.FindMineUntrackedAsync(db, currentUser, command.SessionId, cancellationToken);
@@ -88,6 +89,8 @@ public static class SubmitBarcodes
                 {
                     return ScanningErrors.SessionNotFound;
                 }
+
+                libraryId = session.LibraryId;
 
                 var now = clock.GetUtcNow();
                 var previous = await db.IdempotencyKeys.FirstOrDefaultAsync(k => k.UserId == userId && k.Key == key, cancellationToken);
@@ -169,7 +172,7 @@ public static class SubmitBarcodes
                     clock.GetUtcNow() + options.ResolveBudget + SafetyMargin, cancellationToken);
             }
 
-            var answers = await AnswersAsync(lines, options.ResolveBudget, cancellationToken);
+            var answers = await AnswersAsync(libraryId, lines, options.ResolveBudget, cancellationToken);
 
             // Phase 2: apply the answers and auto-add under the lock, on rows read fresh inside it: these candidates are brand
             // new (no twin can have resolved them), and the session is read here for the first time, so two auto-adds landing
@@ -227,7 +230,13 @@ public static class SubmitBarcodes
             var key = ScanSessions.IdempotencyKeyFor("barcodes", command.SessionId, command.IdempotencyKey!.Trim());
             var line = Normalise(command.Codes!)[0]; // Validate kept exactly one readable line
             var hash = RequestHash(command.SessionId, [line], command.CandidateId);
-            var answers = await AnswersAsync([line], options.ResolveBudget, cancellationToken);
+            var asking = await ScanSessions.FindMineUntrackedAsync(db, currentUser, command.SessionId, cancellationToken);
+            if (asking is null)
+            {
+                return ScanningErrors.SessionNotFound;
+            }
+
+            var answers = await AnswersAsync(asking.LibraryId, [line], options.ResolveBudget, cancellationToken);
 
             ScanCandidate candidate;
             await using (await sessionLock.AcquireAsync(command.SessionId, cancellationToken))
@@ -319,10 +328,10 @@ public static class SubmitBarcodes
 
         /// <summary>Answers every readable line, by line key: the catalogue first, then the providers within the budget. Runs before the lock.</summary>
         private async Task<Dictionary<string, BarcodeResolution>> AnswersAsync(
-            List<Line> lines, TimeSpan budget, CancellationToken cancellationToken)
+            Guid libraryId, List<Line> lines, TimeSpan budget, CancellationToken cancellationToken)
         {
             var readable = lines.Where(l => l.Identifier is not null).ToList();
-            var local = await resolver.FindLocalAsync(readable.Select(l => l.Identifier!).ToList(), cancellationToken);
+            var local = await resolver.FindLocalAsync(libraryId, readable.Select(l => l.Identifier!).ToList(), cancellationToken);
 
             var answers = new Dictionary<string, BarcodeResolution>();
             var outside = new List<Line>();

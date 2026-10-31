@@ -28,6 +28,11 @@ public static class CreateInvite
                 return InviteErrors.NameTooLong;
             }
 
+            if (TextRules.Check(name, "name") is { } badText)
+            {
+                return badText;
+            }
+
             if (command.Role is not { } role)
             {
                 return InviteErrors.RoleRequired;

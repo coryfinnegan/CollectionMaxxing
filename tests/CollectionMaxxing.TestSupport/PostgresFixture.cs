@@ -2,6 +2,7 @@ using System.Diagnostics;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using Respawn;
 using Testcontainers.PostgreSql;
@@ -122,6 +123,12 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// </summary>
     public AppDbContext CreateContext(ICurrentUser? currentUser = null) =>
         new(AppDbContextOptions.Create(ConnectionString), currentUser ?? new CurrentUser());
+
+    /// <summary>A context whose commands <paramref name="interceptor"/> sees, for tests that assert on the queries a use case runs.</summary>
+    public AppDbContext CreateContext(ICurrentUser? currentUser, IInterceptor interceptor) =>
+        new(
+            new DbContextOptionsBuilder<AppDbContext>(AppDbContextOptions.Create(ConnectionString)).AddInterceptors(interceptor).Options,
+            currentUser ?? new CurrentUser());
 
     public async ValueTask DisposeAsync() => await _container.DisposeAsync();
 }
