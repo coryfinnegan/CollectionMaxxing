@@ -60,7 +60,9 @@ export interface OwnedIndex {
 const EMPTY: OwnedLookup = { owned: [], softMatches: [], wishlistItemId: null, soldItemId: null };
 
 const statusOf = (e: SnapshotEntry): ItemStatus => e.status ?? 'owned';
-const inLibrary = (e: SnapshotEntry): boolean => isInCollection(statusOf(e));
+
+/** Whether an entry is in the library (owned, lent or missing) and so counts as owned; the wishlist and sold entries are not. */
+export const inLibrary = (e: Pick<SnapshotEntry, 'status'>): boolean => isInCollection(e.status ?? 'owned');
 
 const toCopy = (e: SnapshotEntry): OwnedCopy => ({
   itemId: e.itemId,

@@ -30,7 +30,9 @@ export function OwnedCard({ candidate, copy, actions, scale }: { candidate: Cand
   const [pressed, setPressed] = useState<'add' | 'move' | 'skip' | 'found' | 'undo' | null>(null);
   const canAct = actions.canAdd && !accepted && !moved;
   const canMove = canAct && !allMissing && !!actions.onMove && !!actions.moveTo;
-  const canFind = canAct && allMissing && !!actions.onMoveItem;
+  // The copy Found it moves: one that is marked missing (when every copy is, the first listed).
+  const missingCopy = answer.owned.find((c) => c.status === 'missing');
+  const canFind = canAct && allMissing && !!missingCopy && !!actions.onMoveItem;
 
   return (
     <View style={styles.body}>
@@ -55,9 +57,9 @@ export function OwnedCard({ candidate, copy, actions, scale }: { candidate: Cand
       {moved ? (
         <>
           <Text variant="label" tone="accent" accessibilityLiveRegion="polite">
-            {moved}
+            {moved.message}
           </Text>
-          {actions.canAdd && actions.onUndoMoveItem ? (
+          {moved.canUndo && actions.canAdd && actions.onUndoMoveItem ? (
             <Button
               label="Undo"
               accessibilityLabel={`Undo: ${copy.title}`}
@@ -82,7 +84,7 @@ export function OwnedCard({ candidate, copy, actions, scale }: { candidate: Cand
               busy={busy && pressed === 'found'}
               onPress={() => {
                 setPressed('found');
-                actions.onMoveItem?.(candidate, first!.itemId, 'found');
+                actions.onMoveItem?.(candidate, missingCopy!.itemId, 'found');
               }}
             />
           ) : (

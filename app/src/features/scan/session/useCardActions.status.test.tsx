@@ -1,9 +1,11 @@
 // The scan card for a release on the wishlist, one you sold, and one you own but cannot find: what each says (online from the
 // candidate, offline from the phone's own copy) and what Got it and Found it do against the mock API, with Undo.
 import { onlineManager } from '@tanstack/react-query';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
+import { View } from 'react-native';
 import type { CandidateDto } from '@/api/generated/models';
+import { useMovedStore } from '@/features/scan/cards/movedStore';
 import { localDateString } from '@/lib/dates';
 import { MemoryOwnedStorage, setOwnedStorage } from '@/features/offline/ownedCache';
 import { syncLibrary } from '@/features/offline/sync';
@@ -44,6 +46,20 @@ function Harness({ cards, canAdd = true }: { cards: CandidateDto[]; canAdd?: boo
   return <ResultCards cards={cards} actions={actions} />;
 }
 
+/** The same cards seen from two places at once, like the strip over the camera and the result screen: each has its own hook. */
+function TwoViews({ cards }: { cards: CandidateDto[] }) {
+  return (
+    <>
+      <View testID="strip">
+        <Harness cards={cards} />
+      </View>
+      <View testID="detail">
+        <Harness cards={cards} />
+      </View>
+    </>
+  );
+}
+
 const press = async (label: string) => {
   const target = await screen.findByLabelText(label);
   await act(async () => {
@@ -55,6 +71,7 @@ beforeEach(() => {
   scanMock.reset();
   reviewMock.reset();
   resetItems();
+  useMovedStore.getState().reset();
   mockRouter.push.mockClear();
   resetOwnershipMock();
   setOwnedStorage(new MemoryOwnedStorage());
@@ -129,6 +146,98 @@ describe('the wishlist card', () => {
   });
 });
 
+describe('the wishlist card after Got it, seen from anywhere', () => {
+  const bladeRunner = () =>
+    card({ title: 'Blade Runner', releaseId: entryOf('Blade Runner').release.id, wishlistItemId: entryOf('Blade Runner').item.id });
+
+  /** What the server answers once the item is owned: a copy in the library, and no wishlist item. */
+  const answerOwned = () =>
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership', () =>
+        HttpResponse.json({
+          owned: true,
+          count: 1,
+          sameWorkOtherFormat: [],
+          copies: [
+            {
+              itemId: entryOf('Blade Runner').item.id,
+              releaseId: entryOf('Blade Runner').release.id,
+              workId: entryOf('Blade Runner').work.id,
+              title: 'Blade Runner',
+              format: 'bluray',
+              platform: null,
+              status: 'owned',
+              locationId: null,
+              locationPath: null,
+            },
+          ],
+          wishlistItemId: null,
+          soldItemId: null,
+        }),
+      ),
+    );
+
+  it('shows every view of the candidate as in your library once it is moved, with no second Got it', async () => {
+    await renderWithProviders(<TwoViews cards={[bladeRunner()]} />);
+    const strip = within(await screen.findByTestId('strip'));
+    const detail = within(screen.getByTestId('detail'));
+
+    await act(async () => {
+      fireEvent.press(strip.getByLabelText('Got it: Blade Runner'));
+    });
+
+    expect(await strip.findByText('In your library')).toBeTruthy();
+    expect(await detail.findByText('In your library')).toBeTruthy();
+    expect(detail.queryByLabelText('Got it: Blade Runner')).toBeNull();
+    expect(strip.queryByLabelText('Got it: Blade Runner')).toBeNull();
+  });
+
+  it('lets the other view take the first move back, to the status it really had', async () => {
+    await renderWithProviders(<TwoViews cards={[bladeRunner()]} />);
+    const strip = within(await screen.findByTestId('strip'));
+    const detail = within(screen.getByTestId('detail'));
+    await act(async () => {
+      fireEvent.press(strip.getByLabelText('Got it: Blade Runner'));
+    });
+    await detail.findByText('In your library');
+
+    await act(async () => {
+      fireEvent.press(detail.getByLabelText('Undo: Blade Runner'));
+    });
+
+    await waitFor(() => expect(entryOf('Blade Runner').item.status).toBe('wishlist'));
+    expect(entryOf('Blade Runner').item.acquiredOn).toBeNull();
+    expect(await strip.findByLabelText('Got it: Blade Runner')).toBeTruthy();
+  });
+
+  it('says in your library, and offers no Got it, when the card is opened later and the item is already owned', async () => {
+    entryOf('Blade Runner').item.status = 'owned'; // moved earlier, from another place or before the app restarted
+    answerOwned();
+
+    await renderWithProviders(<Harness cards={[bladeRunner()]} />);
+
+    expect(await screen.findByText('In your library')).toBeTruthy();
+    expect(screen.queryByLabelText('Got it: Blade Runner')).toBeNull();
+    expect(screen.queryByText('On your wishlist')).toBeNull();
+  });
+
+  it('does not send a second PATCH for an item that is already owned (a tap on a stale card)', async () => {
+    entryOf('Blade Runner').item.status = 'owned';
+    entryOf('Blade Runner').item.acquiredOn = '2026-09-01';
+    const versionBefore = entryOf('Blade Runner').version;
+    await renderWithProviders(<Harness cards={[bladeRunner()]} />); // the lookup has not answered owned yet: the card still offers Got it
+
+    await act(async () => {
+      fireEvent.press(await screen.findByLabelText('Got it: Blade Runner'));
+    });
+
+    await waitFor(() => expect(screen.queryByLabelText('Got it: Blade Runner')).toBeNull());
+    expect(entryOf('Blade Runner').version).toBe(versionBefore); // nothing was written
+    expect(entryOf('Blade Runner').item.acquiredOn).toBe('2026-09-01'); // and the date it was got on is not stamped again
+    expect(screen.queryByLabelText('Undo: Blade Runner')).toBeNull(); // nothing to take back
+  });
+});
+
 describe('the sold card', () => {
   const tetris = () => card({ title: 'Tetris', releaseId: entryOf('Tetris').release.id, soldItemId: entryOf('Tetris').item.id });
 
@@ -178,6 +287,57 @@ describe('the missing card', () => {
     expect(screen.getByText('Marked missing')).toBeTruthy();
     expect(screen.getByLabelText('Found it: Pong')).toBeTruthy();
     expect(screen.queryByLabelText('Add another copy of Pong')).toBeNull();
+  });
+
+  it('patches a copy that is marked missing, and leaves the other copy as it is', async () => {
+    entryOf('Dune').item.status = 'missing'; // a second copy of the same thing, also missing
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership', () =>
+        HttpResponse.json({
+          owned: true,
+          count: 2,
+          sameWorkOtherFormat: [],
+          copies: ['missing', 'missing'].map((status, n) => ({
+            itemId: n === 0 ? entryOf('Pong').item.id : entryOf('Dune').item.id,
+            releaseId: entryOf('Pong').release.id,
+            workId: entryOf('Pong').work.id,
+            title: 'Pong',
+            format: 'game_cartridge',
+            platform: 'Atari 2600',
+            status,
+            locationId: null,
+            locationPath: 'Game room › Shelf 1',
+          })),
+        }),
+      ),
+    );
+    await renderWithProviders(<Harness cards={[pong()]} />);
+
+    await press('Found it: Pong');
+
+    await waitFor(() => expect(entryOf('Pong').item.status).toBe('owned'));
+    expect(entryOf('Dune').item.status).toBe('missing'); // the other copy is untouched
+  });
+
+  it('offers no Found it when a copy is on the shelf beside the missing one', async () => {
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership', () =>
+        HttpResponse.json({
+          owned: true,
+          count: 2,
+          sameWorkOtherFormat: [],
+          copies: [
+            { itemId: entryOf('Dune').item.id, releaseId: entryOf('Pong').release.id, workId: 'w', title: 'Pong', format: 'game_cartridge', platform: 'Atari 2600', status: 'owned', locationId: null, locationPath: 'Shelf' },
+            { itemId: entryOf('Pong').item.id, releaseId: entryOf('Pong').release.id, workId: 'w', title: 'Pong', format: 'game_cartridge', platform: 'Atari 2600', status: 'missing', locationId: null, locationPath: 'Shelf' },
+          ],
+        }),
+      ),
+    );
+    await renderWithProviders(<Harness cards={[pong()]} />);
+
+    expect(await screen.findByText('Already own — Atari 2600, Shelf · 2 copies')).toBeTruthy();
+    expect(screen.queryByLabelText('Found it: Pong')).toBeNull();
+    expect(screen.getByLabelText('Add another copy of Pong')).toBeTruthy();
   });
 
   it('marks it owned again with Found it, and Undo marks it missing again', async () => {

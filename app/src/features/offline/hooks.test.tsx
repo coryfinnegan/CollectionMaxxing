@@ -103,6 +103,29 @@ describe('useOwnedLookup offline', () => {
   });
 });
 
+describe('useOwnedLookup offline, before the first sync since the update', () => {
+  // The last release's copy: eight columns, no status. It is Jaws on VHS, in the library.
+  const v1 = JSON.stringify({
+    v: 1,
+    cursor: '3',
+    syncedAt: 0,
+    rows: [['00000001-0000-4000-8000-000000000000', '00000101-0000-4000-8000-000000000000', '00000201-0000-4000-8000-000000000000', 'Jaws', 'vhs', null, ['0042100005264'], 'Living room › Shelf B']],
+  });
+
+  it('still says what you own, from the old copy', async () => {
+    const storage = new MemoryOwnedStorage();
+    storage.set(`owned-index-v1:${MOCK_LIBRARY_ID}`, v1);
+    setOwnedStorage(storage); // the app was updated and opened in a store with no signal
+    onlineManager.setOnline(false);
+
+    await renderWithProviders(<Answer code="042100005264" now={() => 2 * H} />);
+
+    expect(await screen.findByText('owned:Jaws (vhs) at Living room › Shelf B')).toBeTruthy();
+    expect(screen.queryByText('Not in your library')).toBeNull();
+    expect(screen.getByText('source:local')).toBeTruthy();
+  });
+});
+
 describe('useOwnedLookup: wishlist and sold', () => {
   const ALIEN = { releaseId: '00000160-0000-4000-8000-000000000000', workId: '00000260-0000-4000-8000-000000000000' };
   const row = (n: number, status: 'wishlist' | 'sold' | 'missing') => ({

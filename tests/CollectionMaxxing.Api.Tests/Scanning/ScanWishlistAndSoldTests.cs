@@ -51,6 +51,26 @@ public class ScanWishlistAndSoldTests(ApiFixture api) : ScanTest(api)
     }
 
     [Fact]
+    public async Task A_wishlisted_hit_is_counted_as_skipped_not_owned_and_not_to_review()
+    {
+        var library = await CreateLibraryAsync();
+        var wishlisted = ScanData.Upc(9307);
+        var sold = ScanData.Upc(9308);
+        await OwnAsync(library, "Super Mario 64", wishlisted, status: ItemStatus.Wishlist);
+        await OwnAsync(library, "GoldenEye 007", sold, status: ItemStatus.Sold);
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+
+        await ScanAsync(editor, sessionId, wishlisted, sold);
+
+        // The wishlisted one is answered on its card (Got it) and waits there, skipped like an owned hit; the sold one is an ordinary add.
+        var counters = (await GetSessionAsync(editor, sessionId)).GetProperty("counters");
+        counters.GetProperty("skipped").GetInt32().ShouldBe(1);
+        counters.GetProperty("owned").GetInt32().ShouldBe(0);
+        counters.GetProperty("toReview").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
     public async Task A_scan_never_adds_an_owned_item_beside_the_wishlist_one_so_got_it_is_the_way_in()
     {
         var library = await CreateLibraryAsync();

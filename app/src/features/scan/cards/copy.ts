@@ -61,6 +61,18 @@ export function alreadyOwnLine(what: string | null, where: string | null, count:
 }
 
 /**
+ * What a wishlist card knows now, from the ownership answer (the server's, or the phone's own copy offline) first and the candidate it
+ * was made from second: the candidate is a picture of the moment it was scanned, and the item may have moved since (Got it from another
+ * view, or before the app restarted). `nowOwned` means the release is in the library now; `itemId` is the wishlist item Got it moves.
+ */
+export function wishlistStateOf(
+  candidate: { wishlistItemId?: string | null },
+  answer: { owned: unknown[]; wishlistItemId: string | null },
+): { nowOwned: boolean; itemId: string | null } {
+  return { nowOwned: answer.owned.length > 0, itemId: answer.wishlistItemId ?? candidate.wishlistItemId ?? null };
+}
+
+/**
  * The one line a card says about what the library holds of a release, from an ownership answer (the server's, or the phone's own
  * copy when offline): what you own first, then the wishlist, then what you sold, then the same work in another shape. Null when
  * there is nothing to say. `owned` leads: a copy in the library is the answer the person is standing at the shelf for.

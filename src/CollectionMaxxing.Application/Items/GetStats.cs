@@ -57,7 +57,7 @@ public static class GetStats
                     {
                         wishlist += bucket.Count;
                     }
-                    else
+                    else if (bucket.Status == ItemStatus.Sold)
                     {
                         sold += bucket.Count;
                     }

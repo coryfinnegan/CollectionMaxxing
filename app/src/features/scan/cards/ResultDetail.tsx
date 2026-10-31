@@ -20,7 +20,7 @@ import { uploadCover, useCoverStore } from '../detail/coverPhoto';
 import { FixItPanel } from '../detail/FixItPanel';
 import { PhotoViewer } from '../detail/PhotoViewer';
 import { useSnapContext } from '../detail/snapContext';
-import { describeCandidate, MARKED_MISSING, SOLD_COPY } from './copy';
+import { describeCandidate, MARKED_MISSING, SOLD_COPY, wishlistStateOf } from './copy';
 import { useCardsStore } from './cardsStore';
 
 export function ResultDetail({ id }: { id: string }) {
@@ -61,7 +61,9 @@ export function ResultDetail({ id }: { id: string }) {
   const added = copy.kind === 'added';
   const wishlistCard = copy.kind === 'wishlist';
   const moved = actions.moved?.[candidate.id];
-  const missingCopy = lookup.owned.length > 0 && lookup.owned.every((c) => c.status === 'missing') ? lookup.owned[0] : null;
+  // Found it moves a copy that is marked missing, when every copy you own is.
+  const missingCopy = lookup.owned.length > 0 && lookup.owned.every((c) => c.status === 'missing') ? lookup.owned.find((c) => c.status === 'missing') : undefined;
+  const wishlistState = wishlistStateOf(candidate, lookup);
   const addable = canAdd && !!release && !owned && !added && !wishlistCard;
   const busy = !!actions.busy?.[candidate.id];
   const error = actions.errors?.[candidate.id];
@@ -127,7 +129,7 @@ export function ResultDetail({ id }: { id: string }) {
                 ))}
           </>
         ) : wishlistCard ? (
-          <Text variant="heading">{moved ?? copy.status}</Text>
+          <Text variant="heading">{moved?.message ?? (wishlistState.nowOwned ? 'In your library' : copy.status)}</Text>
         ) : copy.kind === 'new' ? (
           <>
             <Text variant="heading">Not in your library</Text>
@@ -138,12 +140,12 @@ export function ResultDetail({ id }: { id: string }) {
         ) : (
           <Text>{copy.status}</Text>
         )}
-        {canAdd && wishlistCard && !moved && candidate.wishlistItemId ? (
+        {canAdd && wishlistCard && !moved && !wishlistState.nowOwned && wishlistState.itemId ? (
           <Button
             label="Got it"
             accessibilityLabel={`Got it: ${copy.title}`}
             busy={busy}
-            onPress={() => actions.onMoveItem?.(candidate, candidate.wishlistItemId!, 'got-it')}
+            onPress={() => actions.onMoveItem?.(candidate, wishlistState.itemId!, 'got-it')}
           />
         ) : null}
         {canAdd && owned && missingCopy && !moved ? (
@@ -156,8 +158,8 @@ export function ResultDetail({ id }: { id: string }) {
         ) : null}
         {moved ? (
           <>
-            {owned ? <Text tone="accent">{moved}</Text> : null}
-            {canAdd ? <Button label="Undo" variant="secondary" accessibilityLabel={`Undo: ${copy.title}`} disabled={busy} onPress={() => actions.onUndoMoveItem?.(candidate)} /> : null}
+            {owned ? <Text tone="accent">{moved.message}</Text> : null}
+            {canAdd && moved.canUndo ? <Button label="Undo" variant="secondary" accessibilityLabel={`Undo: ${copy.title}`} disabled={busy} onPress={() => actions.onUndoMoveItem?.(candidate)} /> : null}
           </>
         ) : null}
         {addable && !accepted && !wishlisted ? (

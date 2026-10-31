@@ -7,9 +7,11 @@ test.describe('library', () => {
   test('the table lists the seeded items and the grid shows covers', async ({ page, open, shot }) => {
     await open('/library');
     await expect(page.getByRole('grid', { name: 'Library table' })).toBeVisible();
-    for (const title of ['The Matrix', 'Dune', 'Super Mario 64', 'Hades']) {
+    for (const title of ['The Matrix', 'Dune', 'Super Mario 64', 'Back to the Future']) {
       await expect(page.getByRole('link', { name: `Open ${title}` })).toBeVisible();
     }
+    // The library is what you have: Hades is on the wishlist, so it is not here.
+    await expect(page.getByRole('link', { name: 'Open Hades' })).toHaveCount(0);
     await shot('library-table');
 
     await page.getByRole('button', { name: 'Grid view' }).click();
@@ -55,14 +57,32 @@ test.describe('library', () => {
 
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/item/${matrix}/edit$`));
-    await page.getByRole('button', { name: 'Status Wishlist' }).click();
+    // Missing is still yours, so the row stays in the library (Wishlist or Sold would take it out; the table spec covers that).
+    await page.getByRole('button', { name: 'Status Missing' }).click();
     await page.getByRole('textbox', { name: 'Notes' }).fill('Red pill edition');
     await page.getByRole('button', { name: 'Save changes' }).click();
 
     await expect(page).toHaveURL(new RegExp(`/item/${matrix}$`));
     await expect(page.getByText('Red pill edition').locator('visible=true').first()).toBeVisible();
     await page.goBack();
-    await expect(page.getByRole('button', { name: 'Change status of The Matrix, now Wishlist' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change status of The Matrix, now Missing' })).toBeVisible();
+  });
+
+  // On the wide web the Me pages are listed in the sidebar, since there is no Me tab: Sold for everyone, Recently deleted for editors.
+  test('the sidebar reaches Sold and Recently deleted', async ({ page, open }) => {
+    await open('/library');
+    const nav = page.getByRole('navigation');
+    await expect(nav.getByRole('link', { name: 'Recently deleted', exact: true })).toBeVisible();
+
+    await nav.getByRole('link', { name: 'Sold', exact: true }).click();
+    await expect(page).toHaveURL(/\/sold$/);
+    await expect(page.getByRole('heading', { name: 'Sold' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open Tetris' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open The Matrix' })).toHaveCount(0);
+
+    await nav.getByRole('link', { name: 'Recently deleted', exact: true }).click();
+    await expect(page).toHaveURL(/\/me\/deleted$/);
+    await expect(page.getByText('Deleted items stay here for 30 days.')).toBeVisible();
   });
 
   test('item detail keeps the sidebar', async ({ page, open }) => {

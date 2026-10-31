@@ -11,6 +11,7 @@ import { setTrayStore } from '../tray/storage';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
 import { ResultDetail } from './ResultDetail';
 import { useCardsStore } from './cardsStore';
+import { useMovedStore } from './movedStore';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn() }) }));
 
@@ -31,6 +32,7 @@ const seedSession = async (code: string) => {
 beforeEach(() => {
   scanMock.reset();
   useCardsStore.getState().reset();
+  useMovedStore.getState().reset();
 });
 afterEach(() => setTrayStore(undefined));
 
@@ -87,6 +89,47 @@ describe('result detail', () => {
     expect(screen.queryByText(/You own this/)).toBeNull();
     expect(screen.queryByLabelText('Add to library')).toBeNull();
     expect(screen.queryByLabelText('Wishlist')).toBeNull();
+  });
+
+  it('shows a wishlist card as in your library once Got it was tapped anywhere, with an Undo and no second Got it', async () => {
+    const candidate = await seedSession(DEV_CODES.wishlisted);
+    useCardsStore.getState().merge([candidate], { announce: false });
+    useMovedStore.getState().set(candidate.id, {
+      itemId: candidate.wishlistItemId!,
+      message: 'In your library',
+      to: 'owned',
+      restore: { status: 'wishlist', acquiredOn: null },
+    });
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('In your library')).toBeTruthy();
+    expect(screen.getByLabelText('Undo: Metroid Prime')).toBeTruthy();
+    expect(screen.queryByLabelText('Got it: Metroid Prime')).toBeNull();
+    expect(screen.queryByText('On your wishlist')).toBeNull();
+  });
+
+  it('says in your library, with no Got it, when the release is already owned by the time the card is opened', async () => {
+    const candidate = await seedSession(DEV_CODES.wishlisted);
+    useCardsStore.getState().merge([candidate], { announce: false });
+    server.use(
+      http.get('*/api/v1/libraries/:libraryId/ownership', () =>
+        HttpResponse.json({
+          owned: true,
+          count: 1,
+          sameWorkOtherFormat: [],
+          copies: [
+            { itemId: candidate.wishlistItemId, releaseId: candidate.release!.id, workId: candidate.release!.workId, title: 'Metroid Prime', format: 'game_disc', platform: 'GameCube', status: 'owned', locationId: null, locationPath: null },
+          ],
+          wishlistItemId: null,
+          soldItemId: null,
+        }),
+      ),
+    );
+    await renderWithProviders(<ResultDetail id={candidate.id} />);
+
+    expect(await screen.findByText('In your library')).toBeTruthy();
+    expect(screen.queryByLabelText('Got it: Metroid Prime')).toBeNull();
+    expect(screen.queryByText('On your wishlist')).toBeNull();
   });
 
   it('adds a muted "You sold this" to a release you sold, and keeps the add buttons', async () => {

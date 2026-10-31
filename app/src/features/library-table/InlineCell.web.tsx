@@ -8,11 +8,13 @@ import { StyleSheet } from 'react-native-unistyles';
 import { getItem, updateItem } from '@/api/generated/items/items';
 import type { ItemStatus, ItemSummaryDto, UpdateItemRequest } from '@/api/generated/models';
 import { ifMatchHeader } from '@/features/item/etag';
+import { leftLibraryMessage } from '@/features/item/statusMoves';
 import { useInvalidateLibrary } from '@/features/item/useItem';
 import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { Button, Text, TextField } from '@/ui';
+import type { TableMove } from './MovedToast.web';
 import { needsBorrower, statusPatch } from './statusPatch';
 
 export type CellOption = { value: string; label: string; depth?: number };
@@ -25,6 +27,8 @@ type Props = {
   current: string;
   options: CellOption[];
   onNotice: (text: string) => void;
+  /** A status change took the item out of the library (to the wishlist or Sold): the row is about to leave this list, so the table says so. */
+  onMoved?: (moved: TableMove) => void;
 };
 
 const patchFor = (field: Props['field'], item: ItemSummaryDto, value: string): UpdateItemRequest =>
@@ -35,7 +39,7 @@ const patchFor = (field: Props['field'], item: ItemSummaryDto, value: string): U
 const startsLend = (field: Props['field'], item: ItemSummaryDto, value: string) =>
   field === 'status' && needsBorrower(item.status, value as ItemStatus);
 
-export function InlineCell({ libraryId, item, field, current, options, onNotice }: Props) {
+export function InlineCell({ libraryId, item, field, current, options, onNotice, onMoved }: Props) {
   const invalidate = useInvalidateLibrary();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -56,14 +60,20 @@ export function InlineCell({ libraryId, item, field, current, options, onNotice 
 
   const send = async (patch: UpdateItemRequest) => {
     setBusy(true);
+    const message = field === 'status' && patch.status ? leftLibraryMessage(patch.status) : null;
     try {
       const tag = await etag.current;
       if (!tag) {
         onNotice(`Couldn't load "${item.title}" to change its ${noun}. Reload the list and try again.`);
         return;
       }
-      await updateItem(libraryId, item.id, patch, { headers: ifMatchHeader(tag) });
+      const response = await updateItem(libraryId, item.id, patch, { headers: ifMatchHeader(tag) });
       onNotice('');
+      if (message && patch.status && item.status !== patch.status) {
+        // What takes it back: the old status, and who had it if it was lent out (with no name, a lend cannot be rebuilt: no Undo).
+        const back = item.status === 'lent' && !item.lentTo?.trim() ? null : statusPatch(patch.status, item.status, localDateString(), item.lentTo ?? '');
+        onMoved?.({ itemId: item.id, message, restore: back, etag: response.headers.get('etag') });
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 412) {
         // The row reloads below. The API doesn't say who changed it, so the copy says "someone else".

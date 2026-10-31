@@ -24,6 +24,13 @@ export const STATUS_MOVES: Record<StatusMoveName, MoveSpec> = {
   'got-back': { label: 'Got it back', to: 'owned', done: 'Back in your library' },
 };
 
+/** The toast for an item that left the library for the wishlist or Sold (from the item screen or the table), or null for any other status. */
+export function leftLibraryMessage(to: ItemStatus): string | null {
+  if (to === 'wishlist') return 'Moved to Wishlist';
+  if (to === 'sold') return 'Moved to Sold';
+  return null;
+}
+
 /**
  * What the item screen offers for an item in this state: the one primary move that fits (the wishlist's I got it, a missing
  * item's Found it, what is sold or lent out's Got it back), and the quieter moves an owned item has.

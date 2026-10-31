@@ -110,8 +110,8 @@ export type CardActions = {
   onMoveItem?(candidate: CandidateDto, itemId: string, move: 'got-it' | 'found'): void;
   /** Undo of the move above: puts the item back as it was. */
   onUndoMoveItem?(candidate: CandidateDto): void;
-  /** Cards whose item was moved from the card, with what the card says now ("In your library"). */
-  moved?: Record<string, string>;
+  /** Cards whose item was moved from the card (anywhere: the strip and the result screen share this), with what the card says now ("In your library"). */
+  moved?: Record<string, { message: string; canUndo: boolean }>;
 };
 
 export function ResultCard({ candidate, actions, reduceMotion }: { candidate: CandidateDto; actions: CardActions; reduceMotion: boolean }) {
