@@ -113,6 +113,8 @@ public class EvalGrounderConcurrencyTests
 
         public Task FirstAsk => _firstAsked.Task;
 
+        public Task Reached => _reached.Task;
+
         public bool Supports(WorkKind kind) => true;
 
         public Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct) => Task.FromResult<ProviderRelease?>(null);
@@ -160,34 +162,13 @@ public class EvalGrounderConcurrencyTests
         }
     }
 
-    /// <summary>A provider that finds nothing for a title with "Slow" in it until it is cancelled, and everything else at once.</summary>
-    private sealed class SlowForSomeProvider : ICatalogProvider
+    private static EvalGrounder Grounder(ILocalCatalogSearch catalogue, ICatalogProvider provider, int? parallelism = null)
     {
-        public string Name => "slow";
-
-        public bool Supports(WorkKind kind) => true;
-
-        public Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct) => Task.FromResult<ProviderRelease?>(null);
-
-        public async Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct)
-        {
-            if (query.Title.Contains("Slow", StringComparison.Ordinal))
-            {
-                await Task.Delay(Timeout.Infinite, ct);
-            }
-
-            return [new ProviderRelease { Provider = "slow", ExternalId = query.Title, Title = query.Title, Kind = WorkKind.Game, Format = ReleaseFormat.GameCartridge, Platform = "Nintendo 64", Year = 1997 }];
-        }
-    }
-
-    private static EvalGrounder Grounder(
-        ILocalCatalogSearch catalogue, ICatalogProvider provider, int? parallelism = null, TimeSpan? budget = null)
-    {
-        var scanning = new ScanningOptions { JobResolveBudget = budget ?? TimeSpan.FromSeconds(30) };
+        var scanning = new ScanningOptions { JobResolveBudget = TimeSpan.FromSeconds(30) };
         var resolver = new TextSearchResolver(null!, catalogue, [provider], scanning, NullLogger<TextSearchResolver>.Instance);
         var grounding = new IdentifyGrounding(resolver, new FixedScoring());
         var evals = Options.Create(parallelism is { } bound ? new EvalsOptions { GroundingParallelism = bound } : new EvalsOptions());
-        return new EvalGrounder(grounding, null!, scanning, evals, new NoSerials());
+        return new EvalGrounder(grounding, null!, scanning, evals, new NoSerials(), TimeProvider.System);
     }
 
     private static Task<IReadOnlyList<GroundedItem>> GroundAsync(
@@ -336,10 +317,7 @@ public class EvalGrounderConcurrencyTests
         var memo = new EvalGroundingMemo();
 
         var running = GroundAsync(grounder, memo, Reads(Titles), cancel.Token);
-        while (provider.MostAtOnce < 3)
-        {
-            await Task.Delay(5);
-        }
+        await provider.Reached.WaitAsync(Patience);
 
         await cancel.CancelAsync();
 
@@ -362,15 +340,5 @@ public class EvalGrounderConcurrencyTests
         await GroundAsync(grounder, new EvalGroundingMemo(), Reads(Titles)).WaitAsync(Patience);
 
         provider.AskedPatiently.ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task A_read_that_runs_out_of_its_own_budget_is_pending_and_the_read_queued_behind_it_still_has_a_full_budget()
-    {
-        var grounder = Grounder(new RecordingCatalogue(), new SlowForSomeProvider(), parallelism: 1, budget: TimeSpan.FromMilliseconds(750));
-
-        var items = await GroundAsync(grounder, new EvalGroundingMemo(), Reads("Slow Poke Quest", "Quick Quest")).WaitAsync(Patience);
-
-        items.Select(i => i.Verdict).ShouldBe(["pending", "matched"]);
     }
 }

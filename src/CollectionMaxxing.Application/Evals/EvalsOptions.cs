@@ -36,7 +36,8 @@ public sealed class EvalsOptions
     /// <summary>
     /// How many of one photo's reads have their providers asked at the same time while grounding. The providers' own limiters set the
     /// pace (Open Library allows 3 requests a second with a contact email, 1 without), so more than a handful in flight only queues;
-    /// each ask still has the patient background-job budget, counted from when it starts. A value below 1 asks one read at a time.
+    /// each ask has the patient background-job budget times the number of asks in flight, counted from when it starts, because every
+    /// call waits in the shared limiter behind the others. A value below 1 asks one read at a time.
     /// </summary>
     public int GroundingParallelism { get; set; } = 6;
 }

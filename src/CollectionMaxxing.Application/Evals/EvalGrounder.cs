@@ -18,7 +18,12 @@ namespace CollectionMaxxing.Application.Evals;
 /// path, so a repeat costs nothing. It reads the catalogue as the caller can: a signed-in administrator sees the global releases.
 /// </summary>
 public sealed class EvalGrounder(
-    IdentifyGrounding grounding, IAppDbContext db, ScanningOptions options, IOptions<EvalsOptions> evals, IGameSerialLookup serials)
+    IdentifyGrounding grounding,
+    IAppDbContext db,
+    ScanningOptions options,
+    IOptions<EvalsOptions> evals,
+    IGameSerialLookup serials,
+    TimeProvider time)
 {
     /// <summary>The top releases kept per item (the same three <c>/identify</c> offers).</summary>
     public const int Alternatives = 3;
@@ -107,18 +112,30 @@ public sealed class EvalGrounder(
         }
 
         var pools = await grounding.FindLocalManyAsync([.. toAsk.Select(c => c.Facts)], cancellationToken);
-        using var gate = new SemaphoreSlim(Math.Max(1, evals.Value.GroundingParallelism));
+
+        // Each provider paces itself with one limiter shared by every ask, so with K asks under way each call waits for the other K - 1
+        // and takes up to K times as long as it would alone. Each ask's budget is the job budget for K, so queueing behind the others
+        // never costs a read the time the sequential grounder gave it, at any rate.
+        var places = Math.Min(Math.Max(1, evals.Value.GroundingParallelism), toAsk.Count);
+        var budget = options.JobResolveBudget * places;
+        using var gate = new SemaphoreSlim(places);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        await Task.WhenAll(toAsk.Select((claim, i) => AskProvidersAsync(claim, pools[i], gate, stop, cancellationToken)));
+        await Task.WhenAll(toAsk.Select((claim, i) => AskProvidersAsync(claim, pools[i], gate, stop, budget, cancellationToken)));
     }
 
     /// <summary>
-    /// Asks the providers about one read once a place frees up, and scores the answer. No one is waiting on an eval, so each read gets the
-    /// patient budget the background job gets, counted from the moment its ask starts, not the live request's. When one ask fails, the
-    /// reads still waiting for a place are left for the next call, and the asks already under way finish what they started.
+    /// Asks the providers about one read once a place frees up, and scores the answer. No one is waiting on an eval, so each read gets a
+    /// patient budget (the background job's, scaled for the asks in flight), counted from the moment its ask starts on the injected
+    /// clock, not the live request's. When one ask fails, the reads still waiting for a place are left for the next call, and the asks
+    /// already under way finish what they started.
     /// </summary>
     private async Task AskProvidersAsync(
-        EvalGroundingMemo.Claim claim, LocalPool local, SemaphoreSlim gate, CancellationTokenSource stop, CancellationToken cancellationToken)
+        EvalGroundingMemo.Claim claim,
+        LocalPool local,
+        SemaphoreSlim gate,
+        CancellationTokenSource stop,
+        TimeSpan budget,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -137,12 +154,13 @@ public sealed class EvalGrounder(
                 cancellationToken.ThrowIfCancellationRequested();
                 if (stop.IsCancellationRequested)
                 {
+                    cancellationToken.ThrowIfCancellationRequested(); // the call was cancelled, not another ask failed
                     return;
                 }
 
-                using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                budget.CancelAfter(options.JobResolveBudget);
-                var providers = await grounding.AskProvidersAsync(claim.Facts, cancellationToken, budget.Token);
+                using var expiry = new CancellationTokenSource(budget, time);
+                using var asking = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+                var providers = await grounding.AskProvidersAsync(claim.Facts, cancellationToken, asking.Token);
 
                 // An ask cut short by the app stopping may hand back a thin answer instead of an error: never remember that.
                 cancellationToken.ThrowIfCancellationRequested();
