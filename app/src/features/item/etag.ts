@@ -74,5 +74,14 @@ export function buildPatch(form: ItemForm, original: ItemDto, today: string): Up
   return patch;
 }
 
+/**
+ * Whether saving would lend the item out, or change who has it, with no name: the server refuses that. A lend that was saved without a
+ * name earlier and is left as it is is not flagged, so the rest of that item can still be edited.
+ */
+export function lentToMissing(form: ItemForm, original: ItemDto): boolean {
+  if (form.status !== 'lent' || orNull(form.lentTo) !== null) return false;
+  return original.status !== 'lent' || orNull(formFromItem(original).lentTo) !== null;
+}
+
 /** Whether the patch changes anything at all. */
 export const isEmptyPatch = (patch: UpdateItemRequest): boolean => Object.keys(patch).length === 0;

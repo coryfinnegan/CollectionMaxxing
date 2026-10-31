@@ -1,6 +1,8 @@
-// "Use my photo" (docs/02 "Privacy", docs/06 M4): the one thing in the scanner that sends a picture. It sends the crop of ONE item,
-// the small JPEG the snap store already holds (no new file is made, so there is nothing extra to track or delete), and only when an
-// editor taps the button. Opening, swiping, highlighting and Fix it never reach this file.
+// "Use my photo" (docs/02 "Privacy", docs/06 M4): sends the crop of ONE item, the small JPEG the snap store already holds (no new
+// file is made, so there is nothing extra to track or delete), and only when an editor taps the button. The server keeps it as that
+// item's cover. Opening, swiping, highlighting and Fix it never reach this file. Two other paths also send a picture, and the privacy
+// note (about/privacyNote.ts) lists all three: a close call's check (coverVerify.ts, discarded) and the crop of a row kept as
+// unverified (review/provisionals.ts, kept until the row is deleted or linked to an item).
 import { create } from 'zustand';
 import { uploadCandidatePhoto } from '@/api/generated/scanning/scanning';
 import { useCardsStore } from '../cards/cardsStore';
