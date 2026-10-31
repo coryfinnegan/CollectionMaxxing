@@ -43,6 +43,66 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
         statuses[3].ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
+    [Theory]
+    [InlineData("/api/v1/CATALOG/Search?q=zelda")]
+    [InlineData("/api/v1/catalog/search/?q=zelda")]
+    [InlineData("/API/V1/Catalog/Lookup/?code=123")]
+    public async Task Catalogue_search_is_limited_whatever_the_case_or_trailing_slash_of_the_path(string url)
+    {
+        var host = Host(("Search", 3));
+        using var client = await UserAsync(host);
+
+        var statuses = await SendAsync(client, 4, () => new HttpRequestMessage(HttpMethod.Get, url));
+
+        statuses.Take(3).ShouldAllBe(s => s != HttpStatusCode.TooManyRequests);
+        statuses[3].ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Theory]
+    [InlineData("/API/v1/Scan-Sessions/{0}/BARCODES")]
+    [InlineData("/api/v1/scan-sessions/{0}/barcodes/")]
+    public async Task Barcode_batches_are_limited_whatever_the_case_or_trailing_slash_of_the_path(string template)
+    {
+        var host = Host(("Barcodes", 2));
+        using var client = await UserAsync(host);
+        var url = string.Format(System.Globalization.CultureInfo.InvariantCulture, template, Session);
+
+        var statuses = await SendAsync(client, 3, () => new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(new { }) });
+
+        statuses.Take(2).ShouldAllBe(s => s != HttpStatusCode.TooManyRequests);
+        statuses[2].ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Theory]
+    [InlineData("/API/v1/Scan-Sessions/{0}/IDENTIFY")]
+    [InlineData("/api/v1/scan-sessions/{0}/identify/")]
+    public async Task Identify_is_limited_whatever_the_case_or_trailing_slash_of_the_path(string template)
+    {
+        var host = Host(("Identify", 5));
+        using var client = await UserAsync(host);
+
+        var response = await client.PostAsJsonAsync(
+            string.Format(System.Globalization.CultureInfo.InvariantCulture, template, Session),
+            new { items = Enumerable.Range(0, 6).Select(_ => new { }).ToArray() },
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Theory]
+    [InlineData("/API/v1/Me/EXPORT")]
+    [InlineData("/api/v1/me/export/")]
+    public async Task Export_is_limited_whatever_the_case_or_trailing_slash_of_the_path(string url)
+    {
+        var host = Host(("Export", 1));
+        using var client = await UserAsync(host);
+
+        var statuses = await SendAsync(client, 2, () => new HttpRequestMessage(HttpMethod.Get, url));
+
+        statuses[0].ShouldNotBe(HttpStatusCode.TooManyRequests);
+        statuses[1].ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
     [Fact]
     public async Task A_refusal_says_when_to_come_back_and_is_problem_json_with_the_security_headers()
     {
