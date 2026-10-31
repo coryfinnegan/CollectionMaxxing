@@ -11,6 +11,9 @@ public enum ErrorKind
 
     /// <summary>The input is fine but clashes with current state (409).</summary>
     Conflict,
+
+    /// <summary>The caller is a member but their role doesn't allow this particular request (403).</summary>
+    Forbidden,
 }
 
 /// <summary>A business-rule failure. <c>Code</c> is stable and machine readable, e.g. <c>location.cycle</c>.</summary>

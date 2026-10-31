@@ -124,7 +124,7 @@ Test-Case 'deploy: a good deploy starts by fast-forwarding the deployer clone to
 }
 
 Test-Case 'deploy: the clone is moved before the first image pull, after a fetch and the clean/on-main checks' {
-    $r = Invoke-TestDeploy -State (Get-OldGoodState)
+    $r = Invoke-TestDeploy -State (Get-OldGoodState) -Machine @{ MergeMovesTo = ('c4' * 20) }
     $fetch = Get-CallIndex 'git * fetch*'
     $status = Get-CallIndex 'git * status --porcelain*'
     $branch = Get-CallIndex 'git * symbolic-ref*'
@@ -138,12 +138,36 @@ Test-Case 'deploy: the clone is moved before the first image pull, after a fetch
 }
 
 Test-Case 'deploy: a quiet run still fast-forwards the clone, so deployer fixes self-deliver with no deploy' {
-    $r = Invoke-TestDeploy -State (Get-QuietState)
+    $r = Invoke-TestDeploy -State (Get-QuietState) -Machine @{ MergeMovesTo = ('c4' * 20) }
     Assert-Equal 'up-to-date' $r.Result.Outcome
     Assert-Equal 0 $r.Result.ExitCode
     Assert-Equal 1 (Get-RepoMerges).Count
     Assert-Match $r.Log 'moved the clone at .* to origin/main'
     Assert-Equal 0 (Get-AlertCalls).Count
+}
+
+Test-Case 'deploy: a poll that finds the clone already at origin/main does not claim it moved it' {
+    # The poll still fetches and fast-forwards (that is how the clone follows main), but "moved" is only true when it moved.
+    $r = Invoke-TestDeploy -State (Get-QuietState)
+    Assert-Equal 'up-to-date' $r.Result.Outcome
+    Assert-Equal 1 (Get-RepoMerges).Count 'the fast-forward still runs every poll'
+    Assert-False ($r.Log -match 'moved the clone') "the log must not say the clone moved: $($r.Log)"
+    Assert-False ($r.Log -match 'WARN|ERROR') 'and nothing is wrong either'
+    $heads = @(Get-Calls 'git' '*rev-parse HEAD*')
+    Assert-Equal 2 $heads.Count 'the position is read before and after the fast-forward'
+    Assert-False ($heads[0].Mutating -or $heads[1].Mutating) 'reading a position changes nothing'
+}
+
+Test-Case 'deploy: when the clone cannot say where it is, the poll still reports the fast-forward, and says it could not tell' {
+    $root = New-TestRoot
+    try {
+        New-FakeMachine @{ RepoHead = '' } | Out-Null      # git rev-parse prints nothing
+        Initialize-Cm -Apply $true
+        $ctx = New-TestContext -Root $root
+        $out = Update-CmRepoToMain -Ctx $ctx 6>&1 | Out-String
+        Assert-Match $out 'fast-forwarded the clone at .* to origin/main \(could not tell whether it moved\)'
+    }
+    finally { Remove-TestRoot $root }
 }
 
 Test-Case 'deploy: a known-bad run still fast-forwards the clone' {

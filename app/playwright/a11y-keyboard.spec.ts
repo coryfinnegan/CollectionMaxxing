@@ -74,17 +74,20 @@ test.describe('keyboard only', () => {
     await expect(opener).toBeFocused();
   });
 
-  test('Escape closes the Add an item panel and returns focus', async ({ page, open }) => {
-    await open('/library');
-    await page.getByRole('button', { name: 'Grid view' }).click(); // the table has no Add item button yet; the grid does
-    const opener = page.getByRole('button', { name: 'Add item' });
-    await opener.focus();
-    await page.keyboard.press('Enter');
-    await expect(page.getByRole('heading', { name: 'Add an item' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('heading', { name: 'Add an item' })).toHaveCount(0);
-    await expect(opener).toBeFocused();
-  });
+  // The table is the web default and has its own Add item button; the grid has the same one.
+  for (const view of ['table', 'grid'] as const) {
+    test(`Escape closes the Add an item panel and returns focus (${view})`, async ({ page, open }) => {
+      await open('/library');
+      if (view === 'grid') await page.getByRole('button', { name: 'Grid view' }).click();
+      const opener = page.getByRole('button', { name: 'Add item' });
+      await opener.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('heading', { name: 'Add an item' })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('heading', { name: 'Add an item' })).toHaveCount(0);
+      await expect(opener).toBeFocused();
+    });
+  }
 
   test('no keyboard trap: Tab keeps moving through the whole library page', async ({ page, open }) => {
     await open('/library');

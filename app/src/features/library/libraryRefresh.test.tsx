@@ -108,9 +108,10 @@ describe('library refresh after an add (#448)', () => {
   });
 
   it('shows a manual add in the grid with no manual refresh', async () => {
-    await renderWithProviders(<LibraryView title="Library" openAdd />);
+    await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
+    await fireEvent.press(await screen.findByLabelText('Add item'));
     await fireEvent.press(screen.getByLabelText('None of these? Add it yourself'));
     await fireEvent.changeText(screen.getByLabelText('Title'), 'A hand-typed game');
     await fireEvent.press(screen.getByLabelText('Add to library'));

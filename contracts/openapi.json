@@ -7262,6 +7262,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "providerRef": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderRefDto"
+              }
+            ]
           }
         }
       },
@@ -9869,6 +9879,21 @@
           }
         }
       },
+      "ProviderRefDto": {
+        "required": [
+          "provider",
+          "externalId"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string"
+          }
+        }
+      },
       "ProvisionalDto": {
         "required": [
           "id",
@@ -10354,6 +10379,16 @@
             "items": {
               "$ref": "#/components/schemas/ReleaseIdentifierDto"
             }
+          },
+          "providerRef": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProviderRefDto"
+              }
+            ]
           }
         }
       },

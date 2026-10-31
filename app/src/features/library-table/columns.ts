@@ -23,6 +23,9 @@ export const defaultColumns = (): ColumnId[] => allIds.filter((id) => id !== 'ad
 /** The API's sort value for a column, or undefined when the API can't sort by it (those headers aren't sort buttons). */
 export const sortForColumn = (id: ColumnId): SortValue | undefined => columnDefs.find((c) => c.id === id)?.sort;
 
+/** The arrow beside the active sort: up when the values grow downward the list (A to Z, oldest first), down for a "-" sort (newest first). */
+export const sortArrow = (sort: SortValue): '↑' | '↓' => (sort.startsWith('-') ? '↓' : '↑');
+
 /** Shows or hides one column. The title always stays; the result keeps table order. */
 export function toggleColumn(current: readonly ColumnId[], id: ColumnId): ColumnId[] {
   if (id === 'title') return [...current];
