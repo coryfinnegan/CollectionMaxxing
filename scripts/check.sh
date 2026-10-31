@@ -161,7 +161,7 @@ if [ -n "${CM_TEST_ONLY:-}" ]; then
   lanes=("${keep[@]}")
 fi
 test_filter="${CM_TEST_FILTER:-}"
-test_args=(--no-build --logger 'console;verbosity=minimal')
+test_args=(--no-build --logger 'console;verbosity=minimal' --logger trx)
 if [ -n "$test_filter" ]; then
   test_args+=(--filter "$test_filter")
   # Discovery only (nothing runs, no Docker needed): how many tests the filter selects, and how many the project has.
