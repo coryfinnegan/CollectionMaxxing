@@ -1,6 +1,6 @@
 namespace CollectionMaxxing.Application.Evals;
 
-/// <summary>Where the PC's one eval run is: collecting photos from the phone, waiting to be scored, or scored.</summary>
+/// <summary>Where the PC's one run is: collecting photos from the phone, waiting to be scored, or scored.</summary>
 public enum OpenRunState
 {
     /// <summary>The phone is sending photos. Nothing is scored.</summary>

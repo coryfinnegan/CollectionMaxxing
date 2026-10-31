@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace CollectionMaxxing.Infrastructure.Evals;
 
 /// <summary>
-/// The PC's one eval run as files under <c>Evals:ResultsPath/open-run</c>: <c>run.json</c> (the header), <c>photos/&lt;id&gt;.json</c> (a photo as the
+/// The PC's one run as files under <c>Evals:ResultsPath/open-run</c>: <c>run.json</c> (the header), <c>photos/&lt;id&gt;.json</c> (a photo as the
 /// phone sent it, after its checks) and <c>grounded/&lt;id&gt;.json</c> (what grounding made of it). A photo with a file in <c>photos</c> and none in
 /// <c>grounded</c> is waiting to be grounded: the folder is the queue, so a restart loses nothing. It holds the owner's real titles, like the rest of
 /// the results folder: PC only, never served, never in the repo. Every file is written whole to a temp name and moved into place.

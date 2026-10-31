@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace CollectionMaxxing.Infrastructure.Evals;
 
 /// <summary>
-/// The hosted loop of the resumable eval run: ground the photos the phone has sent, one after another as they arrive, and score the run once the
+/// The hosted loop of the resumable run: ground the photos the phone has sent, one after another as they arrive, and score the run once the
 /// phone has finished it. Its queue is the run folder itself (a stored photo without a grounded file is to do), not the database job queue: the
 /// evals keep no database rows, and a run that is discarded takes its queue with it. It starts by looking at the folder, so what a restart interrupted
 /// is picked up at once. Idle, it sleeps until the API wakes it (a photo arrived, the run was finished) or a few seconds pass.

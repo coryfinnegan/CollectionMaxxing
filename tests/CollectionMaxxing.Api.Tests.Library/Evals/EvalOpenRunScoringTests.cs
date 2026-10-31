@@ -1,6 +1,8 @@
 using System.Net;
 using CollectionMaxxing.Api.Tests.Scanning;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.TestSupport.Evals;
 
 namespace CollectionMaxxing.Api.Tests.Evals;
@@ -170,6 +172,40 @@ public class EvalOpenRunScoringTests(ApiFixture api) : OpenRunTest(api)
         summary.GetProperty("scoredPhotos").GetInt32().ShouldBe(3);
         (File.Exists(Path.Combine(Golden.Golden, "single", "c2.truth.draft.json")) || File.Exists(Path.Combine(Golden.Results, "drafts", "c2.truth.draft.json")))
             .ShouldBeTrue("a draft truth file is written for the owner to correct");
+    }
+
+    [Fact]
+    public async Task The_background_grounding_finds_a_release_the_catalogue_already_has_without_asking_a_provider()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        await CatalogAsync("Star Fox 64", ScanData.Upc(7001), ReleaseFormat.GameCartridge, WorkKind.Game, 1997);
+        using var admin = AdminClient();
+        await OpenOkAsync(admin);
+        await PutPhotoOkAsync(admin, "c1", AllEngines("c1", StarFoxRead));
+        await FinishOkAsync(admin);
+
+        await StatusWhenDoneAsync(admin);
+
+        foreach (var photo in (await LatestRunFileAsync()).GetProperty("photos").EnumerateArray())
+        {
+            var best = photo.GetProperty("items")[0].GetProperty("candidates")[0];
+            best.GetProperty("title").GetString().ShouldBe("Star Fox 64");
+        }
+    }
+
+    [Fact]
+    public async Task Finishing_needs_no_body_at_all()
+    {
+        Golden.AddSingle("c1", StarFoxTruth);
+        Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
+        using var admin = AdminClient();
+        await OpenOkAsync(admin);
+        await PutPhotoOkAsync(admin, "c1", AllEngines("c1", StarFoxRead));
+
+        var response = await admin.PostAsync($"{OpenUrl}/finish", content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted, await response.Content.ReadAsStringAsync());
+        (await StatusWhenDoneAsync(admin)).GetProperty("summary").GetProperty("partial").GetBoolean().ShouldBeFalse();
     }
 
     [Fact]

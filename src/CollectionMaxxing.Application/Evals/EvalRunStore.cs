@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 namespace CollectionMaxxing.Application.Evals;
 
 /// <summary>
-/// Where the PC's one eval run lives until it is finished: on disk under the results folder, so a redeploy loses nothing. The folder is also the
+/// Where the PC's one run lives until it is finished: on disk under the results folder, so a redeploy loses nothing. The folder is also the
 /// queue of the background work: a photo that is stored and has no grounded file yet is waiting to be grounded. Photo ids are checked
 /// (<see cref="EvalIds"/>) before they get here. Every method may throw <see cref="IOException"/> or <see cref="UnauthorizedAccessException"/>
 /// when the folder cannot be written; a file is written whole to a temp name and moved into place, so nothing is left half written.

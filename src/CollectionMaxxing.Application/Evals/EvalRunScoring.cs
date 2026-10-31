@@ -27,7 +27,7 @@ public sealed record EvalRunToScore(
     IReadOnlyList<GroundedPhoto> Photos);
 
 /// <summary>
-/// The two halves of an eval run that every way of making one shares: grounding what the phone read in one photo through the code <c>/identify</c> uses,
+/// The two halves of a run that every way of making one shares: grounding what the phone read in one photo through the code <c>/identify</c> uses,
 /// and scoring grounded photos against the truth files with the live scoring options, writing the result files, the report and the draft truth files.
 /// The one-shot route (<see cref="SubmitEvalRun"/>) does both inside its request; the resumable run grounds each photo in the background as it arrives and scores
 /// once when the phone finishes. Both write the same files.

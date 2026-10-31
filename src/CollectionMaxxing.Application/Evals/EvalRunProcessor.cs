@@ -56,7 +56,7 @@ public sealed class EvalRunProgress
 }
 
 /// <summary>
-/// The background half of the resumable eval run, one step at a time: ground a photo the PC holds and has not grounded yet (the run folder is the queue),
+/// The background half of the resumable run, one step at a time: ground a photo the PC holds and has not grounded yet (the run folder is the queue),
 /// or, once the phone has finished the run and every stored photo is grounded, score it once. Safe to stop at any point and to start again after a
 /// restart: whatever is not in a grounded file is simply grounded again. A photo whose grounding fails is tried again after a wait, and given up on
 /// (listed as <c>grounding_failed</c>) after the last try, so one bad photo never holds the run up.

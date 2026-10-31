@@ -333,9 +333,9 @@ public static class EvalsEndpoints
             return Refused(logger, EvalErrors.NotFound);
         }
 
-        // The body is optional: left out, the run is finished as a whole.
+        // The body is optional: left out (no length and no content type, or a length of 0), the run is finished as a whole.
         var partial = false;
-        if (http.Request.ContentLength != 0)
+        if (http.Request.ContentLength is > 0 || !string.IsNullOrEmpty(http.Request.ContentType))
         {
             var (parsed, refusal) = await ReadJsonBodyAsync<EvalFinishRequest>(http, json, logger, BodyKind.Request, cancellationToken);
             if (refusal is not null)
