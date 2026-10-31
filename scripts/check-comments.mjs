@@ -46,7 +46,7 @@ export function commentLines(source) {
     const n = source[i + 1];
     if (c === '\n') {
       if (state === 'line' || state === 'block') flush();
-      if (state === 'line') state = 'code';
+      if (state === 'line' || state === 'string' || state === 'char') state = 'code'; // only verbatim and raw strings span lines
       line++;
       continue;
     }
@@ -55,9 +55,10 @@ export function commentLines(source) {
         if (c === '/' && n === '/') { state = 'line'; i++; }
         else if (c === '/' && n === '*') { state = 'block'; i++; }
         else if (c === '"') {
-          const run = /^"+/.exec(source.slice(i))[0].length;
+          let run = 1;
+          while (source[i + run] === '"') run++;
           if (run >= 3) { state = 'raw'; rawQuotes = run; i += run - 1; }
-          else if (/[@]/.test(source[i - 1] ?? '') || (source[i - 1] === '$' && source[i - 2] === '@')) state = 'verbatim';
+          else if (source[i - 1] === '@' || (source[i - 1] === '$' && source[i - 2] === '@')) state = 'verbatim';
           else state = 'string';
         }
         else if (c === "'") state = 'char';
@@ -90,6 +91,31 @@ export function commentLines(source) {
   return out;
 }
 
+// A few lines the scanner and the rules must read the way this file promises, checked on every run so that a change to
+// either cannot quietly stop the gate from seeing what it should.
+function selfCheck() {
+  const sample = [
+    'var url = "http://host/#1234"; // fine',
+    'var path = @"C:\\dir // SCAN-1e";',
+    'var quote = \'"\'; // SCAN-1e',
+    'var raw = """',
+    '  // EVAL-1a in a raw string',
+    '  """;',
+    '/* the brief',
+    '   says so */ var x = 1;',
+    '/// <summary>Fixed in #4567.</summary>',
+  ].join('\n');
+  const got = commentLines(sample).map((c) => `${c.line}:${c.text}`);
+  const want = ['1:fine', '3:SCAN-1e', '7:the brief', '8:says so', '9:/ <summary>Fixed in #4567.</summary>'];
+  const flagged = commentLines(sample).filter((c) => findings(c.text).length > 0).length;
+  if (JSON.stringify(got) !== JSON.stringify(want) || flagged !== 3) {
+    console.log('comments: self-check failed; the scanner no longer reads comments as expected');
+    console.log(`     got  ${JSON.stringify(got)}`);
+    console.log(`     want ${JSON.stringify(want)}`);
+    process.exit(2);
+  }
+}
+
 // scripts/comment-history-enforced.txt: `path` lines are enforced prefixes, `!path` lines carve a file or folder out.
 function loadEnforced() {
   const enforced = [];
@@ -117,6 +143,7 @@ function* csFiles(dir) {
 }
 
 function main(args) {
+  selfCheck();
   const showReport = args.includes('--report');
   const all = args.includes('--all');
   const config = loadEnforced();

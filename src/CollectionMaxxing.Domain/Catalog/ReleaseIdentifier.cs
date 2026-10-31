@@ -22,7 +22,7 @@ public sealed class ReleaseIdentifier
 
     /// <summary>
     /// The scan session whose commit taught the catalogue this link (the learning loop), or null for links from providers, imports and
-    /// the person. Undoing that commit deletes exactly the links it taught.
+    /// the person. Undoing that commit (SCAN-1e) deletes exactly the links it taught.
     /// </summary>
     public Guid? LearnedBySessionId { get; init; }
 }

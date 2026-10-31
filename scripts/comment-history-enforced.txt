@@ -1,1 +1,32 @@
-# Paths (relative to the repo root) whose comments the gate enforces. See scripts/check-comments.mjs.
+# The comment-history ratchet: which paths under src/ the gate holds to the rule (scripts/check-comments.mjs).
+#
+# A comment should say what the code does and why, in terms of the code and the product. It should not say where the
+# idea came from: no eval run numbers, no "the brief" or "the owner said" or "lead decision", no bare PR or issue
+# numbers (#123), no task ids (SCAN-1e, EVAL-1a, ...). The commit message and the PR carry that story.
+#
+# How it works
+#   A line below is a path prefix, relative to the repo root, whose comments the gate enforces: a hit there fails the
+#   `format` phase of scripts/check.sh and scripts/check.ps1 (and so CI). Hits in every other path under src/ are only
+#   counted and reported, so the cleanup can land folder by folder. A line starting with `!` carves a file or folder
+#   out of an enforced prefix; it is for a file that is still unclean or that another open PR is editing.
+#
+# How to widen it (a cleanup PR for one more folder)
+#   1. Run `node scripts/check-comments.mjs --report` and fix every hit in the folder: reword the comment so it says
+#      what the code does and why, or delete it when the code already says so. Change only comments.
+#   2. Add the folder as a new line here.
+#   3. Run `node scripts/check-comments.mjs`; it must print `comments: ok`.
+#   To finish a `!` carve-out, clean that file, delete its `!` line and run the check again.
+#   When every folder under src/ is listed, replace the lines below with `src/` and drop the report-only path.
+#
+# Lines may carry a trailing `# note`. Blank lines are ignored.
+
+src/CollectionMaxxing.Domain/
+src/CollectionMaxxing.Application/Evals/
+src/CollectionMaxxing.Application/Recognition/
+src/CollectionMaxxing.Api/Evals/
+src/CollectionMaxxing.Infrastructure/Evals/
+src/CollectionMaxxing.Infrastructure/GameSerials/
+
+# Carved out while another open PR edits the file; clean it, then delete its line.
+!src/CollectionMaxxing.Domain/Catalog/ReleaseIdentifier.cs
+!src/CollectionMaxxing.Application/Evals/SubmitEvalRun.cs
