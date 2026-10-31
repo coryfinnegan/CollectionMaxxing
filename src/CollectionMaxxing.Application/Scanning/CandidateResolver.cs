@@ -125,6 +125,7 @@ public sealed class CandidateResolver(
         candidate.AlreadyOwnedCount = 0;
         candidate.GuidanceCode = Reguide(candidate, resolution);
         var undecided = candidate.Decision == CandidateDecision.Undecided; // a decision the person already made is theirs; the job never overwrites it
+        var unconfirmed = StoredRead.IsUnconfirmed(candidate.InferredJson); // only the picture model saw it: a title nobody else read waits for the person
         var ownedAt = new List<string>();
         CandidateDecision? autoDecision = null;
         var firstOwned = 0;
@@ -179,8 +180,9 @@ public sealed class CandidateResolver(
                     ownedAt = OwnedAt(owned);
                     firstOwned = owned.Count;
 
-                    // An exactly owned release is skipped unless the session opted into copies; anything else is added.
-                    if (undecided)
+                    // An exactly owned release is skipped unless the session opted into copies; anything else is added. An unconfirmed
+                    // read is not added by default: it stays undecided, the person ticks it in Review (or Adds it on its card) to opt in.
+                    if (undecided && ((owned.Count > 0 && !copiesMode) || !unconfirmed))
                     {
                         autoDecision = owned.Count > 0 && !copiesMode ? CandidateDecision.Rejected : CandidateDecision.Accepted;
                         candidate.Decision = autoDecision.Value;
@@ -199,8 +201,7 @@ public sealed class CandidateResolver(
         }
 
         candidate.Tier = EvaluateTier(
-            verdict, resolution, taken, facts, firstOwned, fromIdentifier, copiesMode, candidate.ShotKind,
-            StoredRead.IsUnconfirmed(candidate.InferredJson));
+            verdict, resolution, taken, facts, firstOwned, fromIdentifier, copiesMode, candidate.ShotKind, unconfirmed);
 
         if (resolution.ProductTitle is { } productTitle && candidate.VisibleText is null)
         {

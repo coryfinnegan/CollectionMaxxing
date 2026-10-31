@@ -77,7 +77,12 @@ public static class EvalCombination
 
         // Both engines have to have answered for their items to be combined; if either did not, the items are the model's own.
         var both = apple.Outcome == Ok && vision.Outcome == Ok;
-        var modelAdded = both ? apple.Items.Where(model => !vision.Items.Any(visionItem => SameItem(model, visionItem))).ToList() : [];
+
+        // What the model adds beside Vision's items is unconfirmed, as in the scanner: nothing else saw it, so it is review (T2), never an
+        // auto-add, whatever tier the phone claimed. Vision's items, and every other row (a single, one engine failing), are not marked.
+        var modelAdded = both
+            ? apple.Items.Where(model => !vision.Items.Any(visionItem => SameItem(model, visionItem))).Select(model => model with { Unconfirmed = true }).ToList()
+            : [];
         var visionOnly = both && vision.Items.Any(visionItem => !apple.Items.Any(model => SameItem(model, visionItem)));
         return apple with
         {

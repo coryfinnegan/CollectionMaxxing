@@ -115,12 +115,13 @@ public sealed class CombinedEngineTests : IDisposable
 
         var both = scored.ShelfOf(Combined);
         both.ProvisionalItems.ShouldBe(1);
-        both.AutoAdds.ShouldBe(1);
-        both.CorrectAutoAdds.ShouldBe(1);
-        both.T1Auto.ShouldBe(1);
+        both.AutoAdds.ShouldBe(0, "the model's book is one Vision did not see, so it is unconfirmed: review, not an auto-add");
+        both.CorrectAutoAdds.ShouldBe(0);
+        both.T1Auto.ShouldBe(0);
+        both.T2Review.ShouldBe(1);
         both.ResolvedBy["vision_text"].ShouldBe(1);
         both.ResolvedBy["model"].ShouldBe(1);
-        both.ReviewRatePct.ShouldBe(50); // the Vision book still needs a person's touch
+        both.ReviewRatePct.ShouldBe(100); // the Vision book and the model-only book both need a person's touch
     }
 
     [Fact]
@@ -637,6 +638,90 @@ public sealed class CombinedEngineTests : IDisposable
         var scored = Score(ArrangeShelf("Star Fox 64", "Star Fox 64"), model, vision);
 
         scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+    }
+
+    // ---- an item only the model read is unconfirmed: review, never an auto-add -------------------------------------------------
+
+    [Fact]
+    public void A_model_only_matched_item_is_not_an_auto_add_in_the_combined_row_though_it_is_in_the_models_own()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64", "Mario Kart 64"),
+            ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("Mario Kart 64")).At(0.60)),
+            VisionRead(GuessedByVision("Star Fox 64").At(0.10)));
+
+        var model = scored.ShelfOf(Apple);
+        model.AutoAdds.ShouldBe(2);
+        model.T1Auto.ShouldBe(2);
+        var both = scored.ShelfOf(Combined);
+        both.PredictedItems.ShouldBe(2);
+        both.CorrectItems.ShouldBe(2);
+        both.AutoAdds.ShouldBe(0, "Vision's item is a kept guess and the model's is unconfirmed");
+        both.T1Auto.ShouldBe(0);
+        both.T2Review.ShouldBe(1);
+        both.AutoAddPrecisionPct.ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_wrong_model_only_title_that_matched_cannot_lower_the_combined_auto_add_precision()
+    {
+        var scored = Score(
+            ArrangeShelf("Star Fox 64", "Mario Kart 64"),
+            ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("Banjo-Kazooie")).At(0.60)),
+            VisionRead(GuessedByVision("Star Fox 64").At(0.10)));
+
+        var both = scored.ShelfOf(Combined);
+        both.AutoAdds.ShouldBe(0);
+        both.AutoAddPrecisionPct.ShouldBeNull();
+        scored.ShelfOf(Apple).AutoAddPrecisionPct.ShouldBe(50);
+    }
+
+    [Fact]
+    public void Only_the_items_the_model_added_beside_Visions_are_marked_unconfirmed()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.11), T1(Matched("Mario Kart 64")).At(0.60)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.10)),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64")).Single();
+
+        built.Items.Select(i => (i.Best!.Title, i.Unconfirmed)).ShouldBe([("Star Fox 64", false), ("Mario Kart 64", true)]);
+    }
+
+    [Fact]
+    public void Every_model_item_is_unconfirmed_when_Vision_answered_with_nothing()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("Mario Kart 64")).At(0.60)), VisionRead()],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64")).Single();
+
+        built.Items.ShouldAllBe(i => i.Unconfirmed);
+    }
+
+    [Fact]
+    public void Nothing_is_marked_in_a_row_that_is_not_the_normal_combination()
+    {
+        var truths = ArrangeShelf("Star Fox 64", "Mario Kart 64");
+        var visionFailed = EvalCombination.Of([ModelRead(T1(Matched("Star Fox 64")).At(0.10)), Photo("s1", Vision, [], outcome: "error")], truths).Single();
+        var modelFailed = EvalCombination.Of([Photo("s1", Apple, [], outcome: "timeout"), VisionRead(GuessedByVision("Mario Kart 64").At(0.60))], truths).Single();
+
+        visionFailed.Items.ShouldNotBeEmpty();
+        visionFailed.Items.ShouldAllBe(i => !i.Unconfirmed);
+        modelFailed.Items.ShouldNotBeEmpty();
+        modelFailed.Items.ShouldAllBe(i => !i.Unconfirmed);
+    }
+
+    [Fact]
+    public void A_single_picture_row_is_the_models_own_reading_and_nothing_in_it_is_unconfirmed()
+    {
+        _golden.AddSingle("c1", new SyntheticGolden.SingleItem("Star Fox 64", "game_cartridge", "cart_only", EvalKinds.LooseCartridge, "Nintendo 64"));
+        var built = EvalCombination.Of(
+            [Photo("c1", Apple, [T1(Matched("Star Fox 64"))]), Photo("c1", Vision, [GuessedByVision("Zorblax Quest")])], TruthsOf(_golden)).Single();
+
+        built.Items.ShouldAllBe(i => !i.Unconfirmed);
+        EvalScorer.Score([Photo("c1", Apple, [T1(Matched("Star Fox 64"))]), Photo("c1", Vision, [GuessedByVision("Zorblax Quest")])], TruthsOf(_golden))
+            .SoloOf(Combined).AutoAdds.ShouldBe(1);
     }
 
     private static string EnumTextOf(ScanTier tier) => CollectionMaxxing.Domain.Common.EnumText.ToText(tier);

@@ -8,7 +8,8 @@ namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
 // On a shelf shot the picture model adds the items Vision found nothing at, and it sometimes invents a title that happens to exist
 // ("food for comfort" read for "Modern Comfort Food"). The phone marks such a read unconfirmed. The catalogue can still match it
 // exactly, but a read nothing else saw is never committed by itself: it is a T2 row, reviewed by the person. Only the commit tier
-// moves; the candidates, their order and the verdict are what the same read would have got without the mark.
+// moves, and the default decision: a title nobody else saw is not added by default, the person opts in. The candidates, their order
+// and the verdict are what the same read would have got without the mark.
 public class UnconfirmedReadTests(ApiFixture api) : IdentifyTest(api)
 {
     private static object OptIn() => new { autoCommitTiers = new[] { "T0", "T1" } };
@@ -51,6 +52,7 @@ public class UnconfirmedReadTests(ApiFixture api) : IdentifyTest(api)
 
         Resolution(candidate).ShouldBe("matched");
         Tier(candidate).ShouldBe("T2");
+        Decision(candidate).ShouldBe("undecided", "an unconfirmed read is not pre-accepted; the person opts in");
         CreatedItemId(candidate).ShouldBeNull();
         (await ScanReaders.ItemsAsync(Db, library.Id)).ShouldBeEmpty();
         var session = await GetSessionAsync(editor, sessionId);
@@ -59,7 +61,7 @@ public class UnconfirmedReadTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
-    public async Task An_unconfirmed_read_gets_the_same_candidates_verdict_and_default_as_the_same_read_without_the_mark()
+    public async Task An_unconfirmed_read_gets_the_same_candidates_and_verdict_as_the_same_read_without_the_mark()
     {
         var library = await CreateLibraryAsync();
         await CatalogAsync("Star Fox 64", ScanData.Upc(91102));
@@ -72,10 +74,59 @@ public class UnconfirmedReadTests(ApiFixture api) : IdentifyTest(api)
         Tier(confirmed).ShouldBe("T1");
         Tier(unconfirmed).ShouldBe("T2");
         Resolution(unconfirmed).ShouldBe(Resolution(confirmed));
-        Decision(unconfirmed).ShouldBe(Decision(confirmed));
+        Decision(confirmed).ShouldBe("accepted");
+        Decision(unconfirmed).ShouldBe("undecided", "the default decision is the only other thing the mark moves");
         unconfirmed.GetProperty("score").GetDouble().ShouldBe(confirmed.GetProperty("score").GetDouble());
         unconfirmed.GetProperty("release").GetProperty("id").GetGuid().ShouldBe(confirmed.GetProperty("release").GetProperty("id").GetGuid());
         unconfirmed.GetProperty("alternatives").GetRawText().ShouldBe(confirmed.GetProperty("alternatives").GetRawText());
+    }
+
+    [Fact]
+    public async Task An_unconfirmed_read_the_person_never_accepted_is_not_added_at_commit()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogAsync("Star Fox 64", ScanData.Upc(91107));
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
+        await IdentifyShelfAsync(editor, sessionId, StarFox(unconfirmed: true));
+
+        var commit = await CommitAsync(editor, sessionId);
+
+        commit.StatusCode.ShouldBe(HttpStatusCode.OK, await commit.Content.ReadAsStringAsync());
+        (await ScanReaders.ItemsAsync(Db, library.Id)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_unconfirmed_read_the_person_accepts_is_added_at_commit()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogAsync("Star Fox 64", ScanData.Upc(91109));
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
+        var candidate = (await IdentifyShelfAsync(editor, sessionId, StarFox(unconfirmed: true)))[0];
+
+        var decided = await DecideAsync(editor, sessionId, Id(candidate), new { decision = "accepted" });
+        decided.StatusCode.ShouldBe(HttpStatusCode.OK, await decided.Content.ReadAsStringAsync());
+        var commit = await CommitAsync(editor, sessionId);
+
+        commit.StatusCode.ShouldBe(HttpStatusCode.OK, await commit.Content.ReadAsStringAsync());
+        (await ScanReaders.ItemsAsync(Db, library.Id)).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task An_unconfirmed_read_of_a_release_the_library_owns_is_skipped_as_any_owned_hit_is()
+    {
+        var library = await CreateLibraryAsync();
+        await OwnAsync(library, "Star Fox 64", ScanData.Upc(91108));
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, OptIn());
+
+        var candidate = (await IdentifyShelfAsync(editor, sessionId, StarFox(unconfirmed: true)))[0];
+
+        Tier(candidate).ShouldBe("T2");
+        Decision(candidate).ShouldBe("rejected");
+        candidate.GetProperty("alreadyOwnedCount").GetInt32().ShouldBe(1);
+        (await ScanReaders.ItemsAsync(Db, library.Id)).Count.ShouldBe(1);
     }
 
     [Fact]
@@ -141,6 +192,7 @@ public class UnconfirmedReadTests(ApiFixture api) : IdentifyTest(api)
         var resolved = (await GetSessionAsync(editor, sessionId)).GetProperty("candidates")[0];
         Resolution(resolved).ShouldBe("matched");
         Tier(resolved).ShouldBe("T2");
+        Decision(resolved).ShouldBe("undecided");
         CreatedItemId(resolved).ShouldBeNull();
         (await ScanReaders.ItemsAsync(Db, library.Id)).ShouldBeEmpty();
     }
