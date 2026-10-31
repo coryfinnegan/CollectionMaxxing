@@ -14,6 +14,7 @@ export function MeScreen() {
   const stats = useGetStats(libraryId ?? '', { query: { enabled: !!libraryId } });
   const members = useListMembers(libraryId ?? '', { query: { enabled: !!libraryId } });
   const total = stats.data?.status === 200 ? stats.data.data.total : null;
+  const sold = stats.data?.status === 200 ? stats.data.data.soldCount : null;
   const memberCount = members.data?.status === 200 ? members.data.data.items.length : null;
   const counts = [total === null ? null : plural(total, 'item', 'items'), memberCount === null ? null : plural(memberCount, 'member', 'members')]
     .filter(Boolean)
@@ -24,6 +25,8 @@ export function MeScreen() {
     { title: 'Export my data', href: '/me/export' },
     { title: 'Devices and browsers', href: '/me/devices' },
     ...(isWeb() ? [{ title: 'Sign-in methods', href: '/me/sign-in-methods' as Href }] : []),
+    // What you sold or gave away lives here, out of the library and its counts, beside what you deleted.
+    { title: 'Sold', subtitle: sold === null ? undefined : plural(sold, 'item', 'items'), href: '/sold' as Href },
     ...(role === 'owner' || role === 'editor' ? [{ title: 'Recently deleted', href: '/me/deleted' as Href }] : []),
     { title: 'Settings', subtitle: isWeb() ? undefined : 'Recognition, appearance and security', href: '/settings' },
     // Owners invite people and set roles; everyone else sees who is here. Nothing waits for a role, so no subtitle until it arrives.

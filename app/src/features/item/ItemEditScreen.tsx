@@ -10,14 +10,7 @@ import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import { useGoBackOr } from '@/lib/navigation';
 import { AcquiredField } from './AcquiredField';
-import {
-  completenesses,
-  completenessLabels,
-  conditionLabels,
-  conditions,
-  statuses,
-  statusLabels,
-} from '@/features/library/labels';
+import { completenesses, completenessLabels, conditionLabels, conditions } from '@/features/library/labels';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
 import { LibraryLoading } from '@/features/onboarding/LibraryLoading';
@@ -26,9 +19,11 @@ import { spacing } from '@/theme/tokens';
 import { Button, Card, Chip, EmptyState, ListRow, LoadingState, Screen, Sheet, Text, TextField } from '@/ui';
 import { breadcrumb } from './breadcrumb';
 import { buildPatch, formFromItem, isEmptyPatch, isValidDate, lentToMissing, type ItemForm } from './etag';
+import { StatusChips } from './StatusChips';
 import { useItemDetail, useItemMutations } from './useItem';
 
-export function ItemEditScreen({ id }: { id: string }) {
+/** `startAs` opens the form with that status already chosen: Lend… on the item screen opens it as Lent out, ready for a name. */
+export function ItemEditScreen({ id, startAs }: { id: string; startAs?: ItemStatus }) {
   const { libraryId, isLoading } = useActiveLibraryId();
   if (isLoading || !libraryId) {
     return (
@@ -37,10 +32,10 @@ export function ItemEditScreen({ id }: { id: string }) {
       </Screen>
     );
   }
-  return <EditLoader libraryId={libraryId} id={id} />;
+  return <EditLoader libraryId={libraryId} id={id} startAs={startAs} />;
 }
 
-function EditLoader({ libraryId, id }: { libraryId: string; id: string }) {
+function EditLoader({ libraryId, id, startAs }: { libraryId: string; id: string; startAs?: ItemStatus }) {
   const { detail, etag, isLoading, error, refetch } = useItemDetail(libraryId, id);
   if (isLoading) {
     return (
@@ -62,12 +57,13 @@ function EditLoader({ libraryId, id }: { libraryId: string; id: string }) {
       </Screen>
     );
   }
-  return <EditForm libraryId={libraryId} id={id} detail={detail} etag={etag} refetch={refetch} />;
+  return <EditForm libraryId={libraryId} id={id} detail={detail} etag={etag} refetch={refetch} startAs={startAs} />;
 }
 
 type FormProps = {
   libraryId: string;
   id: string;
+  startAs?: ItemStatus;
   detail: NonNullable<ReturnType<typeof useItemDetail>['detail']>;
   etag: string;
   refetch: ReturnType<typeof useItemDetail>['refetch'];
@@ -76,14 +72,14 @@ type FormProps = {
 /** The version of the item the form opened with: what edits are measured against, and the ETag a save carries. */
 type Snapshot = { item: ItemDto; etag: string };
 
-function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
+function EditForm({ libraryId, id, detail, etag, refetch, startAs }: FormProps) {
   // Taken once, when the form opens. The live `detail` and `etag` move whenever the item is refetched; this does not,
   // except when the person taps Reload on the "someone changed this" card.
   const [snapshot, setSnapshot] = useState<Snapshot>(() => ({ item: detail.item, etag }));
   const leave = useGoBackOr(`/item/${id}`);
   const { locations } = useLocationsList(libraryId);
   const { update } = useItemMutations(libraryId);
-  const [form, setForm] = useState<ItemForm>(() => formFromItem(snapshot.item));
+  const [form, setForm] = useState<ItemForm>(() => ({ ...formFromItem(snapshot.item), ...(startAs ? { status: startAs } : {}) }));
   const [picking, setPicking] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -151,9 +147,7 @@ function EditForm({ libraryId, id, detail, etag, refetch }: FormProps) {
       ) : null}
 
       <Group label="Status">
-        {statuses.map((s: ItemStatus) => (
-          <Chip key={s} label={statusLabels[s]} accessibilityLabel={`Status ${statusLabels[s]}`} selected={form.status === s} onPress={() => set('status', s)} />
-        ))}
+        <StatusChips value={form.status} onChange={(s) => set('status', s)} />
       </Group>
 
       {form.status === 'lent' ? (

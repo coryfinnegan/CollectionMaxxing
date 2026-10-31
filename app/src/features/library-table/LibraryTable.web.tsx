@@ -15,6 +15,7 @@ import { useInvalidateLibrary } from '@/features/item/useItem';
 import { AddItemPanel } from '@/features/library/AddItemPanel';
 import { formatLabels, formats, kindLabels, kinds, statusLabels, statuses } from '@/features/library/labels';
 import { changeFilter, defaultState, hasActiveFilter, type ListState } from '@/features/library/query';
+import { emptyCopy, viewOf } from '@/features/library/views';
 import { useDebounced, useItems } from '@/features/library/useItems';
 import { flattenTree } from '@/features/locations/tree';
 import { useActiveLibraryId, useLocationsList } from '@/features/locations/useLocations';
@@ -217,6 +218,8 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
       }}
       animation="no-results"
     />
+  ) : fixedStatus ? (
+    <EmptyState title={emptyCopy[viewOf(fixedStatus)].title} body={emptyCopy[viewOf(fixedStatus)].body} animation="empty-library" />
   ) : (
     <EmptyState
       title="Nothing here yet."

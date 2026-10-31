@@ -29,6 +29,7 @@ const routes: [url: string, expected: string][] = [
   ['/me/delete', "Delete your library and photos. This can't be undone."],
   ['/wishlist', 'Blade Runner'],
   ['/lent-out', 'GoldenEye 007'],
+  ['/sold', 'Tetris'],
   ['/members', 'Cory (you)'],
   ['/settings', 'Recognition, appearance and security on this iPhone.'],
   ['/about', 'Version, privacy and credits.'],

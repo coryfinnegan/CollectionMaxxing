@@ -33,6 +33,7 @@ export default function PagesLayout() {
       >
         <Stack.Screen name="wishlist" options={{ title: 'Wishlist' }} />
         <Stack.Screen name="lent-out" options={{ title: 'Lent out' }} />
+        <Stack.Screen name="sold" options={{ title: 'Sold' }} />
         <Stack.Screen name="members" options={{ title: 'Members' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         <Stack.Screen name="about" options={{ title: 'About' }} />

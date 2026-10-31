@@ -266,7 +266,9 @@ describe('LibraryTable', () => {
     expect(patches()[0].headers.get('if-match')).toBe('"v1"');
     // Not lent out, so any stale borrower is cleared along with the status.
     expect(patches()[0].body).toEqual({ status: 'wishlist', lentTo: null, lentOn: null });
-    await waitFor(() => expect(screen.getByLabelText('Change status of The Matrix, now Wishlist')).toBeTruthy());
+    // A wishlisted item is not in the library, so the row leaves it.
+    await waitFor(() => expect(screen.queryByLabelText('Change status of The Matrix, now Owned')).toBeNull());
+    expect(screen.queryByLabelText('Change status of The Matrix, now Wishlist')).toBeNull();
   });
 
   it('clears who it was lent to when an item leaves Lent out', async () => {
