@@ -59,6 +59,8 @@ $script:CmAgentPauseMaxMinutes = 480
 # command that outlives the tool time limit from being moved to the background on its own. Monitor and ScheduleWakeup still
 # background, so they are denied by name. The variable goes to the claude child alone, never to the machine or the user.
 $script:CmAgentBackgroundTools = 'Monitor,ScheduleWakeup'
+# The scheduled task the installer registers (Install-AgentWatcher.ps1); the runner wakes it when a run ends.
+$script:CmAgentTaskName = 'CollectionMaxxingAgent'
 
 function New-CmAgentResult {
     <# Exit codes: 0 fine or nothing to do, 1 a run could not be started, 2 config refused, 3 GitHub not reachable. #>
@@ -989,7 +991,7 @@ function Invoke-CmAgentRunner {
       With a -TokenFile that holds a token, the claude child gets it as CLAUDE_CODE_OAUTH_TOKEN, in its environment and
       nowhere else (not on a command line, not in the log, not in the exit file); without one claude uses the CLI's own sign-in.
     #>
-    param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile, [string]$ExitFile, [string]$WorkDir, [int]$MaxMinutes, [int]$Issue, [string]$TokenFile = '')
+    param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile, [string]$ExitFile, [string]$WorkDir, [int]$MaxMinutes, [int]$Issue, [string]$TokenFile = '', [string]$WatcherTask = $script:CmAgentTaskName)
     $token = Read-CmAgentToken -Path $TokenFile
     Initialize-Cm -Apply $true -Secrets @($token)
     $dir = Split-Path -Parent $LogFile
@@ -1014,5 +1016,30 @@ function Invoke-CmAgentRunner {
         Add-Content -LiteralPath $LogFile -Encoding utf8 -Value "=== stopped after the $MaxMinutes minute limit ==="
     }
     Write-CmState -Path $ExitFile -State @{ exitCode = $code; timedOut = (-not $finished); endedUnix = (Get-CmAgentNow).ToUnixTimeSeconds() }
+    Start-CmAgentWatcher -TaskName $WatcherTask -LogFile $LogFile
     if ($null -ne $code) { $code } else { 124 }
+}
+
+function Start-CmAgentWatcher {
+    <#
+      Wakes the watcher task as the last thing a run does, so the next queued issue does not wait for the 5-minute poll. This
+      is an ordinary pass and nothing more: the watcher's own lock turns away a second pass that overlaps it, the exit file is
+      already written for it to read, and the daily cap, the pause after a run that failed at once and the kill switch are all
+      decided inside the pass. A run that is somehow still alive makes the pass exit at once, and then the poll picks up as before.
+      Only a task named like the installer's (CollectionMaxxingAgent, optionally with a suffix) is ever started; an empty name
+      switches this off. Whatever happens here is noted in the run's log and never changes how the run ended.
+    #>
+    param([string]$TaskName, [string]$LogFile)
+    if (-not $TaskName) { return }
+    $note = {
+        param($text)
+        try { Add-Content -LiteralPath $LogFile -Encoding utf8 -Value "=== $text ===" } catch { }
+    }
+    if ($TaskName -notmatch '^CollectionMaxxingAgent') { & $note "not starting the watcher task ${TaskName}: only a task named CollectionMaxxingAgent is ever started"; return }
+    try {
+        $r = Invoke-Cm -Command 'schtasks' -Arguments @('/Run', '/TN', $TaskName) -Mutating -TimeoutSeconds 30
+        if ($r.ExitCode -eq 0) { & $note "started the watcher task $TaskName" }
+        else { & $note "could not start the watcher task $TaskName (exit $($r.ExitCode)); the next 5-minute pass picks up the next issue" }
+    }
+    catch { & $note "could not start the watcher task $TaskName ($($_.Exception.Message)); the next 5-minute pass picks up the next issue" }
 }

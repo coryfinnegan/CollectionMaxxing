@@ -31,6 +31,7 @@ function New-AgentMachine {
         AlertIssues     the alert issues on GitHub (a list that outlives one machine, so a second pass sees the first one's)
         CreateExit, CloseExit    exit codes of `gh issue create` and `gh issue close`
         TaskExists      `schtasks /Query` finds the task
+        TaskRunExit     exit code of `schtasks /Run` (the runner waking the watcher)
         Procs           process id -> @{ Id; Name; StartTime } the process table lists
     #>
     param([hashtable]$Opt = @{})
@@ -135,7 +136,11 @@ function New-AgentMachine {
                 }
             }
             'taskkill' { [void]$m.Procs.Remove([int]$Arguments[1]); return & $ok }
-            'schtasks' { if ($Arguments[0] -eq '/Query') { return & $exit $(if ($m.TaskExists) { 0 } else { 1 }) } return & $ok }
+            'schtasks' {
+                if ($Arguments[0] -eq '/Query') { return & $exit $(if ($m.TaskExists) { 0 } else { 1 }) }
+                if ($Arguments[0] -eq '/Run' -and $m.TaskRunExit) { return & $exit $m.TaskRunExit }
+                return & $ok
+            }
             default { return & $ok }
         }
     }
@@ -1008,13 +1013,23 @@ function Get-AgentPickedUp {
 
 function Invoke-AgentRunnerTest {
     <# Runs the runner once against a throwaway root with a fake child. Returns what the child was started with and what was written down. #>
-    param([string]$Token = '', [int]$ExitCode = 0, [switch]$PointAtMissingFile)
-    New-AgentMachine @{} | Out-Null
+    param([string]$Token = '', [int]$ExitCode = 0, [switch]$PointAtMissingFile, [string]$WatcherTask, [int]$TaskRunExit = 0)
+    New-AgentMachine @{ TaskRunExit = $TaskRunExit } | Out-Null
     $root = New-TestRoot
     try {
         $dir = Join-Path $root 'logs/agent'
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
         $log = Join-Path $dir 'issue-7-x.log'; $exitFile = Join-Path $dir 'issue-7-x.exit.json'
+        # Whether the exit file was already written when the watcher task was started: the watcher it wakes reads that file.
+        $global:CmExitFileAtTaskRun = $null
+        $global:CmWatchedExitFile = $exitFile
+        $inner = $global:CmRunner
+        $global:CmInnerRunner = $inner
+        $global:CmRunner = {
+            param($Command, $Arguments, $Env, $Mutating, $InputText, $Timeout)
+            if ($Command -eq 'schtasks' -and $Arguments[0] -eq '/Run') { $global:CmExitFileAtTaskRun = Test-Path -LiteralPath $global:CmWatchedExitFile }
+            & $global:CmInnerRunner $Command $Arguments $Env $Mutating $InputText $Timeout
+        }
         $tokenFile = ''
         if ($Token) { $tokenFile = Set-AgentTokenFile -Root $root -Token $Token }
         elseif ($PointAtMissingFile) { $tokenFile = Join-Path $root 'agent-secrets/claude-token' }
@@ -1029,13 +1044,15 @@ function Invoke-AgentRunnerTest {
         }
         $splat = @{ Claude = $script:AgentClaude; Model = 'sonnet'; PromptFile = 'p'; LogFile = $log; ExitFile = $exitFile; WorkDir = $root; MaxMinutes = 5; Issue = 7 }
         if ($tokenFile) { $splat.TokenFile = $tokenFile }
+        if ($PSBoundParameters.ContainsKey('WatcherTask')) { $splat.WatcherTask = $WatcherTask }
         $code = Invoke-CmAgentRunner @splat
         [pscustomobject]@{
             Code = $code; Start = (Get-AgentStarts)[0]; Log = (Get-Content -LiteralPath $log -Raw)
             ExitFile = (Get-Content -LiteralPath $exitFile -Raw); RunnerEnvAfter = [Environment]::GetEnvironmentVariable('CLAUDE_CODE_OAUTH_TOKEN')
+            TaskRuns = @(Get-AgentCall 'schtasks' '^/Run '); ExitFileAtTaskRun = $global:CmExitFileAtTaskRun
         }
     }
-    finally { Remove-TestRoot $root; $global:CmFakeProcess = $null }
+    finally { Remove-TestRoot $root; $global:CmFakeProcess = $null; $global:CmInnerRunner = $null; $global:CmWatchedExitFile = $null }
 }
 
 Test-Case 'token: the runner gives the token to the claude child through its environment, and nowhere else' {
@@ -1071,6 +1088,62 @@ Test-Case 'runner: claude runs with background tasks switched off, in the child'
     Assert-Equal $null ([Environment]::GetEnvironmentVariable('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS')) 'the runner process (and so the machine and the user) never holds the switch'
     Assert-Match $r.Start.Arguments[0] '--disallowedTools "Monitor,ScheduleWakeup"' 'the tools that still background are denied by name'
     Assert-False ($r.Start.Arguments[0].Contains('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS')) 'the switch is not on the command line'
+}
+
+# When a run ends the runner wakes the watcher, so the next queued issue does not wait for the 5-minute poll. The woken
+# pass is an ordinary pass: the watcher's own lock, the daily cap and the back-off all apply to it, and a run that is
+# still alive makes it exit at once, so waking it can neither start a second run nor skip a pause.
+Test-Case 'runner: when the run ends it starts the watcher task, once, after the exit file is written' {
+    $r = Invoke-AgentRunnerTest -ExitCode 3
+    Assert-Equal 3 $r.Code 'the run''s own exit code is still the result'
+    Assert-Equal 1 $r.TaskRuns.Count
+    Assert-Equal '/Run /TN CollectionMaxxingAgent' ($r.TaskRuns[0].Arguments -join ' ')
+    Assert-True $r.ExitFileAtTaskRun 'the watcher it wakes finds the exit file'
+    Assert-Match $r.Log 'started the watcher task CollectionMaxxingAgent'
+}
+
+Test-Case 'runner: a watcher task that will not start changes nothing about the run, and is noted in the log' {
+    $r = Invoke-AgentRunnerTest -ExitCode 0 -TaskRunExit 1
+    Assert-Equal 0 $r.Code
+    Assert-Match $r.ExitFile '"exitCode":\s*0'
+    Assert-Equal 1 $r.TaskRuns.Count
+    Assert-Match $r.Log 'could not start the watcher task CollectionMaxxingAgent \(exit 1\); the next 5-minute pass picks up'
+}
+
+Test-Case 'runner: it only ever starts a task named CollectionMaxxingAgent, and an empty name switches it off' {
+    $other = Invoke-AgentRunnerTest -WatcherTask 'SomeOtherTask'
+    Assert-Equal 0 $other.TaskRuns.Count 'not the agent''s task: nothing is run'
+    Assert-Match $other.Log 'not starting the watcher task SomeOtherTask'
+    $off = Invoke-AgentRunnerTest -WatcherTask ''
+    Assert-Equal 0 $off.TaskRuns.Count
+    $suffixed = Invoke-AgentRunnerTest -WatcherTask 'CollectionMaxxingAgent-test'
+    Assert-Equal '/Run /TN CollectionMaxxingAgent-test' ($suffixed.TaskRuns[0].Arguments -join ' ') 'the installer allows a suffix, so does the runner'
+}
+
+Test-Case 'runner: a run stopped at its time limit wakes the watcher too, after the tree is killed' {
+    New-AgentMachine @{} | Out-Null
+    $root = New-TestRoot
+    try {
+        $dir = Join-Path $root 'logs/agent'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $global:CmFakeProcess = New-FakeAgentProcess -Finishes $false
+        $global:CmStartProcess = { param($File, $Arguments, $WorkingDirectory) $global:CmFakeProcess }
+        Invoke-CmAgentRunner -Claude 'claude' -Model 'haiku' -PromptFile 'p' -LogFile (Join-Path $dir 'x.log') -ExitFile (Join-Path $dir 'x.exit.json') -WorkDir $root -MaxMinutes 1 -Issue 7 | Out-Null
+        $order = @($global:CmCalls | Where-Object { $_.Command -in @('taskkill', 'schtasks') } | ForEach-Object { $_.Command })
+        Assert-Equal 'taskkill,schtasks' ($order -join ',')
+    }
+    finally { Remove-TestRoot $root; $global:CmFakeProcess = $null }
+}
+
+Test-Case 'runner: a pass woken by a run that ended still obeys the daily cap and the pause' {
+    $now = $script:AgentNow.ToUnixTimeSeconds()
+    $atCap = Invoke-TestWatch -State @{ day = 20261031; runs = 8 } -LockSpec @{ Issue = 7; ProcessId = 3100; MinutesAgo = 20; ExitCode = 0 } -Machine @{ Issues = @((New-AgentIssue 9)) }
+    Assert-Equal 'cap' $atCap.Result.Outcome 'the run is closed out, and nothing new starts'
+    Assert-Equal 0 (Get-AgentStarts).Count
+    $failed = Invoke-TestWatch -LockSpec (Get-AgentQuickLock) -Machine @{ Issues = @((New-AgentIssue 9)) }
+    Assert-Equal 'paused' $failed.Result.Outcome 'a run that failed at once pauses the queue: the woken pass does not start the next issue'
+    Assert-Equal 0 (Get-AgentStarts).Count
+    Assert-True ($failed.State.pauseUntilUnix -gt $now)
 }
 
 Test-Case 'token: a start prints the names of the child''s variables in a dry run, never their values' {
