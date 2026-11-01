@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog.Providers;
@@ -42,6 +43,16 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
         var library = await CreateLibraryAsync();
         var client = As(library, LibraryRole.Editor);
         return (client, await StartSessionWithoutAutoCommitAsync(client, library.Id));
+    }
+
+    /// <summary>Posts the items with the kind the shelf's own print said, and returns the candidates of the 200 response, in order.</summary>
+    private static async Task<List<JsonElement>> IdentifyPrintedAsync(HttpClient client, Guid sessionId, string printKind, params object[] items)
+    {
+        var body = Body(Guid.NewGuid(), items);
+        body["printKind"] = printKind;
+        var response = await client.PostAsync(IdentifyUrl(sessionId), Json(body));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        return (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().ToList();
     }
 
     [Fact]
@@ -101,6 +112,56 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
         var candidates = await IdentifyOkAsync(client, sessionId, [.. FilmReads(4), Read(title: Title, kind: "book")]);
 
         AlternativeYears(candidates[4])[0].ShouldBe(BookYear, "a lone book among films is still a book");
+    }
+
+    // ---- the shelf's own print ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_kind_the_shelf_printed_lists_that_kind_first_though_no_read_names_one()
+    {
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+
+        var candidates = await IdentifyPrintedAsync(client, sessionId, "film", Read(title: "Lantern Row Part 1"), Read(title: Title));
+
+        Resolution(candidates[1]).ShouldBe("ambiguous");
+        AlternativeYears(candidates[1]).ShouldBe([FilmYear, BookYear]);
+    }
+
+    [Fact]
+    public async Task The_kind_the_shelf_printed_wins_over_the_kinds_the_reads_name()
+    {
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+
+        var candidates = await IdentifyPrintedAsync(client, sessionId, "film", [.. BookReads(4), Read(title: Title)]);
+
+        AlternativeYears(candidates[4]).ShouldBe([FilmYear, BookYear], "the picture model called every tape on one such shelf a book");
+    }
+
+    [Fact]
+    public async Task A_read_the_job_resolves_later_sees_the_kind_the_shelf_printed()
+    {
+        Options.ResolveBudget = TimeSpan.FromMilliseconds(300);
+        ArrangeTiedBookAndFilm();
+        var slow = true;
+        Games.Behaviour = async ct =>
+        {
+            if (slow)
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+        };
+        var (client, sessionId) = await StartAsync();
+        var pending = await IdentifyPrintedAsync(client, sessionId, "film", Read(title: Title));
+        pending.ShouldAllBe(c => Resolution(c) == "pending");
+
+        slow = false;
+        await RunNextJobAsync();
+
+        var resolved = (await GetSessionAsync(client, sessionId)).GetProperty("candidates");
+        Resolution(resolved[0]).ShouldBe("ambiguous");
+        AlternativeYears(resolved[0]).ShouldBe([FilmYear, BookYear]);
     }
 
     [Fact]

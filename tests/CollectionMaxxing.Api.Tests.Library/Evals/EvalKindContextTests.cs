@@ -29,10 +29,12 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
 
     private static string[] Titles(int count, string stem) => [.. Enumerable.Range(1, count).Select(i => $"{stem} {i}")];
 
-    private async Task<JsonElement> RunAsync(params object[] reads)
+    private Task<JsonElement> RunAsync(params object[] reads) => RunAsync(null, reads);
+
+    private async Task<JsonElement> RunAsync(string? printKind, params object[] reads)
     {
         using var admin = AdminClient();
-        await PostRunOkAsync(admin, RunBody(PhotoResult("s1", "apple_model", reads)));
+        await PostRunOkAsync(admin, RunBody(PhotoResult("s1", "apple_model", reads, printKind: printKind)));
         var text = await File.ReadAllTextAsync(Path.Combine(Golden.Results, "latest-run.json"));
         return JsonDocument.Parse(text).RootElement.GetProperty("photos")[0].GetProperty("items").Clone();
     }
@@ -75,5 +77,40 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
         var items = await RunAsync([.. shelf.Select(t => ReadOf(t, "film")), ReadOf(Title, "book")]);
 
         Years(items[4])[0].ShouldBe(BookYear);
+    }
+
+    // ---- the shelf's own print ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_kind_the_shelf_printed_orders_a_photo_whose_reads_name_no_kind_at_all()
+    {
+        var shelf = Titles(4, "Lantern Row Part");
+        ArrangeTiedBookAndFilm(shelf);
+
+        var items = await RunAsync("film", [.. shelf.Select(t => ReadOf(t, null)), ReadOf(Title, null)]);
+
+        Years(items[4]).ShouldBe([FilmYear, BookYear]);
+    }
+
+    [Fact]
+    public async Task The_kind_the_shelf_printed_wins_over_the_kinds_the_reads_name()
+    {
+        var shelf = Titles(4, "Lantern Row Part");
+        ArrangeTiedBookAndFilm(shelf);
+
+        var items = await RunAsync("film", [.. shelf.Select(t => ReadOf(t, "book")), ReadOf(Title, null)]);
+
+        Years(items[4]).ShouldBe([FilmYear, BookYear]);
+    }
+
+    [Fact]
+    public async Task A_photo_with_no_print_and_no_agreement_is_left_in_the_providers_order()
+    {
+        var shelf = Titles(4, "Lantern Row Part");
+        ArrangeTiedBookAndFilm(shelf);
+
+        var items = await RunAsync([.. shelf.Select(t => ReadOf(t, null)), ReadOf(Title, null)]);
+
+        Years(items[4]).ShouldBe([BookYear, FilmYear]);
     }
 }

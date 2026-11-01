@@ -110,7 +110,7 @@ public class EvalGroundingBudgetTests
     /// <summary>Grounds the titles and moves the fake clock along until it is done, failing if it never is.</summary>
     private static async Task<string[]> VerdictsAsync(FakeTimeProvider time, EvalGrounder grounder, params string[] titles)
     {
-        var grounding = grounder.GroundAsync(ScanEngine.VisionPipeline, [.. titles.Select(Read)], new EvalGroundingMemo(), CancellationToken.None);
+        var grounding = grounder.GroundAsync(ScanEngine.VisionPipeline, [.. titles.Select(Read)], new EvalGroundingMemo(), printKind: null, CancellationToken.None);
         for (var step = 0; !grounding.IsCompleted; step++)
         {
             step.ShouldBeLessThan(MostSteps, "the grounding never finished");

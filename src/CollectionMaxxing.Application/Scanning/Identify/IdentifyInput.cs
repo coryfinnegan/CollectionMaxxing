@@ -304,6 +304,13 @@ internal sealed record StoredRead
     /// </summary>
     public bool? Unconfirmed { get; init; }
 
+    /// <summary>
+    /// The kind the snap was of (<see cref="KindContext"/>), on a read that named none of its own. Kept in the read, the same jsonb
+    /// column, because a read the providers ran out of time for is asked again later: the background job must order its releases the
+    /// way the request would have, and the snap's own print is not in any read's kind for the job to find again.
+    /// </summary>
+    public string? SnapKind { get; init; }
+
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -324,6 +331,7 @@ internal sealed record StoredRead
             ReadAs = facts.ReadAs,
             Profile = profile.ToString(),
             Unconfirmed = unconfirmed ? true : null,
+            SnapKind = facts.KindContext is { } snapKind ? EnumText.ToText(snapKind) : null,
         },
         Options);
 
@@ -342,7 +350,8 @@ internal sealed record StoredRead
             stored?.Year,
             stored?.Platform,
             stored?.ProductCode,
-            stored?.ReadAs);
+            stored?.ReadAs,
+            EnumText.ParseOrNull<WorkKind>(stored?.SnapKind));
         var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
         return (facts, profile);
     }

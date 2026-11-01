@@ -48,7 +48,7 @@ public sealed class EvalRunScoring(
     public async Task<GroundedPhoto> GroundAsync(EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
         var items = result.Outcome == EvalOutcome.Ok
-            ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, cancellationToken)
+            ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken)
             : [];
         return new GroundedPhoto(
             result.PhotoId!,

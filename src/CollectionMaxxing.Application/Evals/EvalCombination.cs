@@ -19,6 +19,11 @@ namespace CollectionMaxxing.Application.Evals;
 /// same (its normalised title and year).
 /// </para>
 /// <para>
+/// A Vision read that names no kind takes the kind the model read at the same place, as the scanner lends it before it sends the snap
+/// (<c>filledFrom</c>, combine.ts): without that, the combined row reported a tape as the kindless read it arrived as, while the app
+/// searched it as the film the model called it.
+/// </para>
+/// <para>
 /// When the model fails on a shelf (a timeout, an error or a refusal), the scanner keeps Vision's reading, so the combined row is
 /// Vision's items too (it scored 0 of 46 on a shelf where Vision alone scored 23, before). That row is Vision's reading with the
 /// model's failure as its <c>FellBackFrom</c>, the way the scanner records such a snap: it is not a timeout, error or refusal of
@@ -89,8 +94,8 @@ public static class EvalCombination
         {
             Engine = Engine,
 
-            // Vision's items stand as they are, and the model adds what Vision did not find.
-            Items = both ? [.. vision.Items, .. modelAdded] : apple.Items,
+            // Vision's items stand as they are but for the kind the model read at the same place, and the model adds what Vision did not find.
+            Items = both ? [.. vision.Items.Select(visionItem => KindLentFrom(visionItem, apple.Items)), .. modelAdded] : apple.Items,
 
             // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
             // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
@@ -159,6 +164,19 @@ public static class EvalCombination
         model.Box is { } modelBox && vision.Box is { } visionBox
             ? modelBox.SamePlaceAs(visionBox)
             : KeyOf(model) is { } key && KeyOf(vision) == key;
+
+    /// <summary>
+    /// The Vision read with the kind the model gave the same spine, as the scanner lends it (<c>filledFrom</c>, combine.ts): a Vision
+    /// read names no kind, so the model's kind is what the app would have searched that spine with, and the combined row says so.
+    /// Only the kind, only onto a read that named none, only from a read that named one, and only where both read the same place: a
+    /// read with no box sits nowhere, so nothing is lent across the shelf by a title that happens to match (as <c>placeOf</c> has it).
+    /// This row is already grounded, so lending changes what the run reports the read as, never which releases were found for it.
+    /// </summary>
+    private static GroundedItem KindLentFrom(GroundedItem vision, IReadOnlyList<GroundedItem> model) =>
+        vision.Read is { Kind: null } read && vision.Box is { } visionBox
+        && model.FirstOrDefault(m => m.Box is { } modelBox && modelBox.SamePlaceAs(visionBox))?.Read?.Kind is { } kind
+            ? vision with { Read = read with { Kind = kind } }
+            : vision;
 
     private static (string Title, int? Year)? KeyOf(GroundedItem item) =>
         item.Best is { } best && TitleNormalizer.Normalize(best.Title) is { Length: > 0 } title ? (title, best.Year) : null;

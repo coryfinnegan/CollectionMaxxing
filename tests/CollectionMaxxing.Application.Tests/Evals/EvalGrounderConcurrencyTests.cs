@@ -173,7 +173,7 @@ public class EvalGrounderConcurrencyTests
 
     private static Task<IReadOnlyList<GroundedItem>> GroundAsync(
         EvalGrounder grounder, EvalGroundingMemo memo, EvalReadItemInput[] reads, CancellationToken cancellationToken = default) =>
-        grounder.GroundAsync(ScanEngine.VisionPipeline, reads, memo, cancellationToken);
+        grounder.GroundAsync(ScanEngine.VisionPipeline, reads, memo, printKind: null, cancellationToken);
 
     [Fact]
     public void Six_reads_are_asked_at_a_time_unless_the_settings_say_otherwise()

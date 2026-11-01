@@ -3,6 +3,7 @@ using CollectionMaxxing.Application.GameSerials;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
@@ -36,16 +37,21 @@ public sealed class EvalGrounder(
     /// ones asking each read on its own would give, in the order the reads came in.
     /// </summary>
     public async Task<IReadOnlyList<GroundedItem>> GroundAsync(
-        ScanEngine engine, IReadOnlyList<EvalReadItemInput> items, EvalGroundingMemo memo, CancellationToken cancellationToken)
+        ScanEngine engine,
+        IReadOnlyList<EvalReadItemInput> items,
+        EvalGroundingMemo memo,
+        WorkKind? printKind,
+        CancellationToken cancellationToken)
     {
         if (items.Count == 0)
         {
             return [];
         }
 
-        // Cleaning also tells each kindless read what kind the rest of the photo's reads agreed on (KindContext), the one rule
-        // /identify applies; the memo below keys on the read with it, so a lookup made under another photo's kind is never reused.
-        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials);
+        // Cleaning also tells each kindless read what kind the photo is of (KindContext): what the shelf's own print said, else what
+        // the rest of the photo's reads agreed on, the one rule /identify applies. The memo below keys on the read with it, so a
+        // lookup made under another photo's kind is never reused.
+        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials, printKind: printKind);
         var answers = await memo.GroundManyAsync(
             [.. cleaned.Select(c => (c.Facts, c.Profile))], claims => GroundClaimsAsync(claims, cancellationToken), cancellationToken);
 
