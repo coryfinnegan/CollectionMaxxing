@@ -95,7 +95,7 @@ public static class EvalCombination
             Engine = Engine,
 
             // Vision's items stand as they are but for the kind the model read at the same place, and the model adds what Vision did not find.
-            Items = both ? [.. vision.Items.Select(visionItem => KindLentFrom(visionItem, apple.Items)), .. modelAdded] : apple.Items,
+            Items = both ? [.. WithKindsLent(vision.Items, apple.Items), .. modelAdded] : apple.Items,
 
             // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
             // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
@@ -166,17 +166,53 @@ public static class EvalCombination
             : KeyOf(model) is { } key && KeyOf(vision) == key;
 
     /// <summary>
-    /// The Vision read with the kind the model gave the same spine, as the scanner lends it (<c>filledFrom</c>, combine.ts): a Vision
-    /// read names no kind, so the model's kind is what the app would have searched that spine with, and the combined row says so.
-    /// Only the kind, only onto a read that named none, only from a read that named one, and only where both read the same place: a
-    /// read with no box sits nowhere, so nothing is lent across the shelf by a title that happens to match (as <c>placeOf</c> has it).
-    /// This row is already grounded, so lending changes what the run reports the read as, never which releases were found for it.
+    /// Vision's items with the kind the model gave each spine, as the scanner lends it (<c>filledFrom</c>, combine.ts): a Vision read
+    /// names no kind, so the model's kind is what the app would have searched that spine with, and the combined row says so. Only the
+    /// kind, only onto a read that named none, and only from a read that named one. The place decides, the way the phone's
+    /// <c>placeOf</c> decides: each model read fills the one Vision item its box overlaps the most, so a single wide model box over
+    /// two spines lends its kind to one of them, not to both. A read with no box sits nowhere and neither lends nor takes, so nothing
+    /// travels across the shelf on a title that happens to match. This row is already grounded, so lending changes what the run
+    /// reports the read as, never which releases were found for it.
     /// </summary>
-    private static GroundedItem KindLentFrom(GroundedItem vision, IReadOnlyList<GroundedItem> model) =>
-        vision.Read is { Kind: null } read && vision.Box is { } visionBox
-        && model.FirstOrDefault(m => m.Box is { } modelBox && modelBox.SamePlaceAs(visionBox))?.Read?.Kind is { } kind
-            ? vision with { Read = read with { Kind = kind } }
-            : vision;
+    private static List<GroundedItem> WithKindsLent(IReadOnlyList<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
+    {
+        var items = vision.ToList();
+        foreach (var read in model)
+        {
+            if (read.Read?.Kind is not { } kind || read.Box is not { } box)
+            {
+                continue;
+            }
+
+            var at = PlaceOf(box, items);
+            if (at >= 0 && items[at].Read is { Kind: null } kindless)
+            {
+                items[at] = items[at] with { Read = kindless with { Kind = kind } };
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Which of <paramref name="items"/> the box sits on: the one it overlaps the most, and only when the two are one place
+    /// (<see cref="ReadBox.SamePlaceAs"/>). -1 when it sits on none, and for an item with no box, which sits nowhere.
+    /// </summary>
+    private static int PlaceOf(ReadBox box, List<GroundedItem> items)
+    {
+        var best = -1;
+        var share = 0d;
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (items[i].Box is { } other && other.SamePlaceAs(box) && box.OverlapShare(other) > share)
+            {
+                best = i;
+                share = box.OverlapShare(other);
+            }
+        }
+
+        return best;
+    }
 
     private static (string Title, int? Year)? KeyOf(GroundedItem item) =>
         item.Best is { } best && TitleNormalizer.Normalize(best.Title) is { Length: > 0 } title ? (title, best.Year) : null;

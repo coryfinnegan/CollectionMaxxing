@@ -784,6 +784,23 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
+    public void One_wide_model_read_over_two_spines_lends_its_kind_to_the_one_it_covers_most()
+    {
+        // The phone lends a model read's kind to the one item its box overlaps the most (`placeOf`), so a single wide box never
+        // stamps its kind on every spine under it.
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1, 0.2).ReadKind(WorkKind.Game)),
+                VisionRead(
+                    GuessedByVision("Star Fox 64").At(0.12, 0.04).ReadKind(null),
+                    GuessedByVision("Mario Kart 64").At(0.2, 0.06).ReadKind(null)),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64")).Single();
+
+        built.Items.Select(i => i.Read!.Kind).ShouldBe(["game", null]);
+    }
+
+    [Fact]
     public void A_model_read_that_names_no_kind_lends_none()
     {
         var built = EvalCombination.Of(

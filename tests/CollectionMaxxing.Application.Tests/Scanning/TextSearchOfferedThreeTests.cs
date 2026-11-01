@@ -56,8 +56,12 @@ public class TextSearchOfferedThreeTests
     private static Release Film(int year) => new(WorkKind.Film, year, "");
 
     private static BarcodeResolution Score(
-        ReadItem read, Pooled pooled, IReadOnlyCollection<Guid>? neighbours = null, IReadOnlyDictionary<string, Guid>? workIds = null) =>
-        TextSearchResolver.Score(read, Profile, pooled.Pool, ProviderAnswers.None, pendingWhenProvidersFailed: false, neighbours, workIds);
+        ReadItem read,
+        Pooled pooled,
+        IReadOnlyCollection<Guid>? neighbours = null,
+        IReadOnlyDictionary<string, Guid>? workIds = null,
+        WorkKind? kindContext = null) =>
+        TextSearchResolver.Score(read, Profile, pooled.Pool, ProviderAnswers.None, pendingWhenProvidersFailed: false, neighbours, workIds, kindContext);
 
     /// <summary>Which releases were offered, in the order the test wrote them into the pool.</summary>
     private static List<int> Offered(BarcodeResolution resolution, Pooled pooled) =>
@@ -146,6 +150,55 @@ public class TextSearchOfferedThreeTests
         var offered = Score(new ReadItem { Title = Title }, pooled, [neighbour], workIds);
 
         Offered(offered, pooled).ShouldBe([1, 2, 0]);
+        offered.Steps.Any(s => s.Provider == "offer").ShouldBeFalse();
+    }
+
+    // ---- which kind the offer makes room for ------------------------------------------------------------------------
+
+    [Fact]
+    public void A_book_read_keeps_all_three_editions_of_its_own_work()
+    {
+        var pooled = Pool(Edition(1998), Edition(2001), Edition(2004), Film(1994));
+
+        var offered = Score(new ReadItem { Title = Title, Kind = WorkKind.Book }, pooled);
+
+        Offered(offered, pooled).ShouldBe([0, 1, 2], "the read says book, so the offer makes no room for the film");
+        offered.Steps.Any(s => s.Provider == "offer").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_novel_never_takes_a_slot_from_three_prints_of_the_film_on_a_shelf_of_films()
+    {
+        // The read names 2001, so the novel three years off scores a hair under the prints: level enough for the offer, and of the
+        // wrong kind for this shelf.
+        var print = new Release(WorkKind.Film, 2001, "Ines Harrow");
+        var pooled = Pool(print, print, print, new Release(WorkKind.Book, 2000, "Dana Pell"));
+
+        var offered = Score(new ReadItem { Title = Title, Year = 2001 }, pooled, kindContext: WorkKind.Film);
+
+        Offered(offered, pooled).ShouldBe([0, 1, 2]);
+        offered.Steps.Any(s => s.Provider == "offer").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_film_still_takes_a_slot_from_three_editions_of_the_novel_on_a_shelf_of_films()
+    {
+        var pooled = Pool(Edition(1998), Edition(2001), Edition(2004), Film(1994));
+
+        var offered = Score(new ReadItem { Title = Title }, pooled, kindContext: WorkKind.Film);
+
+        Offered(offered, pooled).ShouldBe([3, 0, 1], "the film sorts first on a shelf of films, and the third edition is no longer offered");
+    }
+
+    [Fact]
+    public void Three_same_titled_films_that_name_no_director_are_three_works_and_all_stay_offered()
+    {
+        // The film catalogues answer with no creator at all, so nothing says these three are prints of one film.
+        var pooled = Pool(Film(1986), Film(1996), Film(2004), new Release(WorkKind.Book, 2001, "Dana Pell"));
+
+        var offered = Score(new ReadItem { Title = Title }, pooled);
+
+        Offered(offered, pooled).ShouldBe([0, 1, 2]);
         offered.Steps.Any(s => s.Provider == "offer").ShouldBeFalse();
     }
 }

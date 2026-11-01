@@ -336,7 +336,9 @@ public sealed class TextSearchResolver(
             steps.Add(new TraceStep("kind", "biased", 0));
         }
 
-        var offered = Varied(ranked, result.Ranked[0].Release.Key, out var varied);
+        // Which kind the offer prefers when it has to make room: the read's own, else the snap's. With neither, any other kind will do.
+        var prefer = read.Kind is { } ownKind and not WorkKind.Other ? ownKind : kindContext;
+        var offered = Varied(ranked, result.Ranked[0].Release.Key, prefer, out var varied);
         if (varied)
         {
             steps.Add(new TraceStep("offer", "varied", 0));
@@ -412,9 +414,12 @@ public sealed class TextSearchResolver(
     /// fourth; nothing else moves, no score changes, and the verdict is the scorer's. One work is one kind, title and set of
     /// creators, so three editions of a novel are one and a same-titled film is another, while two same-titled novels by different
     /// authors are two works and both stay offered. The release the scorer ranked best is never the one displaced: at worst it
-    /// slides to third (<see cref="Ordered"/>) and it stays selectable. <paramref name="varied"/> says the offer changed. Pure.
+    /// slides to third (<see cref="Ordered"/>) and it stays selectable. <paramref name="prefer"/> is the kind the offer makes room
+    /// for when something says which one that is (the read's own kind, else the snap's): on a shelf of films a same-titled novel
+    /// never takes a slot from the film, which is the whole point of knowing the shelf. With no kind to prefer, any other kind
+    /// will do. <paramref name="varied"/> says the offer changed. Pure.
     /// </summary>
-    private static List<ScoredRelease> Varied(List<ScoredRelease> order, string bestKey, out bool varied)
+    private static List<ScoredRelease> Varied(List<ScoredRelease> order, string bestKey, WorkKind? prefer, out bool varied)
     {
         varied = false;
         if (order.Count <= Alternatives)
@@ -431,6 +436,7 @@ public sealed class TextSearchResolver(
 
         var level = order.Skip(Alternatives).FirstOrDefault(entry =>
             entry.Release.Kind != order[0].Release.Kind
+            && (prefer is not { } kind || Identify.KindContext.InFamily(entry.Release.Kind, kind))
             && SameTitle(entry.Release, third.Release)
             && Math.Round(third.Score - entry.Score, 9) <= LevelScore);
         if (level is null)
@@ -444,9 +450,15 @@ public sealed class TextSearchResolver(
         return withLevel;
     }
 
-    /// <summary>The work a release belongs to, for the offer: its kind, its normalised title and its creators (never its year or format).</summary>
+    /// <summary>
+    /// The work a release belongs to, for the offer: its kind, its normalised title and its creators, never its year or format, so
+    /// three editions of one novel are one work. A release that names no creator is a work of its own and groups with nothing: with
+    /// no creator there is nothing to say that two same-titled films are the same film, and the film catalogues often give none.
+    /// </summary>
     private static string WorkOf(CandidateRelease release) =>
-        $"{release.Kind}|{CatalogProjection.DuplicateKey(release.Title, null, null, release.Creators)}";
+        release.Creators.Count == 0
+            ? $"{release.Kind}|{release.Key}"
+            : $"{release.Kind}|{CatalogProjection.DuplicateKey(release.Title, null, null, release.Creators)}";
 
     private static bool SameTitle(CandidateRelease one, CandidateRelease other) =>
         string.Equals(TitleNormalizer.Normalize(one.Title), TitleNormalizer.Normalize(other.Title), StringComparison.Ordinal);

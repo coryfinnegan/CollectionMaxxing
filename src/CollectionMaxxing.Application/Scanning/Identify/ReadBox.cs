@@ -20,15 +20,27 @@ public readonly record struct ReadBox(double X, double Y, double Width, double H
     /// </summary>
     public bool SamePlaceAs(ReadBox other)
     {
+        var (shared, smaller) = Shared(other);
+        return shared > 0 && shared >= (SamePlaceShare * smaller) - Epsilon;
+    }
+
+    /// <summary>
+    /// The share of the smaller of the two boxes that the two share, 0 to 1; 0 when they only touch or miss. It tells which of
+    /// several boxes that are all one place is the most one place, the way the phone picks the item a read sits on.
+    /// </summary>
+    public double OverlapShare(ReadBox other)
+    {
+        var (shared, smaller) = Shared(other);
+        return shared > 0 && smaller > 0 ? shared / smaller : 0;
+    }
+
+    /// <summary>The area the two boxes share (0 when they only touch or miss) and the area of the smaller of them.</summary>
+    private (double Shared, double Smaller) Shared(ReadBox other)
+    {
         var sharedWidth = Math.Min(X + Width, other.X + other.Width) - Math.Max(X, other.X);
         var sharedHeight = Math.Min(Y + Height, other.Y + other.Height) - Math.Max(Y, other.Y);
-        if (sharedWidth <= 0 || sharedHeight <= 0)
-        {
-            return false;
-        }
-
         var smaller = Math.Min(Width * Height, other.Width * other.Height);
-        return sharedWidth * sharedHeight >= (SamePlaceShare * smaller) - Epsilon;
+        return sharedWidth <= 0 || sharedHeight <= 0 ? (0, smaller) : (sharedWidth * sharedHeight, smaller);
     }
 
     /// <summary>
