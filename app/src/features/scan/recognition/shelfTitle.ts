@@ -148,7 +148,6 @@ class Readings {
     const size = letters(chosen);
     const beside = (k: TextLine) => {
       if (isSideways(k) !== sideways || this.samePlace(chosen, k) || this.sameText(chosen, k)) return false;
-      if (overlapShare(chosen.box, k.box) >= this.tuning.titleRowOverlap) return false;
       if (!sameSize(letters(k), size, this.tuning.titleRowLetters)) return false;
       // The two rows of one title touch or overlap in the picture. A line that merely sits near the chosen row is the next
       // spine along, an award line or a publisher, and joining one of those would say two things as one title.
