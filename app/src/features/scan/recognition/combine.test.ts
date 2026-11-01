@@ -59,12 +59,13 @@ describe('isSameItem: the same place read the same way is the same item', () => 
     expect(isSameItem(b, a, T)).toBe(false);
   });
 
-  it('is the same item when one box sits inside the other and the bigger read says everything the smaller one says', () => {
-    // Vision's piece of a spine holds the author's line too, so the model's read of the title is that piece read again.
+  it('is not the same item when one read saw words the other did not, however the boxes sit', () => {
+    // Vision's piece of a spine holds the author's line, so the phone cannot tell "Dune" inside "DUNE FRANK HERBERT" from "Dune"
+    // inside "DUNE MESSIAH": both go out and the server settles the place.
     const spine = item('Dune Frank Herbert', 0, { box: spineAt(0.1) });
     const titleLine = item('Dune', 1, { box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 } });
-    expect(isSameItem(titleLine, spine, T)).toBe(true);
-    expect(isSameItem(spine, titleLine, T)).toBe(false); // the other way round the bigger read saw words the smaller one did not
+    expect(isSameItem(titleLine, spine, T)).toBe(false);
+    expect(isSameItem(spine, titleLine, T)).toBe(false);
   });
 
   it('is a different item when the boxes overlap by less than half, even with the same title', () => {
@@ -174,8 +175,8 @@ describe('addableItems', () => {
     expect(added[0].confidence).toBe('medium');
   });
 
-  it('does not add a candidate that sits where an existing item does and reads the same thing', () => {
-    const existing = [item('GREAT GATSBY FITZGERALD', 0, { box: spineAt(0.1) })];
+  it('does not add a candidate that sits where an existing item does and reads the same words', () => {
+    const existing = [item('GREAT GATSBY', 0, { box: spineAt(0.1) })];
     expect(addableItems([item('The Great Gatsby', 0, { box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 } })], existing, T)).toEqual([]);
   });
 
@@ -183,6 +184,13 @@ describe('addableItems', () => {
     const existing = [item('GREAT GATSBY FITZGERALD', 0, { box: spineAt(0.1) })];
     const added = addableItems([item('Something misread', 0, { box: spineAt(0.1) })], existing, T);
     expect(added.map((i) => [i.title, i.order, i.unconfirmed])).toEqual([['Something misread', 1, true]]);
+  });
+
+  it('adds a candidate whose words are only part of what the existing item read there, because that may be another release', () => {
+    // "Dune" inside Vision's "DUNE MESSIAH" is another book; inside its "DUNE FRANK HERBERT" it is the same one. The phone cannot
+    // tell them apart, so both go out and the server shows the read that grounds better.
+    const existing = [item('DUNE MESSIAH', 0, { box: spineAt(0.1) })];
+    expect(addableItems([item('Dune', 0, { box: spineAt(0.1) })], existing, T).map((i) => i.title)).toEqual(['Dune']);
   });
 
   it('adds a candidate in a place where nothing else is, even when its title is an existing one', () => {

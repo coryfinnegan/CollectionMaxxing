@@ -95,6 +95,23 @@ public class ReadPlacesTests
     }
 
     [Fact]
+    public void A_read_takes_a_place_by_beating_every_read_standing_there_so_one_spine_is_left_with_one_row()
+    {
+        // Vision read this spine twice (a repeat of its own, which the two reads do not contest), and the model's read beats both.
+        var reads = new[] { Vision(0.30, score: 0.80), Vision(0.31, ReadGrounding.Ambiguous, 0.95), Model(0.305, score: 0.90) };
+
+        ReadPlaces.Weaker(reads).ShouldBe([0, 1]);
+    }
+
+    [Fact]
+    public void A_read_that_loses_to_any_read_standing_in_a_place_takes_none_of_it()
+    {
+        var reads = new[] { Vision(0.30, score: 0.95), Vision(0.31, score: 0.80), Model(0.305, score: 0.90) };
+
+        ReadPlaces.Weaker(reads).ShouldBe([2]);
+    }
+
+    [Fact]
     public void Nothing_to_compare_is_no_losers()
     {
         ReadPlaces.Weaker([]).ShouldBeEmpty();
@@ -127,6 +144,22 @@ public class ReadPlacesTests
     public void A_Vision_piece_covering_several_spines_loses_its_place_and_every_model_read_inside_it_stands()
     {
         ReadPlaces.Weaker([Vision(0.10, width: 0.50), Model(0.12), Model(0.30), Model(0.50)]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_read_no_bigger_than_the_reads_around_it_is_no_piece_over_them_however_they_are_staggered()
+    {
+        // Four spine-sized reads, each engine's half a spine off the other's: a shelf read twice, not one piece over a run of
+        // spines. Nothing grounds, so nothing contests either, and every read keeps its row.
+        var reads = new[]
+        {
+            Model(0.00, ReadGrounding.Nothing, 0),
+            Vision(0.02, ReadGrounding.Nothing, 0),
+            Model(0.04, ReadGrounding.Nothing, 0),
+            Vision(0.06, ReadGrounding.Nothing, 0),
+        };
+
+        ReadPlaces.Weaker(reads).ShouldBeEmpty();
     }
 
     [Fact]

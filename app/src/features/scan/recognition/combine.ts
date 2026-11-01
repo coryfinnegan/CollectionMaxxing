@@ -3,8 +3,8 @@
 // that reads the same thing as the Vision item at its place is that item read again: the Vision item keeps its title, box and id, and
 // takes what it lacks (the model's kind and format steer the server's search). A model item that reads something else is a second read
 // of that place, and goes out beside it: the server shows whichever of the two grounds better and skips the other (`ReadPlaces`), because
-// the phone cannot know which read finds the item. A Vision piece holding several model reads is several spines merged into one piece, so
-// it is dropped and each model read inside it stands. Pure: items in, items out.
+// the phone cannot know which read finds the item, only whether the two read the same words. A Vision piece holding several model reads
+// is several spines merged into one piece, so it is dropped and each model read inside it stands. Pure: items in, items out.
 import type { LocalTuning } from './defaults';
 import { overlapShare } from './geometry';
 import { wordsOf } from './lines';
@@ -29,11 +29,21 @@ export function titleCoverage(title: string, other: string, tuning: LocalTuning)
 }
 
 /**
- * Whether `other` read the same thing `candidate` read: its title says at least `tuning.duplicateTitleShare` of what the candidate's
- * says. Vision's piece of a spine holds the author's line too, so "Dune" against "DUNE FRANK HERBERT" is the same read; "Dune Messiah"
- * against "DUNE" is not.
+ * Whether the two reads say the same thing: each title says at least `tuning.duplicateTitleShare` of what the other says, so neither
+ * read saw words the other missed. Both ways round, because a read whose words are only part of the other's may well be another
+ * release: "Dune" against "DUNE MESSIAH" is not the same read, and nor is "Dune" against Vision's piece of the spine that holds the
+ * author's line, "DUNE FRANK HERBERT" — the phone cannot tell those two apart, so both go out and the server settles the place.
  */
 export function readsTheSame(candidate: ReadItem, other: ReadItem, tuning: LocalTuning): boolean {
+  return saysEverything(candidate, other, tuning) && saysEverything(other, candidate, tuning);
+}
+
+/**
+ * Whether `other`'s read says everything `candidate`'s read says: its title says at least `tuning.duplicateTitleShare` of what the
+ * candidate's says. Enough to call the candidate a read of that item and take its kind and format, which is a hint either way; not
+ * enough to drop it, since `other` may have read words that name another release.
+ */
+export function saysEverything(candidate: ReadItem, other: ReadItem, tuning: LocalTuning): boolean {
   return titleCoverage(candidate.title, other.title, tuning) >= tuning.duplicateTitleShare;
 }
 
@@ -46,16 +56,17 @@ export function samePlace(first: ReadItem, second: ReadItem, tuning: LocalTuning
 }
 
 /**
- * Whether `candidate` is the item `other` read again: the same place (`samePlace`) and the same reading of it (`readsTheSame`). The
- * same place read differently is not the same item read again but a second read of the place, which the server settles; five films
- * all titled "HIGHLANDER" are five items, because their boxes are apart.
+ * Whether `candidate` is the item `other` read again, as far as the phone can tell: the same place (`samePlace`) and the same words
+ * read there (`readsTheSame`). The same place read as something else, or read with words the other missed, is not the same item read
+ * again but a second read of the place, which only the server can settle; five films all titled "HIGHLANDER" are five items, because
+ * their boxes are apart.
  *
- * Only when either item has no box is the title all there is to go on: `other`'s title says at least `tuning.duplicateTitleShare` of
- * what the candidate's title says.
+ * Only when either item has no box is the title all there is to go on, as it was before boxes: `other`'s title says at least
+ * `tuning.duplicateTitleShare` of what the candidate's title says.
  */
 export function isSameItem(candidate: ReadItem, other: ReadItem, tuning: LocalTuning): boolean {
   if (candidate.box && other.box) return samePlace(candidate, other, tuning) && readsTheSame(candidate, other, tuning);
-  return readsTheSame(candidate, other, tuning);
+  return saysEverything(candidate, other, tuning);
 }
 
 /** True when none of the `existing` items is the candidate read again. */
@@ -101,16 +112,20 @@ export function sameItemAt(candidate: ReadItem, items: ReadItem[], tuning: Local
   return best;
 }
 
+/** How much of the still a read covers; 0 when it has no box. */
+const areaOf = (item: ReadItem) => (item.box ? item.box.width * item.box.height : 0);
+
 /**
- * The indexes of `base` items that hold more than one of `candidates` in places apart from each other: a Vision piece made of a run of
- * spines, which the model split. Such a piece is no place of its own, so the shelf reading drops it and keeps the model's reads of the
- * spines inside it. A spine the model read twice is one place, not two, so it does not make a piece a merged one.
+ * The indexes of `base` items that hold inside them, in places apart from each other, more than one of `candidates`: a Vision piece
+ * made of a run of spines, which the model split. Such a piece is no place of its own, so the shelf reading drops it and keeps the
+ * model's reads of the spines inside it. A spine the model read twice is one place, not two, so it does not make a piece a merged
+ * one; nor does a candidate the item is no bigger than, which is a neighbor, not a spine inside it (the same rule as `ReadPlaces`).
  */
 export function mergedPieces(base: ReadItem[], candidates: ReadItem[], tuning: LocalTuning): Set<number> {
   const inside = new Map<number, ReadItem[]>();
   candidates.forEach((candidate) => {
     const at = placeOf(candidate, base, tuning);
-    if (at >= 0) inside.set(at, [...(inside.get(at) ?? []), candidate]);
+    if (at >= 0 && areaOf(candidate) < areaOf(base[at])) inside.set(at, [...(inside.get(at) ?? []), candidate]);
   });
   const merged = new Set<number>();
   inside.forEach((items, at) => {
@@ -140,21 +155,29 @@ export function filledFrom(item: ReadItem, other: ReadItem): ReadItem {
 }
 
 /**
- * Puts what `candidate` knows into the item of `items` it is a second read of (`sameItemAt`), replacing that entry in place. Returns the
- * new item, or undefined when the candidate is nobody's second read or has nothing to add. Only a read of the same place lends its
- * fields: a read of a place that says something else is not a second read of it, and a read with no box sits nowhere, so its title alone
- * is not enough to lend a kind or a format.
+ * The item of `items` that `candidate` lends its fields to: the one at its place (`placeOf`) whose read already says everything the
+ * candidate's says. -1 when the candidate sits on none, has no box (it sits nowhere, so its title alone is not enough to lend a kind
+ * or a format), or when that item read the place as something else, which is no read of the candidate's item at all.
+ */
+export function lendsTo(candidate: ReadItem, items: ReadItem[], tuning: LocalTuning): number {
+  const at = placeOf(candidate, items, tuning);
+  return at >= 0 && saysEverything(candidate, items[at], tuning) ? at : -1;
+}
+
+/**
+ * Puts what `candidate` knows into the item of `items` it lends its fields to (`lendsTo`), replacing that entry in place. Returns the
+ * new item, or undefined when the candidate lends to none or has nothing to add.
  */
 export function fillPlace(items: ReadItem[], candidate: ReadItem, tuning: LocalTuning): ReadItem | undefined {
-  const at = sameItemAt(candidate, items, tuning);
-  if (at < 0 || !samePlace(candidate, items[at], tuning)) return undefined;
+  const at = lendsTo(candidate, items, tuning);
+  if (at < 0) return undefined;
   const filled = filledFrom(items[at], candidate);
   if (filled === items[at]) return undefined;
   items[at] = filled;
   return filled;
 }
 
-/** `base` with every candidate that is a second read of one of its items filling that item in (`filledFrom`). The items keep their order and ids. */
+/** `base` with every candidate that lends to one of its items filling that item in (`filledFrom`). The items keep their order and ids. */
 export function enrichedItems(base: ReadItem[], candidates: ReadItem[], tuning: LocalTuning): ReadItem[] {
   const out = [...base];
   candidates.forEach((candidate) => fillPlace(out, candidate, tuning));

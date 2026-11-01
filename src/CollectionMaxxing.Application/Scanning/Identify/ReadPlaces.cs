@@ -81,15 +81,19 @@ public static class ReadPlaces
                 continue;
             }
 
-            var place = standing.FindIndex(other => Contests(reads[i], reads[other]));
-            if (place < 0)
+            // Every read of the place it contests, not just the first: one engine sometimes has two reads standing in one place
+            // (they are a repeat of its own, not a contest), and the other engine's read takes the place only by beating both,
+            // so one spine is left with one row either way.
+            var held = standing.Where(other => Contests(reads[i], reads[other])).ToList();
+            if (held.Count == 0)
             {
                 standing.Add(i);
             }
-            else if (Stronger(reads[i], reads[standing[place]]))
+            else if (held.All(other => Stronger(reads[i], reads[other])))
             {
-                skipped.Add(standing[place]);
-                standing[place] = i;
+                skipped.UnionWith(held);
+                standing.RemoveAll(held.Contains);
+                standing.Add(i);
             }
             else
             {
@@ -112,15 +116,18 @@ public static class ReadPlaces
     private static bool Contends(PlacedRead read) => read.Box is not null && read.Grounding != ReadGrounding.Unsettled;
 
     /// <summary>
-    /// Whether the read at <paramref name="index"/> is several spines merged into one piece: at least two of the other engine's
-    /// reads in its place are not one place themselves, so they are spines inside it rather than other reads of it.
+    /// Whether the read at <paramref name="index"/> is several spines merged into one piece: two or more of the other engine's
+    /// reads sit inside it (each smaller than it, and in its place, so at least half of each is covered by it) in places apart
+    /// from each other. They are the spines, not other reads of one spine. A read no bigger than its neighbours is no piece over
+    /// them, however they are staggered: a run of spines each overlapping the next is reads of a shelf, not one merged piece.
     /// </summary>
     private static bool IsMergedPiece(IReadOnlyList<PlacedRead> reads, int index)
     {
         var inside = new List<int>();
         for (var i = 0; i < reads.Count; i++)
         {
-            if (i != index && Contends(reads[i]) && OtherEngine(reads[index], reads[i]) && SamePlace(reads[index], reads[i]))
+            if (i != index && Contends(reads[i]) && OtherEngine(reads[index], reads[i])
+                && SamePlace(reads[index], reads[i]) && Area(reads[i]) < Area(reads[index]))
             {
                 inside.Add(i);
             }
@@ -128,6 +135,9 @@ public static class ReadPlaces
 
         return inside.Any(j => inside.Any(k => !SamePlace(reads[j], reads[k])));
     }
+
+    /// <summary>How much of the picture a read covers; 0 when it has no box.</summary>
+    private static double Area(PlacedRead read) => read.Box is { } box ? box.Width * box.Height : 0;
 
     /// <summary>Whether the two reads are the two engines' reads, not one engine's own two reads of a picture.</summary>
     private static bool OtherEngine(PlacedRead first, PlacedRead second) => first.Unconfirmed != second.Unconfirmed;
