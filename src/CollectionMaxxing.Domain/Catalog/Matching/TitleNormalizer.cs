@@ -44,7 +44,9 @@ public static class TitleNormalizer
     /// Latin one is read as that Latin letter, in a title that carries Latin letters too ("ОDELL" with a Cyrillic O gives
     /// "odell"); a title written wholly in another alphabet keeps its own letters. A subtitle that is only a genre label
     /// ("Dune: A Novel") is no part of the key, so every key a release is stored, deduplicated and compared under is the
-    /// title alone (see <see cref="GenreSubtitle"/>). Null, blank or punctuation-only gives "".
+    /// title alone (see <see cref="GenreSubtitle"/>). A creator, a publisher and an edition are keyed through here too,
+    /// where a label can only ever be the whole of the value, which is left alone. Null, blank or punctuation-only
+    /// gives "".
     /// </summary>
     public static string Normalize(string? rawTitle)
     {
