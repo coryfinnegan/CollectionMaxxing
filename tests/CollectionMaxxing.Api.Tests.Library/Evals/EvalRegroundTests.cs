@@ -12,6 +12,7 @@ using CollectionMaxxing.TestSupport.Evals;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 namespace CollectionMaxxing.Api.Tests.Evals;
 
@@ -135,6 +136,97 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
         rescored.GetProperty("partial").GetBoolean().ShouldBeTrue();
         rescored.GetProperty("gate").GetProperty("verdict").GetString().ShouldBe("incomplete");
         rescored.GetProperty("regression").GetProperty("status").GetString().ShouldBe("partial_run");
+    }
+
+    [Fact]
+    public async Task A_phone_run_with_a_photo_the_PC_gave_up_on_is_re_scored_with_every_photo_and_is_not_partial_so_it_is_compared_with_the_baseline()
+    {
+        StarFoxGolden("c1", "c2");
+        var baseline = Path.Combine(Golden.Root, "baseline.json");
+        await File.WriteAllTextAsync(baseline, JsonSerializer.Serialize(new { metrics = new Dictionary<string, double> { ["apple_model.single.top1"] = 100 } }));
+        Settings["Evals:BaselinePath"] = baseline;
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+        UseClockAndFlakyStore(clock, (photoId, file) => photoId == "c1" && file.Photos.Count > 0); // the PC never manages to keep c1's grounding
+        string firstRun;
+        using (var phone = AdminClient())
+        {
+            firstRun = (await OpenOkAsync(phone)).GetProperty("runId").GetString()!;
+            await PutPhotoOkAsync(phone, "c1", AllEngines("c1", StarFoxRead));
+            await PutPhotoOkAsync(phone, "c2", AllEngines("c2", StarFoxRead));
+            await FinishOkAsync(phone); // the phone read every photo and did not say partial
+            (await BecomesTrueAsync(
+                () =>
+                {
+                    clock.Advance(TimeSpan.FromMinutes(10));
+                    return ResultFiles().Count == 1;
+                },
+                Bounded)).ShouldBeTrue("the PC gave up on c1 and scored the rest");
+            await StatusWhenDoneAsync(phone);
+        }
+
+        var original = TryLatestSummary()!.Value;
+        original.GetProperty("partial").GetBoolean().ShouldBeTrue("a photo given up on makes the original run partial");
+        original.GetProperty("scoredPhotos").GetInt32().ShouldBe(3);
+        (await KeptInputsAsync()).GetProperty("partial").GetBoolean().ShouldBeFalse("the kept partial flag is the phone's own: the give-up belongs to that run's grounding, not to the readings");
+        (await KeptInputsAsync()).GetProperty("photos").GetArrayLength().ShouldBe(2, "the readings of the photo given up on are kept");
+        ConfigureServices = null; // the redeployed server's disk works
+
+        await RedeployAsync();
+        var rescored = await NextLatestAfterAsync(firstRun);
+
+        rescored.GetProperty("scoredPhotos").GetInt32().ShouldBe(6, "both photos ground now");
+        rescored.GetProperty("partial").GetBoolean().ShouldBeFalse();
+        rescored.GetProperty("skipped").GetArrayLength().ShouldBe(0, "no give-up is carried over");
+        rescored.GetProperty("regression").GetProperty("status").GetString().ShouldBe("ok", "a complete re-score is compared with the baseline");
+    }
+
+    [Fact]
+    public async Task A_photo_that_cannot_be_grounded_in_the_re_ground_is_given_up_alone_and_the_rest_are_scored_as_a_partial_run()
+    {
+        StarFoxGolden("c1", "c2");
+        var firstRun = await FirstRunAsync("c1", "c2");
+        await BreakKeptReadingsAsync("c2");
+
+        await RedeployAsync();
+        var rescored = await NextLatestAfterAsync(firstRun);
+
+        rescored.GetProperty("scoredPhotos").GetInt32().ShouldBe(3, "c1's three engines");
+        rescored.GetProperty("partial").GetBoolean().ShouldBeTrue("a photo given up on is a photo the run did not cover");
+        rescored.GetProperty("skipped").EnumerateArray().Select(s => $"{s.GetProperty("photoId").GetString()}:{s.GetProperty("reason").GetString()}")
+            .ShouldBe(["c2:grounding_failed"]);
+        rescored.GetProperty("regression").GetProperty("status").GetString().ShouldBe("partial_run");
+        rescored.GetProperty("regroundedFrom").GetProperty("runId").GetString().ShouldBe(firstRun);
+        Logged("could not be grounded (InvalidOperationException)").ShouldBeTrue("logged by the type of the error only");
+    }
+
+    [Fact]
+    public async Task When_no_photo_can_be_grounded_in_the_re_ground_nothing_is_written()
+    {
+        StarFoxGolden("c1", "c2");
+        var firstRun = await FirstRunAsync("c1", "c2");
+        await BreakKeptReadingsAsync("c1", "c2");
+
+        await RedeployAsync();
+
+        (await LogsAsync("evals.nothing_grounded")).ShouldBeTrue();
+        LatestRunId().ShouldBe(firstRun, "a result with no photo in it never replaces a real one");
+        ResultFiles().Count.ShouldBe(1);
+    }
+
+    /// <summary>Damages the kept readings of these photos so that grounding them throws: an engine the PC cannot read.</summary>
+    private async Task BreakKeptReadingsAsync(params string[] photoIds)
+    {
+        var path = Path.Combine(Golden.Results, "latest-inputs.json");
+        var kept = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
+        foreach (var photo in kept["photos"]!.AsArray().Where(p => photoIds.Contains(p!["photoId"]!.GetValue<string>())))
+        {
+            foreach (var result in photo!["results"]!.AsArray())
+            {
+                result!["engine"] = null;
+            }
+        }
+
+        await File.WriteAllTextAsync(path, kept.ToJsonString());
     }
 
     [Fact]

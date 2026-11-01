@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Evals;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Infrastructure.Evals;
@@ -11,7 +12,7 @@ namespace CollectionMaxxing.Infrastructure.Evals;
 /// only, never served, never in the repo (<c>.gitignore</c> covers the folder). The file is written whole to a temp name and moved into place, so a stop
 /// half way leaves the previous readings; a newer run replaces them. Only someone who can write the folder can ask for a re-ground.
 /// </summary>
-public sealed class FileEvalInputs(IOptions<EvalsOptions> options) : IEvalInputs
+public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileEvalInputs> logger, Action<string>? delete = null) : IEvalInputs
 {
     private const string InputsFile = "latest-inputs.json";
     private const string RequestFile = "reground.request";
@@ -23,6 +24,9 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options) : IEvalInputs
         MaxDepth = 32,
         Converters = { new JsonStringEnumConverter() },
     };
+
+    private readonly Action<string> _delete = delete ?? File.Delete;
+    private int _deleteFailureLogged;
 
     public bool IsConfigured => Folder() is not null;
 
@@ -90,15 +94,17 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options) : IEvalInputs
                 return false;
             }
 
-            File.Delete(path); // deleted first: a file that cannot be removed must not start a re-ground on every look
+            _delete(path); // deleted first: a file that cannot be removed must not start a re-ground on every look
             return true;
         }
-        catch (IOException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
+            // The worker looks every few seconds, so this says it once; the message may name a path, so only the type is logged.
+            if (Interlocked.Exchange(ref _deleteFailureLogged, 1) == 0)
+            {
+                logger.LogWarning("The eval re-ground request file could not be deleted ({Failure}), so it is ignored until it can be.", exception.GetType().Name);
+            }
+
             return false;
         }
     }

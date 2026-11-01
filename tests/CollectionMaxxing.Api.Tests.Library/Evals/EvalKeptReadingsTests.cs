@@ -137,6 +137,7 @@ public class EvalKeptReadingsTests(ApiFixture api) : OpenRunTest(api)
     [Fact]
     public async Task A_run_whose_results_were_written_just_before_the_API_stopped_still_has_its_readings_kept()
     {
+        Settings["Evals:RegroundOnStart"] = "false"; // the hand-written result below names no server version, so the worker would score its readings again and write a file
         Golden.AddSingle("c1", StarFoxTruth);
         Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
         using var admin = AdminClient();

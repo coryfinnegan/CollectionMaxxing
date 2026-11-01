@@ -13,6 +13,8 @@ namespace CollectionMaxxing.Application.Evals;
 /// a phone run.
 /// <list type="bullet">
 /// <item>It decides once per start, whatever the answer, and a try that fails is logged by the type of its error and not repeated until the next start.</item>
+/// <item>A photo that cannot be grounded is given up on alone, as in the phone run (<c>grounding_failed</c> in the skipped list), and the rest are scored;
+/// the re-scored run is partial when the phone's was, or when a photo was given up here, and not otherwise. When no photo can be grounded nothing is written.</item>
 /// <item>It never touches an open run. A run that opens while it works stops it, and the phone run goes ahead; nothing half done is written.</item>
 /// <item>An empty <c>reground.request</c> file in the results folder asks for one now, even when the version is unchanged. The file is deleted as the
 /// request is taken, and it waits while a phone run is open.</item>
@@ -34,6 +36,8 @@ public sealed class EvalRegrounder(
     TimeProvider clock,
     ILogger<EvalRegrounder> logger)
 {
+    private static readonly DomainError NothingGrounded = new(ErrorKind.Conflict, "evals.nothing_grounded", "None of the kept phone readings could be grounded.");
+
     public async Task<EvalRunStep> StepAsync(EvalRunProgress progress, CancellationToken cancellationToken)
     {
         if (!golden.IsAvailable || !store.IsConfigured || !inputs.IsConfigured)
@@ -195,11 +199,25 @@ public sealed class EvalRegrounder(
         var truthSet = scoring.Prepare(kept.Photos.Select(p => p.PhotoId).Distinct(StringComparer.Ordinal), skipped);
         var memo = new EvalGroundingMemo();
         var photos = new List<GroundedPhoto>();
+        var givenUp = 0;
         foreach (var photo in kept.Photos.Where(p => truthSet.Listing.ContainsKey(p.PhotoId)))
         {
-            foreach (var result in photo.Results)
+            try
             {
-                photos.Add(await scoring.GroundAsync(result, memo, cancellationToken));
+                var grounded = new List<GroundedPhoto>(photo.Results.Count);
+                foreach (var result in photo.Results)
+                {
+                    grounded.Add(await scoring.GroundAsync(result, memo, cancellationToken));
+                }
+
+                photos.AddRange(grounded);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // As in the phone run: a photo that cannot be grounded is left out and listed, and one bad photo never holds the rest up. Only the type is logged.
+                skipped.Add(new SkippedPhoto(photo.PhotoId, EvalRunProcessor.GroundingFailed));
+                givenUp++;
+                logger.LogWarning("Eval re-ground: a photo could not be grounded ({Failure}); it is left out of the score.", exception.GetType().Name);
             }
 
             // The token stops a wait on a provider at once; this stops the work between photos as well.
@@ -208,6 +226,11 @@ public sealed class EvalRegrounder(
             {
                 return null;
             }
+        }
+
+        if (photos.Count == 0 && givenUp > 0)
+        {
+            return NothingGrounded; // a result with no photo in it must not replace a real one
         }
 
         // Written under the gate, after one last look: a run that opens after this starts to write waits for it, and one that opened before is left alone.
@@ -222,7 +245,7 @@ public sealed class EvalRegrounder(
             clock.GetUtcNow(),
             kept.Device,
             kept.ConfigVersion,
-            kept.Partial,
+            kept.Partial || givenUp > 0, // the phone's own flag, and partial besides only when this re-ground had to leave a photo out
             kept.BaselineNote,
             photos,
             new EvalRegroundedFrom(kept.RunId, kept.ReadAt));

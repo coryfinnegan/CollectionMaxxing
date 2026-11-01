@@ -2,7 +2,13 @@ using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Application.Evals;
+using CollectionMaxxing.Infrastructure.Evals;
 using CollectionMaxxing.TestSupport.Evals;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 namespace CollectionMaxxing.Api.Tests.Evals;
 
@@ -145,6 +151,16 @@ public abstract class OpenRunTest(ApiFixture api) : EvalTest(api)
 
     protected static Task<JsonElement> StatusWhenDoneAsync(HttpClient client) =>
         StatusWhenAsync(client, s => s.GetProperty("state").GetString() == "done");
+
+    /// <summary>Runs the app on a clock the test moves and over a store that refuses some groundings (and header saves): a disk that fails under the PC.</summary>
+    protected void UseClockAndFlakyStore(FakeTimeProvider clock, Func<string, GroundedPhotoFile, bool> fails, Func<OpenRunHeader, bool>? failsSave = null) =>
+        ConfigureServices = services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+            services.RemoveAll<IEvalRunStore>();
+            services.AddSingleton<IEvalRunStore>(provider => new FlakyRunStore(new FileEvalRunStore(provider.GetRequiredService<IOptions<EvalsOptions>>()), fails, failsSave));
+        };
 
     protected string OpenRunFolder => Path.Combine(Golden.Results, "open-run");
 

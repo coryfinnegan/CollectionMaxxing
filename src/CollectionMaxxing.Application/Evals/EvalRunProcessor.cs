@@ -230,7 +230,7 @@ public sealed class EvalRunProcessor(
         {
             if (inputs.Load()?.RunId != header.RunId)
             {
-                await KeepReadingsAsync(header, written.Partial); // stopped between the result files and the readings: the photos are still here
+                await KeepReadingsAsync(header); // stopped between the result files and the readings: the photos are still here
             }
 
             Done(header with { Partial = written.Partial });
@@ -293,7 +293,7 @@ public sealed class EvalRunProcessor(
             return EvalRunStep.Waiting;
         }
 
-        await KeepReadingsAsync(header, partial);
+        await KeepReadingsAsync(header);
         Done(header with { Partial = partial });
         if (logger.IsEnabled(LogLevel.Information))
         {
@@ -307,9 +307,10 @@ public sealed class EvalRunProcessor(
     /// <summary>
     /// Keeps the phone's readings of the run just scored, from the stored photos (which <see cref="Done"/> is about to clear), so a later server version can
     /// ground and score them again without the phone. A failure to keep them is logged and never fails the run: the result files are already written, and
-    /// readings that belong to an older run are simply not used (<see cref="EvalRegrounder"/> checks they match the latest result).
+    /// readings that belong to an older run are simply not used (<see cref="EvalRegrounder"/> checks they match the latest result). The partial flag kept
+    /// is the phone's own (the header's): a photo the PC gave up grounding is not part of the readings, so a re-ground that grounds it is a complete run.
     /// </summary>
-    private async Task KeepReadingsAsync(OpenRunHeader header, bool partial)
+    private async Task KeepReadingsAsync(OpenRunHeader header)
     {
         try
         {
@@ -328,7 +329,7 @@ public sealed class EvalRunProcessor(
                 skipped.AddRange(photo.Skipped);
             }
 
-            await inputs.SaveAsync(new KeptRunInputs(header.RunId, header.OpenedAt, header.Device, header.ConfigVersion, header.BaselineNote, partial, header.OpenedBy, photos, skipped), CancellationToken.None);
+            await inputs.SaveAsync(new KeptRunInputs(header.RunId, header.OpenedAt, header.Device, header.ConfigVersion, header.BaselineNote, header.Partial, header.OpenedBy, photos, skipped), CancellationToken.None);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

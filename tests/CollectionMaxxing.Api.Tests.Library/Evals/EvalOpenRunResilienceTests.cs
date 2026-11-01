@@ -200,6 +200,7 @@ public class EvalOpenRunResilienceTests(ApiFixture api) : OpenRunTest(api)
     [Fact]
     public async Task A_run_whose_results_are_already_on_disk_is_only_marked_done_and_not_scored_into_a_second_file()
     {
+        Settings["Evals:RegroundOnStart"] = "false"; // the hand-written result below names no server version, so the worker would score its readings again and write a file
         Golden.AddSingle("c1", StarFoxTruth);
         Games.Results.Add(ScanData.Game("Star Fox 64", "Nintendo 64", 1997, "g1"));
         using var admin = AdminClient();
@@ -239,60 +240,4 @@ public class EvalOpenRunResilienceTests(ApiFixture api) : OpenRunTest(api)
         ResultFiles().Count.ShouldBe(1, "one run, one result file, however many tries it took to mark it done");
     }
 
-    private void UseClockAndFlakyStore(FakeTimeProvider clock, Func<string, GroundedPhotoFile, bool> fails, Func<OpenRunHeader, bool>? failsSave = null) =>
-        ConfigureServices = services =>
-        {
-            services.RemoveAll<TimeProvider>();
-            services.AddSingleton<TimeProvider>(clock);
-            services.RemoveAll<IEvalRunStore>();
-            services.AddSingleton<IEvalRunStore>(provider => new FlakyRunStore(new FileEvalRunStore(provider.GetRequiredService<IOptions<EvalsOptions>>()), fails, failsSave));
-        };
-
-    /// <summary>The real store, except that it refuses to keep some groundings: a disk that fails under the PC.</summary>
-    private sealed class FlakyRunStore(IEvalRunStore inner, Func<string, GroundedPhotoFile, bool> fails, Func<OpenRunHeader, bool>? failsSave) : IEvalRunStore
-    {
-        public bool IsConfigured => inner.IsConfigured;
-
-        public OpenRunHeader? Load() => inner.Load();
-
-        public void Create(OpenRunHeader header) => inner.Create(header);
-
-        public void Save(OpenRunHeader header)
-        {
-            if (failsSave?.Invoke(header) == true)
-            {
-                throw new IOException("the disk is full");
-            }
-
-            inner.Save(header);
-        }
-
-        public void Discard() => inner.Discard();
-
-        public IReadOnlySet<string> StoredIds() => inner.StoredIds();
-
-        public IReadOnlySet<string> GroundedIds() => inner.GroundedIds();
-
-        public StoredEvalPhoto? LoadPhoto(string photoId) => inner.LoadPhoto(photoId);
-
-        public void SavePhoto(string photoId, StoredEvalPhoto photo) => inner.SavePhoto(photoId, photo);
-
-        public void DeletePhoto(string photoId) => inner.DeletePhoto(photoId);
-
-        public GroundedPhotoFile? LoadGrounded(string photoId) => inner.LoadGrounded(photoId);
-
-        public void SaveGrounded(string photoId, GroundedPhotoFile grounded)
-        {
-            if (fails(photoId, grounded))
-            {
-                throw new IOException("the disk is full");
-            }
-
-            inner.SaveGrounded(photoId, grounded);
-        }
-
-        public void DeleteGrounded(string photoId) => inner.DeleteGrounded(photoId);
-
-        public void ClearPhotos() => inner.ClearPhotos();
-    }
 }

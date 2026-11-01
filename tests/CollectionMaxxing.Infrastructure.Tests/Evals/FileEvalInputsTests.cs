@@ -5,6 +5,8 @@ using CollectionMaxxing.Domain.Items;
 using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.Infrastructure.Evals;
 using CollectionMaxxing.TestSupport.Evals;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Infrastructure.Tests.Evals;
@@ -21,8 +23,22 @@ public sealed class FileEvalInputsTests : IDisposable
 
     public void Dispose() => _golden.Dispose();
 
-    private FileEvalInputs Inputs(bool enabled = true, string? resultsPath = null) =>
-        new(Options.Create(new EvalsOptions { Enabled = enabled, ResultsPath = resultsPath ?? _golden.Results }));
+    private FileEvalInputs Inputs(bool enabled = true, string? resultsPath = null, ILogger<FileEvalInputs>? logger = null, Action<string>? delete = null) =>
+        new(Options.Create(new EvalsOptions { Enabled = enabled, ResultsPath = resultsPath ?? _golden.Results }), logger ?? NullLogger<FileEvalInputs>.Instance, delete);
+
+    /// <summary>Keeps the text of every line logged, with the exception's text if any.</summary>
+    private sealed class ListLogger : ILogger<FileEvalInputs>
+    {
+        public List<string> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Add($"{logLevel}: {formatter(state, exception)} {exception}");
+    }
 
     private static KeptRunInputs Kept(string runId = "run1", string title = "Star Fox 64") => new(
         runId,
@@ -171,6 +187,26 @@ public sealed class FileEvalInputsTests : IDisposable
         inputs.HasRegroundRequest().ShouldBeTrue();
 
         File.Exists(path).ShouldBeTrue("only taking a request spends it");
+    }
+
+    [Fact]
+    public void A_request_file_that_cannot_be_deleted_is_not_taken_so_it_never_starts_a_loop_and_is_logged_once_by_the_type_of_the_error()
+    {
+        var path = Path.Combine(_golden.Results, "reground.request");
+        File.WriteAllText(path, string.Empty);
+        var log = new ListLogger();
+        var inputs = Inputs(logger: log, delete: _ => throw new IOException("in use by C:\\somewhere\\private"));
+
+        inputs.TakeRegroundRequest().ShouldBeFalse();
+        inputs.TakeRegroundRequest().ShouldBeFalse();
+        inputs.TakeRegroundRequest().ShouldBeFalse();
+
+        File.Exists(path).ShouldBeTrue();
+        inputs.HasRegroundRequest().ShouldBeTrue();
+        var line = log.Lines.ShouldHaveSingleItem("said once, not at every look");
+        line.ShouldStartWith("Warning");
+        line.ShouldContain("IOException");
+        line.ShouldNotContain("somewhere", Case.Insensitive, "the error's message may name a path");
     }
 
     [Fact]

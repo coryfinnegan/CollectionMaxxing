@@ -7,7 +7,8 @@ public sealed record KeptPhoto(string PhotoId, IReadOnlyList<EvalPhotoInput> Res
 /// What the PC keeps of the last scored phone run so a later server version can ground and score it again without the phone
 /// (<c>latest-inputs.json</c> in <c>Evals:ResultsPath</c>): the phone's raw readings per photo, the notes the checks made while the run was taken in
 /// (<c>Skipped</c>: refused photos, trimmed items, and so on, not the skips the scoring itself adds), and the run's own facts. <c>ReadAt</c> is when the
-/// phone read it, <c>OpenedBy</c> the person whose libraries the grounding acts for. It holds the owner's real titles, like the rest of the results
+/// phone read it, <c>OpenedBy</c> the person whose libraries the grounding acts for, and <c>Partial</c> whether the phone itself stopped early or left photos
+/// out (not whether the PC later failed to ground one: that is the PC's, and a re-ground decides it afresh). It holds the owner's real titles, like the rest of the results
 /// folder: PC only, never served, never in the repo.
 /// </summary>
 public sealed record KeptRunInputs(
