@@ -204,13 +204,7 @@ public sealed class EvalRegrounder(
         {
             try
             {
-                var grounded = new List<GroundedPhoto>(photo.Results.Count);
-                foreach (var result in photo.Results)
-                {
-                    grounded.Add(await scoring.GroundAsync(result, memo, cancellationToken));
-                }
-
-                photos.AddRange(grounded);
+                photos.AddRange(await scoring.GroundPhotoAsync(photo.Results, memo, cancellationToken));
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {

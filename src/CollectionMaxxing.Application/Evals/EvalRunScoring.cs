@@ -67,7 +67,40 @@ public sealed class EvalRunScoring(
                 : null,
             result.Engine == ScanEngine.VisionPipeline ? result.OcrLines?.Select(l => new GroundedOcrLine(l.Text!, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value)).ToList() : null,
             result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null,
-            EvalCoverCue.Clean(result.CoverCue));
+            EvalCoverCue.Clean(result.CoverCue),
+            result.Engine == ScanEngine.VisionPipeline ? result.PrintKind : null);
+    }
+
+    /// <summary>
+    /// Grounds every engine row of one photo, as <see cref="GroundAsync"/> grounds one, and then, only for a shelf's apple_model row
+    /// when its vision_pipeline row named the shelf's printed kind, grounds the model's same items again with that kind lent
+    /// (<see cref="GroundedPhoto.ItemsLentPrint"/>): the way <c>/identify</c> grounds the model's and Vision's reads of one snap
+    /// together, so <see cref="EvalCombination"/> can ground the model-only places it takes from this row as the app does. The
+    /// apple_model row's own <see cref="GroundedPhoto.Items"/> is untouched, so it still measures the model alone. The
+    /// memo already answers a read whose cleaning the lent kind does not change, so only a read the print denies is asked again.
+    /// </summary>
+    public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken)
+    {
+        var grounded = new List<GroundedPhoto>(results.Count);
+        var appleIndex = -1;
+        for (var i = 0; i < results.Count; i++)
+        {
+            grounded.Add(await GroundAsync(results[i], memo, cancellationToken));
+            if (results[i].Engine == ScanEngine.AppleModel)
+            {
+                appleIndex = i;
+            }
+        }
+
+        var apple = appleIndex >= 0 ? results[appleIndex] : null;
+        var printKind = results.FirstOrDefault(r => r.Engine == ScanEngine.VisionPipeline && r.Outcome == EvalOutcome.Ok)?.PrintKind;
+        if (apple is { Outcome: EvalOutcome.Ok } && printKind is { } kind)
+        {
+            var lent = await grounder.GroundAsync(ScanEngine.AppleModel, apple.Items ?? [], memo, kind, cancellationToken);
+            grounded[appleIndex] = grounded[appleIndex] with { ItemsLentPrint = lent };
+        }
+
+        return grounded;
     }
 
     /// <summary>

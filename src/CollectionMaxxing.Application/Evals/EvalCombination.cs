@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
@@ -31,7 +32,10 @@ namespace CollectionMaxxing.Application.Evals;
 /// <para>
 /// A Vision read that names no kind takes the kind the model read at its place, as the scanner lends it before it sends the snap
 /// (<c>filledFrom</c>, combine.ts): without that, the combined row reported a tape as the kindless read it arrived as, while the app
-/// searched it as the film the model called it.
+/// searched it as the film the model called it. A model-only place is grounded with the shelf's printed kind lent, the same way:
+/// the app sends the model's and Vision's reads of a snap together, so <c>/identify</c> takes a print-denied kind off either one
+/// before it searches (<see cref="GroundedPhoto.ItemsLentPrint"/>); the apple_model row the phone uploaded is grounded alone, and
+/// stays that way, because it measures the model by itself.
 /// </para>
 /// <para>
 /// When the model fails on a shelf (a timeout, an error or a refusal), the scanner keeps Vision's reading, so the combined row is
@@ -97,14 +101,19 @@ public static class EvalCombination
         // Both engines have to have answered for their items to be combined; if either did not, the items are the model's own.
         var both = apple.Outcome == Ok && vision.Outcome == Ok;
 
-        var visionOnly = both && vision.Items.Any(visionItem => !apple.Items.Any(model => SameItem(model, visionItem)));
+        // The model's items for the combination: the ones grounded with the shelf's printed kind lent, when the vision_pipeline row
+        // named one (ItemsLentPrint), else this row's own. A model-only place is then grounded the way /identify grounds it, under
+        // one snap with Vision.
+        var modelItems = apple.ItemsLentPrint ?? apple.Items;
+
+        var visionOnly = both && vision.Items.Any(visionItem => !modelItems.Any(model => SameItem(model, visionItem)));
         return apple with
         {
             Engine = Engine,
 
             // Vision's reads and the model's, one item per place: the read of a place that grounds better is the row shown, and a
             // Vision read that named no kind carries the one the model gave its place.
-            Items = both ? Settled(WithKindsLent(vision.Items, apple.Items), apple.Items) : apple.Items,
+            Items = both ? Settled(WithKindsLent(vision.Items, modelItems, vision.PrintKind), modelItems) : modelItems,
 
             // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
             // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
@@ -241,20 +250,30 @@ public static class EvalCombination
     /// <summary>
     /// Vision's items with the kind the model gave each spine, as the scanner lends it (<c>filledFrom</c>, combine.ts): a Vision read
     /// names no kind, so the model's kind is what the app searched that spine with, and the combined row says so. Only the kind, only
-    /// onto a read that named none, and only from a read that named one. The place decides, the way the phone's <c>placeOf</c>
-    /// decides: each model read fills the one Vision item its box overlaps the most, so a single wide model box over two spines lends
-    /// its kind to one of them, not to both. A read with no box sits nowhere and neither lends nor takes, so nothing travels across
-    /// the shelf on a title that happens to match. The phone also asks that the Vision read say everything the model's read says
-    /// (<c>lendsTo</c>), which needs the words of both reads; the run keeps only the text each read searched with, so the place is
-    /// all this has to go on and it can lend where the phone would not. That costs nothing: this row is already grounded, so lending
-    /// changes what the run reports a read as, never which releases were found for it or how the place was settled.
+    /// onto a read that named none, and only from a read that named one, and never a kind <paramref name="printKind"/> denies (the
+    /// one rule <c>IdentifyCleaning</c> applies, <see cref="KindContext.InFamily"/>): a model row grounded without the print still
+    /// names the kind it guessed, and lending that kind here would show a read as the very kind <c>/identify</c> would have taken off
+    /// it. The place decides, the way the phone's <c>placeOf</c> decides: each model read fills the one Vision item its box overlaps
+    /// the most, so a single wide model box over two spines lends its kind to one of them, not to both. A read with no box sits
+    /// nowhere and neither lends nor takes, so nothing travels across the shelf on a title that happens to match. The phone also
+    /// asks that the Vision read say everything the model's read says (<c>lendsTo</c>), which needs the words of both reads; the run
+    /// keeps only the text each read searched with, so the place is all this has to go on and it can lend where the phone would not.
+    /// That costs nothing: this row is already grounded, so lending changes what the run reports a read as, never which releases
+    /// were found for it or how the place was settled.
     /// </summary>
-    private static List<GroundedItem> WithKindsLent(IReadOnlyList<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
+    private static List<GroundedItem> WithKindsLent(IReadOnlyList<GroundedItem> vision, IReadOnlyList<GroundedItem> model, WorkKind? printKind)
     {
         var items = vision.ToList();
         foreach (var read in model)
         {
-            if (read.Read?.Kind is not { } kind || read.Box is not { } box)
+            if (read.Read?.Kind is not { } kindText || read.Box is not { } box)
+            {
+                continue;
+            }
+
+            if (printKind is { } printed && printed != WorkKind.Other
+                && EnumText.ParseOrNull<WorkKind>(kindText) is { } kind && kind != WorkKind.Other
+                && !KindContext.InFamily(kind, printed))
             {
                 continue;
             }
@@ -262,7 +281,7 @@ public static class EvalCombination
             var at = PlaceOf(box, items);
             if (at >= 0 && items[at].Read is { Kind: null } kindless)
             {
-                items[at] = items[at] with { Read = kindless with { Kind = kind } };
+                items[at] = items[at] with { Read = kindless with { Kind = kindText } };
             }
         }
 

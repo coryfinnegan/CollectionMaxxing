@@ -973,5 +973,61 @@ public sealed class CombinedEngineTests : IDisposable
         built.Items.Single().Read!.Kind.ShouldBeNull();
     }
 
+    // ---- the shelf's print denies a kind, so lending it is never shown ----------------------------------------------------
+
+    [Fact]
+    public void A_vision_read_does_not_take_a_kind_the_shelfs_print_denies()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Book)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = WorkKind.Film },
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Single().Read!.Kind.ShouldBeNull("a book on this shelf is a kind the print denies, so /identify would have taken it off the read too");
+    }
+
+    [Fact]
+    public void A_vision_read_still_takes_a_kind_the_shelfs_print_allows()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Game)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = WorkKind.Game },
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Single().Read!.Kind.ShouldBe("game");
+    }
+
+    // ---- a model-only place is grounded with the shelf's printed kind lent, as /identify grounds it ---------------------
+
+    [Fact]
+    public void A_model_only_place_takes_the_item_grounded_with_the_prints_kind_lent_not_the_models_own_ungrounded_item()
+    {
+        var ungrounded = NotFound("a tape").At(0.6); // the model's own row, grounded without the print: nothing found
+        var lent = T1(Matched("Midnight Reel")).At(0.6); // the same read, grounded again with the print lent: matched
+        var model = ModelRead(ungrounded) with { ItemsLentPrint = [lent] };
+        var vision = VisionRead() with { PrintKind = WorkKind.Film };
+
+        var built = EvalCombination.Of([model, vision], ArrangeShelf("Midnight Reel")).Single();
+
+        built.Items.Single().Best!.Title.ShouldBe("Midnight Reel");
+    }
+
+    [Fact]
+    public void The_models_own_row_is_not_touched_by_building_the_combination_with_a_lent_print()
+    {
+        var ungrounded = NotFound("a tape").At(0.6);
+        var lent = T1(Matched("Midnight Reel")).At(0.6);
+        var model = ModelRead(ungrounded) with { ItemsLentPrint = [lent] };
+        var vision = VisionRead() with { PrintKind = WorkKind.Film };
+
+        EvalCombination.Of([model, vision], ArrangeShelf("Midnight Reel"));
+
+        model.Items.Single().ShouldBe(ungrounded); // the apple_model row the phone uploaded still measures the model alone
+    }
+
     private static string EnumTextOf(ScanTier tier) => CollectionMaxxing.Domain.Common.EnumText.ToText(tier);
 }
