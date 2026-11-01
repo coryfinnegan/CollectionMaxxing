@@ -20,6 +20,9 @@ public sealed class ComparableTitle
     /// <summary>The most words of other print a read may carry around a title it holds.</summary>
     private const int MostExtraWords = 3;
 
+    /// <summary>The most digits a number standing after a title may have and still be read as a volume number.</summary>
+    private const int MostVolumeDigits = 2;
+
     // Edit distance keeps two rows of this many numbers on the stack; a longer title gets rows of its own.
     private const int MostStackedRowLength = 256;
 
@@ -31,7 +34,8 @@ public sealed class ComparableTitle
 
     private ComparableTitle(string? title, bool withMainTitle)
     {
-        // A subtitle that is only a genre label is not part of the title the cover and the shelf carry.
+        // The normaliser drops a genre-label subtitle; the main title is found in the same stripped title, so a release
+        // labelled "Dune: A Novel" is a plain "Dune" and not a main title that has lost a subtitle.
         var named = GenreSubtitle.WithoutLabel(title);
         Key = TitleNormalizer.Normalize(named);
         if (Key.Length > 0)
@@ -145,8 +149,9 @@ public sealed class ComparableTitle
     /// sticker, a shelf number. The other title's words must stand together and in order inside this one, with at
     /// least one and at most <see cref="MostExtraWords"/> words of other print left over, and the title found must
     /// carry at least <see cref="MinContainedLetters"/> letters, so "Dune" inside a read is a find and "Up" is not.
-    /// A number left standing after the title is a sequel number or a year, not a sticker, and costs the same quarter
-    /// it costs anywhere else. The result is never 1: a title found inside other print is close, not the same, and the
+    /// A volume number or a year left standing after the title belongs to the title and costs the same quarter it
+    /// costs anywhere else ("harbor light 2" is not "Harbor Light"); a longer run of digits is a sticker or a shelf
+    /// mark and costs nothing. The result is never 1: a title found inside other print is close, not the same, and the
     /// scorer will not add it on its own strength (see <see cref="MatchScorer"/>).
     /// </summary>
     private double? Holding(ComparableTitle other)
@@ -171,7 +176,7 @@ public sealed class ComparableTitle
         var credit = TitleNormalizer.ContainedTitleCredit - (TitleNormalizer.ExtraPrintCost * (extra - 1));
         for (var i = at + other.Tokens.Length; i < Tokens.Length; i++)
         {
-            if (Tokens[i].All(char.IsAsciiDigit))
+            if (IsVolumeNumberOrYear(Tokens[i]))
             {
                 return credit * TitleNormalizer.NumberMismatchCredit;
             }
@@ -179,6 +184,12 @@ public sealed class ComparableTitle
 
         return credit;
     }
+
+    // One or two digits standing after a title is a volume ("Harbor Light 2"), and four digits in range is a year:
+    // both belong to the title. Any other run of digits is a sticker, a shelf mark or a price.
+    private static bool IsVolumeNumberOrYear(string word) =>
+        word is { Length: > 0 } && word.All(char.IsAsciiDigit)
+        && (word.Length <= MostVolumeDigits || IsYear(word, out _));
 
     /// <summary>Where <paramref name="run"/> stands inside <paramref name="words"/> as whole words in order, or -1.</summary>
     private static int RunOf(string[] words, string[] run)

@@ -18,7 +18,8 @@ public class TitleInsideALongerReadTests
     [Theory]
     [InlineData("MARA ELLINGSON dune")]  // a name the release does not list, in front
     [InlineData("QX ZV dune")]           // a misread pair of letters
-    [InlineData("412 dune")]             // a shelf or sticker number
+    [InlineData("412 dune")]             // a shelf or sticker number in front
+    [InlineData("dune 412")]             // and after
     [InlineData("dune SIGNED FIRST")]    // a sticker after the title
     [InlineData("dune EX LIBRIS MARA")]  // three words of other print
     public void A_read_that_holds_the_whole_title_offers_the_release(string spine)
@@ -111,10 +112,77 @@ public class TitleInsideALongerReadTests
         TitleNormalizer.TitleSimilarity("lantern up the hill", "Up").ShouldBeLessThan(Options.Thresholds.AmbiguousScore);
     }
 
-    [Fact]
-    public void A_number_left_standing_after_the_title_is_a_sequel_number_not_a_sticker()
+    [Theory]
+    [InlineData("harbor light 2")]     // a volume number
+    [InlineData("harbor light 12")]
+    public void A_volume_number_after_the_title_belongs_to_the_title(string spine)
     {
-        TitleNormalizer.TitleSimilarity("harbor light 2", "Harbor Light").ShouldBeLessThan(0.7);
+        TitleNormalizer.TitleSimilarity(spine, "Harbor Light").ShouldBeLessThan(0.7);
+    }
+
+    [Fact]
+    public void A_year_standing_after_the_title_belongs_to_it_as_a_volume_number_does()
+    {
+        // A year at the very end of a read is forgiven by the year rule; one with a sticker after it is not, and the
+        // find must not hand it back.
+        TitleNormalizer.TitleSimilarity("harbor light 1979 signed", "Harbor Light")
+            .ShouldBeLessThan(Options.Thresholds.AmbiguousScore);
+    }
+
+    [Fact]
+    public void A_longer_run_of_digits_after_the_title_is_a_sticker_and_costs_nothing()
+    {
+        TitleNormalizer.TitleSimilarity("harbor light 41207", "Harbor Light").ShouldBe(TitleNormalizer.ContainedTitleCredit);
+    }
+
+    [Theory]
+    [InlineData(ScoringProfileKind.BarcodeProduct)]
+    [InlineData(ScoringProfileKind.ShelfSpine)]
+    [InlineData(ScoringProfileKind.Cover)]
+    [InlineData(ScoringProfileKind.LooseCartridge)]
+    [InlineData(ScoringProfileKind.BareLabel)]
+    public void A_find_inside_a_longer_read_stays_under_the_matched_score_in_every_profile(ScoringProfileKind kind)
+    {
+        // Every other term agrees perfectly, so this is the most a find can ever score. It must not be an automatic add
+        // in any profile: print nobody has explained is never proof on its own.
+        var profile = Options.Profile(kind);
+        var read = new ReadItem
+        {
+            Title = "MARA ELLINGSON harbor light",
+            Kind = WorkKind.Book,
+            Format = ReleaseFormat.Paperback,
+            Platform = "Nintendo 64",
+            Year = 2010,
+            Creator = "Mara Odell",
+            Edition = "First",
+            ArtDistances = new Dictionary<string, double> { ["k"] = 0 },
+        };
+        var release = new CandidateRelease
+        {
+            Key = "k",
+            Title = "Harbor Light",
+            Kind = WorkKind.Book,
+            Format = ReleaseFormat.Paperback,
+            Platform = "Nintendo 64",
+            Year = 2010,
+            Creators = ["Mara Odell"],
+            Edition = "First",
+        };
+
+        MatchScorer.Score(read, release, profile).ShouldBeLessThan(profile.Thresholds.MatchedScore);
+    }
+
+    [Fact]
+    public void A_publishers_name_on_the_spine_offers_its_own_title_below_the_real_one()
+    {
+        // The find rule cannot tell other print from a title, so a book titled after a publisher is offered too. It must
+        // rank below the book the read is really of, and it must never be added by itself.
+        var read = new ReadItem { Title = "suddenly you AVON", Kind = WorkKind.Book };
+
+        var result = MatchScorer.Evaluate(read, [Book("avon", "Avon"), Book("suddenly", "Suddenly You")], Spine);
+
+        result.Ranked[0].Release.Key.ShouldBe("suddenly");
+        result.Outcome.ShouldBe(MatchOutcome.Ambiguous);
     }
 
     [Fact]

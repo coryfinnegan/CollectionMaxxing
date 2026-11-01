@@ -42,10 +42,13 @@ public static class TitleNormalizer
     /// Reduces a title to a comparison key. "The Matrix" and "Matrix, The" give the same key, as do "Final Fantasy VII" and
     /// "Final Fantasy 7", and "Ratchet &amp; Clank" and "Ratchet and Clank". A letter of another alphabet that looks like a
     /// Latin one is read as that Latin letter, in a title that carries Latin letters too ("ОDELL" with a Cyrillic O gives
-    /// "odell"); a title written wholly in another alphabet keeps its own letters. Null, blank or punctuation-only gives "".
+    /// "odell"); a title written wholly in another alphabet keeps its own letters. A subtitle that is only a genre label
+    /// ("Dune: A Novel") is no part of the key, so every key a release is stored, deduplicated and compared under is the
+    /// title alone (see <see cref="GenreSubtitle"/>). Null, blank or punctuation-only gives "".
     /// </summary>
-    public static string Normalize(string? title)
+    public static string Normalize(string? rawTitle)
     {
+        var title = GenreSubtitle.WithoutLabel(rawTitle);
         if (string.IsNullOrWhiteSpace(title))
         {
             return string.Empty;
@@ -304,7 +307,9 @@ public static class TitleNormalizer
 
     // A look-alike is a misread only where Latin letters are being read: a title written wholly in another alphabet is
     // that language, and folding it would send a query no provider could answer. Both sides of a comparison fold the
-    // same way, so a title in its own alphabet still matches itself.
+    // same way, so a title in its own alphabet still matches itself. The test is over the whole title, so a title in
+    // another alphabet that carries one Latin word is folded while the same title without that word is not; for an
+    // English catalogue that costs nothing, and it is what catches a read whose every letter came back a look-alike.
     private static bool HasALatinLetter(string text)
     {
         foreach (var c in text)

@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace CollectionMaxxing.Domain.Catalog.Matching;
 
 /// <summary>
@@ -22,14 +24,19 @@ public static class GenreSubtitle
     /// <summary>Where a subtitle starts. A bracketed one is handled on its own, because it also has to close.</summary>
     private static readonly string[] Markers = [":", " - ", " – ", " — "];
 
+    /// <summary>The first character of every marker, for the quick "this title has no subtitle at all" test.</summary>
+    private static readonly SearchValues<char> MarkerStarts = SearchValues.Create([':', '-', '–', '—', '(']);
+
     /// <summary>
-    /// A provider's title and its subtitle as one title, dropping a subtitle that is only a genre label. A blank
-    /// subtitle is no subtitle.
+    /// A provider's title and its subtitle as one title, dropping a genre label whichever field carries it: a provider
+    /// answers the same book now with a <c>subtitle</c> of "A Novel" and now with that label run into the title. A
+    /// blank subtitle is no subtitle.
     /// </summary>
     public static string Join(string title, string? subtitle)
     {
         ArgumentNullException.ThrowIfNull(title);
-        return string.IsNullOrWhiteSpace(subtitle) || IsOnlyALabel(subtitle) ? title : $"{title}: {subtitle}";
+        var joined = string.IsNullOrWhiteSpace(subtitle) || IsOnlyALabel(subtitle) ? title : $"{title}: {subtitle}";
+        return WithoutLabel(joined) ?? joined;
     }
 
     /// <summary>
@@ -55,6 +62,13 @@ public static class GenreSubtitle
     public static string? WithoutLabel(string? title)
     {
         if (string.IsNullOrWhiteSpace(title))
+        {
+            return title;
+        }
+
+        // Every label sits behind a subtitle marker, so a title carrying none of them is already its own title. Worth
+        // the scan: this runs for every title the normaliser is given.
+        if (title.AsSpan().IndexOfAny(MarkerStarts) < 0)
         {
             return title;
         }

@@ -1313,6 +1313,9 @@ internal static class TitleNormalizerPins
         ("dune EX LIBRIS MARA", "Dune", 0.25, 0.62),
         ("Dune: A Novel", "Dune", 1.0, 1.0),
         ("Dune: A Novel", "Dune Messiah", 0.5, 0.5),
+        ("Dune Messiah", "Dune", 0.5, 0.66),
+        ("Alien 190a", "Alien", 0.5, 0.66),
+        ("Sleepaway Camp III: Teenage Wasteland", "Camp III", 0.5333333333333333, 0.62),
     ];
 
     public const string GridDigest = "1F3A9F580B809B913860B03A93C157EA67819DDBD1528CFECDC460834682CF2B";
