@@ -29,15 +29,15 @@
 
   <ItemGroup Label="Service defaults">
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.11.0" />
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.0" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.20.0" />
-    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.20.0" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.20.1" />
   </ItemGroup>
 
   <ItemGroup Label="Aspire (AppHost only; Aspire.Hosting.AppHost itself is pinned by the AppHost SDK version)">
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.4" />
   </ItemGroup>
 
   <!-- Cover-image verification (#438 stage 2): SIFT matching needs the native runtimes per OS. -->
@@ -56,10 +56,10 @@
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageVersion Include="Respawn" Version="7.0.0" />
-    <PackageVersion Include="WireMock.Net" Version="2.19.0" />
+    <PackageVersion Include="WireMock.Net" Version="2.21.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
-    <PackageVersion Include="TngTech.ArchUnitNET.xUnitV3" Version="0.13.4" />
+    <PackageVersion Include="TngTech.ArchUnitNET.xUnitV3" Version="0.13.5" />
   </ItemGroup>
 
 </Project>
