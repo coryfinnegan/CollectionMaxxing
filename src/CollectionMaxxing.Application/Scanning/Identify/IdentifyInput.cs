@@ -207,9 +207,11 @@ internal static class IdentifyCleaning
     /// The reads with a kind the shelf's print denies taken off them. The print is better evidence of what a shelf holds than a kind an
     /// engine guessed for one spine from the picture: the picture model called every tape on one shelf a book, and the scanner lends
     /// that guess to the Vision read of the same spine before it sends the snap, so without this the print would never reach the read
-    /// it is about. Such a read keeps no kind at all, which is not a filter and not a score: every provider is still asked for it, and
-    /// the snap's printed kind only lists releases of that kind first among the ones that score level. A book on a shelf of tapes is
-    /// still found as a book. A read a product code identified is left alone: that kind came from the serial table, not from a guess.
+    /// it is about. Such a read loses its kind, so the type term no longer counts for it and every provider is asked. A title-only read
+    /// that its own kind used to put first can now tie with a release of another kind, and the snap's printed kind decides between
+    /// them. That changes how the read scores, which is why the print must be named on two lines of the shelf before it can say this. A
+    /// book on a shelf of tapes is still found as a book. A read a product code identified is left alone: that kind came from the
+    /// serial table, not from a guess.
     /// </summary>
     private static List<CleanItem> WithoutKindsThePrintDenies(List<CleanItem> cleaned, WorkKind? printKind)
     {

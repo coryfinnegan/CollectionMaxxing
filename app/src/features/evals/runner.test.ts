@@ -210,7 +210,14 @@ describe('the eval runner', () => {
       const printOf = (photoId: string, engine: string) => results().find((r) => r.photoId === photoId && r.engine === engine)?.printKind;
 
       it('sends the kind a film shelf printed on the row that read the print', async () => {
-        const tapes = { text: [line('STAR TREK GENERATIONS', 0.2, 0.2, 0.05, 0.6), line('92 Minutes Color', 0.3, 0.2, 0.05, 0.6)] };
+        // A shelf's kind is printed on several of its spines, so two of these name it.
+        const tapes = {
+          text: [
+            line('STAR TREK GENERATIONS', 0.2, 0.2, 0.05, 0.6),
+            line('92 Minutes Color', 0.3, 0.2, 0.05, 0.6),
+            line('90 Minutes/Color', 0.4, 0.2, 0.05, 0.6),
+          ],
+        };
         const kit = makeKit({ photos: 2, scenes: { 'photo-001': tapes } });
 
         await kit.runner.start();

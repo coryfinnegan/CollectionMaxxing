@@ -1,9 +1,11 @@
 using System.Net;
 using System.Text.Json;
+using CollectionMaxxing.Api.Tests.Items;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Libraries;
+using CollectionMaxxing.TestSupport;
 
 namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
 
@@ -37,6 +39,10 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
 
     private static List<int> AlternativeYears(JsonElement candidate) =>
         [.. candidate.GetProperty("alternatives").EnumerateArray().Select(a => a.GetProperty("year").GetInt32())];
+
+    /// <summary>The kind the stored read ended up with, or null when it has none (the read's own kind was taken off it, or never named).</summary>
+    private static string? InferredKind(JsonElement candidate) =>
+        candidate.GetProperty("inferred").TryGetProperty("kind", out var kind) ? kind.GetString() : null;
 
     private async Task<(HttpClient Client, Guid SessionId)> StartAsync()
     {
@@ -162,6 +168,68 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
         var candidates = await IdentifyPrintedAsync(client, sessionId, "book", [.. BookReads(4), Read(title: Title, kind: "book")]);
 
         AlternativeYears(candidates[4])[0].ShouldBe(BookYear);
+    }
+
+    [Fact]
+    public async Task A_read_a_product_code_identified_keeps_its_own_kind_under_a_print_that_denies_it()
+    {
+        // The code names Clay Fighter, a game, whatever the shelf's print says; a film of the same title must not be able to tie with it.
+        Games.Results.Add(ScanData.Game("Clay Fighter", "Super Nintendo Entertainment System", 1993, "g-clay-fighter"));
+        Games.Results.Add(new ProviderRelease { Provider = "igdb", ExternalId = "f-clay-fighter", Title = "Clay Fighter", Kind = WorkKind.Film, Year = FilmYear });
+        var (client, sessionId) = await StartAsync();
+        var coded = Read(title: "Wrangler's 2", platform: "SUPER NINTENDO");
+        coded["productCode"] = "SNS-8C-USA";
+
+        var candidate = (await IdentifyPrintedAsync(client, sessionId, "film", coded)).Single();
+
+        InferredKind(candidate).ShouldBe("game", "the kind came from the serial table, not from a guess");
+        Resolution(candidate).ShouldBe("matched");
+        candidate.GetProperty("release").GetProperty("year").GetInt32().ShouldBe(1993);
+    }
+
+    [Fact]
+    public async Task The_print_is_ignored_on_a_cover_shot_whose_read_keeps_its_own_kind()
+    {
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+        var body = Body(Guid.NewGuid(), [Read(title: Title, kind: "book")]);
+        body["kind"] = "cover";
+        body["shotKind"] = "single_cover";
+        body["printKind"] = "film";
+
+        var response = await client.PostAsync(IdentifyUrl(sessionId), Json(body));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var candidate = (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().Single();
+
+        InferredKind(candidate).ShouldBe("book", "a print kind belongs to a shelf, and one item's own kind already carries its print");
+        candidate.GetProperty("inferred").TryGetProperty("snapKind", out _).ShouldBeFalse();
+        AlternativeYears(candidate)[0].ShouldBe(BookYear);
+    }
+
+    [Fact]
+    public async Task The_print_is_ignored_on_an_edition_proof_whose_read_keeps_its_own_kind()
+    {
+        var library = await CreateLibraryAsync();
+        var bookId = await ItemSeed.AddReleaseAsync(Db, Title, WorkKind.Book, ReleaseFormat.Paperback, BookYear);
+        await ItemSeed.AddReleaseAsync(Db, Title, WorkKind.Film, ReleaseFormat.Dvd, FilmYear);
+        var itemId = await TestData.CreateItemAsync(Db, library, bookId);
+        await ItemSeed.SetEditionUnverifiedAsync(Db, itemId);
+        var client = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id);
+        var body = Body(Guid.NewGuid(), [Read(title: Title, kind: "book", format: "paperback", year: BookYear)]);
+        body["kind"] = "edition_proof";
+        body["shotKind"] = "single_cover";
+        body["itemId"] = itemId;
+        body["printKind"] = "film";
+
+        var response = await client.PostAsync(IdentifyUrl(sessionId), Json(body));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var candidate = (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().Single();
+
+        InferredKind(candidate).ShouldBe("book");
+        candidate.GetProperty("inferred").TryGetProperty("snapKind", out _).ShouldBeFalse();
+        Resolution(candidate).ShouldBe("matched");
+        candidate.GetProperty("release").GetProperty("id").GetGuid().ShouldBe(bookId);
     }
 
     [Fact]
