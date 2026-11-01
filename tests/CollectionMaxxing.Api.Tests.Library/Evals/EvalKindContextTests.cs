@@ -104,6 +104,18 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
     }
 
     [Fact]
+    public async Task A_print_that_one_read_agrees_with_leaves_the_other_reads_kinds_to_decide()
+    {
+        // One film read among four books: the engines can tell a film from a book on this photo, so the print of film has nothing to add.
+        var shelf = Titles(5, "Lantern Row Part");
+        ArrangeTiedBookAndFilm(shelf);
+
+        var items = await RunAsync("film", [.. shelf.Take(4).Select(t => ReadOf(t, "book")), ReadOf(shelf[4], "film"), ReadOf(Title, null)]);
+
+        Years(items[5]).ShouldBe([BookYear, FilmYear]);
+    }
+
+    [Fact]
     public async Task A_photo_with_no_print_and_no_agreement_is_left_in_the_providers_order()
     {
         var shelf = Titles(4, "Lantern Row Part");

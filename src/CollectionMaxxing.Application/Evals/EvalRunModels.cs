@@ -66,7 +66,7 @@ public sealed record EvalOcrLineInput(string? Text, double? X, double? Y, double
 /// <param name="OcrLines">Only the <c>vision_pipeline</c> photo carries these: the lines the engine split. Ignored for the other engines.</param>
 /// <param name="OcrPieces">Only the <c>vision_pipeline</c> photo: for each piece the engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
 /// <param name="CoverCue">What the phone's cover cue saw on a single picture, as one short line. Cleaned and cut to <see cref="EvalCoverCue.MaxLength"/> when kept; never a reason to refuse a run.</param>
-/// <param name="PrintKind">The kind the shelf's own print said it is a shelf of (the phone's <c>shelfKind.ts</c>). It orders level-scoring releases for a read that names no kind of its own, the one rule <c>/identify</c> applies; null on an older run or a shelf whose print said nothing.</param>
+/// <param name="PrintKind">The kind the shelf's own print said it is a shelf of (the phone's <c>shelfKind.ts</c>). The phone names it only when at least two spines print it. It speaks only when no read of the photo names that kind, the one rule <c>/identify</c> applies; null on an older run or a shelf whose print said nothing.</param>
 public sealed record EvalPhotoInput(
     string? PhotoId,
     ScanEngine? Engine,

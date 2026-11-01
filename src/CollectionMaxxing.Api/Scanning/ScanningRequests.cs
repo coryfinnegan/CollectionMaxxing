@@ -77,8 +77,10 @@ public sealed record IdentifyItem(
 /// <c>ShotKind</c> says what the phone's framing said the shot was (#338); <c>Kind</c> is a shelf read unless the phone says
 /// cover; <c>CandidateId</c> ties a cover read to the T2 row it was shot for, upgrading it in place (#344);
 /// <c>ItemId</c> ties an edition-proof read to the library item it verifies, upgrading it in place (#346);
-/// <c>PrintKind</c> is the kind this shelf's own print says it is a shelf of, which only lists releases of that kind
-/// first for a read that names no kind of its own. Idempotent per <c>SnapId</c>.
+/// <c>PrintKind</c> is the kind this shelf's own print says it is a shelf of; the phone names it only when at least two
+/// spines of the shelf print it. It speaks only when no read of the snap names that kind: then it lists releases of that kind
+/// first for a read that names no kind of its own, and takes a kind it denies off a read, which changes how that read scores.
+/// When a read names the kind, every read keeps its own kind and the print is left out. Idempotent per <c>SnapId</c>.
 /// </summary>
 public sealed record IdentifyRequest(
     Guid? SnapId = null,

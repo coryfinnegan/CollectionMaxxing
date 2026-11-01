@@ -160,6 +160,22 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_print_that_one_read_agrees_with_takes_no_kind_off_the_other_reads()
+    {
+        // One film read among four books: the engines can tell a film from a book on this shelf, so the print of film has nothing to add.
+        // Every book read keeps its kind, and a title-only read goes by the kind most of the shelf's reads name.
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+
+        var candidates = await IdentifyPrintedAsync(
+            client, sessionId, "film", [.. BookReads(4), Read(title: "Lantern Row Part 1", kind: "film", format: "vhs"), Read(title: Title)]);
+
+        candidates.Take(4).Select(InferredKind).ShouldAllBe(kind => kind == "book");
+        InferredKind(candidates[4]).ShouldBe("film");
+        AlternativeYears(candidates[5]).ShouldBe([BookYear, FilmYear]);
+    }
+
+    [Fact]
     public async Task A_read_the_print_agrees_with_keeps_its_own_kind()
     {
         ArrangeTiedBookAndFilm();
