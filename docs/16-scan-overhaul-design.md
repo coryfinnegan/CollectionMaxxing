@@ -32,7 +32,7 @@ The current pipeline already matches the research direction in several places:
 | Background jobs + SSE + polling fallback | EXISTS | `Application/Jobs/`, `Application/Scanning/Events/ScanEventFeed.cs`, `changeSeq` cursor |
 | Offline tray outbox + owned-index + crops on phone | EXISTS | MMKV stores, `snapStore.ts` (`cm-snaps/`, 7-day/50-snap), `offline/ownedCache.ts` |
 | Session defaults on server | EXISTS (unwired in UI) | `ScanSession.DefaultLocationId/DefaultStatus` |
-| Eval scorer + M3 gate + regression rule | EXISTS (no baseline) | `Application/Evals/*`, `evals/baseline.json` (`"metrics": {}` by design → `no_baseline`) |
+| Eval scorer + M3 gate + regression rule | EXISTS (baseline set 2026-10-31) | `Application/Evals/*`, `evals/baseline.json` (the clean 32-photo run of 2026-10-31, #608) |
 
 Gaps the design must close (§2–§12 each name theirs): camera-first entry, session
 context UI, auto-add tiers, Move action, barcode entry in review, cover snap,
@@ -397,9 +397,11 @@ re-run of the home acceptance scenario (§17).
 
 ## 17. Eval harness: make the baseline real + home acceptance as DoD
 
-**Current honesty gap (verified):** `evals/baseline.json` is `"metrics": {}`, so
-`EvalRegression.Check()` reports `no_baseline` for every run — the 2-point
-regression rule has never engaged end-to-end. No review-burden metric exists. The
+**Baseline (set 2026-10-31, #608):** `evals/baseline.json` holds the metrics and
+threshold hash of the owner's clean 32-photo run of 2026-10-31, so
+`EvalRegression.Check()` now compares every run against it and the 2-point
+regression rule engages. Before that it was `"metrics": {}` and every run reported
+`no_baseline`. **Still open from the original gap:** no review-burden metric exists. The
 real-golden rescore test (`RescoreLatestRunTests`, `RUN_EVALS=1`) never runs in CI,
 and the manually-triggered eval workflow anticipated by docs/09 §"AI evals" does
 not exist. Golden photos/truth live only on the owner's PC (`Evals:GoldenPath`).

@@ -7,6 +7,7 @@ using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Application.Evals;
 
@@ -16,14 +17,23 @@ namespace CollectionMaxxing.Application.Evals;
 /// written, no artwork re-score is asked for and no background job is queued. The providers are asked through their normal cached
 /// path, so a repeat costs nothing. It reads the catalogue as the caller can: a signed-in administrator sees the global releases.
 /// </summary>
-public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, ScanningOptions options, IGameSerialLookup serials)
+public sealed class EvalGrounder(
+    IdentifyGrounding grounding,
+    IAppDbContext db,
+    ScanningOptions options,
+    IOptions<EvalsOptions> evals,
+    IGameSerialLookup serials,
+    TimeProvider time)
 {
     /// <summary>The top releases kept per item (the same three <c>/identify</c> offers).</summary>
     public const int Alternatives = 3;
 
     /// <summary>
     /// Grounds the items one photo and engine read. A read the run's <paramref name="memo"/> has already grounded is answered from
-    /// it, so the catalogue and the providers are asked once per distinct read in a run, not once per engine and photo.
+    /// it, so the catalogue and the providers are asked once per distinct read in a run, not once per engine and photo. The reads
+    /// that are not known yet are grounded together, the way <c>/identify</c> grounds a picture: the catalogue is asked once for all
+    /// of them, then the providers for up to <see cref="EvalsOptions.GroundingParallelism"/> of them at a time. The answers are the
+    /// ones asking each read on its own would give, in the order the reads came in.
     /// </summary>
     public async Task<IReadOnlyList<GroundedItem>> GroundAsync(
         ScanEngine engine, IReadOnlyList<EvalReadItemInput> items, EvalGroundingMemo memo, CancellationToken cancellationToken)
@@ -36,13 +46,8 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
         // Cleaning also tells each kindless read what kind the rest of the photo's reads agreed on (KindContext), the one rule
         // /identify applies; the memo below keys on the read with it, so a lookup made under another photo's kind is never reused.
         var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials);
-        var answers = new List<BarcodeResolution>(items.Count);
-        foreach (var item in cleaned)
-        {
-            // No one is waiting on an eval, so each read gets the patient budget the background job gets, not the live request's.
-            answers.Add(await memo.GroundAsync(
-                item.Facts, item.Profile, () => grounding.GroundAsync(item.Facts, item.Profile, options.JobResolveBudget, cancellationToken)));
-        }
+        var answers = await memo.GroundManyAsync(
+            [.. cleaned.Select(c => (c.Facts, c.Profile))], claims => GroundClaimsAsync(claims, cancellationToken), cancellationToken);
 
         // One book in one place, one item per photo and engine: a read that repeats a stronger read of the same release in the same
         // place is not scored, the same rule /identify applies, so the scorer sees what a person scanning this photo would have been
@@ -81,6 +86,98 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
         return grounded;
     }
 
+    /// <summary>
+    /// Grounds the reads this call has claimed, with the same steps <see cref="IdentifyGrounding.GroundAsync"/> takes for one read.
+    /// The database step comes first and alone, for every read that has words to look for: a DbContext serves one query at a time,
+    /// so no provider is asked while it runs. The provider asks then run together up to the bound; they touch no database.
+    /// </summary>
+    private async Task GroundClaimsAsync(IReadOnlyList<EvalGroundingMemo.Claim> claims, CancellationToken cancellationToken)
+    {
+        var toAsk = new List<EvalGroundingMemo.Claim>(claims.Count);
+        foreach (var claim in claims)
+        {
+            if (claim.Facts.SearchText is null)
+            {
+                claim.Complete(grounding.Score(claim.Facts, claim.Profile, LocalPool.Empty, ProviderAnswers.None));
+            }
+            else
+            {
+                toAsk.Add(claim);
+            }
+        }
+
+        if (toAsk.Count == 0)
+        {
+            return;
+        }
+
+        var pools = await grounding.FindLocalManyAsync([.. toAsk.Select(c => c.Facts)], cancellationToken);
+
+        // Each provider paces itself with one limiter shared by every ask, so with K asks under way each call waits for the other K - 1
+        // and takes up to K times as long as it would alone. Each ask's budget is the job budget for K, so queueing behind the others
+        // never costs a read the time the sequential grounder gave it, at any rate.
+        var places = Math.Min(Math.Max(1, evals.Value.GroundingParallelism), toAsk.Count);
+        var budget = options.JobResolveBudget * places;
+        using var gate = new SemaphoreSlim(places);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await Task.WhenAll(toAsk.Select((claim, i) => AskProvidersAsync(claim, pools[i], gate, stop, budget, cancellationToken)));
+    }
+
+    /// <summary>
+    /// Asks the providers about one read once a place frees up, and scores the answer. No one is waiting on an eval, so each read gets a
+    /// patient budget (the background job's, scaled for the asks in flight), counted from the moment its ask starts on the injected
+    /// clock, not the live request's. When one ask fails, the reads still waiting for a place are left for the next call, and the asks
+    /// already under way finish what they started.
+    /// </summary>
+    private async Task AskProvidersAsync(
+        EvalGroundingMemo.Claim claim,
+        LocalPool local,
+        SemaphoreSlim gate,
+        CancellationTokenSource stop,
+        TimeSpan budget,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            try
+            {
+                await gate.WaitAsync(stop.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                // A place can free up just as the call is cancelled or another ask has failed: no new ask starts then.
+                cancellationToken.ThrowIfCancellationRequested();
+                if (stop.IsCancellationRequested)
+                {
+                    cancellationToken.ThrowIfCancellationRequested(); // the call was cancelled, not another ask failed
+                    return;
+                }
+
+                using var expiry = new CancellationTokenSource(budget, time);
+                using var asking = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+                var providers = await grounding.AskProvidersAsync(claim.Facts, cancellationToken, asking.Token);
+
+                // An ask cut short by the app stopping may hand back a thin answer instead of an error: never remember that.
+                cancellationToken.ThrowIfCancellationRequested();
+                claim.Complete(grounding.Score(claim.Facts, claim.Profile, local, providers));
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+        catch
+        {
+            await stop.CancelAsync();
+            throw;
+        }
+    }
+
     /// <summary>What the read claimed besides its title, as it was scored, the profile it was scored with, and the author as read.</summary>
     private static GroundedRead ReadOf(ReadFacts facts, ScoringProfileKind profile, string? creatorAsRead) => new(
         facts.Creator,
@@ -113,7 +210,7 @@ public sealed class EvalGrounder(IdentifyGrounding grounding, IAppDbContext db, 
                 option.Terms);
     }
 
-    private async Task<Dictionary<Guid, GroundedCandidate>> LoadLocalAsync(List<BarcodeResolution> answers, CancellationToken cancellationToken)
+    private async Task<Dictionary<Guid, GroundedCandidate>> LoadLocalAsync(IReadOnlyList<BarcodeResolution> answers, CancellationToken cancellationToken)
     {
         var ids = answers.SelectMany(a => a.Options).Select(o => o.LocalReleaseId).OfType<Guid>().Distinct().ToList();
         if (ids.Count == 0)

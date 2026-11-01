@@ -262,6 +262,15 @@ Test-Case 'compose: the config guard catches a forbidden port set through .env' 
     Assert-True (@(Test-CmConfig -EnvMap @{ CM_API_PORT = '8080' } -ComposeConfig $config).Count -ge 1)
 }
 
+Test-Case 'compose: the api is given the Open Library contact email from .env, and an empty one when .env has none' {
+    $none = Get-RealComposeConfig
+    $names = @($none.services.api.environment.PSObject.Properties.Name)
+    Assert-True ($names -contains 'Providers__OpenLibrary__ContactEmail') 'the API binds Providers:OpenLibrary:ContactEmail from this variable'
+    Assert-Equal '' "$($none.services.api.environment.Providers__OpenLibrary__ContactEmail)" 'anonymous unless .env names a contact'
+    $set = Get-RealComposeConfig -EnvValues @{ CM_OPENLIBRARY_CONTACT_EMAIL = 'someone@example.test' }
+    Assert-Equal 'someone@example.test' "$($set.services.api.environment.Providers__OpenLibrary__ContactEmail)"
+}
+
 Test-Case 'compose: every variable the compose file reads is documented in .env.example, except CM_TAG (the deployer passes it)' {
     $compose = Get-Content (Join-Path $PSScriptRoot '../docker-compose.yml') -Raw
     $example = Get-Content (Join-Path $PSScriptRoot '../.env.example') -Raw
