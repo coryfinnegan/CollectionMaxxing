@@ -35,6 +35,8 @@ export function identifyRequestOf(snap: PicSnap): IdentifyRequest {
     shotKind: snap.shotKind ?? 'unknown',
     engine: toScanEngine(snap.engine ?? 'vision_pipeline'),
     ...(snap.fellBackFrom ? { fellBackFrom: toFallbackReason(snap.fellBackFrom) } : {}),
+    // What the shelf's own print says it is a shelf of: a fact about the picture, which is why it rides on the snap and not on any read.
+    ...(snap.printKind ? { printKind: snap.printKind } : {}),
     ...(snap.boundCandidateId ? { kind: 'cover' as const, candidateId: snap.boundCandidateId } : {}),
     items: snap.items.map((i) => {
       // The snap's segment links a multi-item snap; an item stamped with its own keeps it.

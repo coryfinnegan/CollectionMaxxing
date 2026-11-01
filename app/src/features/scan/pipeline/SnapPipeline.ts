@@ -220,6 +220,7 @@ export class SnapPipeline {
         unreadableCount: result.unreadableCount,
         engine: result.engine,
         fellBackFrom: result.fellBackFrom,
+        printKind: result.printKind,
       });
       for (const item of result.items) this.makeCrop(snapId, still, item);
       if (items.length === 0) {

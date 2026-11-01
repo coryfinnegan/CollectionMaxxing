@@ -109,13 +109,14 @@ public sealed class ResolvePendingIdentify(
     }
 
     /// <summary>
-    /// A read that names no kind is asked again with the kind its snap agreed on, as the request would have asked it
-    /// (<see cref="KindContext"/>): the snap's other rows keep the kinds they were read with. A row with no snap, or alone in
-    /// it (a barcode, a bound cover), has no context.
+    /// A read that names no kind is asked again with the kind its snap was of, as the request would have asked it
+    /// (<see cref="KindContext"/>). The kind the request settled on is in the read itself when it had one, which is the only place
+    /// the shelf's own print survives; otherwise the snap's rows are read again for the kind they agree on, and the snap's other
+    /// rows keep the kinds they were read with. A row with no snap, or alone in it (a barcode, a bound cover), has no context.
     /// </summary>
     private async Task<ReadFacts> WithSnapKindAsync(ScanCandidate candidate, ReadFacts facts, CancellationToken cancellationToken)
     {
-        if (facts.Kind is not null || candidate.SnapId is not { } snapId)
+        if (facts.Kind is not null || facts.KindContext is not null || candidate.SnapId is not { } snapId)
         {
             return facts;
         }

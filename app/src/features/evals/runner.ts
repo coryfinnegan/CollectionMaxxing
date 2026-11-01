@@ -641,6 +641,8 @@ export class EvalRunner {
             ...(engine === 'vision_pipeline' ? ocrRecord(reading.ocr) : {}),
             // What the cover cue saw on a single cover (rects found and why each was left out, the format it gave, whether it was in time): the PC shows it beside the miss.
             ...(reading.coverCue ? { coverCue: reading.coverCue } : {}),
+            // The kind the shelf's own print said it is a shelf of: the PC grounds the photo's kindless reads with it, as /identify does.
+            ...(reading.printKind ? { printKind: reading.printKind } : {}),
           };
     } catch (error) {
       // The forced extraction tier reports why it gave no reading, like the Apple row does.

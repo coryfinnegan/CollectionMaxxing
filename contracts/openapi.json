@@ -8424,6 +8424,16 @@
               "null",
               "string"
             ]
+          },
+          "printKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkKind"
+              }
+            ]
           }
         }
       },
@@ -9190,6 +9200,16 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "printKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkKind"
+              }
+            ]
           }
         }
       },

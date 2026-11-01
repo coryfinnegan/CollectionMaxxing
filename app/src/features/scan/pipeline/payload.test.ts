@@ -114,3 +114,16 @@ describe('a read only the picture model made', () => {
     expect(request.items?.map((i) => i.unconfirmed)).toEqual([undefined, true, undefined]);
   });
 });
+
+describe('the shelf kind the picture printed', () => {
+  it('goes with the snap, not with any read', () => {
+    const request = identifyRequestOf({ ...snapOf(read('STAR TREK GENERATIONS')), printKind: 'film' });
+
+    expect(request.printKind).toBe('film');
+    expect(request.items?.[0]).not.toHaveProperty('printKind');
+  });
+
+  it('is left out when the shelf printed nothing of its kind', () => {
+    expect(identifyRequestOf(snapOf(read('THE SECRET HISTORY')))).not.toHaveProperty('printKind');
+  });
+});

@@ -99,7 +99,8 @@ public sealed record EvalPhotoResult(
     EvalDuplicateRescan? DuplicateRescan = null,
     IReadOnlyList<EvalOcrLine>? OcrLines = null,
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
-    string? CoverCue = null);
+    string? CoverCue = null,
+    CollectionMaxxing.Domain.Catalog.WorkKind? PrintKind = null);
 
 /// <summary>Body of <c>POST /api/admin/evals/runs/open</c>: the device and config version the run uses, and an optional note on a deliberate threshold move.</summary>
 public sealed record EvalOpenRunRequest(EvalDeviceRequest? Device = null, string? ConfigVersion = null, string? BaselineNote = null);

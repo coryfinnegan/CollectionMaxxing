@@ -113,7 +113,7 @@ public class EvalGroundingEquivalenceTests(ApiFixture api) : EvalTest(api)
 
         using var scope = Factory.Services.CreateScope();
         var grounder = scope.ServiceProvider.GetRequiredService<EvalGrounder>();
-        var items = await grounder.GroundAsync(ScanEngine.VisionPipeline, Photo, new EvalGroundingMemo(), CancellationToken.None);
+        var items = await grounder.GroundAsync(ScanEngine.VisionPipeline, Photo, new EvalGroundingMemo(), printKind: null, CancellationToken.None);
         return [.. items.Select(Line)];
     }
 

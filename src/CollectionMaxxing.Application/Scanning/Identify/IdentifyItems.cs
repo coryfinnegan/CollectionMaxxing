@@ -78,7 +78,7 @@ public static class IdentifyItems
             }
 
             var snapId = input.SnapId!.Value;
-            var items = IdentifyCleaning.Clean(input.Items!, input.Kind, serials);
+            var items = IdentifyCleaning.Clean(input.Items!, input.Kind, serials, input.PrintKind);
             var now = clock.GetUtcNow();
 
             // Claim the snap and its rows under the session's lock, so a retry or a twin of this request finds them instead of racing them.

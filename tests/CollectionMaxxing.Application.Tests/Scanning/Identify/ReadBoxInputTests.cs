@@ -107,4 +107,34 @@ public class ReadBoxInputTests
     {
         Of(1.0, 0.1, 0.005, 0.8).ShouldBeNull();
     }
+
+    // ---- how much of a place two boxes share ------------------------------------------------------------------------
+
+    private static ReadBox Spine(double x, double width = 0.05) => new(x, 0.1, width, 0.8);
+
+    [Fact]
+    public void A_box_shares_all_of_a_spine_it_covers_whole_and_none_of_one_it_misses()
+    {
+        var wide = new ReadBox(0.1, 0.1, 0.3, 0.8);
+
+        wide.OverlapShare(Spine(0.12)).ShouldBe(1.0, 1e-9);
+        wide.OverlapShare(Spine(0.3)).ShouldBe(1.0, 1e-9);
+        wide.OverlapShare(Spine(0.6)).ShouldBe(0);
+    }
+
+    [Fact]
+    public void Boxes_that_only_touch_share_nothing_and_are_not_one_place()
+    {
+        Spine(0.1).OverlapShare(Spine(0.15)).ShouldBe(0, 1e-9);
+        Spine(0.1).SamePlaceAs(Spine(0.15)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Half_a_spine_is_half_a_place_which_is_the_least_that_counts_as_one()
+    {
+        var half = Spine(0.1).OverlapShare(Spine(0.125));
+
+        half.ShouldBe(ReadBox.SamePlaceShare, 1e-9);
+        Spine(0.1).SamePlaceAs(Spine(0.125)).ShouldBeTrue();
+    }
 }

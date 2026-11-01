@@ -1,5 +1,7 @@
 using CollectionMaxxing.Application.Evals;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.Infrastructure.Evals;
@@ -58,6 +60,20 @@ internal static class EvalFixtures
 
     /// <summary>The item with the box it was read in: a spine <paramref name="width"/> wide whose left edge is at <paramref name="x"/> (each 0 to 1).</summary>
     public static GroundedItem At(this GroundedItem item, double x, double width = 0.05) => item with { Box = new ReadBox(x, 0.1, width, 0.8) };
+
+    /// <summary>
+    /// The item as the server cleaned the read behind it: the kind the phone named for it, or none (the Vision tier names none).
+    /// <see cref="WorkKind.Other"/> is the reader saying it does not know, which the sanitiser leaves as no kind at all.
+    /// </summary>
+    public static GroundedItem ReadKind(this GroundedItem item, WorkKind? kind) =>
+        item with
+        {
+            Read = new GroundedRead(
+                null,
+                kind is { } named && named != WorkKind.Other ? EnumText.ToText(named) : null,
+                null, null, null, null,
+                EnumText.ToText(ScoringProfileKind.ShelfSpine)),
+        };
 
     /// <summary>A kept provisional guess (docs/16 §17): it must carry <c>IsGuess</c>, else it scores as invented.</summary>
     public static GroundedItem Kept(GroundedItem item, bool? isGuess = true) => item with { Provisional = true, IsGuess = isGuess };

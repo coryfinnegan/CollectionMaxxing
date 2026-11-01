@@ -40,7 +40,9 @@ public sealed record IdentifyItemInput(
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
 /// a cover read to the T2 row it was shot for (design §8(b)), which is then upgraded in place instead of adding candidates;
 /// <c>BoundItemId</c> ties an edition-proof read to the library item it verifies (design §11), which is upgraded in place
-/// on a match and never touched otherwise.
+/// on a match and never touched otherwise. <c>PrintKind</c> is the kind the shelf's own print says it is a shelf of (the phone's
+/// <c>shelfKind.ts</c>), which the phone names only when at least two spines of the shelf print it: a snap-wide hint for
+/// <see cref="KindContext"/>, which lets it speak only when no read names that kind. It is never a filter.
 /// </summary>
 public sealed record IdentifyInput(
     Guid? SnapId,
@@ -51,7 +53,8 @@ public sealed record IdentifyInput(
     ShotKind? ShotKind = null,
     IdentifyKind Kind = IdentifyKind.Shelf,
     Guid? BoundCandidateId = null,
-    Guid? BoundItemId = null);
+    Guid? BoundItemId = null,
+    WorkKind? PrintKind = null);
 
 public static class IdentifyErrors
 {
@@ -179,17 +182,56 @@ internal static class IdentifyCleaning
             .Sum(value => value is null ? 0 : Encoding.UTF8.GetByteCount(value));
 
     /// <summary>
-    /// Cleans the items of one snap, and tells each read that names no kind what kind the rest of the snap agreed on
-    /// (<see cref="KindContext"/>, which only orders level-scoring releases). The eval grounder cleans through here too, so the
-    /// live path and the eval run order a shelf's kindless reads by one rule.
+    /// Cleans the items of one snap, and tells each read that names no kind what kind the snap is of (<see cref="KindContext"/>): what
+    /// the shelf's own print said (<paramref name="printKind"/>) when no read of the snap names that kind, else the kind the rest of
+    /// the snap agreed on. When the print speaks, a read whose own kind it denies loses that kind
+    /// (<see cref="WithoutKindsThePrintDenies"/>), which changes how that read scores. The eval grounder cleans through here too, so the
+    /// live path and the eval run treat a shelf's reads by one rule. A print kind belongs to a shelf: on a single cover or an edition
+    /// proof the read's own kind already carries what that one item's print said, so this ignores it.
     /// </summary>
-    public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind = IdentifyKind.Shelf, IGameSerialLookup? serials = null) =>
-        WithSnapKind(CleanEach(items, kind, serials));
+    public static List<CleanItem> Clean(
+        IReadOnlyList<IdentifyItemInput> items,
+        IdentifyKind kind = IdentifyKind.Shelf,
+        IGameSerialLookup? serials = null,
+        WorkKind? printKind = null) =>
+        WithSnapKind(CleanEach(items, kind, serials), kind is IdentifyKind.Shelf ? printKind : null);
 
-    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned) =>
-        KindContext.Dominant(cleaned.Select(c => c.Facts.Kind)) is { } snapKind
-            ? [.. cleaned.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
-            : cleaned;
+    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned, WorkKind? printKind)
+    {
+        // Whether the print speaks is settled on the kinds the reads came with, before any is taken off a read.
+        var speaking = KindContext.PrintThatSpeaks(printKind, cleaned.Select(c => c.Facts.Kind));
+        var reads = WithoutKindsThePrintDenies(cleaned, speaking);
+        return KindContext.Of(speaking, reads.Select(c => c.Facts.Kind)) is { } snapKind
+            ? [.. reads.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
+            : reads;
+    }
+
+    /// <summary>
+    /// The reads with a kind the shelf's print denies taken off them, when the print speaks: no read of the snap names the printed
+    /// kind, so the engines have not told that kind apart on this shelf. The print is then better evidence of what the shelf holds than
+    /// a kind an engine guessed for one spine from the picture: the picture model called every tape on one shelf a book, and the
+    /// scanner lends that guess to the Vision read of the same spine before it sends the snap, so without this the print would never
+    /// reach the read it is about. Such a read loses its kind, so the type term no longer counts for it and every provider is asked. A
+    /// title-only read that its own kind used to put first can now tie with a release of another kind, and the snap's printed kind
+    /// decides between them. That changes how the read scores, which is why the phone names the print only when two spines of the
+    /// shelf print it, and why a single read of the printed kind keeps every read as it is. A book on a shelf of tapes is still found
+    /// as a book. A read a product code identified is left alone: that kind came from the serial table, not from a guess.
+    /// </summary>
+    private static List<CleanItem> WithoutKindsThePrintDenies(List<CleanItem> cleaned, WorkKind? speakingKind)
+    {
+        if (speakingKind is not { } printed)
+        {
+            return cleaned;
+        }
+
+        return
+        [
+            .. cleaned.Select(c =>
+                c.Facts is { Kind: { } kind, ProductCode: null } && kind != WorkKind.Other && !KindContext.InFamily(kind, printed)
+                    ? c with { Facts = c.Facts with { Kind = null } }
+                    : c),
+        ];
+    }
 
     private static List<CleanItem> CleanEach(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind, IGameSerialLookup? serials) =>
         items.Select(item =>
@@ -296,6 +338,13 @@ internal sealed record StoredRead
     /// </summary>
     public bool? Unconfirmed { get; init; }
 
+    /// <summary>
+    /// The kind the snap was of (<see cref="KindContext"/>), on a read that named none of its own. Kept in the read, the same jsonb
+    /// column, because a read the providers ran out of time for is asked again later: the background job must order its releases the
+    /// way the request would have, and the snap's own print is not in any read's kind for the job to find again.
+    /// </summary>
+    public string? SnapKind { get; init; }
+
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -316,6 +365,7 @@ internal sealed record StoredRead
             ReadAs = facts.ReadAs,
             Profile = profile.ToString(),
             Unconfirmed = unconfirmed ? true : null,
+            SnapKind = facts.KindContext is { } snapKind ? EnumText.ToText(snapKind) : null,
         },
         Options);
 
@@ -334,7 +384,8 @@ internal sealed record StoredRead
             stored?.Year,
             stored?.Platform,
             stored?.ProductCode,
-            stored?.ReadAs);
+            stored?.ReadAs,
+            EnumText.ParseOrNull<WorkKind>(stored?.SnapKind));
         var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
         return (facts, profile);
     }
