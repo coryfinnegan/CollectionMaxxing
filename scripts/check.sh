@@ -29,7 +29,7 @@
 # projects; unset, every test project runs. All the usual guards still apply to the lanes that run.
 #
 # CM_TEST_FILTER hands a VSTest filter expression (`dotnet test --filter`; xUnit v3 runs in its VSTest flavour here,
-# see tests/Directory.Build.targets) to every selected project; CI uses it with CM_TEST_ONLY to shard the two slow Api
+# see tests/Directory.Build.targets) to every selected project; CI uses it with CM_TEST_ONLY to shard the three slow Api
 # suites across runners. Use FullyQualifiedName~ / !~ (contains / does not contain) and DisplayName~ / !~, joined with
 # & and | and grouped with (). A filter that matches nothing fails, because an empty shard would hide a coverage gap.
 # CM_SHARD_REPORT (a file path, with CM_TEST_FILTER) records "project listed-in-shard listed-in-suite ran" per

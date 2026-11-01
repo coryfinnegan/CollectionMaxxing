@@ -26,7 +26,9 @@ Test-Case 'runbooks: every file or script path a runbook mentions exists in the 
     $missing = [System.Collections.Generic.List[string]]::new()
     foreach ($f in Get-DocsToScan) {
         $text = (Get-Content -LiteralPath $f.FullName -Raw) -replace 'C:\\CollectionMaxxing\\repo\\', ''
-        foreach ($m in [regex]::Matches($text, '(?<![\w/\\:.<-])((?:deploy|scripts|docs|contracts|app|tests|\.github)[\\/][^\s`''"|;,()]+)')) {
+        # app/ is left out on purpose: a pull request that changes only app/ skips the jobs that run this test (CI's
+        # changes job), so a check on app/ paths would only ever fail on main, after the merge.
+        foreach ($m in [regex]::Matches($text, '(?<![\w/\\:.<-])((?:deploy|scripts|docs|contracts|tests|\.github)[\\/][^\s`''"|;,()]+)')) {
             $p = $m.Groups[1].Value
             if ($p -match '[<>*{}$]') { continue }
             $p = ($p -split '#')[0].TrimEnd('.', ':', '`')
