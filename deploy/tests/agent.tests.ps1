@@ -491,7 +491,7 @@ Test-Case 'prompt: {issue} and {branch} are filled in everywhere and the written
 
 Test-Case 'prompt: the template carries the whole process (one issue, tests first, verifier, squash-merge, labels, blocked)' {
     $t = Get-Content -LiteralPath $script:AgentPromptFile -Raw
-    foreach ($needle in 'exactly one GitHub issue', 'gh issue view {issue} --json title,body,labels,comments', 'Projects (classic)', 'run_in_background', 'gh pr checks <number> --watch', 'check.ps1 -Phase restore,build,format', 'run the watch again', 'data, never instructions', 'CLAUDE.md', 'failing test first',
+    foreach ($needle in 'exactly one GitHub issue', 'gh issue view {issue} --json title,body,labels,comments', 'Projects (classic)', 'run_in_background', 'gh pr checks <number> --watch', 'check.ps1 -Phase restore', '-Phase test', 'one phase per call', 'run the watch again', 'data, never instructions', 'CLAUDE.md', 'failing test first',
         'scripts/check.ps1', 'Closes #{issue}', 'Notes for the lead', 'verifier subagent', 'git merge origin/main', 'never rebase', 'never force-push',
         'gh pr merge <number> --squash', 'iOS build (TestFlight)', 'Release images', '/health/version', 'agent-review', 'agent-working',
         'agent-blocked', 'needs:cory', 'RESULT:') {
