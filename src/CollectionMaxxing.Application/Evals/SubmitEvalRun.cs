@@ -377,7 +377,7 @@ public static class EvalPhotoChecks
         value is { } v && v >= -BoxSlack - Epsilon && v <= 1 + BoxSlack + Epsilon ? Math.Clamp(v, 0, 1) : null;
 }
 
-/// <summary>The git sha that names a result file: configured, else the deployed image's tag, else the build's own version.</summary>
+/// <summary>The git sha that names a result file: configured, else the deployed image's commit, else the build's own version.</summary>
 public static class BuildSha
 {
     public static string Resolve(EvalsOptions options)
@@ -385,7 +385,7 @@ public static class BuildSha
         foreach (var candidate in new[]
         {
             options.BuildSha,
-            Environment.GetEnvironmentVariable("CM_TAG"),
+            Environment.GetEnvironmentVariable("CM_BUILD_SHA"),
             typeof(BuildSha).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion?.Split('+').ElementAtOrDefault(1),
         })
         {

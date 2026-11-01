@@ -30,7 +30,7 @@ public sealed class EvalsOptions
     /// <summary>The baseline the regression check compares to (<c>evals/baseline.json</c> in the repo). Optional; with none, the check says so.</summary>
     public string? BaselinePath { get; set; }
 
-    /// <summary>The git sha to put in the result file's name. Optional: the <c>CM_TAG</c> environment variable and then the build's own version are tried.</summary>
+    /// <summary>The git sha to put in the result file's name. Optional: the <c>CM_BUILD_SHA</c> environment variable and then the build's own version are tried.</summary>
     public string? BuildSha { get; set; }
 
     /// <summary>
