@@ -237,6 +237,8 @@ jobs:
 
       - name: Restore the ccache
         if: steps.ccache.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 3
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ccache
@@ -350,12 +352,14 @@ jobs:
           rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision
 
       # Last, so keeping the cache can never delay or fail the upload, the build number or the signing cleanup above. It
-      # runs even when an earlier step failed (the compiled code is still worth keeping), but only from main, since a
+      # runs even when a step after Archive failed (the compiled code is still worth keeping; a failed Archive has no
+      # statistics, so it saves nothing), but only from main, since a
       # tag's cache would be unreachable by later builds: a cache is shared only with the branch it was saved on and the
       # default branch.
       - name: Save the ccache
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.ccachestats.outputs.new == 'true' }}
         continue-on-error: true
+        timeout-minutes: 3
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ccache
