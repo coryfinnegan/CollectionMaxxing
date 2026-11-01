@@ -24,7 +24,7 @@ public sealed class FileEvalResultsTests : IDisposable
     private static readonly SyntheticGolden.SingleItem StarFox = new("Star Fox 64", "game_cartridge", "cart_only", "loose_cartridge", "Nintendo 64");
 
     [Fact]
-    public async Task A_run_whose_report_file_was_locked_does_not_get_a_second_dated_file_when_the_save_is_retried()
+    public async Task A_run_whose_report_file_could_not_be_written_does_not_get_a_second_dated_file_when_the_save_is_retried()
     {
         _golden.AddSingle("c1", StarFox);
         var run = RunOf(Photo("c1", Apple, [Matched("Star Fox 64")]));
@@ -32,16 +32,14 @@ public sealed class FileEvalResultsTests : IDisposable
         var evaluated = EvalReport.Evaluate(run, truths, null, "abc1234", []);
         Directory.CreateDirectory(_folder);
         var reportPath = Path.Combine(_folder, "report.md");
-        File.WriteAllText(reportPath, "stale");
+        // A directory in report.md's place makes the move onto it fail the same way on every OS, unlike a file lock.
+        Directory.CreateDirectory(reportPath);
         var results = new FileEvalResults(Options.Create(new EvalsOptions { Enabled = true, ResultsPath = _folder }));
 
-        using (new FileStream(reportPath, FileMode.Open, FileAccess.Read, FileShare.None))
-        {
-            // Windows answers a locked destination with either, depending on how the move is denied.
-            var failed = await Record.ExceptionAsync(() => results.SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None));
-            (failed is IOException or UnauthorizedAccessException).ShouldBeTrue(failed?.ToString());
-        }
+        var failed = await Record.ExceptionAsync(() => results.SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None));
+        failed.ShouldNotBeNull();
 
+        Directory.Delete(reportPath);
         await results.SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None);
 
         Directory.GetFiles(_folder, "*.json")
