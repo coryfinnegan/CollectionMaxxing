@@ -55,7 +55,34 @@ jobs:
 
       - name: Prebuild the native project
         working-directory: app
-        run: npx expo prebuild --platform ios --no-install
+        run: |
+          npx expo prebuild --platform ios --no-install
+          echo "ccache in the generated project:"
+          grep -i ccache ios/Podfile.properties.json ios/Podfile || true
+
+      # The same ccache setup as ios-build.yml (#633), with a cache of its own: simulator objects are not the device's.
+      - name: Install ccache
+        id: ccache
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+          HOMEBREW_NO_ENV_HINTS: '1'
+        run: |
+          brew install ccache
+          ccache --version | head -1
+          {
+            echo "CCACHE_DIR=$HOME/.ccache"
+            echo "CCACHE_MAXSIZE=2G"
+            echo "CCACHE_COMPILERCHECK=content"
+          } >> "$GITHUB_ENV"
+          echo "xcode=$(xcodebuild -version | awk '/^Build version/ { print $3 }')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-iossim-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
+          restore-keys: ccache-iossim-${{ steps.ccache.outputs.xcode }}-
 
       - name: Install pods
         working-directory: app/ios
@@ -65,13 +92,24 @@ jobs:
         # Release, so the JS bundle is built too (a Debug build loads it from Metro and would miss bundling errors).
         working-directory: app/ios
         run: |
+          ccache --zero-stats
           workspace=$(find . -maxdepth 1 -name '*.xcworkspace' | head -1)
           scheme=$(basename "$workspace" .xcworkspace)
           xcodebuild -workspace "$workspace" -scheme "$scheme" \
             -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
             build
+          ccache -s
           {
             echo "### iOS simulator build passed"
             echo "Commit $(git rev-parse --short HEAD) compiles and bundles with the iOS 27 SDK. It is unsigned and can't be installed on a phone."
+            echo '```'
+            ccache -s
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the ccache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-iossim-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}

@@ -46,7 +46,8 @@ const config: ExpoConfig = {
     'expo-router',
     // iOS 27 kills an app that doesn't use the UIScene lifecycle at launch (UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption).
     // SDK 57 still generates the old AppDelegate-only template, so opt in; this is a no-op from SDK 58 on.
-    ['expo-build-properties', { ios: { enableSceneSupport: true } }],
+    // ccacheEnabled compiles the pods' C++ through ccache; ios-build.yml restores and saves the cache between builds.
+    ['expo-build-properties', { ios: { enableSceneSupport: true, ccacheEnabled: true } }],
     ['expo-system-ui', {}],
     'expo-secure-store',
     ['expo-local-authentication', { faceIDPermission: 'CollectionMaxxing uses Face ID to lock the app when you leave it.' }],

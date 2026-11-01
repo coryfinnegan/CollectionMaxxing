@@ -26,9 +26,10 @@ const signingPlugin = (c: ExpoConfig) => c.plugins?.find((p) => Array.isArray(p)
 
 describe('app config', () => {
   // iOS 27 aborts at launch an app that skips the UIScene lifecycle; SDK 57's template needs this opt-in (no-op on SDK 58+).
-  it('adopts the UIScene lifecycle so the app launches on iOS 27', () => {
+  // ccacheEnabled lets the iOS archive reuse the compiled third-party C++ (RNScreens, Reanimated, SVG, VisionCamera); ios-build.yml keeps the cache.
+  it('adopts the UIScene lifecycle so the app launches on iOS 27, and compiles native code through ccache', () => {
     const plugin = config.plugins?.find((p) => Array.isArray(p) && p[0] === 'expo-build-properties');
-    expect(plugin).toEqual(['expo-build-properties', { ios: { enableSceneSupport: true } }]);
+    expect(plugin).toEqual(['expo-build-properties', { ios: { enableSceneSupport: true, ccacheEnabled: true } }]);
   });
 
   // Without this answer every TestFlight build waits in App Store Connect for the export compliance question (ADR-024).

@@ -207,6 +207,35 @@ jobs:
           grep -q "PROVISIONING_PROFILE_SPECIFIER = \"$PROFILE_NAME\"" "$pbx" || {
             echo "::error::The release signing plugin did not set the profile in $pbx."; exit 1; }
 
+      # ccache (#633): the archive spends about 9 of its 10 minutes compiling the pods' C++ (RNScreens, Reanimated, SVG,
+      # VisionCamera). ios.ccacheEnabled in app.config.ts makes the Podfile compile through ccache, which React Native
+      # looks for while pods install, so it is installed first. Its config (sloppiness for Xcode's modules and index
+      # store, depend and direct mode, file cloning) is React Native's own ccache.conf, which its compiler wrapper sets;
+      # only the cache's place and size, and React Native's advice for CI (compiler_check content: a fresh checkout has
+      # new file times) are set here. The cache is kept per Xcode build, so a new compiler starts clean. No secrets in it.
+      - name: Install ccache
+        id: ccache
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+          HOMEBREW_NO_ENV_HINTS: '1'
+        run: |
+          brew install ccache
+          ccache --version | head -1
+          {
+            echo "CCACHE_DIR=$HOME/.ccache"
+            echo "CCACHE_MAXSIZE=2G"
+            echo "CCACHE_COMPILERCHECK=content"
+          } >> "$GITHUB_ENV"
+          echo "xcode=$(xcodebuild -version | awk '/^Build version/ { print $3 }')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-ios-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
+          restore-keys: ccache-ios-${{ steps.ccache.outputs.xcode }}-
+
       - name: Install pods
         working-directory: app/ios
         run: pod install
@@ -219,6 +248,7 @@ jobs:
           EXPO_PUBLIC_AUTH0_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_AUTH0_CLIENT_ID }}
           EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
         run: |
+          ccache --zero-stats
           # The JS bundle is built inside xcodebuild; About shows "Build <sha> from <date>" (Expo inlines EXPO_PUBLIC_*).
           export EXPO_PUBLIC_BUILD_SHA="$(git rev-parse HEAD)"
           export EXPO_PUBLIC_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -228,6 +258,20 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build -archivePath "$RUNNER_TEMP/CollectionMaxxing.xcarchive" \
             archive
+
+      # Only a build that archived saves the cache, and only from main: a tag's cache would be unreachable by later
+      # builds, since a cache is shared only with the branch it was saved on and the default branch.
+      - name: ccache statistics
+        run: |
+          ccache -s
+          { echo "### ccache"; echo '```'; ccache -s; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the ccache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-ios-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
 
       - name: Export the signed .ipa
         run: |
