@@ -58,7 +58,10 @@ export interface LocalTuning {
   spineRowOverlap: number;
   /**
    * The spine columns stand in one shelf row when at least this share of neighboring pairs share a band (spineRowOverlap), so one short
-   * book beside tall ones does not undo the split. Scattered cover lines share almost none and read as the whole frame (#504).
+   * book beside tall ones does not undo the split. Scattered cover lines share almost none and read as the whole frame (#504). Close up,
+   * each spine's title sits at a slightly different height (its own title and author take up different amounts of room), so a close shot
+   * of a long row shares a band on only about half its neighboring pairs; the share stays well under half for scattered cover lines, so a
+   * lower bar still tells the two apart (#618).
    */
   spineRowShare: number;
   /** A shelf needs this many columns before it is read as spines. */
@@ -67,14 +70,16 @@ export interface LocalTuning {
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
    * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
-   * heights apart. The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or 0.6 to 0.73
-   * wide (a cover that fills the frame), or have fewer than 5 bands, or have their bands 1 to 5 letter heights apart (title, author,
-   * tagline). The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under 0.3 of the big lettering
-   * on its band.
+   * heights apart. The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or 0.6 or
+   * more wide (a cover that fills the frame: a real cover of the twelve recorded is 0.61 wide with 3 bands whose gap also reads as a
+   * pile, and 0.73 wide with 6), or have fewer than 3 bands, or have their bands 1 to 5 letter heights apart (title, author, tagline). A
+   * stack as small as 3 is still told from a cover by its band count and gap alone when it is no wider than that (#618); two flat lines
+   * alone are never enough, since a title and its author read exactly like one. The lines of one title touch or overlap; the lines of
+   * two neighbors rarely do. Small print is under 0.3 of the big lettering on its band.
    */
   /** A line lies flat when its width is at least this many times its height. */
   flatLineAspect: number;
-  /** A pile needs this many bands in one column. */
+  /** A pile needs this many bands in one column, so a small stack of three or four is split, not only five or more (#618). */
   stackMinBands: number;
   /** A pile is at least this wide (a share of the picture): a name or a cover word running down books is narrower. */
   stackMinWidth: number;
@@ -185,12 +190,12 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   spineColumnOverlap: 0.5,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
-  spineRowShare: 0.6,
+  spineRowShare: 0.45,
   minSpineColumns: 2,
   flatLineAspect: 2.5,
-  stackMinBands: 5,
+  stackMinBands: 3,
   stackMinWidth: 0.1,
-  stackMaxWidth: 0.5,
+  stackMaxWidth: 0.6,
   stackMaxGap: 1,
   bandMaxGap: 0.05,
   bandSameLetters: 0.6,

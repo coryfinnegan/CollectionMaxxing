@@ -128,9 +128,10 @@ function bandTitle(lines: TextLine[], tuning: LocalTuning): string {
 }
 
 /**
- * A column of flat lines is a pile of spines when it is as wide as a spine and no wider than half the picture (a cover fills the frame), has
- * enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters. A name running down a
- * cover is narrower, and a cover's title, author and tagline sit far apart.
+ * A column of flat lines is a pile of spines when it is as wide as a spine and no wider than `stackMaxWidth` (a cover fills the frame),
+ * has enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters. A name running
+ * down a cover is narrower, and a cover's title, author and tagline sit far apart. A stack as small as three is split the same way
+ * (#618): the band count and gap alone tell it from a cover, so long as it stays inside the width a real cover never does.
  */
 function isPile(column: Column, bands: Band[], tuning: LocalTuning): boolean {
   if (column.box.width < tuning.stackMinWidth || column.box.width > tuning.stackMaxWidth || bands.length < tuning.stackMinBands) return false;

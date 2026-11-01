@@ -118,16 +118,24 @@ describe('splitting Vision text into items', () => {
     });
 
     it('reads the frame whole when too few neighbors share a band', () => {
-      // High, high, low, high: only 1 of 3 neighbor pairs shares a band, under the 60% share.
+      // High, high, low, high: only 1 of 3 neighbor pairs shares a band, under the share a row needs.
       const lines = [spine(0), spine(1), spine(2, 0.6, 0.3), spine(3)];
       const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
       expect(pieces).toHaveLength(1);
       expect(pieces[0].lines).toHaveLength(4);
     });
 
-    it('splits the spines and keeps a flat stack below them as one extra piece, even when the flat lines outnumber the spines', () => {
+    it('#618: splits a close-up row where only about half the neighbors share a band, because titles and authors sit at different heights', () => {
+      // Two spines whose title runs high, two whose title and author together sit lower, then one back up high: 2 of 4 neighbor
+      // pairs share a band. A close-up shelf row is this uneven, book to book, yet it is still one row, not five scattered lines.
+      const lines = [spine(0), spine(1), spine(2, 0.35, 0.3), spine(3, 0.35, 0.3), spine(4)];
+      expect(titles(splitIntoPieces(lines, [], C.splitting, T).pieces)).toEqual(lines.map((l) => [l.text]));
+    });
+
+    it('splits the spines and never lends a flat stack below them to the spine above, even when the flat lines outnumber the spines', () => {
       const spines = Array.from({ length: 6 }, (_, i) => spine(i));
       // 'Stack 1' and 'Stack 2' sit under the third spine's column but below the row, so they belong to the stack, not to that spine.
+      // Below the spine row these seven lines fall into two small piles of their own (#618), never into the spine column above them.
       const stack = [
         line('Stack 1', 0.1, 0.75, 0.5, 0.05),
         line('Stack 2', 0.2, 0.83, 0.4, 0.05),
@@ -138,9 +146,9 @@ describe('splitting Vision text into items', () => {
         line('Stack 7', 0.7, 0.96, 0.2, 0.03),
       ];
       const { pieces, unreadableCount } = splitIntoPieces([...stack, ...spines], [], C.splitting, T);
-      expect(pieces).toHaveLength(7);
       expect(titles(pieces.slice(0, 6))).toEqual(spines.map((l) => [l.text]));
-      expect(titles(pieces.slice(6))[0]).toEqual(['Stack 1', 'Stack 4', 'Stack 2', 'Stack 5', 'Stack 3', 'Stack 6', 'Stack 7']);
+      expect(titles(pieces.slice(6))).toEqual([['Stack 1', 'Stack 4'], ['Stack 2'], ['Stack 3'], ['Stack 5'], ['Stack 6'], ['Stack 7']]);
+      expect(pieces.reduce((n, p) => n + p.lines.length, 0)).toBe(stack.length + spines.length);
       expect(unreadableCount).toBe(0);
     });
 
@@ -187,6 +195,13 @@ describe('splitting Vision text into items', () => {
       const lines = [line('Dune', 0.1, 0.2, 0.06, 0.5), line('Emma', 0.25, 0.2, 0.06, 0.5)];
       const { pieces } = splitIntoPieces(lines, [{ x: 0.05, y: 0.1, width: 0.3, height: 0.7 }], C.splitting, T);
       expect(titles(pieces)).toEqual([['Dune'], ['Emma']]);
+    });
+
+    it('#618: splits a rectangle that spans several spines sitting at different heights the same way the open shelf does', () => {
+      const spine = (i: number, y = 0.1, height = 0.5) => line(`Spine ${i}`, 0.04 + i * 0.15, y, 0.06, height);
+      const lines = [spine(0), spine(1), spine(2, 0.35, 0.3), spine(3, 0.35, 0.3), spine(4)];
+      const { pieces } = splitIntoPieces(lines, [{ x: 0, y: 0.05, width: 0.85, height: 0.85 }], C.splitting, T);
+      expect(titles(pieces)).toEqual(lines.map((l) => [l.text]));
     });
 
     it('keeps a rectangle with scattered tall cover lines as one item', () => {

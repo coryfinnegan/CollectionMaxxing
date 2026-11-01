@@ -26,8 +26,15 @@ describe('a pile of items lying flat is one item per spine', () => {
     expect(unreadableCount).toBe(0);
   });
 
-  it('is not a pile below 5 spines: 4 flat lines stay one item, as before', () => {
-    const { pieces } = splitIntoPieces(Array.from({ length: 4 }, (_, i) => tape(i)), [], C.splitting, T);
+  it('is a pile from 3 spines up: a small stack of 4 flat lines is split into 4 items (#618)', () => {
+    const spines = Array.from({ length: 4 }, (_, i) => tape(i));
+    const { pieces } = splitIntoPieces(spines, [], C.splitting, T);
+    expect(titles(pieces)).toEqual(spines.map((l) => [l.text]));
+    expect(pieces.map((p) => p.title)).toEqual(spines.map((l) => l.text));
+  });
+
+  it('is not a pile below 3 spines: 2 flat lines stay one item', () => {
+    const { pieces } = splitIntoPieces(Array.from({ length: 2 }, (_, i) => tape(i)), [], C.splitting, T);
     expect(pieces).toHaveLength(1);
     expect(pieces[0].title).toBeUndefined();
   });
@@ -70,6 +77,12 @@ describe('a pile of items lying flat is one item per spine', () => {
   it('does not cut a column wider than half the frame: that is a cover filling it', () => {
     const wide = Array.from({ length: 6 }, (_, i) => line(`Line ${i}`, 0.1, 0.1 + i * 0.08, 0.8, 0.05));
     expect(splitIntoPieces(wide, [], C.splitting, T).pieces).toHaveLength(1);
+  });
+
+  it('#618: cuts a small stack of 4 even though it is wider than half the frame', () => {
+    const wide = Array.from({ length: 4 }, (_, i) => line(`Wide ${i}`, 0.1, 0.1 + i * 0.08, 0.55, 0.05));
+    const { pieces } = splitIntoPieces(wide, [], C.splitting, T);
+    expect(titles(pieces)).toEqual(wide.map((l) => [l.text]));
   });
 
   it('does not cut a column too narrow to be a spine: a name repeated down a pile of covers is not a pile', () => {
@@ -119,7 +132,8 @@ describe('a pile of items lying flat is one item per spine', () => {
     it('says whether the lines hold a pile', () => {
       expect(hasPile(left, T)).toBe(true);
       expect(hasPile(upright, T)).toBe(false);
-      expect(hasPile(left.slice(0, 3), T)).toBe(false);
+      expect(hasPile(left.slice(0, 3), T)).toBe(true);
+      expect(hasPile(left.slice(0, 2), T)).toBe(false);
     });
   });
 });
