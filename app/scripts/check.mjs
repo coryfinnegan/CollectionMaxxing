@@ -10,6 +10,7 @@ const maxLines = 20;
 const logDir = resolveLogDir();
 const jestJson = join(logDir, 'jest.json');
 const jestTzJson = join(logDir, 'jest-tz.json');
+const cacheDir = join('node_modules', '.cache');
 
 // Timezone-sensitive suites: TZ must be pinned before the jest workers start.
 // Assigning process.env.TZ inside a test is too late (the system zone is already
@@ -33,8 +34,13 @@ function getBaseIgnores() {
 const steps = [
   ...(existsSync('node_modules/orval') ? [] : [['install', 'npm', ['ci', '--silent', '--no-audit', '--no-fund']]]),
   ['generate', 'npm', ['run', 'generate', '--silent']],
-  ['typecheck', 'npx', ['tsc', '--noEmit']],
-  ['lint', 'npx', ['eslint', 'src', '--max-warnings', '0']],
+  // Incremental type check and cached lint (#633): a warm run re-checks only what changed, a cold run (no cache: a fresh
+  // checkout, or CI after `npm ci`) checks everything. Both caches live under node_modules/.cache, which git ignores. tsc
+  // re-reports a file's earlier errors until it is fixed. ESLint's cache does not follow imports, so a rule that reads
+  // another file (import/no-named-as-default) can miss a change over there until the next cold run; tsc still catches
+  // unresolved imports and missing exports on every run.
+  ['typecheck', 'npx', ['tsc', '--noEmit', '--incremental', '--tsBuildInfoFile', join(cacheDir, 'tsc', 'app.tsbuildinfo')]],
+  ['lint', 'npx', ['eslint', 'src', '--max-warnings', '0', '--cache', '--cache-strategy', 'content', '--cache-location', join(cacheDir, 'eslint', '.eslintcache')]],
   ['words', 'node', ['scripts/banned-words.mjs']],
   ['design', 'node', ['scripts/design-gate.mjs']],
   ['test', 'npx', () => ['jest', '--silent', '--reporters=summary', '--ci', '--json', `--outputFile=${jestJson}`, '--testPathIgnorePatterns', ...getBaseIgnores(), ...tzTests]],
