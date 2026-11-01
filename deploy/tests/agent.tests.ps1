@@ -526,6 +526,19 @@ Test-Case 'prompt: the template carries the whole process (one issue, tests firs
     }
 }
 
+Test-Case 'prompt: merge main before each push, gate what changed, verify while CI runs, merge only on a green head with main not ahead' {
+    $t = (Get-Content -LiteralPath $script:AgentPromptFile -Raw) -replace '\s+', ' '
+    foreach ($needle in 'git fetch origin`, then `git merge origin/main`', 'pwsh scripts/check.ps1 -Changed', 'the full gate, `pwsh scripts/check.ps1`', 'add `-Changed` to each',
+        'Push first', 'while CI runs, start a separate verifier subagent', 'one list of every finding, nits included', 'Fix all of its findings in one push', 'at most 2 fix rounds',
+        'CI is green on the current head', 'the verifier said PASS for that head', 'git rev-list --count HEAD..origin/main` prints 0',
+        'main must never move under a PR between its last green CI and its merge') {
+        Assert-True ($t.Contains($needle)) "the prompt should say: $needle"
+    }
+    # The verifier starts after the push, not before it, and the merge comes after both of its conditions.
+    Assert-True ($t.IndexOf('Push first') -lt $t.IndexOf('start a separate verifier subagent')) 'push, then the verifier'
+    Assert-True ($t.IndexOf('start a separate verifier subagent') -lt $t.IndexOf('gh pr merge <number> --squash')) 'the verifier comes before the merge'
+}
+
 Test-Case 'worktree: one left by an earlier failed run is reused, not recreated or wiped' {
     $r = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7)) } -Setup {
         param($root, $repo)
