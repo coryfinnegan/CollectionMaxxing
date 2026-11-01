@@ -221,9 +221,10 @@ describe('real shelf photos', () => {
     'vhs-dvd-shelf-01': { before: { held: 6, exact: 6 }, after: { held: 6, exact: 6 } },
     // Upright DVD spines under shelf labels and edition stickers: "THEY LIVE", "DUNE" and "HALLOWEEN" come out instead.
     'vhs-dvd-shelf-02': { before: { held: 3, exact: 3 }, after: { held: 5, exact: 5 } },
-    // Romance paperback spines, each with the author beside the title: more titles said on their own, one held title lost.
-    // That one is in the piece of leftovers this photo ends with, which holds lines from a dozen books rather than one
-    // spine: "ELSIE SILVER" really is the biggest print in it, and no rule that reads one piece as one item can see that.
+    // Romance paperback spines, each with the author beside the title: more titles said on their own, and three held
+    // titles traded for two. All five of those sit in pieces that hold several books' lines rather than one spine, where
+    // the biggest print belongs to another book than the one that was found before. No rule that reads one piece as one
+    // item can see that; the split owns it (splitting.ts).
     'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 19, exact: 9 } },
     'accept-shelf-01': { before: { held: 14, exact: 6 }, after: { held: 14, exact: 7 } },
     'accept-shelf-02': { before: { held: 15, exact: 10 }, after: { held: 15, exact: 12 } },
