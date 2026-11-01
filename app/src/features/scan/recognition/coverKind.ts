@@ -102,14 +102,26 @@ function isBookLine(text: string, tuning: CoverFormatTuning): boolean {
 // ---- Together --------------------------------------------------------------------------------------------------------
 
 /**
- * The one kind the cover's text names, or nothing: a cover whose lines name two different kinds (a Criterion film that says "A novel", a
- * console beside a bestseller line) says nothing, and the read stands as it was.
+ * Every kind these lines of print name, which is usually none: the Criterion Collection a film, a console's name a game, a bestseller
+ * line a book. A set, because print that names two kinds names neither (see `coverKind`). Shared with the shelf's own print
+ * (shelfKind.ts), which adds the words a film shelf prints and reads the answer the same way.
  */
-export function coverKind(lines: TextLine[], tuning: CoverFormatTuning = DEFAULT_COVER_FORMAT_TUNING): CueKind | undefined {
+export function printedKinds(lines: TextLine[], tuning: CoverFormatTuning = DEFAULT_COVER_FORMAT_TUNING): Set<CueKind> {
   const texts = lines.map((l) => plain(l.text));
   const found = new Set<CueKind>();
   if (mentionsCriterion(texts)) found.add('film');
   if (texts.some((text) => namesConsole(text, tuning))) found.add('game');
   if (texts.some((text) => isBookLine(text, tuning))) found.add('book');
-  return found.size === 1 ? [...found][0] : undefined;
+  return found;
+}
+
+/** The one kind a set of print cues names, or nothing when it names none or more than one. */
+export const theOneKind = (found: Set<CueKind>): CueKind | undefined => (found.size === 1 ? [...found][0] : undefined);
+
+/**
+ * The one kind the cover's text names, or nothing: a cover whose lines name two different kinds (a Criterion film that says "A novel", a
+ * console beside a bestseller line) says nothing, and the read stands as it was.
+ */
+export function coverKind(lines: TextLine[], tuning: CoverFormatTuning = DEFAULT_COVER_FORMAT_TUNING): CueKind | undefined {
+  return theOneKind(printedKinds(lines, tuning));
 }

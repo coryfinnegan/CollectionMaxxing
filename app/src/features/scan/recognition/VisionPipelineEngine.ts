@@ -5,10 +5,11 @@ import { isSingleItemShot } from '../shotkind/shotKind';
 import type { CueKind } from './coverKind';
 import { coverTitleOf, type CoverTitle } from './coverTitle';
 import { creatorOf } from './creators';
-import { DEFAULT_MULTI_COVER_TUNING, type RecognitionSettings } from './defaults';
+import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING, DEFAULT_MULTI_COVER_TUNING, type RecognitionSettings } from './defaults';
 import { readLines } from './lines';
 import { multipleCovers } from './multiCover';
 import { productCodeOf } from './productCode';
+import { shelfKind } from './shelfKind';
 import { splitIntoPieces, wholeFrame, type Piece, type Split } from './splitting';
 import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
 
@@ -17,6 +18,8 @@ export interface EngineDeps {
   settings: () => RecognitionSettings;
   now?: () => number;
   newId?: () => string;
+  /** What print says about a kind and a format; `DEFAULT_COVER_FORMAT_TUNING` unless the selector or a test gives its own. */
+  coverFormatTuning?: CoverFormatTuning;
 }
 
 /** What a single cover's piece was read as: its title (nothing when no line is left to be one), and the kind its own text names. */
@@ -61,14 +64,20 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const rest = splitIntoPieces(several?.rest ?? lines, rectangles, settings.splitting, settings.local);
     // A cover goes in as a plain piece (its lines and box); its title and kind ride beside it, since a piece's own `title` is a stack band's text.
     const covers = (several?.covers ?? []).map((c) => ({ piece: { lines: c.lines, box: c.box } satisfies Piece, read: { title: c.title, kind: c.kind } }));
-    return this.reading(
-      { pieces: [...covers.map((c) => c.piece), ...rest.pieces], unreadableCount: rest.unreadableCount },
+    const pieces = [...covers.map((c) => c.piece), ...rest.pieces];
+    // What the shelf's own print says it is a shelf of (shelfKind.ts). A spine is a few words, so no item here names a kind; this says what
+    // kind of shelf they are all on, when at least two of the pieces just made print it. The server lets it speak only when no read of the
+    // snap names that kind (types.ts).
+    const printKind = shelfKind(lines, pieces, this.deps.coverFormatTuning ?? DEFAULT_COVER_FORMAT_TUNING);
+    const reading = this.reading(
+      { pieces, unreadableCount: rest.unreadableCount },
       lines,
       settings,
       started,
       onItem,
       new Map(covers.map((c) => [c.piece, c.read])),
     );
+    return printKind ? { ...reading, printKind } : reading;
   }
 
   /** One rectangle search: with no options, the splitter's; with `maximumAspectRatio`, as wide as a case (Vision's default would never return a game's). Never throws: no rectangles is a reading too. */

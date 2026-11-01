@@ -184,7 +184,7 @@ public class IdentifyProductCodeTests(ApiFixture api) : IdentifyTest(api)
         var read = new IdentifyItemInput(null, null, "WRANGLER'S 2", "Wrangler's 2", null, null, null, null, null, null, SuperNintendo, null, "SNS-8C-USA");
 
         var items = await grounder.GroundAsync(
-            ScanEngine.VisionPipeline, [new EvalReadItemInput(read, null)], new EvalGroundingMemo(), CancellationToken.None);
+            ScanEngine.VisionPipeline, [new EvalReadItemInput(read, null)], new EvalGroundingMemo(), printKind: null, CancellationToken.None);
 
         var item = items.ShouldHaveSingleItem();
         item.Verdict.ShouldBe("matched");

@@ -147,7 +147,13 @@ export class EngineSelector {
       return { ...vision, fellBackFrom: model, timings: { ...vision.timings, totalMs: total } };
     }
     const items = shelfReading(found, model.items, local);
-    return { ...model, items, timings: { ...model.timings, totalMs: total, visionMs: total - (model.timings.modelMs ?? 0) } };
+    // The reading the snap goes out as is the model's, but the shelf's own print was read by Vision: it belongs to the picture, not to an engine.
+    return {
+      ...model,
+      items,
+      ...(vision?.printKind ? { printKind: vision.printKind } : {}),
+      timings: { ...model.timings, totalMs: total, visionMs: total - (model.timings.modelMs ?? 0) },
+    };
   }
 
   /**

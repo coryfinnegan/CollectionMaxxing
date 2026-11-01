@@ -59,7 +59,7 @@ public abstract class EvalTest : IdentifyTest
     protected static object PhotoResult(
         string photoId, string engine, object[] items, string outcome = "ok", long latencyMs = 1500, long? firstItemMs = 800,
         string thermalState = "nominal", int unreadableCount = 0, string? fellBackFrom = null,
-        object[]? ocrLines = null, int[][]? ocrPieces = null) => new
+        object[]? ocrLines = null, int[][]? ocrPieces = null, string? printKind = null) => new
         {
             photoId,
             engine,
@@ -72,6 +72,7 @@ public abstract class EvalTest : IdentifyTest
             thermalState,
             ocrLines,
             ocrPieces,
+            printKind,
         };
 
     /// <summary>One cleaned OCR line as the phone uploads it: the text and its box, each value 0 to 1.</summary>

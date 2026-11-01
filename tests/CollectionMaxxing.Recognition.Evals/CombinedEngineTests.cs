@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Evals;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.TestSupport.Evals;
 using static CollectionMaxxing.Recognition.Evals.EvalFixtures;
@@ -845,6 +846,82 @@ public sealed class CombinedEngineTests : IDisposable
         built.Items.ShouldAllBe(i => !i.Unconfirmed);
         EvalScorer.Score([Photo("c1", Apple, [T1(Matched("Star Fox 64"))]), Photo("c1", Vision, [GuessedByVision("Zorblax Quest")])], TruthsOf(_golden))
             .SoloOf(Combined).AutoAdds.ShouldBe(1);
+    }
+
+    // ---- the kind the model lends the Vision read -------------------------------------------------------------------------
+
+    /// <summary>
+    /// What the scanner does with the two readings of one spine (<c>filledFrom</c>): the Vision read keeps its own title, box and id
+    /// and takes the kind it has none of, so the combined row says what the app would have searched with.
+    /// </summary>
+    [Fact]
+    public void A_vision_read_takes_the_kind_the_model_read_at_the_same_place()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Game)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)),
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Single().Read!.Kind.ShouldBe("game");
+    }
+
+    [Fact]
+    public void A_vision_read_that_named_a_kind_of_its_own_keeps_it()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Game)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(WorkKind.Book)),
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Single().Read!.Kind.ShouldBe("book");
+    }
+
+    [Fact]
+    public void A_vision_read_somewhere_the_model_read_nothing_is_lent_no_kind()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Game)),
+                VisionRead(GuessedByVision("Mario Kart 64").At(0.6).ReadKind(null)),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64")).Single();
+
+        built.Items.Where(i => !i.Unconfirmed).Single().Read!.Kind.ShouldBeNull();
+    }
+
+    [Fact]
+    public void One_wide_model_read_over_two_spines_lends_its_kind_to_the_one_it_covers_most()
+    {
+        // The phone lends a model read's kind to the one item its box overlaps the most (`placeOf`), so a single wide box never
+        // stamps its kind on every spine under it. The model's box runs from 0.2 to 0.4: it covers three quarters of the first spine
+        // (0.19 to 0.23) and all of the second (0.3 to 0.36), so both are one place with it and the second is the place it reads.
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.2, 0.2).ReadKind(WorkKind.Game)),
+                VisionRead(
+                    GuessedByVision("Mario Kart 64").At(0.19, 0.04).ReadKind(null),
+                    GuessedByVision("Star Fox 64").At(0.3, 0.06).ReadKind(null)),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64")).Single();
+
+        built.Items.Where(i => !i.Unconfirmed).Select(i => i.Read!.Kind).ShouldBe([null, "game"]);
+    }
+
+    [Fact]
+    public void A_model_read_that_names_no_kind_lends_none()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Other)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)),
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Single().Read!.Kind.ShouldBeNull();
     }
 
     private static string EnumTextOf(ScanTier tier) => CollectionMaxxing.Domain.Common.EnumText.ToText(tier);

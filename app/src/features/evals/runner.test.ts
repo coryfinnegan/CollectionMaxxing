@@ -39,6 +39,7 @@ interface Result {
   ocrLines?: { text: string; x: number; y: number; width: number; height: number }[];
   ocrPieces?: number[][];
   coverCue?: string;
+  printKind?: string;
 }
 interface Opened {
   device: { model: string; osVersion: string; appVersion: string };
@@ -203,6 +204,45 @@ describe('the eval runner', () => {
         );
       expect(kinds('photo-002')).toEqual({ apple_model: ['film'], fm_text: ['film'], vision_pipeline: ['film'] });
       expect(kinds('photo-001')).toEqual({ apple_model: ['book'], fm_text: ['book'], vision_pipeline: ['other'] });
+    });
+
+    describe('what the shelf printed', () => {
+      const printOf = (photoId: string, engine: string) => results().find((r) => r.photoId === photoId && r.engine === engine)?.printKind;
+
+      it('sends the kind a film shelf printed on the row that read the print', async () => {
+        // A shelf's kind is printed on several of its spines, so two of these name it.
+        const tapes = {
+          text: [
+            line('STAR TREK GENERATIONS', 0.2, 0.2, 0.05, 0.6),
+            line('92 Minutes Color', 0.3, 0.2, 0.05, 0.6),
+            line('90 Minutes/Color', 0.4, 0.2, 0.05, 0.6),
+          ],
+        };
+        const kit = makeKit({ photos: 2, scenes: { 'photo-001': tapes } });
+
+        await kit.runner.start();
+
+        // The Vision tier reads the shelf's text, so the print is its row's. The model is read alone here, which the scanner never does
+        // on a shelf: it has no print reading of its own, and the PC's combined row takes Vision's items where both read a spine.
+        expect(printOf('photo-001', 'vision_pipeline')).toBe('film');
+        expect(printOf('photo-001', 'apple_model')).toBeUndefined();
+      });
+
+      it('leaves it out of a shelf whose print says nothing of its kind', async () => {
+        const kit = makeKit({ photos: 2, scenes: { 'photo-001': { text: [line('THE SECRET HISTORY', 0.2, 0.2, 0.05, 0.6)] } } });
+
+        await kit.runner.start();
+
+        for (const row of results().filter((r) => r.photoId === 'photo-001')) expect(row).not.toHaveProperty('printKind');
+      });
+
+      it('leaves it out of a single cover, whose own print speaks for its one item', async () => {
+        const kit = makeKit({ photos: 2, scenes: { 'photo-002': { text: [line('WIDESCREEN', 0.2, 0.2, 0.5, 0.1)] } } });
+
+        await kit.runner.start();
+
+        for (const row of results().filter((r) => r.photoId === 'photo-002')) expect(row).not.toHaveProperty('printKind');
+      });
     });
 
     describe('what the cover cue saw', () => {

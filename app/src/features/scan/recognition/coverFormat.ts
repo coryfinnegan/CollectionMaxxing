@@ -129,11 +129,11 @@ const sameWord = (seen: string, logo: string, tuning: CoverFormatTuning) =>
   seen === logo || (logo.length >= tuning.fuzzyLogoMinLength && oneEditApart(seen, logo));
 
 /**
- * Whole words only: "VHS" in "AVHSA" or "DVD" in "DVDs" is not a logo, and the film "V/H/S" is not a tape. A logo of
+ * Whole words only: "VHS" in "AVHSA" or "DVD" in "DVDs" is not a logo, and the film "V/H/S" is not a tape. A phrase of
  * several words may arrive in one more piece than it has ("Blu-ray" as "Blu ray", "Blu-ray" as "BLURAY", "B lu ray").
  */
-function mentions(words: string[], logo: Logo, tuning: CoverFormatTuning): boolean {
-  return logo.phrases.some((phrase) => {
+function mentions(words: string[], phrases: readonly string[], tuning: CoverFormatTuning): boolean {
+  return phrases.some((phrase) => {
     const parts = fold(phrase).split(' ');
     const squashed = parts.join('');
     for (let start = 0; start < words.length; start++) {
@@ -148,7 +148,15 @@ function mentions(words: string[], logo: Logo, tuning: CoverFormatTuning): boole
 /** The formats the lines name, in order of precedence. A mention anywhere counts, a blurb included. */
 function formatsFromLogos(lines: TextLine[], tuning: CoverFormatTuning): FilmFormat[] {
   const spoken = lines.map((l) => fold(l.text).split(' ').filter(Boolean));
-  return LOGOS.filter((logo) => spoken.some((words) => mentions(words, logo, tuning))).map((logo) => logo.format);
+  return LOGOS.filter((logo) => spoken.some((words) => mentions(words, logo.phrases, tuning))).map((logo) => logo.format);
+}
+
+/** The words a film's disc or tape format prints, as `LOGOS` has them: what names a format, wherever it is read (shelfKind.ts). */
+export const FILM_FORMAT_PHRASES: readonly string[] = LOGOS.flatMap((logo) => logo.phrases);
+
+/** Whether any of these lines prints one of `phrases` as whole words, however OCR split or ran them together (see `mentions`). */
+export function linesPrint(lines: TextLine[], phrases: readonly string[], tuning: CoverFormatTuning): boolean {
+  return lines.some((l) => mentions(fold(l.text).split(' ').filter(Boolean), phrases, tuning));
 }
 
 // ---- Together -----------------------------------------------------------------------------------------------------

@@ -44,7 +44,8 @@ internal static class IdentifyEndpoint
             parsed.ShotKind,
             parsed.Kind ?? IdentifyKind.Shelf,
             parsed.CandidateId,
-            parsed.ItemId);
+            parsed.ItemId,
+            parsed.PrintKind);
 
         var result = await handler.HandleAsync(new IdentifyItems.Command(id, input), cancellationToken);
         if (result.IsSuccess)
