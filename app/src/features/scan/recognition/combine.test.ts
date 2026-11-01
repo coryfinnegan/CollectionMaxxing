@@ -137,6 +137,16 @@ describe('enrichedItems: the same item read by the model fills in what Vision la
     expect(out.map((i) => [i.localId, i.kind])).toEqual([['v-right', 'other'], ['v-left', 'film']]);
   });
 
+  it('fills in the item at its place that read what it read, not the one it merely overlaps most', () => {
+    const wrong = visionItem({ localId: 'v-wrong', title: 'SOMETHING ELSE', box: { x: 0.10, y: 0.1, width: 0.10, height: 0.6 } });
+    const right = visionItem({ localId: 'v-right', title: 'SPACE MUTINY', box: { x: 0.12, y: 0.1, width: 0.04, height: 0.6 } });
+    const out = enrichedItems([wrong, right], [modelFilm({ box: { x: 0.11, y: 0.1, width: 0.04, height: 0.6 } })], T);
+    expect(out.map((i) => [i.localId, i.kind, i.format])).toEqual([
+      ['v-wrong', 'other', undefined],
+      ['v-right', 'film', 'vhs'],
+    ]);
+  });
+
   it('leaves the Vision items as they are, the same objects, when there is nothing to add', () => {
     const items = [visionItem()];
     expect(enrichedItems(items, [], T)[0]).toBe(items[0]);

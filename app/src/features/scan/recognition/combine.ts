@@ -161,7 +161,11 @@ export function filledFrom(item: ReadItem, other: ReadItem): ReadItem {
  */
 export function lendsTo(candidate: ReadItem, items: ReadItem[], tuning: LocalTuning): number {
   const at = placeOf(candidate, items, tuning);
-  return at >= 0 && saysEverything(candidate, items[at], tuning) ? at : -1;
+  if (at >= 0 && saysEverything(candidate, items[at], tuning)) return at;
+  // The item the candidate overlaps most may have read that place as something else, while an item it overlaps less read exactly
+  // what the candidate read. That is the item the candidate is a read of, so that is the one it lends to.
+  const same = sameItemAt(candidate, items, tuning);
+  return same >= 0 && samePlace(candidate, items[same], tuning) ? same : -1;
 }
 
 /**
