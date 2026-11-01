@@ -17,10 +17,13 @@ public enum ReadGrounding
 }
 
 /// <summary>
-/// One read as a place settles it: where it sat in the picture (null when the phone sent no position), how well it grounds and
-/// the score of its best release. Nothing of the read's title or release is needed to settle a place.
+/// One read as a place settles it: where it sat in the picture (null when the phone sent no position), how well it grounds, the
+/// score of its best release, and whether it is a read only the picture model made (<c>Unconfirmed</c>, the flag the phone sends
+/// for a shelf read it adds beside the Vision pipeline's). A place is contested only between a read only the model made and a
+/// read the other engine made: one engine's own two reads of a place are not two engines disagreeing about a spine, and a copy
+/// an engine read twice is <see cref="RepeatReads"/>'s business. Nothing of the read's title or release is needed to settle a place.
 /// </summary>
-public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, double Score);
+public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, double Score, bool Unconfirmed = false);
 
 /// <summary>
 /// One item per place. Two engines read one shelf shot and both read many of the same spines: a place on the shelf holds one
@@ -30,14 +33,19 @@ public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, 
 /// place always stood, and a right answer the model had read was thrown away whenever Vision had read the author's name or a
 /// sticker there (issue #614).
 /// <para>
-/// A read whose box holds two or more reads that are not one place themselves is several spines merged into one piece (the
-/// Vision pipeline sometimes makes one piece of a run of spines). It is no place of its own: the reads inside it are the
-/// spines, so the piece loses its place and each of them keeps its own.
+/// Only the two engines' reads of a place contest it (<see cref="PlacedRead.Unconfirmed"/> says which read is the model's
+/// own): one engine's two reads of a place are not two engines disagreeing about a spine, and an engine that read one spine
+/// twice is <see cref="RepeatReads"/>'s business, which settles two reads of the <i>same</i> release — a copy a person may
+/// still want to add by hand.
+/// </para>
+/// <para>
+/// A read whose box holds two or more of the other engine's reads that are not one place themselves is several spines merged
+/// into one piece (the Vision pipeline sometimes makes one piece of a run of spines). It is no place of its own: the reads
+/// inside it are the spines, so the piece loses its place and each of them keeps its own.
 /// </para>
 /// <para>
 /// A read with no box has no place, so it neither takes one nor loses one; two reads of one place that both found nothing are
-/// left alone, because there is no better read to pick. Pure, and it says nothing about what a read named:
-/// <see cref="RepeatReads"/> settles two reads of the <i>same</i> release, which is a copy a person may still want.
+/// left alone, because there is no better read to pick. Pure.
 /// </para>
 /// </summary>
 public static class ReadPlaces
@@ -89,15 +97,15 @@ public static class ReadPlaces
     private static bool Contends(PlacedRead read) => read.Box is not null && read.Grounding != ReadGrounding.Unsettled;
 
     /// <summary>
-    /// Whether the read at <paramref name="index"/> is several spines merged into one piece: at least two of the reads in its
-    /// place are not one place themselves, so they are spines inside it rather than other reads of it.
+    /// Whether the read at <paramref name="index"/> is several spines merged into one piece: at least two of the other engine's
+    /// reads in its place are not one place themselves, so they are spines inside it rather than other reads of it.
     /// </summary>
     private static bool IsMergedPiece(IReadOnlyList<PlacedRead> reads, int index)
     {
         var inside = new List<int>();
         for (var i = 0; i < reads.Count; i++)
         {
-            if (i != index && Contends(reads[i]) && SamePlace(reads[index], reads[i]))
+            if (i != index && Contends(reads[i]) && OtherEngine(reads[index], reads[i]) && SamePlace(reads[index], reads[i]))
             {
                 inside.Add(i);
             }
@@ -105,6 +113,9 @@ public static class ReadPlaces
 
         return inside.Any(j => inside.Any(k => !SamePlace(reads[j], reads[k])));
     }
+
+    /// <summary>Whether the two reads are the two engines' reads, not one engine's own two reads of a picture.</summary>
+    private static bool OtherEngine(PlacedRead first, PlacedRead second) => first.Unconfirmed != second.Unconfirmed;
 
     /// <summary>Whether two reads that both have a box sit in one place (<see cref="ReadBox.SamePlaceAs"/>).</summary>
     private static bool SamePlace(PlacedRead first, PlacedRead second) =>
@@ -115,7 +126,8 @@ public static class ReadPlaces
     /// read to pick and each keeps its row.
     /// </summary>
     private static bool Contests(PlacedRead candidate, PlacedRead held) =>
-        SamePlace(candidate, held) && (candidate.Grounding > ReadGrounding.Nothing || held.Grounding > ReadGrounding.Nothing);
+        OtherEngine(candidate, held) && SamePlace(candidate, held)
+        && (candidate.Grounding > ReadGrounding.Nothing || held.Grounding > ReadGrounding.Nothing);
 
     /// <summary>Whether <paramref name="later"/> beats <paramref name="held"/>, which came first: only a clearly better read takes the place.</summary>
     private static bool Stronger(PlacedRead later, PlacedRead held) =>

@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -14,9 +15,14 @@ namespace CollectionMaxxing.Application.Evals;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A model item is one Vision already has when it is the same item: when both reads have a box, the boxes overlap
-/// (<see cref="ReadBox.SamePlaceAs"/>), so the same title on two spines is two items; otherwise, when their best release is the
-/// same (its normalised title and year).
+/// One place holds one item, whatever either engine read there (<see cref="ReadPlaces"/>, the rule <c>/identify</c> applies to
+/// what the scanner sends): where both engines read a place, the read that grounds better is the row shown (Matched beats
+/// Ambiguous, which beats a read that found nothing, then the higher score, then Vision's own, which comes first), and the
+/// other is no second row for that spine. So the same title on two spines is still two items, and a right read the model made
+/// is no longer thrown away because Vision read the author's name or a sticker at that spot (issue #614). A Vision piece that
+/// holds several model reads is several spines merged into one piece: it loses its place and each model read inside it stands.
+/// Only when a box is missing on either side, where there is no place to go on, is a model read the same item as a Vision read
+/// because their best release is the same (its normalised title and year), as it was before boxes.
 /// </para>
 /// <para>
 /// When the model fails on a shelf (a timeout, an error or a refusal), the scanner keeps Vision's reading, so the combined row is
@@ -33,6 +39,9 @@ public static class EvalCombination
     private const string Ok = "ok";
     private const string Timeout = "timeout";
     private const string Refused = "refused";
+    private const string MatchedVerdict = "matched";
+    private const string AmbiguousVerdict = "ambiguous";
+    private const string PendingVerdict = "pending";
 
     /// <summary>
     /// One combined photo for every photo that has both an <c>apple_model</c> and a <c>vision_pipeline</c> row (and a truth file).
@@ -79,18 +88,13 @@ public static class EvalCombination
         // Both engines have to have answered for their items to be combined; if either did not, the items are the model's own.
         var both = apple.Outcome == Ok && vision.Outcome == Ok;
 
-        // What the model adds beside Vision's items is unconfirmed, as in the scanner: nothing else saw it, so it is review (T2), never an
-        // auto-add, whatever tier the phone claimed. Vision's items, and every other row (a single, one engine failing), are not marked.
-        var modelAdded = both
-            ? apple.Items.Where(model => !vision.Items.Any(visionItem => SameItem(model, visionItem))).Select(model => model with { Unconfirmed = true }).ToList()
-            : [];
         var visionOnly = both && vision.Items.Any(visionItem => !apple.Items.Any(model => SameItem(model, visionItem)));
         return apple with
         {
             Engine = Engine,
 
-            // Vision's items stand as they are, and the model adds what Vision did not find.
-            Items = both ? [.. vision.Items, .. modelAdded] : apple.Items,
+            // Vision's reads and the model's, one item per place: the read of a place that grounds better is the row shown.
+            Items = both ? Settled(vision.Items, apple.Items) : apple.Items,
 
             // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
             // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
@@ -151,9 +155,50 @@ public static class EvalCombination
         : null;
 
     /// <summary>
+    /// The shelf's items: every read of the picture, one per place. A model read with no box to be told apart by is the Vision
+    /// read it names the same release as, read again, so it is dropped as it was before boxes; every other model read is a read
+    /// of the picture in its own right, marked unconfirmed, because nothing else saw that title: it is review (T2), never an
+    /// auto-add, whatever tier the phone claimed. The places are then settled by <see cref="ReadPlaces.Weaker"/>, Vision's reads
+    /// first so its own read stands where the model read no better. Vision's items, and every other row (a single, one engine
+    /// failing), are not marked.
+    /// </summary>
+    private static IReadOnlyList<GroundedItem> Settled(IReadOnlyList<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
+    {
+        var modelReads = model.Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem))).ToList();
+        var reads = new List<GroundedItem>(vision.Count + modelReads.Count);
+        reads.AddRange(vision);
+        reads.AddRange(modelReads.Select(read => read with { Unconfirmed = true }));
+
+        var weaker = ReadPlaces.Weaker(
+            [.. vision.Select(read => Placed(read, onlyTheModelRead: false)), .. modelReads.Select(read => Placed(read, onlyTheModelRead: true))]).ToHashSet();
+        return [.. reads.Where((_, i) => !weaker.Contains(i))];
+    }
+
+    /// <summary>A read as the place rule settles it: where it sat, how well it grounds, the score of its best release, and which engine read it.</summary>
+    private static PlacedRead Placed(GroundedItem item, bool onlyTheModelRead) =>
+        new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead);
+
+    /// <summary>The verdict the phone's run recorded, on the ladder a place is settled by. A verdict still pending grounds nothing yet.</summary>
+    private static ReadGrounding GroundingOf(string verdict) => verdict switch
+    {
+        MatchedVerdict => ReadGrounding.Matched,
+        AmbiguousVerdict => ReadGrounding.Ambiguous,
+        PendingVerdict => ReadGrounding.Unsettled,
+        _ => ReadGrounding.Nothing,
+    };
+
+    /// <summary>
+    /// Whether a model read and a Vision read are one read with no place to tell them apart: a box missing on either side, and the
+    /// same best release (its normalised title and year). A read with no release to compare is never the same read by title.
+    /// </summary>
+    private static bool SameReleaseWithNoPlace(GroundedItem model, GroundedItem vision) =>
+        (model.Box is null || vision.Box is null) && KeyOf(model) is { } key && KeyOf(vision) == key;
+
+    /// <summary>
     /// Whether a model item and a Vision item are the same item on the shelf. With a box on both, the same item is the same place
     /// (whatever each read there); without one on either side, the same item is the same best release. A read with no release
-    /// to compare is never the same item by title.
+    /// to compare is never the same item by title. Only the captured-segment count asks this: what the shelf shows is settled
+    /// one place at a time (<see cref="Settled"/>).
     /// </summary>
     private static bool SameItem(GroundedItem model, GroundedItem vision) =>
         model.Box is { } modelBox && vision.Box is { } visionBox
