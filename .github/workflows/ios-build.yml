@@ -215,8 +215,11 @@ jobs:
       # hand to React Native's compiler wrapper, so the wrapper ran clang itself and ccache saw nothing. The settings are
       # therefore in the environment and on the xcodebuild command line (compiler_check content is React Native's advice
       # for CI, where a fresh checkout has new file times). The cache is kept per Xcode build, so a new compiler starts clean.
+      # ccache only makes the build faster, so it never fails it: if it can't be installed the Podfile skips it and every
+      # later ccache step steps aside.
       - name: Install ccache
         id: ccache
+        continue-on-error: true
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
           HOMEBREW_NO_INSTALL_CLEANUP: '1'
@@ -233,11 +236,14 @@ jobs:
           echo "xcode=$(xcodebuild -version | awk '/^Build version/ { print $3 }')" >> "$GITHUB_OUTPUT"
 
       - name: Restore the ccache
+        if: steps.ccache.outcome == 'success'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ccache
           key: ccache-ios-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
-          restore-keys: ccache-ios-${{ steps.ccache.outputs.xcode }}-
+          restore-keys: |
+            ccache-ios-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-
+            ccache-ios-${{ steps.ccache.outputs.xcode }}-
 
       - name: Install pods
         working-directory: app/ios
@@ -251,7 +257,12 @@ jobs:
           EXPO_PUBLIC_AUTH0_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_AUTH0_CLIENT_ID }}
           EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
         run: |
-          ccache --zero-stats
+          # With ccache (see "Install ccache") its settings go to xcodebuild; without it the archive compiles as before.
+          ccache_settings=()
+          if [ -n "${CCACHE_BINARY:-}" ] && command -v ccache >/dev/null 2>&1; then
+            ccache --zero-stats || true
+            ccache_settings=(CCACHE_BINARY="$CCACHE_BINARY" CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE="$CCACHE_MAXSIZE" CCACHE_COMPILERCHECK="$CCACHE_COMPILERCHECK")
+          fi
           # The JS bundle is built inside xcodebuild; About shows "Build <sha> from <date>" (Expo inlines EXPO_PUBLIC_*).
           export EXPO_PUBLIC_BUILD_SHA="$(git rev-parse HEAD)"
           export EXPO_PUBLIC_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -260,30 +271,28 @@ jobs:
           xcodebuild -workspace "$workspace" -scheme "$scheme" \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build -archivePath "$RUNNER_TEMP/CollectionMaxxing.xcarchive" \
-            CCACHE_BINARY="$CCACHE_BINARY" CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE="$CCACHE_MAXSIZE" CCACHE_COMPILERCHECK="$CCACHE_COMPILERCHECK" \
+            "${ccache_settings[@]}" \
             archive
 
-      # Only a build that archived saves the cache, and only from main: a tag's cache would be unreachable by later
-      # builds, since a cache is shared only with the branch it was saved on and the default branch. A build that found
-      # every compile in the cache has nothing new to keep, and a saved cache is never updated, only added (about 1 GB
-      # each, against the repository's 10 GB), so it is saved only when something was compiled.
+      # What the build did with the cache decides whether the cache is saved (the last step of the job): only a build that
+      # compiled something has anything new to keep. A saved cache is never updated, only added (about 250 MB compressed,
+      # 1.4 GB on disk), and the repository's caches already exceed its 10 GB, so an entry can be evicted before its
+      # next use, which only means a cold build.
       - name: ccache statistics
         id: ccachestats
+        continue-on-error: true
         run: |
+          if [ -z "${CCACHE_BINARY:-}" ] || ! command -v ccache >/dev/null 2>&1; then
+            echo "ccache is not installed, so the archive compiled without it."
+            exit 0
+          fi
           ccache -s
           { echo "### ccache"; echo '```'; ccache -s; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           if ! ccache -s | grep -q "Cacheable calls"; then
             echo "::warning::ccache recorded no compiles, so the archive did not go through it. Check the Podfile's ccache setting (apple.ccacheEnabled) and that CCACHE_BINARY reaches xcodebuild."
           fi
           misses=$(ccache -s | awk '/^  Misses:/ { print $2; exit }')
-          echo "new=$([ "${misses:-1}" = 0 ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
-
-      - name: Save the ccache
-        if: github.ref == 'refs/heads/main' && steps.ccachestats.outputs.new == 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.ccache
-          key: ccache-ios-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
+          echo "new=$([ "${misses:-0}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Export the signed .ipa
         run: |
@@ -339,6 +348,18 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
           rm -rf "$HOME/.appstoreconnect/private_keys" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/distribution.p12"
           rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision
+
+      # Last, so keeping the cache can never delay or fail the upload, the build number or the signing cleanup above. It
+      # runs even when an earlier step failed (the compiled code is still worth keeping), but only from main, since a
+      # tag's cache would be unreachable by later builds: a cache is shared only with the branch it was saved on and the
+      # default branch.
+      - name: Save the ccache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.ccachestats.outputs.new == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-ios-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
 
   release:
     # The GitHub release for a v* tag, created only after the build above uploaded to TestFlight. A job of its own so
