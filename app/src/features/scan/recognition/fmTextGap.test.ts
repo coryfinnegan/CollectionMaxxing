@@ -188,14 +188,15 @@ describe('spike #505 fixed set', () => {
     expect(IDS.map((id) => SET[id].truth.length)).toEqual([1, 1, 3, 1, 1, 0]);
   });
 
-  it('fallback: a clean cover reads as one low-confidence guess with a shard-y title', async () => {
+  it('fallback: a clean cover reads as one low-confidence guess, now of the biggest lettering', async () => {
     const readings = await readAll((vision) => new VisionPipelineEngine({ vision, settings: () => DEFAULT_RECOGNITION_SETTINGS, newId: testIds }));
     const reading = readings['spike://cover-clean'];
     expect(reading.items).toHaveLength(1);
     expect(reading.unreadableCount).toBe(0);
     const [item] = reading.items;
-    expect(item.title).toBe('"A masterpiece" — Review');
-    expect(item.creator).toBe('Dune');
+    // The shelf rule takes the biggest lettering on the piece, so the review quote no longer outruns the title (#617).
+    expect(item.title).toBe('Dune');
+    expect(item.creator).toBe('Frank Herbert');
     expect(item.kind).toBe('other');
     expect(item.confidence).toBe('low');
   });
@@ -282,9 +283,10 @@ describe('spike #505 fixed set', () => {
         .join('\n'),
     );
 
-    expect([f.read, f.truth, f.titleHits, f.kindHits, f.high, f.unreadable]).toEqual([12, 7, 4, 0, 0, 0]);
+    // The fallback's titleHits rose from 4 to 5 and its creatorHits from 1 to 2 with the spine-title rule (#617).
+    expect([f.read, f.truth, f.titleHits, f.kindHits, f.high, f.unreadable]).toEqual([12, 7, 5, 0, 0, 0]);
     expect([e.read, e.truth, e.titleHits, e.kindHits, e.high, e.unreadable]).toEqual([7, 7, 7, 7, 4, 0]);
-    expect([f.creatorHits, f.creatorScored]).toEqual([1, 4]);
+    expect([f.creatorHits, f.creatorScored]).toEqual([2, 5]);
     expect([e.creatorHits, e.creatorScored]).toEqual([7, 7]);
   });
 

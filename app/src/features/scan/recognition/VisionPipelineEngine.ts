@@ -10,6 +10,7 @@ import { readLines } from './lines';
 import { multipleCovers } from './multiCover';
 import { productCodeOf } from './productCode';
 import { shelfKind } from './shelfKind';
+import { shelfTitleOf } from './shelfTitle';
 import { splitIntoPieces, wholeFrame, type Piece, type Split } from './splitting';
 import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
 
@@ -95,19 +96,24 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const items = pieces.map((p, order): ReadItem => {
       const cover = covers.get(p);
       const biggest = cover?.title;
+      // A shelf piece's title is chosen in shelfTitle.ts: never the author line or a sticker, the reading the other
+      // readings of its place agree with, and both rows of a title printed over two (#617).
+      const shelf = cover ? undefined : shelfTitleOf(p.lines, settings.local);
+      // A cover whose own rule found no title falls back to its surest, longest line, as it always did (#504 owns covers).
       const titleLine =
         biggest?.line ??
+        shelf?.line ??
         p.lines.reduce((best, l) => (l.confidence * l.text.length > best.confidence * best.text.length ? l : best));
       // A cover's creator is only the name the name rule found (an author printed bigger than the title). The lines left over are noise, and
       // the server weighs a read's creator against each candidate's, so a wrong one costs a right title. A shelf piece guesses as it always did.
-      const creator = cover ? biggest?.creator?.text : creatorOf(p.lines, titleLine, settings.local);
+      const creator = cover ? biggest?.creator?.text : creatorOf(shelf?.rest ?? p.lines, titleLine, settings.local);
       // A shelf piece is one spine, and a PlayStation spine prints its disc's code; the server settles which game the code names. A cover's code
       // is the cover cue's (coverCue.ts), which keeps it off a book or a film that the cover's own text shows the item to be.
       const productCode = cover ? undefined : productCodeOf(p.lines);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),
-        title: p.title ?? titleLine.text,
+        title: p.title ?? shelf?.text ?? titleLine.text,
         ...(creator ? { creator } : {}),
         ...(productCode ? { productCode } : {}),
         kind: cover?.kind ?? 'other',

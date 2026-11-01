@@ -11,6 +11,11 @@ const ROLE_WORDS = /\b(authors?|bestsell\w*)\b/i;
 /** What a printed name is made of. */
 const NAME_CHARS = /^[\p{L}\p{M}\s.'’&,()\-–—:]+$/u;
 
+/** Whether the line names the author's slot rather than a person or an item ("#1 NEW YORK TIMES BESTSELLING AUTHOR"). */
+export function readsAsRole(text: string): boolean {
+  return ROLE_WORDS.test(text);
+}
+
 function looksLikeName(text: string, tuning: LocalTuning): boolean {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0 || words.length > tuning.creatorMaxWords) return false;

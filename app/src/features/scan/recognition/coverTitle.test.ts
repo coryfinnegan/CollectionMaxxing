@@ -360,9 +360,9 @@ describe('the creator of a single cover', () => {
   });
 });
 
-describe('a shelf shot still picks each piece title as it did: the most confident of the longest lines', () => {
+describe('a shelf shot picks each piece title by its lettering (shelfTitle.ts, #617)', () => {
   // Two spines. On the first the short line is the bigger; on the second the longer line is the bigger but the unsure one. The shelf rule
-  // (confidence times length) takes the long tagline on the first and the short sure line on the second: size is not what it goes by.
+  // takes the biggest lettering on each piece, so a tagline set in tiny type loses to the title above it however long it is.
   const spines: Scene = {
     text: [
       line('A very long tagline set in tiny type', 0.05, 0.1, 0.4, 0.03),
@@ -381,7 +381,7 @@ describe('a shelf shot still picks each piece title as it did: the most confiden
 
   it.each([['shelf_segment' as const], ['unknown' as const], [undefined]])('on a %s shot', async (shotKind) => {
     const reading = await readSpines(shotKind === undefined ? {} : { shotKind });
-    expect(reading.items.map((i) => i.title)).toEqual(['A very long tagline set in tiny type', 'Short sure']);
+    expect(reading.items.map((i) => i.title)).toEqual(['BIG', 'Longer and unsure']);
   });
 
   it('and still offers a name-like line as the creator, where a single cover sends none', async () => {
@@ -391,7 +391,7 @@ describe('a shelf shot still picks each piece title as it did: the most confiden
     expect((await shelf.read(spineStill, () => {}, { shotKind: 'single_cover' })).items[0].creator).toBeUndefined();
   });
 
-  it('while the same lines read as one cover take the biggest letters', async () => {
+  it('while the same lines read as one cover take the biggest letters of the whole frame', async () => {
     const reading = await readSpines({ shotKind: 'single_cover' });
     expect(reading.items).toHaveLength(1);
     expect(reading.items[0].title).toBe('Longer and unsure');

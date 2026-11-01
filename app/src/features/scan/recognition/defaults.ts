@@ -116,6 +116,25 @@ export interface LocalTuning {
   coverNameMaxWords: number;
   /** The smaller run must be at least this share of the name's letter height to be taken for the title, so a tagline is not. */
   coverTitleBesideNameShare: number;
+  /**
+   * A stretch of shelf is one spine, and Vision reads a spine several times: the readings of one place pick the title
+   * between them (shelfTitle.ts, #617).
+   */
+  /** Two readings are of the same words when at least this share of the words they name together are in both. */
+  sameReadingWords: number;
+  /** Two lines are of one place when their boxes overlap by this share of the smaller one, so one box inside another is one place. */
+  onePlaceOverlap: number;
+  /** A second row of a title runs beside the chosen row for at least this share of the longer of the two. */
+  titleRowOverlap: number;
+  /** A second row joins the title only when its letters are at least this share of the chosen row's. */
+  titleRowLetters: number;
+  /**
+   * The two rows of one title run into each other across the line by at least this share of a letter height, since a block
+   * of print is set tight. Two items' print at best grazes, so this is what keeps the next spine along out of the title.
+   */
+  titleRowTouch: number;
+  /** A run of this many digits or more says nothing but a shelf code; fewer could be a year or a count ("1984"). */
+  stickerCodeDigits: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
   creatorMaxWords: number;
   /** A Vision line with fewer letters than this is not an author either. */
@@ -185,6 +204,12 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   coverTitleLineAspect: 0.15,
   coverNameMaxWords: 3,
   coverTitleBesideNameShare: 0.5,
+  sameReadingWords: 0.5,
+  onePlaceOverlap: 0.5,
+  titleRowOverlap: 0.7,
+  titleRowLetters: 0.5,
+  titleRowTouch: 0.1,
+  stickerCodeDigits: 5,
   creatorMaxWords: 5,
   creatorMinLetters: 3,
 };

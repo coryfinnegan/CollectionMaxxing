@@ -152,9 +152,11 @@ describe('real shelf photos', () => {
     // Three piles of tapes with a row of DVDs between: 7 lumps, then one item per tape. The OCR kept 7 titles whole on one line.
     'vhs-dvd-shelf-01': { before: { items: 7, found: 0 }, after: { items: 32, found: 6 } },
     // Upright DVD spines and no pile of 5 or more flat items: nothing for the split to change (its misses are merged spines).
-    'vhs-dvd-shelf-02': { before: { items: 12, found: 3 }, after: { items: 12, found: 3 } },
+    // The counts rose with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns that.
+    'vhs-dvd-shelf-02': { before: { items: 12, found: 5 }, after: { items: 12, found: 5 } },
     // A pile of hardcovers lies under a row of upright books; the 2-line titles of the pile now come out whole.
-    'accept-shelf-04': { before: { items: 24, found: 17 }, after: { items: 32, found: 20 } },
+    // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it.
+    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 32, found: 19 } },
     // Upright rows with no pile: unchanged.
     'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 19, found: 14 } },
     'accept-shelf-02': { before: { items: 17, found: 15 }, after: { items: 17, found: 15 } },

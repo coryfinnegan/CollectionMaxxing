@@ -363,7 +363,7 @@ describe('the Vision engine on a shelf shot', () => {
       const today = await searched([...two, ...shelf], { narrow: spines });
       expect(withoutIds(reading.items)).toEqual(withoutIds(today.items));
       expect(reading.items.length).toBeGreaterThan(0);
-      expect(titles(reading.items)).not.toContain('DUNE');
+      expect(reading.items.map((i) => i.box)).not.toContainEqual(LEFT); // no item was boxed by a cover rectangle
     });
 
     it('is the covers, and no rectangles for the splitter, when the default search throws', async () => {
