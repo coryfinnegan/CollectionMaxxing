@@ -6,7 +6,7 @@ import { DEFAULT_LOCAL_TUNING as T, DEFAULT_RECOGNITION_CONFIG as C, DEFAULT_REC
 import { line, RecordingVision, STILL, testIds } from './fakes';
 import { normalize } from './lines';
 import reads from './shelfReads.json';
-import { hasPile, splitIntoPieces } from './splitting';
+import { hasPile, splitIntoPieces, type Piece } from './splitting';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
 
 const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
@@ -94,6 +94,11 @@ describe('a pile of items lying flat is one item per spine', () => {
     const wide = Array.from({ length: 4 }, (_, i) => line(`Wide ${i}`, 0.1, 0.1 + i * 0.08, 0.55, 0.05));
     const { pieces } = splitIntoPieces(wide, [], C.splitting, T);
     expect(titles(pieces)).toEqual(wide.map((l) => [l.text]));
+  });
+
+  it('#618: does not cut a column of 4 lines of one size of lettering that is 0.65 wide: past the width a small stack stands', () => {
+    const wider = Array.from({ length: 4 }, (_, i) => line(`Wider ${i}`, 0.15, 0.1 + i * 0.08, 0.65, 0.05));
+    expect(splitIntoPieces(wider, [], C.splitting, T).pieces).toHaveLength(1);
   });
 
   it('#618: does not cut 3 lines whose lettering differs a lot in size, the look of a cover with its tagline, author and title', () => {
@@ -223,6 +228,47 @@ describe('real shelf photos', () => {
   it('reads a pile of tapes as one item per tape: the tape stack of the first photo is no longer one lump', async () => {
     const { items } = await read('vhs-dvd-shelf-01', T);
     expect(items).toBeGreaterThanOrEqual(photos['vhs-dvd-shelf-01'].truth.length - 5); // 5 of the 32 are unreadable
+  });
+
+  describe('small stacks cut out of a real pile photo, each window of consecutive bands on its own', () => {
+    /** The photo's bands as the pile cut them, column by column (a band whose top is above the last one's starts the next column). */
+    function pileColumns(id: string): Piece[][] {
+      const lines = photos[id].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
+      const columns: Piece[][] = [];
+      for (const band of splitIntoPieces(lines, [], C.splitting, T).pieces.filter((p) => p.title !== undefined)) {
+        const column = columns[columns.length - 1];
+        if (column && band.box.y > column[column.length - 1].box.y) column.push(band);
+        else columns.push([band]);
+      }
+      return columns;
+    }
+
+    /** Windows of `size` consecutive bands of one column, how many there are and how many split into one item per band. */
+    function windowsOf(id: string, size: number) {
+      let windows = 0;
+      let split = 0;
+      for (const column of pileColumns(id)) {
+        for (let i = 0; i + size <= column.length; i++) {
+          windows += 1;
+          const lines = column.slice(i, i + size).flatMap((band) => band.lines);
+          if (splitIntoPieces(lines, [], C.splitting, T).pieces.length === size) split += 1;
+        }
+      }
+      return { windows, split };
+    }
+
+    // KNOWN LIMIT (#618): only about half of the real small stacks split. Without the lettering check 14 of the 16 four-band windows and 10 of
+    // the 19 three-band windows would, but the tapes' smallest-to-biggest lettering runs from 0.31 to 0.82 while the cover paperback-01 has 0.32,
+    // so no cut-off on that ratio separates them (a follow-up needs another cue). The real hardcover pile (accept-shelf-04) splits 0 of 6
+    // three-band windows and 1 of 5 four-band ones with or without the check, because the gap rule rejects the rest. These are floors,
+    // so the windows that split today keep splitting, not the goal.
+    it('splits at least 8 of the 16 four-tape windows and 8 of the 19 three-tape windows of the real tape piles into one item per tape', () => {
+      const fours = windowsOf('vhs-dvd-shelf-01', 4);
+      const threes = windowsOf('vhs-dvd-shelf-01', 3);
+      expect([fours.windows, threes.windows]).toEqual([16, 19]);
+      expect(fours.split).toBeGreaterThanOrEqual(8);
+      expect(threes.split).toBeGreaterThanOrEqual(8);
+    });
   });
 
   it('wants the extra upside-down pass for the two photos with a pile and for none of the others', () => {
