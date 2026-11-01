@@ -7,7 +7,7 @@ import { Button, Card, LoadingState, Screen, Text, TextField } from '@/ui';
 import { AddEvalPhotos, deviceAddPhotos } from './AddEvalPhotos';
 import type { AddPhotosController } from './addPhotos';
 import { getEvalRunner } from './device';
-import { outcomeLines, scoringProblem } from './outcome';
+import { NOT_SCORED, outcomeLines, scoringProblem } from './outcome';
 import type { EvalRunner, EvalState } from './runner';
 
 const THERMAL_LABEL = { nominal: 'Normal', fair: 'Warm', serious: 'Hot', critical: 'Very hot' } as const;
@@ -33,6 +33,7 @@ function useElapsed(state: EvalState): number {
 function Summary({ state }: { state: EvalState }) {
   const { summary } = state;
   if (!summary) return null;
+  const notScored = summary.skipped.filter((s) => NOT_SCORED.has(s.reason)).length;
   return (
     <Card>
       <Text variant="heading">{`M3 gate: ${summary.gate.verdict}`}</Text>
@@ -40,7 +41,7 @@ function Summary({ state }: { state: EvalState }) {
         <Text key={m.name}>{`${m.name}: ${m.actual ?? 'no data'} (needs ${m.bar}) · ${m.status}`}</Text>
       ))}
       <Text tone="muted">{`Compared with the last good run: ${summary.regression.status}.`}</Text>
-      {summary.skipped.length > 0 ? <Text tone="muted">{`${summary.skipped.length} photos weren't scored (no truth file yet or not found).`}</Text> : null}
+      {notScored > 0 ? <Text tone="muted">{`${photos(notScored)} weren't scored (no truth file yet or not found).`}</Text> : null}
     </Card>
   );
 }

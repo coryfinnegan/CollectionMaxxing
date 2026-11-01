@@ -33,9 +33,12 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
         Directory.CreateDirectory(folder);
         var summaryJson = JsonSerializer.Serialize(summary, Json);
 
-        await WriteAsync(UniqueDatedPath(folder, summary), summaryJson, cancellationToken);
         await WriteAsync(Path.Combine(folder, LatestRun), JsonSerializer.Serialize(run, Json), cancellationToken);
         await WriteAsync(Path.Combine(folder, Report), reportMarkdown, cancellationToken);
+        // Written only once the other files succeeded, so a retry after one of them failed (report.md locked by another program) usually never
+        // reaches here having already written its own dated file. UniqueDatedPath is still RunId-aware for the remaining case: latest.json itself
+        // failing on a retry's first attempt, which would otherwise find its own dated file from that same attempt and number up a second one.
+        await WriteAsync(UniqueDatedPath(folder, summary), summaryJson, cancellationToken);
         await WriteAsync(Path.Combine(folder, LatestSummary), summaryJson, cancellationToken); // last: its presence says the run is complete
     }
 
@@ -163,17 +166,36 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
         }
     }
 
-    /// <summary>The dated file's path; a second run on the same day with the same sha gets <c>-2</c>, <c>-3</c>… so no earlier result is lost.</summary>
+    /// <summary>
+    /// The dated file's path; a second run on the same day with the same sha gets <c>-2</c>, <c>-3</c>… so no earlier result is lost. A retry of
+    /// this same run (its own earlier attempt already wrote the dated file, then failed on a later write) reuses that file instead of numbering up.
+    /// </summary>
     private static string UniqueDatedPath(string folder, EvalSummary summary)
     {
         var stem = string.Create(CultureInfo.InvariantCulture, $"{summary.Date}-{summary.BuildSha}");
         var path = Path.Combine(folder, stem + ".json");
-        for (var n = 2; File.Exists(path); n++)
+        for (var n = 2; File.Exists(path) && !IsSameRun(path, summary.RunId); n++)
         {
             path = Path.Combine(folder, string.Create(CultureInfo.InvariantCulture, $"{stem}-{n}.json"));
         }
 
         return path;
+    }
+
+    private static bool IsSameRun(string path, string runId)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<EvalSummary>(File.ReadAllText(path), Json)?.RunId == runId;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static async Task WriteAsync(string path, string content, CancellationToken cancellationToken)

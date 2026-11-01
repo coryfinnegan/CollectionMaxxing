@@ -77,6 +77,8 @@ export const evalsMock = {
   uploads: [] as MockUpload[],
   /** Per photo id: make that photo's next upload fail with this status (once). 409 is "name taken", 413 "too large", 415 "not a JPEG or HEIC". */
   failUpload: {} as Record<string, number>,
+  /** What the done summary lists as skipped: not-scored reasons, but also refusals and notes on photos that were scored, as the PC really sends. */
+  skipped: [] as { photoId: string; reason: string }[],
   reset() {
     this.access = 'off';
     this.photos = [];
@@ -94,6 +96,7 @@ export const evalsMock = {
     this.failNextFinish = null;
     this.uploads = [];
     this.failUpload = {};
+    this.skipped = [];
   },
 };
 
@@ -131,7 +134,7 @@ const summary = (runId: string, partial: boolean) => ({
   configVersion: 'built-in',
   device: { model: 'iPhone', osVersion: '26.0', appVersion: '1.0.0' },
   scoredPhotos: evalsMock.photos.length,
-  skipped: [],
+  skipped: evalsMock.skipped,
   engines: {},
   gate: {
     engine: 'apple_model',
