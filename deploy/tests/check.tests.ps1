@@ -358,7 +358,8 @@ function New-CheckRecordingTools {
     <#
       A fake dotnet and npm that record every call as one file in $LogDir (call-*.txt) and exit 0; a test call prints the
       passing summary line the gate looks for. With CM_FAKE_FORMAT_SLEEP set a format call also records when it started and
-      ended (fmt-<id>-a.txt, fmt-<id>-b.txt), a second apart, so a test can see whether two of them overlapped.
+      ended (fmt-<id>-a.txt, fmt-<id>-b.txt), a second apart, so a test can see whether two of them overlapped. With
+      CM_FAKE_FORMAT_FLAKY set the first format call of each project fails with the "file in use" error and the next passes.
       Returns the bin dir.
     #>
     param([switch]$Posix)
@@ -367,15 +368,23 @@ function New-CheckRecordingTools {
     if ($IsWindows -and -not $Posix) {
         Set-Content -LiteralPath (Join-Path $bin 'dotnet.cmd') -Value @(
             '@echo off',
-            'echo %* > "%CM_FAKE_DOTNET_LOG%\call-%1-%~n2-%RANDOM%.txt"',
+            # %RANDOM% is seeded by the clock, so a retry a moment after a failed try gets the same number: the first try has its own tag.
+            'set "tag=%RANDOM%"',
+            'if defined CM_FAKE_FORMAT_FLAKY if not exist "%CM_FAKE_DOTNET_LOG%\flaky-%~n2.mark" set "tag=first"',
+            'echo %* > "%CM_FAKE_DOTNET_LOG%\call-%1-%~n2-%tag%.txt"',
             'if "%1"=="test" echo Passed!  - Failed: 0, Passed: 1, Skipped: 0, Total: 1',
             'if not "%1"=="format" exit /b 0',
+            'if defined CM_FAKE_FORMAT_FLAKY if not exist "%CM_FAKE_DOTNET_LOG%\flaky-%~n2.mark" goto flaky',
             'if not defined CM_FAKE_FORMAT_SLEEP exit /b 0',
             'set "id=%~n2"',
             'echo %TIME% > "%CM_FAKE_DOTNET_LOG%\fmt-%id%-a.txt"',
             'ping -n 2 127.0.0.1 > nul',
             'echo %TIME% > "%CM_FAKE_DOTNET_LOG%\fmt-%id%-b.txt"',
-            'exit /b 0')
+            'exit /b 0',
+            ':flaky',
+            'echo x > "%CM_FAKE_DOTNET_LOG%\flaky-%~n2.mark"',
+            'echo The process cannot access the file obj\Debug\x.AssemblyInfo.cs because it is being used by another process.',
+            'exit /b 1')
         Set-Content -LiteralPath (Join-Path $bin 'npm.cmd') -Value @('@echo off', 'echo npm %* > "%CM_FAKE_DOTNET_LOG%\call-npm-%RANDOM%.txt"', 'exit /b 0')
     }
     else {
@@ -383,6 +392,14 @@ function New-CheckRecordingTools {
             '#!/bin/sh',
             'echo "$@" > "$(mktemp "$CM_FAKE_DOTNET_LOG/call-XXXXXX.txt")"',
             'if [ "$1" = test ]; then echo "Passed!  - Failed: 0, Passed: 1, Skipped: 0, Total: 1"; fi',
+            'if [ "$1" = format ] && [ -n "$CM_FAKE_FORMAT_FLAKY" ]; then',
+            '  mark="$CM_FAKE_DOTNET_LOG/flaky-$(basename "$2" .csproj).mark"',
+            '  if [ ! -e "$mark" ]; then',
+            '    : > "$mark"',
+            '    echo "The process cannot access the file obj/Debug/x.AssemblyInfo.cs because it is being used by another process."',
+            '    exit 1',
+            '  fi',
+            'fi',
             'if [ "$1" = format ] && [ -n "$CM_FAKE_FORMAT_SLEEP" ]; then',
             '  id=$$',
             '  date +%s.%N > "$CM_FAKE_DOTNET_LOG/fmt-$id-a.txt"',
@@ -445,7 +462,7 @@ function New-CheckGitCheckout {
         Set-Content -LiteralPath (Join-Path $root "$dir/$name.csproj") -Value (@('<Project Sdk="Microsoft.NET.Sdk">', '  <ItemGroup>') + $refs + @('  </ItemGroup>', '</Project>'))
         Set-CheckFile $root "$dir/Class.cs" 'class C {}'
     }
-    foreach ($file in 'app/package.json', 'app/src/index.ts', 'app/playwright/serve.mjs', 'docs/readme.md', 'deploy/x.txt', 'evals/baseline.json', 'Directory.Build.props', 'tests/Directory.Build.props') {
+    foreach ($file in 'app/package.json', 'app/src/index.ts', 'app/playwright/serve.mjs', 'docs/readme.md', 'Directory.Build.props', 'tests/Directory.Build.props') {
         Set-CheckFile $root $file 'base'
     }
     Invoke-CheckGit $root init -q
@@ -483,7 +500,7 @@ function Invoke-CheckChanged {
     )
     Get-ChildItem -LiteralPath $CallDir -File -ErrorAction SilentlyContinue | Remove-Item -Force
     $callDirForChild = if ($Runner.Posix) { ConvertTo-CheckPosixPath $CallDir } else { $CallDir }
-    $vars = @{ CM_FAKE_DOTNET_LOG = $callDirForChild; CM_FAKE_FORMAT_SLEEP = $null; CM_FORMAT_PARALLEL = $null; CM_TEST_ONLY = $null; CM_TEST_FILTER = $null }
+    $vars = @{ CM_FAKE_DOTNET_LOG = $callDirForChild; CM_FAKE_FORMAT_SLEEP = $null; CM_FAKE_FORMAT_FLAKY = $null; CM_FORMAT_PARALLEL = $null; CM_TEST_ONLY = $null; CM_TEST_FILTER = $null }
     foreach ($name in $Env.Keys) { $vars[$name] = $Env[$name] }
     $runArgs = @()
     if ($Runner.Posix) {
@@ -597,6 +614,10 @@ Test-Case 'changed: the area is picked the way CI picks it (app-only, server-onl
             Line = '^changed: everything, 1 file\. skipped: nothing \(Directory\.Build\.props is outside app/ and the server folders\)$' },
         @{ Name = 'no change at all'; Restore = $true
             Line = '^changed: everything\. skipped: nothing \(no changed files found\)$' },
+        @{ Name = 'a path in the wrong case (CI''s classifier is case-sensitive too)'; Dirty = @('Evals/x.txt'); Restore = $true
+            Line = '^changed: everything, 1 file\. skipped: nothing \(Evals/x\.txt is outside app/ and the server folders\)$' },
+        @{ Name = 'a server folder in the wrong case beside a right one'; Committed = @('src/CollectionMaxxing.Api/Class.cs'); Dirty = @('Deploy/y.txt'); Restore = $true
+            Line = '^changed: everything, 2 files\. skipped: nothing \(Deploy/y\.txt is outside app/ and the server folders\)$' },
         @{ Name = 'a server change'; Dirty = @('deploy/x.txt'); Restore = $true
             Line = '^changed: server-only, 1 file\. skipped: app phase \(nothing under app/ changed\);' }
     )
@@ -685,6 +706,13 @@ Test-Case 'changed: a server change runs restore, build and format and tests for
         # One phase at a time, as CI and the agent run it, with the same narrowing.
         $testOnly = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'test' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
         Assert-CheckRan $testOnly "$label / test phase alone" @{ Restore = $false; Build = $false; Format = @(); Test = @('Api.Tests', 'Architecture.Tests'); Line = '^changed: server-only' }
+        # One selected test project per call (the agent's fallback when the whole phase is too long): CM_TEST_ONLY narrows the selection further.
+        $one = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'test' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls -Env @{ CM_TEST_ONLY = 'CollectionMaxxing.Architecture.Tests' }
+        Assert-CheckRan $one "$label / one project by CM_TEST_ONLY" @{ Restore = $false; Format = @(); Test = @('Architecture.Tests'); Line = '^changed: server-only' }
+        # A project the change does not select is refused, not silently run.
+        $other = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'test' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls -Env @{ CM_TEST_ONLY = 'CollectionMaxxing.Domain.Tests' }
+        Assert-Equal 2 $other.Exit "${label}: CM_TEST_ONLY naming an unselected project exits 2: $($other.Text)"
+        Assert-Equal 0 @(Get-CheckCallProjects $other.Calls 'test').Count "${label}: and runs nothing"
     }
 }
 
@@ -717,6 +745,17 @@ Test-Case 'changed: Windows PowerShell 5.1 narrows the gate the same way' {
             $run = Invoke-CheckChanged -Runner $runner -Root $root -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
             Assert-CheckRan $run "$label / a test project" @{ Restore = $true; Build = $true; App = $false; Format = @('Domain.Tests'); Test = @('Architecture.Tests', 'Domain.Tests'); Line = '^changed: server-only, 1 file\.' }
         }
+    }
+}
+
+Test-Case 'check format: a project that hits a file-in-use error beside another run is retried, and only that error is' {
+    Use-CheckChangedSandbox -RunnerFilter $script:CheckModernRunners {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'format' -FakeBin $bin -TempBase $tmp -CallDir $calls -Env @{ CM_FAKE_FORMAT_FLAKY = '1' }
+        Assert-Equal 0 $run.Exit "${label}: exited $($run.Exit): $($run.Text)"
+        Assert-Equal 12 @($run.Lines | Where-Object { $_ -match 'format: \S+ hit a file-in-use error from a run beside it, retrying \(attempt 2/3\)' }).Count "${label}: every project says it retried: $($run.Text)"
+        Assert-Equal 24 @(Get-CheckCallProjects $run.Calls 'format').Count "${label}: each project was formatted twice (the failed try and the retry)"
+        Assert-Match $run.Text '(?m)^ok   format \(12 projects' "${label}: and the phase passes"
     }
 }
 

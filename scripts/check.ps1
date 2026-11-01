@@ -98,8 +98,9 @@ function Get-GateArea([string[]]$Paths) {
   $appOnly = $true
   $serverOnly = $true
   foreach ($path in $Paths) {
-    if (-not ($path.StartsWith('app/') -and ($path -ne 'app/playwright/serve.mjs'))) { $appOnly = $false }
-    if ($path -notmatch '^(src|tests|deploy|evals)/') { $serverOnly = $false }
+    # Case-sensitive on purpose, like CI's changed-areas.sh (a shell case): `Evals/x` is not under evals/.
+    if (-not ($path.StartsWith('app/', [StringComparison]::Ordinal) -and ($path -cne 'app/playwright/serve.mjs'))) { $appOnly = $false }
+    if ($path -cnotmatch '^(src|tests|deploy|evals)/') { $serverOnly = $false }
   }
   if ($appOnly) { return 'app' }
   if ($serverOnly) { return 'server' }
@@ -166,9 +167,9 @@ function Get-GateScope {
     }
   }
   if ($area -eq 'all') {
-    $outside = @($paths | Where-Object { -not ($_ -match '^(app|src|tests|deploy|evals)/') })
+    $outside = @($paths | Where-Object { -not ($_ -cmatch '^(app|src|tests|deploy|evals)/') })
     $why = if ($outside.Count -gt 0) { "$($outside[0]) is outside app/ and the server folders" }
-           elseif ($paths -contains 'app/playwright/serve.mjs') { 'app/playwright/serve.mjs is read by the backend tests' }
+           elseif ($paths -ccontains 'app/playwright/serve.mjs') { 'app/playwright/serve.mjs is read by the backend tests' }
            else { 'the change touches both the app and the server' }
     return (& $everything $why $count)
   }
@@ -180,19 +181,19 @@ function Get-GateScope {
   $shared = $null
   $touchesCode = $false
   foreach ($path in $paths) {
-    if ($path -match '^(src|tests)/') {
+    if ($path -cmatch '^(src|tests)/') {
       $touchesCode = $true
-      $owner = @($projects.Values | Where-Object { $path.StartsWith($_.Dir + '/') }) | Select-Object -First 1
+      $owner = @($projects.Values | Where-Object { $path.StartsWith($_.Dir + '/', [StringComparison]::Ordinal) }) | Select-Object -First 1
       if ($owner) { [void]$changedProjects.Add($owner.Name) }
       elseif (-not $shared) { $shared = $path }
     }
-    elseif (($path -match '^evals/') -and $projects.ContainsKey('CollectionMaxxing.Recognition.Evals')) {
+    elseif (($path -cmatch '^evals/') -and $projects.ContainsKey('CollectionMaxxing.Recognition.Evals')) {
       # The recognition eval tests read evals/ (the baseline, the acceptance truth, the results). Nothing there needs formatting.
       [void]$touchedForTests.Add('CollectionMaxxing.Recognition.Evals')
     }
   }
   foreach ($name in $changedProjects) { [void]$touchedForTests.Add($name) }
-  $lanes = @($projects.Values | Where-Object { $_.Dir -like 'tests/*' -and $_.Name -notin $skipLibs } | ForEach-Object { $_.Name } | Sort-Object)
+  $lanes = @($projects.Values | Where-Object { $_.Dir -clike 'tests/*' -and $_.Name -notin $skipLibs } | ForEach-Object { $_.Name } | Sort-Object)
   $allProjects = @($projects.Keys)
   $scope = [pscustomobject]@{ Area = 'server'; RunBackend = $true; RunApp = $false; TestAll = $false; TestNames = @(); FormatAll = $false; FormatNames = @(); Line = '' }
   $skipped = @('app phase (nothing under app/ changed)')
@@ -334,6 +335,10 @@ $formatJob = {
       $verified = $true
     } elseif ($attemptLines -match 'Unhandled exception') {
       if ($attempt -lt $MaxAttempts) { $retries += "hit the Roslyn crash, retrying (attempt $($attempt + 1)/$MaxAttempts; see issue #308)" }
+    } elseif ($attemptLines -match 'being used by another process') {
+      # Two projects that share a referenced project can both write its obj/ files while they load it (nothing is built
+      # before the format phase on CI). Only that error is retried, so a genuine violation still fails at once.
+      if ($attempt -lt $MaxAttempts) { $retries += "hit a file-in-use error from a run beside it, retrying (attempt $($attempt + 1)/$MaxAttempts)" }
     } else {
       break
     }

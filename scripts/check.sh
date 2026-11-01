@@ -356,6 +356,12 @@ format_one() { # $1 = project; leaves <name>.log, <name>.retries and, when it ve
       if [ "$attempt" -lt "$max_attempts" ]; then
         echo "hit the Roslyn crash, retrying (attempt $((attempt + 1))/$max_attempts; see issue #308)" >>"$part.retries"
       fi
+    elif grep -q 'being used by another process' "$part.attempt"; then
+      # Two projects that share a referenced project can both write its obj/ files while they load it (nothing is built
+      # before the format phase on CI). Only that error is retried, so a genuine violation still fails at once.
+      if [ "$attempt" -lt "$max_attempts" ]; then
+        echo "hit a file-in-use error from a run beside it, retrying (attempt $((attempt + 1))/$max_attempts)" >>"$part.retries"
+      fi
     else
       break
     fi
