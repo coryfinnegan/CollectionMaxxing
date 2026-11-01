@@ -93,8 +93,15 @@ public sealed record RegressionItem(string Metric, double Baseline, double Actua
 public sealed record RegressionCheck(string Status, int Compared, IReadOnlyList<RegressionItem> Regressions);
 
 /// <summary>
+/// Marks a run the PC made by itself from the phone readings of an earlier run: that run's id and when the phone read it. A run with this was
+/// grounded and scored again with the server version in <c>BuildSha</c>; no phone took part in it.
+/// </summary>
+public sealed record EvalRegroundedFrom(string RunId, DateTimeOffset ReadAt);
+
+/// <summary>
 /// The summary of one run. This is what the result file and <c>GET /api/admin/evals/runs/latest</c> hold. <c>Partial</c> marks a run the phone
 /// cancelled: <c>PhotosRun</c> of <c>PhotosInSet</c> golden photos (0 when not known) were run, the gate says incomplete and the regression check is skipped.
+/// <c>RegroundedFrom</c> is set only when the PC scored an earlier run's phone readings again with a newer server version; null for a phone run.
 /// </summary>
 public sealed record EvalSummary(
     string RunId,
@@ -112,7 +119,8 @@ public sealed record EvalSummary(
     int PhotosRun = 0,
     int PhotosInSet = 0,
     string? ThresholdHash = null,
-    string? BaselineNote = null);
+    string? BaselineNote = null,
+    EvalRegroundedFrom? RegroundedFrom = null);
 
 /// <summary>
 /// The baseline the regression check compares to: the metrics, and the threshold fingerprint they were measured under

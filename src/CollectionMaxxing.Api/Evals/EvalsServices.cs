@@ -16,6 +16,7 @@ public static class EvalsServices
         services.AddOptions<EvalsOptions>().BindConfiguration(EvalsOptions.SectionName);
         services.AddSingleton<IGoldenSet, FileGoldenSet>();
         services.AddSingleton<IEvalResults, FileEvalResults>();
+        services.AddSingleton<IEvalInputs, FileEvalInputs>(); // the phone's readings of the last run, kept for a re-ground after a deploy
         services.AddGameSerials(); // the grounder reads product codes the way /identify does (ADR-031)
         services.AddScoped<EvalGrounder>();
         services.AddScoped<ListGoldenPhotos.Handler>();
@@ -29,6 +30,7 @@ public static class EvalsServices
         services.AddSingleton<EvalRunCoordinator>();
         services.AddScoped<EvalRunScoring>();
         services.AddScoped<EvalRunProcessor>();
+        services.AddScoped<EvalRegrounder>();
         services.AddScoped<OpenEvalRun.Handler>();
         services.AddScoped<GetOpenEvalRun.Handler>();
         services.AddScoped<StoreEvalPhoto.Handler>();

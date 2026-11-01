@@ -40,6 +40,13 @@ public sealed class EvalsOptions
     /// call waits in the shared limiter behind the others. A value below 1 asks one read at a time.
     /// </summary>
     public int GroundingParallelism { get; set; } = 6;
+
+    /// <summary>
+    /// Whether the worker, when the API starts as another server version than the one that made the latest result, grounds and scores the kept phone
+    /// readings of that run again by itself (<c>latest-inputs.json</c>), so a fix on the PC's side is measured without a phone run. On by default. This
+    /// switches off only that automatic step: an empty <c>reground.request</c> file in <see cref="ResultsPath"/> still asks for one on purpose.
+    /// </summary>
+    public bool RegroundOnStart { get; set; } = true;
 }
 
 /// <summary>The rule for a photo id. An id comes from a file name and is the only thing a request may use to name a file.</summary>

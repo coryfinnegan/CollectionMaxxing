@@ -109,6 +109,7 @@ public static class OpenEvalRun
             }
 
             coordinator.Forget();
+            coordinator.RunOpened(); // a re-ground of the last run's readings in progress gives way
             return EvalOpenRunStatuses.Build(header, store, results);
         }
     }

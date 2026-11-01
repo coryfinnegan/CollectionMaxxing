@@ -16,7 +16,10 @@ public sealed record EvalTruthSet(
     IReadOnlyDictionary<string, TruthEntry> Truths,
     IReadOnlyList<string> WithoutTruth);
 
-/// <summary>A run ready to be scored: who ran it, and every engine result of every photo, grounded.</summary>
+/// <summary>
+/// A run ready to be scored: who ran it, and every engine result of every photo, grounded. <c>RegroundedFrom</c> is set when the PC made the run by
+/// itself from an earlier run's kept phone readings: the summary carries it, the report says so, and no draft truth files are written for it.
+/// </summary>
 public sealed record EvalRunToScore(
     string RunId,
     DateTimeOffset At,
@@ -24,7 +27,8 @@ public sealed record EvalRunToScore(
     string ConfigVersion,
     bool Partial,
     string? BaselineNote,
-    IReadOnlyList<GroundedPhoto> Photos);
+    IReadOnlyList<GroundedPhoto> Photos,
+    EvalRegroundedFrom? RegroundedFrom = null);
 
 /// <summary>
 /// The two halves of a run that every way of making one shares: grounding what the phone read in one photo through the code <c>/identify</c> uses,
@@ -100,8 +104,8 @@ public sealed class EvalRunScoring(
     }
 
     /// <summary>
-    /// Scores the run, writes its result files and the draft truth files, and returns the summary. Fails only when the results folder cannot be written,
-    /// and then nothing is half written.
+    /// Scores the run, writes its result files and the draft truth files (none for a run that is <see cref="EvalRunToScore.RegroundedFrom"/> an earlier
+    /// one), and returns the summary. Fails only when the results folder cannot be written, and then nothing is half written.
     /// </summary>
     public async Task<Result<EvalRunResult>> ScoreAsync(
         EvalRunToScore run, EvalTruthSet truthSet, IReadOnlyList<SkippedPhoto> skipped, CancellationToken cancellationToken)
@@ -118,7 +122,7 @@ public sealed class EvalRunScoring(
         var baseline = results.LoadBaselineDoc();
         var evaluated = EvalReport.Evaluate(
             grounded, truthSet.Truths, baseline?.Metrics, BuildSha.Resolve(options.Value), skipped, truthSet.Listing.Count,
-            scoring.CurrentValue.Thresholds, baseline?.ThresholdHash);
+            scoring.CurrentValue.Thresholds, baseline?.ThresholdHash, run.RegroundedFrom);
 
         try
         {
@@ -132,7 +136,8 @@ public sealed class EvalRunScoring(
             return EvalErrors.ResultsNotWritable;
         }
 
-        var drafts = WriteDrafts(truthSet.WithoutTruth, run.Photos, truthSet.Listing);
+        // A re-score is the PC's own work on readings it already drafted truth for: it leaves the golden folder as the owner has it.
+        var drafts = run.RegroundedFrom is null ? WriteDrafts(truthSet.WithoutTruth, run.Photos, truthSet.Listing) : 0;
         if (logger.IsEnabled(LogLevel.Information))
         {
             logger.LogInformation(

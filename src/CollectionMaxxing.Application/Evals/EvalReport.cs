@@ -29,7 +29,8 @@ public static class EvalReport
         IReadOnlyList<SkippedPhoto> skipped,
         int photosInSet = 0,
         ScoringThresholds? scoring = null,
-        string? baselineThresholdHash = null)
+        string? baselineThresholdHash = null,
+        EvalRegroundedFrom? regroundedFrom = null)
     {
         var scored = EvalScorer.Score(run.Photos, truths);
         var metrics = EvalRegression.Flatten(scored.Engines);
@@ -52,7 +53,8 @@ public static class EvalReport
             run.Photos.Where(p => truths.ContainsKey(p.PhotoId)).Select(p => p.PhotoId).Distinct(StringComparer.Ordinal).Count(),
             photosInSet,
             thresholdHash,
-            note);
+            note,
+            regroundedFrom);
         return new EvaluatedRun(summary, scored.Misses, Markdown(summary, scored.Misses));
     }
 
@@ -60,6 +62,14 @@ public static class EvalReport
     public static string Markdown(EvalSummary summary, IReadOnlyList<EvalMiss> misses)
     {
         var text = new StringBuilder();
+        if (summary.RegroundedFrom is { } from)
+        {
+            // First line of the file: a reader must know before anything else that no phone took part in this run.
+            text.Append("Re-scored the phone readings of run ").Append(from.RunId).Append(" (read ")
+                .Append(from.ReadAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)).Append(" UTC) with server version ")
+                .Append(summary.BuildSha).AppendLine("; no new phone run was made.").AppendLine();
+        }
+
         text.Append("# Eval report ").Append(summary.Date).Append(" (").Append(summary.BuildSha).AppendLine(")").AppendLine();
         text.Append("Run ").Append(summary.RunId).Append(", config ").Append(summary.ConfigVersion).Append(", ")
             .Append(summary.Device.Model).Append(" / ").Append(summary.Device.OsVersion).Append(" / app ").Append(summary.Device.AppVersion)
