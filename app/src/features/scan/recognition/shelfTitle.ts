@@ -1,13 +1,21 @@
 // The title of a stretch of shelf, one upright spine mostly. A spine prints more than its title, and Vision reads the same
-// spine several times, damaged differently each time, so the title is settled in four steps (#617): of several readings of
-// one place only the one the others agree with stays; a sticker and a line that names the author's standing go, whatever
-// size they are printed; of what is left the biggest lettering is the title, which is what keeps the author's name out of
-// it; and a title printed over two rows of one spine is read as one title.
+// spine several times, damaged differently each time, so the title is settled like this (#617). A sticker and a line that
+// names the author's standing go first, whatever size they are printed. What is left is grouped into places, a place being
+// a box and everything read inside it. Two readings of one place differ only in how Vision damaged them, so there the
+// clearest reading wins: the one the other readings of its place agree with, else the surest and longest. Two different
+// places are two different pieces of print, so there the biggest lettering wins, which is what keeps the author's name,
+// the bestseller line and the shelf label out of the title. Last, a title printed over two rows of one spine is read as
+// one title.
 //
-// The author's name is kept out by its lettering and not by reading like a name: creators.ts's name test, which may guess
-// wrong cheaply, matches most shelf titles too ("THEY LIVE", "Funny Feelings", "THE LUCKIEST LADY IN LONDON"), and asking
-// it here cost 5 of the 58 titles the recorded shelf photos hold. A name printed as big as the title beside it is left to
-// the server, which weighs a read's creator against each candidate's.
+// Comparing lettering only across places is what makes both halves safe. Within a place, lettering says nothing: a damaged
+// reading claims a fatter box than the clean reading of the same words, and a reading that caught the title and the author
+// in one sweep claims a fatter box than either. Across places, agreement says nothing: an author's name read twice would
+// otherwise beat a title read once.
+//
+// The name is kept out by its lettering and not by reading like a name: creators.ts's name test, which may guess wrong
+// cheaply, matches most shelf titles too ("THEY LIVE", "Funny Feelings", "THE LUCKIEST LADY IN LONDON"), and asking it here
+// cost 5 of the 58 titles the recorded shelf photos hold. A name printed as big as the title beside it is left to the
+// server, which weighs a read's creator against each candidate's.
 import type { Rect, TextLine } from '@/native/cm-vision';
 import { readsAsRole } from './creators';
 import type { LocalTuning } from './defaults';
@@ -84,7 +92,7 @@ const sharedShare = (mine: Set<string>, theirs: Set<string>) => [...mine].filter
 const weight = (l: TextLine) => l.confidence * l.text.length;
 const heaviest = (lines: TextLine[]) => lines.reduce((a, b) => (weight(b) > weight(a) ? b : a));
 
-/** Readings of one place and one text: the boxes are one box and most of the words they name together are in both. */
+/** What Vision read of one piece, and which of its lines are readings of one another. */
 class Readings {
   private readonly words: Map<TextLine, Set<string>>;
 
@@ -128,20 +136,39 @@ class Readings {
   }
 
   /**
-   * The better of two lines as a title: the one the other readings of its place agree with more; then the one printed in
-   * bigger lettering, since an author's name, a bestseller line and a sticker all sit under a title set larger than they
-   * are; and only then the surer, longer reading, which is all the choice went by before (#617).
+   * The clearer of two readings of one place: the one the other readings of that place agree with, else the surer and
+   * longer, which is all the choice went by before (#617). Their boxes say nothing here: see the head of this file.
    */
-  better(a: TextLine, b: TextLine, pool: TextLine[]): TextLine {
-    const keys = (l: TextLine) => [this.agreement(l, pool), letters(l), weight(l)];
-    const [mine, theirs] = [keys(a), keys(b)];
-    const first = mine.findIndex((k, i) => k !== theirs[i]);
-    return first >= 0 && theirs[first] > mine[first] ? b : a;
+  clearest(a: TextLine, b: TextLine, pool: TextLine[]): TextLine {
+    const [mine, theirs] = [this.agreement(a, pool), this.agreement(b, pool)];
+    return theirs > mine || (theirs === mine && weight(b) > weight(a)) ? b : a;
   }
 
   /**
-   * The second row of a title printed over two rows of one spine: the same lettering, beside the chosen row along the whole
-   * of it and touching it, in another place, saying other words. Another reading of the chosen row is none of those.
+   * The lines grouped into places: a line joins a place when its box and a box already in it overlap by `onePlaceOverlap`
+   * of the smaller one. A box inside another box is the same place, so a damaged reading of a spine, a reading that caught
+   * two rows at once, and the clean reading of the title all land together, while the next spine along stands apart.
+   */
+  places(pool: TextLine[]): TextLine[][] {
+    const places: TextLine[][] = [];
+    for (const l of pool) {
+      const joined = places.filter((p) => p.some((k) => overlapShare(k.box, l.box) >= this.tuning.onePlaceOverlap));
+      const home = joined[0] ?? [];
+      if (joined.length === 0) places.push(home);
+      home.push(l);
+      // One line can bridge two places that had not met: they are one place from here on.
+      for (const other of joined.slice(1)) {
+        home.push(...other);
+        places.splice(places.indexOf(other), 1);
+      }
+    }
+    return places;
+  }
+
+  /**
+   * The second row of a title printed over two rows of one spine: the same lettering, running beside the chosen row for
+   * most of it and set tight against it, in another place, saying other words. Another reading of the chosen row is none
+   * of those.
    */
   secondRow(chosen: TextLine, pool: TextLine[]): TextLine | undefined {
     const sideways = isSideways(chosen);
@@ -149,12 +176,13 @@ class Readings {
     const beside = (k: TextLine) => {
       if (isSideways(k) !== sideways || this.samePlace(chosen, k) || this.sameText(chosen, k)) return false;
       if (!sameSize(letters(k), size, this.tuning.titleRowLetters)) return false;
-      // The two rows of one title touch or overlap in the picture. A line that merely sits near the chosen row is the next
-      // spine along, an award line or a publisher, and joining one of those would say two things as one title.
-      const gap = sideways
-        ? Math.max(chosen.box.x, k.box.x) - Math.min(right(chosen.box), right(k.box))
-        : Math.max(chosen.box.y, k.box.y) - Math.min(bottom(chosen.box), bottom(k.box));
-      return alongShare(chosen.box, k.box, sideways) >= this.tuning.titleRowOverlap && gap <= 0;
+      // The two rows of one title overlap across the line by a fair part of a letter: a block of print is set tight, and
+      // its boxes run into each other. Two items' print at best grazes, so an award line, a publisher and the next spine
+      // along are all left where they are, and only a real second row is read as part of the title.
+      const over = sideways
+        ? Math.min(right(chosen.box), right(k.box)) - Math.max(chosen.box.x, k.box.x)
+        : Math.min(bottom(chosen.box), bottom(k.box)) - Math.max(chosen.box.y, k.box.y);
+      return alongShare(chosen.box, k.box, sideways) >= this.tuning.titleRowOverlap && over >= size * this.tuning.titleRowTouch;
     };
     // Of two rows beside the chosen one, the surer, longer reading is the real second row.
     const rows = pool.filter((k) => k !== chosen && beside(k));
@@ -178,11 +206,11 @@ const without = (lines: TextLine[], cannot: (l: TextLine) => boolean): TextLine[
 export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning): ShelfTitle | undefined {
   if (lines.length === 0) return undefined;
   const readings = new Readings(lines, tuning);
-  // One reading per place: the reading the other readings of that place agree with, so the worst of three does not win.
-  const agreeing = lines.filter((l) => readings.of(l, lines).every((k) => readings.better(l, k, lines) === l));
   // A sticker and a line that names the author's standing are never an item's title, whatever size they are printed.
-  const said = without(agreeing, (l) => readsAsSticker(l.text, tuning) || readsAsRole(l.text));
-  const chosen = said.reduce((best, l) => readings.better(best, l, lines));
+  const said = without(lines, (l) => readsAsSticker(l.text, tuning) || readsAsRole(l.text));
+  // One reading per place, then the place printed in the biggest lettering.
+  const clearest = readings.places(said).map((place) => place.reduce((a, b) => readings.clearest(a, b, lines)));
+  const chosen = clearest.reduce((a, b) => (letters(b) > letters(a) || (letters(b) === letters(a) && weight(b) > weight(a)) ? b : a));
   const second = readings.secondRow(chosen, said);
   const rows = second ? inRowOrder(chosen, second) : [chosen];
   // The author is looked for among what the title did not use, and never among the stickers: a shelf piece's creator is a

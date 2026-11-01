@@ -24,14 +24,22 @@ describe('a spine piece\'s title is never its author line or a sticker', () => {
   });
 
   it.each([
+    // Vision read the name twice and the title once, so agreement alone would have taken the name (the recorded
+    // "THE LUCKIEST LADY IN LONDON" spine): lettering is compared across places, agreement only within one.
+    ['THE SEVEN HUSBANDS OF EVELYN HUGO', 0.05, 'TAYLOR JENKINS REID', 0.025],
     ['The Nanny', 0.03, 'LANA FERGUSON', 0.022],
     ['CARRIE', 0.05, 'STEPHEN KING', 0.025], // the author at exactly half the title's lettering
     ['A Latte Like Love', 0.021, 'MICHELLE C. HARRIS', 0.016], // read clean once each: no agreement to go on
     ['1984', 0.05, 'GEORGE ORWELL', 0.025], // a title that is only a number is no sticker
     ['THE ROAD', 0.04, 'VINTAGE INTERNATIONAL', 0.02],
     ['BELOVED', 0.04, 'WINNER OF THE PULITZER PRIZE', 0.02],
-  ])('takes %s over the smaller %s beside it', (title, big, other, small) => {
-    const lines = [row(title, 0.3, 0.2, big, 0.1 + title.length / 200), row(other, 0.34, 0.45, small, 0.1 + other.length / 200)];
+  ])('takes %s over the smaller %s beside it, read once or twice', (title, big, other, small) => {
+    const length = (text: string) => 0.1 + text.length / 200;
+    const lines = [
+      row(title, 0.3, 0.2, big, length(title)),
+      row(other, 0.34, 0.45, small, length(other)),
+      row(`${other} )`, 0.341, 0.452, small * 0.9, length(other)), // a second, damaged reading of the name
+    ];
     expect(titleOf(lines)).toBe(title);
   });
 
@@ -130,9 +138,17 @@ describe('a title printed over two rows of one spine', () => {
     expect(titleOf(lines)).toBe('HOW STELLA GOT HER GROOVE BACK');
   });
 
-  it('does not join the next spine along, which the chosen row does not touch', () => {
-    const lines = [row('THE SHINING', 0.6, 0.2, 0.03, 0.16), row('CARRIE', 0.566, 0.21, 0.03, 0.1)];
+  it.each([
+    ['sits clear of it', 0.566],
+    ['only grazes it: a block of print runs into itself, two spines do not', 0.571],
+  ])('does not join the next spine along, which %s', (_what, x) => {
+    const lines = [row('THE SHINING', 0.6, 0.2, 0.03, 0.16), row('CARRIE', x, 0.21, 0.03, 0.15)];
     expect(titleOf(lines)).toBe('THE SHINING');
+  });
+
+  it('does not join a label lying flat that only grazes the chosen one', () => {
+    const lines = [line('HOW STELLA GOT', 0.024, 0.468, 0.224, 0.033), line('NEXT TAPE', 0.03, 0.5005, 0.22, 0.033)];
+    expect(titleOf(lines)).toBe('HOW STELLA GOT');
   });
 
   it('does not join a row that only runs beside part of the chosen one', () => {
@@ -148,7 +164,7 @@ describe('a title printed over two rows of one spine', () => {
 
 describe('what is left over for the author-finder', () => {
   it('never offers the title\'s own second row as the author', async () => {
-    const lines = [row('THE HUNGER', 0.6, 0.2, 0.03, 0.12), row('GAMES', 0.571, 0.205, 0.029, 0.11)];
+    const lines = [row('THE HUNGER', 0.6, 0.2, 0.03, 0.12), row('GAMES', 0.5755, 0.205, 0.029, 0.11)];
     expect(titleOf(lines)).toBe('THE HUNGER GAMES');
     expect(creatorsOf(lines)).toEqual([]);
   });
@@ -205,8 +221,10 @@ describe('real shelf photos', () => {
     'vhs-dvd-shelf-01': { before: { held: 6, exact: 6 }, after: { held: 6, exact: 6 } },
     // Upright DVD spines under shelf labels and edition stickers: "THEY LIVE", "DUNE" and "HALLOWEEN" come out instead.
     'vhs-dvd-shelf-02': { before: { held: 3, exact: 3 }, after: { held: 5, exact: 5 } },
-    // Romance paperback spines, each with the author beside the title: the same titles, more of them said on their own.
-    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 20, exact: 9 } },
+    // Romance paperback spines, each with the author beside the title: more titles said on their own, one held title lost.
+    // That one is in the piece of leftovers this photo ends with, which holds lines from a dozen books rather than one
+    // spine: "ELSIE SILVER" really is the biggest print in it, and no rule that reads one piece as one item can see that.
+    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 19, exact: 9 } },
     'accept-shelf-01': { before: { held: 14, exact: 6 }, after: { held: 14, exact: 7 } },
     'accept-shelf-02': { before: { held: 15, exact: 10 }, after: { held: 15, exact: 12 } },
   };
