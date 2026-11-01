@@ -155,7 +155,10 @@ function Invoke-CmEvalDueGh {
     if ($r.ExitCode -ne 0) { throw "gh could not give $What ($(Get-CmAlertFirstLine $r))" }
     $text = (@($r.Output) -join "`n").Trim()
     if (-not $text) { return $null }
-    try { $text | ConvertFrom-Json } catch { throw "gh printed something that is not JSON for $What" }
+    # gh may print a notice on stderr, which the runner merges into the output: parse from the first [ or { to the last ] or }.
+    $from = $text.IndexOfAny([char[]]'[{'); $to = $text.LastIndexOfAny([char[]]']}')
+    if ($from -lt 0 -or $to -lt $from) { throw "gh printed something that is not JSON for $What" }
+    try { $text.Substring($from, $to - $from + 1) | ConvertFrom-Json } catch { throw "gh printed something that is not JSON for $What" }
 }
 
 function Get-CmEvalDueBuilds {

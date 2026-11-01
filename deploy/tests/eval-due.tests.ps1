@@ -43,6 +43,7 @@ function New-EvalMachine {
         Builds          New-EvalBuild list (what `gh run list` shows, newest first or not)
         Issues          the repository's issues (New-EvalIssue); pass one list to every pass of a test so the issues carry over
         ThrowOn         a regex: a gh call whose arguments match it throws
+        Notice          a line gh prints on stderr after its output (the runner merges the two), on the calls the check reads
         RunListExit, ApiExit, IssueListExit, WriteExit    exit codes of `gh run list`, `gh api`, `gh issue list` (the eval label), and every gh call that changes an issue
     #>
     param([hashtable]$Opt = @{})
@@ -58,6 +59,7 @@ function New-EvalMachine {
         $display = Format-CmCommand -Command $Command -Arguments $Arguments -Env $Env
         $global:CmCalls.Add([pscustomobject]@{ Command = $Command; Arguments = @($Arguments); Env = $Env; Mutating = $Mutating; Display = $display; InputText = $InputText })
         $ok = { param($text = '') [pscustomobject]@{ ExitCode = 0; Output = @($text) } }
+        $okNote = { param($text = '') [pscustomobject]@{ ExitCode = 0; Output = @(@($text) + @($m.Notice | Where-Object { $_ })) } }
         $failed = { param($code) [pscustomobject]@{ ExitCode = $code; Output = @("fake failure $code") } }
         $line = $Arguments -join ' '
         if ($m.ThrowOn -and $line -match $m.ThrowOn) { throw 'gh exploded' }
@@ -71,23 +73,23 @@ function New-EvalMachine {
             $rows = @($m.Builds | Sort-Object { - $_.Number } | ForEach-Object {
                     @{ number = $_.Number; headSha = (Get-EvalSha $(if ($_.Event -eq 'schedule') { $_.Number - 1 } else { $_.Number })); updatedAt = $_.At; status = $_.Status; conclusion = $_.Conclusion; databaseId = (5000 + $_.Number); event = $_.Event }
                 })
-            return & $ok (& $json $rows)
+            return & $okNote (& $json $rows)
         }
         if ($line -match '^api ') {
             if ($m.ApiExit) { return & $failed $m.ApiExit }
             if ($line -match '/actions/runs/(\d+)/jobs') {
                 $run = @($m.Builds | Where-Object { 5000 + $_.Number -eq [int]$Matches[1] })[0]
-                return & $ok (& $json @(@{ name = 'build'; conclusion = $run.Build }, @{ name = 'release'; conclusion = 'skipped' }))
+                return & $okNote (& $json @(@{ name = 'build'; conclusion = $run.Build }, @{ name = 'release'; conclusion = 'skipped' }))
             }
             if ($line -match '/compare/([0-9a-f]{40})\.\.\.([0-9a-f]{40})') {
                 $from = & $numberOf $Matches[1]; $to = & $numberOf $Matches[2]
                 $between = @($commits | Where-Object { $_.Number -gt $from -and $_.Number -le $to })
-                return & $ok (& $json @{ files = @($between | ForEach-Object { $_.Files } | Select-Object -Unique); commits = @($between | ForEach-Object { Get-EvalSha $_.Number }) })
+                return & $okNote (& $json @{ files = @($between | ForEach-Object { $_.Files } | Select-Object -Unique); commits = @($between | ForEach-Object { Get-EvalSha $_.Number }) })
             }
             if ($line -match '/commits\?sha=([0-9a-f]{40})&path=(\S+)&per_page') {
                 $head = & $numberOf $Matches[1]; $prefix = $Matches[2] + '/'
                 $rows = @($commits | Where-Object { $_.Number -le $head -and @($_.Files | Where-Object { $_.StartsWith($prefix) }).Count -gt 0 } | Sort-Object { - $_.Number } | ForEach-Object { @{ sha = (Get-EvalSha $_.Number); subject = $_.Subject } })
-                return & $ok (& $json $rows)
+                return & $okNote (& $json $rows)
             }
             return & $ok
         }
@@ -95,7 +97,7 @@ function New-EvalMachine {
         if ($line -match '^issue list .*--label needs:eval-run') {
             if ($m.IssueListExit) { return & $failed $m.IssueListExit }
             $rows = @($m.Issues | Where-Object { $_.state -eq 'open' } | ForEach-Object { @{ number = $_.number; title = $_.title; body = $_.body; createdAt = $_.createdAt; author = @{ login = $_.author } } })
-            return & $ok (& $json $rows)
+            return & $okNote (& $json $rows)
         }
         if ($line -match '^issue (create|edit|comment|close)') {
             if ($m.WriteExit) { return & $failed $m.WriteExit }
@@ -217,6 +219,21 @@ Test-Case 'eval-due: a recognition change between the phone-tested build and the
         Assert-True ($r.State.checkedUnix -gt 0) 'the time of the check is kept'
         # Only the runs it needed: the jobs of build 133 (newest) and 131 (phone-tested), nothing more.
         Assert-Equal 2 @($global:CmCalls | Where-Object { ($_.Arguments -join ' ') -match '/actions/runs/\d+/jobs' }).Count
+    }
+    finally { Remove-TestRoot $root }
+}
+
+Test-Case 'eval-due: a notice gh prints on stderr after its JSON does not stop the check' {
+    $root = New-EvalRoot
+    try {
+        $run = New-EvalPhoneRun -Id 'phone-run-1' -Start $script:EvalRun1Start
+        Set-EvalResults -Root $root -Header $run.Header -Kept $run.Kept -Score $run.Score
+        $m = New-EvalMachine @{ Builds = (Get-EvalStory); Notice = 'A new release of gh is available: 2.45.0 -> 2.60.0' }
+        $r = Invoke-EvalPass -Root $root
+        Assert-Equal 'idle' $r.Result.Outcome
+        Assert-Equal 1 (Get-EvalWrites).Count 'the issue is still opened'
+        Assert-Equal '[Owner] Run evals on TestFlight build 133' (Get-EvalArg (Get-EvalWrites)[0] '--title')
+        Assert-True (-not ($r.Log -match 'WARN')) 'no WARN for a notice'
     }
     finally { Remove-TestRoot $root }
 }
