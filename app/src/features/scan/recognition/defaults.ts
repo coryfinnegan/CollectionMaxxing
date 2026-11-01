@@ -58,7 +58,10 @@ export interface LocalTuning {
   spineRowOverlap: number;
   /**
    * The spine columns stand in one shelf row when at least this share of neighboring pairs share a band (spineRowOverlap), so one short
-   * book beside tall ones does not undo the split. Scattered cover lines share almost none and read as the whole frame (#504).
+   * book beside tall ones does not undo the split. Scattered cover lines share almost none and read as the whole frame (#504). Close up,
+   * each spine's title sits at a slightly different height (its own title and author take up different amounts of room), so a close shot
+   * of a long row shares a band on only about half its neighboring pairs; the share stays well under half for scattered cover lines, so a
+   * lower bar still tells the two apart (#618).
    */
   spineRowShare: number;
   /** A shelf needs this many columns before it is read as spines. */
@@ -67,18 +70,28 @@ export interface LocalTuning {
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
    * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
-   * heights apart. The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or 0.6 to 0.73
-   * wide (a cover that fills the frame), or have fewer than 5 bands, or have their bands 1 to 5 letter heights apart (title, author,
-   * tagline). The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under 0.3 of the big lettering
-   * on its band.
+   * heights apart. The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or wider than
+   * half the frame with 5 or more bands (a cover that fills the frame: a real cover of the twelve recorded is 0.73 wide with 6 bands, and
+   * is still wider than 0.5 shrunk to 70% in the frame), or have fewer than 3 bands (two flat lines are never enough, since a
+   * title and its author read exactly like two tapes), or have their bands 1 to 5 letter heights apart (title, author, tagline).
+   * A small stack of 3 or 4 (#618) has too little else to go on, so it must also have one size of lettering: a stack of tapes sets each
+   * title alike, while the real cover whose three bands read as a pile (a bestseller line, the author, the title) has its smallest
+   * lettering 0.32 of its biggest. The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under
+   * 0.3 of the big lettering on its band.
    */
   /** A line lies flat when its width is at least this many times its height. */
   flatLineAspect: number;
-  /** A pile needs this many bands in one column. */
+  /** A pile needs this many bands in one column, so a small stack of three or four is split, not only five or more (#618). */
   stackMinBands: number;
+  /** A pile of this many bands or more is told from a cover by its width and spacing alone; a small stack (fewer) must also pass the two numbers below. */
+  stackSureBands: number;
+  /** A small stack's smallest lettering is at least this share of its biggest: tapes are set alike, a cover's author, title and tagline are not. */
+  stackSmallLetters: number;
+  /** A small stack is no wider than this share of the picture, a little over half so a stack close up still splits (#618). */
+  stackSmallMaxWidth: number;
   /** A pile is at least this wide (a share of the picture): a name or a cover word running down books is narrower. */
   stackMinWidth: number;
-  /** A pile is no wider than this share of the picture; a cover that fills the frame is wider. */
+  /** A pile of `stackSureBands` or more is no wider than this share of the picture; a cover that fills the frame is wider. */
   stackMaxWidth: number;
   /** A pile's bands sit close: the median gap between two is at most this many of their letter heights. */
   stackMaxGap: number;
@@ -185,10 +198,13 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   spineColumnOverlap: 0.5,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
-  spineRowShare: 0.6,
+  spineRowShare: 0.45,
   minSpineColumns: 2,
   flatLineAspect: 2.5,
-  stackMinBands: 5,
+  stackMinBands: 3,
+  stackSureBands: 5,
+  stackSmallLetters: 0.5,
+  stackSmallMaxWidth: 0.6,
   stackMinWidth: 0.1,
   stackMaxWidth: 0.5,
   stackMaxGap: 1,
