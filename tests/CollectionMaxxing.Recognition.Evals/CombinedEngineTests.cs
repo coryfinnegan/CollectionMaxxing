@@ -28,6 +28,16 @@ public sealed class CombinedEngineTests : IDisposable
     /// <summary>What the Vision text engine sends: a low-confidence read, kept as a guess for a person.</summary>
     private static GroundedItem GuessedByVision(string title) => Kept(Matched(title, resolvedBy: "vision_text"));
 
+    /// <summary>A matched read whose best release scored <paramref name="score"/>, for the place ladder's score step.</summary>
+    private static GroundedItem MatchedAt(string title, double score, string resolvedBy = "model") =>
+        new(title, null, resolvedBy, "matched", [Release(title, score: score)]);
+
+    /// <summary>What the Vision text engine sends when it only narrowed a place down to several releases.</summary>
+    private static GroundedItem NarrowedByVision(params GroundedCandidate[] releases) => Ambiguous(releases) with { ResolvedBy = "vision_text" };
+
+    /// <summary>What the Vision text engine sends for a piece it read (an author's name, a sticker) that names no release.</summary>
+    private static GroundedItem ReadByVisionButNotFound(string readAs = "unknown words") => NotFound(readAs) with { ResolvedBy = "vision_text" };
+
     private static GroundedPhoto ModelRead(params GroundedItem[] items) => Photo("s1", Apple, items, latencyMs: 4000, firstItemMs: 900);
 
     private static GroundedPhoto VisionRead(params GroundedItem[] items) => Photo("s1", Vision, items, latencyMs: 700, firstItemMs: null);
@@ -568,6 +578,106 @@ public sealed class CombinedEngineTests : IDisposable
         item.Tier.ShouldBeNull();
     }
 
+    // ---- one place, one item: the read that grounds better is the row shown (issue #614) -----------------------------------
+
+    [Fact]
+    public void The_models_read_stands_where_Vision_only_narrowed_the_same_place_down()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Mario Kart 64")).At(0.31)),
+                VisionRead(NarrowedByVision(Release("Star Fox 64"), Release("Star Fox Adventures")).At(0.30)),
+            ],
+            ArrangeShelf("Mario Kart 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.Best!.Title.ShouldBe("Mario Kart 64");
+        item.ResolvedBy.ShouldBe("model");
+        item.Unconfirmed.ShouldBeTrue("only the model read that title, so it is reviewed, never added by itself");
+    }
+
+    [Fact]
+    public void Visions_read_stands_where_the_model_only_narrowed_the_same_place_down()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Ambiguous(Release("Mario Kart 64"), Release("Mario Kart 8"))).At(0.31)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.30)),
+            ],
+            ArrangeShelf("Star Fox 64"));
+
+        built.Single().Items.Select(i => (i.Best!.Title, i.ResolvedBy)).ShouldBe([("Star Fox 64", "vision_text")]);
+    }
+
+    [Fact]
+    public void Between_two_matched_reads_of_one_place_the_one_whose_release_scored_higher_stands()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Mario Kart 64", 0.99).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.80, "vision_text").At(0.30))],
+            ArrangeShelf("Mario Kart 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Mario Kart 64"]);
+    }
+
+    [Fact]
+    public void Visions_read_stands_where_the_model_read_the_place_no_better()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Mario Kart 64", 0.95).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.95, "vision_text").At(0.30))],
+            ArrangeShelf("Star Fox 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
+    }
+
+    [Fact]
+    public void A_Vision_read_that_found_nothing_loses_its_place_to_the_models_match()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(T1(Matched("Mario Kart 64")).At(0.31)), VisionRead(ReadByVisionButNotFound().At(0.30))],
+            ArrangeShelf("Mario Kart 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Mario Kart 64"]);
+    }
+
+    [Fact]
+    public void A_model_read_that_took_a_place_is_still_reviewed_and_never_an_auto_add()
+    {
+        var scored = Score(
+            ArrangeShelf("Mario Kart 64"),
+            ModelRead(T1(Matched("Mario Kart 64")).At(0.31)),
+            VisionRead(ReadByVisionButNotFound().At(0.30)));
+
+        var both = scored.ShelfOf(Combined);
+        both.Top1Hits.ShouldBe(1, "the right read the model made is no longer thrown away because Vision read something else there");
+        both.AutoAdds.ShouldBe(0);
+        both.T2Review.ShouldBe(1);
+    }
+
+    [Fact]
+    public void A_Vision_piece_covering_several_spines_keeps_every_model_read_inside_it_as_its_own_item()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.12), T1(Matched("Mario Kart 64")).At(0.30), T1(Matched("Banjo-Kazooie")).At(0.50)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.10, width: 0.50)),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64", "Banjo-Kazooie"));
+
+        var items = built.Single().Items;
+        items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64", "Mario Kart 64", "Banjo-Kazooie"]);
+        items.ShouldAllBe(i => i.ResolvedBy == "model" && i.Unconfirmed);
+    }
+
+    [Fact]
+    public void A_model_read_of_the_same_release_in_the_same_place_is_one_item_however_either_engine_scored_it()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Star Fox 64", 0.99).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.80, "vision_text").At(0.30))],
+            ArrangeShelf("Star Fox 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
+    }
+
     // ---- where a read sits decides what the same item is -----------------------------------------------------------------
 
     [Fact]
@@ -585,7 +695,7 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
-    public void A_model_item_whose_box_overlaps_a_Vision_item_is_the_same_item_and_is_not_added_whatever_it_read()
+    public void A_model_item_whose_box_overlaps_a_Vision_item_contests_that_place_and_Visions_read_stands_when_it_reads_as_well()
     {
         var built = EvalCombination.Of(
             [

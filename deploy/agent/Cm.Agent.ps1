@@ -43,6 +43,8 @@ $script:CmAgentAuthStatusSeconds = 20
 $script:CmAgentLogRepeatSeconds = 3600   # a warning that would repeat on every pass is written at most this often
 $script:CmAgentDefaultMaxRuns = 8
 $script:CmAgentDefaultMaxMinutes = 180
+# An opus run (tier:critical) gets at least this long: it builds, runs the gate, has its change verified and waits for CI more than once, and 180 minutes stopped #614 just before its merge.
+$script:CmAgentOpusMinMinutes = 300
 # A run that GitHub could not be asked about is retried every pass; after this many passes (an hour) the lock is dropped
 # so the service cannot stay stuck behind an issue that was deleted or a gh that is not logged in.
 $script:CmAgentFinishAttempts = 12
@@ -386,6 +388,20 @@ function Get-CmAgentLabelNames {
     @(@($Item.labels) | ForEach-Object { if ($_ -is [string]) { $_ } else { $_.name } } | Where-Object { $_ })
 }
 
+function Get-CmAgentRunMinutes {
+    <# How long a run may take: CM_AGENT_MAX_MINUTES, and for an opus run at least CmAgentOpusMinMinutes. #>
+    param($Settings, [string]$Model)
+    if ($Model -eq 'opus') { return [int][math]::Max([int]$Settings.MaxMinutes, $script:CmAgentOpusMinMinutes) }
+    [int]$Settings.MaxMinutes
+}
+
+function Get-CmAgentLockMinutes {
+    <# The limit a running run is judged by: the one it started with, or CM_AGENT_MAX_MINUTES for a lock written before runs kept their own. #>
+    param($Lock, $Settings)
+    if ($Lock.maxMinutes) { return [int]$Lock.maxMinutes }
+    [int]$Settings.MaxMinutes
+}
+
 function Get-CmAgentModel {
     <#
       tier:critical gets opus, everything else sonnet, tier:mechanical included: a run is headless in --permission-mode auto,
@@ -646,7 +662,8 @@ function Start-CmAgentRun {
         [IO.File]::WriteAllText($paths.Prompt, $prompt, [Text.UTF8Encoding]::new($false))
     }
     $tokenFile = if (Read-CmAgentToken -Path $Settings.TokenFile) { $Settings.TokenFile } else { '' }
-    $runner = Get-CmAgentRunnerArguments -Pwsh (Get-CmAgentPwsh) -RunnerScript $Ctx.RunnerScript -Issue $issue -Model $Pick.Model -Claude $claude -Paths $paths -MaxMinutes $Settings.MaxMinutes -TokenFile $tokenFile
+    $minutes = Get-CmAgentRunMinutes -Settings $Settings -Model $Pick.Model
+    $runner = Get-CmAgentRunnerArguments -Pwsh (Get-CmAgentPwsh) -RunnerScript $Ctx.RunnerScript -Issue $issue -Model $Pick.Model -Claude $claude -Paths $paths -MaxMinutes $minutes -TokenFile $tokenFile
     try { $process = Start-CmProcess -File 'conhost.exe' -Arguments $runner }
     catch { return & $fail "the run could not be launched ($($_.Exception.Message))" }
     if ($process.DryRun) { return New-CmAgentResult 'dry-run' 0 '' $issue }
@@ -655,6 +672,7 @@ function Start-CmAgentRun {
         issue = $issue; pid = [int]$process.Id; startedUnix = $now.ToUnixTimeSeconds(); model = $Pick.Model
         repoDir = $repoDir; worktree = $paths.Worktree; branch = $paths.Branch; log = $paths.Log; exitFile = $paths.Exit; attempts = 0
         usedToken = [bool]$tokenFile   # a run that fails at once with the saved token is the token's alert, not the sign-in's
+        maxMinutes = $minutes          # the limit this run started with; the watcher judges it by this, not by today's setting
     }
     Write-CmLog "started the agent for issue #$issue (model $($Pick.Model)); process $($process.Id), log $($paths.Log)"
     New-CmAgentResult 'started' 0 '' $issue
@@ -848,7 +866,7 @@ function Complete-CmAgentRun {
     }
     else {
         if ($merged) { Remove-CmAgentWorktree -RepoDir $repoDir -Worktree "$($Lock.worktree)" -Branch $branch -Issue $issue }
-        $body = Get-CmAgentBlockedBody -Lock $Lock -Exit $exit -Status $Status -Merged $merged -MaxMinutes $Settings.MaxMinutes -WorktreeRemoved $merged
+        $body = Get-CmAgentBlockedBody -Lock $Lock -Exit $exit -Status $Status -Merged $merged -MaxMinutes (Get-CmAgentLockMinutes -Lock $Lock -Settings $Settings) -WorktreeRemoved $merged
         Set-CmAgentBlocked -Ctx $Ctx -Issue $issue -Remove $queueLabels -Body $body
         Write-CmLog "the agent run for issue #$issue did not finish ($Status); the issue is marked agent-blocked" 'WARN'
         Confirm-CmAgentRunStarted -Ctx $Ctx -Settings $Settings
@@ -894,10 +912,11 @@ function Invoke-CmAgentWatchCore {
     param($Ctx, $Settings)
     $lock = Read-CmAgentLock -Ctx $Ctx
     if ($lock) {
-        $status = Get-CmAgentRunStatus -Lock $lock -MaxMinutes $Settings.MaxMinutes
+        $limit = Get-CmAgentLockMinutes -Lock $lock -Settings $Settings
+        $status = Get-CmAgentRunStatus -Lock $lock -MaxMinutes $limit
         if ($status -eq 'running') { return New-CmAgentResult 'running' 0 }
         if ($status -eq 'timeout') {
-            Write-CmLog "the agent run for issue #$($lock.issue) is past its $($Settings.MaxMinutes) minute limit; stopping process $($lock.pid) and everything it started" 'WARN'
+            Write-CmLog "the agent run for issue #$($lock.issue) is past its $limit minute limit; stopping process $($lock.pid) and everything it started" 'WARN'
             [void](Invoke-Cm -Command 'taskkill' -Arguments @('/PID', "$($lock.pid)", '/T', '/F') -Mutating)
         }
         $closed = @(Complete-CmAgentRun -Ctx $Ctx -Settings $Settings -Lock $lock -Status $status) | Select-Object -Last 1

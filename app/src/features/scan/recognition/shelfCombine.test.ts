@@ -84,14 +84,29 @@ describe('a shelf shot read by the picture model', () => {
     expect(dune[0]).toMatchObject({ confidence: 'low', kind: 'book', creator: 'Frank Herbert' });
   });
 
-  it('does not add a model item that sits where a Vision item does, however the model titled it', async () => {
+  it('sends a model item that reads a Vision item\'s place as something else beside it, for the server to pick between (#614)', async () => {
     const scene: Scene = {
       read: okRead([modelItem('A Completely Different Title', 'GREAT GATSBY', 0), modelItem('Neuromancer', 'Neuromancer', 1)]),
       text: [spine('GREAT GATSBY', 0.1), spine('Neuromancer', 0.4)],
       rectangles: [column(0.1), column(0.4)],
     };
     const reading = await selectorFor(scene).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(titles(reading.items)).toEqual(['GREAT GATSBY', 'Neuromancer']);
+    expect(titles(reading.items)).toEqual(['GREAT GATSBY', 'Neuromancer', 'A Completely Different Title']);
+    expect(reading.items[2]).toMatchObject({ unconfirmed: true, order: 2 });
+    expect(reading.items[2].box?.x).toBe(0.1); // the line the model's text matched, which overlaps the Vision piece: the server reads it as one place
+    expect(reading.items[0]).not.toHaveProperty('unconfirmed');
+  });
+
+  it('drops a Vision piece that turned out to hold several model reads, and keeps each of them (#614)', async () => {
+    visionReads([visionItem('DUNE EMMA NEUROMANCER', { x: 0.05, y: 0.05, width: 0.7, height: 0.7 }, 0)]);
+    const { selector } = selectorFor({
+      ...shelf,
+      read: okRead([modelItem('Dune', 'Dune', 0), modelItem('Emma', 'Emma', 1), modelItem('Neuromancer', 'Neuromancer', 2)]),
+    });
+    const reading = await selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(reading.items.map((i) => i.unconfirmed)).toEqual([true, true, true]);
   });
 
   it('adds a model item that sits in a new place, as the model read it, and streams it after the Vision items', async () => {
