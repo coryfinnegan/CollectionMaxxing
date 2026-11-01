@@ -239,7 +239,10 @@ public static class EvalScorer
             TimeToFirstResultsMs: SpanMs(tally.FirstCapture, tally.FirstReady),
             TotalTimeToTrustworthyMs: SpanMs(tally.FirstCapture, tally.LastReady),
             tally.UnreconciledPhotos,
-            tally.ExcessUnreadable);
+            tally.ExcessUnreadable,
+            tally.TitleHits,
+            tally.PlatformChecks,
+            tally.CompletenessChecks);
     }
 
     private static long? SpanMs(DateTimeOffset? from, DateTimeOffset? to) =>

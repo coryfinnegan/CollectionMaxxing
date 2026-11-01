@@ -110,7 +110,7 @@ public sealed class ReviewBurdenMathsTests : IDisposable
     }
 
     [Fact]
-    public void For_review_rate_and_t2_rows_a_rise_is_the_regression_for_auto_adds_a_drop_is()
+    public void For_review_rate_a_rise_is_the_regression_for_auto_adds_a_drop_is_and_the_per_tier_counts_are_not_judged()
     {
         var baseline = new Dictionary<string, double>
         {
@@ -133,9 +133,8 @@ public sealed class ReviewBurdenMathsTests : IDisposable
         [
             "apple_model.shelf.auto_add_precision",
             "apple_model.shelf.review_rate",
-            "apple_model.shelf.t1_auto",
-            "apple_model.shelf.t2_review",
         ]);
+        worse.Compared.ShouldBe(2); // the two counts were not judged
     }
 
     [Fact]
