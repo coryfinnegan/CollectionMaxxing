@@ -30,6 +30,15 @@ public sealed class EvalRunProgress
 
     public EvalGroundingMemo Memo { get; private set; } = new();
 
+    /// <summary>
+    /// True once the worker has decided, since the API started, whether the last run's kept readings need grounding again (<see cref="EvalRegrounder"/>).
+    /// It decides once, whatever the answer and however the try ends, so a failure is never tried again in a loop; a request file is another matter.
+    /// </summary>
+    public bool RegroundDecided { get; set; }
+
+    /// <summary>True once the worker has said that it is waiting for an open phone run, so the log says it once.</summary>
+    public bool RegroundWaitLogged { get; set; }
+
     /// <summary>Starts a new memo and forgets the failures when the run is another one than the last pass saw.</summary>
     public void Follow(string runId)
     {
@@ -67,6 +76,7 @@ public sealed class EvalRunProcessor(
     IGoldenSet golden,
     IEvalResults results,
     IEvalRunStore store,
+    IEvalInputs inputs,
     EvalRunCoordinator coordinator,
     EvalRunScoring scoring,
     CurrentUser currentUser,
@@ -218,6 +228,11 @@ public sealed class EvalRunProcessor(
         // marked done; scoring it again would write a second result file for one run.
         if (results.LoadLatestSummary() is { } written && written.RunId == header.RunId)
         {
+            if (inputs.Load()?.RunId != header.RunId)
+            {
+                await KeepReadingsAsync(header); // stopped between the result files and the readings: the photos are still here
+            }
+
             Done(header with { Partial = written.Partial });
             return EvalRunStep.Worked;
         }
@@ -278,6 +293,7 @@ public sealed class EvalRunProcessor(
             return EvalRunStep.Waiting;
         }
 
+        await KeepReadingsAsync(header);
         Done(header with { Partial = partial });
         if (logger.IsEnabled(LogLevel.Information))
         {
@@ -286,6 +302,39 @@ public sealed class EvalRunProcessor(
         }
 
         return EvalRunStep.Worked;
+    }
+
+    /// <summary>
+    /// Keeps the phone's readings of the run just scored, from the stored photos (which <see cref="Done"/> is about to clear), so a later server version can
+    /// ground and score them again without the phone. A failure to keep them is logged and never fails the run: the result files are already written, and
+    /// readings that belong to an older run are simply not used (<see cref="EvalRegrounder"/> checks they match the latest result). The partial flag kept
+    /// is the phone's own (the header's): a photo the PC gave up grounding is not part of the readings, so a re-ground that grounds it is a complete run.
+    /// </summary>
+    private async Task KeepReadingsAsync(OpenRunHeader header)
+    {
+        try
+        {
+            var stored = store.StoredIds();
+            var photos = new List<KeptPhoto>();
+            var skipped = new List<SkippedPhoto>(header.Refused ?? []);
+            foreach (var id in header.Photos.Where(p => stored.Contains(p.Id)).Select(p => p.Id))
+            {
+                if (store.LoadPhoto(id) is not { } photo)
+                {
+                    logger.LogWarning("A stored eval photo could not be read, so the phone's readings of this run were not kept.");
+                    return;
+                }
+
+                photos.Add(new KeptPhoto(id, photo.Results));
+                skipped.AddRange(photo.Skipped);
+            }
+
+            await inputs.SaveAsync(new KeptRunInputs(header.RunId, header.OpenedAt, header.Device, header.ConfigVersion, header.BaselineNote, header.Partial, header.OpenedBy, photos, skipped), CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("The phone's readings of the eval run could not be kept ({Failure}).", exception.GetType().Name);
+        }
     }
 
     /// <summary>Marks the run scored, then drops its stored photos: the result files hold everything.</summary>

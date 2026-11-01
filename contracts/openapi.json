@@ -8586,6 +8586,22 @@
           }
         }
       },
+      "EvalRegroundedFrom": {
+        "required": [
+          "runId",
+          "readAt"
+        ],
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "EvalRunPhoto": {
         "required": [
           "id",
@@ -8742,6 +8758,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "regroundedFrom": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EvalRegroundedFrom"
+              }
             ]
           }
         }

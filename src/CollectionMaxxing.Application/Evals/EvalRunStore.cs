@@ -63,6 +63,30 @@ public sealed class EvalRunCoordinator : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _signal = new(0, 1);
     private readonly ConcurrentDictionary<string, long> _versions = new(StringComparer.Ordinal);
+    private CancellationTokenSource _opened = new();
+    private int _disposed;
+
+    /// <summary>
+    /// Cancelled when a phone run is opened (see <see cref="RunOpened"/>): background work that must never hold a phone run up, like grounding the kept
+    /// readings of the last one again, links this to its own token. Take it before looking whether a run is open, so an open that follows is not missed.
+    /// </summary>
+    public CancellationToken RunOpenedToken
+    {
+        get
+        {
+            while (true)
+            {
+                try
+                {
+                    return Volatile.Read(ref _opened).Token;
+                }
+                catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) == 0)
+                {
+                    // A run opened between reading the source and asking it for its token, and the source was cancelled and disposed: read the new one.
+                }
+            }
+        }
+    }
 
     /// <summary>Waits for the gate. The caller holds it until the returned object is disposed; hold it only for short, local work.</summary>
     public async Task<IDisposable> EnterAsync(CancellationToken cancellationToken)
@@ -79,6 +103,25 @@ public sealed class EvalRunCoordinator : IDisposable
 
     /// <summary>Forgets every photo's count (a run was opened or discarded). Call with the gate held.</summary>
     public void Forget() => _versions.Clear();
+
+    /// <summary>Notes that a phone run was opened: whatever holds a token from before (<see cref="RunOpenedToken"/>) is asked to stop, and the next token is a fresh one.</summary>
+    public void RunOpened()
+    {
+        var previous = Interlocked.Exchange(ref _opened, new CancellationTokenSource());
+
+        // Cancelling runs the callbacks, and often the code that was waiting on them, on the calling thread. The caller holds the gate, so that happens on another.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                previous.Cancel();
+            }
+            finally
+            {
+                previous.Dispose(); // nothing takes a token from it any more: the new source is the one in the field
+            }
+        });
+    }
 
     /// <summary>Tells the worker there is something to do.</summary>
     public void Wake()
@@ -113,8 +156,10 @@ public sealed class EvalRunCoordinator : IDisposable
 
     public void Dispose()
     {
+        Volatile.Write(ref _disposed, 1);
         _gate.Dispose();
         _signal.Dispose();
+        _opened.Dispose();
     }
 
     private sealed class Releaser(SemaphoreSlim gate) : IDisposable
