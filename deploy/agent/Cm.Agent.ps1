@@ -54,6 +54,11 @@ $script:CmAgentLogHeadLines = 10
 $script:CmAgentQuickFailureSeconds = 300
 $script:CmAgentPauseMinutes = 60
 $script:CmAgentPauseMaxMinutes = 480
+# A headless run ends the moment it replies without calling a tool, so a command that moves to the background strands it
+# "waiting for a notification" (#617, #618). CLAUDE_CODE_DISABLE_BACKGROUND_TASKS removes run_in_background and stops a shell
+# command that outlives the tool time limit from being moved to the background on its own. Monitor and ScheduleWakeup still
+# background, so they are denied by name. The variable goes to the claude child alone, never to the machine or the user.
+$script:CmAgentBackgroundTools = 'Monitor,ScheduleWakeup'
 
 function New-CmAgentResult {
     <# Exit codes: 0 fine or nothing to do, 1 a run could not be started, 2 config refused, 3 GitHub not reachable. #>
@@ -974,7 +979,7 @@ function Invoke-CmAgentWatchCore {
 function Get-CmAgentShellLine {
     <# The one line cmd.exe runs: claude, the prompt file on its standard input (a long prompt does not survive a command line), output appended to the log. #>
     param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile)
-    "`"$Claude`" -p --permission-mode auto --model $Model < `"$PromptFile`" >> `"$LogFile`" 2>&1"
+    "`"$Claude`" -p --permission-mode auto --model $Model --disallowedTools `"$script:CmAgentBackgroundTools`" < `"$PromptFile`" >> `"$LogFile`" 2>&1"
 }
 
 function Invoke-CmAgentRunner {
@@ -994,7 +999,8 @@ function Invoke-CmAgentRunner {
     Add-Content -LiteralPath $LogFile -Encoding utf8 -Value $(if ($token) { '=== sign-in: the long-lived token from the token file ===' } else { '=== sign-in: the CLI''s own ===' })
     $line = Get-CmAgentShellLine -Claude $Claude -Model $Model -PromptFile $PromptFile -LogFile $LogFile
     $shell = if ($env:ComSpec) { $env:ComSpec } else { 'cmd.exe' }
-    $childEnv = if ($token) { @{ CLAUDE_CODE_OAUTH_TOKEN = $token } } else { @{} }
+    $childEnv = @{ CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1' }
+    if ($token) { $childEnv.CLAUDE_CODE_OAUTH_TOKEN = $token }
     $process = Start-CmProcess -File $shell -Arguments "/d /s /c `"$line`"" -WorkingDirectory $WorkDir -NoNewWindow -Env $childEnv
     $limitMs = [int][math]::Min([double][int]::MaxValue, [double]$MaxMinutes * 60000)
     $finished = $process.WaitForExit($limitMs)

@@ -930,7 +930,7 @@ Test-Case 'runner: claude gets the prompt file on stdin and its output is append
         $start = Get-AgentStarts
         Assert-Equal 1 $start.Count
         Assert-Equal $root $start[0].WorkingDirectory
-        Assert-Match $start[0].Arguments[0] '^/d /s /c ""C:\\fake\\claude\.exe" -p --permission-mode auto --model sonnet < "[^"]*issue-7-x\.prompt\.md" >> "[^"]*issue-7-x\.log" 2>&1"$'
+        Assert-Match $start[0].Arguments[0] '^/d /s /c ""C:\\fake\\claude\.exe" -p --permission-mode auto --model sonnet --disallowedTools "Monitor,ScheduleWakeup" < "[^"]*issue-7-x\.prompt\.md" >> "[^"]*issue-7-x\.log" 2>&1"$'
         Assert-Equal 7200000 $global:CmFakeProcess.WaitedMs 'the limit is the process wait'
         $recorded = Get-Content -LiteralPath $exitFile -Raw | ConvertFrom-Json -AsHashtable
         Assert-Equal 3 $recorded.exitCode
@@ -1040,7 +1040,7 @@ function Invoke-AgentRunnerTest {
 
 Test-Case 'token: the runner gives the token to the claude child through its environment, and nowhere else' {
     $r = Invoke-AgentRunnerTest -Token $script:AgentToken
-    Assert-Equal 'CLAUDE_CODE_OAUTH_TOKEN' (@($r.Start.Env.Keys) -join ',') 'the child gets exactly this one variable'
+    Assert-Equal 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS,CLAUDE_CODE_OAUTH_TOKEN' (@($r.Start.Env.Keys | Sort-Object) -join ',') 'the child gets exactly these two variables'
     Assert-Equal $script:AgentToken $r.Start.Env['CLAUDE_CODE_OAUTH_TOKEN'] 'trimmed, without the newline the file ends in'
     Assert-Equal $null $r.Start.RunnerEnv 'the runner''s own environment never holds it while the child starts'
     Assert-Equal $null $r.RunnerEnvAfter
@@ -1055,10 +1055,22 @@ Test-Case 'token: the runner gives the token to the claude child through its env
 Test-Case 'token: without a token file the child gets no extra environment and the CLI''s own sign-in is used, as before' {
     foreach ($case in @(@{}, @{ PointAtMissingFile = $true })) {
         $r = Invoke-AgentRunnerTest @case
-        Assert-Equal 0 @($r.Start.Env.Keys).Count
+        Assert-Equal 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS' (@($r.Start.Env.Keys) -join ',') 'no token variable, only the background-tasks switch'
         Assert-Match $r.Log 'sign-in: the CLI''s own'
         Assert-False $r.Log.Contains('long-lived')
     }
+}
+
+# A headless run ends the moment it replies without calling a tool. Claude Code moves a shell command that outlives the
+# tool time limit to the background on its own, and the run then ends "waiting for a notification" (#617, #618). The
+# switch removes run_in_background and that automatic move; Monitor and ScheduleWakeup still background, so they are
+# denied by name.
+Test-Case 'runner: claude runs with background tasks switched off, in the child''s environment alone' {
+    $r = Invoke-AgentRunnerTest
+    Assert-Equal '1' $r.Start.Env['CLAUDE_CODE_DISABLE_BACKGROUND_TASKS'] 'the child gets the switch'
+    Assert-Equal $null ([Environment]::GetEnvironmentVariable('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS')) 'the runner process (and so the machine and the user) never holds the switch'
+    Assert-Match $r.Start.Arguments[0] '--disallowedTools "Monitor,ScheduleWakeup"' 'the tools that still background are denied by name'
+    Assert-False ($r.Start.Arguments[0].Contains('CLAUDE_CODE_DISABLE_BACKGROUND_TASKS')) 'the switch is not on the command line'
 }
 
 Test-Case 'token: a start prints the names of the child''s variables in a dry run, never their values' {
