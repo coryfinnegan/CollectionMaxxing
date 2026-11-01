@@ -242,4 +242,92 @@ public class RepeatReadsTests
 
         RepeatReads.Of(answers, [Spine(0.10), Spine(0.10)]).ShouldBeEmpty();
     }
+
+    // ---- a cross-engine repeat of the same release confirms the read that stands (#622) ---------------------------------------
+
+    [Fact]
+    public void A_model_read_that_beats_a_Visions_read_of_the_same_book_in_the_same_place_is_confirmed()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void A_Visions_read_that_beats_a_models_read_of_the_same_book_is_confirmed_too_though_it_was_never_unconfirmed()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Ambiguous, BookA, 0.7) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBe([0]); // harmless: the caller only clears Unconfirmed, which Vision's read never had
+    }
+
+    [Fact]
+    public void Two_model_reads_of_one_place_are_not_confirmed_because_that_is_one_engines_own_repeat_not_agreement()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [true, true], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Two_Vision_reads_of_one_place_are_not_confirmed_either_since_neither_is_model_only()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, false], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_model_read_that_beats_a_Visions_read_of_a_different_book_in_the_same_place_is_not_this_rules_business()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookB, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_model_read_that_beats_a_Visions_read_of_the_same_book_in_another_place_is_not_confirmed()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.10), Spine(0.60)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Three_reads_of_one_release_in_one_place_confirm_the_survivor_when_any_of_them_crossed_engines()
+    {
+        var answers = new[]
+        {
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.8),
+            Local(ResolutionVerdict.Matched, BookA, 0.93),
+            Local(ResolutionVerdict.Matched, BookA, 0.97),
+        };
+
+        // Vision (false), model (true), model (true): the slot saw both engines before the final model read took it.
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true, true]).ShouldBe([2]);
+    }
+
+    [Fact]
+    public void Nothing_to_compare_confirms_nothing()
+    {
+        RepeatReads.ConfirmedByOtherEngine([], []).ShouldBeEmpty();
+        RepeatReads.ConfirmedByOtherEngine([Local(ResolutionVerdict.Matched, BookA, 0.95)], [true]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_chain_of_three_reads_each_overlapping_only_its_neighbour_does_not_lend_the_first_reads_engine_to_the_third()
+    {
+        // Vision at [0, .05] and model1 at [.025, .075] share a place; model1 and model2 at [.05, .10] share a place; Vision
+        // and model2 do not overlap at all. Same place is not transitive: model2 winning the chain must not borrow Vision's
+        // agreement with model1, because Vision never read where model2 sits.
+        var answers = new[]
+        {
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.50),
+            Local(ResolutionVerdict.Matched, BookA, 0.90),
+            Local(ResolutionVerdict.Matched, BookA, 0.95),
+        };
+        var boxes = new ReadBox?[] { Spine(0.00), Spine(0.025), Spine(0.05) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true, true], boxes).ShouldBeEmpty();
+    }
 }

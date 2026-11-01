@@ -21,9 +21,11 @@ public enum ReadGrounding
 /// score of its best release, and whether it is a read only the picture model made (<c>Unconfirmed</c>, the flag the phone sends
 /// for a shelf read it adds beside the Vision pipeline's). A place is contested only between a read only the model made and a
 /// read the other engine made: one engine's own two reads of a place are not two engines disagreeing about a spine, and a copy
-/// an engine read twice is <see cref="RepeatReads"/>'s business. Nothing of the read's title or release is needed to settle a place.
+/// an engine read twice is <see cref="RepeatReads"/>'s business. Nothing of the read's title or release is needed to settle a
+/// place, so <c>Book</c> (the release its best option points at, in whatever form the caller already has it; null when the
+/// caller has none or does not ask) is only ever used by <see cref="ReadPlaces.Confirmed"/>, never by <see cref="ReadPlaces.Weaker"/>.
 /// </summary>
-public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, double Score, bool Unconfirmed = false);
+public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, double Score, bool Unconfirmed = false, string? Book = null);
 
 /// <summary>
 /// One item per place. Two engines read one shelf shot and both read many of the same spines: a place on the shelf holds one
@@ -46,6 +48,12 @@ public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, 
 /// <para>
 /// A read with no box has no place, so it neither takes one nor loses one; two reads of one place that both found nothing are
 /// left alone, because there is no better read to pick. Pure.
+/// </para>
+/// <para>
+/// When the read that stands at a place and the other engine's read it beat there (<see cref="PlacedRead.Book"/>, when the
+/// caller gives it) name the same release, the two engines agreeing is itself the confirmation <c>Unconfirmed</c> exists to
+/// stand in for, so the row that stands is no longer model-only (<see cref="Confirmed"/>). A different release at that place
+/// is still the contest above, untouched.
 /// </para>
 /// </summary>
 public static class ReadPlaces
@@ -102,6 +110,47 @@ public static class ReadPlaces
         }
 
         return [.. skipped];
+    }
+
+    /// <summary>
+    /// The positions of a read that stands against a same-place read the other engine made of the same release
+    /// (<see cref="PlacedRead.Book"/>, neither null nor empty): the two engines agreeing there is itself the confirmation
+    /// <see cref="PlacedRead.Unconfirmed"/> exists to stand in for, so a model read that stands against one is no longer
+    /// model-only. A different release at the same place is still <see cref="Weaker"/>'s contest, untouched. A piece covering
+    /// several spines never becomes a contest for any one of them (<see cref="Weaker"/>), so it never confirms one either: the
+    /// person sees it unconfirmed, as any of its spines would be with nothing else there. Pure.
+    /// </summary>
+    public static IReadOnlyList<int> Confirmed(IReadOnlyList<PlacedRead> reads)
+    {
+        var merged = new HashSet<int>();
+        for (var i = 0; i < reads.Count; i++)
+        {
+            if (Contends(reads[i]) && IsMergedPiece(reads, i))
+            {
+                merged.Add(i);
+            }
+        }
+
+        var skipped = Weaker(reads).ToHashSet();
+        var confirmed = new SortedSet<int>();
+        for (var i = 0; i < reads.Count; i++)
+        {
+            if (skipped.Contains(i) || string.IsNullOrEmpty(reads[i].Book))
+            {
+                continue;
+            }
+
+            for (var j = 0; j < reads.Count; j++)
+            {
+                if (j != i && !merged.Contains(j) && OtherEngine(reads[i], reads[j]) && SamePlace(reads[i], reads[j]) && reads[j].Book == reads[i].Book)
+                {
+                    confirmed.Add(i);
+                    break;
+                }
+            }
+        }
+
+        return [.. confirmed];
     }
 
     private static ReadGrounding GroundingOf(ResolutionVerdict verdict) => verdict switch

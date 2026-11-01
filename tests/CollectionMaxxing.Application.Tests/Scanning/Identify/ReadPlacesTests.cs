@@ -186,4 +186,76 @@ public class ReadPlacesTests
     {
         ReadPlaces.Weaker([Vision(0.12), Vision(0.50), Model(0.10, width: 0.50)]).ShouldBe([2]);
     }
+
+    // ---- a cross-engine read of the same release confirms the read that stands (#622) ---------------------------------------
+
+    [Fact]
+    public void A_model_read_that_takes_a_place_from_a_Visions_read_of_the_same_book_is_confirmed()
+    {
+        var reads = new[] { Vision(0.30, ReadGrounding.Ambiguous, 0.8) with { Book = "a" }, Model(0.31, score: 0.95) with { Book = "a" } };
+
+        ReadPlaces.Confirmed(reads).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void A_Visions_read_that_takes_a_place_from_a_models_read_of_the_same_book_is_confirmed_too_though_it_was_never_unconfirmed()
+    {
+        var reads = new[] { Vision(0.30, score: 0.95) with { Book = "a" }, Model(0.31, ReadGrounding.Ambiguous, 0.8) with { Book = "a" } };
+
+        ReadPlaces.Confirmed(reads).ShouldBe([0]); // harmless: the caller only clears Unconfirmed, which Vision's read never had
+    }
+
+    [Fact]
+    public void A_model_read_that_takes_a_place_from_a_Visions_read_of_a_different_book_is_not_confirmed()
+    {
+        var reads = new[] { Vision(0.30, ReadGrounding.Ambiguous, 0.8) with { Book = "a" }, Model(0.31, score: 0.95) with { Book = "b" } };
+
+        ReadPlaces.Confirmed(reads).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_read_with_no_book_is_never_confirmed()
+    {
+        var reads = new[] { Vision(0.30, ReadGrounding.Ambiguous, 0.8), Model(0.31, score: 0.95) };
+
+        ReadPlaces.Confirmed(reads).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Two_model_reads_of_one_place_are_not_confirmed_because_that_is_one_engines_own_repeat_not_agreement()
+    {
+        var reads = new[] { Model(0.30, ReadGrounding.Ambiguous, 0.8) with { Book = "a" }, Model(0.31, score: 0.95) with { Book = "a" } };
+
+        ReadPlaces.Confirmed(reads).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_merged_piece_never_confirms_any_of_the_spines_inside_it_even_when_it_names_one_of_their_books()
+    {
+        // The wide Vision piece happens to read the same book as the first spine inside it; it is still no place of its own, so
+        // it is no confirmation either, the same as #622's example without boxes would have been before #620.
+        var reads = new[]
+        {
+            Vision(0.10, width: 0.50) with { Book = "a" },
+            Model(0.12) with { Book = "a" },
+            Model(0.30) with { Book = "b" },
+        };
+
+        ReadPlaces.Confirmed(reads).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Reads_of_the_same_book_in_different_places_do_not_confirm_each_other()
+    {
+        var reads = new[] { Vision(0.10, ReadGrounding.Ambiguous, 0.8) with { Book = "a" }, Model(0.60, score: 0.95) with { Book = "a" } };
+
+        ReadPlaces.Confirmed(reads).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Nothing_to_compare_confirms_nothing()
+    {
+        ReadPlaces.Confirmed([]).ShouldBeEmpty();
+        ReadPlaces.Confirmed([Vision(0.10) with { Book = "a" }]).ShouldBeEmpty();
+    }
 }
