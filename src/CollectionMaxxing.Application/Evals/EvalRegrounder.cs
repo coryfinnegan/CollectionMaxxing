@@ -21,7 +21,7 @@ namespace CollectionMaxxing.Application.Evals;
 /// <item>An empty <c>reground.request</c> file in the results folder asks for one now, even when the version is unchanged. The file is deleted as the
 /// request is taken, and it waits while a phone run is open.</item>
 /// <item>It acts as the person who opened the run, with the libraries they belong to now, as the phone run's grounding does, and it grounds with the same
-/// <see cref="EvalRunScoring.GroundAsync"/> and a fresh memo. It writes the usual result files, and no draft truth files.</item>
+/// <see cref="EvalRunScoring.GroundPhotoAsync"/> and a fresh memo. It writes the usual result files, and no draft truth files.</item>
 /// </list>
 /// </summary>
 public sealed class EvalRegrounder(
@@ -268,13 +268,7 @@ public sealed class EvalRegrounder(
         {
             try
             {
-                var grounded = new List<GroundedPhoto>(photo.Results.Count);
-                foreach (var result in photo.Results)
-                {
-                    grounded.Add(await scoring.GroundAsync(result, memo, cancellationToken));
-                }
-
-                return grounded;
+                return await scoring.GroundPhotoAsync(photo.Results, memo, cancellationToken);
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {

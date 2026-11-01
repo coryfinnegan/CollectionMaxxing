@@ -43,7 +43,7 @@ if (-not (Resolve-CmAgentClaude)) {
 }
 # conhost --headless: the task runs in the signed-in session (gh keeps its token in that user's keyring), and without it
 # a console window would flash on screen every 5 minutes.
-$action = Get-CmAgentTaskAction -Pwsh (Get-CmAgentPwsh) -Script (Join-Path $PSScriptRoot 'Watch-AgentIssues.ps1') -Root $Root
+$action = Get-CmAgentTaskAction -Pwsh (Get-CmAgentPwsh) -Script (Join-Path $PSScriptRoot 'Watch-AgentIssues.ps1') -Root $Root -TaskName $TaskName
 $create = @('/Create', '/TN', $TaskName, '/SC', 'MINUTE', '/MO', '5', '/TR', $action, '/RL', 'LIMITED')
 $folders = @([IO.Path]::Combine($Root, 'logs', 'agent'), [IO.Path]::Combine($Root, 'state'))
 if ($global:CmApply) {

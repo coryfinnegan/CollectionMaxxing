@@ -54,6 +54,18 @@ $script:CmAgentLogHeadLines = 10
 $script:CmAgentQuickFailureSeconds = 300
 $script:CmAgentPauseMinutes = 60
 $script:CmAgentPauseMaxMinutes = 480
+# A headless run ends the moment it replies without calling a tool, so a command that moves to the background strands it
+# "waiting for a notification" (#617, #618). CLAUDE_CODE_DISABLE_BACKGROUND_TASKS removes run_in_background and stops a shell
+# command that outlives the tool time limit from being moved to the background on its own. Monitor and ScheduleWakeup still
+# background, so they are denied by name, and so are the two that hand work to something that outlives the run (a cron entry,
+# a remote trigger). BASH_MAX_TIMEOUT_MS (documented for the Bash and PowerShell tools alike) lifts the longest timeout a
+# foreground command may ask for from 10 to 30 minutes: with background moves off, a command that outlasts its timeout is
+# killed, and a full test phase takes about 8 minutes on a quiet PC. These variables go to the claude child alone, never to
+# the machine or the user.
+$script:CmAgentBackgroundTools = 'Monitor,ScheduleWakeup,CronCreate,RemoteTrigger'
+$script:CmAgentMaxCommandMs = '1800000'
+# The scheduled task the installer registers (Install-AgentWatcher.ps1); the runner wakes it when a run ends.
+$script:CmAgentTaskName = 'CollectionMaxxingAgent'
 
 function New-CmAgentResult {
     <# Exit codes: 0 fine or nothing to do, 1 a run could not be started, 2 config refused, 3 GitHub not reachable. #>
@@ -70,10 +82,12 @@ function New-CmAgentContext {
     param(
         [string]$Root = 'C:\CollectionMaxxing',
         [string]$Repo = 'coryfinnegan/CollectionMaxxing',
-        [string]$AgentDir = $PSScriptRoot
+        [string]$AgentDir = $PSScriptRoot,
+        [string]$TaskName = $script:CmAgentTaskName   # the scheduled task this watcher runs as; a run wakes it when it ends
     )
     [pscustomobject]@{
         Root            = $Root
+        TaskName        = $TaskName
         Repo            = $Repo
         Owner           = ($Repo -split '/')[0]
         EnvFile         = Join-Path $Root '.env'
@@ -516,10 +530,12 @@ function Get-CmAgentRunnerArguments {
       The command line of conhost.exe: a headless console running the runner, so no window ever appears. The token file is
       named by its path; the runner reads it, so the token itself is on no command line.
     #>
-    param([string]$Pwsh, [string]$RunnerScript, [int]$Issue, [string]$Model, [string]$Claude, $Paths, [int]$MaxMinutes, [string]$TokenFile = '')
+    param([string]$Pwsh, [string]$RunnerScript, [int]$Issue, [string]$Model, [string]$Claude, $Paths, [int]$MaxMinutes, [string]$TokenFile = '', [string]$WatcherTask = '')
     $token = if ($TokenFile) { " -TokenFile `"$TokenFile`"" } else { '' }
+    # The task the runner wakes when it ends: the one this watcher runs as (the installer may have been given another name).
+    $watcher = if ($WatcherTask) { " -WatcherTask `"$WatcherTask`"" } else { '' }
     "--headless `"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$RunnerScript`" -Issue $Issue -Model $Model -Claude `"$Claude`" " +
-    "-PromptFile `"$($Paths.Prompt)`" -LogFile `"$($Paths.Log)`" -ExitFile `"$($Paths.Exit)`" -WorkDir `"$($Paths.Worktree)`"$token -MaxMinutes $MaxMinutes"
+    "-PromptFile `"$($Paths.Prompt)`" -LogFile `"$($Paths.Log)`" -ExitFile `"$($Paths.Exit)`" -WorkDir `"$($Paths.Worktree)`"$token$watcher -MaxMinutes $MaxMinutes"
 }
 
 function Get-CmAgentPwsh {
@@ -528,8 +544,10 @@ function Get-CmAgentPwsh {
 
 function Get-CmAgentTaskAction {
     <# The /TR text of the scheduled task. schtasks allows 261 characters. #>
-    param([string]$Pwsh, [string]$Script, [string]$Root)
-    "conhost.exe --headless `"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Script`" -Root `"$Root`" -Apply"
+    param([string]$Pwsh, [string]$Script, [string]$Root, [string]$TaskName = '')
+    # Only a task with another name than the default says so (the line has to fit schtasks' 261 characters).
+    $name = if ($TaskName -and $TaskName -ne $script:CmAgentTaskName) { " -TaskName `"$TaskName`"" } else { '' }
+    "conhost.exe --headless `"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Script`" -Root `"$Root`"$name -Apply"
 }
 
 # ---- the lock and the day's count ---------------------------------------------------------------------------------------------
@@ -552,8 +570,20 @@ function Remove-CmAgentLock {
 }
 
 function Get-CmAgentRunStatus {
-    <# 'running' (alive, inside its time limit), 'timeout' (alive, past it) or 'exited' (its process is gone). #>
+    <#
+      'running' (alive, inside its time limit), 'timeout' (alive, past it) or 'exited' (its process is gone, or the runner
+      has written the exit file of a run that ended by itself). The exit file is written after claude has exited and the
+      runner does nothing after it but wake the watcher, so waiting for the runner's own process to disappear would make the
+      woken pass find the run "alive" and do nothing. A run stopped for its time limit (timedOut) is still judged by its
+      process: it is killed again if it is somehow alive. A new run starts only after this one is closed out and its lock
+      is removed, so two runs never overlap.
+    #>
     param($Lock, [int]$MaxMinutes)
+    $exitFile = "$($Lock.exitFile)"
+    if ($exitFile -and (Test-Path -LiteralPath $exitFile)) {
+        $written = Read-CmState -Path $exitFile
+        if (($null -ne $written.exitCode) -and ($written.timedOut -ne $true)) { return 'exited' }
+    }
     $now = Get-CmAgentNow
     $started = [long]$Lock.startedUnix
     $info = Get-CmProcessInfo -Id ([int]$Lock.pid)
@@ -663,7 +693,7 @@ function Start-CmAgentRun {
     }
     $tokenFile = if (Read-CmAgentToken -Path $Settings.TokenFile) { $Settings.TokenFile } else { '' }
     $minutes = Get-CmAgentRunMinutes -Settings $Settings -Model $Pick.Model
-    $runner = Get-CmAgentRunnerArguments -Pwsh (Get-CmAgentPwsh) -RunnerScript $Ctx.RunnerScript -Issue $issue -Model $Pick.Model -Claude $claude -Paths $paths -MaxMinutes $minutes -TokenFile $tokenFile
+    $runner = Get-CmAgentRunnerArguments -Pwsh (Get-CmAgentPwsh) -RunnerScript $Ctx.RunnerScript -Issue $issue -Model $Pick.Model -Claude $claude -Paths $paths -MaxMinutes $minutes -TokenFile $tokenFile -WatcherTask $Ctx.TaskName
     try { $process = Start-CmProcess -File 'conhost.exe' -Arguments $runner }
     catch { return & $fail "the run could not be launched ($($_.Exception.Message))" }
     if ($process.DryRun) { return New-CmAgentResult 'dry-run' 0 '' $issue }
@@ -974,7 +1004,7 @@ function Invoke-CmAgentWatchCore {
 function Get-CmAgentShellLine {
     <# The one line cmd.exe runs: claude, the prompt file on its standard input (a long prompt does not survive a command line), output appended to the log. #>
     param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile)
-    "`"$Claude`" -p --permission-mode auto --model $Model < `"$PromptFile`" >> `"$LogFile`" 2>&1"
+    "`"$Claude`" -p --permission-mode auto --model $Model --disallowedTools `"$script:CmAgentBackgroundTools`" < `"$PromptFile`" >> `"$LogFile`" 2>&1"
 }
 
 function Invoke-CmAgentRunner {
@@ -984,7 +1014,7 @@ function Invoke-CmAgentRunner {
       With a -TokenFile that holds a token, the claude child gets it as CLAUDE_CODE_OAUTH_TOKEN, in its environment and
       nowhere else (not on a command line, not in the log, not in the exit file); without one claude uses the CLI's own sign-in.
     #>
-    param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile, [string]$ExitFile, [string]$WorkDir, [int]$MaxMinutes, [int]$Issue, [string]$TokenFile = '')
+    param([string]$Claude, [string]$Model, [string]$PromptFile, [string]$LogFile, [string]$ExitFile, [string]$WorkDir, [int]$MaxMinutes, [int]$Issue, [string]$TokenFile = '', [string]$WatcherTask = $script:CmAgentTaskName)
     $token = Read-CmAgentToken -Path $TokenFile
     Initialize-Cm -Apply $true -Secrets @($token)
     $dir = Split-Path -Parent $LogFile
@@ -994,7 +1024,8 @@ function Invoke-CmAgentRunner {
     Add-Content -LiteralPath $LogFile -Encoding utf8 -Value $(if ($token) { '=== sign-in: the long-lived token from the token file ===' } else { '=== sign-in: the CLI''s own ===' })
     $line = Get-CmAgentShellLine -Claude $Claude -Model $Model -PromptFile $PromptFile -LogFile $LogFile
     $shell = if ($env:ComSpec) { $env:ComSpec } else { 'cmd.exe' }
-    $childEnv = if ($token) { @{ CLAUDE_CODE_OAUTH_TOKEN = $token } } else { @{} }
+    $childEnv = @{ CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = '1'; BASH_MAX_TIMEOUT_MS = $script:CmAgentMaxCommandMs }
+    if ($token) { $childEnv.CLAUDE_CODE_OAUTH_TOKEN = $token }
     $process = Start-CmProcess -File $shell -Arguments "/d /s /c `"$line`"" -WorkingDirectory $WorkDir -NoNewWindow -Env $childEnv
     $limitMs = [int][math]::Min([double][int]::MaxValue, [double]$MaxMinutes * 60000)
     $finished = $process.WaitForExit($limitMs)
@@ -1008,5 +1039,30 @@ function Invoke-CmAgentRunner {
         Add-Content -LiteralPath $LogFile -Encoding utf8 -Value "=== stopped after the $MaxMinutes minute limit ==="
     }
     Write-CmState -Path $ExitFile -State @{ exitCode = $code; timedOut = (-not $finished); endedUnix = (Get-CmAgentNow).ToUnixTimeSeconds() }
+    Start-CmAgentWatcher -TaskName $WatcherTask -LogFile $LogFile
     if ($null -ne $code) { $code } else { 124 }
+}
+
+function Start-CmAgentWatcher {
+    <#
+      Wakes the watcher task as the last thing a run does, so the next queued issue does not wait for the 5-minute poll. This
+      is an ordinary pass and nothing more: the watcher's own lock turns away a second pass that overlaps it, the exit file is
+      already written for it to read, and the daily cap, the pause after a run that failed at once and the kill switch are all
+      decided inside the pass. A run that is somehow still alive makes the pass exit at once, and then the poll picks up as before.
+      Only a task named like the installer's (CollectionMaxxingAgent, optionally with a suffix) is ever started; an empty name
+      switches this off. Whatever happens here is noted in the run's log and never changes how the run ended.
+    #>
+    param([string]$TaskName, [string]$LogFile)
+    if (-not $TaskName) { return }
+    $note = {
+        param($text)
+        try { Add-Content -LiteralPath $LogFile -Encoding utf8 -Value "=== $text ===" } catch { }
+    }
+    if ($TaskName -notmatch '^CollectionMaxxingAgent') { & $note "not starting the watcher task ${TaskName}: only a task named CollectionMaxxingAgent is ever started"; return }
+    try {
+        $r = Invoke-Cm -Command 'schtasks' -Arguments @('/Run', '/TN', $TaskName) -Mutating -TimeoutSeconds 30
+        if ($r.ExitCode -eq 0) { & $note "started the watcher task $TaskName" }
+        else { & $note "could not start the watcher task $TaskName (exit $($r.ExitCode)); the next 5-minute pass picks up the next issue" }
+    }
+    catch { & $note "could not start the watcher task $TaskName ($($_.Exception.Message)); the next 5-minute pass picks up the next issue" }
 }

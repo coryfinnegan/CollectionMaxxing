@@ -28,6 +28,7 @@
 param(
     [string]$Root = 'C:\CollectionMaxxing',
     [string]$Repo = 'coryfinnegan/CollectionMaxxing',
+    [string]$TaskName = 'CollectionMaxxingAgent',   # the scheduled task this script runs as; a finished run wakes it
     [switch]$Apply
 )
 $ErrorActionPreference = 'Stop'
@@ -36,6 +37,6 @@ $ErrorActionPreference = 'Stop'
 
 Initialize-Cm -Apply ($Apply.IsPresent -and -not $WhatIfPreference)
 Use-CmPortableTools -Root $Root
-$ctx = New-CmAgentContext -Root $Root -Repo $Repo -AgentDir $PSScriptRoot
+$ctx = New-CmAgentContext -Root $Root -Repo $Repo -AgentDir $PSScriptRoot -TaskName $TaskName
 $result = @(Invoke-CmAgentWatch -Ctx $ctx) | Select-Object -Last 1
 exit $result.ExitCode

@@ -195,8 +195,9 @@ function Invoke-CheckIn {
       the real shared temp; -Env adds (or, with a null value, removes) environment variables for the child.
     #>
     param(
-        [Parameter(Mandatory)]$Runner, [Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Phase,
-        [Parameter(Mandatory)][string]$FakeBin, [Parameter(Mandatory)][string]$TempBase, [hashtable]$Env = @{}
+        [Parameter(Mandatory)]$Runner, [Parameter(Mandatory)][string]$Root, [string]$Phase = '',
+        [Parameter(Mandatory)][string]$FakeBin, [Parameter(Mandatory)][string]$TempBase, [hashtable]$Env = @{},
+        [string[]]$ExtraArgs = @()
     )
     $vars = @{
         PATH                 = $FakeBin + [IO.Path]::PathSeparator + $env:PATH
@@ -214,10 +215,14 @@ function Invoke-CheckIn {
     }
     try {
         if ($Runner.Posix) {
-            $lines = @(& $Runner.Exe (ConvertTo-CheckPosixPath (Join-Path $Root 'scripts/check.sh')) $Phase 2>&1 | ForEach-Object { "$_" })
+            $runArgs = @(ConvertTo-CheckPosixPath (Join-Path $Root 'scripts/check.sh'))
+            if ($Phase) { $runArgs += $Phase }
+            $lines = @(& $Runner.Exe @runArgs @ExtraArgs 2>&1 | ForEach-Object { "$_" })
         }
         else {
-            $lines = @(& $Runner.Exe -NoProfile -File (Join-Path $Root 'scripts/check.ps1') -Phase $Phase 2>&1 | ForEach-Object { "$_" })
+            $runArgs = @('-NoProfile', '-File', (Join-Path $Root 'scripts/check.ps1'))
+            if ($Phase) { $runArgs += @('-Phase', $Phase) }
+            $lines = @(& $Runner.Exe @runArgs @ExtraArgs 2>&1 | ForEach-Object { "$_" })
         }
         [pscustomobject]@{ Exit = $LASTEXITCODE; Lines = @($lines); Text = ($lines -join "`n") }
     }
@@ -342,5 +347,434 @@ Test-Case 'check logs: on CI the app gate keeps the log dir the workflow uploads
             $local = Invoke-CheckIn -Runner $runner -Root $root -Phase 'app' -FakeBin $bin -TempBase $tmp -Env @{ CM_APP_CHECK_LOG_DIR = $stale }
             Assert-False ((Get-CheckAppLogDir $local) -like '*stale-from-another-run*') "${label}: a stale CM_APP_CHECK_LOG_DIR outside CI was honoured: $(Get-CheckAppLogDir $local)"
         }
+    }
+}
+
+# ---- -Changed / --changed: the gate runs only what a change can affect, and format runs side by side ---------------------
+# Each case runs the real script in a throwaway git checkout (a small copy of this repo's project layout, with origin/main
+# at the base commit) with a recording dotnet and npm first on PATH: what the gate ran is what the fakes were called with.
+
+function New-CheckRecordingTools {
+    <#
+      A fake dotnet and npm that record every call as one file in $LogDir (call-*.txt) and exit 0; a test call prints the
+      passing summary line the gate looks for. With CM_FAKE_FORMAT_SLEEP set a format call also records when it started and
+      ended (fmt-<id>-a.txt, fmt-<id>-b.txt), a second apart, so a test can see whether two of them overlapped. With
+      CM_FAKE_FORMAT_FLAKY set the first format call of each project fails with the "file in use" error and the next passes.
+      Returns the bin dir.
+    #>
+    param([switch]$Posix)
+    $bin = Join-Path ([IO.Path]::GetTempPath()) ('cm-check-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    New-Item -ItemType Directory -Force -Path $bin | Out-Null
+    if ($IsWindows -and -not $Posix) {
+        Set-Content -LiteralPath (Join-Path $bin 'dotnet.cmd') -Value @(
+            '@echo off',
+            # %RANDOM% is seeded by the clock, so a retry a moment after a failed try gets the same number: the first try has its own tag.
+            'set "tag=%RANDOM%"',
+            'if defined CM_FAKE_FORMAT_FLAKY if not exist "%CM_FAKE_DOTNET_LOG%\flaky-%~n2.mark" set "tag=first"',
+            'echo %* > "%CM_FAKE_DOTNET_LOG%\call-%1-%~n2-%tag%.txt"',
+            'if "%1"=="test" echo Passed!  - Failed: 0, Passed: 1, Skipped: 0, Total: 1',
+            'if not "%1"=="format" exit /b 0',
+            'if defined CM_FAKE_FORMAT_FLAKY if not exist "%CM_FAKE_DOTNET_LOG%\flaky-%~n2.mark" goto flaky',
+            'if not defined CM_FAKE_FORMAT_SLEEP exit /b 0',
+            'set "id=%~n2"',
+            'echo %TIME% > "%CM_FAKE_DOTNET_LOG%\fmt-%id%-a.txt"',
+            'ping -n 2 127.0.0.1 > nul',
+            'echo %TIME% > "%CM_FAKE_DOTNET_LOG%\fmt-%id%-b.txt"',
+            'exit /b 0',
+            ':flaky',
+            'echo x > "%CM_FAKE_DOTNET_LOG%\flaky-%~n2.mark"',
+            'echo The process cannot access the file obj\Debug\x.AssemblyInfo.cs because it is being used by another process.',
+            'exit /b 1')
+        Set-Content -LiteralPath (Join-Path $bin 'npm.cmd') -Value @('@echo off', 'echo npm %* > "%CM_FAKE_DOTNET_LOG%\call-npm-%RANDOM%.txt"', 'exit /b 0')
+    }
+    else {
+        Write-CheckFakeShellScript -Path (Join-Path $bin 'dotnet') -Lines @(
+            '#!/bin/sh',
+            'echo "$@" > "$(mktemp "$CM_FAKE_DOTNET_LOG/call-XXXXXX.txt")"',
+            'if [ "$1" = test ]; then echo "Passed!  - Failed: 0, Passed: 1, Skipped: 0, Total: 1"; fi',
+            'if [ "$1" = format ] && [ -n "$CM_FAKE_FORMAT_FLAKY" ]; then',
+            '  mark="$CM_FAKE_DOTNET_LOG/flaky-$(basename "$2" .csproj).mark"',
+            '  if [ ! -e "$mark" ]; then',
+            '    : > "$mark"',
+            '    echo "The process cannot access the file obj/Debug/x.AssemblyInfo.cs because it is being used by another process."',
+            '    exit 1',
+            '  fi',
+            'fi',
+            'if [ "$1" = format ] && [ -n "$CM_FAKE_FORMAT_SLEEP" ]; then',
+            '  id=$$',
+            '  date +%s.%N > "$CM_FAKE_DOTNET_LOG/fmt-$id-a.txt"',
+            '  sleep 1',
+            '  date +%s.%N > "$CM_FAKE_DOTNET_LOG/fmt-$id-b.txt"',
+            'fi',
+            'exit 0')
+        Write-CheckFakeShellScript -Path (Join-Path $bin 'npm') -Lines @('#!/bin/sh', 'echo "npm $@" > "$(mktemp "$CM_FAKE_DOTNET_LOG/call-XXXXXX.txt")"', 'exit 0')
+    }
+    $bin
+}
+
+# The layout of the throwaway checkout: project -> the projects it references (the names are this repo's own, so the gate's
+# two support libraries and the Architecture tests are recognised).
+$script:CheckChangedProjects = [ordered]@{
+    'src/CollectionMaxxing.Domain'             = @()
+    'src/CollectionMaxxing.Application'        = @('src/CollectionMaxxing.Domain')
+    'src/CollectionMaxxing.Infrastructure'     = @('src/CollectionMaxxing.Application', 'src/CollectionMaxxing.Domain')
+    'src/CollectionMaxxing.Api'                = @('src/CollectionMaxxing.Application', 'src/CollectionMaxxing.Infrastructure')
+    'src/CollectionMaxxing.AppHost'            = @('src/CollectionMaxxing.Api')
+    'tests/CollectionMaxxing.TestSupport'      = @('src/CollectionMaxxing.Infrastructure')
+    'tests/CollectionMaxxing.Api.TestKit'      = @('src/CollectionMaxxing.Api', 'tests/CollectionMaxxing.TestSupport')
+    'tests/CollectionMaxxing.Domain.Tests'     = @('src/CollectionMaxxing.Domain')
+    'tests/CollectionMaxxing.Application.Tests' = @('src/CollectionMaxxing.Application', 'tests/CollectionMaxxing.TestSupport')
+    'tests/CollectionMaxxing.Architecture.Tests' = @('src/CollectionMaxxing.Domain', 'src/CollectionMaxxing.Application', 'src/CollectionMaxxing.Infrastructure', 'src/CollectionMaxxing.Api')
+    'tests/CollectionMaxxing.Api.Tests'        = @('src/CollectionMaxxing.Api', 'tests/CollectionMaxxing.TestSupport', 'tests/CollectionMaxxing.Api.TestKit')
+    'tests/CollectionMaxxing.Recognition.Evals' = @('src/CollectionMaxxing.Application', 'src/CollectionMaxxing.Infrastructure', 'tests/CollectionMaxxing.TestSupport')
+}
+$script:CheckChangedLanes = @('Api.Tests', 'Application.Tests', 'Architecture.Tests', 'Domain.Tests', 'Recognition.Evals')
+$script:CheckChangedProjectNames = @($script:CheckChangedProjects.Keys | ForEach-Object { ($_ -split '/')[1] -replace '^CollectionMaxxing\.', '' } | Sort-Object)
+
+function Invoke-CheckGit {
+    <# Real git, on the throwaway checkout only; it fails loudly. #>
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$GitArgs)
+    if ($Root -notlike '*cm-check-test-*') { throw "refusing to run git outside a throwaway checkout: $Root" }
+    $out = & git -C $Root -c user.name=cm-check-test -c user.email=cm-check-test@example.test -c commit.gpgsign=false -c core.autocrlf=false @GitArgs 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "git $($GitArgs -join ' ') failed in ${Root}: $($out -join ' ')" }
+}
+
+function Set-CheckFile {
+    <# Appends a line to a file of the throwaway checkout, making the file and its folders when it is new. #>
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Relative, [string]$Text = 'x')
+    $path = Join-Path $Root $Relative
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
+    [IO.File]::AppendAllText($path, "$Text`n")
+}
+
+function New-CheckGitCheckout {
+    <# The layout above with the real gate scripts, a git repository and origin/main at the base commit. #>
+    param([Parameter(Mandatory)][string]$Sandbox, [Parameter(Mandatory)][string]$Parent)
+    $root = Join-Path $Sandbox "$Parent/repo"
+    New-Item -ItemType Directory -Force -Path (Join-Path $root 'scripts') | Out-Null
+    Copy-Item -LiteralPath $script:CheckScript, $script:CheckShell -Destination (Join-Path $root 'scripts')
+    Set-Content -LiteralPath (Join-Path $root 'scripts/check-comments.mjs') -Value "console.log('comments: ok');"
+    Set-Content -LiteralPath (Join-Path $root 'CollectionMaxxing.slnx') -Value '<Solution />'
+    foreach ($dir in $script:CheckChangedProjects.Keys) {
+        $name = ($dir -split '/')[1]
+        $refs = @($script:CheckChangedProjects[$dir] | ForEach-Object { "    <ProjectReference Include=""..\..\$($_ -replace '/', '\')\$(($_ -split '/')[1]).csproj"" />" })
+        New-Item -ItemType Directory -Force -Path (Join-Path $root $dir) | Out-Null
+        Set-Content -LiteralPath (Join-Path $root "$dir/$name.csproj") -Value (@('<Project Sdk="Microsoft.NET.Sdk">', '  <ItemGroup>') + $refs + @('  </ItemGroup>', '</Project>'))
+        Set-CheckFile $root "$dir/Class.cs" 'class C {}'
+    }
+    foreach ($file in 'app/package.json', 'app/src/index.ts', 'app/playwright/serve.mjs', 'docs/readme.md', 'Directory.Build.props', 'tests/Directory.Build.props') {
+        Set-CheckFile $root $file 'base'
+    }
+    Invoke-CheckGit $root init -q
+    Invoke-CheckGit $root add -A
+    Invoke-CheckGit $root commit -q -m base
+    Invoke-CheckGit $root update-ref refs/remotes/origin/main HEAD
+    $root
+}
+
+function Reset-CheckGitCheckout {
+    param([Parameter(Mandatory)][string]$Root)
+    Invoke-CheckGit $Root reset -q --hard refs/remotes/origin/main
+    Invoke-CheckGit $Root clean -fdq
+}
+
+function Set-CheckChange {
+    <# -Committed files are changed and committed on top of origin/main; -Dirty ones are changed (or made, untracked) and left uncommitted. #>
+    param([Parameter(Mandatory)][string]$Root, [string[]]$Committed = @(), [string[]]$Dirty = @())
+    $Committed = @($Committed | Where-Object { $_ })
+    $Dirty = @($Dirty | Where-Object { $_ })
+    foreach ($file in $Committed) { Set-CheckFile $Root $file 'committed' }
+    if ($Committed.Count -gt 0) {
+        Invoke-CheckGit $Root add -A
+        Invoke-CheckGit $Root commit -q -m change
+    }
+    foreach ($file in $Dirty) { Set-CheckFile $Root $file 'dirty' }
+}
+
+function Invoke-CheckChanged {
+    <# One gate run in a throwaway checkout. -Phase may be empty (the whole gate); -Changed adds -Changed (check.sh: --changed). #>
+    param(
+        [Parameter(Mandatory)]$Runner, [Parameter(Mandatory)][string]$Root, [string]$Phase = '', [switch]$Changed,
+        [Parameter(Mandatory)][string]$FakeBin, [Parameter(Mandatory)][string]$TempBase, [Parameter(Mandatory)][string]$CallDir,
+        [hashtable]$Env = @{}
+    )
+    Get-ChildItem -LiteralPath $CallDir -File -ErrorAction SilentlyContinue | Remove-Item -Force
+    $callDirForChild = if ($Runner.Posix) { ConvertTo-CheckPosixPath $CallDir } else { $CallDir }
+    $vars = @{ CM_FAKE_DOTNET_LOG = $callDirForChild; CM_FAKE_FORMAT_SLEEP = $null; CM_FAKE_FORMAT_FLAKY = $null; CM_FORMAT_PARALLEL = $null; CM_TEST_ONLY = $null; CM_TEST_FILTER = $null }
+    foreach ($name in $Env.Keys) { $vars[$name] = $Env[$name] }
+    $runArgs = @()
+    if ($Runner.Posix) {
+        if ($Phase) { $runArgs += $Phase }
+        if ($Changed) { $runArgs += '--changed' }
+    }
+    else {
+        if ($Phase) { $runArgs += @('-Phase', $Phase) }
+        if ($Changed) { $runArgs += '-Changed' }
+    }
+    $r = Invoke-CheckIn -Runner $Runner -Root $Root -Phase '' -FakeBin $FakeBin -TempBase $TempBase -Env $vars -ExtraArgs $runArgs
+    $calls = @(Get-ChildItem -LiteralPath $CallDir -Filter 'call-*.txt' -File -ErrorAction SilentlyContinue | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw).Trim() })
+    $r | Add-Member -NotePropertyName Calls -NotePropertyValue $calls -PassThru
+}
+
+function ConvertTo-CheckSeconds {
+    <# Seconds from "1730000000.123" (date +%s.%N) or from a cmd %TIME% such as " 9:05:01.23". #>
+    param([Parameter(Mandatory)][string]$Text)
+    $t = $Text.Trim()
+    if ($t -match '^(\d+):(\d+):(\d+)[.,](\d+)$') { return ([int]$Matches[1] * 3600 + [int]$Matches[2] * 60 + [int]$Matches[3] + [double]("0.$($Matches[4])")) }
+    [double]::Parse($t, [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-CheckCallProjects {
+    <# The short project names (CollectionMaxxing. dropped) of the calls that start with $Verb, sorted. #>
+    param([string[]]$Calls, [Parameter(Mandatory)][string]$Verb)
+    @($Calls | Where-Object { $_ -match "^$Verb " } | ForEach-Object {
+            if ($_ -match '([A-Za-z0-9.]+)\.csproj') { $Matches[1] -replace '^CollectionMaxxing\.', '' }
+        } | Sort-Object)
+}
+
+function Get-CheckChangedLine {
+    param([Parameter(Mandatory)]$Run)
+    @($Run.Lines | Where-Object { $_ -like 'changed: *' })
+}
+
+function Assert-CheckRan {
+    <#
+      Compares what the gate ran with what the case expects. Restore, Build and App are booleans; Format and Test are lists of
+      short project names (a missing key means none); Line is a regex the one `changed:` line must match.
+    #>
+    param([Parameter(Mandatory)]$Run, [Parameter(Mandatory)][string]$Label, [Parameter(Mandatory)][hashtable]$Expect)
+    Assert-Equal 0 $Run.Exit "${Label}: exited $($Run.Exit): $($Run.Text)"
+    $changedLines = @(Get-CheckChangedLine $Run)
+    if ($Expect.ContainsKey('Line')) {
+        Assert-Equal 1 $changedLines.Count "${Label}: want exactly one changed: line, got $($changedLines.Count): $($Run.Text)"
+        Assert-Match ($changedLines -join "`n") $Expect.Line "${Label}: the changed: line"
+    }
+    else {
+        Assert-Equal 0 $changedLines.Count "${Label}: no changed: line without -Changed: $($changedLines -join ' | ')"
+    }
+    if ($Expect.ContainsKey('Restore')) { Assert-Equal $Expect.Restore (@($Run.Calls | Where-Object { $_ -match '^restore ' }).Count -eq 1) "${Label}: restore ran" }
+    if ($Expect.ContainsKey('Build')) { Assert-Equal $Expect.Build (@($Run.Calls | Where-Object { $_ -match '^build ' }).Count -eq 1) "${Label}: build ran" }
+    if ($Expect.ContainsKey('App')) { Assert-Equal $Expect.App (@($Run.Calls | Where-Object { $_ -match '^npm ' }).Count -eq 1) "${Label}: the app phase ran" }
+    if ($Expect.ContainsKey('Format')) {
+        Assert-Equal (@($Expect.Format) -join ',') ((Get-CheckCallProjects $Run.Calls 'format') -join ',') "${Label}: formatted projects"
+    }
+    if ($Expect.ContainsKey('Test')) {
+        Assert-Equal (@($Expect.Test) -join ',') ((Get-CheckCallProjects $Run.Calls 'test') -join ',') "${Label}: tested projects"
+    }
+}
+
+# Windows PowerShell 5.1 has a case of its own; the table-driven ones run on pwsh and bash.
+$script:CheckModernRunners = { $_.Exe -notlike '*powershell.exe' }
+
+function Use-CheckChangedSandbox {
+    <# Per runner: a fake toolbox, a throwaway checkout and the folders around them; $PerRunner gets (runner, label, root, bin, tmp, calls). #>
+    param([Parameter(Mandatory)][scriptblock]$PerRunner, [scriptblock]$RunnerFilter = { $true })
+    Use-CheckSandbox {
+        param($sandbox, $bins)
+        foreach ($runner in (Get-CheckRunners | Where-Object $RunnerFilter)) {
+            $bin = New-CheckRecordingTools -Posix:$runner.Posix
+            $bins.Add($bin)
+            $tmp = Join-Path $sandbox ('tmp-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+            $calls = Join-Path $sandbox ('calls-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+            New-Item -ItemType Directory -Force -Path $tmp, $calls | Out-Null
+            $root = New-CheckGitCheckout -Sandbox $sandbox -Parent ('checkout-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+            & $PerRunner $runner $runner.Name $root $bin $tmp $calls
+        }
+    }
+}
+
+function Get-CheckCiAreas {
+    <# What CI's scripts/ci/changed-areas.sh says about these paths (Backend, App), or $null when there is no bash to run it. #>
+    param([string[]]$Paths)
+    $bash = Get-CheckBash
+    if (-not $bash) { return $null }
+    $script = ConvertTo-CheckPosixPath (Join-Path $PSScriptRoot '../../scripts/ci/changed-areas.sh')
+    $out = @(($Paths -join "`n") | & $bash $script 2>&1 | ForEach-Object { "$_" })
+    [pscustomobject]@{ Backend = ($out -contains 'backend=true'); App = ($out -contains 'app=true') }
+}
+
+# Classification, without running the phases: -Phase restore prints the changed: line and runs the one cheap fake call, so the
+# line (and whether restore ran at all) is the whole answer. The same rule decides in CI.
+Test-Case 'changed: the area is picked the way CI picks it (app-only, server-only, anything else or nothing is everything)' {
+    $everything = '^changed: everything'
+    $cases = @(
+        @{ Name = 'app only'; Committed = @('app/src/index.ts'); Dirty = @('app/src/new.ts'); Restore = $false
+            Line = '^changed: app-only, 2 files\. skipped: restore, build, format and test \(nothing outside app/ changed\)$' },
+        @{ Name = 'app and serve.mjs'; Committed = @('app/playwright/serve.mjs'); Dirty = @('app/src/index.ts'); Restore = $true
+            Line = '^changed: everything, 2 files\. skipped: nothing \(app/playwright/serve\.mjs is read by the backend tests\)$' },
+        @{ Name = 'serve.mjs alone'; Dirty = @('app/playwright/serve.mjs'); Restore = $true
+            Line = '^changed: everything, 1 file\. skipped: nothing \(app/playwright/serve\.mjs is read by the backend tests\)$' },
+        @{ Name = 'app and src'; Committed = @('app/src/index.ts'); Dirty = @('src/CollectionMaxxing.Api/Class.cs'); Restore = $true
+            Line = '^changed: everything, 2 files\. skipped: nothing \(the change touches both the app and the server\)$' },
+        @{ Name = 'docs only'; Committed = @('docs/readme.md'); Restore = $true
+            Line = '^changed: everything, 1 file\. skipped: nothing \(docs/readme\.md is outside app/ and the server folders\)$' },
+        @{ Name = 'a script'; Dirty = @('scripts/new-tool.sh'); Restore = $true
+            Line = '^changed: everything, 1 file\. skipped: nothing \(scripts/new-tool\.sh is outside app/ and the server folders\)$' },
+        @{ Name = 'a file at the root'; Dirty = @('Directory.Build.props'); Restore = $true
+            Line = '^changed: everything, 1 file\. skipped: nothing \(Directory\.Build\.props is outside app/ and the server folders\)$' },
+        @{ Name = 'no change at all'; Restore = $true
+            Line = '^changed: everything\. skipped: nothing \(no changed files found\)$' },
+        @{ Name = 'a path in the wrong case (CI''s classifier is case-sensitive too)'; Dirty = @('Evals/x.txt'); Restore = $true
+            Line = '^changed: everything, 1 file\. skipped: nothing \(Evals/x\.txt is outside app/ and the server folders\)$' },
+        @{ Name = 'a server folder in the wrong case beside a right one'; Committed = @('src/CollectionMaxxing.Api/Class.cs'); Dirty = @('Deploy/y.txt'); Restore = $true
+            Line = '^changed: everything, 2 files\. skipped: nothing \(Deploy/y\.txt is outside app/ and the server folders\)$' },
+        @{ Name = 'a server change'; Dirty = @('deploy/x.txt'); Restore = $true
+            Line = '^changed: server-only, 1 file\. skipped: app phase \(nothing under app/ changed\);' }
+    )
+    Use-CheckChangedSandbox -RunnerFilter $script:CheckModernRunners {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        foreach ($case in $cases) {
+            Reset-CheckGitCheckout $root
+            Set-CheckChange -Root $root -Committed @($case.Committed) -Dirty @($case.Dirty)
+            $run = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'restore' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+            Assert-CheckRan $run "$label / $($case.Name)" @{ Line = $case.Line; Restore = $case.Restore }
+            # CI's changes job decides with scripts/ci/changed-areas.sh; the local gate must agree with it, case by case.
+            $paths = @(@($case.Committed) + @($case.Dirty) | Where-Object { $_ })
+            $ci = Get-CheckCiAreas $paths
+            if ($ci) {
+                $gateArea = if ((Get-CheckChangedLine $run) -match '^changed: (app-only|server-only|everything)') { $Matches[1] } else { '' }
+                $ciArea = if (-not $ci.Backend) { 'app-only' } elseif (-not $ci.App) { 'server-only' } else { 'everything' }
+                Assert-Equal $ciArea $gateArea "$label / $($case.Name): the local gate and CI's scripts/ci/changed-areas.sh classify differently"
+            }
+        }
+        # Without origin/main there is nothing to compare with: everything runs, and it says why.
+        Reset-CheckGitCheckout $root
+        Invoke-CheckGit $root update-ref '-d' refs/remotes/origin/main
+        Set-CheckChange -Root $root -Dirty @('app/src/new.ts')
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'restore' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+        Assert-CheckRan $run "$label / no origin/main" @{ Line = '^changed: everything\. skipped: nothing \(cannot tell what changed: no origin/main to compare with\)$'; Restore = $true }
+    }
+}
+
+# Which test and format projects a server-only change selects, again through the one line it prints.
+Test-Case 'changed: a server change tests the projects that reference what changed, and formats only the projects that changed' {
+    $skippedApp = 'skipped: app phase \(nothing under app/ changed\)'
+    $cases = @(
+        @{ Name = 'the Api project'; Dirty = @('src/CollectionMaxxing.Api/Class.cs')
+            Line = "^changed: server-only, 1 file\. $skippedApp; 3 of 5 test projects \(not affected\); format of 11 of 12 projects \(unchanged\)\. testing: Api\.Tests, Architecture\.Tests\. formatting: Api\.$" },
+        @{ Name = 'the Application project, committed'; Committed = @('src/CollectionMaxxing.Application/Class.cs')
+            Line = "^changed: server-only, 1 file\. $skippedApp; 1 of 5 test projects \(not affected\); format of 11 of 12 projects \(unchanged\)\. testing: Api\.Tests, Application\.Tests, Architecture\.Tests, Recognition\.Evals\. formatting: Application\.$" },
+        @{ Name = 'the Domain project'; Dirty = @('src/CollectionMaxxing.Domain/Class.cs')
+            Line = "^changed: server-only, 1 file\. $skippedApp; format of 11 of 12 projects \(unchanged\)\. testing: Api\.Tests, Application\.Tests, Architecture\.Tests, Domain\.Tests, Recognition\.Evals\. formatting: Domain\.$" },
+        @{ Name = 'the AppHost project, which no test project references'; Dirty = @('src/CollectionMaxxing.AppHost/Class.cs')
+            Line = "^changed: server-only, 1 file\. $skippedApp; 4 of 5 test projects \(not affected\); format of 11 of 12 projects \(unchanged\)\. testing: Architecture\.Tests\. formatting: AppHost\.$" },
+        @{ Name = 'one test project'; Dirty = @('tests/CollectionMaxxing.Domain.Tests/Class.cs')
+            Line = "^changed: server-only, 1 file\. $skippedApp; 3 of 5 test projects \(not affected\); format of 11 of 12 projects \(unchanged\)\. testing: Architecture\.Tests, Domain\.Tests\. formatting: Domain\.Tests\.$" },
+        @{ Name = 'a test support library'; Dirty = @('tests/CollectionMaxxing.Api.TestKit/Class.cs')
+            Line = "^changed: server-only, 1 file\. $skippedApp; 3 of 5 test projects \(not affected\); format of 11 of 12 projects \(unchanged\)\. testing: Api\.Tests, Architecture\.Tests\. formatting: Api\.TestKit\.$" },
+        @{ Name = 'two projects, one committed and one not'; Committed = @('src/CollectionMaxxing.Domain/Class.cs'); Dirty = @('tests/CollectionMaxxing.Domain.Tests/Class.cs')
+            Line = "^changed: server-only, 2 files\. $skippedApp; format of 10 of 12 projects \(unchanged\)\. testing: Api\.Tests, Application\.Tests, Architecture\.Tests, Domain\.Tests, Recognition\.Evals\. formatting: Domain, Domain\.Tests\.$" },
+        @{ Name = 'a shared test file'; Committed = @('tests/Directory.Build.props')
+            Line = "^changed: server-only, 1 file\. $skippedApp\. Everything else runs: tests/Directory\.Build\.props is shared by the projects\.$" },
+        @{ Name = 'a file in src/ that no project owns'; Dirty = @('src/shared.props')
+            Line = "^changed: server-only, 1 file\. $skippedApp\. Everything else runs: src/shared\.props is shared by the projects\.$" },
+        @{ Name = 'deploy only'; Dirty = @('deploy/x.txt')
+            Line = "^changed: server-only, 1 file\. $skippedApp; all 5 test projects \(none is affected\); format of all 12 projects \(none changed\)\.$" },
+        @{ Name = 'evals only'; Committed = @('evals/baseline.json')
+            Line = "^changed: server-only, 1 file\. $skippedApp; 4 of 5 test projects \(not affected\); format of all 12 projects \(none changed\)\. testing: Recognition\.Evals\.$" }
+    )
+    Use-CheckChangedSandbox -RunnerFilter $script:CheckModernRunners {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        foreach ($case in $cases) {
+            Reset-CheckGitCheckout $root
+            Set-CheckChange -Root $root -Committed @($case.Committed) -Dirty @($case.Dirty)
+            $run = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'restore' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+            Assert-CheckRan $run "$label / $($case.Name)" @{ Line = $case.Line; Restore = $true }
+        }
+    }
+}
+
+# What the phases then do with that scope, end to end: the fakes are called only for the selected projects.
+Test-Case 'changed: an app-only change runs just the app phase' {
+    Use-CheckChangedSandbox {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        Set-CheckChange -Root $root -Committed @('app/src/index.ts')
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+        Assert-CheckRan $run "$label / app only" @{ Line = '^changed: app-only, 1 file\.'; Restore = $false; Build = $false; App = $true; Format = @(); Test = @() }
+        Assert-Equal 1 $run.Calls.Count "${label}: nothing but npm ran: $($run.Calls -join ' | ')"
+        Assert-Match $run.Text 'all green \(\d+s, changed files only\)' "${label}: the summary says the run was narrowed"
+    }
+}
+
+Test-Case 'changed: a server change runs restore, build and format and tests for the selected projects only, and never the app' {
+    Use-CheckChangedSandbox {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        Set-CheckChange -Root $root -Dirty @('src/CollectionMaxxing.Api/Class.cs')
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+        Assert-CheckRan $run "$label / the Api project" @{
+            Line = '^changed: server-only, 1 file\.'; Restore = $true; Build = $true; App = $false; Format = @('Api'); Test = @('Api.Tests', 'Architecture.Tests') }
+        # One phase at a time, as CI and the agent run it, with the same narrowing.
+        $testOnly = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'test' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+        Assert-CheckRan $testOnly "$label / test phase alone" @{ Restore = $false; Build = $false; Format = @(); Test = @('Api.Tests', 'Architecture.Tests'); Line = '^changed: server-only' }
+        # One selected test project per call (the agent's fallback when the whole phase is too long): CM_TEST_ONLY narrows the selection further.
+        $one = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'test' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls -Env @{ CM_TEST_ONLY = 'CollectionMaxxing.Architecture.Tests' }
+        Assert-CheckRan $one "$label / one project by CM_TEST_ONLY" @{ Restore = $false; Format = @(); Test = @('Architecture.Tests'); Line = '^changed: server-only' }
+        # A project the change does not select is refused, not silently run.
+        $other = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'test' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls -Env @{ CM_TEST_ONLY = 'CollectionMaxxing.Domain.Tests' }
+        Assert-Equal 2 $other.Exit "${label}: CM_TEST_ONLY naming an unselected project exits 2: $($other.Text)"
+        Assert-Equal 0 @(Get-CheckCallProjects $other.Calls 'test').Count "${label}: and runs nothing"
+    }
+}
+
+Test-Case 'changed: a server change that no test project can feel skips the test phase and says so' {
+    Use-CheckChangedSandbox {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        Set-CheckChange -Root $root -Dirty @('deploy/x.txt')
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+        Assert-CheckRan $run "$label / deploy only" @{ Line = '^changed: server-only, 1 file\.'; Restore = $true; Build = $true; App = $false; Format = @(); Test = @() }
+        Assert-Match $run.Text 'ok   test: skipped, no test project is affected by this change' "${label}: the skipped test phase is reported"
+    }
+}
+
+Test-Case 'changed: without -Changed the whole gate runs, whatever changed' {
+    Use-CheckChangedSandbox -RunnerFilter $script:CheckModernRunners {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        Set-CheckChange -Root $root -Committed @('app/src/index.ts')
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -FakeBin $bin -TempBase $tmp -CallDir $calls
+        Assert-CheckRan $run "$label / no -Changed" @{ Restore = $true; Build = $true; App = $true; Format = $script:CheckChangedProjectNames; Test = $script:CheckChangedLanes }
+        Assert-Match $run.Text 'all green \(\d+s\)' "${label}: the plain summary"
+    }
+}
+
+Test-Case 'changed: Windows PowerShell 5.1 narrows the gate the same way' {
+    $legacy = @(Get-CheckEngines | Where-Object { $_ -like '*powershell.exe' })
+    if ($legacy.Count -gt 0) {
+        Use-CheckChangedSandbox -RunnerFilter { $_.Exe -like '*powershell.exe' } {
+            param($runner, $label, $root, $bin, $tmp, $calls)
+            Set-CheckChange -Root $root -Dirty @('tests/CollectionMaxxing.Domain.Tests/Class.cs')
+            $run = Invoke-CheckChanged -Runner $runner -Root $root -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
+            Assert-CheckRan $run "$label / a test project" @{ Restore = $true; Build = $true; App = $false; Format = @('Domain.Tests'); Test = @('Architecture.Tests', 'Domain.Tests'); Line = '^changed: server-only, 1 file\.' }
+        }
+    }
+}
+
+Test-Case 'check format: a project that hits a file-in-use error beside another run is retried, and only that error is' {
+    Use-CheckChangedSandbox -RunnerFilter $script:CheckModernRunners {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'format' -FakeBin $bin -TempBase $tmp -CallDir $calls -Env @{ CM_FAKE_FORMAT_FLAKY = '1' }
+        Assert-Equal 0 $run.Exit "${label}: exited $($run.Exit): $($run.Text)"
+        Assert-Equal 12 @($run.Lines | Where-Object { $_ -match 'format: \S+ hit a file-in-use error from a run beside it, retrying \(attempt 2/3\)' }).Count "${label}: every project says it retried: $($run.Text)"
+        Assert-Equal 24 @(Get-CheckCallProjects $run.Calls 'format').Count "${label}: each project was formatted twice (the failed try and the retry)"
+        Assert-Match $run.Text '(?m)^ok   format \(12 projects' "${label}: and the phase passes"
+    }
+}
+
+Test-Case 'check format: projects are formatted side by side, not one after another' {
+    Use-CheckChangedSandbox -RunnerFilter $script:CheckModernRunners {
+        param($runner, $label, $root, $bin, $tmp, $calls)
+        $run = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'format' -FakeBin $bin -TempBase $tmp -CallDir $calls -Env @{ CM_FAKE_FORMAT_SLEEP = '1'; CM_FORMAT_PARALLEL = '4' }
+        Assert-Equal 0 $run.Exit "${label}: exited $($run.Exit): $($run.Text)"
+        Assert-Equal ($script:CheckChangedProjectNames -join ',') ((Get-CheckCallProjects $run.Calls 'format') -join ',') "${label}: every project is still formatted"
+        $spans = @(Get-ChildItem -LiteralPath $calls -Filter 'fmt-*-a.txt' | ForEach-Object {
+                $id = $_.Name -replace '^fmt-(.+)-a\.txt$', '$1'
+                [pscustomobject]@{
+                    Start = ConvertTo-CheckSeconds (Get-Content -LiteralPath $_.FullName -Raw)
+                    End   = ConvertTo-CheckSeconds (Get-Content -LiteralPath (Join-Path $calls "fmt-$id-b.txt") -Raw)
+                }
+            })
+        Assert-Equal 12 $spans.Count "${label}: every format call recorded when it ran"
+        $overlapping = 0
+        foreach ($a in $spans) { $overlapping = [math]::Max($overlapping, @($spans | Where-Object { $_.Start -lt $a.End -and $a.Start -lt $_.End }).Count) }
+        Assert-True ($overlapping -ge 3) "${label}: at most $overlapping format runs overlapped; they should run side by side"
     }
 }

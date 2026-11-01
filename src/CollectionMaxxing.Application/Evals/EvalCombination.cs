@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
@@ -24,9 +25,17 @@ namespace CollectionMaxxing.Application.Evals;
 /// because their best release is the same (its normalised title and year), as it was before boxes.
 /// </para>
 /// <para>
+/// Where the read that stands at a place is the model's own and the Vision read it beat there named the same release, the two
+/// engines agreeing is itself the confirmation the model-only mark exists to stand in for, so the row is not marked: a person
+/// sees it ticked, as a Vision row always was. A different release at that place is still the contest above, untouched.
+/// </para>
+/// <para>
 /// A Vision read that names no kind takes the kind the model read at its place, as the scanner lends it before it sends the snap
 /// (<c>filledFrom</c>, combine.ts): without that, the combined row reported a tape as the kindless read it arrived as, while the app
-/// searched it as the film the model called it.
+/// searched it as the film the model called it. A model-only place is grounded with the shelf's printed kind lent, the same way:
+/// the app sends the model's and Vision's reads of a snap together, so <c>/identify</c> takes a print-denied kind off either one
+/// before it searches (<see cref="GroundedPhoto.ItemsLentPrint"/>); the apple_model row the phone uploaded is grounded alone, and
+/// stays that way, because it measures the model by itself.
 /// </para>
 /// <para>
 /// When the model fails on a shelf (a timeout, an error or a refusal), the scanner keeps Vision's reading, so the combined row is
@@ -92,14 +101,19 @@ public static class EvalCombination
         // Both engines have to have answered for their items to be combined; if either did not, the items are the model's own.
         var both = apple.Outcome == Ok && vision.Outcome == Ok;
 
-        var visionOnly = both && vision.Items.Any(visionItem => !apple.Items.Any(model => SameItem(model, visionItem)));
+        // The model's items for the combination: the ones grounded with the shelf's printed kind lent, when the vision_pipeline row
+        // named one (ItemsLentPrint), else this row's own. A model-only place is then grounded the way /identify grounds it, under
+        // one snap with Vision.
+        var modelItems = apple.ItemsLentPrint ?? apple.Items;
+
+        var visionOnly = both && vision.Items.Any(visionItem => !modelItems.Any(model => SameItem(model, visionItem)));
         return apple with
         {
             Engine = Engine,
 
             // Vision's reads and the model's, one item per place: the read of a place that grounds better is the row shown, and a
             // Vision read that named no kind carries the one the model gave its place.
-            Items = both ? Settled(WithKindsLent(vision.Items, apple.Items), apple.Items) : apple.Items,
+            Items = both ? Settled(WithKindsLent(vision.Items, modelItems, EnumText.ParseOrNull<WorkKind>(vision.PrintKind)), modelItems) : modelItems,
 
             // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
             // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
@@ -111,6 +125,9 @@ public static class EvalCombination
             // Vision items the model did not read are segments the model did not capture, so the captured count (when the phone
             // sent one) grows by that read.
             CapturedCount = apple.CapturedCount > 0 && visionOnly ? apple.CapturedCount + 1 : apple.CapturedCount,
+
+            // The lent regrounding is already folded into Items above; the combined row carries neither it nor a print of its own.
+            ItemsLentPrint = null,
         };
     }
 
@@ -137,6 +154,7 @@ public static class EvalCombination
             OcrLines = null,
             OcrPieces = null,
             CoverCue = null,
+            PrintKind = null,
         };
 
     /// <summary>Why a model row that sent no reason failed, in the scanner's words: a refusal is declined, a timeout a timeout, anything else unavailable.</summary>
@@ -164,24 +182,47 @@ public static class EvalCombination
     /// read it names the same release as, read again, so it is dropped as it was before boxes; every other model read is a read
     /// of the picture in its own right, marked unconfirmed, because nothing else saw that title: it is review (T2), never an
     /// auto-add, whatever tier the phone claimed. The places are then settled by <see cref="ReadPlaces.Weaker"/>, Vision's reads
-    /// first so its own read stands where the model read no better. Vision's items, and every other row (a single, one engine
-    /// failing), are not marked.
+    /// first so its own read stands where the model read no better. Where the model read stands against a same-place Vision
+    /// read of the same release (its normalised title and year), the two engines agreeing there is itself the confirmation the
+    /// mark stands in for, so it is not marked; a different release at that place is still a contest between the two and is
+    /// marked as it was. Vision's items, and every other row (a single, one engine failing), are not marked.
     /// </summary>
-    private static IReadOnlyList<GroundedItem> Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
+    private static List<GroundedItem> Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
     {
         var modelReads = model.Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem))).ToList();
         var reads = new List<GroundedItem>(vision.Count + modelReads.Count);
         reads.AddRange(vision);
         reads.AddRange(modelReads.Select(read => read with { Unconfirmed = true }));
 
-        var weaker = ReadPlaces.Weaker(
-            [.. vision.Select(read => Placed(read, onlyTheModelRead: false)), .. modelReads.Select(read => Placed(read, onlyTheModelRead: true))]).ToHashSet();
-        return [.. reads.Where((_, i) => !weaker.Contains(i))];
+        var placed = new List<PlacedRead>(reads.Count);
+        placed.AddRange(vision.Select(read => Placed(read, onlyTheModelRead: false)));
+        placed.AddRange(modelReads.Select(read => Placed(read, onlyTheModelRead: true)));
+
+        var weaker = ReadPlaces.Weaker(placed).ToHashSet();
+        var confirmed = ReadPlaces.Confirmed(placed).ToHashSet();
+        var kept = new List<GroundedItem>(reads.Count - weaker.Count);
+        for (var i = 0; i < reads.Count; i++)
+        {
+            if (weaker.Contains(i))
+            {
+                continue;
+            }
+
+            kept.Add(confirmed.Contains(i) ? reads[i] with { Unconfirmed = false } : reads[i]);
+        }
+
+        return kept;
     }
 
-    /// <summary>A read as the place rule settles it: where it sat, how well it grounds, the score of its best release, and which engine read it.</summary>
+    /// <summary>
+    /// A read as the place rule settles it: where it sat, how well it grounds, the score of its best release (its normalised
+    /// title and year, for <see cref="ReadPlaces.Confirmed"/>), and which engine read it.
+    /// </summary>
     private static PlacedRead Placed(GroundedItem item, bool onlyTheModelRead) =>
-        new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead);
+        new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead, BookOf(item));
+
+    /// <summary>The release a read's best option names, its normalised title and year, as a single key; null when it has none.</summary>
+    private static string? BookOf(GroundedItem item) => KeyOf(item) is { } key ? $"{key.Title} {key.Year}" : null;
 
     /// <summary>The verdict the phone's run recorded, on the ladder a place is settled by. A verdict still pending grounds nothing yet.</summary>
     private static ReadGrounding GroundingOf(string verdict) => verdict switch
@@ -213,20 +254,34 @@ public static class EvalCombination
     /// <summary>
     /// Vision's items with the kind the model gave each spine, as the scanner lends it (<c>filledFrom</c>, combine.ts): a Vision read
     /// names no kind, so the model's kind is what the app searched that spine with, and the combined row says so. Only the kind, only
-    /// onto a read that named none, and only from a read that named one. The place decides, the way the phone's <c>placeOf</c>
-    /// decides: each model read fills the one Vision item its box overlaps the most, so a single wide model box over two spines lends
-    /// its kind to one of them, not to both. A read with no box sits nowhere and neither lends nor takes, so nothing travels across
-    /// the shelf on a title that happens to match. The phone also asks that the Vision read say everything the model's read says
-    /// (<c>lendsTo</c>), which needs the words of both reads; the run keeps only the text each read searched with, so the place is
-    /// all this has to go on and it can lend where the phone would not. That costs nothing: this row is already grounded, so lending
-    /// changes what the run reports a read as, never which releases were found for it or how the place was settled.
+    /// onto a read that named none, and only from a read that named one, and never a kind <paramref name="printKind"/> denies while it
+    /// speaks (the one rule <c>IdentifyCleaning</c> applies, <see cref="KindContext.PrintThatSpeaks"/> and
+    /// <see cref="KindContext.InFamily"/>): a model row grounded without the print still names the kind it guessed, and lending that
+    /// kind here, while no read of the snap already tells that kind apart, would show a read as the very kind <c>/identify</c> would
+    /// have taken off it. The place decides, the way the phone's <c>placeOf</c> decides: each model read fills the one Vision item its
+    /// box overlaps the most, so a single wide model box over two spines lends its kind to one of them, not to both. A read with no
+    /// box sits nowhere and neither lends nor takes, so nothing travels across the shelf on a title that happens to match. The phone
+    /// also asks that the Vision read say everything the model's read says (<c>lendsTo</c>), which needs the words of both reads; the
+    /// run keeps only the text each read searched with, so the place is all this has to go on and it can lend where the phone would
+    /// not. That costs nothing: this row is already grounded, so lending changes what the run reports a read as, never which releases
+    /// were found for it or how the place was settled.
     /// </summary>
-    private static List<GroundedItem> WithKindsLent(IReadOnlyList<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
+    private static List<GroundedItem> WithKindsLent(IReadOnlyList<GroundedItem> vision, IReadOnlyList<GroundedItem> model, WorkKind? printKind)
     {
+        // Whether the print speaks is settled on every read's own kind, before any one of them takes the model's.
+        var named = vision.Concat(model).Select(i => EnumText.ParseOrNull<WorkKind>(i.Read?.Kind));
+        var speaking = KindContext.PrintThatSpeaks(printKind, named);
+
         var items = vision.ToList();
         foreach (var read in model)
         {
-            if (read.Read?.Kind is not { } kind || read.Box is not { } box)
+            if (read.Read?.Kind is not { } kindText || read.Box is not { } box)
+            {
+                continue;
+            }
+
+            if (speaking is { } printed && EnumText.ParseOrNull<WorkKind>(kindText) is { } kind && kind != WorkKind.Other
+                && !KindContext.InFamily(kind, printed))
             {
                 continue;
             }
@@ -234,7 +289,7 @@ public static class EvalCombination
             var at = PlaceOf(box, items);
             if (at >= 0 && items[at].Read is { Kind: null } kindless)
             {
-                items[at] = items[at] with { Read = kindless with { Kind = kind } };
+                items[at] = items[at] with { Read = kindless with { Kind = kindText } };
             }
         }
 

@@ -678,6 +678,55 @@ public sealed class CombinedEngineTests : IDisposable
         built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
     }
 
+    // ---- a model read that stands against a same-release Vision read is not model-only (#622) ---------------------------
+
+    [Fact]
+    public void A_model_read_that_outscores_Visions_read_of_the_same_release_in_the_same_place_is_not_model_only()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Star Fox 64", 0.99).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.80, "vision_text").At(0.30))],
+            ArrangeShelf("Star Fox 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.ResolvedBy.ShouldBe("model");
+        item.Unconfirmed.ShouldBeFalse("Vision read the same release there, so the two engines already agree on it");
+    }
+
+    [Fact]
+    public void Visions_read_of_the_same_release_needs_no_confirming_when_it_is_the_one_that_stands()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Star Fox 64", 0.80).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.99, "vision_text").At(0.30))],
+            ArrangeShelf("Star Fox 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.ResolvedBy.ShouldBe("vision_text");
+        item.Unconfirmed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_model_read_that_took_a_place_from_a_different_release_Vision_read_there_is_still_model_only()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Mario Kart 64", 0.99).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.80, "vision_text").At(0.30))],
+            ArrangeShelf("Mario Kart 64", "Star Fox 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.Best!.Title.ShouldBe("Mario Kart 64");
+        item.Unconfirmed.ShouldBeTrue("Vision read a different release there, so the two engines never agreed on this one");
+    }
+
+    [Fact]
+    public void A_model_read_that_took_a_place_where_Vision_found_nothing_is_still_model_only()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(T1(Matched("Mario Kart 64")).At(0.31)), VisionRead(ReadByVisionButNotFound().At(0.30))],
+            ArrangeShelf("Mario Kart 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.Unconfirmed.ShouldBeTrue("Vision read nothing there, so the two engines never agreed on a release");
+    }
+
     // ---- where a read sits decides what the same item is -----------------------------------------------------------------
 
     [Fact]
@@ -922,6 +971,62 @@ public sealed class CombinedEngineTests : IDisposable
             ArrangeShelf("Star Fox 64")).Single();
 
         built.Items.Single().Read!.Kind.ShouldBeNull();
+    }
+
+    // ---- the shelf's print denies a kind, so lending it is never shown ----------------------------------------------------
+
+    [Fact]
+    public void A_vision_read_does_not_take_a_kind_the_shelfs_print_denies()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Book)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = "film" },
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Single().Read!.Kind.ShouldBeNull("a book on this shelf is a kind the print denies, so /identify would have taken it off the read too");
+    }
+
+    [Fact]
+    public void A_vision_read_still_takes_a_kind_the_shelfs_print_allows()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Game)),
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = "game" },
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Single().Read!.Kind.ShouldBe("game");
+    }
+
+    // ---- a model-only place is grounded with the shelf's printed kind lent, as /identify grounds it ---------------------
+
+    [Fact]
+    public void A_model_only_place_takes_the_item_grounded_with_the_prints_kind_lent_not_the_models_own_ungrounded_item()
+    {
+        var ungrounded = NotFound("a tape").At(0.6); // the model's own row, grounded without the print: nothing found
+        var lent = T1(Matched("Midnight Reel")).At(0.6); // the same read, grounded again with the print lent: matched
+        var model = ModelRead(ungrounded) with { ItemsLentPrint = [lent] };
+        var vision = VisionRead() with { PrintKind = "film" };
+
+        var built = EvalCombination.Of([model, vision], ArrangeShelf("Midnight Reel")).Single();
+
+        built.Items.Single().Best!.Title.ShouldBe("Midnight Reel");
+    }
+
+    [Fact]
+    public void The_models_own_row_is_not_touched_by_building_the_combination_with_a_lent_print()
+    {
+        var ungrounded = NotFound("a tape").At(0.6);
+        var lent = T1(Matched("Midnight Reel")).At(0.6);
+        var model = ModelRead(ungrounded) with { ItemsLentPrint = [lent] };
+        var vision = VisionRead() with { PrintKind = "film" };
+
+        EvalCombination.Of([model, vision], ArrangeShelf("Midnight Reel"));
+
+        model.Items.Single().ShouldBe(ungrounded); // the apple_model row the phone uploaded still measures the model alone
     }
 
     private static string EnumTextOf(ScanTier tier) => CollectionMaxxing.Domain.Common.EnumText.ToText(tier);
