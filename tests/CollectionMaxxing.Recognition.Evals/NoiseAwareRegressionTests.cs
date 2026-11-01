@@ -5,7 +5,7 @@ using static CollectionMaxxing.Recognition.Evals.EvalFixtures;
 namespace CollectionMaxxing.Recognition.Evals;
 
 /// <summary>
-/// The regression rule allows for run-to-run noise (docs/16 §17): a rate may move as far as its sample size makes chance move it,
+/// The regression rule allows for run-to-run noise (docs/16 §17): a rate on a row built on the on-device model may move as far as its sample size makes chance move it (the Vision and combined rows keep 2 points),
 /// a time may grow by a ratio, and a raw count is not judged. The real numbers are the two clean runs on the owner's PC, 2026-10-31
 /// (the baseline) and 2026-11-01 (the same build, nothing that affects scanning changed): the old rule called 23 of 255 metrics
 /// regressed, and every one of them was noise.
@@ -83,16 +83,16 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     }
 
     [Fact]
-    public void A_6_point_drop_in_the_combined_rows_shelf_recall_over_358_items_is_a_regression_and_says_what_was_allowed()
+    public void A_6_point_drop_in_a_model_rows_shelf_recall_over_358_items_is_a_regression_and_says_what_was_allowed()
     {
         var check = EvalRegression.Check(
-            Of("apple_vision.shelf.recall", 38.0),
-            Of("apple_vision.shelf.recall", 32.0),
-            denominators: Items("apple_vision.shelf.recall", 358));
+            Of("apple_model.shelf.recall", 38.0),
+            Of("apple_model.shelf.recall", 32.0),
+            denominators: Items("apple_model.shelf.recall", 358));
 
         check.Status.ShouldBe(EvalRegression.Regressed);
         var item = check.Regressions.Single();
-        item.Metric.ShouldBe("apple_vision.shelf.recall");
+        item.Metric.ShouldBe("apple_model.shelf.recall");
         item.Points.ShouldBe(6.0);
         item.Allowed.ShouldBe(5.13, 0.005); // 2 x 100 x sqrt(0.38 x 0.62 / 358)
     }
@@ -115,13 +115,13 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     public void The_allowance_is_never_below_2_points_however_large_the_sample()
     {
         var within = EvalRegression.Check(
-            Of("apple_vision.shelf.recall", 38),
-            Of("apple_vision.shelf.recall", 36.1),
-            denominators: Items("apple_vision.shelf.recall", 1_000_000));
+            Of("apple_model.shelf.recall", 38),
+            Of("apple_model.shelf.recall", 36.1),
+            denominators: Items("apple_model.shelf.recall", 1_000_000));
         var past = EvalRegression.Check(
-            Of("apple_vision.shelf.recall", 38),
-            Of("apple_vision.shelf.recall", 35.5),
-            denominators: Items("apple_vision.shelf.recall", 1_000_000));
+            Of("apple_model.shelf.recall", 38),
+            Of("apple_model.shelf.recall", 35.5),
+            denominators: Items("apple_model.shelf.recall", 1_000_000));
 
         within.Regressions.ShouldBeEmpty(); // 1.9 points worse
         past.Regressions.Single().Allowed.ShouldBe(2.0); // 2.5 points worse
@@ -154,24 +154,46 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     }
 
     [Fact]
-    public void A_rate_whose_baseline_is_exactly_0_or_100_borrows_the_spread_of_this_runs_value()
+    public void A_rate_whose_baseline_is_exactly_100_is_judged_at_a_smoothed_boundary_not_at_no_spread()
     {
-        // 100 over three auto-adds, then two of the three right: no spread in the baseline value, so this run's own 66.67 sets the allowance.
-        var small = EvalRegression.Check(
+        // 100 over a few auto-adds says little: 100 -> 66.67 over three is chance, 100 -> 50 over four is not, and over 400 even 90 is not.
+        var three = EvalRegression.Check(
             Of("fm_text.single.auto_add_precision", 100),
             Of("fm_text.single.auto_add_precision", 66.67),
             denominators: Items("fm_text.single.auto_add_precision", 3));
+        var four = EvalRegression.Check(
+            Of("apple_model.single.auto_add_precision", 100),
+            Of("apple_model.single.auto_add_precision", 50),
+            denominators: Items("apple_model.single.auto_add_precision", 4));
         var large = EvalRegression.Check(
             Of("fm_text.single.auto_add_precision", 100),
-            Of("fm_text.single.auto_add_precision", 50),
+            Of("fm_text.single.auto_add_precision", 90),
             denominators: Items("fm_text.single.auto_add_precision", 400));
 
-        small.Regressions.ShouldBeEmpty();
-        large.Regressions.Single().Allowed.ShouldBe(5.0, 0.005); // 2 x 100 x sqrt(0.5 x 0.5 / 400)
+        three.Regressions.ShouldBeEmpty(); // allowed 46.19: 2 x 100 x sqrt(0.8 x 0.2 / 3), with p = (n + 1) / (n + 2)
+        four.Regressions.Single().Allowed.ShouldBe(37.27, 0.005); // 2 x 100 x sqrt((5/6) x (1/6) / 4)
+        large.Regressions.Single().Allowed.ShouldBe(2.0); // the smoothed spread over 400 is below the floor
     }
 
     [Fact]
-    public void A_rate_that_is_0_or_100_in_both_runs_has_no_spread_and_keeps_the_floor()
+    public void A_rate_whose_baseline_is_exactly_0_is_judged_at_a_smoothed_boundary_too()
+    {
+        // p = 1 / (n + 2): 0 -> 18.18 over eleven items read is flagged, one invented in ten is chance.
+        var eleven = EvalRegression.Check(
+            Of("apple_model.single.invented_pct", 0),
+            Of("apple_model.single.invented_pct", 18.18),
+            denominators: Items("apple_model.single.invented_pct", 11));
+        var ten = EvalRegression.Check(
+            Of("apple_model.single.invented_pct", 0),
+            Of("apple_model.single.invented_pct", 10),
+            denominators: Items("apple_model.single.invented_pct", 10));
+
+        eleven.Regressions.Single().Allowed.ShouldBe(16.07, 0.005); // 2 x 100 x sqrt((1/13) x (12/13) / 11)
+        ten.Regressions.ShouldBeEmpty(); // allowed 17.48
+    }
+
+    [Fact]
+    public void A_rate_that_is_0_or_100_in_both_runs_is_never_flagged()
     {
         var check = EvalRegression.Check(
             Of("apple_model.shelf.top1", 100),
@@ -184,6 +206,76 @@ public sealed class NoiseAwareRegressionTests : IDisposable
 
         check.Regressions.ShouldBeEmpty();
         worse.Regressions.ShouldBeEmpty();
+    }
+
+    // ---- only the rows that answer differently each run get the sample-size allowance -------------------------------------
+
+    [Theory]
+    [InlineData("apple_model")]
+    [InlineData("fm_text")]
+    public void The_rows_built_on_the_on_device_model_keep_the_sample_size_allowance(string engine)
+    {
+        var check = EvalRegression.Check(
+            Of($"{engine}.shelf.top1", 60),
+            Of($"{engine}.shelf.top1", 40),
+            denominators: Items($"{engine}.shelf.top1", 12));
+
+        check.Regressions.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("apple_vision")]
+    [InlineData("vision_pipeline")]
+    public void The_deterministic_and_combined_rows_keep_the_plain_2_points_whatever_the_sample(string engine)
+    {
+        var check = EvalRegression.Check(
+            Of($"{engine}.shelf.top1", 60),
+            Of($"{engine}.shelf.top1", 40),
+            denominators: Items($"{engine}.shelf.top1", 12));
+
+        var item = check.Regressions.Single();
+        item.Points.ShouldBe(20.0);
+        item.Allowed.ShouldBe(2.0);
+    }
+
+    [Fact]
+    public void A_25_point_fall_in_the_combined_rows_single_top1_over_12_items_is_a_regression()
+    {
+        var check = EvalRegression.Check(
+            Of("apple_vision.single.top1", 75),
+            Of("apple_vision.single.top1", 50),
+            denominators: Items("apple_vision.single.top1", 12));
+
+        check.Regressions.Single().Allowed.ShouldBe(2.0);
+    }
+
+    [Fact]
+    public void A_5_point_fall_in_the_combined_rows_shelf_recall_over_358_items_is_a_regression_and_so_is_a_vision_precision_fall()
+    {
+        var recall = EvalRegression.Check(
+            Of("apple_vision.shelf.recall", 38),
+            Of("apple_vision.shelf.recall", 33),
+            denominators: Items("apple_vision.shelf.recall", 358));
+        var precision = EvalRegression.Check(
+            Of("apple_vision.single.precision", 81.82),
+            Of("apple_vision.single.precision", 63.64),
+            denominators: Items("apple_vision.single.precision", 11));
+        var vision = EvalRegression.Check(
+            Of("vision_pipeline.shelf.recall", 36.31),
+            Of("vision_pipeline.shelf.recall", 33),
+            denominators: Items("vision_pipeline.shelf.recall", 358));
+
+        recall.Regressions.Single().Allowed.ShouldBe(2.0);
+        precision.Regressions.Single().Allowed.ShouldBe(2.0);
+        vision.Regressions.Single().Allowed.ShouldBe(2.0);
+    }
+
+    [Fact]
+    public void A_row_the_rule_does_not_name_keeps_the_plain_2_points()
+    {
+        var check = EvalRegression.Check(Of("a.top1", 60), Of("a.top1", 40), denominators: Items("a.top1", 12));
+
+        check.Regressions.Single().Allowed.ShouldBe(2.0);
     }
 
     [Theory]
@@ -202,22 +294,6 @@ public sealed class NoiseAwareRegressionTests : IDisposable
             check.Regressions.Single().Points.ShouldBe(10.0);
             check.Regressions.Single().Allowed.ShouldBe(2.8, 0.005); // 2 x 100 x sqrt(0.02 x 0.98 / 100)
         }
-    }
-
-    [Fact]
-    public void One_invented_title_among_ten_read_is_chance_when_the_baseline_had_none_and_six_percent_of_170_is_not()
-    {
-        var one = EvalRegression.Check(
-            Of("apple_model.shelf.invented_pct", 0),
-            Of("apple_model.shelf.invented_pct", 10),
-            denominators: Items("apple_model.shelf.invented_pct", 10));
-        var some = EvalRegression.Check(
-            Of("apple_model.shelf.invented_pct", 0),
-            Of("apple_model.shelf.invented_pct", 6.06),
-            denominators: Items("apple_model.shelf.invented_pct", 170));
-
-        one.Regressions.ShouldBeEmpty();
-        some.Regressions.Single().Allowed.ShouldBe(3.66, 0.005); // 2 x 100 x sqrt(0.0606 x 0.9394 / 170)
     }
 
     [Fact]
@@ -446,7 +522,7 @@ public sealed class NoiseAwareRegressionTests : IDisposable
 
         var report = EvalReport.Evaluate(run, TruthsOf(_golden), Of("apple_model.shelf.recall", 100), "abc1234", []).ReportMarkdown;
 
-        report.ShouldContain("apple_model.shelf.recall: 100 -> 0 (dropped 100, allowed 2)");
+        report.ShouldContain("apple_model.shelf.recall: 100 -> 0 (dropped 100, allowed 61.24)"); // two truth items: 2 x 100 x sqrt(0.75 x 0.25 / 2)
     }
 
     [Fact]

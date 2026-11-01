@@ -430,12 +430,12 @@ public sealed class GateAndRegressionTests : IDisposable
     {
         var first = Evaluate(MeetingEveryBar());
         var baseline = first.Summary.Metrics.ToDictionary(m => m.Key, m => m.Value);
-        baseline["apple_model.single.top1"] = 105; // as if the last run had been 5 points better than this one
+        baseline["vision_pipeline.single.top1"] = 100; // as if the last run had read every single right; Vision's text engine is exact, so any fall is real
 
         var run = Evaluate(MeetingEveryBar(), baseline);
 
         run.Summary.Regression.Status.ShouldBe("regressed");
-        run.Summary.Regression.Regressions.Select(r => r.Metric).ShouldContain("apple_model.single.top1");
+        run.Summary.Regression.Regressions.Select(r => r.Metric).ShouldContain("vision_pipeline.single.top1");
         Evaluate(MeetingEveryBar(), first.Summary.Metrics).Summary.Regression.Status.ShouldBe("ok");
     }
 
@@ -445,12 +445,12 @@ public sealed class GateAndRegressionTests : IDisposable
         // A baseline taken before ADR-032 has only the engines' metric keys (never a gate measure, never the combined row's): it is compared as it always was.
         var first = Evaluate(MeetingEveryBar());
         var before = first.Summary.Metrics.Where(m => !m.Key.StartsWith(Combined + ".", StringComparison.Ordinal)).ToDictionary(m => m.Key, m => m.Value);
-        before["apple_model.single.top1"] = 105; // as if the last run had been 5 points better than this one
+        before["vision_pipeline.single.top1"] = 100; // as if the last run had read every single right; Vision's text engine is exact, so any fall is real
 
         var run = Evaluate(MeetingEveryBar(), before);
 
         run.Summary.Regression.Status.ShouldBe("regressed");
-        run.Summary.Regression.Regressions.Select(r => r.Metric).ShouldBe(["apple_model.single.top1"]);
+        run.Summary.Regression.Regressions.Select(r => r.Metric).ShouldBe(["vision_pipeline.single.top1"]);
         run.Summary.Regression.Compared.ShouldBe(before.Keys.Count(EvalRegression.IsJudged)); // the raw counts are not judged
     }
 
