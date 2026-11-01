@@ -13,6 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # What does this change touch? A pull request runs only the checks its files can affect (#633): the classifier is
+  # scripts/ci/changed-areas.sh (tested by deploy/tests/changed-areas.test.sh) and reads the files the merge commit
+  # brings over the base. Every other event, and a classifier that fails, runs everything: a leg is skipped only when
+  # this job succeeded and said so. The ruleset requires `backend`, `app` and `e2e`; a job skipped by its `if` counts
+  # as passing, and `backend` (below) always runs. Never use workflow-level `paths:`: that leaves required checks
+  # missing, not skipped.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.areas.outputs.backend }}
+      app: ${{ steps.areas.outputs.app }}
+    steps:
+      # The pull request ref is a merge commit: HEAD^1 is the tip of the base branch, so a depth of 2 reaches it.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Classify the changed files
+        id: areas
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            git diff --name-only --no-renames HEAD^1 HEAD | bash scripts/ci/changed-areas.sh | tee -a "$GITHUB_OUTPUT"
+          else
+            printf 'backend=true\napp=true\n' | tee -a "$GITHUB_OUTPUT"
+          fi
+
   # The backend leg, split so the slowest suites stop queueing behind each other (#478). The test matrix, format,
   # and the pwsh tooling suites each get their own runner and run at the same time. Every dotnet job warms the same
   # NuGet cache. No app phase anywhere here; the app job owns npm run check.
@@ -20,6 +48,8 @@ jobs:
     # Without this, GitHub names a shard after every matrix value, filter included. None of these names is a required
     # check (the ruleset requires `backend`, `app` and `e2e`), so the shard names are free to change.
     name: backend-test (${{ matrix.shard }})
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -27,10 +57,10 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # Shards follow the measured lane times (run 41143875942: api 671s, auth 390s, rest 273s). The two
-          # Postgres-heavy Api suites run every test one after another against one container and one API host
-          # (AssemblyInfo.cs in each), so they are sharded by test filter instead: every shard gets its own runner,
-          # container and host. Rebalance when the timings drift.
+          # Shards follow the measured lane times (run 41143875942: api 671s, auth 390s, rest 273s). The three
+          # Postgres-heavy Api suites (Api.Tests, Api.Tests.Auth, Api.Tests.Library) each run in one process against one
+          # container (AssemblyInfo.cs in each), so they are sharded by test filter instead: every shard gets its own
+          # runner, container and host. `rest` runs the small projects whole. Rebalance when the timings drift.
           #
           # A shard's `filter` is a VSTest expression (see CM_TEST_FILTER in scripts/check.sh). The shards of a suite
           # are written as complements of each other, so a new namespace or class can never fall between them: the
@@ -84,9 +114,26 @@ jobs:
             filter: >-
               FullyQualifiedName!~CollectionMaxxing.Api.Tests.Authorization.
               & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Auth.
+          # library (Api.Tests.Library): lib-1 = the Evals namespace except its two slowest open-run classes; lib-2 =
+          # everything else (those two, Hardening, Deletion, Items, Ownership, Web, Exports and whatever comes next).
+          # The suite took 326 s on one runner, the longest of any project (the next took 144 s). Per-class times from
+          # a local run (717 tests, 882 s summed over classes): Evals 504 s, Hardening 135 s, Deletion 90 s, the rest
+          # 153 s. Evals alone would be 57% of the suite; moving EvalOpenRunScoringTests and EvalOpenRunResilienceTests
+          # (84 s) across makes the halves about 420 s and 462 s, each roughly 160 s of wall time.
+          - shard: lib-1
+            projects: CollectionMaxxing.Api.Tests.Library
+            filter: >-
+              FullyQualifiedName~CollectionMaxxing.Api.Tests.Evals.
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Evals.EvalOpenRunScoringTests
+              & FullyQualifiedName!~CollectionMaxxing.Api.Tests.Evals.EvalOpenRunResilienceTests
+          - shard: lib-2
+            projects: CollectionMaxxing.Api.Tests.Library
+            filter: >-
+              FullyQualifiedName!~CollectionMaxxing.Api.Tests.Evals.
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Evals.EvalOpenRunScoringTests
+              | FullyQualifiedName~CollectionMaxxing.Api.Tests.Evals.EvalOpenRunResilienceTests
           - shard: rest
             projects: >-
-              CollectionMaxxing.Api.Tests.Library
               CollectionMaxxing.Infrastructure.Tests
               CollectionMaxxing.Application.Tests
               CollectionMaxxing.Recognition.Evals
@@ -121,6 +168,8 @@ jobs:
           retention-days: 1
 
   backend-format:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -135,7 +184,10 @@ jobs:
       - name: Format
         run: bash scripts/check.sh format
 
+  # Tests the deploy scripts and the CI scripts themselves, so it counts as backend: an app-only change skips it.
   backend-tooling:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -160,14 +212,21 @@ jobs:
   # leg fails, is skipped, or is cancelled, and the step fails closed on any non-success result so skips/cancels can
   # never silently pass. `needs.backend-test.result` aggregates across matrix shards: success only if every shard
   # succeeded, failure if any shard failed (fail-fast cancels the siblings, which still yields failure, never success).
+  # The one exception is a pull request whose files cannot affect the backend (the `changes` job succeeded and said so):
+  # its legs were skipped on purpose, so there is nothing to verify and the job passes. If `changes` itself failed, the
+  # legs ran and are verified as usual.
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [backend-test, backend-format, backend-tooling]
+    needs: [changes, backend-test, backend-format, backend-tooling]
     if: always()
     steps:
       - name: Verify all backend legs succeeded
         run: |
+          if [ "${{ needs.changes.result }}" = success ] && [ "${{ needs.changes.outputs.backend }}" = false ]; then
+            echo "no backend files changed: the backend legs were skipped, so there is nothing to verify"
+            exit 0
+          fi
           test "${{ needs.backend-test.result }}" = success || { echo "backend-test: ${{ needs.backend-test.result }}"; exit 1; }
           test "${{ needs.backend-format.result }}" = success || { echo "backend-format: ${{ needs.backend-format.result }}"; exit 1; }
           test "${{ needs.backend-tooling.result }}" = success || { echo "backend-tooling: ${{ needs.backend-tooling.result }}"; exit 1; }
@@ -176,14 +235,16 @@ jobs:
       # shards that add up to the suite's total are, with their filters being complements, a partition: no test is
       # skipped and none runs twice. A suite with fewer than two reports fails too, so a dropped shard cannot pass.
       - name: Download shard reports
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.backend != 'false' }}
         uses: actions/download-artifact@v4
         with:
           pattern: shard-report-*
           path: shard-reports
           merge-multiple: true
       - name: Verify the shards add up to each whole suite
+        if: ${{ needs.changes.result != 'success' || needs.changes.outputs.backend != 'false' }}
         run: |
-          awk -v want="CollectionMaxxing.Api.Tests CollectionMaxxing.Api.Tests.Auth" -v summary="$GITHUB_STEP_SUMMARY" '
+          awk -v want="CollectionMaxxing.Api.Tests CollectionMaxxing.Api.Tests.Auth CollectionMaxxing.Api.Tests.Library" -v summary="$GITHUB_STEP_SUMMARY" '
             BEGIN { bad = 0 }
             {
               k = split(FILENAME, parts, "/"); shard = parts[k]; sub(/\.txt$/, "", shard)
@@ -209,6 +270,8 @@ jobs:
             }' shard-reports/*.txt
 
   app:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.app == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -242,6 +305,8 @@ jobs:
           path: ${{ runner.temp }}/cm-app-check/
 
   e2e:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.app == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
