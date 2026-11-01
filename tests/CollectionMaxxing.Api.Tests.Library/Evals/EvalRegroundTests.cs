@@ -219,22 +219,18 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
         var firstRun = await FirstRunAsync("c1");
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
         UseClock(clock);
-        var failedOnce = false;
-        UseFlakyLocalSearch(() =>
-        {
-            if (failedOnce)
-            {
-                return false;
-            }
-
-            failedOnce = true;
-            return true;
-        });
+        var failedOnce = 0;
+        UseFlakyLocalSearch(() => Interlocked.Exchange(ref failedOnce, 1) == 0);
 
         await RedeployAsync();
-        (await LogsAsync("try 1 of 4")).ShouldBeTrue("the first try failed");
-        clock.Advance(TimeSpan.FromSeconds(5));
-        var rescored = await NextLatestAfterAsync(firstRun);
+        (await BecomesTrueAsync(
+            () =>
+            {
+                clock.Advance(TimeSpan.FromSeconds(5));
+                return LatestRunId() is { } id && id != firstRun;
+            },
+            Bounded)).ShouldBeTrue("the first failure is tried again, on the injected clock, before it answers");
+        var rescored = TryLatestSummary()!.Value;
 
         rescored.GetProperty("scoredPhotos").GetInt32().ShouldBe(3, "every engine ground, none given up");
         rescored.GetProperty("partial").GetBoolean().ShouldBeFalse("a photo that eventually grounds never makes the run partial");
@@ -251,8 +247,8 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
         var firstRun = await FirstRunAsync("c1");
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
         UseClock(clock);
-        var failing = true;
-        UseFlakyLocalSearch(() => failing);
+        var failing = 1;
+        UseFlakyLocalSearch(() => Volatile.Read(ref failing) == 1);
 
         var host = await RedeployAsync();
         (await LogsAsync("try 1 of 4")).ShouldBeTrue("it failed once and is waiting to try again");
@@ -260,7 +256,7 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
 
         var secondRun = (await OpenOkAsync(phone)).GetProperty("runId").GetString()!;
         (await LogsAsync("stopped because a phone run was opened")).ShouldBeTrue();
-        failing = false;
+        Volatile.Write(ref failing, 0);
         await PutPhotoOkAsync(phone, "c1", AllEngines("c1", StarFoxRead));
         await FinishOkAsync(phone);
         var done = await StatusWhenDoneAsync(phone);

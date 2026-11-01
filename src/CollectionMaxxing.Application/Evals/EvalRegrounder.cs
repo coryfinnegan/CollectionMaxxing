@@ -210,7 +210,7 @@ public sealed class EvalRegrounder(
         var givenUp = 0;
         foreach (var photo in kept.Photos.Where(p => truthSet.Listing.ContainsKey(p.PhotoId)))
         {
-            if (await GroundPhotoAsync(photo, memo, cancellationToken) is { } grounded)
+            if (await GroundWithRetriesAsync(photo, memo, cancellationToken) is { } grounded)
             {
                 photos.AddRange(grounded);
             }
@@ -262,7 +262,7 @@ public sealed class EvalRegrounder(
     /// try has failed too: the photo is given up on. The wait runs on the injected clock, and a run that opens while it waits cancels it at once
     /// (<paramref name="cancellationToken"/> is the one <see cref="RegroundAsync"/> links to the open-run token), so nothing is written.
     /// </summary>
-    private async Task<IReadOnlyList<GroundedPhoto>?> GroundPhotoAsync(KeptPhoto photo, EvalGroundingMemo memo, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<GroundedPhoto>?> GroundWithRetriesAsync(KeptPhoto photo, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
         for (var attempt = 0; ; attempt++)
         {
@@ -275,7 +275,7 @@ public sealed class EvalRegrounder(
                 // Only the type of the error is logged: its message may name a path or a title.
                 if (attempt >= RetryAfter.Count)
                 {
-                    logger.LogWarning(
+                    logger.LogError(
                         "Eval re-ground: a photo could not be grounded after {Tries} tries ({Failure}); it is left out of the score.", attempt + 1, exception.GetType().Name);
                     return null;
                 }

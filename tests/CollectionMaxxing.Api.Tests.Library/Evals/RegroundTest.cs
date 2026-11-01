@@ -90,17 +90,6 @@ public abstract class RegroundTest : OpenRunTest
 
     protected static void Wake(WebApplicationFactory<Program> host) => host.Services.GetRequiredService<EvalRunCoordinator>().Wake();
 
-    /// <summary>Adds to whatever <see cref="ApiTest.ConfigureServices"/> already does, instead of replacing it: the clock and the flaky search below can be used together.</summary>
-    private void AddConfigureServices(Action<IServiceCollection> add)
-    {
-        var before = ConfigureServices;
-        ConfigureServices = services =>
-        {
-            before?.Invoke(services);
-            add(services);
-        };
-    }
-
     /// <summary>Runs the app on a clock the test moves, so a wait between tries of a failed photo is advanced by hand instead of waited out for real.</summary>
     protected void UseClock(FakeTimeProvider clock) =>
         AddConfigureServices(services =>
