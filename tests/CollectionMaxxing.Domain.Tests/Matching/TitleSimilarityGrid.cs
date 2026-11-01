@@ -17,6 +17,7 @@ internal static class TitleSimilarityGrid
         "Kitchen Confidential", "Kitchen Confidential: Adventures in the Culinary Underbelly",
         "Kitchen Orchard", "The Orchard Kitchen", "Orchard Kitchen: Recipes for a Small Plot",
         "DUNE FRANK HERBERT", "Dune", "Dune Messiah", "Dune (Dune Chronicles, Book 1)", "Frank Herbert", "Herbert, Frank",
+        "Dune: A Novel", "412 DUNE", "MARA ELLINGSON dune", "dune EX LIBRIS MARA",
         "Mara Odell", "Odell, Mara", "Odell Mara", "Final Fantasy VII", "Final Fantasy 7", "Final Fantasy VIII",
         "Rocky IV", "Rocky 4", "Rocky III", "Mega Man X", "Mega Man 10", "Ratchet & Clank", "Ratchet and Clank", "Salt & Pepper",
         "Pokémon Red Version", "Pokemon Red Version", "Crème Brûlée à la Française", "Creme Brulee a la Francaise",

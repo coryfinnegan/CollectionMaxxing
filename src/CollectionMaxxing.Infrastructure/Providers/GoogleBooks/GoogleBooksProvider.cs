@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Infrastructure.Providers.Resilience;
 using Microsoft.Extensions.Options;
@@ -105,7 +106,7 @@ public sealed class GoogleBooksProvider(HttpClient http, IOptions<GoogleBooksOpt
         {
             Provider = ProviderName,
             ExternalId = id,
-            Title = subtitle is null ? title : $"{title}: {subtitle}",
+            Title = GenreSubtitle.Join(title, subtitle),
             Kind = WorkKind.Book,
             Year = ProviderJson.Year(details.Str("publishedDate")),
             Creators = details.Strings("authors").ToList(),
