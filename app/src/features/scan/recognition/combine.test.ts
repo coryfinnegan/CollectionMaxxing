@@ -44,19 +44,28 @@ describe('titleCoverage', () => {
 /** A box 0.05 wide and 0.6 tall, `x` from the left: the size of a spine. */
 const spineAt = (x: number): Rect => ({ x, y: 0.1, width: 0.05, height: 0.6 });
 
-describe('isSameItem: the same place is the same item', () => {
-  it('is the same item when the boxes overlap by at least half of the smaller one, whatever the titles say', () => {
+describe('isSameItem: the same place read the same way is the same item', () => {
+  it('is the same item when the boxes overlap by at least half of the smaller one and both read the same thing', () => {
     const a = item('Dune', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
-    const b = item('Something else entirely', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } }); // exactly half of either
+    const b = item('DUNE', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } }); // exactly half of either
     expect(isSameItem(a, b, T)).toBe(true);
     expect(isSameItem(b, a, T)).toBe(true);
   });
 
-  it('is the same item when one box sits inside the other (a title line inside its spine)', () => {
+  it('is not the same item when the two read that place as different things: it is a second read of the place', () => {
+    const a = item('Dune', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
+    const b = item('Something else entirely', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } });
+    expect(isSameItem(a, b, T)).toBe(false);
+    expect(isSameItem(b, a, T)).toBe(false);
+  });
+
+  it('is not the same item when one read saw words the other did not, however the boxes sit', () => {
+    // Vision's piece of a spine holds the author's line, so the phone cannot tell "Dune" inside "DUNE FRANK HERBERT" from "Dune"
+    // inside "DUNE MESSIAH": both go out and the server settles the place.
     const spine = item('Dune Frank Herbert', 0, { box: spineAt(0.1) });
     const titleLine = item('Dune', 1, { box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 } });
-    expect(isSameItem(titleLine, spine, T)).toBe(true);
-    expect(isSameItem(spine, titleLine, T)).toBe(true);
+    expect(isSameItem(titleLine, spine, T)).toBe(false);
+    expect(isSameItem(spine, titleLine, T)).toBe(false);
   });
 
   it('is a different item when the boxes overlap by less than half, even with the same title', () => {
@@ -79,8 +88,8 @@ describe('isSameItem: the same place is the same item', () => {
   });
 
   it('asks for the overlap the tuning says', () => {
-    const a = item('A', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
-    const b = item('B', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } });
+    const a = item('Dune', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
+    const b = item('Dune', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } });
     expect(isSameItem(a, b, { ...T, sameItemOverlap: 0.6 })).toBe(false);
     expect(isSameItem(a, b, { ...T, sameItemOverlap: 0.4 })).toBe(true);
   });
@@ -128,6 +137,16 @@ describe('enrichedItems: the same item read by the model fills in what Vision la
     expect(out.map((i) => [i.localId, i.kind])).toEqual([['v-right', 'other'], ['v-left', 'film']]);
   });
 
+  it('fills in the item at its place that read what it read, not the one it merely overlaps most', () => {
+    const wrong = visionItem({ localId: 'v-wrong', title: 'SOMETHING ELSE', box: { x: 0.10, y: 0.1, width: 0.10, height: 0.6 } });
+    const right = visionItem({ localId: 'v-right', title: 'SPACE MUTINY', box: { x: 0.12, y: 0.1, width: 0.04, height: 0.6 } });
+    const out = enrichedItems([wrong, right], [modelFilm({ box: { x: 0.11, y: 0.1, width: 0.04, height: 0.6 } })], T);
+    expect(out.map((i) => [i.localId, i.kind, i.format])).toEqual([
+      ['v-wrong', 'other', undefined],
+      ['v-right', 'film', 'vhs'],
+    ]);
+  });
+
   it('leaves the Vision items as they are, the same objects, when there is nothing to add', () => {
     const items = [visionItem()];
     expect(enrichedItems(items, [], T)[0]).toBe(items[0]);
@@ -166,10 +185,22 @@ describe('addableItems', () => {
     expect(added[0].confidence).toBe('medium');
   });
 
-  it('does not add a candidate that sits where an existing item does, whatever the titles say', () => {
-    const existing = [item('GREAT GATSBY FITZGERALD', 0, { box: spineAt(0.1) })];
+  it('does not add a candidate that sits where an existing item does and reads the same words', () => {
+    const existing = [item('GREAT GATSBY', 0, { box: spineAt(0.1) })];
     expect(addableItems([item('The Great Gatsby', 0, { box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 } })], existing, T)).toEqual([]);
-    expect(addableItems([item('Something misread', 0, { box: spineAt(0.1) })], existing, T)).toEqual([]);
+  });
+
+  it('adds a candidate that sits where an existing item does but reads it as something else: the server picks between the two', () => {
+    const existing = [item('GREAT GATSBY FITZGERALD', 0, { box: spineAt(0.1) })];
+    const added = addableItems([item('Something misread', 0, { box: spineAt(0.1) })], existing, T);
+    expect(added.map((i) => [i.title, i.order, i.unconfirmed])).toEqual([['Something misread', 1, true]]);
+  });
+
+  it('adds a candidate whose words are only part of what the existing item read there, because that may be another release', () => {
+    // "Dune" inside Vision's "DUNE MESSIAH" is another book; inside its "DUNE FRANK HERBERT" it is the same one. The phone cannot
+    // tell them apart, so both go out and the server shows the read that grounds better.
+    const existing = [item('DUNE MESSIAH', 0, { box: spineAt(0.1) })];
+    expect(addableItems([item('Dune', 0, { box: spineAt(0.1) })], existing, T).map((i) => i.title)).toEqual(['Dune']);
   });
 
   it('adds a candidate in a place where nothing else is, even when its title is an existing one', () => {

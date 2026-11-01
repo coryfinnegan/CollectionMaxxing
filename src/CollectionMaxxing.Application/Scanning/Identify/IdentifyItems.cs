@@ -438,6 +438,13 @@ public static class IdentifyItems
             // place is skipped. The same release read in another place is another item, each kept.
             var repeats = RepeatReads.Of([.. fresh.Select(f => answers[f.Candidate.Id])], [.. fresh.Select(f => f.Item.Box)]).ToHashSet();
 
+            // And one item per place, whatever each engine read there: where the picture model's read of a place and the Vision
+            // pipeline's name different releases, the read that grounds better is the row and the other is skipped, so the model's
+            // right answer is no longer lost to a Vision read of the author's name or a sticker (ReadPlaces). A read
+            // already a repeat has no place left to contest.
+            var lostPlace = ReadPlaces.Weaker(
+                [.. fresh.Select((f, i) => ReadPlaces.Of(answers[f.Candidate.Id], repeats.Contains(i) ? null : f.Item.Box, f.Item.Unconfirmed))]).ToHashSet();
+
             // The answers land under the session's lock: the session is reloaded inside it (another request may
             // have auto-added while the providers were being asked), and two auto-adds landing together both append
             // instead of one overwriting the other.
@@ -456,9 +463,9 @@ public static class IdentifyItems
                 {
                     var candidate = fresh[i].Candidate;
                     await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken, lookups: lookups);
-                    if (repeats.Contains(i))
+                    if (repeats.Contains(i) || lostPlace.Contains(i))
                     {
-                        SkipRepeat(candidate);
+                        Skip(candidate, repeats.Contains(i) ? RepeatReads.StepName : ReadPlaces.StepName);
                         continue; // never auto-added
                     }
 
@@ -480,19 +487,21 @@ public static class IdentifyItems
         }
 
         /// <summary>
-        /// The server's own skip for a read that repeats a stronger read of the same book in the same picture
-        /// (<see cref="RepeatReads"/>). The row stays, with its answer, so the phone's line for the read has a card and the
-        /// person can still un-skip it to add a second copy; but it defaults to skipped, in review and at commit, and is
-        /// never T0 or T1, so nothing adds it by itself. Saves nothing; the caller saves.
+        /// The server's own skip for a read that stands behind a stronger one: a repeat of the same book in the same picture
+        /// (<see cref="RepeatReads"/>), or a read that lost its place to the other engine's better-grounded read of it
+        /// (<see cref="ReadPlaces"/>), which <paramref name="step"/> says. The row stays, with its answer, so the phone's line
+        /// for the read has a card and the person can still un-skip it (a second copy, or the read the server passed over);
+        /// but it defaults to skipped, in review and at commit, and is never T0 or T1, so nothing adds it by itself. Saves
+        /// nothing; the caller saves.
         /// </summary>
-        private static void SkipRepeat(ScanCandidate candidate)
+        private static void Skip(ScanCandidate candidate, string step)
         {
             candidate.Decision = CandidateDecision.Rejected;
             candidate.Tier = ScanTier.T2;
             var trace = CandidateJson.ReadTrace(candidate.TraceJson);
             candidate.TraceJson = CandidateJson.Serialize(trace with
             {
-                Steps = [.. trace.Steps, new TraceStep(RepeatReads.StepName, "skipped", 0)],
+                Steps = [.. trace.Steps, new TraceStep(step, "skipped", 0)],
                 AutoDecision = CandidateDecision.Rejected,
             });
         }
