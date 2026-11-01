@@ -24,6 +24,11 @@ namespace CollectionMaxxing.Application.Evals;
 /// because their best release is the same (its normalised title and year), as it was before boxes.
 /// </para>
 /// <para>
+/// Where the read that stands at a place is the model's own and the Vision read it beat there named the same release, the two
+/// engines agreeing is itself the confirmation the model-only mark exists to stand in for, so the row is not marked: a person
+/// sees it ticked, as a Vision row always was. A different release at that place is still the contest above, untouched.
+/// </para>
+/// <para>
 /// A Vision read that names no kind takes the kind the model read at its place, as the scanner lends it before it sends the snap
 /// (<c>filledFrom</c>, combine.ts): without that, the combined row reported a tape as the kindless read it arrived as, while the app
 /// searched it as the film the model called it.
@@ -164,24 +169,47 @@ public static class EvalCombination
     /// read it names the same release as, read again, so it is dropped as it was before boxes; every other model read is a read
     /// of the picture in its own right, marked unconfirmed, because nothing else saw that title: it is review (T2), never an
     /// auto-add, whatever tier the phone claimed. The places are then settled by <see cref="ReadPlaces.Weaker"/>, Vision's reads
-    /// first so its own read stands where the model read no better. Vision's items, and every other row (a single, one engine
-    /// failing), are not marked.
+    /// first so its own read stands where the model read no better. Where the model read stands against a same-place Vision
+    /// read of the same release (its normalised title and year), the two engines agreeing there is itself the confirmation the
+    /// mark stands in for, so it is not marked; a different release at that place is still a contest between the two and is
+    /// marked as it was. Vision's items, and every other row (a single, one engine failing), are not marked.
     /// </summary>
-    private static IReadOnlyList<GroundedItem> Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
+    private static List<GroundedItem> Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
     {
         var modelReads = model.Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem))).ToList();
         var reads = new List<GroundedItem>(vision.Count + modelReads.Count);
         reads.AddRange(vision);
         reads.AddRange(modelReads.Select(read => read with { Unconfirmed = true }));
 
-        var weaker = ReadPlaces.Weaker(
-            [.. vision.Select(read => Placed(read, onlyTheModelRead: false)), .. modelReads.Select(read => Placed(read, onlyTheModelRead: true))]).ToHashSet();
-        return [.. reads.Where((_, i) => !weaker.Contains(i))];
+        var placed = new List<PlacedRead>(reads.Count);
+        placed.AddRange(vision.Select(read => Placed(read, onlyTheModelRead: false)));
+        placed.AddRange(modelReads.Select(read => Placed(read, onlyTheModelRead: true)));
+
+        var weaker = ReadPlaces.Weaker(placed).ToHashSet();
+        var confirmed = ReadPlaces.Confirmed(placed).ToHashSet();
+        var kept = new List<GroundedItem>(reads.Count - weaker.Count);
+        for (var i = 0; i < reads.Count; i++)
+        {
+            if (weaker.Contains(i))
+            {
+                continue;
+            }
+
+            kept.Add(confirmed.Contains(i) ? reads[i] with { Unconfirmed = false } : reads[i]);
+        }
+
+        return kept;
     }
 
-    /// <summary>A read as the place rule settles it: where it sat, how well it grounds, the score of its best release, and which engine read it.</summary>
+    /// <summary>
+    /// A read as the place rule settles it: where it sat, how well it grounds, the score of its best release (its normalised
+    /// title and year, for <see cref="ReadPlaces.Confirmed"/>), and which engine read it.
+    /// </summary>
     private static PlacedRead Placed(GroundedItem item, bool onlyTheModelRead) =>
-        new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead);
+        new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead, BookOf(item));
+
+    /// <summary>The release a read's best option names, its normalised title and year, as a single key; null when it has none.</summary>
+    private static string? BookOf(GroundedItem item) => KeyOf(item) is { } key ? $"{key.Title} {key.Year}" : null;
 
     /// <summary>The verdict the phone's run recorded, on the ladder a place is settled by. A verdict still pending grounds nothing yet.</summary>
     private static ReadGrounding GroundingOf(string verdict) => verdict switch

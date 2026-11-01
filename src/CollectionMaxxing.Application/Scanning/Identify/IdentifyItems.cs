@@ -436,7 +436,14 @@ public static class IdentifyItems
 
             // One book in one place, one candidate per picture: a read that repeats a stronger read of the same release in the same
             // place is skipped. The same release read in another place is another item, each kept.
-            var repeats = RepeatReads.Of([.. fresh.Select(f => answers[f.Candidate.Id])], [.. fresh.Select(f => f.Item.Box)]).ToHashSet();
+            var freshAnswers = fresh.Select(f => answers[f.Candidate.Id]).ToList();
+            var freshBoxes = fresh.Select(f => f.Item.Box).ToList();
+            var repeats = RepeatReads.Of(freshAnswers, freshBoxes).ToHashSet();
+
+            // Where the stronger of a cross-engine repeat is the model's own read, the two engines agreeing there is the
+            // confirmation Unconfirmed exists to stand in for, so that read is no longer model-only.
+            var confirmedByRepeat = RepeatReads.ConfirmedByOtherEngine(
+                freshAnswers, [.. fresh.Select(f => f.Item.Unconfirmed)], freshBoxes).ToHashSet();
 
             // And one item per place, whatever each engine read there: where the picture model's read of a place and the Vision
             // pipeline's name different releases, the read that grounds better is the row and the other is skipped, so the model's
@@ -461,7 +468,12 @@ public static class IdentifyItems
                 var coverFiles = new List<string>();
                 for (var i = 0; i < fresh.Count; i++)
                 {
-                    var candidate = fresh[i].Candidate;
+                    var (candidate, item) = fresh[i];
+                    if (confirmedByRepeat.Contains(i))
+                    {
+                        candidate.InferredJson = StoredRead.Serialize(item.Facts, item.Profile, unconfirmed: false);
+                    }
+
                     await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken, lookups: lookups);
                     if (repeats.Contains(i) || lostPlace.Contains(i))
                     {

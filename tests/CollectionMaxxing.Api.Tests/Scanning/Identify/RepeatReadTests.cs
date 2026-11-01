@@ -173,6 +173,67 @@ public class RepeatReadTests(ApiFixture api) : IdentifyTest(api)
         Decision(second[0]).ShouldBe("accepted");
     }
 
+    // ---- a cross-engine repeat of the same book confirms the read that stands (#622) ---------------------------------------
+
+    [Fact]
+    public async Task A_model_read_that_wins_a_repeat_of_the_same_book_Vision_also_read_is_not_model_only()
+    {
+        var library = await CreateLibraryAsync();
+        Books.Results.Add(Provided(Clean, "OL1W"));
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, OptIn());
+        var vision = Book(Junk);
+        var model = Book(Clean);
+        model["unconfirmed"] = true;
+
+        var candidates = await IdentifyOnePictureAsync(editor, sessionId, vision, model);
+
+        var (visionRead, modelRead) = (candidates[0], candidates[1]);
+        Resolution(visionRead).ShouldBe("ambiguous");
+        Resolution(modelRead).ShouldBe("matched");
+        Decision(modelRead).ShouldBe("accepted", "Vision read the same book there, so the model's winning read is not model-only");
+        Tier(modelRead).ShouldBe("T1");
+        Added(modelRead).ShouldBeTrue();
+        Decision(visionRead).ShouldBe("rejected");
+        (await ScanReaders.ItemsAsync(Db, library.Id)).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_model_read_that_loses_a_repeat_of_the_same_book_to_Vision_stays_as_it_was()
+    {
+        var library = await CreateLibraryAsync();
+        Books.Results.Add(Provided(Clean, "OL1W"));
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, OptIn());
+        var vision = Book(Clean);
+        var model = Book(Junk);
+        model["unconfirmed"] = true;
+
+        var candidates = await IdentifyOnePictureAsync(editor, sessionId, vision, model);
+
+        Decision(candidates[0]).ShouldBe("accepted");
+        Tier(candidates[0]).ShouldBe("T1");
+        Decision(candidates[1]).ShouldBe("rejected", "the model's read lost the repeat, so it is skipped as any weaker repeat is");
+    }
+
+    [Fact]
+    public async Task Two_model_reads_of_the_same_book_in_one_place_are_not_confirmed_by_each_other()
+    {
+        var library = await CreateLibraryAsync();
+        Books.Results.Add(Provided(Clean, "OL1W"));
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, OptIn());
+        var junk = Book(Junk);
+        junk["unconfirmed"] = true;
+        var clean = Book(Clean);
+        clean["unconfirmed"] = true;
+
+        var candidates = await IdentifyOnePictureAsync(editor, sessionId, junk, clean);
+
+        Tier(candidates[1]).ShouldBe("T2", "one engine reading the spine twice is not two engines agreeing on it");
+        Decision(candidates[1]).ShouldBe("undecided");
+    }
+
     [Fact]
     public async Task A_barcode_read_of_a_book_is_not_a_repeat_of_a_picture_read_of_it()
     {
