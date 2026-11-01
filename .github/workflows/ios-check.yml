@@ -61,7 +61,9 @@ jobs:
           grep -i ccache ios/Podfile.properties.json ios/Podfile || true
 
       # The same ccache setup as ios-build.yml (#633), with a cache of its own: simulator objects are not the device's.
-      # Xcode hands its compiler tasks build settings, not this shell's environment, so the ccache settings go to xcodebuild.
+      # CCACHE_BINARY must reach the compile tasks: the Podfile only sets it as a build setting, which Xcode 27 did not hand
+      # to React Native's compiler wrapper, so the wrapper ran clang itself and ccache saw nothing. The settings are
+      # therefore in the environment and on the xcodebuild command line.
       - name: Install ccache
         id: ccache
         env:
@@ -71,7 +73,12 @@ jobs:
         run: |
           brew install ccache
           ccache --version | head -1
-          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV" # for ccache -s below; the build gets it as a setting
+          {
+            echo "CCACHE_BINARY=$(command -v ccache)"
+            echo "CCACHE_DIR=$HOME/.ccache"
+            echo "CCACHE_MAXSIZE=2G"
+            echo "CCACHE_COMPILERCHECK=content"
+          } >> "$GITHUB_ENV"
           echo "xcode=$(xcodebuild -version | awk '/^Build version/ { print $3 }')" >> "$GITHUB_OUTPUT"
 
       - name: Restore the ccache
@@ -85,33 +92,7 @@ jobs:
         working-directory: app/ios
         run: pod install
 
-      - name: TEMP ccache diagnosis
-        working-directory: app/ios
-        run: |
-          export CCACHE_DIR="$HOME/.ccache" CCACHE_BINARY="$(command -v ccache)" CCACHE_MAXSIZE=2G CCACHE_COMPILERCHECK=content
-          rn="$PWD/../node_modules/react-native/scripts/xcode"
-          dbg="$RUNNER_TEMP/dbg"; mkdir -p "$dbg"
-          for f in ccache-clang.sh ccache-clang++.sh; do
-            cp "$rn/$f" "$rn/$f.orig"
-            {
-              echo '#!/bin/sh'
-              echo 'echo "$(date +%T) $$ HOME=$HOME CCACHE_DIR=$CCACHE_DIR CCACHE_BINARY=$CCACHE_BINARY CFG=$CCACHE_CONFIGPATH" >> '"$dbg/invocations.log"
-              echo 'export CCACHE_LOGFILE='"$dbg/ccache-real.log"
-              tail -n +2 "$rn/$f.orig"
-            } > "$rn/$f"
-          done
-          cat "$rn/ccache-clang.sh"
-          workspace=$(find . -maxdepth 1 -name '*.xcworkspace' | head -1)
-          ccache --zero-stats
-          perl -e 'alarm shift; exec @ARGV' 200 xcodebuild -workspace "$workspace" -scheme CollectionMaxxing -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CCACHE_BINARY="$CCACHE_BINARY" CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE=2G CCACHE_COMPILERCHECK=content build > "$dbg/xcodebuild.log" 2>&1 || true
-          echo "--- invocations"; wc -l "$dbg/invocations.log"; head -3 "$dbg/invocations.log"; tail -3 "$dbg/invocations.log"
-          echo "--- ccache-real.log"; wc -l "$dbg/ccache-real.log"; head -60 "$dbg/ccache-real.log" || true
-          echo "--- stats"; ccache -s
-          echo "--- cache dir"; du -sh "$CCACHE_DIR"
-          echo "--- xcodebuild tail"; tail -5 "$dbg/xcodebuild.log" | cut -c1-300
-
       - name: Build for the simulator, unsigned
-        if: false # TEMP
         # Release, so the JS bundle is built too (a Debug build loads it from Metro and would miss bundling errors).
         working-directory: app/ios
         run: |
@@ -121,7 +102,7 @@ jobs:
           xcodebuild -workspace "$workspace" -scheme "$scheme" \
             -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
-            CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE=2G CCACHE_COMPILERCHECK=content \
+            CCACHE_BINARY="$CCACHE_BINARY" CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE="$CCACHE_MAXSIZE" CCACHE_COMPILERCHECK="$CCACHE_COMPILERCHECK" \
             build
           ccache -s
           if ! ccache -s | grep -q "Cacheable calls"; then
@@ -136,7 +117,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save the ccache
-        if: false # TEMP
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ccache
