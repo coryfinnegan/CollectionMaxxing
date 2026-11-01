@@ -230,7 +230,7 @@ public sealed class EvalRunProcessor(
         {
             if (inputs.Load()?.RunId != header.RunId)
             {
-                await KeepReadingsAsync(header); // stopped between the result files and the readings: the photos are still here
+                await KeepReadingsAsync(header); // stopped between the result files and the readings: the photos are usually still here (it keeps nothing if not)
             }
 
             Done(header with { Partial = written.Partial });
@@ -329,6 +329,14 @@ public sealed class EvalRunProcessor(
                 skipped.AddRange(photo.Skipped);
             }
 
+            if (photos.Count == 0)
+            {
+                // The photos were already cleared (a stop after Done cleared them and before the run was marked done): there is nothing to keep, and
+                // readings with no photo in them must never stand in for the run.
+                logger.LogWarning("The stored eval photos were already gone, so the phone's readings of this run were not kept.");
+                return;
+            }
+
             await inputs.SaveAsync(new KeptRunInputs(header.RunId, header.OpenedAt, header.Device, header.ConfigVersion, header.BaselineNote, header.Partial, header.OpenedBy, photos, skipped), CancellationToken.None);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -337,10 +345,12 @@ public sealed class EvalRunProcessor(
         }
     }
 
-    /// <summary>Marks the run scored, then drops its stored photos: the result files hold everything.</summary>
+    /// <summary>
+    /// Drops the stored photos, then marks the run scored: the result files and the kept readings hold everything. In that order, a run the phone
+    /// sees as done never still has photos stored; a stop between the two leaves a run whose results are on disk, which the next pass only marks done.
+    /// </summary>
     private void Done(OpenRunHeader header)
     {
-        store.Save(header with { State = OpenRunState.Done, FinishedAt = clock.GetUtcNow(), Failure = null });
         try
         {
             store.ClearPhotos(); // a failure here leaves files that the next run clears
@@ -349,5 +359,7 @@ public sealed class EvalRunProcessor(
         {
             logger.LogWarning("The stored eval photos could not be cleared ({Failure}).", exception.GetType().Name);
         }
+
+        store.Save(header with { State = OpenRunState.Done, FinishedAt = clock.GetUtcNow(), Failure = null });
     }
 }
