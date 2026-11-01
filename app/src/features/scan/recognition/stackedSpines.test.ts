@@ -259,7 +259,7 @@ describe('real shelf photos', () => {
 
     // KNOWN LIMIT (#618): only about half of the real small stacks split. Without the lettering check 14 of the 16 four-band windows and 10 of
     // the 19 three-band windows would, but the tapes' smallest-to-biggest lettering runs from 0.31 to 0.82 while the cover paperback-01 has 0.32,
-    // so no cut-off on that ratio separates them (a follow-up needs another cue). The real hardcover pile (accept-shelf-04) splits 0 of 6
+    // so no cut-off on that ratio separates them (#637 needs another cue). The real hardcover pile (accept-shelf-04) splits 0 of 6
     // three-band windows and 1 of 5 four-band ones with or without the check, because the gap rule rejects the rest. These are floors,
     // so the windows that split today keep splitting, not the goal.
     it('splits at least 8 of the 16 four-tape windows and 8 of the 19 three-tape windows of the real tape piles into one item per tape', () => {
