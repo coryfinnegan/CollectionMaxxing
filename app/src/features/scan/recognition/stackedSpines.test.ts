@@ -14,6 +14,9 @@ const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.
 /** The split with piles switched off: what the splitter did before items lying flat were cut one per spine. */
 const WITHOUT_PILES = { ...T, stackMinBands: Infinity };
 
+/** The values before #618: a pile needed 5 bands in a column no wider than half the frame, and a row 60% of its neighbors in one band. */
+const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6 };
+
 /** A tape lying flat: a title line 0.35 wide and 0.05 tall, 0.08 below the last, so the gap is a little over half a letter. */
 const tape = (i: number, text = `Tape ${i}`, x = 0.3, top = 0.1) => line(text, x, top + i * 0.08, 0.35, 0.05);
 
@@ -33,7 +36,8 @@ describe('a pile of items lying flat is one item per spine', () => {
     expect(pieces.map((p) => p.title)).toEqual(spines.map((l) => l.text));
   });
 
-  it('is not a pile below 3 spines: 2 flat lines stay one item', () => {
+  // The issue (#618) says two to four, but a title and its author are two flat lines set just like two tapes, so two never split.
+  it('is not a pile below 3 spines: 2 flat lines stay one item, since a title and its author read exactly like two tapes', () => {
     const { pieces } = splitIntoPieces(Array.from({ length: 2 }, (_, i) => tape(i)), [], C.splitting, T);
     expect(pieces).toHaveLength(1);
     expect(pieces[0].title).toBeUndefined();
@@ -74,8 +78,15 @@ describe('a pile of items lying flat is one item per spine', () => {
     expect(splitIntoPieces(cover, [], C.splitting, T).pieces).toHaveLength(1);
   });
 
-  it('does not cut a column wider than half the frame: that is a cover filling it', () => {
+  it('does not cut a column of 5 or more lines wider than half the frame: that is a cover filling it', () => {
     const wide = Array.from({ length: 6 }, (_, i) => line(`Line ${i}`, 0.1, 0.1 + i * 0.08, 0.8, 0.05));
+    expect(splitIntoPieces(wide, [], C.splitting, T).pieces).toHaveLength(1);
+    const justOver = Array.from({ length: 5 }, (_, i) => line(`Line ${i}`, 0.2, 0.1 + i * 0.08, 0.55, 0.05));
+    expect(splitIntoPieces(justOver, [], C.splitting, T).pieces).toHaveLength(1);
+  });
+
+  it('does not cut a column of 4 lines as wide as a cover filling the frame', () => {
+    const wide = Array.from({ length: 4 }, (_, i) => line(`Line ${i}`, 0.1, 0.1 + i * 0.08, 0.8, 0.05));
     expect(splitIntoPieces(wide, [], C.splitting, T).pieces).toHaveLength(1);
   });
 
@@ -83,6 +94,18 @@ describe('a pile of items lying flat is one item per spine', () => {
     const wide = Array.from({ length: 4 }, (_, i) => line(`Wide ${i}`, 0.1, 0.1 + i * 0.08, 0.55, 0.05));
     const { pieces } = splitIntoPieces(wide, [], C.splitting, T);
     expect(titles(pieces)).toEqual(wide.map((l) => [l.text]));
+  });
+
+  it('#618: does not cut 3 lines whose lettering differs a lot in size, the look of a cover with its tagline, author and title', () => {
+    // 0.055, 0.175 and 0.11 tall, 0.4 of a letter apart: the shape of a real recorded cover (paperback-01), which a stack of 3 tapes
+    // (one size of lettering on each) never has.
+    const cover = [line('NEW YORK TIMES BESTSELLER', 0.25, 0.2, 0.5, 0.055), line('AUTHOR NAME', 0.27, 0.28, 0.46, 0.175), line('THE TITLE', 0.28, 0.5, 0.44, 0.11)];
+    expect(splitIntoPieces(cover, [], C.splitting, T).pieces).toHaveLength(1);
+  });
+
+  it('#618: cuts 3 lines whose lettering is about one size, however the sizes drift a little', () => {
+    const stack = [line('Tape A', 0.3, 0.1, 0.35, 0.05), line('Tape B', 0.3, 0.18, 0.35, 0.04), line('Tape C', 0.3, 0.26, 0.35, 0.045)];
+    expect(titles(splitIntoPieces(stack, [], C.splitting, T).pieces)).toEqual([['Tape A'], ['Tape B'], ['Tape C']]);
   });
 
   it('does not cut a column too narrow to be a spine: a name repeated down a pile of covers is not a pile', () => {
@@ -165,7 +188,7 @@ describe('real shelf photos', () => {
   const COUNTS: Record<string, { before: { items: number; found: number }; after: { items: number; found: number } }> = {
     // Three piles of tapes with a row of DVDs between: 7 lumps, then one item per tape. The OCR kept 7 titles whole on one line.
     'vhs-dvd-shelf-01': { before: { items: 7, found: 0 }, after: { items: 32, found: 6 } },
-    // Upright DVD spines and no pile of 5 or more flat items: nothing for the split to change (its misses are merged spines).
+    // Upright DVD spines and no pile of flat items: nothing for the split to change (its misses are merged spines).
     // The counts rose with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns that.
     'vhs-dvd-shelf-02': { before: { items: 12, found: 5 }, after: { items: 12, found: 5 } },
     // A pile of hardcovers lies under a row of upright books; the 2-line titles of the pile now come out whole.
@@ -207,6 +230,23 @@ describe('real shelf photos', () => {
       .filter(([, p]) => hasPile(p.lines.map((l) => line(l.text, l.x, l.y, l.width, l.height)), T))
       .map(([id]) => id);
     expect(wanted).toEqual(['vhs-dvd-shelf-01', 'accept-shelf-04']);
+  });
+
+  /** The recorded covers, each line's box moved and sized about the frame's center, so the cover is shot from further away. */
+  const recordedCovers = covers as Record<string, { lines: { text: string; x: number; y: number; width: number; height: number }[] }>;
+  const shrunk = (cover: { lines: { text: string; x: number; y: number; width: number; height: number }[] }, scale: number): TextLine[] =>
+    cover.lines.map((l) => line(l.text, 0.5 + (l.x - 0.5) * scale, 0.5 + (l.y - 0.5) * scale, l.width * scale, l.height * scale));
+
+  it('never cuts a real single cover shot from further away: shrunk to 90, 80 and 70%, none of the 12 splits into more pieces than before #618', () => {
+    // Ten of the twelve are one piece at every size. The other two (game-box-01, paperback-01) split into columns of tall text at the
+    // edge even at full size, and what they split into must not grow.
+    for (const [id, cover] of Object.entries(recordedCovers)) {
+      for (const scale of [1, 0.9, 0.8, 0.7]) {
+        const lines = shrunk(cover, scale);
+        const before = splitIntoPieces(lines, [], C.splitting, BEFORE_618).pieces.length;
+        expect([id, scale, splitIntoPieces(lines, [], C.splitting, T).pieces.length]).toEqual([id, scale, before]);
+      }
+    }
   });
 
   it('never cuts a real single cover: none of the 12 recorded covers is split into more pieces than before', () => {
