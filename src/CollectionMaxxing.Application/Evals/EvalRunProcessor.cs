@@ -337,10 +337,12 @@ public sealed class EvalRunProcessor(
         }
     }
 
-    /// <summary>Marks the run scored, then drops its stored photos: the result files hold everything.</summary>
+    /// <summary>
+    /// Drops the stored photos, then marks the run scored: the result files and the kept readings hold everything. In that order, a run the phone
+    /// sees as done never still has photos stored; a stop between the two leaves a run whose results are on disk, which the next pass only marks done.
+    /// </summary>
     private void Done(OpenRunHeader header)
     {
-        store.Save(header with { State = OpenRunState.Done, FinishedAt = clock.GetUtcNow(), Failure = null });
         try
         {
             store.ClearPhotos(); // a failure here leaves files that the next run clears
@@ -349,5 +351,7 @@ public sealed class EvalRunProcessor(
         {
             logger.LogWarning("The stored eval photos could not be cleared ({Failure}).", exception.GetType().Name);
         }
+
+        store.Save(header with { State = OpenRunState.Done, FinishedAt = clock.GetUtcNow(), Failure = null });
     }
 }
