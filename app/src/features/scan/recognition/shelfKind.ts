@@ -4,25 +4,28 @@
 //   - a disc or tape format (DVD, VHS, Blu-ray), the aspect the picture is in (Widescreen) or a running time ("92 Minutes") is a film;
 //   - a console's name (PlayStation, Nintendo, ...) is a game;
 //   - a bestseller line ("A novel", "National bestseller") is a book.
-// These appear on two to six lines of each film shelf of the golden set and on none of its book shelves. The kinds a single cover's
-// print names are the same (coverKind.ts), so the two read one rule: print that names two kinds names neither, and the snap keeps
-// no kind, as it did before. One line is one spine, and a shelf's kind is printed on several of its spines: a book called
-// "30-Minute Meals" or one line that reads "92 Minutes" is a title, not the shelf. So the print must name the kind on at least
-// `SHELF_KIND_MIN_LINES` separate lines. Pure: Vision's text lines in, a kind or nothing out.
+// The kinds a single cover's print names are the same (coverKind.ts), so the two read one rule: print that names two kinds names
+// neither, and the snap keeps no kind, as it did before. A book called "30-Minute Meals", or one DVD on a shelf of books, is not the
+// shelf: a shelf's kind is printed on several of its spines. A spine is one piece the splitter makes, and it can be read as several
+// lines (once in each orientation, or twice with a letter wrong), so lines are not spines. The print must name the kind on at least
+// `SHELF_KIND_MIN_SPINES` of the pieces; a line that is in no piece can name a second kind, which vetoes, but is never a spine.
+// Pure: Vision's text lines and the pieces made of them in, a kind or nothing out.
 //
-// The answer is the snap's kind, never a read's: the server searches every provider for it as before, and only lists releases of
-// that kind first where they score level with the others (KindContext). A book on a tape shelf is still found as a book.
+// The answer is the snap's kind, never a read's. The server uses it to order releases that score level; and when no read of the snap
+// names that kind it also takes a kind the picture model guessed off the reads that deny it (the model called every tape on one shelf
+// a book), which changes how those reads score (see KindContext on the server). It is why the print is held to two spines.
 import type { TextLine } from '@/native/cm-vision';
 import { FILM_FORMAT_PHRASES, linesPrint } from './coverFormat';
 import { type CueKind, printedKinds, theOneKind } from './coverKind';
 import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING } from './defaults';
 import { normalize } from './lines';
+import type { Piece } from './splitting';
 
 /** What a case prints about the shape of its picture. Not a title word, and never on a book. */
 const ASPECT_PHRASES: readonly string[] = ['widescreen', 'wide screen', 'fullscreen', 'full screen', 'letterbox', 'letterboxed', 'anamorphic'];
 
-/** How many separate lines of print must name a kind before the shelf is a shelf of it. */
-const SHELF_KIND_MIN_LINES = 2;
+/** How many separate spines (pieces) must print a kind before the shelf is a shelf of it. */
+const SHELF_KIND_MIN_SPINES = 2;
 
 /**
  * A running time as a case prints it: "92 Minutes", "90 Minutes/Color", "98 mins", "47 min". The word is what makes it one, so a year
@@ -47,15 +50,14 @@ function kindsNamed(lines: TextLine[], tuning: CoverFormatTuning): Set<CueKind> 
 }
 
 /**
- * The one kind this shelf's print names on at least `SHELF_KIND_MIN_LINES` separate lines, or nothing when it names none, more than
- * one, or the one only on a single line. All the print counts toward naming a second kind (a lone console beside two DVD lines still
- * says nothing), but a line counts toward the kind only by what it prints on its own: a Criterion name split across two lines of
- * one spine is one spine, so it vetoes as it always did and adds no line. The kind belongs to the whole snap: it is what the shelf
- * is a shelf of, not what any one spine is.
+ * The one kind this shelf's print names, when at least `SHELF_KIND_MIN_SPINES` of its pieces name it by their own lines. The whole print
+ * is read for the veto: a line on any spine, or in no piece at all, that names a second kind (or the Criterion name split across two
+ * lines) makes the answer nothing. A piece names the kind however many of its lines do, so a spine read twice is still one spine. The
+ * kind belongs to the whole snap: it is what the shelf is a shelf of, not what any one spine is.
  */
-export function shelfKind(lines: TextLine[], tuning: CoverFormatTuning = DEFAULT_COVER_FORMAT_TUNING): CueKind | undefined {
+export function shelfKind(lines: TextLine[], pieces: readonly Piece[], tuning: CoverFormatTuning = DEFAULT_COVER_FORMAT_TUNING): CueKind | undefined {
   const one = theOneKind(kindsNamed(lines, tuning));
   if (one === undefined) return undefined;
-  const namingLines = lines.filter((l) => kindsNamed([l], tuning).has(one));
-  return namingLines.length >= SHELF_KIND_MIN_LINES ? one : undefined;
+  const spines = pieces.filter((piece) => kindsNamed(piece.lines, tuning).has(one));
+  return spines.length >= SHELF_KIND_MIN_SPINES ? one : undefined;
 }

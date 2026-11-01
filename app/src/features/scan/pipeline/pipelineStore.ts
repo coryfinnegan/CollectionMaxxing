@@ -52,8 +52,9 @@ export interface PicSnap {
   engine?: EngineName;
   fellBackFrom?: FellBackFrom;
   /**
-   * The kind this shelf's own print says it is a shelf of (`shelfKind`), sent with the snap so the server lists releases of that kind
-   * first where they score level with the others. Absent on a single-item shot and on a shelf whose print says nothing.
+   * The kind this shelf's own print says it is a shelf of (`shelfKind`: at least two spines print it), sent with the snap. The server lets
+   * it speak only when no read of the snap names that kind (see `printKind` in recognition/types.ts). Absent on a single-item shot and
+   * on a shelf whose print says nothing.
    */
   printKind?: CueKind;
   /** Review's "Snap cover": this picture was shot for one T2 row, which it upgrades in place. Absent on older snaps. */

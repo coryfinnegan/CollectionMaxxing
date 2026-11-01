@@ -57,9 +57,6 @@ export class VisionPipelineEngine implements RecognitionEngine {
       const whole = wholeFrame(lines);
       return this.reading(whole, lines, settings, started, onItem, new Map(whole.pieces.map((p) => [p, { title: coverTitleOf(p.lines, still, settings.local) }])));
     }
-    // What the shelf's own print says it is a shelf of (shelfKind.ts). A spine is a few words, so no item here names a kind; this says what
-    // kind of shelf they are all on, which the server uses to order level-scoring releases and nothing else.
-    const printKind = shelfKind(lines, this.deps.coverFormatTuning ?? DEFAULT_COVER_FORMAT_TUNING);
     // The splitter gets the default search's rectangles, as it always did; the covers are found in the wide search's, which it never sees.
     const [rectangles, wide] = (await looking) ?? [[], []];
     // Several covers lying side by side are an item each; whatever lies outside them is a shelf as it always was.
@@ -67,8 +64,13 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const rest = splitIntoPieces(several?.rest ?? lines, rectangles, settings.splitting, settings.local);
     // A cover goes in as a plain piece (its lines and box); its title and kind ride beside it, since a piece's own `title` is a stack band's text.
     const covers = (several?.covers ?? []).map((c) => ({ piece: { lines: c.lines, box: c.box } satisfies Piece, read: { title: c.title, kind: c.kind } }));
+    const pieces = [...covers.map((c) => c.piece), ...rest.pieces];
+    // What the shelf's own print says it is a shelf of (shelfKind.ts). A spine is a few words, so no item here names a kind; this says what
+    // kind of shelf they are all on, when at least two of the pieces just made print it. The server lets it speak only when no read of the
+    // snap names that kind (types.ts).
+    const printKind = shelfKind(lines, pieces, this.deps.coverFormatTuning ?? DEFAULT_COVER_FORMAT_TUNING);
     const reading = this.reading(
-      { pieces: [...covers.map((c) => c.piece), ...rest.pieces], unreadableCount: rest.unreadableCount },
+      { pieces, unreadableCount: rest.unreadableCount },
       lines,
       settings,
       started,
