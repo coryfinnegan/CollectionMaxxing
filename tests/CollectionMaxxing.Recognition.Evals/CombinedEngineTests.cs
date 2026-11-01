@@ -708,6 +708,18 @@ public sealed class CombinedEngineTests : IDisposable
     public void A_model_read_that_took_a_place_from_a_different_release_Vision_read_there_is_still_model_only()
     {
         var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Mario Kart 64", 0.99).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.80, "vision_text").At(0.30))],
+            ArrangeShelf("Mario Kart 64", "Star Fox 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.Best!.Title.ShouldBe("Mario Kart 64");
+        item.Unconfirmed.ShouldBeTrue("Vision read a different release there, so the two engines never agreed on this one");
+    }
+
+    [Fact]
+    public void A_model_read_that_took_a_place_where_Vision_found_nothing_is_still_model_only()
+    {
+        var built = EvalCombination.Of(
             [ModelRead(T1(Matched("Mario Kart 64")).At(0.31)), VisionRead(ReadByVisionButNotFound().At(0.30))],
             ArrangeShelf("Mario Kart 64"));
 

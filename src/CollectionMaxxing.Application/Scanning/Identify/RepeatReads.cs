@@ -51,10 +51,8 @@ public static class RepeatReads
     private static (IReadOnlyList<int> Repeats, IReadOnlyList<int> Confirmed) Settle(
         IReadOnlyList<BarcodeResolution> answers, IReadOnlyList<ReadBox?>? boxes, IReadOnlyList<bool>? unconfirmed)
     {
-        // Per release, the reads standing now: more than one only when they are in different places. crossEngine[book][slot]
-        // says whether that slot has ever held a read from both engines, whichever of them stands there now.
+        // Per release, the reads standing now: more than one only when they are in different places.
         var standing = new Dictionary<string, List<int>>(StringComparer.Ordinal);
-        var crossEngine = new Dictionary<string, List<bool>>(StringComparer.Ordinal);
         var repeats = new SortedSet<int>();
         for (var i = 0; i < answers.Count; i++)
         {
@@ -64,21 +62,12 @@ public static class RepeatReads
             }
 
             var stands = standing.TryGetValue(book, out var held) ? held : standing[book] = [];
-            var cross = crossEngine.TryGetValue(book, out var c) ? c : crossEngine[book] = [];
             var place = stands.FindIndex(other => ReadBox.SamePlace(BoxAt(boxes, i), BoxAt(boxes, other)));
             if (place < 0)
             {
                 stands.Add(i);
-                cross.Add(false);
-                continue;
             }
-
-            if (unconfirmed is not null && unconfirmed[i] != unconfirmed[stands[place]])
-            {
-                cross[place] = true;
-            }
-
-            if (Stronger(answers[i], answers[stands[place]]))
+            else if (Stronger(answers[i], answers[stands[place]]))
             {
                 repeats.Add(stands[place]);
                 stands[place] = i;
@@ -89,17 +78,25 @@ public static class RepeatReads
             }
         }
 
+        // A survivor is confirmed only by a read it directly shares a place with (same-place is not transitive: a chain of
+        // three reads each overlapping only its neighbour must not let the first lend its cross-engine agreement to the
+        // third), never by the chain of reads it displaced to get there.
         var confirmed = new SortedSet<int>();
         if (unconfirmed is not null)
         {
-            foreach (var (book, stands) in standing)
+            for (var i = 0; i < answers.Count; i++)
             {
-                var cross = crossEngine[book];
-                for (var slot = 0; slot < stands.Count; slot++)
+                if (repeats.Contains(i) || BookOf(answers[i]) is not { } book)
                 {
-                    if (cross[slot] && unconfirmed[stands[slot]])
+                    continue;
+                }
+
+                for (var j = 0; j < answers.Count; j++)
+                {
+                    if (j != i && unconfirmed[j] != unconfirmed[i] && BookOf(answers[j]) == book && ReadBox.SamePlace(BoxAt(boxes, i), BoxAt(boxes, j)))
                     {
-                        confirmed.Add(stands[slot]);
+                        confirmed.Add(i);
+                        break;
                     }
                 }
             }

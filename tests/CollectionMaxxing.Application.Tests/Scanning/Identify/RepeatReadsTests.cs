@@ -254,11 +254,11 @@ public class RepeatReadsTests
     }
 
     [Fact]
-    public void A_Visions_read_that_beats_a_models_read_of_the_same_book_needs_no_confirming()
+    public void A_Visions_read_that_beats_a_models_read_of_the_same_book_is_confirmed_too_though_it_was_never_unconfirmed()
     {
         var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Ambiguous, BookA, 0.7) };
 
-        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBe([0]); // harmless: the caller only clears Unconfirmed, which Vision's read never had
     }
 
     [Fact]
@@ -312,5 +312,22 @@ public class RepeatReadsTests
     {
         RepeatReads.ConfirmedByOtherEngine([], []).ShouldBeEmpty();
         RepeatReads.ConfirmedByOtherEngine([Local(ResolutionVerdict.Matched, BookA, 0.95)], [true]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_chain_of_three_reads_each_overlapping_only_its_neighbour_does_not_lend_the_first_reads_engine_to_the_third()
+    {
+        // Vision at [0, .05] and model1 at [.025, .075] share a place; model1 and model2 at [.05, .10] share a place; Vision
+        // and model2 do not overlap at all. Same place is not transitive: model2 winning the chain must not borrow Vision's
+        // agreement with model1, because Vision never read where model2 sits.
+        var answers = new[]
+        {
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.50),
+            Local(ResolutionVerdict.Matched, BookA, 0.90),
+            Local(ResolutionVerdict.Matched, BookA, 0.95),
+        };
+        var boxes = new ReadBox?[] { Spine(0.00), Spine(0.025), Spine(0.05) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true, true], boxes).ShouldBeEmpty();
     }
 }
