@@ -16,7 +16,9 @@ export default defineConfig({
   testDir: './playwright',
   testMatch: '**/*.spec.ts',
   fullyParallel: true,
-  workers: process.env.CI ? 2 : 4,
+  // Four everywhere (#633): the specs share nothing. Each test gets its own browser context and page load (MSW's mock state
+  // is per page), the server only reads dist/, and the one file a spec writes (a PR screenshot under SCREENSHOTS) is off in CI.
+  workers: 4,
   retries: 0,
   timeout: 30_000,
   expect: { timeout: 7_000 },

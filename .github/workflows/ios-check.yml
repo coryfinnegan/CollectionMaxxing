@@ -55,23 +55,87 @@ jobs:
 
       - name: Prebuild the native project
         working-directory: app
-        run: npx expo prebuild --platform ios --no-install
+        run: |
+          npx expo prebuild --platform ios --no-install
+          echo "ccache in the generated project:"
+          grep -i ccache ios/Podfile.properties.json ios/Podfile || true
+
+      # The same ccache setup as ios-build.yml (#633), with a cache of its own: simulator objects are not the device's.
+      # CCACHE_BINARY must reach the compile tasks: the Podfile only sets it as a build setting, which Xcode 27 did not hand
+      # to React Native's compiler wrapper, so the wrapper ran clang itself and ccache saw nothing. The settings are
+      # therefore in the environment and on the xcodebuild command line. ccache only makes the build faster, so it never
+      # fails it: without it the build compiles everything and the later ccache steps step aside.
+      - name: Install ccache
+        id: ccache
+        continue-on-error: true
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+          HOMEBREW_NO_ENV_HINTS: '1'
+        run: |
+          brew install ccache
+          ccache --version | head -1
+          {
+            echo "CCACHE_BINARY=$(command -v ccache)"
+            echo "CCACHE_DIR=$HOME/.ccache"
+            echo "CCACHE_MAXSIZE=2G"
+            echo "CCACHE_COMPILERCHECK=content"
+          } >> "$GITHUB_ENV"
+          echo "xcode=$(xcodebuild -version | awk '/^Build version/ { print $3 }')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the ccache
+        if: steps.ccache.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-iossim-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-iossim-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-
+            ccache-iossim-${{ steps.ccache.outputs.xcode }}-
 
       - name: Install pods
         working-directory: app/ios
         run: pod install
 
       - name: Build for the simulator, unsigned
+        id: build
         # Release, so the JS bundle is built too (a Debug build loads it from Metro and would miss bundling errors).
         working-directory: app/ios
         run: |
+          ccache_settings=()
+          if [ -n "${CCACHE_BINARY:-}" ] && command -v ccache >/dev/null 2>&1; then
+            ccache --zero-stats || true
+            ccache_settings=(CCACHE_BINARY="$CCACHE_BINARY" CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE="$CCACHE_MAXSIZE" CCACHE_COMPILERCHECK="$CCACHE_COMPILERCHECK")
+          fi
           workspace=$(find . -maxdepth 1 -name '*.xcworkspace' | head -1)
           scheme=$(basename "$workspace" .xcworkspace)
           xcodebuild -workspace "$workspace" -scheme "$scheme" \
             -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+            "${ccache_settings[@]}" \
             build
           {
             echo "### iOS simulator build passed"
             echo "Commit $(git rev-parse --short HEAD) compiles and bundles with the iOS 27 SDK. It is unsigned and can't be installed on a phone."
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${CCACHE_BINARY:-}" ] && command -v ccache >/dev/null 2>&1; then
+            ccache -s || true
+            { echo '```'; ccache -s || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            if ! ccache -s | grep -q "Cacheable calls"; then
+              echo "::warning::ccache recorded no compiles, so the build did not go through it."
+            fi
+            # As in ios-build.yml: only a build that compiled something has anything new to keep.
+            misses=$(ccache -s | awk '/^  Misses:/ { print $2; exit }')
+            echo "new=$([ "${misses:-0}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save the ccache
+        if: steps.build.outputs.new == 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ccache-iossim-${{ steps.ccache.outputs.xcode }}-${{ hashFiles('app/package-lock.json') }}-${{ github.sha }}
