@@ -14,7 +14,7 @@
   this checkout's own under the temp folder (collectionmaxxing-check/<folder name>-<hash of the path>), so gate runs
   in parallel worktrees never read each other's logs.
 
-  -Changed narrows the gate to what the change can affect (the same classification CI's changes job uses).
+  -Changed narrows the gate to what the change can affect (the same classification as CI's changes job, scripts/ci/changed-areas.sh).
   The changed files are `git diff origin/main...HEAD` plus uncommitted and untracked files. Only paths under app/ (except
   app/playwright/serve.mjs, which the backend tests read) run just the app phase. Only paths under src/, tests/, deploy/ and
   evals/ skip the app phase, and run the test phase only for the test projects the change affects: a test project whose own

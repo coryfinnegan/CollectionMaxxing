@@ -12,7 +12,7 @@
 # Phases are restore, build, format, test and app; with no arguments all of them run. CI runs one phase per step so
 # timings and failures localize (the backend jobs skip the app phase; the app job owns npm run check).
 #
-# --changed narrows the gate to what the change can affect (the same classification CI's changes job uses). The changed
+# --changed narrows the gate to what the change can affect (the same classification as CI's changes job, scripts/ci/changed-areas.sh). The changed
 # files are `git diff origin/main...HEAD` plus uncommitted and untracked files. Only paths under app/ (except
 # app/playwright/serve.mjs, which the backend tests read) run just the app phase. Only paths under src/, tests/, deploy/ and
 # evals/ skip the app phase, and run the test phase only for the test projects the change affects: a test project whose own

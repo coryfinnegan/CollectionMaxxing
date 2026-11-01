@@ -566,6 +566,16 @@ function Use-CheckChangedSandbox {
     }
 }
 
+function Get-CheckCiAreas {
+    <# What CI's scripts/ci/changed-areas.sh says about these paths (Backend, App), or $null when there is no bash to run it. #>
+    param([string[]]$Paths)
+    $bash = Get-CheckBash
+    if (-not $bash) { return $null }
+    $script = ConvertTo-CheckPosixPath (Join-Path $PSScriptRoot '../../scripts/ci/changed-areas.sh')
+    $out = @(($Paths -join "`n") | & $bash $script 2>&1 | ForEach-Object { "$_" })
+    [pscustomobject]@{ Backend = ($out -contains 'backend=true'); App = ($out -contains 'app=true') }
+}
+
 # Classification, without running the phases: -Phase restore prints the changed: line and runs the one cheap fake call, so the
 # line (and whether restore ran at all) is the whole answer. The same rule decides in CI.
 Test-Case 'changed: the area is picked the way CI picks it (app-only, server-only, anything else or nothing is everything)' {
@@ -597,6 +607,14 @@ Test-Case 'changed: the area is picked the way CI picks it (app-only, server-onl
             Set-CheckChange -Root $root -Committed @($case.Committed) -Dirty @($case.Dirty)
             $run = Invoke-CheckChanged -Runner $runner -Root $root -Phase 'restore' -Changed -FakeBin $bin -TempBase $tmp -CallDir $calls
             Assert-CheckRan $run "$label / $($case.Name)" @{ Line = $case.Line; Restore = $case.Restore }
+            # CI's changes job decides with scripts/ci/changed-areas.sh; the local gate must agree with it, case by case.
+            $paths = @(@($case.Committed) + @($case.Dirty) | Where-Object { $_ })
+            $ci = Get-CheckCiAreas $paths
+            if ($ci) {
+                $gateArea = if ((Get-CheckChangedLine $run) -match '^changed: (app-only|server-only|everything)') { $Matches[1] } else { '' }
+                $ciArea = if (-not $ci.Backend) { 'app-only' } elseif (-not $ci.App) { 'server-only' } else { 'everything' }
+                Assert-Equal $ciArea $gateArea "$label / $($case.Name): the local gate and CI's scripts/ci/changed-areas.sh classify differently"
+            }
         }
         # Without origin/main there is nothing to compare with: everything runs, and it says why.
         Reset-CheckGitCheckout $root
