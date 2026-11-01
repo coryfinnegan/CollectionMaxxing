@@ -83,7 +83,7 @@ export interface LocalTuning {
   flatLineAspect: number;
   /** A pile needs this many bands in one column, so a small stack of three or four is split, not only five or more (#618). */
   stackMinBands: number;
-  /** From this many bands a pile needs no more than its bands' spacing and width; fewer (a small stack) must also pass the two numbers below. */
+  /** A pile of this many bands or more is told from a cover by its width and spacing alone; a small stack (fewer) must also pass the two numbers below. */
   stackSureBands: number;
   /** A small stack's smallest lettering is at least this share of its biggest: tapes are set alike, a cover's author, title and tagline are not. */
   stackSmallLetters: number;
