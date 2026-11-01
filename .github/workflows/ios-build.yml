@@ -210,9 +210,10 @@ jobs:
       # ccache (#633): the archive spends about 9 of its 10 minutes compiling the pods' C++ (RNScreens, Reanimated, SVG,
       # VisionCamera). ios.ccacheEnabled in app.config.ts makes the Podfile compile through ccache, which React Native
       # looks for while pods install, so it is installed first. Its config (sloppiness for Xcode's modules and index
-      # store, depend and direct mode, file cloning) is React Native's own ccache.conf, which its compiler wrapper sets;
-      # only the cache's place and size, and React Native's advice for CI (compiler_check content: a fresh checkout has
-      # new file times) are set here. The cache is kept per Xcode build, so a new compiler starts clean. No secrets in it.
+      # store, depend and direct mode, file cloning) is React Native's own ccache.conf, which its compiler wrapper sets.
+      # Xcode hands its compiler tasks the build settings, not this shell's environment, so the cache's place, size and
+      # React Native's advice for CI (compiler_check content: a fresh checkout has new file times) go to xcodebuild as
+      # build settings in the Archive step. The cache is kept per Xcode build, so a new compiler starts clean.
       - name: Install ccache
         id: ccache
         env:
@@ -222,11 +223,7 @@ jobs:
         run: |
           brew install ccache
           ccache --version | head -1
-          {
-            echo "CCACHE_DIR=$HOME/.ccache"
-            echo "CCACHE_MAXSIZE=2G"
-            echo "CCACHE_COMPILERCHECK=content"
-          } >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV" # for ccache -s below; the build gets it as a setting
           echo "xcode=$(xcodebuild -version | awk '/^Build version/ { print $3 }')" >> "$GITHUB_OUTPUT"
 
       - name: Restore the ccache
@@ -257,6 +254,7 @@ jobs:
           xcodebuild -workspace "$workspace" -scheme "$scheme" \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build -archivePath "$RUNNER_TEMP/CollectionMaxxing.xcarchive" \
+            CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE=2G CCACHE_COMPILERCHECK=content \
             archive
 
       # Only a build that archived saves the cache, and only from main: a tag's cache would be unreachable by later
@@ -265,6 +263,9 @@ jobs:
         run: |
           ccache -s
           { echo "### ccache"; echo '```'; ccache -s; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if ! ccache -s | grep -q "Cacheable calls"; then
+            echo "::warning::ccache recorded no compiles, so the archive did not go through it. Check the Podfile's ccache setting (apple.ccacheEnabled) and the settings passed to xcodebuild."
+          fi
 
       - name: Save the ccache
         if: github.ref == 'refs/heads/main'

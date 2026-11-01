@@ -61,6 +61,7 @@ jobs:
           grep -i ccache ios/Podfile.properties.json ios/Podfile || true
 
       # The same ccache setup as ios-build.yml (#633), with a cache of its own: simulator objects are not the device's.
+      # Xcode hands its compiler tasks build settings, not this shell's environment, so the ccache settings go to xcodebuild.
       - name: Install ccache
         id: ccache
         env:
@@ -70,11 +71,7 @@ jobs:
         run: |
           brew install ccache
           ccache --version | head -1
-          {
-            echo "CCACHE_DIR=$HOME/.ccache"
-            echo "CCACHE_MAXSIZE=2G"
-            echo "CCACHE_COMPILERCHECK=content"
-          } >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV" # for ccache -s below; the build gets it as a setting
           echo "xcode=$(xcodebuild -version | awk '/^Build version/ { print $3 }')" >> "$GITHUB_OUTPUT"
 
       - name: Restore the ccache
@@ -98,8 +95,12 @@ jobs:
           xcodebuild -workspace "$workspace" -scheme "$scheme" \
             -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+            CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE=2G CCACHE_COMPILERCHECK=content \
             build
           ccache -s
+          if ! ccache -s | grep -q "Cacheable calls"; then
+            echo "::warning::ccache recorded no compiles, so the build did not go through it."
+          fi
           {
             echo "### iOS simulator build passed"
             echo "Commit $(git rev-parse --short HEAD) compiles and bundles with the iOS 27 SDK. It is unsigned and can't be installed on a phone."
