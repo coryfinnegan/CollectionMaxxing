@@ -158,12 +158,13 @@ public sealed record GroundedOcrLine(string Text, double X, double Y, double Wid
 /// <param name="OcrLines">The cleaned lines the Vision engine split. Only the <c>vision_pipeline</c> photo has them, and only runs from a phone that sends them.</param>
 /// <param name="OcrPieces">For each piece the Vision engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
 /// <param name="CoverCue">What the phone's cover cue saw on a single picture (rectangles found and why each was left out, the format, kind and product code it gave, whether it came in time). Shown beside the picture's miss in the report; null when the phone sent none.</param>
-/// <param name="PrintKind">The shelf's own print, only on the <c>vision_pipeline</c> photo (<see cref="EvalPhotoInput.PrintKind"/>): what <see cref="EvalCombination"/> checks before it lends a model read's kind onto a Vision read that named none, so it never lends one the print denies.</param>
+/// <param name="PrintKind">The shelf's own print, only on the <c>vision_pipeline</c> photo (<see cref="EvalPhotoInput.PrintKind"/>, spelled the one way every other kind in a run file is): what <see cref="EvalCombination"/> checks before it lends a model read's kind onto a Vision read that named none, so it never lends one the print denies.</param>
 /// <param name="ItemsLentPrint">
 /// Only on the <c>apple_model</c> photo of a shelf whose <c>vision_pipeline</c> photo named a printed kind: the same read items,
 /// grounded again with that kind lent, the way <c>/identify</c> grounds the model's and Vision's reads of one snap together. Null
-/// otherwise. <see cref="EvalCombination"/> takes the model-only places it shows from here instead of <see cref="Items"/>, which
-/// stays this row's own reading (ungrounded by the print), so the apple_model row still measures the model alone.
+/// otherwise. <see cref="EvalCombination"/> takes the model-only places it shows from here instead of <see cref="Items"/>, so the
+/// apple_model row's own <see cref="Items"/> is left exactly as the phone's upload grounded it, no second grounding added. The
+/// phone never sends a print on the apple_model photo itself, so in every run today that row measures the model alone.
 /// </param>
 public sealed record GroundedPhoto(
     string PhotoId,
@@ -181,7 +182,7 @@ public sealed record GroundedPhoto(
     IReadOnlyList<GroundedOcrLine>? OcrLines = null,
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
     string? CoverCue = null,
-    WorkKind? PrintKind = null,
+    string? PrintKind = null,
     IReadOnlyList<GroundedItem>? ItemsLentPrint = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>

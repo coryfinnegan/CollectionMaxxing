@@ -981,7 +981,7 @@ public sealed class CombinedEngineTests : IDisposable
         var built = EvalCombination.Of(
             [
                 ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Book)),
-                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = WorkKind.Film },
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = "film" },
             ],
             ArrangeShelf("Star Fox 64")).Single();
 
@@ -994,7 +994,7 @@ public sealed class CombinedEngineTests : IDisposable
         var built = EvalCombination.Of(
             [
                 ModelRead(T1(Matched("Star Fox 64")).At(0.1).ReadKind(WorkKind.Game)),
-                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = WorkKind.Game },
+                VisionRead(GuessedByVision("Star Fox 64").At(0.1).ReadKind(null)) with { PrintKind = "game" },
             ],
             ArrangeShelf("Star Fox 64")).Single();
 
@@ -1009,7 +1009,7 @@ public sealed class CombinedEngineTests : IDisposable
         var ungrounded = NotFound("a tape").At(0.6); // the model's own row, grounded without the print: nothing found
         var lent = T1(Matched("Midnight Reel")).At(0.6); // the same read, grounded again with the print lent: matched
         var model = ModelRead(ungrounded) with { ItemsLentPrint = [lent] };
-        var vision = VisionRead() with { PrintKind = WorkKind.Film };
+        var vision = VisionRead() with { PrintKind = "film" };
 
         var built = EvalCombination.Of([model, vision], ArrangeShelf("Midnight Reel")).Single();
 
@@ -1022,7 +1022,7 @@ public sealed class CombinedEngineTests : IDisposable
         var ungrounded = NotFound("a tape").At(0.6);
         var lent = T1(Matched("Midnight Reel")).At(0.6);
         var model = ModelRead(ungrounded) with { ItemsLentPrint = [lent] };
-        var vision = VisionRead() with { PrintKind = WorkKind.Film };
+        var vision = VisionRead() with { PrintKind = "film" };
 
         EvalCombination.Of([model, vision], ArrangeShelf("Midnight Reel"));
 

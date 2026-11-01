@@ -45,7 +45,7 @@ public sealed class EvalRunScoring(
     ILogger<EvalRunScoring> logger)
 {
     /// <summary>Grounds the items one engine read in one photo, as a dry run (nothing is persisted), and keeps what the PC knows of the reading.</summary>
-    public async Task<GroundedPhoto> GroundAsync(EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken)
+    private async Task<GroundedPhoto> GroundAsync(EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
         var items = result.Outcome == EvalOutcome.Ok
             ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken)
@@ -68,7 +68,7 @@ public sealed class EvalRunScoring(
             result.Engine == ScanEngine.VisionPipeline ? result.OcrLines?.Select(l => new GroundedOcrLine(l.Text!, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value)).ToList() : null,
             result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null,
             EvalCoverCue.Clean(result.CoverCue),
-            result.Engine == ScanEngine.VisionPipeline ? result.PrintKind : null);
+            result.Engine == ScanEngine.VisionPipeline && result.PrintKind is { } printKind ? EnumText.ToText(printKind) : null);
     }
 
     /// <summary>
@@ -76,8 +76,9 @@ public sealed class EvalRunScoring(
     /// when its vision_pipeline row named the shelf's printed kind, grounds the model's same items again with that kind lent
     /// (<see cref="GroundedPhoto.ItemsLentPrint"/>): the way <c>/identify</c> grounds the model's and Vision's reads of one snap
     /// together, so <see cref="EvalCombination"/> can ground the model-only places it takes from this row as the app does. The
-    /// apple_model row's own <see cref="GroundedPhoto.Items"/> is untouched, so it still measures the model alone. The
-    /// memo already answers a read whose cleaning the lent kind does not change, so only a read the print denies is asked again.
+    /// apple_model row's own <see cref="GroundedPhoto.Items"/> gets no second grounding, so it stays whatever its own upload asked
+    /// for — the phone never sends a print on that photo, so today it always measures the model alone. The memo already answers a
+    /// read whose cleaning the lent kind does not change, so only a read the print denies is asked again.
     /// </summary>
     public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
