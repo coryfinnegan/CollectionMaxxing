@@ -161,11 +161,7 @@ public sealed class EvalRunProcessor(
                 currentUser.Initialize(opener, await memberships.GetMembershipsAsync(opener, cancellationToken));
             }
 
-            var grounded = new List<GroundedPhoto>(photo.Results.Count);
-            foreach (var result in photo.Results)
-            {
-                grounded.Add(await scoring.GroundAsync(result, progress.Memo, cancellationToken));
-            }
+            var grounded = await scoring.GroundPhotoAsync(photo.Results, progress.Memo, cancellationToken);
 
             // A grounding that was cut short by the app stopping may hand back a thin answer instead of an error: never keep that.
             cancellationToken.ThrowIfCancellationRequested();

@@ -67,9 +67,9 @@ public static class SubmitEvalRun
             // One memo per run, made here and passed down (not injected): what is grounded is known for this run only.
             var memo = new EvalGroundingMemo();
             var photos = new List<GroundedPhoto>();
-            foreach (var result in accepted.Where(r => truthSet.Listing.ContainsKey(r.PhotoId!)))
+            foreach (var group in accepted.Where(r => truthSet.Listing.ContainsKey(r.PhotoId!)).GroupBy(r => r.PhotoId, StringComparer.Ordinal))
             {
-                photos.Add(await scoring.GroundAsync(result, memo, cancellationToken));
+                photos.AddRange(await scoring.GroundPhotoAsync([.. group], memo, cancellationToken));
             }
 
             if (logger.IsEnabled(LogLevel.Information))
