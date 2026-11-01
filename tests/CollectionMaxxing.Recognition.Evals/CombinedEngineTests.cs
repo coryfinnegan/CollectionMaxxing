@@ -678,6 +678,43 @@ public sealed class CombinedEngineTests : IDisposable
         built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
     }
 
+    // ---- a model read that stands against a same-release Vision read is not model-only (#622) ---------------------------
+
+    [Fact]
+    public void A_model_read_that_outscores_Visions_read_of_the_same_release_in_the_same_place_is_not_model_only()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Star Fox 64", 0.99).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.80, "vision_text").At(0.30))],
+            ArrangeShelf("Star Fox 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.ResolvedBy.ShouldBe("model");
+        item.Unconfirmed.ShouldBeFalse("Vision read the same release there, so the two engines already agree on it");
+    }
+
+    [Fact]
+    public void Visions_read_of_the_same_release_needs_no_confirming_when_it_is_the_one_that_stands()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(MatchedAt("Star Fox 64", 0.80).At(0.31)), VisionRead(MatchedAt("Star Fox 64", 0.99, "vision_text").At(0.30))],
+            ArrangeShelf("Star Fox 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.ResolvedBy.ShouldBe("vision_text");
+        item.Unconfirmed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_model_read_that_took_a_place_from_a_different_release_Vision_read_there_is_still_model_only()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(T1(Matched("Mario Kart 64")).At(0.31)), VisionRead(ReadByVisionButNotFound().At(0.30))],
+            ArrangeShelf("Mario Kart 64"));
+
+        var item = built.Single().Items.ShouldHaveSingleItem();
+        item.Unconfirmed.ShouldBeTrue("Vision read nothing there, so the two engines never agreed on a release");
+    }
+
     // ---- where a read sits decides what the same item is -----------------------------------------------------------------
 
     [Fact]

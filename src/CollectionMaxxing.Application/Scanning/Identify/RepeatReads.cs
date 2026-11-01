@@ -13,6 +13,15 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// makes one, and reads whose best options differ stay apart even when they share a runner-up. Copies are real, but a person
 /// reviews every scan and adds a copy by hand: a read that sits in the same place as a stronger read of its release is skipped,
 /// never added by itself, and the person can still un-skip it for a second copy.
+/// <para>
+/// A shelf shot can hold a read only the picture model made beside Vision's read of the same spine, marked <c>unconfirmed</c>
+/// because the model is the only engine that saw it: such a read is capped at T2 and never auto-added. When the two reads of a
+/// place name the same release, the one that stands is still picked on grounding and score alone, not on which engine made it
+/// (<see cref="Of"/>); but the two engines agreeing there is itself the confirmation the mark exists to stand in for, so a
+/// model read that stands against a cross-engine repeat is no longer model-only (<see cref="ConfirmedByOtherEngine"/>). A
+/// place two reads of one engine's own repeat is not this: that is one engine seeing a spine twice, not two engines agreeing
+/// on it.
+/// </para>
 /// </summary>
 public static class RepeatReads
 {
@@ -23,10 +32,29 @@ public static class RepeatReads
     /// The positions (ascending) of the answers that repeat a stronger read of the same release in the same place. Pure.
     /// <paramref name="boxes"/> is each answer's box, by position; a missing list, a short one or a null entry is a read with no box.
     /// </summary>
-    public static IReadOnlyList<int> Of(IReadOnlyList<BarcodeResolution> answers, IReadOnlyList<ReadBox?>? boxes = null)
+    public static IReadOnlyList<int> Of(IReadOnlyList<BarcodeResolution> answers, IReadOnlyList<ReadBox?>? boxes = null) =>
+        Settle(answers, boxes, null).Repeats;
+
+    /// <summary>
+    /// The positions of a read that stands against a repeat the other engine made of the same release in the same place
+    /// (<see cref="Of"/>'s pick between the two does not ask which engine made either read): the two engines agree there, so a
+    /// model read that stands is not model-only, the way a Vision row always stood for it before a noisy Vision read and a
+    /// clean model read of one spine arrived as two separate reads. Two reads one engine made of a place are not this: an
+    /// engine reading its own spine twice is no agreement between engines. <paramref name="unconfirmed"/> says which read is
+    /// the model's own, position for position with <paramref name="answers"/>. Pure.
+    /// </summary>
+    public static IReadOnlyList<int> ConfirmedByOtherEngine(
+        IReadOnlyList<BarcodeResolution> answers, IReadOnlyList<bool> unconfirmed, IReadOnlyList<ReadBox?>? boxes = null) =>
+        Settle(answers, boxes, unconfirmed).Confirmed;
+
+    /// <summary>One pass of the repeat rule: the repeats it settles, and (when <paramref name="unconfirmed"/> is given) the standing reads a cross-engine repeat confirms.</summary>
+    private static (IReadOnlyList<int> Repeats, IReadOnlyList<int> Confirmed) Settle(
+        IReadOnlyList<BarcodeResolution> answers, IReadOnlyList<ReadBox?>? boxes, IReadOnlyList<bool>? unconfirmed)
     {
-        // Per release, the reads standing now: more than one only when they are in different places.
+        // Per release, the reads standing now: more than one only when they are in different places. crossEngine[book][slot]
+        // says whether that slot has ever held a read from both engines, whichever of them stands there now.
         var standing = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        var crossEngine = new Dictionary<string, List<bool>>(StringComparer.Ordinal);
         var repeats = new SortedSet<int>();
         for (var i = 0; i < answers.Count; i++)
         {
@@ -36,12 +64,21 @@ public static class RepeatReads
             }
 
             var stands = standing.TryGetValue(book, out var held) ? held : standing[book] = [];
+            var cross = crossEngine.TryGetValue(book, out var c) ? c : crossEngine[book] = [];
             var place = stands.FindIndex(other => ReadBox.SamePlace(BoxAt(boxes, i), BoxAt(boxes, other)));
             if (place < 0)
             {
                 stands.Add(i);
+                cross.Add(false);
+                continue;
             }
-            else if (Stronger(answers[i], answers[stands[place]]))
+
+            if (unconfirmed is not null && unconfirmed[i] != unconfirmed[stands[place]])
+            {
+                cross[place] = true;
+            }
+
+            if (Stronger(answers[i], answers[stands[place]]))
             {
                 repeats.Add(stands[place]);
                 stands[place] = i;
@@ -52,7 +89,23 @@ public static class RepeatReads
             }
         }
 
-        return [.. repeats];
+        var confirmed = new SortedSet<int>();
+        if (unconfirmed is not null)
+        {
+            foreach (var (book, stands) in standing)
+            {
+                var cross = crossEngine[book];
+                for (var slot = 0; slot < stands.Count; slot++)
+                {
+                    if (cross[slot] && unconfirmed[stands[slot]])
+                    {
+                        confirmed.Add(stands[slot]);
+                    }
+                }
+            }
+        }
+
+        return ([.. repeats], [.. confirmed]);
     }
 
     private static ReadBox? BoxAt(IReadOnlyList<ReadBox?>? boxes, int index) => boxes is not null && index < boxes.Count ? boxes[index] : null;

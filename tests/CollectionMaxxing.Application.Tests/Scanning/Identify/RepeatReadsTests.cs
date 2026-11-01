@@ -242,4 +242,75 @@ public class RepeatReadsTests
 
         RepeatReads.Of(answers, [Spine(0.10), Spine(0.10)]).ShouldBeEmpty();
     }
+
+    // ---- a cross-engine repeat of the same release confirms the read that stands (#622) ---------------------------------------
+
+    [Fact]
+    public void A_model_read_that_beats_a_Visions_read_of_the_same_book_in_the_same_place_is_confirmed()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void A_Visions_read_that_beats_a_models_read_of_the_same_book_needs_no_confirming()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Ambiguous, BookA, 0.7) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Two_model_reads_of_one_place_are_not_confirmed_because_that_is_one_engines_own_repeat_not_agreement()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [true, true], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Two_Vision_reads_of_one_place_are_not_confirmed_either_since_neither_is_model_only()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, false], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_model_read_that_beats_a_Visions_read_of_a_different_book_in_the_same_place_is_not_this_rules_business()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Matched, BookB, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_model_read_that_beats_a_Visions_read_of_the_same_book_in_another_place_is_not_confirmed()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.7), Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.10), Spine(0.60)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Three_reads_of_one_release_in_one_place_confirm_the_survivor_when_any_of_them_crossed_engines()
+    {
+        var answers = new[]
+        {
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.8),
+            Local(ResolutionVerdict.Matched, BookA, 0.93),
+            Local(ResolutionVerdict.Matched, BookA, 0.97),
+        };
+
+        // Vision (false), model (true), model (true): the slot saw both engines before the final model read took it.
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true, true]).ShouldBe([2]);
+    }
+
+    [Fact]
+    public void Nothing_to_compare_confirms_nothing()
+    {
+        RepeatReads.ConfirmedByOtherEngine([], []).ShouldBeEmpty();
+        RepeatReads.ConfirmedByOtherEngine([Local(ResolutionVerdict.Matched, BookA, 0.95)], [true]).ShouldBeEmpty();
+    }
 }
