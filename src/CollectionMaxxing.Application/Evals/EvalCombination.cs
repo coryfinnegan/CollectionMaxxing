@@ -1,4 +1,3 @@
-using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -19,8 +18,8 @@ namespace CollectionMaxxing.Application.Evals;
 /// what the scanner sends): where both engines read a place, the read that grounds better is the row shown (Matched beats
 /// Ambiguous, which beats a read that found nothing, then the higher score, then Vision's own, which comes first), and the
 /// other is no second row for that spine. So the same title on two spines is still two items, and a right read the model made
-/// is no longer thrown away because Vision read the author's name or a sticker at that spot (issue #614). A Vision piece that
-/// holds several model reads is several spines merged into one piece: it loses its place and each model read inside it stands.
+/// is no longer thrown away because Vision read the author's name or a sticker at that spot. A Vision piece that holds several
+/// model reads is several spines merged into one piece: it loses its place and each model read inside it stands.
 /// Only when a box is missing on either side, where there is no place to go on, is a model read the same item as a Vision read
 /// because their best release is the same (its normalised title and year), as it was before boxes.
 /// </para>

@@ -44,19 +44,27 @@ describe('titleCoverage', () => {
 /** A box 0.05 wide and 0.6 tall, `x` from the left: the size of a spine. */
 const spineAt = (x: number): Rect => ({ x, y: 0.1, width: 0.05, height: 0.6 });
 
-describe('isSameItem: the same place is the same item', () => {
-  it('is the same item when the boxes overlap by at least half of the smaller one, whatever the titles say', () => {
+describe('isSameItem: the same place read the same way is the same item', () => {
+  it('is the same item when the boxes overlap by at least half of the smaller one and both read the same thing', () => {
     const a = item('Dune', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
-    const b = item('Something else entirely', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } }); // exactly half of either
+    const b = item('DUNE', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } }); // exactly half of either
     expect(isSameItem(a, b, T)).toBe(true);
     expect(isSameItem(b, a, T)).toBe(true);
   });
 
-  it('is the same item when one box sits inside the other (a title line inside its spine)', () => {
+  it('is not the same item when the two read that place as different things: it is a second read of the place', () => {
+    const a = item('Dune', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
+    const b = item('Something else entirely', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } });
+    expect(isSameItem(a, b, T)).toBe(false);
+    expect(isSameItem(b, a, T)).toBe(false);
+  });
+
+  it('is the same item when one box sits inside the other and the bigger read says everything the smaller one says', () => {
+    // Vision's piece of a spine holds the author's line too, so the model's read of the title is that piece read again.
     const spine = item('Dune Frank Herbert', 0, { box: spineAt(0.1) });
     const titleLine = item('Dune', 1, { box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 } });
     expect(isSameItem(titleLine, spine, T)).toBe(true);
-    expect(isSameItem(spine, titleLine, T)).toBe(true);
+    expect(isSameItem(spine, titleLine, T)).toBe(false); // the other way round the bigger read saw words the smaller one did not
   });
 
   it('is a different item when the boxes overlap by less than half, even with the same title', () => {
@@ -79,8 +87,8 @@ describe('isSameItem: the same place is the same item', () => {
   });
 
   it('asks for the overlap the tuning says', () => {
-    const a = item('A', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
-    const b = item('B', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } });
+    const a = item('Dune', 0, { box: { x: 0, y: 0, width: 0.5, height: 0.5 } });
+    const b = item('Dune', 1, { box: { x: 0.25, y: 0, width: 0.5, height: 0.5 } });
     expect(isSameItem(a, b, { ...T, sameItemOverlap: 0.6 })).toBe(false);
     expect(isSameItem(a, b, { ...T, sameItemOverlap: 0.4 })).toBe(true);
   });
@@ -166,10 +174,15 @@ describe('addableItems', () => {
     expect(added[0].confidence).toBe('medium');
   });
 
-  it('does not add a candidate that sits where an existing item does, whatever the titles say', () => {
+  it('does not add a candidate that sits where an existing item does and reads the same thing', () => {
     const existing = [item('GREAT GATSBY FITZGERALD', 0, { box: spineAt(0.1) })];
     expect(addableItems([item('The Great Gatsby', 0, { box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 } })], existing, T)).toEqual([]);
-    expect(addableItems([item('Something misread', 0, { box: spineAt(0.1) })], existing, T)).toEqual([]);
+  });
+
+  it('adds a candidate that sits where an existing item does but reads it as something else: the server picks between the two', () => {
+    const existing = [item('GREAT GATSBY FITZGERALD', 0, { box: spineAt(0.1) })];
+    const added = addableItems([item('Something misread', 0, { box: spineAt(0.1) })], existing, T);
+    expect(added.map((i) => [i.title, i.order, i.unconfirmed])).toEqual([['Something misread', 1, true]]);
   });
 
   it('adds a candidate in a place where nothing else is, even when its title is an existing one', () => {

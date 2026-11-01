@@ -1,6 +1,6 @@
 namespace CollectionMaxxing.Application.Scanning.Identify;
 
-/// <summary>How well a read grounds: the ladder a place is settled by (issue #614).</summary>
+/// <summary>How well a read grounds: the ladder a place is settled by.</summary>
 public enum ReadGrounding
 {
     /// <summary>No answer yet (a provider still owes one): such a read neither loses its place nor takes one, because what it grounds is not known.</summary>
@@ -31,7 +31,7 @@ public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, 
 /// means: Matched beats Ambiguous, which beats a read that found nothing; then the higher best score; then the earlier read,
 /// so the Vision pipeline's own reading stands wherever the picture model read no better. Before this rule the Vision read of a
 /// place always stood, and a right answer the model had read was thrown away whenever Vision had read the author's name or a
-/// sticker there (issue #614).
+/// sticker there.
 /// <para>
 /// Only the two engines' reads of a place contest it (<see cref="PlacedRead.Unconfirmed"/> says which read is the model's
 /// own): one engine's two reads of a place are not two engines disagreeing about a spine, and an engine that read one spine
@@ -52,6 +52,13 @@ public static class ReadPlaces
 {
     /// <summary>The trace step a read skipped for losing its place carries, so its row says why.</summary>
     public const string StepName = "place";
+
+    /// <summary>
+    /// One read as a place settles it, from the answer the live scorer gave it: a verdict still pending grounds nothing yet, so
+    /// such a read keeps its place and takes none.
+    /// </summary>
+    public static PlacedRead Of(BarcodeResolution answer, ReadBox? box, bool unconfirmed) =>
+        new(box, GroundingOf(answer.Verdict), answer.Options.Count > 0 ? answer.Options[0].Score : 0, unconfirmed);
 
     /// <summary>The positions (ascending) of the reads that lose their place to a read that grounds better. Pure.</summary>
     public static IReadOnlyList<int> Weaker(IReadOnlyList<PlacedRead> reads)
@@ -92,6 +99,14 @@ public static class ReadPlaces
 
         return [.. skipped];
     }
+
+    private static ReadGrounding GroundingOf(ResolutionVerdict verdict) => verdict switch
+    {
+        ResolutionVerdict.Matched => ReadGrounding.Matched,
+        ResolutionVerdict.Ambiguous => ReadGrounding.Ambiguous,
+        ResolutionVerdict.Pending => ReadGrounding.Unsettled,
+        _ => ReadGrounding.Nothing,
+    };
 
     /// <summary>A read settles a place only when the phone said where it sat and what it grounds is known.</summary>
     private static bool Contends(PlacedRead read) => read.Box is not null && read.Grounding != ReadGrounding.Unsettled;
