@@ -63,6 +63,13 @@ public sealed class EvalRunCoordinator : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _signal = new(0, 1);
     private readonly ConcurrentDictionary<string, long> _versions = new(StringComparer.Ordinal);
+    private CancellationTokenSource _opened = new();
+
+    /// <summary>
+    /// Cancelled when a phone run is opened (see <see cref="RunOpened"/>): background work that must never hold a phone run up, like grounding the kept
+    /// readings of the last one again, links this to its own token. Take it before looking whether a run is open, so an open that follows is not missed.
+    /// </summary>
+    public CancellationToken RunOpenedToken => Volatile.Read(ref _opened).Token;
 
     /// <summary>Waits for the gate. The caller holds it until the returned object is disposed; hold it only for short, local work.</summary>
     public async Task<IDisposable> EnterAsync(CancellationToken cancellationToken)
@@ -79,6 +86,15 @@ public sealed class EvalRunCoordinator : IDisposable
 
     /// <summary>Forgets every photo's count (a run was opened or discarded). Call with the gate held.</summary>
     public void Forget() => _versions.Clear();
+
+    /// <summary>Notes that a phone run was opened: whatever holds a token from before (<see cref="RunOpenedToken"/>) is asked to stop, and the next token is a fresh one.</summary>
+    public void RunOpened()
+    {
+        var previous = Interlocked.Exchange(ref _opened, new CancellationTokenSource());
+
+        // Cancelling runs the callbacks, and often the code that was waiting on them, on the calling thread. The caller holds the gate, so that happens on another.
+        _ = Task.Run(previous.Cancel);
+    }
 
     /// <summary>Tells the worker there is something to do.</summary>
     public void Wake()
@@ -115,6 +131,7 @@ public sealed class EvalRunCoordinator : IDisposable
     {
         _gate.Dispose();
         _signal.Dispose();
+        _opened.Dispose();
     }
 
     private sealed class Releaser(SemaphoreSlim gate) : IDisposable

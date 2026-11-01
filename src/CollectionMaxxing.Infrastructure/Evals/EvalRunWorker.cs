@@ -9,7 +9,8 @@ namespace CollectionMaxxing.Infrastructure.Evals;
 /// The hosted loop of the resumable run: ground the photos the phone has sent, one after another as they arrive, and score the run once the
 /// phone has finished it. Its queue is the run folder itself (a stored photo without a grounded file is to do), not the database job queue: the
 /// evals keep no database rows, and a run that is discarded takes its queue with it. It starts by looking at the folder, so what a restart interrupted
-/// is picked up at once. Idle, it sleeps until the API wakes it (a photo arrived, the run was finished) or a few seconds pass.
+/// is picked up at once. Idle, it sleeps until the API wakes it (a photo arrived, the run was finished) or a few seconds pass. When the phone's run has
+/// nothing for it to do, the same loop looks after the other job: grounding the last run's kept readings again after a deploy (<see cref="EvalRegrounder"/>).
 /// </summary>
 public sealed class EvalRunWorker(
     IGoldenSet golden,
@@ -63,6 +64,11 @@ public sealed class EvalRunWorker(
     private async Task<EvalRunStep> StepAsync(EvalRunProgress progress, CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<EvalRunProcessor>().StepAsync(progress, cancellationToken);
+        var step = await scope.ServiceProvider.GetRequiredService<EvalRunProcessor>().StepAsync(progress, cancellationToken);
+
+        // The phone's run comes first. With nothing of it to do, the same pass may ground the last run's kept readings again (see EvalRegrounder).
+        return step == EvalRunStep.Idle
+            ? await scope.ServiceProvider.GetRequiredService<EvalRegrounder>().StepAsync(progress, cancellationToken)
+            : step;
     }
 }

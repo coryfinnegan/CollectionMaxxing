@@ -34,6 +34,8 @@ public sealed class ResultsFolderIgnoreTests
     [Theory]
     [InlineData("evals/results/report.md")]
     [InlineData("evals/results/latest-run.json")]
+    [InlineData("evals/results/latest-inputs.json")]
+    [InlineData("evals/results/reground.request")]
     [InlineData("evals/results/drafts/x.json")]
     [InlineData("evals/results/drafts/2026-10-17-abc1234.json")]
     [InlineData("evals/results/notes.json")]

@@ -30,8 +30,10 @@ public static class SubmitEvalRun
     public sealed class Handler(
         IGoldenSet golden,
         IEvalResults results,
+        IEvalInputs inputs,
         EvalRunScoring scoring,
         IIdGenerator ids,
+        ICurrentUser currentUser,
         TimeProvider clock,
         ILogger<Handler> logger)
     {
@@ -59,6 +61,7 @@ public static class SubmitEvalRun
                 return refusal;
             }
 
+            var screened = skipped.ToList(); // what the checks said, before the truth files add their own: the kept readings hold this
             var truthSet = scoring.Prepare(accepted.Select(r => r.PhotoId!).Distinct(StringComparer.Ordinal), skipped);
 
             // One memo per run, made here and passed down (not injected): what is grounded is known for this run only.
@@ -82,7 +85,32 @@ public static class SubmitEvalRun
                 input.Partial,
                 input.BaselineNote,
                 photos);
-            return await scoring.ScoreAsync(run, truthSet, skipped, cancellationToken);
+            var scored = await scoring.ScoreAsync(run, truthSet, skipped, cancellationToken);
+            if (scored.IsSuccess)
+            {
+                await KeepReadingsAsync(run, accepted, screened);
+            }
+
+            return scored;
+        }
+
+        /// <summary>
+        /// Keeps the phone's readings of the run just scored, so a later server version can ground and score them again without the phone. A failure to keep
+        /// them is logged and never fails the run: its result files are already written.
+        /// </summary>
+        private async Task KeepReadingsAsync(EvalRunToScore run, List<EvalPhotoInput> accepted, List<SkippedPhoto> screened)
+        {
+            try
+            {
+                var photos = accepted.GroupBy(r => r.PhotoId!, StringComparer.Ordinal).Select(g => new KeptPhoto(g.Key, [.. g])).ToList();
+                await inputs.SaveAsync(
+                    new KeptRunInputs(run.RunId, run.At, run.Device, run.ConfigVersion, run.BaselineNote, run.Partial, currentUser.UserId, photos, screened),
+                    CancellationToken.None);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning("The phone's readings of the eval run could not be kept ({Failure}).", exception.GetType().Name);
+            }
         }
 
         private static DomainError? Validate(EvalRunInput input)
