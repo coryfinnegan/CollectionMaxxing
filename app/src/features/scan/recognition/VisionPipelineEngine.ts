@@ -106,7 +106,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
         p.lines.reduce((best, l) => (l.confidence * l.text.length > best.confidence * best.text.length ? l : best));
       // A cover's creator is only the name the name rule found (an author printed bigger than the title). The lines left over are noise, and
       // the server weighs a read's creator against each candidate's, so a wrong one costs a right title. A shelf piece guesses as it always did.
-      const creator = cover ? biggest?.creator?.text : creatorOf(p.lines, titleLine, settings.local);
+      const creator = cover ? biggest?.creator?.text : creatorOf(shelf?.rest ?? p.lines, titleLine, settings.local);
       // A shelf piece is one spine, and a PlayStation spine prints its disc's code; the server settles which game the code names. A cover's code
       // is the cover cue's (coverCue.ts), which keeps it off a book or a film that the cover's own text shows the item to be.
       const productCode = cover ? undefined : productCodeOf(p.lines);

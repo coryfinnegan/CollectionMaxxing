@@ -122,18 +122,12 @@ export interface LocalTuning {
    */
   /** Two readings are of the same words when at least this share of the words they name together are in both. */
   sameReadingWords: number;
-  /** A second row of a title must share at least this much of the chosen row's span along the line. */
+  /** A second row of a title runs beside the chosen row for at least this share of the longer of the two. */
   titleRowOverlap: number;
-  /**
-   * A second row of a title sits no further from the chosen row than this many of its letter heights. The two rows of one
-   * title touch or overlap in the picture; an award line or a publisher under a title sits half a letter away or more.
-   */
-  titleRowMaxGap: number;
-  /**
-   * Title lettering: a line can be the title only when its letters are at least this share of the piece's biggest, and a
-   * second row joins the title only when its letters are that close to the chosen row's. Small print is never a title.
-   */
-  titleLetters: number;
+  /** A second row joins the title only when its letters are at least this share of the chosen row's. */
+  titleRowLetters: number;
+  /** A run of this many digits or more says nothing but a shelf code; fewer could be a year or a count ("1984"). */
+  stickerCodeDigits: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
   creatorMaxWords: number;
   /** A Vision line with fewer letters than this is not an author either. */
@@ -204,9 +198,9 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   coverNameMaxWords: 3,
   coverTitleBesideNameShare: 0.5,
   sameReadingWords: 0.5,
-  titleRowOverlap: 0.5,
-  titleRowMaxGap: 0.25,
-  titleLetters: 0.5,
+  titleRowOverlap: 0.7,
+  titleRowLetters: 0.5,
+  stickerCodeDigits: 5,
   creatorMaxWords: 5,
   creatorMinLetters: 3,
 };

@@ -11,15 +11,28 @@ import { splitIntoPieces } from './splitting';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
 
 const titleOf = (lines: TextLine[]) => shelfTitleOf(lines, T)?.text;
+const creatorsOf = (lines: TextLine[]) => shelfTitleOf(lines, T)?.rest.map((l) => l.text);
 
 /** A row printed down an upright spine: read sideways, so the box is tall and its width is the letter height. */
 const row = (text: string, x: number, y: number, letters: number, length: number, confidence = 0.9) =>
   line(text, x, y, letters, length, confidence);
 
 describe('a spine piece\'s title is never its author line or a sticker', () => {
-  it('takes the title and not the author printed below it in smaller lettering', () => {
-    const lines = [row('THE NIGHT CIRCUS', 0.1, 0.2, 0.05, 0.3), row('ERIN MORGENSTERN', 0.115, 0.55, 0.025, 0.2)];
+  it('takes the title and not the author printed below it in smaller lettering, however long the name is', () => {
+    const lines = [row('THE NIGHT CIRCUS', 0.1, 0.2, 0.05, 0.3), row('ERIN R. MORGENSTERN THE NIGHT CIRCUS', 0.115, 0.55, 0.025, 0.4)];
     expect(titleOf(lines)).toBe('THE NIGHT CIRCUS');
+  });
+
+  it.each([
+    ['The Nanny', 0.03, 'LANA FERGUSON', 0.022],
+    ['CARRIE', 0.05, 'STEPHEN KING', 0.025], // the author at exactly half the title's lettering
+    ['A Latte Like Love', 0.021, 'MICHELLE C. HARRIS', 0.016], // read clean once each: no agreement to go on
+    ['1984', 0.05, 'GEORGE ORWELL', 0.025], // a title that is only a number is no sticker
+    ['THE ROAD', 0.04, 'VINTAGE INTERNATIONAL', 0.02],
+    ['BELOVED', 0.04, 'WINNER OF THE PULITZER PRIZE', 0.02],
+  ])('takes %s over the smaller %s beside it', (title, big, other, small) => {
+    const lines = [row(title, 0.3, 0.2, big, 0.1 + title.length / 200), row(other, 0.34, 0.45, small, 0.1 + other.length / 200)];
+    expect(titleOf(lines)).toBe(title);
   });
 
   it('takes the title over an author line set in the same lettering as it', () => {
@@ -56,12 +69,11 @@ describe('a spine piece\'s title is never its author line or a sticker', () => {
   });
 
   it('says which lines read as a sticker and which do not', () => {
-    for (const sticker of ['WIDESCREEN', 'Stock No. 038', '03928', "COLLECTOR'S", '10th ANNIVERSARY EDITION', "DIRECTOR'S CUT"]) {
-      expect([sticker, readsAsSticker(sticker)]).toEqual([sticker, true]);
-    }
-    for (const title of ['HALLOWEEN', 'Full Metal Jacket', 'A Court of Thorns and Roses', 'Charlotte\'s Web', 'EXCALIBUR']) {
-      expect([title, readsAsSticker(title)]).toEqual([title, false]);
-    }
+    const stickers = ['WIDESCREEN', 'Stock No. 038', '03928', "COLLECTOR'S", '10th ANNIVERSARY EDITION', "DIRECTOR'S CUT", 'SPECIAL EDITION', 'Vol 2'];
+    for (const sticker of stickers) expect([sticker, readsAsSticker(sticker, T)]).toEqual([sticker, true]);
+    // A number says nothing either way, and nearly every sticker word is somebody's title on its own.
+    const titles = ['HALLOWEEN', 'Full Metal Jacket', 'A Court of Thorns and Roses', 'Charlotte\'s Web', 'EXCALIBUR', '1984', 'SE7EN', 'GREMLINS2', '300', 'Used', 'Special', 'Side', 'Cut'];
+    for (const title of titles) expect([title, readsAsSticker(title, T)]).toEqual([title, false]);
   });
 });
 
@@ -118,8 +130,37 @@ describe('a title printed over two rows of one spine', () => {
     expect(titleOf(lines)).toBe('HOW STELLA GOT HER GROOVE BACK');
   });
 
+  it('does not join the next spine along, which the chosen row does not touch', () => {
+    const lines = [row('THE SHINING', 0.6, 0.2, 0.03, 0.16), row('CARRIE', 0.566, 0.21, 0.03, 0.1)];
+    expect(titleOf(lines)).toBe('THE SHINING');
+  });
+
+  it('does not join a row that only runs beside part of the chosen one', () => {
+    // The second spine's text sits inside the chosen row's span but covers barely half of it: not a row of this title.
+    const lines = [row('SLEEPAWAY CAMP 3 TEENAGE WASTELAND', 0.283, 0.423, 0.134, 0.32), row('TOTAL RECALL', 0.208, 0.527, 0.087, 0.123)];
+    expect(titleOf(lines)).toBe('SLEEPAWAY CAMP 3 TEENAGE WASTELAND');
+  });
+
   it('says nothing for a piece with no line in it', () => {
     expect(shelfTitleOf([], T)).toBeUndefined();
+  });
+});
+
+describe('what is left over for the author-finder', () => {
+  it('never offers the title\'s own second row as the author', async () => {
+    const lines = [row('THE HUNGER', 0.6, 0.2, 0.03, 0.12), row('GAMES', 0.571, 0.205, 0.029, 0.11)];
+    expect(titleOf(lines)).toBe('THE HUNGER GAMES');
+    expect(creatorsOf(lines)).toEqual([]);
+  });
+
+  it('never offers a sticker as the author', async () => {
+    const lines = [row('HALLOWEEN', 0.1, 0.4, 0.05, 0.25), line('WIDESCREEN', 0.1, 0.1, 0.09, 0.02)];
+    expect(creatorsOf(lines)).toEqual([]);
+  });
+
+  it('still offers the name beside the title', async () => {
+    const lines = [row('THE NIGHT CIRCUS', 0.1, 0.2, 0.05, 0.3), row('ERIN MORGENSTERN', 0.115, 0.55, 0.025, 0.2)];
+    expect(creatorsOf(lines)).toEqual(['ERIN MORGENSTERN']);
   });
 });
 

@@ -1,8 +1,8 @@
 // The title of a stretch of shelf, one upright spine mostly. A spine prints more than its title, and Vision reads the same
 // spine several times, damaged differently each time, so the title is settled in four steps (#617): of several readings of
 // one place only the one the others agree with stays; a sticker and a line that names the author's standing go, whatever
-// size they are printed; of what is left only the biggest lettering can be the title, which is what keeps the author's
-// name out of it; and a title printed over two rows of one spine is read as one title.
+// size they are printed; of what is left the biggest lettering is the title, which is what keeps the author's name out of
+// it; and a title printed over two rows of one spine is read as one title.
 //
 // The author's name is kept out by its lettering and not by reading like a name: creators.ts's name test, which may guess
 // wrong cheaply, matches most shelf titles too ("THEY LIVE", "Funny Feelings", "THE LUCKIEST LADY IN LONDON"), and asking
@@ -11,21 +11,31 @@
 import type { Rect, TextLine } from '@/native/cm-vision';
 import { readsAsRole } from './creators';
 import type { LocalTuning } from './defaults';
-import { bottom, overlapShare, right, yOverlapShare } from './geometry';
+import { bottom, overlapShare, right } from './geometry';
 import { wordsOf } from './lines';
 
-/** Words that name a sticker and never an item: an edition, a format, a shelf code. A line of nothing else is a sticker. */
+/**
+ * Words that mark a sticker: an edition, a format, a shelf code. Nearly every one of them is also a title on its own
+ * ("Special", "Cut", "Used", "Side"), so one of these alone is still read as a title.
+ */
 const STICKER_WORDS = new Set([
-  'widescreen', 'fullscreen', 'screen', 'wide', 'full', 'special', 'collector', 'collectors', 'limited', 'deluxe',
-  'anniversary', 'edition', 'editions', 'remastered', 'digitally', 'unrated', 'rated', 'director', 'directors', 'cut',
-  'stock', 'no', 'vol', 'disc', 'side', 'sealed', 'used', 'price', 'sale', 'closed', 'captioned', 'ntsc', 'pal',
+  'screen', 'wide', 'full', 'special', 'limited', 'deluxe', 'anniversary', 'edition', 'editions', 'rated', 'director',
+  'directors', 'cut', 'stock', 'no', 'vol', 'disc', 'side', 'sealed', 'used', 'price', 'sale', 'closed', 'captioned',
 ]);
+
+/** Words that are a sticker on their own: no item is called any of these. */
+const STICKER_ALONE = new Set(['widescreen', 'fullscreen', 'collector', 'collectors', 'remastered', 'digitally', 'unrated', 'ntsc', 'pal']);
+
+/** A number an item prints: a count, a year, an ordinal ("10th"). It says nothing either way about a sticker. */
+const isNumber = (word: string) => /^\d+(st|nd|rd|th)?$/.test(word);
 
 export interface ShelfTitle {
   /** The line the title was read from; the author-finder must not take that line for the author. */
   line: TextLine;
   /** Its text, with the second row of a two-row title read as part of it. */
   text: string;
+  /** The lines left over that could name the author: not the title's own rows, and no sticker. */
+  rest: TextLine[];
 }
 
 /** A line down a spine is read sideways, so its letters are as tall as its box is wide; a line across one reads upright. */
@@ -34,20 +44,31 @@ const letters = (l: TextLine) => (isSideways(l) ? l.box.width : l.box.height);
 const area = (r: Rect) => r.width * r.height;
 const sameSize = (a: number, b: number, share: number) => Math.min(a, b) >= Math.max(a, b) * share;
 
-/** Shared horizontal span over the narrower box's width: the mirror of `yOverlapShare`, for a title lying flat. */
-function xOverlapShare(a: Rect, b: Rect): number {
-  const w = Math.min(right(a), right(b)) - Math.max(a.x, b.x);
-  return w <= 0 ? 0 : w / Math.min(a.width, b.width);
+/**
+ * How much of the longer row the two rows share along the line: down the picture for an upright spine, across it for a label
+ * lying flat. Measured against the longer row, so a short line that happens to sit inside a long one does not read as a row
+ * running beside it for its whole length.
+ */
+function alongShare(a: Rect, b: Rect, sideways: boolean): number {
+  const span = sideways
+    ? Math.min(bottom(a), bottom(b)) - Math.max(a.y, b.y)
+    : Math.min(right(a), right(b)) - Math.max(a.x, b.x);
+  const longest = sideways ? Math.max(a.height, b.height) : Math.max(a.width, b.width);
+  return span <= 0 ? 0 : span / longest;
 }
 
 /**
- * Whether the line says nothing but numbers and a sticker's words: a stock number, "WIDESCREEN", "10th ANNIVERSARY
- * EDITION", "COLLECTOR'S". A word of one letter says nothing either way, so it neither makes a sticker nor saves a line
- * from being one. A word with a number in it is a code or a count, never the whole of a title.
+ * Whether the line says nothing but a sticker: every word is a number or one of a sticker's words, and at least one of them
+ * is a word and not a number. "WIDESCREEN", "Stock No. 038" and "10th ANNIVERSARY EDITION" are stickers; "1984", "SE7EN"
+ * and "GREMLINS2" are titles. One word on its own is a sticker only when no item is called that, or when it is a run of
+ * digits too long to be a year or a count. A single letter says nothing: it neither makes a sticker nor saves a line from
+ * being one, so "COLLECTOR'S" is a sticker while "Vol 2", whose 2 is a number and does count, is one too.
  */
-export function readsAsSticker(text: string): boolean {
-  const words = wordsOf(text).filter((w) => w.length > 1);
-  return words.length === 0 || words.every((w) => /\d/.test(w) || STICKER_WORDS.has(w));
+export function readsAsSticker(text: string, tuning: LocalTuning): boolean {
+  const words = wordsOf(text).filter((w) => w.length > 1 || isNumber(w));
+  if (words.length === 0) return true;
+  if (words.length === 1) return STICKER_ALONE.has(words[0]) || (isNumber(words[0]) && words[0].length >= tuning.stickerCodeDigits);
+  return words.every((w) => isNumber(w) || STICKER_WORDS.has(w) || STICKER_ALONE.has(w)) && words.some((w) => !isNumber(w));
 }
 
 const jaccard = (a: Set<string>, b: Set<string>): number => {
@@ -106,16 +127,21 @@ class Readings {
     return others.reduce((sum, k) => sum + sharedShare(this.said(l), this.said(k)), 0) / others.length;
   }
 
-  /** The better of two readings: the one the others agree with more, else the surer and longer. */
+  /**
+   * The better of two lines as a title: the one the other readings of its place agree with more; then the one printed in
+   * bigger lettering, since an author's name, a bestseller line and a sticker all sit under a title set larger than they
+   * are; and only then the surer, longer reading, which is all the choice went by before (#617).
+   */
   better(a: TextLine, b: TextLine, pool: TextLine[]): TextLine {
-    const mine = this.agreement(a, pool);
-    const theirs = this.agreement(b, pool);
-    return theirs > mine || (theirs === mine && weight(b) > weight(a)) ? b : a;
+    const keys = (l: TextLine) => [this.agreement(l, pool), letters(l), weight(l)];
+    const [mine, theirs] = [keys(a), keys(b)];
+    const first = mine.findIndex((k, i) => k !== theirs[i]);
+    return first >= 0 && theirs[first] > mine[first] ? b : a;
   }
 
   /**
    * The second row of a title printed over two rows of one spine: the same lettering, beside the chosen row along the whole
-   * of it and within a letter's gap, in another place, saying other words. Another reading of the chosen row is neither.
+   * of it and touching it, in another place, saying other words. Another reading of the chosen row is none of those.
    */
   secondRow(chosen: TextLine, pool: TextLine[]): TextLine | undefined {
     const sideways = isSideways(chosen);
@@ -123,12 +149,13 @@ class Readings {
     const beside = (k: TextLine) => {
       if (isSideways(k) !== sideways || this.samePlace(chosen, k) || this.sameText(chosen, k)) return false;
       if (overlapShare(chosen.box, k.box) >= this.tuning.titleRowOverlap) return false;
-      if (!sameSize(letters(k), size, this.tuning.titleLetters)) return false;
-      const along = sideways ? yOverlapShare(chosen.box, k.box) : xOverlapShare(chosen.box, k.box);
+      if (!sameSize(letters(k), size, this.tuning.titleRowLetters)) return false;
+      // The two rows of one title touch or overlap in the picture. A line that merely sits near the chosen row is the next
+      // spine along, an award line or a publisher, and joining one of those would say two things as one title.
       const gap = sideways
         ? Math.max(chosen.box.x, k.box.x) - Math.min(right(chosen.box), right(k.box))
         : Math.max(chosen.box.y, k.box.y) - Math.min(bottom(chosen.box), bottom(k.box));
-      return along >= this.tuning.titleRowOverlap && gap <= size * this.tuning.titleRowMaxGap;
+      return alongShare(chosen.box, k.box, sideways) >= this.tuning.titleRowOverlap && gap <= 0;
     };
     // Of two rows beside the chosen one, the surer, longer reading is the real second row.
     const rows = pool.filter((k) => k !== chosen && beside(k));
@@ -155,15 +182,12 @@ export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning): ShelfTitle
   // One reading per place: the reading the other readings of that place agree with, so the worst of three does not win.
   const agreeing = lines.filter((l) => readings.of(l, lines).every((k) => readings.better(l, k, lines) === l));
   // A sticker and a line that names the author's standing are never an item's title, whatever size they are printed.
-  const said = without(agreeing, (l) => readsAsSticker(l.text) || readsAsRole(l.text));
-  // Only the biggest lettering left can be the title. An author's name is printed smaller than the title above it, so this
-  // is what keeps it out; a shelf label and a stock number are smaller still.
-  const biggest = Math.max(...said.map(letters));
-  const big = said.filter((l) => sameSize(letters(l), biggest, tuning.titleLetters));
-  const chosen = big.reduce((best, l) => readings.better(best, l, lines));
-  // The second row is looked for among every line the piece could print, not only the biggest: a title's second row is
-  // measured against the row chosen, not against the biggest lettering a damaged reading of the spine happens to claim.
+  const said = without(agreeing, (l) => readsAsSticker(l.text, tuning) || readsAsRole(l.text));
+  const chosen = said.reduce((best, l) => readings.better(best, l, lines));
   const second = readings.secondRow(chosen, said);
-  const text = (second ? inRowOrder(chosen, second) : [chosen]).map((l) => l.text.trim()).join(' ');
-  return { line: chosen, text };
+  const rows = second ? inRowOrder(chosen, second) : [chosen];
+  // The author is looked for among what the title did not use, and never among the stickers: a shelf piece's creator is a
+  // guess, but a guess of "WIDESCREEN", or of the title's own second row, costs the server a right title (creators.ts).
+  const rest = lines.filter((l) => !rows.includes(l) && !readsAsSticker(l.text, tuning));
+  return { line: chosen, text: rows.map((l) => l.text.trim()).join(' '), rest };
 }
