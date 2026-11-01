@@ -5,7 +5,7 @@
 .DESCRIPTION
   Nothing on the real machine is touched: every external command is replaced by a recorder and the scripts run against
   throwaway folders in the temp directory. The compose tests call `docker compose config`, which needs the docker CLI
-  but not the daemon. The shell tests (backup, the CI gate, the CI coverage check) run with bash.
+  but not the daemon. The shell tests (backup, the CI gate, the CI coverage check, the changed-areas classifier) run with bash.
 
   The one exception is the restore-drill suite (restore-drill.test.sh): it starts real throwaway Postgres containers
   (cm-ops1-test-*, no network, no ports, no volumes, removed afterwards) and so needs a running Docker daemon and the
@@ -43,7 +43,7 @@ function Find-Bash {
 $bash = Find-Bash
 # backup.test.sh needs nothing but bash. restore-drill.test.sh starts real throwaway Postgres containers (named
 # cm-ops1-test-*, no network, no volumes, removed afterwards), so it needs a running Docker daemon: -SkipDocker leaves it out.
-$shellSuites = @('backup.test.sh', 'restore-guard.test.sh', 'ci-gate.test.sh', 'ci-coverage.test.sh')
+$shellSuites = @('backup.test.sh', 'restore-guard.test.sh', 'ci-gate.test.sh', 'ci-coverage.test.sh', 'changed-areas.test.sh')
 if (-not $SkipDocker) { $shellSuites += 'restore-drill.test.sh' }
 foreach ($suite in $shellSuites) {
     if (-not $bash) {
