@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Evals;
 using CollectionMaxxing.Application.Scanning;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 
 namespace CollectionMaxxing.Api.Tests.Evals;
 
@@ -87,6 +89,38 @@ public abstract class RegroundTest : OpenRunTest
     }
 
     protected static void Wake(WebApplicationFactory<Program> host) => host.Services.GetRequiredService<EvalRunCoordinator>().Wake();
+
+    /// <summary>Adds to whatever <see cref="ApiTest.ConfigureServices"/> already does, instead of replacing it: the clock and the flaky search below can be used together.</summary>
+    private void AddConfigureServices(Action<IServiceCollection> add)
+    {
+        var before = ConfigureServices;
+        ConfigureServices = services =>
+        {
+            before?.Invoke(services);
+            add(services);
+        };
+    }
+
+    /// <summary>Runs the app on a clock the test moves, so a wait between tries of a failed photo is advanced by hand instead of waited out for real.</summary>
+    protected void UseClock(FakeTimeProvider clock) =>
+        AddConfigureServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(clock);
+        });
+
+    /// <summary>
+    /// Runs the app over a local catalogue search that refuses to answer while <paramref name="fails"/> says so: a lookup that fails under the PC
+    /// (a provider's own failure is never let through, by design (<c>docs/02</c>), so this is the fault a real "the lookup failed" looks like).
+    /// </summary>
+    protected void UseFlakyLocalSearch(Func<bool> fails) =>
+        AddConfigureServices(services =>
+        {
+            var original = services.Single(d => d.ServiceType == typeof(ILocalCatalogSearch));
+            services.Remove(original);
+            services.AddScoped<ILocalCatalogSearch>(provider =>
+                new FlakyLocalSearch((ILocalCatalogSearch)ActivatorUtilities.CreateInstance(provider, original.ImplementationType!), fails));
+        });
 
     protected static HttpClient AdminOn(WebApplicationFactory<Program> host)
     {
