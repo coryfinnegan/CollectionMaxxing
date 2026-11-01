@@ -93,6 +93,7 @@ jobs:
         run: pod install
 
       - name: Build for the simulator, unsigned
+        id: build
         # Release, so the JS bundle is built too (a Debug build loads it from Metro and would miss bundling errors).
         working-directory: app/ios
         run: |
@@ -115,8 +116,12 @@ jobs:
             ccache -s
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # As in ios-build.yml: a build that found every compile in the cache has nothing new to keep.
+          misses=$(ccache -s | awk '/^  Misses:/ { print $2; exit }')
+          echo "new=$([ "${misses:-1}" = 0 ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
 
       - name: Save the ccache
+        if: steps.build.outputs.new == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ccache

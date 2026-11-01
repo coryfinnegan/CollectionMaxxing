@@ -264,17 +264,22 @@ jobs:
             archive
 
       # Only a build that archived saves the cache, and only from main: a tag's cache would be unreachable by later
-      # builds, since a cache is shared only with the branch it was saved on and the default branch.
+      # builds, since a cache is shared only with the branch it was saved on and the default branch. A build that found
+      # every compile in the cache has nothing new to keep, and a saved cache is never updated, only added (about 1 GB
+      # each, against the repository's 10 GB), so it is saved only when something was compiled.
       - name: ccache statistics
+        id: ccachestats
         run: |
           ccache -s
           { echo "### ccache"; echo '```'; ccache -s; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           if ! ccache -s | grep -q "Cacheable calls"; then
             echo "::warning::ccache recorded no compiles, so the archive did not go through it. Check the Podfile's ccache setting (apple.ccacheEnabled) and that CCACHE_BINARY reaches xcodebuild."
           fi
+          misses=$(ccache -s | awk '/^  Misses:/ { print $2; exit }')
+          echo "new=$([ "${misses:-1}" = 0 ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
 
       - name: Save the ccache
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.ccachestats.outputs.new == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.ccache
