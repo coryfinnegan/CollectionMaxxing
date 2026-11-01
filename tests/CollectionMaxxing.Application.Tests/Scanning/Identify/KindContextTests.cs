@@ -95,4 +95,40 @@ public class KindContextTests
     {
         KindContext.InFamily(release, snap).ShouldBe(expected);
     }
+
+    // ---- the shelf's own print --------------------------------------------------------------------------------------
+
+    [Fact]
+    public void The_shelfs_own_print_is_the_snaps_kind()
+    {
+        KindContext.Of(WorkKind.Film, []).ShouldBe(WorkKind.Film);
+        KindContext.Of(WorkKind.Game, []).ShouldBe(WorkKind.Game);
+    }
+
+    [Fact]
+    public void The_print_wins_over_the_kinds_the_reads_name()
+    {
+        // The picture model called every tape on one shelf a book; the shelf's print said DVD, VHS and a running time.
+        KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book]).ShouldBe(WorkKind.Film);
+    }
+
+    [Fact]
+    public void With_no_print_the_kinds_the_reads_agree_on_still_speak()
+    {
+        KindContext.Of(null, [WorkKind.Book, WorkKind.Book, WorkKind.Book]).ShouldBe(WorkKind.Book);
+        KindContext.Of(null, [WorkKind.Book, WorkKind.Film]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_print_that_says_nothing_says_nothing()
+    {
+        KindContext.Of(WorkKind.Other, [WorkKind.Book, WorkKind.Book, WorkKind.Book]).ShouldBe(WorkKind.Book);
+        KindContext.Of(WorkKind.Other, []).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_show_printed_on_the_shelf_is_the_film_family()
+    {
+        KindContext.Of(WorkKind.Tv, []).ShouldBe(WorkKind.Film);
+    }
 }

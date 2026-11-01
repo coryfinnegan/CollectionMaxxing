@@ -40,7 +40,8 @@ public sealed record IdentifyItemInput(
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
 /// a cover read to the T2 row it was shot for (design §8(b)), which is then upgraded in place instead of adding candidates;
 /// <c>BoundItemId</c> ties an edition-proof read to the library item it verifies (design §11), which is upgraded in place
-/// on a match and never touched otherwise.
+/// on a match and never touched otherwise. <c>PrintKind</c> is the kind the shelf's own print says it is a shelf of (the phone's
+/// <c>shelfKind.ts</c>): a snap-wide hint for <see cref="KindContext"/>, never a read's own kind and never a filter.
 /// </summary>
 public sealed record IdentifyInput(
     Guid? SnapId,
@@ -51,7 +52,8 @@ public sealed record IdentifyInput(
     ShotKind? ShotKind = null,
     IdentifyKind Kind = IdentifyKind.Shelf,
     Guid? BoundCandidateId = null,
-    Guid? BoundItemId = null);
+    Guid? BoundItemId = null,
+    WorkKind? PrintKind = null);
 
 public static class IdentifyErrors
 {
@@ -179,15 +181,21 @@ internal static class IdentifyCleaning
             .Sum(value => value is null ? 0 : Encoding.UTF8.GetByteCount(value));
 
     /// <summary>
-    /// Cleans the items of one snap, and tells each read that names no kind what kind the rest of the snap agreed on
-    /// (<see cref="KindContext"/>, which only orders level-scoring releases). The eval grounder cleans through here too, so the
-    /// live path and the eval run order a shelf's kindless reads by one rule.
+    /// Cleans the items of one snap, and tells each read that names no kind what kind the snap is of (<see cref="KindContext"/>,
+    /// which only orders level-scoring releases): what the shelf's own print said (<paramref name="printKind"/>), else the kind the
+    /// rest of the snap agreed on. The eval grounder cleans through here too, so the live path and the eval run order a shelf's
+    /// kindless reads by one rule. A print kind belongs to a shelf: on a single cover or an edition proof the read's own kind already
+    /// carries what that one item's print said, so this ignores it.
     /// </summary>
-    public static List<CleanItem> Clean(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind = IdentifyKind.Shelf, IGameSerialLookup? serials = null) =>
-        WithSnapKind(CleanEach(items, kind, serials));
+    public static List<CleanItem> Clean(
+        IReadOnlyList<IdentifyItemInput> items,
+        IdentifyKind kind = IdentifyKind.Shelf,
+        IGameSerialLookup? serials = null,
+        WorkKind? printKind = null) =>
+        WithSnapKind(CleanEach(items, kind, serials), kind is IdentifyKind.Shelf ? printKind : null);
 
-    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned) =>
-        KindContext.Dominant(cleaned.Select(c => c.Facts.Kind)) is { } snapKind
+    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned, WorkKind? printKind) =>
+        KindContext.Of(printKind, cleaned.Select(c => c.Facts.Kind)) is { } snapKind
             ? [.. cleaned.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
             : cleaned;
 

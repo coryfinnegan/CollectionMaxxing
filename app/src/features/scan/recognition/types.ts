@@ -2,6 +2,7 @@
 import type { ItemCompleteness, ReleaseFormat, WorkKind } from '@/api/generated/models';
 import type { ModelConfidence, Rect, TextLine } from '@/native/cm-vision';
 import type { ShotKind } from '../shotkind/shotKind';
+import type { CueKind } from './coverKind';
 
 /** A still the camera took. `uri` stays on the phone and is only ever handed to the native module. */
 export interface Still {
@@ -64,6 +65,13 @@ export interface SnapReading {
    * left out, the format, kind and product code it gave, and whether it came in time. For the eval record only; the scanner ignores it.
    */
   coverCue?: string;
+  /**
+   * The kind the shelf's own print says it is a shelf of (`shelfKind`): a film shelf prints a disc or tape format, a running time or the
+   * aspect its picture is in, a game shelf a console's name, a book shelf a bestseller line. It belongs to the snap, never to a read: the
+   * server searches every provider as before and only lists releases of that kind first where they score level. Absent on a single-item
+   * shot (its own print speaks for its one item) and on a shelf whose print says nothing, or says two things.
+   */
+  printKind?: CueKind;
   /** Items that were there but could not be read; the scanner shows its "Get closer" chip when above 0. */
   unreadableCount: number;
   engine: EngineName;

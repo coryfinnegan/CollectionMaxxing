@@ -5,6 +5,7 @@ import type { IdentifyItem } from '@/api/generated/models';
 import { MemoryKeyValueStore, type KeyValueStore } from '@/features/scan/tray/trayStore';
 import type { ShotKind } from '../shotkind/shotKind';
 import type { SnapTrigger } from '../autosnap/types';
+import type { CueKind } from '../recognition/coverKind';
 import type { EngineName, FellBackFrom } from '../recognition/types';
 
 const STORAGE_KEY = 'scan-pipeline-v1';
@@ -50,6 +51,11 @@ export interface PicSnap {
   unreadableCount: number;
   engine?: EngineName;
   fellBackFrom?: FellBackFrom;
+  /**
+   * The kind this shelf's own print says it is a shelf of (`shelfKind`), sent with the snap so the server lists releases of that kind
+   * first where they score level with the others. Absent on a single-item shot and on a shelf whose print says nothing.
+   */
+  printKind?: CueKind;
   /** Review's "Snap cover": this picture was shot for one T2 row, which it upgrades in place. Absent on older snaps. */
   boundCandidateId?: string;
 }
@@ -65,7 +71,7 @@ export interface PipelineState {
 export type PipelineStore = PipelineState & {
   addSnap(snap: PicSnap): void;
   upsertItem(snapId: string, item: PicItem): void;
-  finishRead(snapId: string, update: { items: PicItem[]; unreadableCount: number; engine: EngineName; fellBackFrom?: FellBackFrom }): void;
+  finishRead(snapId: string, update: { items: PicItem[]; unreadableCount: number; engine: EngineName; fellBackFrom?: FellBackFrom; printKind?: CueKind }): void;
   /** The picture shown on the snap's own line, until its items have crops of their own. */
   setSnapThumb(snapId: string, thumbUri: string): void;
   setThumb(snapId: string, localId: string, thumbUri: string): void;
@@ -115,7 +121,7 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
             ? s.items.map((i) => (i.localId === item.localId ? { ...i, ...item, thumbUri: item.thumbUri ?? i.thumbUri } : i))
             : [...s.items, item],
         })),
-      finishRead: (snapId, { items, unreadableCount, engine, fellBackFrom }) => {
+      finishRead: (snapId, { items, unreadableCount, engine, fellBackFrom, printKind }) => {
         // The final reading supersedes what streamed (after a fallback or a merge of halves); crops already made are kept.
         edit(snapId, (s) => ({
           ...s,
@@ -124,6 +130,7 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
           unreadableCount,
           engine,
           ...(fellBackFrom ? { fellBackFrom } : {}),
+          ...(printKind ? { printKind } : {}),
         }));
         set({ unreadableCount });
       },

@@ -9190,6 +9190,16 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "printKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkKind"
+              }
+            ]
           }
         }
       },
