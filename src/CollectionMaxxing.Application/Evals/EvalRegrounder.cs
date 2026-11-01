@@ -228,9 +228,9 @@ public sealed class EvalRegrounder(
             }
         }
 
-        if (photos.Count == 0 && givenUp > 0)
+        if (photos.Count == 0)
         {
-            return NothingGrounded; // a result with no photo in it must not replace a real one
+            return NothingGrounded; // a result with no photo in it must not replace a real one, whether none grounded or none was kept
         }
 
         // Written under the gate, after one last look: a run that opens after this starts to write waits for it, and one that opened before is left alone.

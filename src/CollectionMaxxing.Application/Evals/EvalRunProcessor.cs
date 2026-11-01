@@ -230,7 +230,7 @@ public sealed class EvalRunProcessor(
         {
             if (inputs.Load()?.RunId != header.RunId)
             {
-                await KeepReadingsAsync(header); // stopped between the result files and the readings: the photos are still here
+                await KeepReadingsAsync(header); // stopped between the result files and the readings: the photos are usually still here (it keeps nothing if not)
             }
 
             Done(header with { Partial = written.Partial });
@@ -327,6 +327,14 @@ public sealed class EvalRunProcessor(
 
                 photos.Add(new KeptPhoto(id, photo.Results));
                 skipped.AddRange(photo.Skipped);
+            }
+
+            if (photos.Count == 0)
+            {
+                // The photos were already cleared (a stop after Done cleared them and before the run was marked done): there is nothing to keep, and
+                // readings with no photo in them must never stand in for the run.
+                logger.LogWarning("The stored eval photos were already gone, so the phone's readings of this run were not kept.");
+                return;
             }
 
             await inputs.SaveAsync(new KeptRunInputs(header.RunId, header.OpenedAt, header.Device, header.ConfigVersion, header.BaselineNote, header.Partial, header.OpenedBy, photos, skipped), CancellationToken.None);

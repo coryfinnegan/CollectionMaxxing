@@ -213,6 +213,23 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
         ResultFiles().Count.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Kept_readings_that_hold_no_photo_are_never_re_scored_over_the_latest_result()
+    {
+        StarFoxGolden("c1", "c2");
+        var firstRun = await FirstRunAsync("c1", "c2");
+        var path = Path.Combine(Golden.Results, "latest-inputs.json");
+        var kept = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
+        kept["photos"] = new JsonArray(); // what a keep could write if the photos were already cleared
+        await File.WriteAllTextAsync(path, kept.ToJsonString());
+
+        await RedeployAsync();
+
+        (await LogsAsync("evals.nothing_grounded")).ShouldBeTrue();
+        LatestRunId().ShouldBe(firstRun, "readings with no photo in them never make a result");
+        ResultFiles().Count.ShouldBe(1);
+    }
+
     /// <summary>Damages the kept readings of these photos so that grounding them throws: an engine the PC cannot read.</summary>
     private async Task BreakKeptReadingsAsync(params string[] photoIds)
     {
