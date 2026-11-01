@@ -45,7 +45,8 @@ public static class EvalReport
             skipped,
             scored.Engines,
             M3Gate.Evaluate(scored.Engines, run.Partial),
-            EvalRegression.Check(run.Partial ? null : baseline, metrics, run.Partial, new ThresholdAttestation(thresholdHash, baselineThresholdHash, note)),
+            EvalRegression.Check(
+                run.Partial ? null : baseline, metrics, run.Partial, new ThresholdAttestation(thresholdHash, baselineThresholdHash, note), EvalRegression.Denominators(scored.Engines)),
             metrics,
             run.Partial,
             run.Photos.Where(p => truths.ContainsKey(p.PhotoId)).Select(p => p.PhotoId).Distinct(StringComparer.Ordinal).Count(),
@@ -106,7 +107,7 @@ public static class EvalReport
         foreach (var item in summary.Regression.Regressions)
         {
             text.Append("- ").Append(item.Metric).Append(": ").Append(Number(item.Baseline)).Append(" -> ").Append(Number(item.Actual))
-                .Append(" (").Append(Number(item.Points)).AppendLine(" points worse)");
+                .Append(" (").Append(EvalRegression.Describe(item)).AppendLine(")");
         }
 
         foreach (var (engine, numbers) in summary.Engines)

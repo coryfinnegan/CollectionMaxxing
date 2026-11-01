@@ -534,7 +534,7 @@ public sealed class CombinedEngineTests : IDisposable
         var run = Evaluate(ARunWhereVisionFindsWhatTheModelMissed(), baseline);
 
         run.Summary.Regression.Status.ShouldBe("ok");
-        run.Summary.Regression.Compared.ShouldBe(baseline.Count);
+        run.Summary.Regression.Compared.ShouldBe(baseline.Keys.Count(EvalRegression.IsJudged)); // the raw counts are not judged
     }
 
     [Fact]

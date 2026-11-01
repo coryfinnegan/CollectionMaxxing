@@ -50,7 +50,7 @@ public static class EvalThresholds
             ["matched_lead"] = Number(scoring.MatchedLead),
             ["matched_score"] = Number(scoring.MatchedScore),
             ["platform_mismatch_cap"] = Number(scoring.PlatformMismatchCap),
-            ["regression.allowed_points"] = Number(EvalRegression.AllowedPoints),
+            ["regression.allowed_points"] = Number(EvalRegression.AllowedPoints), // the floor of a rate's allowance; the sample-size and time-ratio rules are not hashed
             ["tier.rules"] = TierRulesVersion,
             ["title_year_mismatch_cap"] = Number(scoring.TitleYearMismatchCap),
         };

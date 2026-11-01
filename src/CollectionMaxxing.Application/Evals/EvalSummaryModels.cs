@@ -1,12 +1,14 @@
 #pragma warning disable CA1720 // "Single" is the set's name in the result file, not the System.Single type.
 namespace CollectionMaxxing.Application.Evals;
 
-/// <summary>Top-1 and top-3 for one item kind. Percentages are 0 to 100 (a "point" in the 2-point rule is one of these).</summary>
+/// <summary>Top-1 and top-3 for one item kind. Percentages are 0 to 100 (a "point" in the regression rule is one of these).</summary>
 public sealed record KindMetrics(int Items, int Top1Hits, int Top3Hits, double? Top1Pct, double? Top3Pct);
 
 /// <summary>
 /// The numbers for one engine on one set (shelf or single). No title, no file name and no path: aggregates and ids only, so the
 /// result file can be committed. A percentage is null when there was nothing to divide by.
+/// <c>TitleHits</c>, <c>PlatformChecks</c> and <c>CompletenessChecks</c> are what <c>TypeAccuracyPct</c>, <c>PlatformAccuracyPct</c> and
+/// <c>CompletenessAccuracyPct</c> divide by, kept so the regression check can tell how much chance moves each of them.
 /// </summary>
 public sealed record SliceMetrics(
     int Photos,
@@ -50,7 +52,10 @@ public sealed record SliceMetrics(
     long? TimeToFirstResultsMs = null,
     long? TotalTimeToTrustworthyMs = null,
     int UnreconciledPhotos = 0,
-    int ExcessUnreadable = 0);
+    int ExcessUnreadable = 0,
+    int TitleHits = 0,
+    int PlatformChecks = 0,
+    int CompletenessChecks = 0);
 
 public sealed record EngineSummary(
     SliceMetrics? Shelf,
@@ -73,9 +78,18 @@ public sealed record VisionComparison(double? AppleTop1Pct, double? VisionTop1Pc
 /// </summary>
 public sealed record GateTable(string Engine, string Verdict, IReadOnlyList<GateMeasure> Measures, VisionComparison Comparison);
 
-public sealed record RegressionItem(string Metric, double Baseline, double Actual, double Points);
+/// <summary>
+/// One metric that moved the wrong way by more than it was allowed to. <c>Points</c> is how far it moved (percentage points for a rate,
+/// seconds for a time) and <c>Allowed</c> is how far it could have moved without being flagged. A result file written before the
+/// allowance was recorded reads as the old rule, 2 points.
+/// </summary>
+public sealed record RegressionItem(string Metric, double Baseline, double Actual, double Points, double Allowed = EvalRegression.AllowedPoints);
 
-/// <summary>The regression check against <c>evals/baseline.json</c>: <c>ok</c>, <c>regressed</c> (a metric moved the wrong way by more than 2 points) <c>no_baseline</c>, <c>no_overlap</c> (the baseline shares no metric with the run, so nothing was compared) or <c>partial_run</c> (the run was cancelled part way, so it is not compared).</summary>
+/// <summary>
+/// The regression check against <c>evals/baseline.json</c>: <c>ok</c>, <c>regressed</c> (a metric moved the wrong way by more than it was allowed to, see <see cref="EvalRegression"/>),
+/// <c>no_baseline</c>, <c>no_overlap</c> (the baseline shares no judged metric with the run, so nothing was compared) or <c>partial_run</c> (the run was cancelled part way, so it is not compared).
+/// <c>Compared</c> counts the metrics that were judged; the raw counts are not.
+/// </summary>
 public sealed record RegressionCheck(string Status, int Compared, IReadOnlyList<RegressionItem> Regressions);
 
 /// <summary>
