@@ -183,8 +183,9 @@ internal static class IdentifyCleaning
     /// <summary>
     /// Cleans the items of one snap, and tells each read that names no kind what kind the snap is of (<see cref="KindContext"/>,
     /// which only orders level-scoring releases): what the shelf's own print said (<paramref name="printKind"/>), else the kind the
-    /// rest of the snap agreed on. The eval grounder cleans through here too, so the live path and the eval run order a shelf's
-    /// kindless reads by one rule. A print kind belongs to a shelf: on a single cover or an edition proof the read's own kind already
+    /// rest of the snap agreed on. A read whose own kind the print denies keeps no kind, so that the print reaches it
+    /// (<see cref="WithoutKindsThePrintDenies"/>). The eval grounder cleans through here too, so the live path and the eval run order a
+    /// shelf's reads by one rule. A print kind belongs to a shelf: on a single cover or an edition proof the read's own kind already
     /// carries what that one item's print said, so this ignores it.
     /// </summary>
     public static List<CleanItem> Clean(
@@ -194,10 +195,37 @@ internal static class IdentifyCleaning
         WorkKind? printKind = null) =>
         WithSnapKind(CleanEach(items, kind, serials), kind is IdentifyKind.Shelf ? printKind : null);
 
-    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned, WorkKind? printKind) =>
-        KindContext.Of(printKind, cleaned.Select(c => c.Facts.Kind)) is { } snapKind
-            ? [.. cleaned.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
-            : cleaned;
+    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned, WorkKind? printKind)
+    {
+        var reads = WithoutKindsThePrintDenies(cleaned, printKind);
+        return KindContext.Of(printKind, reads.Select(c => c.Facts.Kind)) is { } snapKind
+            ? [.. reads.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
+            : reads;
+    }
+
+    /// <summary>
+    /// The reads with a kind the shelf's print denies taken off them. The print is better evidence of what a shelf holds than a kind an
+    /// engine guessed for one spine from the picture: the picture model called every tape on one shelf a book, and the scanner lends
+    /// that guess to the Vision read of the same spine before it sends the snap, so without this the print would never reach the read
+    /// it is about. Such a read keeps no kind at all, which is not a filter and not a score: every provider is still asked for it, and
+    /// the snap's printed kind only lists releases of that kind first among the ones that score level. A book on a shelf of tapes is
+    /// still found as a book. A read a product code identified is left alone: that kind came from the serial table, not from a guess.
+    /// </summary>
+    private static List<CleanItem> WithoutKindsThePrintDenies(List<CleanItem> cleaned, WorkKind? printKind)
+    {
+        if (printKind is not { } printed || printed == WorkKind.Other)
+        {
+            return cleaned;
+        }
+
+        return
+        [
+            .. cleaned.Select(c =>
+                c.Facts is { Kind: { } kind, ProductCode: null } && kind != WorkKind.Other && !KindContext.InFamily(kind, printed)
+                    ? c with { Facts = c.Facts with { Kind = null } }
+                    : c),
+        ];
+    }
 
     private static List<CleanItem> CleanEach(IReadOnlyList<IdentifyItemInput> items, IdentifyKind kind, IGameSerialLookup? serials) =>
         items.Select(item =>

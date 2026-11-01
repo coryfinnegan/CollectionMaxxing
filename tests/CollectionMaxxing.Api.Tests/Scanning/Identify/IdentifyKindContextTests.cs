@@ -140,6 +140,31 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_read_the_print_denies_the_kind_of_is_ranked_by_the_print_instead()
+    {
+        // On a shelf the scanner lends the model's kind to the Vision read of the same spine before it sends the snap, so the read
+        // arrives calling a tape a book. The print says film, which is better evidence of what the shelf holds than that guess.
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+
+        var candidates = await IdentifyPrintedAsync(client, sessionId, "film", [.. BookReads(4), Read(title: Title, kind: "book")]);
+
+        AlternativeYears(candidates[4]).ShouldBe([FilmYear, BookYear]);
+        Resolution(candidates[4]).ShouldBe("ambiguous");
+    }
+
+    [Fact]
+    public async Task A_read_the_print_agrees_with_keeps_its_own_kind()
+    {
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+
+        var candidates = await IdentifyPrintedAsync(client, sessionId, "book", [.. BookReads(4), Read(title: Title, kind: "book")]);
+
+        AlternativeYears(candidates[4])[0].ShouldBe(BookYear);
+    }
+
+    [Fact]
     public async Task A_read_the_job_resolves_later_sees_the_kind_the_shelf_printed()
     {
         Options.ResolveBudget = TimeSpan.FromMilliseconds(300);
