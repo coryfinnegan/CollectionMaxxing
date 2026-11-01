@@ -181,14 +181,23 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
     }
 
     [Fact]
-    public async Task A_photo_that_cannot_be_grounded_in_the_re_ground_is_given_up_alone_and_the_rest_are_scored_as_a_partial_run()
+    public async Task A_photo_that_always_fails_to_ground_in_the_re_ground_is_tried_again_before_it_is_given_up_alone_and_the_rest_are_scored_as_a_partial_run()
     {
         StarFoxGolden("c1", "c2");
         var firstRun = await FirstRunAsync("c1", "c2");
         await BreakKeptReadingsAsync("c2");
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+        UseClock(clock);
 
         await RedeployAsync();
-        var rescored = await NextLatestAfterAsync(firstRun);
+        (await BecomesTrueAsync(
+            () =>
+            {
+                clock.Advance(TimeSpan.FromMinutes(3));
+                return LatestRunId() is { } id && id != firstRun;
+            },
+            Bounded)).ShouldBeTrue("it is tried again, on the injected clock, before it is given up");
+        var rescored = TryLatestSummary()!.Value;
 
         rescored.GetProperty("scoredPhotos").GetInt32().ShouldBe(3, "c1's three engines");
         rescored.GetProperty("partial").GetBoolean().ShouldBeTrue("a photo given up on is a photo the run did not cover");
@@ -196,7 +205,67 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
             .ShouldBe(["c2:grounding_failed"]);
         rescored.GetProperty("regression").GetProperty("status").GetString().ShouldBe("partial_run");
         rescored.GetProperty("regroundedFrom").GetProperty("runId").GetString().ShouldBe(firstRun);
-        Logged("could not be grounded (InvalidOperationException)").ShouldBeTrue("logged by the type of the error only");
+        Logged("try 1 of 4").ShouldBeTrue("it is tried again before it is given up");
+        Logged("could not be grounded after 4 tries (InvalidOperationException)").ShouldBeTrue("logged by the type of the error only, after the last try");
+    }
+
+    [Fact]
+    public async Task A_photo_whose_provider_fails_once_and_then_answers_is_tried_again_and_gives_a_full_re_score_compared_with_the_baseline()
+    {
+        StarFoxGolden("c1");
+        var baseline = Path.Combine(Golden.Root, "baseline.json");
+        await File.WriteAllTextAsync(baseline, JsonSerializer.Serialize(new { metrics = new Dictionary<string, double> { ["apple_model.single.top1"] = 100 } }));
+        Settings["Evals:BaselinePath"] = baseline;
+        var firstRun = await FirstRunAsync("c1");
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+        UseClock(clock);
+        var failedOnce = 0;
+        UseFlakyLocalSearch(() => Interlocked.Exchange(ref failedOnce, 1) == 0);
+
+        await RedeployAsync();
+        (await BecomesTrueAsync(
+            () =>
+            {
+                clock.Advance(TimeSpan.FromSeconds(5));
+                return LatestRunId() is { } id && id != firstRun;
+            },
+            Bounded)).ShouldBeTrue("the first failure is tried again, on the injected clock, before it answers");
+        var rescored = TryLatestSummary()!.Value;
+
+        rescored.GetProperty("scoredPhotos").GetInt32().ShouldBe(3, "every engine ground, none given up");
+        rescored.GetProperty("partial").GetBoolean().ShouldBeFalse("a photo that eventually grounds never makes the run partial");
+        rescored.GetProperty("skipped").GetArrayLength().ShouldBe(0);
+        rescored.GetProperty("regression").GetProperty("status").GetString().ShouldBe("ok", "a full re-score is compared with the baseline");
+        rescored.GetProperty("regroundedFrom").GetProperty("runId").GetString().ShouldBe(firstRun);
+        Logged("try 1 of 4").ShouldBeTrue("the first failure was tried again");
+    }
+
+    [Fact]
+    public async Task A_run_opened_while_a_re_ground_waits_to_try_a_failed_photo_again_stops_it_at_once_and_nothing_is_written()
+    {
+        StarFoxGolden("c1");
+        var firstRun = await FirstRunAsync("c1");
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+        UseClock(clock);
+        var failing = 1;
+        UseFlakyLocalSearch(() => Volatile.Read(ref failing) == 1);
+
+        var host = await RedeployAsync();
+        (await LogsAsync("try 1 of 4")).ShouldBeTrue("it failed once and is waiting to try again");
+        using var phone = AdminOn(host);
+
+        var secondRun = (await OpenOkAsync(phone)).GetProperty("runId").GetString()!;
+        (await LogsAsync("stopped because a phone run was opened")).ShouldBeTrue();
+        Volatile.Write(ref failing, 0);
+        await PutPhotoOkAsync(phone, "c1", AllEngines("c1", StarFoxRead));
+        await FinishOkAsync(phone);
+        var done = await StatusWhenDoneAsync(phone);
+
+        var summary = done.GetProperty("summary");
+        summary.GetProperty("runId").GetString().ShouldBe(secondRun);
+        IsRegrounded(summary).ShouldBeFalse("it is the phone's run, not a re-ground");
+        ResultFiles().Count.ShouldBe(2, "the stopped re-ground wrote nothing: one file for each phone run");
+        (await KeptInputsAsync()).GetProperty("runId").GetString().ShouldBe(secondRun);
     }
 
     [Fact]
@@ -205,10 +274,18 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
         StarFoxGolden("c1", "c2");
         var firstRun = await FirstRunAsync("c1", "c2");
         await BreakKeptReadingsAsync("c1", "c2");
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 31, 12, 0, 0, TimeSpan.Zero));
+        UseClock(clock);
 
         await RedeployAsync();
+        (await BecomesTrueAsync(
+            () =>
+            {
+                clock.Advance(TimeSpan.FromMinutes(3));
+                return Logged("evals.nothing_grounded");
+            },
+            Bounded)).ShouldBeTrue("both photos are tried again, on the injected clock, before they are given up");
 
-        (await LogsAsync("evals.nothing_grounded")).ShouldBeTrue();
         LatestRunId().ShouldBe(firstRun, "a result with no photo in it never replaces a real one");
         ResultFiles().Count.ShouldBe(1);
     }

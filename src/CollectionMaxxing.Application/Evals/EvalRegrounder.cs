@@ -13,13 +13,15 @@ namespace CollectionMaxxing.Application.Evals;
 /// a phone run.
 /// <list type="bullet">
 /// <item>It decides once per start, whatever the answer, and a try that fails is logged by the type of its error and not repeated until the next start.</item>
-/// <item>A photo that cannot be grounded is given up on alone, as in the phone run (<c>grounding_failed</c> in the skipped list), and the rest are scored;
-/// the re-scored run is partial when the phone's was, or when a photo was given up here, and not otherwise. When no photo can be grounded nothing is written.</item>
-/// <item>It never touches an open run. A run that opens while it works stops it, and the phone run goes ahead; nothing half done is written.</item>
+/// <item>A photo whose grounding fails is tried again after a wait, as in the phone run, and given up on alone only after the last try (<c>grounding_failed</c>
+/// in the skipped list); the rest are scored. The re-scored run is partial when the phone's was, or when a photo was given up here, and not otherwise.
+/// When no photo can be grounded nothing is written.</item>
+/// <item>It never touches an open run. A run that opens while it works, waits between tries included, stops it at once, and the phone run goes ahead;
+/// nothing half done is written.</item>
 /// <item>An empty <c>reground.request</c> file in the results folder asks for one now, even when the version is unchanged. The file is deleted as the
 /// request is taken, and it waits while a phone run is open.</item>
 /// <item>It acts as the person who opened the run, with the libraries they belong to now, as the phone run's grounding does, and it grounds with the same
-/// <see cref="EvalRunScoring.GroundAsync"/> and a fresh memo. It writes the usual result files, and no draft truth files.</item>
+/// <see cref="EvalRunScoring.GroundPhotoAsync"/> and a fresh memo. It writes the usual result files, and no draft truth files.</item>
 /// </list>
 /// </summary>
 public sealed class EvalRegrounder(
@@ -37,6 +39,12 @@ public sealed class EvalRegrounder(
     ILogger<EvalRegrounder> logger)
 {
     private static readonly DomainError NothingGrounded = new(ErrorKind.Conflict, "evals.nothing_grounded", "None of the kept phone readings could be grounded.");
+
+    /// <summary>
+    /// How long to wait after the first, second… failure of a photo before trying it again: the phone run's own waits, short of its last (longest)
+    /// one, since this is a one-off re-score with nobody waiting on an answer. One more failure than there are waits gives the photo up.
+    /// </summary>
+    private static readonly IReadOnlyList<TimeSpan> RetryAfter = [.. EvalRunProcessor.RetryAfter.Take(EvalRunProcessor.RetryAfter.Count - 1)];
 
     public async Task<EvalRunStep> StepAsync(EvalRunProgress progress, CancellationToken cancellationToken)
     {
@@ -202,19 +210,17 @@ public sealed class EvalRegrounder(
         var givenUp = 0;
         foreach (var photo in kept.Photos.Where(p => truthSet.Listing.ContainsKey(p.PhotoId)))
         {
-            try
+            if (await GroundWithRetriesAsync(photo, memo, cancellationToken) is { } grounded)
             {
-                photos.AddRange(await scoring.GroundPhotoAsync(photo.Results, memo, cancellationToken));
+                photos.AddRange(grounded);
             }
-            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            else
             {
-                // As in the phone run: a photo that cannot be grounded is left out and listed, and one bad photo never holds the rest up. Only the type is logged.
                 skipped.Add(new SkippedPhoto(photo.PhotoId, EvalRunProcessor.GroundingFailed));
                 givenUp++;
-                logger.LogWarning("Eval re-ground: a photo could not be grounded ({Failure}); it is left out of the score.", exception.GetType().Name);
             }
 
-            // The token stops a wait on a provider at once; this stops the work between photos as well.
+            // The token stops a wait on a provider, or between tries, at once; this stops the work between photos as well.
             cancellationToken.ThrowIfCancellationRequested();
             if (await RunIsOpenAsync(cancellationToken))
             {
@@ -249,6 +255,36 @@ public sealed class EvalRegrounder(
         }
 
         return await scoring.ScoreAsync(run, truthSet, skipped, cancellationToken);
+    }
+
+    /// <summary>
+    /// Grounds one photo's reads, trying again after a wait when it fails, as a phone run does (<see cref="EvalRunProcessor"/>). Null once the last
+    /// try has failed too: the photo is given up on. The wait runs on the injected clock, and a run that opens while it waits cancels it at once
+    /// (<paramref name="cancellationToken"/> is the one <see cref="RegroundAsync"/> links to the open-run token), so nothing is written.
+    /// </summary>
+    private async Task<IReadOnlyList<GroundedPhoto>?> GroundWithRetriesAsync(KeptPhoto photo, EvalGroundingMemo memo, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await scoring.GroundPhotoAsync(photo.Results, memo, cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Only the type of the error is logged: its message may name a path or a title.
+                if (attempt >= RetryAfter.Count)
+                {
+                    logger.LogError(
+                        "Eval re-ground: a photo could not be grounded after {Tries} tries ({Failure}); it is left out of the score.", attempt + 1, exception.GetType().Name);
+                    return null;
+                }
+
+                logger.LogWarning(
+                    "Eval re-ground: a photo could not be grounded ({Failure}); try {Try} of {Tries}, again soon.", exception.GetType().Name, attempt + 1, RetryAfter.Count + 1);
+                await Task.Delay(RetryAfter[attempt], clock, cancellationToken);
+            }
+        }
     }
 
     /// <summary>Whether a phone run is open or being scored. Read under the gate, as every writer of the run file holds it, so a read never meets a write half way.</summary>
