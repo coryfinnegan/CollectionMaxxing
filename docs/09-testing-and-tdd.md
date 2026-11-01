@@ -57,7 +57,7 @@
 | Generated TS client | committed and up to date | every PR |
 | Web E2E (Playwright) | green against the ephemeral CI stack | every PR to `main` |
 | iOS E2E (Maestro) | green | release tags (GitHub macOS runner) |
-| AI eval | no metric regresses more than 2 points vs. baseline | before any prompt/model/scorer change merges (manually triggered workflow) |
+| AI eval | no rate falls more than chance explains vs. baseline (2 points at least, more on a small sample), no time passes 2 x the baseline, raw counts not judged | before any prompt/model/scorer change merges (manually triggered workflow) |
 
 ## How each layer handles its dependencies
 

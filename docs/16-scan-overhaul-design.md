@@ -399,9 +399,14 @@ re-run of the home acceptance scenario (§17).
 
 **Baseline (set 2026-10-31, #608):** `evals/baseline.json` holds the metrics and
 threshold hash of the owner's clean 32-photo run of 2026-10-31, so
-`EvalRegression.Check()` now compares every run against it and the 2-point
-regression rule engages. Before that it was `"metrics": {}` and every run reported
-`no_baseline`. **Still open from the original gap:** no review-burden metric exists. The
+`EvalRegression.Check()` now compares every run against it and the noise-aware
+regression rule engages: a rate (a percentage) may move the wrong way by 2 points or
+by two standard errors of the number of items it is measured over, whichever is more;
+a time is a regression only past 2 x the baseline; raw counts (tier counts,
+provisionals, unreconciled, excess unreadable) are not judged; `duplicate_clean` keeps
+the 2 points. Two clean runs of the same build had differed by more than a flat 2
+points on 23 of 255 metrics, all noise. Before the baseline it was `"metrics": {}`
+and every run reported `no_baseline`. **Still open from the original gap:** no review-burden metric exists. The
 real-golden rescore test (`RescoreLatestRunTests`, `RUN_EVALS=1`) never runs in CI,
 and the manually-triggered eval workflow anticipated by docs/09 §"AI evals" does
 not exist. Golden photos/truth live only on the owner's PC (`Evals:GoldenPath`).

@@ -10869,6 +10869,11 @@
           "points": {
             "type": "number",
             "format": "double"
+          },
+          "allowed": {
+            "type": "number",
+            "format": "double",
+            "default": 2
           }
         }
       },
@@ -11763,6 +11768,21 @@
             "default": 0
           },
           "excessUnreadable": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "titleHits": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "platformChecks": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "completenessChecks": {
             "type": "integer",
             "format": "int32",
             "default": 0

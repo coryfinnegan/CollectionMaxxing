@@ -5,7 +5,7 @@ using static CollectionMaxxing.Recognition.Evals.EvalFixtures;
 namespace CollectionMaxxing.Recognition.Evals;
 
 /// <summary>
-/// The M3 gate rules (docs/02) and the 2-point regression rule (docs/09), on a golden set generated in the test. Since ADR-032 the gate
+/// The M3 gate rules (docs/02) and the regression rule (docs/09, docs/16 §17), on a golden set generated in the test. Since ADR-032 the gate
 /// measures the combined row (<c>apple_vision</c>, what the app shows), not the Apple model alone.
 /// </summary>
 public sealed class GateAndRegressionTests : IDisposable
@@ -451,7 +451,7 @@ public sealed class GateAndRegressionTests : IDisposable
 
         run.Summary.Regression.Status.ShouldBe("regressed");
         run.Summary.Regression.Regressions.Select(r => r.Metric).ShouldBe(["apple_model.single.top1"]);
-        run.Summary.Regression.Compared.ShouldBe(before.Count);
+        run.Summary.Regression.Compared.ShouldBe(before.Keys.Count(EvalRegression.IsJudged)); // the raw counts are not judged
     }
 
     [Fact]
@@ -464,7 +464,7 @@ public sealed class GateAndRegressionTests : IDisposable
 
         failing.Summary.Gate.Verdict.ShouldBe("fail");
         again.Summary.Regression.Status.ShouldBe("ok");
-        again.Summary.Regression.Compared.ShouldBe(failing.Summary.Metrics.Count);
+        again.Summary.Regression.Compared.ShouldBe(failing.Summary.Metrics.Keys.Count(EvalRegression.IsJudged)); // the raw counts are not judged
     }
 
     // ---- the report ------------------------------------------------------------------------------------------------------

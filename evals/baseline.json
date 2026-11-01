@@ -1,5 +1,5 @@
 {
-  "note": "Baseline from the eval run of 2026-10-31 (32 golden photos, TestFlight build 127, configVersion d913d1aa95b0d54cc55210b93342cda6, server a137d2549444; result file 2026-10-31-dev-4.json, named dev because of #603). Copied per the procedure: the metrics object and the thresholdHash of that run, aggregate numbers only, no titles or photo names. A run more than 2 points worse than these is a regression; a threshold move without a baseline note reports incomplete. Replace it only with a later clean run (not partial, nothing skipped), and say why in the PR.",
+  "note": "Baseline from the eval run of 2026-10-31 (32 golden photos, TestFlight build 127, configVersion d913d1aa95b0d54cc55210b93342cda6, server a137d2549444; result file 2026-10-31-dev-4.json, named dev because of #603). Copied per the procedure: the metrics object and the thresholdHash of that run, aggregate numbers only, no titles or photo names. A rate that falls further than chance explains (2 points at least, more on a small sample), or a time more than 2 times these, is a regression (raw counts are not judged); a threshold move without a baseline note reports incomplete. Replace it only with a later clean run (not partial, nothing skipped), and say why in the PR.",
   "metrics": {
     "apple_model.shelf.auto_add_precision": 40.91,
     "apple_model.shelf.excess_unreadable": 0.0,

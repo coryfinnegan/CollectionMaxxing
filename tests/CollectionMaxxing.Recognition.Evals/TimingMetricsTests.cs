@@ -81,7 +81,7 @@ public sealed class TimingMetricsTests : IDisposable
         };
         EvalRegression.Check(baseline, metrics.ToDictionary(m => m.Key, m => m.Value)).Status.ShouldBe(EvalRegression.Ok);
         var slower = metrics.ToDictionary(m => m.Key, m => m.Value);
-        slower["apple_model.shelf.total_time_to_trustworthy"] = 15.5; // two and a half seconds slower: past the 2-point band
+        slower["apple_model.shelf.total_time_to_trustworthy"] = 27; // more than double the baseline: past the allowed ratio (a time is judged by ratio, not by points)
         var check = EvalRegression.Check(baseline, slower);
 
         check.Status.ShouldBe(EvalRegression.Regressed);
