@@ -34,16 +34,60 @@ public sealed class FileEvalResultsTests : IDisposable
         var reportPath = Path.Combine(_folder, "report.md");
         // A directory in report.md's place makes the move onto it fail the same way on every OS, unlike a file lock.
         Directory.CreateDirectory(reportPath);
-        var results = new FileEvalResults(Options.Create(new EvalsOptions { Enabled = true, ResultsPath = _folder }));
 
-        var failed = await Record.ExceptionAsync(() => results.SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None));
+        var failed = await Record.ExceptionAsync(() => results(_folder).SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None));
         failed.ShouldNotBeNull();
 
         Directory.Delete(reportPath);
-        await results.SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None);
+        await results(_folder).SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None);
 
         Directory.GetFiles(_folder, "*.json")
             .Where(f => Path.GetFileName(f) is not ("latest.json" or "latest-run.json"))
             .ShouldHaveSingleItem();
     }
+
+    [Fact]
+    public async Task A_run_whose_latest_summary_file_could_not_be_written_does_not_get_a_second_dated_file_when_the_save_is_retried()
+    {
+        _golden.AddSingle("c1", StarFox);
+        var run = RunOf(Photo("c1", Apple, [Matched("Star Fox 64")]));
+        var truths = TruthsOf(_golden);
+        var evaluated = EvalReport.Evaluate(run, truths, null, "abc1234", []);
+        Directory.CreateDirectory(_folder);
+        var latestPath = Path.Combine(_folder, "latest.json");
+        // The dated file is written and already exists by the time this write fails: a directory in latest.json's place leaves the dated write
+        // from this same attempt behind, the exact setup that numbered a second dated file up before UniqueDatedPath became run-id aware.
+        Directory.CreateDirectory(latestPath);
+
+        var failed = await Record.ExceptionAsync(() => results(_folder).SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None));
+        failed.ShouldNotBeNull();
+
+        Directory.Delete(latestPath);
+        await results(_folder).SaveAsync(evaluated.Summary, run, evaluated.ReportMarkdown, CancellationToken.None);
+
+        Directory.GetFiles(_folder, "*.json")
+            .Where(f => Path.GetFileName(f) is not ("latest.json" or "latest-run.json"))
+            .ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task A_second_run_on_the_same_day_with_the_same_sha_still_gets_its_own_dated_file()
+    {
+        _golden.AddSingle("c1", StarFox);
+        var firstRun = RunOf(Photo("c1", Apple, [Matched("Star Fox 64")]));
+        var secondRun = firstRun with { RunId = "run2" };
+        var truths = TruthsOf(_golden);
+        var firstEvaluated = EvalReport.Evaluate(firstRun, truths, null, "abc1234", []);
+        var secondEvaluated = EvalReport.Evaluate(secondRun, truths, null, "abc1234", []);
+        Directory.CreateDirectory(_folder);
+
+        await results(_folder).SaveAsync(firstEvaluated.Summary, firstRun, firstEvaluated.ReportMarkdown, CancellationToken.None);
+        await results(_folder).SaveAsync(secondEvaluated.Summary, secondRun, secondEvaluated.ReportMarkdown, CancellationToken.None);
+
+        Directory.GetFiles(_folder, "*.json")
+            .Where(f => Path.GetFileName(f) is not ("latest.json" or "latest-run.json"))
+            .Count().ShouldBe(2);
+    }
+
+    private static FileEvalResults results(string folder) => new(Options.Create(new EvalsOptions { Enabled = true, ResultsPath = folder }));
 }
