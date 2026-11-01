@@ -194,6 +194,7 @@ function Invoke-TestWatch {
                 repoDir = $repo; worktree = $paths.Worktree; branch = "agent/issue-$issue"; log = $paths.Log; exitFile = $paths.ExitFile
                 model = 'sonnet'; attempts = $(if ($LockSpec.Attempts) { [int]$LockSpec.Attempts } else { 0 }); usedToken = [bool]$LockSpec.UsedToken
             }
+            if ($LockSpec.ContainsKey('MaxMinutes')) { $lock.maxMinutes = [int]$LockSpec.MaxMinutes }
             $lock | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'state/agent.lock')
             if ($LockSpec.Alive) { $m.Procs[[int]$LockSpec.ProcessId] = [pscustomobject]@{ Id = [int]$LockSpec.ProcessId; Name = 'conhost'; StartTime = $started.UtcDateTime.AddSeconds(2) } }
         }
@@ -379,6 +380,27 @@ Test-Case 'lock: CM_AGENT_MAX_MINUTES decides how long is too long' {
     Assert-Equal 1 (Get-AgentCall 'taskkill' '.').Count
 }
 
+Test-Case 'lock: a run is judged by the limit it started with; a lock from before that falls back to the setting' {
+    $long = Invoke-TestWatch -LockSpec @{ Issue = 7; ProcessId = 3100; MinutesAgo = 200; Alive = $true; MaxMinutes = 300 } -EnvLines @('CM_AGENT_MAX_MINUTES=180')
+    Assert-Equal 'running' $long.Result.Outcome 'an opus run that started with 300 minutes is not stopped at 180'
+    Assert-Equal 0 (Get-AgentCall 'taskkill' '.').Count
+    $old = Invoke-TestWatch -LockSpec @{ Issue = 7; ProcessId = 3100; MinutesAgo = 200; Alive = $true } -EnvLines @('CM_AGENT_MAX_MINUTES=180')
+    Assert-Equal 1 (Get-AgentCall 'taskkill' '.').Count 'a lock without its own limit uses CM_AGENT_MAX_MINUTES'
+    $comment = Get-AgentCall 'gh' '^issue comment 7 '
+    Assert-Match $comment[0].InputText '180 minutes'
+}
+
+Test-Case 'start: an opus run gets at least 300 minutes and the rest get CM_AGENT_MAX_MINUTES; the lock keeps the run''s own limit' {
+    $critical = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 7 @('agent-task', 'tier:critical'))) }
+    Assert-Match (Get-AgentStarts)[0].Arguments[0] ' -MaxMinutes 300'
+    Assert-Equal 300 ([int]$critical.Lock.maxMinutes)
+    $standard = Invoke-TestWatch -Machine @{ Issues = @((New-AgentIssue 8 @('agent-task', 'tier:standard'))) }
+    Assert-Match (Get-AgentStarts)[0].Arguments[0] ' -MaxMinutes 180'
+    Assert-Equal 180 ([int]$standard.Lock.maxMinutes)
+    $raised = Invoke-TestWatch -EnvLines @('CM_AGENT_MAX_MINUTES=400') -Machine @{ Issues = @((New-AgentIssue 9 @('agent-task', 'tier:critical'))) }
+    Assert-Match (Get-AgentStarts)[0].Arguments[0] ' -MaxMinutes 400' 'a higher setting wins over the opus floor'
+}
+
 Test-Case 'lock: only one watcher pass runs at a time' {
     $root = New-TestRoot
     $held = $null
@@ -433,7 +455,7 @@ Test-Case 'start: the run is a headless pwsh runner with the model, the prompt f
     Assert-Match $line ' -LogFile "[^"]*issue-7-20261031-140500\.log" '
     Assert-Match $line ' -ExitFile "[^"]*issue-7-20261031-140500\.exit\.json" '
     Assert-Match $line ' -WorkDir "[^"]*agent-issue-7" '
-    Assert-Match $line ' -MaxMinutes 90$'
+    Assert-Match $line ' -MaxMinutes 300$' # an opus run: CM_AGENT_MAX_MINUTES=90 is raised to the opus floor
     Assert-Equal $r.Paths.Repo $r.Repo
 }
 
