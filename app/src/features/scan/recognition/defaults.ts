@@ -116,6 +116,24 @@ export interface LocalTuning {
   coverNameMaxWords: number;
   /** The smaller run must be at least this share of the name's letter height to be taken for the title, so a tagline is not. */
   coverTitleBesideNameShare: number;
+  /**
+   * A stretch of shelf is one spine, and Vision reads a spine several times: the readings of one place pick the title
+   * between them (shelfTitle.ts, #617).
+   */
+  /** Two readings are of the same words when at least this share of the words they name together are in both. */
+  sameReadingWords: number;
+  /** A second row of a title must share at least this much of the chosen row's span along the line. */
+  titleRowOverlap: number;
+  /**
+   * A second row of a title sits no further from the chosen row than this many of its letter heights. The two rows of one
+   * title touch or overlap in the picture; an award line or a publisher under a title sits half a letter away or more.
+   */
+  titleRowMaxGap: number;
+  /**
+   * Title lettering: a line can be the title only when its letters are at least this share of the piece's biggest, and a
+   * second row joins the title only when its letters are that close to the chosen row's. Small print is never a title.
+   */
+  titleLetters: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
   creatorMaxWords: number;
   /** A Vision line with fewer letters than this is not an author either. */
@@ -185,6 +203,10 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   coverTitleLineAspect: 0.15,
   coverNameMaxWords: 3,
   coverTitleBesideNameShare: 0.5,
+  sameReadingWords: 0.5,
+  titleRowOverlap: 0.5,
+  titleRowMaxGap: 0.25,
+  titleLetters: 0.5,
   creatorMaxWords: 5,
   creatorMinLetters: 3,
 };
