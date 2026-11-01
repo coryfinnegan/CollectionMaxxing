@@ -518,7 +518,14 @@ public static class EvalScorer
         return null;
     }
 
-    /// <summary>The candidate's title is the truth title or one of the full titles the truth lists as also naming the item (compared after normalising). Nothing looser: a subtitle that is not listed is a different title.</summary>
+    /// <summary>
+    /// The candidate's title is the truth title or one of the full titles the truth lists as also naming the item
+    /// (compared after normalising). Nothing looser: a real subtitle that is not listed is a different title. The one
+    /// thing normalising sets aside is a subtitle that is only a genre label, which is not a subtitle the cover or the
+    /// catalogue carries (see <see cref="GenreSubtitle"/>): a candidate stored as "Harbor Light: A Novel" counts for a
+    /// truth of "Harbor Light". A rate measured before that was so counts those as misses, so comparing with such a
+    /// baseline overstates the gain by however many items were stored with a label.
+    /// </summary>
     private static bool TitleMatch(TruthItem truth, GroundedCandidate candidate)
     {
         var found = TitleNormalizer.Normalize(candidate.Title);

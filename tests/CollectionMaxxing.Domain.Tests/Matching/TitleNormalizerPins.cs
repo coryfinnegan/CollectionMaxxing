@@ -1308,7 +1308,15 @@ internal static class TitleNormalizerPins
         ("!!!", "!!!", 0.0, 0.0),
         ("Harbor Cup 2005", "Harbor Cup 2004", 0.7, 0.7),
         ("Harbor Cup 2005", "Harbor Cup", 1.0, 1.0),
+        ("DUNE FRANK HERBERT", "Dune", 0.3333333333333333, 0.64),
+        ("412 DUNE", "Dune", 0.375, 0.66),
+        ("dune EX LIBRIS MARA", "Dune", 0.25, 0.62),
+        ("Dune: A Novel", "Dune", 1.0, 1.0),
+        ("Dune: A Novel", "Dune Messiah", 0.5, 0.5),
+        ("Dune Messiah", "Dune", 0.5, 0.66),
+        ("Alien 190a", "Alien", 0.5, 0.66),
+        ("Sleepaway Camp III: Teenage Wasteland", "Camp III", 0.5333333333333333, 0.62),
     ];
 
-    public const string GridDigest = "1B21117B133BD0B05474C3D20EBBF5699A4FE930AFB39B1928A03E781C17D1DB";
+    public const string GridDigest = "1F3A9F580B809B913860B03A93C157EA67819DDBD1528CFECDC460834682CF2B";
 }

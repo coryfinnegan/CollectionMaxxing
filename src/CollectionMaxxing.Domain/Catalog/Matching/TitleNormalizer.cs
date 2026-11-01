@@ -4,7 +4,8 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 
 /// <summary>
 /// Title comparison for matching (docs/02 section 6): case, accents, punctuation, a leading or trailing article, roman
-/// numerals and "&amp;" versus "and" do not matter, and a small misread is forgiven.
+/// numerals and "&amp;" versus "and" do not matter, a letter of another alphabet that looks Latin is read as the Latin
+/// letter it resembles, and a small misread is forgiven.
 /// </summary>
 public static class TitleNormalizer
 {
@@ -15,7 +16,21 @@ public static class TitleNormalizer
         ('u', "ùúûüũūŭůűų"), ('y', "ýÿ"), ('z', "źżž"),
     ];
 
+    // Letters of other alphabets that look like a Latin letter, as the Latin letter they look like, lower case (the
+    // fold lower-cases first, so Cyrillic "О" arrives as "о"). A text reader given an English spine sometimes answers one
+    // of these in place of the Latin letter it resembles, and the two keys then share no trigram at all. Only glyphs
+    // that are hard to tell apart are here: "Н" is an H and "Ρ" is a P, but "П" and "Π" look like nothing Latin and keep their
+    // own identity.
+    private static readonly (char To, string From)[] LookAlikes =
+    [
+        ('a', "аα"), ('b', "вβ"), ('c', "с"), ('e', "еёε"), ('h', "нη"), ('i', "іι"),
+        ('j', "ј"), ('k', "кκ"), ('m', "мμ"), ('n', "ν"), ('o', "оο"), ('p', "рρ"),
+        ('s', "ѕ"), ('t', "тτ"), ('x', "хχ"), ('y', "уυ"), ('z', "ζ"),
+    ];
+
     private static readonly Dictionary<char, string> AccentMap = BuildAccentMap();
+
+    private static readonly Dictionary<char, char> LookAlikeMap = BuildLookAlikeMap();
 
     // Folding turns one character into at most this many ("&" becomes " and "), so a buffer of this many per character holds the fold.
     private const int MostFoldedPerChar = 5;
@@ -25,10 +40,17 @@ public static class TitleNormalizer
 
     /// <summary>
     /// Reduces a title to a comparison key. "The Matrix" and "Matrix, The" give the same key, as do "Final Fantasy VII" and
-    /// "Final Fantasy 7", and "Ratchet &amp; Clank" and "Ratchet and Clank". Null, blank or punctuation-only gives "".
+    /// "Final Fantasy 7", and "Ratchet &amp; Clank" and "Ratchet and Clank". A letter of another alphabet that looks like a
+    /// Latin one is read as that Latin letter, in a title that carries Latin letters too ("ОDELL" with a Cyrillic O gives
+    /// "odell"); a title written wholly in another alphabet keeps its own letters. A subtitle that is only a genre label
+    /// ("Dune: A Novel") is no part of the key, so every key a release is stored, deduplicated and compared under is the
+    /// title alone (see <see cref="GenreSubtitle"/>). A creator, a publisher and an edition are keyed through here too,
+    /// where a label can only ever be the whole of the value, which is left alone. Null, blank or punctuation-only
+    /// gives "".
     /// </summary>
-    public static string Normalize(string? title)
+    public static string Normalize(string? rawTitle)
     {
+        var title = GenreSubtitle.WithoutLabel(rawTitle);
         if (string.IsNullOrWhiteSpace(title))
         {
             return string.Empty;
@@ -59,8 +81,9 @@ public static class TitleNormalizer
 
     /// <summary>
     /// A title with its accents taken off and nothing else changed (case, spacing and punctuation stay): "TÉENAGE" gives
-    /// "TEENAGE", "Œuvre" gives "Oeuvre". For a search query, where an accent an OCR read puts on an English word is noise.
-    /// Null gives "".
+    /// "TEENAGE", "Œuvre" gives "Oeuvre". A letter of another alphabet that looks Latin is replaced by the Latin letter it
+    /// resembles on the same terms as <see cref="Normalize"/>. For a search query, where an accent or a look-alike letter an
+    /// OCR read puts on an English word is noise. Null gives "".
     /// </summary>
     public static string StripAccents(string? text)
     {
@@ -69,20 +92,22 @@ public static class TitleNormalizer
             return string.Empty;
         }
 
+        var lookAlikes = HasALatinLetter(text);
         var builder = new StringBuilder(text.Length);
         foreach (var raw in text.Normalize(NormalizationForm.FormC))
         {
-            if (!AccentMap.TryGetValue(char.ToLowerInvariant(raw), out var plain))
+            var lower = char.ToLowerInvariant(raw);
+            if (AccentMap.TryGetValue(lower, out var plain))
             {
-                builder.Append(raw);
+                builder.Append(char.IsUpper(raw) ? char.ToUpperInvariant(plain[0]) : plain[0]).Append(plain, 1, plain.Length - 1);
             }
-            else if (char.IsUpper(raw))
+            else if (lookAlikes && LookAlikeMap.TryGetValue(lower, out var latin))
             {
-                builder.Append(char.ToUpperInvariant(plain[0])).Append(plain, 1, plain.Length - 1);
+                builder.Append(char.IsUpper(raw) ? char.ToUpperInvariant(latin) : latin);
             }
             else
             {
-                builder.Append(plain);
+                builder.Append(raw);
             }
         }
 
@@ -96,6 +121,26 @@ public static class TitleNormalizer
     /// Prime 2: Echoes"), so it stays under 0.845.
     /// </summary>
     public const double MainTitleCredit = 0.8;
+
+    /// <summary>
+    /// What a title found whole inside a longer read is worth when one word of other print stands beside it ("DUNE F H"
+    /// for "Dune", "7 THE SHIPPING NEWS" for "The Shipping News"): enough to offer the release, and no more. Each
+    /// further word of other print costs <see cref="ExtraPrintCost"/>, so the longest title a read holds ranks above a
+    /// shorter one inside it, and three words of other print still leave a title-only read clear of the Ambiguous line
+    /// (0.60 by default). Far under <see cref="MainTitleCredit"/> on purpose: print nobody has explained is the weakest
+    /// evidence there is, so a find must never push a candidate whose whole title nearly matches out of the offer.
+    /// A match that rests on this alone must not be added automatically.
+    /// </summary>
+    public const double ContainedTitleCredit = 0.66;
+
+    /// <summary>What each word of other print past the first takes off <see cref="ContainedTitleCredit"/>.</summary>
+    public const double ExtraPrintCost = 0.02;
+
+    /// <summary>
+    /// What a title keeps when one side carries a number the other does not ("Metroid Prime" against "Metroid Prime 2"):
+    /// a quarter off, so a sequel number is never free.
+    /// </summary>
+    public const double NumberMismatchCredit = 0.75;
 
     /// <summary>
     /// What the same words in another order are worth as a title: "kitchen orchard" against "The Orchard Kitchen". Close,
@@ -123,15 +168,19 @@ public static class TitleNormalizer
     /// <summary>
     /// <see cref="Similarity"/> for two titles: the same words in another order score <see cref="ReorderedWordsCredit"/>
     /// at most, so only a title that is the same once the article, case, accents, punctuation, numerals and "&amp;" are
-    /// set aside (and a year on one side only) scores 1.
+    /// set aside (and a year on one side only) scores 1. A first title that holds the whole of the second inside it, with
+    /// a few words of other print around it, earns <see cref="ContainedTitleCredit"/> for the find (the direction matters:
+    /// a read holds a release's title, not the other way round).
     /// </summary>
     public static double TitleSimilarity(string? a, string? b) => new ComparableTitle(a).TitleSimilarity(new ComparableTitle(b));
 
-    // Lower case, accents folded, "&" as "and", apostrophes and periods dropped (so "Player's" is "players" and "Bros." is
-    // "bros"), every other symbol a space. Returns how much of the destination it filled.
+    // Lower case, accents folded, a look-alike letter of another alphabet read as the Latin letter it resembles, "&" as
+    // "and", apostrophes and periods dropped (so "Player's" is "players" and "Bros." is "bros"), every other symbol a
+    // space. Returns how much of the destination it filled.
     private static int Fold(string title, Span<char> destination)
     {
         var length = 0;
+        var lookAlikes = HasALatinLetter(title);
         foreach (var raw in title)
         {
             var c = char.ToLowerInvariant(raw);
@@ -141,6 +190,10 @@ public static class TitleNormalizer
             {
                 plain.CopyTo(destination[length..]);
                 length += plain.Length;
+            }
+            else if (c >= 0x80 && lookAlikes && LookAlikeMap.TryGetValue(c, out var latin))
+            {
+                destination[length++] = latin;
             }
             else if (c == '&')
             {
@@ -253,6 +306,38 @@ public static class TitleNormalizer
         "xx" => "20",
         _ => null,
     };
+
+    // A look-alike is a misread only where Latin letters are being read: a title written wholly in another alphabet is
+    // that language, and folding it would send a query no provider could answer. Both sides of a comparison fold the
+    // same way, so a title in its own alphabet still matches itself. The test is over the whole title, so a title in
+    // another alphabet that carries one Latin word is folded while the same title without that word is not; for an
+    // English catalogue that costs nothing, and it is what catches a read whose every letter came back a look-alike.
+    private static bool HasALatinLetter(string text)
+    {
+        foreach (var c in text)
+        {
+            if (char.IsAsciiLetter(c))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Dictionary<char, char> BuildLookAlikeMap()
+    {
+        var map = new Dictionary<char, char>();
+        foreach (var (to, source) in LookAlikes)
+        {
+            foreach (var c in source)
+            {
+                map[c] = to;
+            }
+        }
+
+        return map;
+    }
 
     private static Dictionary<char, string> BuildAccentMap()
     {

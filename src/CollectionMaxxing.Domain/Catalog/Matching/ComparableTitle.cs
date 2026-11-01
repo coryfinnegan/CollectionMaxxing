@@ -14,6 +14,15 @@ public sealed class ComparableTitle
 
     private const int MinSurnameLength = 3;
 
+    /// <summary>The fewest letters a title found inside a longer read must carry for the find to count.</summary>
+    private const int MinContainedLetters = 4;
+
+    /// <summary>The most words of other print a read may carry around a title it holds.</summary>
+    private const int MostExtraWords = 3;
+
+    /// <summary>The most digits a number standing after a title may have and still be read as a volume number.</summary>
+    private const int MostVolumeDigits = 2;
+
     // Edit distance keeps two rows of this many numbers on the stack; a longer title gets rows of its own.
     private const int MostStackedRowLength = 256;
 
@@ -25,10 +34,15 @@ public sealed class ComparableTitle
 
     private ComparableTitle(string? title, bool withMainTitle)
     {
-        Key = TitleNormalizer.Normalize(title);
+        // The normaliser drops a genre-label subtitle; the main title is found in the same stripped title, so a release
+        // labelled "Dune: A Novel" is a plain "Dune" and not a main title that has lost a subtitle.
+        var named = GenreSubtitle.WithoutLabel(title);
+        Key = TitleNormalizer.Normalize(named);
         if (Key.Length > 0)
         {
             Words = new WordSet(Key);
+            Tokens = Key.Split(' ');
+            Letters = Key.Count(char.IsLetter);
             Years = YearsIn(Key);
             var lastSpace = Key.LastIndexOf(' ');
             if (lastSpace > 0 && IsYear(Key.AsSpan(lastSpace + 1), out _))
@@ -37,7 +51,7 @@ public sealed class ComparableTitle
             }
         }
 
-        MainTitle = withMainTitle ? FindMainTitle(title) : null;
+        MainTitle = withMainTitle ? FindMainTitle(named) : null;
     }
 
     /// <summary>The comparison key: what <see cref="TitleNormalizer.Normalize"/> gives for the title.</summary>
@@ -45,6 +59,12 @@ public sealed class ComparableTitle
 
     /// <summary>The words of the key; null when the title has none.</summary>
     private WordSet? Words { get; }
+
+    /// <summary>The key's words in the order they were read, duplicates kept; empty when the title has none.</summary>
+    private string[] Tokens { get; } = [];
+
+    /// <summary>How many letters the key carries (digits, punctuation and spaces are not letters).</summary>
+    private int Letters { get; }
 
     /// <summary>The words of the key without a year at its end, when it ends with one.</summary>
     private WordSet? WordsWithoutYear { get; }
@@ -55,10 +75,10 @@ public sealed class ComparableTitle
     private ComparableTitle? MainTitle { get; }
 
     /// <inheritdoc cref="TitleNormalizer.Similarity"/>
-    public double Similarity(ComparableTitle other) => Alike(other, wordOrderCredit: 1.0);
+    public double Similarity(ComparableTitle other) => Alike(other, wordOrderCredit: 1.0, withContainment: false);
 
     /// <inheritdoc cref="TitleNormalizer.TitleSimilarity"/>
-    public double TitleSimilarity(ComparableTitle other) => Alike(other, TitleNormalizer.ReorderedWordsCredit);
+    public double TitleSimilarity(ComparableTitle other) => Alike(other, TitleNormalizer.ReorderedWordsCredit, withContainment: true);
 
     /// <summary>
     /// True when both titles contain a four digit year (1900 to 2099) and the years are not the same: an annual series
@@ -96,7 +116,7 @@ public sealed class ComparableTitle
         return read.Count == 0 ? null : new ComparableTitle(string.Join(' ', read));
     }
 
-    private double Alike(ComparableTitle other, double wordOrderCredit)
+    private double Alike(ComparableTitle other, double wordOrderCredit, bool withContainment)
     {
         var whole = WholeSimilarity(this, other, wordOrderCredit);
         if (whole >= 1.0)
@@ -115,7 +135,74 @@ public sealed class ComparableTitle
             best = Math.Max(best, TitleNormalizer.MainTitleCredit * WholeSimilarity(this, otherMainTitle, wordOrderCredit));
         }
 
+        if (withContainment && Holding(other) is { } contained)
+        {
+            best = Math.Max(best, contained);
+        }
+
         return best;
+    }
+
+    /// <summary>
+    /// What this read is worth against a title it holds whole, or null when it does not hold one. A spine reads the
+    /// title with other print around it: the author's first name and initial in front, a stray pair of letters, a
+    /// sticker, a shelf number. The other title's words must stand together and in order inside this one, with at
+    /// least one and at most <see cref="MostExtraWords"/> words of other print left over, and the title found must
+    /// carry at least <see cref="MinContainedLetters"/> letters, so "Dune" inside a read is a find and "Up" is not.
+    /// A volume number or a year left standing after the title belongs to the title and costs the same quarter it
+    /// costs anywhere else ("harbor light 2" is not "Harbor Light"); a longer run of digits is a sticker or a shelf
+    /// mark and costs nothing. The result is never 1: a title found inside other print is close, not the same, and the
+    /// scorer will not add it on its own strength (see <see cref="MatchScorer"/>).
+    /// </summary>
+    private double? Holding(ComparableTitle other)
+    {
+        if (Words is null || other.Words is null || other.Letters < MinContainedLetters)
+        {
+            return null;
+        }
+
+        var extra = Tokens.Length - other.Tokens.Length;
+        if (extra is < 1 or > MostExtraWords)
+        {
+            return null;
+        }
+
+        var at = RunOf(Tokens, other.Tokens);
+        if (at < 0)
+        {
+            return null;
+        }
+
+        var credit = TitleNormalizer.ContainedTitleCredit - (TitleNormalizer.ExtraPrintCost * (extra - 1));
+        for (var i = at + other.Tokens.Length; i < Tokens.Length; i++)
+        {
+            if (IsVolumeNumberOrYear(Tokens[i]))
+            {
+                return credit * TitleNormalizer.NumberMismatchCredit;
+            }
+        }
+
+        return credit;
+    }
+
+    // One or two digits standing after a title is a volume ("Harbor Light 2"), and four digits in range is a year:
+    // both belong to the title. Any other run of digits is a sticker, a shelf mark or a price.
+    private static bool IsVolumeNumberOrYear(string word) =>
+        word is { Length: > 0 } && word.All(char.IsAsciiDigit)
+        && (word.Length <= MostVolumeDigits || IsYear(word, out _));
+
+    /// <summary>Where <paramref name="run"/> stands inside <paramref name="words"/> as whole words in order, or -1.</summary>
+    private static int RunOf(string[] words, string[] run)
+    {
+        for (var at = 0; at + run.Length <= words.Length; at++)
+        {
+            if (words.AsSpan(at, run.Length).SequenceEqual(run))
+            {
+                return at;
+            }
+        }
+
+        return -1;
     }
 
     private static ComparableTitle? FindMainTitle(string? title)
@@ -240,7 +327,7 @@ public sealed class ComparableTitle
 
         if (!left.Numbers.AsSpan().SequenceEqual(right.Numbers))
         {
-            score *= 0.75;
+            score *= TitleNormalizer.NumberMismatchCredit;
         }
 
         return Math.Clamp(score, 0.0, 1.0);

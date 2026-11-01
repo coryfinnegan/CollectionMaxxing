@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Identifiers;
 using CollectionMaxxing.Infrastructure.Providers.Resilience;
 using Microsoft.Extensions.Options;
@@ -173,7 +174,7 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
         {
             Provider = ProviderName,
             ExternalId = key,
-            Title = subtitle is null ? title : $"{title}: {subtitle}",
+            Title = GenreSubtitle.Join(title, subtitle),
             Kind = WorkKind.Book,
             Format = FormatOf(edition.Str("physical_format")),
             Year = ProviderJson.Year(edition.Str("publish_date")),
@@ -200,7 +201,7 @@ public sealed class OpenLibraryProvider(HttpClient http, IOptions<OpenLibraryOpt
             Provider = ProviderName,
             ExternalId = key,
             WorkKey = key, // a /search.json doc is a work, so its key is the work key
-            Title = title,
+            Title = GenreSubtitle.WithoutLabel(title) ?? title,
             Kind = WorkKind.Book,
             Year = doc.Num("first_publish_year") is { } year ? (int)year : null,
             Creators = doc.Strings("author_name").ToList(),

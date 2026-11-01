@@ -40,6 +40,34 @@ public class OpenLibraryProviderTests(PostgresFixture db) : DatabaseTest(db)
         release.Identifiers.ShouldContain(Isbn);
     }
 
+    [Fact]
+    public async Task Drops_a_subtitle_that_is_only_a_genre_label()
+    {
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath($"/isbn/{Isbn.Value}.json").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json")
+                .WithBody("{\"key\": \"/books/OL1M\", \"title\": \"Harbor Light\", \"subtitle\": \"A Novel\"}"));
+
+        var release = await host.Get<OpenLibraryProvider>().LookupAsync(Isbn, default);
+
+        release.ShouldNotBeNull();
+        release.Title.ShouldBe("Harbor Light");
+    }
+
+    [Fact]
+    public async Task Drops_a_genre_label_a_search_answer_carries_inside_its_title()
+    {
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath("/search.json").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json")
+                .WithBody("{\"docs\": [{\"key\": \"/works/OL1W\", \"title\": \"Harbor Light: A Novel\"},"
+                    + " {\"key\": \"/works/OL2W\", \"title\": \"Harbor Light: Keepers of the Coast\"}]}"));
+
+        var found = await host.Get<OpenLibraryProvider>().SearchAsync(new CatalogQuery { Title = "Harbor Light" }, default);
+
+        found.Select(r => r.Title).ShouldBe(["Harbor Light", "Harbor Light: Keepers of the Coast"]);
+    }
+
     private static void StubEdition(ProviderHost host, string? physicalFormat)
     {
         var format = physicalFormat is null ? string.Empty : $", \"physical_format\": \"{physicalFormat}\"";
@@ -238,6 +266,20 @@ public class GoogleBooksProviderTests(PostgresFixture db) : DatabaseTest(db)
         release.Synopsis.ShouldBe("A clever fox outwits three farmers.");
         release.CoverUrl.ShouldStartWith("https://books.google.com/books/content?id=Zk9bAwAAQBAJ");
         release.Identifiers.Select(i => i.Value).ShouldBe([ProviderHost.ValidIsbn]);
+    }
+
+    [Fact]
+    public async Task Drops_a_subtitle_that_is_only_a_genre_label_and_keeps_a_real_one()
+    {
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath("/books/v1/volumes").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json")
+                .WithBody("{\"items\": [{\"id\": \"v1\", \"volumeInfo\": {\"title\": \"Harbor Light\", \"subtitle\": \"A Novel\"}},"
+                    + " {\"id\": \"v2\", \"volumeInfo\": {\"title\": \"Harbor Light\", \"subtitle\": \"Keepers of the Coast\"}}]}"));
+
+        var found = await host.Get<GoogleBooksProvider>().SearchAsync(new CatalogQuery { Title = "Harbor Light" }, default);
+
+        found.Select(r => r.Title).ShouldBe(["Harbor Light", "Harbor Light: Keepers of the Coast"]);
     }
 
     [Fact]

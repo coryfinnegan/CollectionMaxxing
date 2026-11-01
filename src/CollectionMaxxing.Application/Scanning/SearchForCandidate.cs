@@ -191,11 +191,11 @@ public sealed class TextSearchResolver(
     private const int MinWordsLeft = 2;
 
     /// <summary>
-    /// The fewest words a read has before a retry drops its leading words. On a short read the first word is usually part of
-    /// the title (dropping it from "TNX for EVERYONE" finds "For Everyone"), and most junk reads are three to five words that
-    /// never find anything, so each extra rung is a wasted call.
+    /// The fewest words a read has before a retry drops its leading words. A read of two words is all title (dropping one
+    /// from "TNX EVERYONE" leaves a single word, which finds anything), while a sticker number, a stray pair of letters or
+    /// the first name of an author stands in front of plenty of three-word reads.
     /// </summary>
-    private const int MinWordsForLeadingDrop = 4;
+    private const int MinWordsForLeadingDrop = 3;
 
     /// <summary>
     /// The queries to try, plainest last, none twice, and every one with the title's accents stripped (an accent an OCR read
@@ -203,9 +203,9 @@ public sealed class TextSearchResolver(
     /// stage 1: the fallback, never the default); without the title's last word, and its last two, while two words are left (a
     /// spine read by OCR often runs other print into the title, "... NIGHT QXRTVZ", and a title search finds nothing with it);
     /// with its numbers written the other way, 3 as III and III as 3 (the catalogue may spell a sequel the other way than the
-    /// cover); then, when the read has at least four words, without its first word, and its first two, while two words are left,
-    /// each also with the numbers swapped (a misread first word, "SLEEP AWAY" for "Sleepaway", sinks a search the rest of the
-    /// title would find).
+    /// cover); then, when the read has at least three words, without its first word, and its first two, while two words are left,
+    /// each also with the numbers swapped (a misread or unrelated first word, "SLEEP AWAY" for "Sleepaway" or a sticker number,
+    /// sinks a search the rest of the title would find).
     /// </summary>
     private static IEnumerable<CatalogQuery> Ladder(CatalogQuery asRead)
     {

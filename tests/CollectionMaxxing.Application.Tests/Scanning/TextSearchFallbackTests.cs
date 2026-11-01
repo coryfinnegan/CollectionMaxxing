@@ -170,23 +170,26 @@ public class TextSearchFallbackTests
         provider.Queries.Select(q => q.Title).ShouldBe(
         [
             "one two three four five", "one two three four", "one two three", "two three four five", "three four five",
-            "one two three", "one two",
+            "one two three", "one two", "two three",
         ]);
     }
 
     [Fact]
-    public async Task A_three_word_read_is_not_asked_without_its_first_word_but_a_four_word_read_is()
+    public async Task A_two_word_read_is_not_asked_without_its_first_word_but_a_three_word_read_is()
     {
-        // On a short read, dropping the first word finds a different title ("TNX for EVERYONE" gives "for EVERYONE"), and most
-        // junk reads are three to five words that never find anything: the leading-word rungs wait for four words.
-        (await TitlesAskedAsync("TNX for EVERYONE")).ShouldBe(["TNX for EVERYONE", "TNX for"]);
+        // A sticker number, a stray pair of letters or an author's first name stands in front of plenty of three-word
+        // reads, and the rest of the read finds the title. A two-word read is all title: dropping one leaves a word that
+        // finds anything.
+        (await TitlesAskedAsync("TNX EVERYONE")).ShouldBe(["TNX EVERYONE"]);
+        (await TitlesAskedAsync("TNX for EVERYONE")).ShouldBe(["TNX for EVERYONE", "TNX for", "for EVERYONE"]);
         (await TitlesAskedAsync("TNX for EVERYONE now")).ShouldBe(["TNX for EVERYONE now", "TNX for EVERYONE", "TNX for", "for EVERYONE now", "EVERYONE now"]);
     }
 
     [Fact]
     public async Task A_three_word_read_with_a_number_is_still_asked_with_the_number_written_the_other_way()
     {
-        (await TitlesAskedAsync("Camp 3 Wasteland")).ShouldBe(["Camp 3 Wasteland", "Camp 3", "Camp III Wasteland"]);
+        (await TitlesAskedAsync("Camp 3 Wasteland"))
+            .ShouldBe(["Camp 3 Wasteland", "Camp 3", "Camp III Wasteland", "3 Wasteland", "III Wasteland"]);
     }
 
     [Fact]
@@ -198,7 +201,8 @@ public class TextSearchFallbackTests
         await resolver.AskProvidersAsync(
             new CatalogQuery { Title = Title + " AVON", Creator = Author, Kind = WorkKind.Book }, CancellationToken.None, CancellationToken.None);
 
-        provider.Queries.Select(q => (q.Title, q.Creator)).ShouldBe([(Title + " AVON", Author), (Title + " AVON", null), (Title, null)]);
+        provider.Queries.Select(q => (q.Title, q.Creator))
+            .ShouldBe([(Title + " AVON", Author), (Title + " AVON", null), (Title, null), ("You AVON", null)]);
     }
 
     [Fact]
@@ -309,7 +313,7 @@ public class TextSearchFallbackTests
         (await TitlesAskedAsync("Final Fantasy 10")).ShouldContain("Final Fantasy X");
         (await TitlesAskedAsync("Resident Evil 1")).ShouldContain("Resident Evil I");
 
-        (await TitlesAskedAsync("I Am Legend")).ShouldBe(["I Am Legend", "I Am"]);
+        (await TitlesAskedAsync("I Am Legend")).ShouldBe(["I Am Legend", "I Am", "Am Legend"]);
         (await TitlesAskedAsync("Malcolm X")).ShouldBe(["Malcolm X"]);
         (await TitlesAskedAsync("Mega Man X Legacy")).ShouldBe(["Mega Man X Legacy", "Mega Man X", "Mega Man", "Man X Legacy", "X Legacy"]);
     }

@@ -42,14 +42,14 @@ internal static class MatchScorerPinExpected
             the-kitchen-orchard score=1 alone=1 signals=2 exactId=False conflict=False terms=[title(0.5)=1, type(0.1)=1]
             the-orchard-kitchen score=0.916666667 alone=0.916666667 signals=2 exactId=False conflict=False terms=[title(0.5)=0.9, type(0.1)=1]
             orchard-kitchen-recipes score=0.766666667 alone=0.766666667 signals=2 exactId=False conflict=False terms=[title(0.5)=0.7200000000000001, type(0.1)=1]
-            orchard score=0.583333333 alone=0.583333333 signals=2 exactId=False conflict=False terms=[title(0.5)=0.5, type(0.1)=1]
+            orchard score=0.716666667 alone=0.716666667 signals=2 exactId=False conflict=False terms=[title(0.5)=0.66, type(0.1)=1]
             """,
         ["a spine reads title and author as one line"] = """
             Matched
             dune score=1 alone=1 signals=3 exactId=False conflict=False terms=[title(0.5)=1, type(0.1)=1, creator(0.2)=1]
             chronicles score=0.875 alone=0.875 signals=3 exactId=False conflict=False terms=[title(0.5)=0.8, type(0.1)=1, creator(0.2)=1]
+            other score=0.775 alone=0.775 signals=3 exactId=False conflict=False terms=[title(0.5)=0.64, type(0.1)=1, creator(0.2)=1]
             messiah score=0.6875 alone=0.6875 signals=3 exactId=False conflict=False terms=[title(0.5)=0.5, type(0.1)=1, creator(0.2)=1]
-            other score=0.583333333 alone=0.583333333 signals=3 exactId=False conflict=False terms=[title(0.5)=0.3333333333333333, type(0.1)=1, creator(0.2)=1]
             """,
         ["a junk author read hides nothing"] = """
             Ambiguous
@@ -124,9 +124,9 @@ internal static class MatchScorerPinExpected
             """,
         ["a loose cartridge with the console on the label"] = """
             Ambiguous
-            m64 score=0.786666667 alone=0.786666667 signals=3 exactId=False conflict=False terms=[title(0.4)=0.6, type(0.05)=1, platform(0.3)=1]
+            m64 score=0.808 alone=0.808 signals=3 exactId=False conflict=False terms=[title(0.4)=0.64, type(0.05)=1, platform(0.3)=1]
             kart score=0.650574713 alone=0.650574713 signals=3 exactId=False conflict=False terms=[title(0.4)=0.3448275862068966, type(0.05)=1, platform(0.3)=1]
-            unknown-platform score=0.586666667 alone=0.586666667 signals=2 exactId=False conflict=False terms=[title(0.4)=0.6, type(0.05)=1, platform(0.3)=0.5?]
+            unknown-platform score=0.608 alone=0.608 signals=2 exactId=False conflict=False terms=[title(0.4)=0.64, type(0.05)=1, platform(0.3)=0.5?]
             m64ds score=0.36091954 alone=0.36091954 signals=3 exactId=False conflict=True terms=[title(0.4)=0.5517241379310345, type(0.05)=1, platform(0.3)=0]
             """,
         ["an edition mark"] = """
