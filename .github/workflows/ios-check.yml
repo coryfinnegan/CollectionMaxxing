@@ -89,25 +89,30 @@ jobs:
         working-directory: app/ios
         run: |
           export CCACHE_DIR="$HOME/.ccache"
-          rn=../node_modules/react-native/scripts/xcode
-          ls "$rn"; echo "--- ccache.conf"; cat "$rn/ccache.conf"; echo "--- ccache-clang.sh"; cat "$rn/ccache-clang.sh"
-          echo 'int main(void){return 0;}' > "$RUNNER_TEMP/t.c"
-          ccache --zero-stats
-          CCACHE_BINARY="$(command -v ccache)" "$rn/ccache-clang.sh" -c "$RUNNER_TEMP/t.c" -o "$RUNNER_TEMP/t.o"
-          echo "--- stats after direct wrapper call"; ccache -s
-          workspace=$(find . -maxdepth 1 -name '*.xcworkspace' | head -1)
-          xcodebuild -workspace "$workspace" -list | head -60
-          for pass in 1 2; do
-            rm -rf build
-            ccache --zero-stats
-            CCACHE_LOGFILE="$RUNNER_TEMP/ccache-$pass.log" xcodebuild -workspace "$workspace" -scheme ImageColors \
-              -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-              -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
-              CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE=2G CCACHE_COMPILERCHECK=content CCACHE_LOGFILE="$RUNNER_TEMP/ccache-$pass.log" \
-              build 2>&1 | tail -15
-            echo "--- stats after pass $pass"; ccache -s
-            echo "--- ccache log, pass $pass"; head -60 "$RUNNER_TEMP/ccache-$pass.log" || true
+          rn="$PWD/../node_modules/react-native/scripts/xcode"
+          dbg="$RUNNER_TEMP/dbg"; mkdir -p "$dbg"
+          for tool in clang clang++; do
+            cat > "$dbg/dbg-$tool.sh" <<WRAP
+          #!/bin/sh
+          echo "\$(date +%T) \$\$ $tool args=\$# HOME=\$HOME CCACHE_DIR=\$CCACHE_DIR CCACHE_BINARY=\$CCACHE_BINARY CONFIGPATH=\$CCACHE_CONFIGPATH PWD=\$(pwd)" >> "$dbg/invocations.log"
+          export CCACHE_CONFIGPATH="\${CCACHE_CONFIGPATH:-$rn/ccache.conf}"
+          export CCACHE_LOGFILE="$dbg/ccache-real.log"
+          "\$CCACHE_BINARY" $tool "\$@" 2>> "$dbg/stderr.log"
+          rc=\$?
+          echo "\$(date +%T) \$\$ rc=\$rc" >> "$dbg/invocations.log"
+          exit \$rc
+          WRAP
+            chmod +x "$dbg/dbg-$tool.sh"
           done
+          workspace=$(find . -maxdepth 1 -name '*.xcworkspace' | head -1)
+          ccache --zero-stats
+          perl -e 'alarm shift; exec @ARGV' 200 xcodebuild -workspace "$workspace" -scheme CollectionMaxxing             -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'             -derivedDataPath build CODE_SIGNING_ALLOWED=NO             CC="$dbg/dbg-clang.sh" CXX="$dbg/dbg-clang++.sh"             CCACHE_DIR="$CCACHE_DIR" CCACHE_MAXSIZE=2G CCACHE_COMPILERCHECK=content             build > "$dbg/xcodebuild.log" 2>&1 || true
+          echo "--- invocations"; wc -l "$dbg/invocations.log"; head -6 "$dbg/invocations.log"; tail -4 "$dbg/invocations.log"
+          echo "--- stderr"; head -20 "$dbg/stderr.log" || true
+          echo "--- ccache-real.log"; head -40 "$dbg/ccache-real.log" || true
+          echo "--- stats"; ccache -s
+          echo "--- cache dir"; du -sh "$CCACHE_DIR"; ls "$CCACHE_DIR" | head
+          echo "--- xcodebuild tail"; tail -5 "$dbg/xcodebuild.log" | cut -c1-300
 
       - name: Build for the simulator, unsigned
         if: false # TEMP
