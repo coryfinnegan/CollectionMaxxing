@@ -16,9 +16,10 @@ jobs:
   # What does this change touch? A pull request runs only the checks its files can affect (#633): the classifier is
   # scripts/ci/changed-areas.sh (tested by deploy/tests/changed-areas.test.sh) and reads the files the merge commit
   # brings over the base. Every other event, and a classifier that fails, runs everything: a leg is skipped only when
-  # this job succeeded and said so. The ruleset requires `backend`, `app` and `e2e`; a job skipped by its `if` counts
-  # as passing, and `backend` (below) always runs. Never use workflow-level `paths:`: that leaves required checks
-  # missing, not skipped.
+  # this job succeeded and said `false`, so a failed job, a missing answer and an empty answer all run it. The ruleset
+  # requires `backend`, `app` and `e2e`; a job skipped by its `if` counts as passing, and `backend` (below) always
+  # runs. Never use workflow-level `paths:`: that leaves required checks missing, not skipped. The wiring is pinned by
+  # deploy/tests/workflows.tests.ps1.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -34,9 +35,15 @@ jobs:
         id: areas
         env:
           EVENT: ${{ github.event_name }}
+        # Named on purpose: the default shell is `bash -e` without pipefail, where `tee` would hide a classifier that
+        # failed and the step would pass with no outputs. `shell: bash` adds `-o pipefail`, so any failure fails the step.
+        shell: bash
         run: |
           if [ "$EVENT" = pull_request ]; then
-            git diff --name-only --no-renames HEAD^1 HEAD | bash scripts/ci/changed-areas.sh | tee -a "$GITHUB_OUTPUT"
+            git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-files.txt"
+            echo "Changed files:"
+            sed 's/^/  /' "$RUNNER_TEMP/changed-files.txt"
+            bash scripts/ci/changed-areas.sh < "$RUNNER_TEMP/changed-files.txt" | tee -a "$GITHUB_OUTPUT"
           else
             printf 'backend=true\napp=true\n' | tee -a "$GITHUB_OUTPUT"
           fi
@@ -49,7 +56,7 @@ jobs:
     # check (the ruleset requires `backend`, `app` and `e2e`), so the shard names are free to change.
     name: backend-test (${{ matrix.shard }})
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -57,10 +64,11 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # Shards follow the measured lane times (run 41143875942: api 671s, auth 390s, rest 273s). The three
-          # Postgres-heavy Api suites (Api.Tests, Api.Tests.Auth, Api.Tests.Library) each run in one process against one
-          # container (AssemblyInfo.cs in each), so they are sharded by test filter instead: every shard gets its own
-          # runner, container and host. `rest` runs the small projects whole. Rebalance when the timings drift.
+          # Shards follow the measured lane times (run 41324088148: the test steps took 119 to 183 s a shard; unsharded,
+          # Api.Tests took 671 s, Api.Tests.Auth 390 s and Api.Tests.Library 326 s). The three Postgres-heavy Api suites
+          # (Api.Tests, Api.Tests.Auth, Api.Tests.Library) each run in one process against one container (AssemblyInfo.cs
+          # in each), so they are sharded by test filter instead: every shard gets its own runner, container and host.
+          # `rest` runs the small projects whole. Rebalance when the timings drift.
           #
           # A shard's `filter` is a VSTest expression (see CM_TEST_FILTER in scripts/check.sh). The shards of a suite
           # are written as complements of each other, so a new namespace or class can never fall between them: the
@@ -118,8 +126,9 @@ jobs:
           # everything else (those two, Hardening, Deletion, Items, Ownership, Web, Exports and whatever comes next).
           # The suite took 326 s on one runner, the longest of any project (the next took 144 s). Per-class times from
           # a local run (717 tests, 882 s summed over classes): Evals 504 s, Hardening 135 s, Deletion 90 s, the rest
-          # 153 s. Evals alone would be 57% of the suite; moving EvalOpenRunScoringTests and EvalOpenRunResilienceTests
-          # (84 s) across makes the halves about 420 s and 462 s, each roughly 160 s of wall time.
+          # 153 s. Evals alone would be 57% of the suite, so EvalOpenRunScoringTests and EvalOpenRunResilienceTests
+          # (84 s) go to lib-2. On CI the halves took 183 s and 143 s (the Evals classes are CPU-bound, so they weigh
+          # more on a runner than locally); move another Evals class across if lib-1 becomes the slowest shard.
           - shard: lib-1
             projects: CollectionMaxxing.Api.Tests.Library
             filter: >-
@@ -169,7 +178,7 @@ jobs:
 
   backend-format:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -187,7 +196,7 @@ jobs:
   # Tests the deploy scripts and the CI scripts themselves, so it counts as backend: an app-only change skips it.
   backend-tooling:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.backend != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -222,8 +231,11 @@ jobs:
     if: always()
     steps:
       - name: Verify all backend legs succeeded
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
         run: |
-          if [ "${{ needs.changes.result }}" = success ] && [ "${{ needs.changes.outputs.backend }}" = false ]; then
+          if [ "$CHANGES_RESULT" = success ] && [ "$BACKEND_CHANGED" = false ]; then
             echo "no backend files changed: the backend legs were skipped, so there is nothing to verify"
             exit 0
           fi
@@ -271,7 +283,7 @@ jobs:
 
   app:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.app == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.app != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -306,7 +318,7 @@ jobs:
 
   e2e:
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.app == 'true') }}
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.app != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
