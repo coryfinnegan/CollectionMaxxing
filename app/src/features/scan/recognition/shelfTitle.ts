@@ -66,18 +66,29 @@ function alongShare(a: Rect, b: Rect, sideways: boolean): number {
 }
 
 /**
- * Whether the line says nothing but a sticker: every word is a number or one of a sticker's words, and at least one of them
- * is a word and not a number. "WIDESCREEN", "Stock No. 038" and "10th ANNIVERSARY EDITION" are stickers; "1984", "SE7EN"
- * and "GREMLINS2" are titles. One word on its own is a sticker only when no item is called that, or when it is a run of
- * digits too long to be a year or a count. A single letter says nothing: it neither makes a sticker nor saves a line from
- * being one, so "COLLECTOR'S" is a sticker while "Vol 2", whose 2 is a number and does count, is one too.
+ * Whether the line says nothing but a sticker: every word is a number or one of a sticker's words. "WIDESCREEN", "Stock No.
+ * 038", "10th ANNIVERSARY EDITION" and a shelf code of two numbers ("813.54") are stickers; "1984", "SE7EN" and "GREMLINS2"
+ * are titles. One word on its own is a sticker only when no item is called that, or when it is a run of digits too long to
+ * be a year or a count. A single letter says nothing: it neither makes a sticker nor saves a line from being one, so
+ * "COLLECTOR'S" is a sticker while "Vol 2", whose 2 is a number and does count, is one too. A line of nothing but single
+ * letters ("M*A*S*H", "E.T.") has no word at all and reads as a sticker here; `titleCandidates` gives it back when it is the
+ * biggest lettering on the piece.
  */
 export function readsAsSticker(text: string, tuning: LocalTuning): boolean {
   const words = wordsOf(text).filter((w) => w.length > 1 || isNumber(w));
   if (words.length === 0) return true;
   if (words.length === 1) return STICKER_ALONE.has(words[0]) || (isNumber(words[0]) && words[0].length >= tuning.stickerCodeDigits);
-  return words.every((w) => isNumber(w) || STICKER_WORDS.has(w) || STICKER_ALONE.has(w)) && words.some((w) => !isNumber(w));
+  return words.every((w) => isNumber(w) || STICKER_WORDS.has(w) || STICKER_ALONE.has(w));
 }
+
+/**
+ * Whether a sticker is only a code: numbers, or initials, with no sticker word in it, and at least two characters, so a stray
+ * mark ("+T-") is never one. It is what a title can look like ("M*A*S*H", "E.T.", "10000"); "WIDESCREEN" and "Stock No. 038" never are.
+ */
+const isCode = (text: string) => {
+  const words = wordsOf(text);
+  return words.join('').length >= 2 && !words.some((w) => STICKER_WORDS.has(w) || STICKER_ALONE.has(w));
+};
 
 const jaccard = (a: Set<string>, b: Set<string>): number => {
   const shared = [...a].filter((w) => b.has(w)).length;
@@ -196,18 +207,26 @@ function inRowOrder(chosen: TextLine, second: TextLine): TextLine[] {
   return secondIsFirst ? [second, chosen] : [chosen, second];
 }
 
-/** Drops what cannot be a title, unless the piece held nothing else. */
-const without = (lines: TextLine[], cannot: (l: TextLine) => boolean): TextLine[] => {
-  const left = lines.filter((l) => !cannot(l));
-  return left.length > 0 ? left : lines;
-};
+/**
+ * The lines that can be the piece's title: a sticker and a line that names the author's standing are never an item's title,
+ * whatever size they are printed, with one exception (#631). A sticker that is only a code, numbers or initials with no
+ * sticker word in it, is a title when it is printed in bigger lettering than every line that stays: "M*A*S*H" or "E.T."
+ * printed big on a spine, where a stock number or shelf code is printed small. A sticker word never gets back in, however big.
+ * The piece's own lines are the candidates when nothing else is left.
+ */
+function titleCandidates(lines: TextLine[], tuning: LocalTuning): TextLine[] {
+  const stays = lines.filter((l) => !readsAsSticker(l.text, tuning) && !readsAsRole(l.text));
+  const biggest = Math.max(0, ...stays.map(letters));
+  const bigCodes = lines.filter((l) => readsAsSticker(l.text, tuning) && isCode(l.text) && !readsAsRole(l.text) && letters(l) > biggest);
+  const candidates = lines.filter((l) => stays.includes(l) || bigCodes.includes(l));
+  return candidates.length > 0 ? candidates : lines;
+}
 
 /** The piece's title, or nothing when the piece holds no line at all. */
 export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning): ShelfTitle | undefined {
   if (lines.length === 0) return undefined;
   const readings = new Readings(lines, tuning);
-  // A sticker and a line that names the author's standing are never an item's title, whatever size they are printed.
-  const said = without(lines, (l) => readsAsSticker(l.text, tuning) || readsAsRole(l.text));
+  const said = titleCandidates(lines, tuning);
   // One reading per place, then the place printed in the biggest lettering.
   const clearest = readings.places(said).map((place) => place.reduce((a, b) => readings.clearest(a, b, lines)));
   const chosen = clearest.reduce((a, b) => (letters(b) > letters(a) || (letters(b) === letters(a) && weight(b) > weight(a)) ? b : a));

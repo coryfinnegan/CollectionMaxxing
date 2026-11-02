@@ -38,6 +38,16 @@ namespace CollectionMaxxing.Application.Evals;
 /// stays that way, because it measures the model by itself.
 /// </para>
 /// <para>
+/// A model-only read, one that is the same item as no Vision read (no Vision item at its place; with no box on either side, none of
+/// the same release), is shown only when the shelf's own print has its words (<see cref="PrintSupport"/>), as the app adds it only
+/// then: the model invents titles, and one that shares nothing with what Vision read on the shelf is not on it. The print is every
+/// word of every OCR line on the <c>vision_pipeline</c> row (<see cref="GroundedPhoto.OcrLines"/>); the read's title (what the model
+/// read, not a release's) needs at least two thirds of its words, stop words and one-letter words not counted, to be among them,
+/// allowing a plural or one wrong letter in a word of five letters or more. A model read at a Vision item's place stays the place's
+/// contest above, and where Vision failed or sent no lines (a run from before the phone sent them, or a shelf with no text) there
+/// is no print and every model read stands, as it did before.
+/// </para>
+/// <para>
 /// When the model fails on a shelf (a timeout, an error or a refusal), the scanner keeps Vision's reading, so the combined row is
 /// Vision's items too (it scored 0 of 46 on a shelf where Vision alone scored 23, before). That row is Vision's reading with the
 /// model's failure as its <c>FellBackFrom</c>, the way the scanner records such a snap: it is not a timeout, error or refusal of
@@ -107,13 +117,17 @@ public static class EvalCombination
         var modelItems = apple.ItemsLentPrint ?? apple.Items;
 
         var visionOnly = both && vision.Items.Any(visionItem => !modelItems.Any(model => SameItem(model, visionItem)));
+
+        // The shelf's own print: every word of every line Vision read on the shot. A run from before the phone sent its lines, or a shelf
+        // Vision read no text on, has no print to check against, so every model read stands, as it did before.
+        var printed = both && vision.OcrLines is { Count: > 0 } lines ? PrintSupport.PrintedWords(lines.Select(line => line.Text)) : null;
         return apple with
         {
             Engine = Engine,
 
             // Vision's reads and the model's, one item per place: the read of a place that grounds better is the row shown, and a
             // Vision read that named no kind carries the one the model gave its place.
-            Items = both ? Settled(WithKindsLent(vision.Items, modelItems, EnumText.ParseOrNull<WorkKind>(vision.PrintKind)), modelItems) : modelItems,
+            Items = both ? Settled(WithKindsLent(vision.Items, modelItems, EnumText.ParseOrNull<WorkKind>(vision.PrintKind)), modelItems, printed) : modelItems,
 
             // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
             // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
@@ -186,10 +200,17 @@ public static class EvalCombination
     /// read of the same release (its normalised title and year), the two engines agreeing there is itself the confirmation the
     /// mark stands in for, so it is not marked; a different release at that place is still a contest between the two and is
     /// marked as it was. Vision's items, and every other row (a single, one engine failing), are not marked.
+    /// A model-only read, one that is the same item as no Vision read (<see cref="SameItem"/>: no Vision item at its place, or with
+    /// no place to go on, none of the same release), is shown only when the shelf's print backs up its title
+    /// (<see cref="PrintSupport.Supports"/>, <paramref name="printed"/>), as the app adds it only then. A read at a Vision item's
+    /// place is that place's contest as above, whatever it printed. With no <paramref name="printed"/>, every read stands.
     /// </summary>
-    private static List<GroundedItem> Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model)
+    private static List<GroundedItem> Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model, IReadOnlySet<string>? printed)
     {
-        var modelReads = model.Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem))).ToList();
+        var modelReads = model
+            .Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem)))
+            .Where(read => printed is null || vision.Any(visionItem => SameItem(read, visionItem)) || PrintSupport.Supports(read.ReadTitle, printed))
+            .ToList();
         var reads = new List<GroundedItem>(vision.Count + modelReads.Count);
         reads.AddRange(vision);
         reads.AddRange(modelReads.Select(read => read with { Unconfirmed = true }));
