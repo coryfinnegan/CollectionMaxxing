@@ -77,11 +77,62 @@ describe('a spine piece\'s title is never its author line or a sticker', () => {
   });
 
   it('says which lines read as a sticker and which do not', () => {
-    const stickers = ['WIDESCREEN', 'Stock No. 038', '03928', "COLLECTOR'S", '10th ANNIVERSARY EDITION', "DIRECTOR'S CUT", 'SPECIAL EDITION', 'Vol 2'];
+    const stickers = ['WIDESCREEN', 'Stock No. 038', '03928', '813.54', "COLLECTOR'S", '10th ANNIVERSARY EDITION', "DIRECTOR'S CUT", 'SPECIAL EDITION', 'Vol 2'];
     for (const sticker of stickers) expect([sticker, readsAsSticker(sticker, T)]).toEqual([sticker, true]);
     // A number says nothing either way, and nearly every sticker word is somebody's title on its own.
     const titles = ['HALLOWEEN', 'Full Metal Jacket', 'A Court of Thorns and Roses', 'Charlotte\'s Web', 'EXCALIBUR', '1984', 'SE7EN', 'GREMLINS2', '300', 'Used', 'Special', 'Side', 'Cut'];
     for (const title of titles) expect([title, readsAsSticker(title, T)]).toEqual([title, false]);
+  });
+});
+
+describe('a title made of numbers or initials is no sticker when it is the biggest lettering (#631)', () => {
+  it.each([
+    ['1984', 'GEORGE ORWELL'],
+    ['300', 'GERARD BUTLER'],
+    ['1917', 'DEAN-CHARLES CHAPMAN GEORGE MACKAY'],
+    ['SE7EN', 'BRAD PITT MORGAN FREEMAN'],
+    ['Se7en', 'Brad Pitt Morgan Freeman'],
+    ['9', 'ELIJAH WOOD JENNIFER CONNELLY'],
+    ['M*A*S*H', 'DONALD SUTHERLAND ELLIOTT GOULD'],
+    ['E.T.', 'HENRY THOMAS DEE WALLACE'],
+  ])('takes %s printed big over the smaller %s beside it', (title, other) => {
+    const lines = [row(title, 0.3, 0.2, 0.05, 0.12), row(other, 0.34, 0.2, 0.025, 0.4)];
+    expect(titleOf(lines)).toBe(title);
+    expect(creatorsOf(lines)).toEqual([other]);
+  });
+
+  it('takes it over a sticker word printed bigger than it, which is still no title', () => {
+    const lines = [row('WIDESCREEN', 0.1, 0.1, 0.09, 0.2), row('M*A*S*H', 0.3, 0.1, 0.05, 0.12)];
+    expect(titleOf(lines)).toBe('M*A*S*H');
+  });
+
+  it('drops a small stock number or shelf code under a big title', () => {
+    for (const code of ['813.54', '03928', '4 1']) {
+      const lines = [row('THE ROAD', 0.1, 0.1, 0.05, 0.2), row(code, 0.16, 0.1, 0.015, 0.05)];
+      expect([code, titleOf(lines), creatorsOf(lines)]).toEqual([code, 'THE ROAD', []]);
+    }
+  });
+
+  it('still drops a sticker word printed big beside a title of the same size', () => {
+    const lines = [row('WIDESCREEN', 0.1, 0.1, 0.05, 0.2), row('HALLOWEEN', 0.18, 0.1, 0.05, 0.25)];
+    expect(titleOf(lines)).toBe('HALLOWEEN');
+    expect(creatorsOf(lines)).toEqual([]);
+  });
+
+  it('keeps a code printed no bigger than the title beside it as a sticker', () => {
+    const lines = [row('THE ROAD', 0.1, 0.1, 0.05, 0.2), row('813.54', 0.18, 0.1, 0.05, 0.25)];
+    expect(titleOf(lines)).toBe('THE ROAD');
+    expect(creatorsOf(lines)).toEqual([]);
+  });
+
+  it('never takes a stray mark for a title, however big it is printed', () => {
+    const lines = [row('THEY LIVE', 0.1, 0.2, 0.05, 0.25), row('+T-', 0.2, 0.6, 0.08, 0.03)];
+    expect(titleOf(lines)).toBe('THEY LIVE');
+  });
+
+  it('still drops a code with a sticker word in it, printed big', () => {
+    const lines = [row('Stock No. 038', 0.1, 0.1, 0.06, 0.2), row('EXCALIBUR', 0.2, 0.1, 0.05, 0.2)];
+    expect(titleOf(lines)).toBe('EXCALIBUR');
   });
 });
 
