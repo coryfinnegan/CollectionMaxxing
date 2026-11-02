@@ -11,11 +11,12 @@ import { AppleModelEngine } from './AppleModelEngine';
 import { withCoverCue } from './CoverCueEngine';
 import { FmTextEngine } from './FmTextEngine';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
-import { asUnconfirmed, fillPlace, isNewItem, nextOrder, shelfReading } from './combine';
+import { asUnconfirmed, fillPlace, isNewItem, nextOrder, passesPrint, shelfReading } from './combine';
 import type { CoverFormatTuning } from './defaults';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
 import type { ModelEngineDeps } from './modelReading';
+import { printedWords } from './printSupport';
 import { type EngineName, type FellBackFrom, ModelUnusableError, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still, type StillCropper } from './types';
 
 export type AppleIntelligenceState = 'on' | ModelUnavailableReason | 'unknown';
@@ -93,7 +94,10 @@ export class EngineSelector {
 
   /**
    * A shelf shot: Vision's items first, streamed at once (it reads a shelf in about a second and finds most of the spines, where the model
-   * takes many times longer and invents titles); then the model reads, and adds every item that is not one of Vision's read again. A model
+   * takes many times longer and invents titles); then the model reads, and adds every item that is not one of Vision's read again. An item
+   * that sits on none of Vision's items must also have its title backed up by the shelf's print (printSupport.ts: at least two thirds of its
+   * words are among the words Vision read on the shot); one at a Vision item's place is not checked, and when Vision failed or read no text
+   * there is no print and every model item stands. A model
    * item that reads the same thing as the Vision item at its place changes nothing but what that item lacks: Vision keeps the title, box,
    * localId and order, and takes the model's kind and format (Vision's `other` searches books too), creator, platform, edition and
    * completeness. A model item that reads something else there goes out beside it, because only the server knows which of the two reads
@@ -124,16 +128,23 @@ export class EngineSelector {
       visionFailure = error;
     }
     const found = vision?.items ?? [];
+    // The words Vision read on the shot, which a title only the model read must have (printSupport.ts). Vision failing, or reading no
+    // text at all, leaves nothing to check against, so every model read stands.
+    const lines = vision?.ocr?.lines ?? [];
+    const printed = lines.length > 0 ? printedWords(lines) : undefined;
 
-    // A model item streams if it is no Vision item read again, numbered after Vision's, and it is unconfirmed: nothing else read it that way, so
-    // the server keeps it for review instead of adding it. One that reads what a Vision item reads adds what that item lacks (its kind, its
-    // format), and the Vision item streams again under its own localId, so the receipt row updates in place. The reading the model ends with
-    // supersedes what streamed: only once every model item is in can a Vision piece be known to hold several of them, and be dropped.
+    // A model item streams if it is no Vision item read again, numbered after Vision's, and it is unconfirmed: nothing else read it that way,
+    // so the server keeps it for review instead of adding it. One that sits on no Vision item streams only if the shelf's print backs up its
+    // title; a title the print does not have is neither streamed nor kept (the final reading leaves it out the same way, and a piece Vision
+    // made of several spines still counts as a Vision item here). One that reads what a Vision item reads adds what that item
+    // lacks (its kind, its format), and the Vision item streams again under its own localId, so the receipt row updates in place. The reading
+    // the model ends with supersedes what streamed: only once every model item is in can a Vision piece be known to hold several of them, and
+    // be dropped.
     const current = [...found];
     let next = nextOrder(found);
     const streamNew = (item: ReadItem) => {
       if (isNewItem(item, found, local)) {
-        emit(asUnconfirmed({ ...item, order: next++ }));
+        if (passesPrint(item, found, local, printed)) emit(asUnconfirmed({ ...item, order: next++ }));
         return;
       }
       const filled = fillPlace(current, item, local);
@@ -146,7 +157,7 @@ export class EngineSelector {
       if (!vision) throw visionFailure instanceof Error ? visionFailure : new Error('Neither Vision nor the model could read this shelf.');
       return { ...vision, fellBackFrom: model, timings: { ...vision.timings, totalMs: total } };
     }
-    const items = shelfReading(found, model.items, local);
+    const items = shelfReading(found, model.items, local, printed);
     // The reading the snap goes out as is the model's, but the shelf's own print was read by Vision: it belongs to the picture, not to an engine.
     return {
       ...model,
