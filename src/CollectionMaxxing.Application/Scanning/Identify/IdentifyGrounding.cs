@@ -53,6 +53,19 @@ public sealed record ReadFacts(
 }
 
 /// <summary>
+/// One read for <see cref="IdentifyGrounding.RetryTrimmedAsync"/>: the read, the profile it was scored with, the answer it got, and
+/// how the caller asks the providers about a span of it. <see cref="Ask"/> is the caller's, so a span is asked within the same
+/// places and time as the read itself (the live request's budget, or the eval's patient one); <see cref="Budget"/> is that time,
+/// so the retry stops when it has run out. Reads of one batch may share both.
+/// </summary>
+public sealed record TrimmedRetry(
+    ReadFacts Facts,
+    ScoringProfileKind Profile,
+    BarcodeResolution Answer,
+    Func<ReadFacts, Task<ProviderAnswers>> Ask,
+    CancellationToken Budget);
+
+/// <summary>
 /// Grounds a read in the catalogue: the local catalogue first (trigram search), then the providers (whose answers are cached
 /// by the provider layer), scored with the profile chosen for the item and the live <see cref="ScoringOptions"/>. This is where
 /// "the model never decides a match alone" is enforced: whatever the phone claimed, the verdict comes from what the catalogue
@@ -131,6 +144,89 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(budget);
         var providers = await AskProvidersAsync(facts, cancellationToken, timeout.Token);
-        return Score(facts, profile, local, providers);
+        var answer = Score(facts, profile, local, providers);
+        if (!WantsTrimmedRetry(facts, profile, answer))
+        {
+            return answer;
+        }
+
+        // A spine that found nothing is asked again without the stray words at its ends, within the budget it has.
+        var retried = await RetryTrimmedAsync(
+            [new TrimmedRetry(facts, profile, answer, spanFacts => AskProvidersAsync(spanFacts, cancellationToken, timeout.Token), timeout.Token)],
+            cancellationToken);
+        return retried[0];
     }
+
+    /// <summary>
+    /// Whether <see cref="RetryTrimmedAsync"/> may help a read: it was scored as a spine on a shelf, nothing was found for it (a
+    /// Pending answer, where a provider could not answer, is asked again later instead, and an Ambiguous or Matched one has
+    /// found its release), and its title has words enough to drop some (<see cref="TrimmedSpans"/>).
+    /// </summary>
+    public static bool WantsTrimmedRetry(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer) =>
+        profile == ScoringProfileKind.ShelfSpine
+        && answer.Verdict == ResolutionVerdict.NotFound
+        && TrimmedSpans.For(facts.SearchText).Count > 0;
+
+    /// <summary>
+    /// A spine read that found nothing is asked again without the stray words at its ends (<see cref="TrimmedSpans"/>): Vision reads
+    /// an author's name or OCR junk into the title, and the whole string then matches nothing while the rest of it matches a book.
+    /// The answers come back in the order of <paramref name="reads"/>, each the one it had unless a span found a release.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Spans are tried round by round, for all the reads still looking at once: one catalogue call for the round (the database
+    /// step takes one batch at a time), then the providers for every read of the round together, through each read's own
+    /// <see cref="TrimmedRetry.Ask"/>. A span is searched and scored as the read's title, with the read's other facts unchanged
+    /// (<see cref="ReadFacts.Text"/> stays what was read). A read stops at the first span whose grounding names a release at or
+    /// above the Ambiguous threshold; at most <see cref="TrimmedSpans.MaxSpans"/> spans are asked for a read, and none once its
+    /// <see cref="TrimmedRetry.Budget"/> has run out, when its NotFound stands.
+    /// </para>
+    /// <para>
+    /// What a span finds is offered, never decided: the verdict is capped at Ambiguous, so the person picks and a trimmed find can
+    /// neither be added by itself nor become a title nobody read. The trace says which span found it and which words it dropped.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<BarcodeResolution>> RetryTrimmedAsync(IReadOnlyList<TrimmedRetry> reads, CancellationToken cancellationToken)
+    {
+        var answers = reads.Select(r => r.Answer).ToArray();
+        var spans = reads.Select(r => WantsTrimmedRetry(r.Facts, r.Profile, r.Answer) ? TrimmedSpans.For(r.Facts.SearchText) : []).ToArray();
+        var looking = Enumerable.Range(0, reads.Count).Where(i => spans[i].Count > 0).ToList();
+        for (var round = 0; round < TrimmedSpans.MaxSpans; round++)
+        {
+            looking = [.. looking.Where(i => round < spans[i].Count && !reads[i].Budget.IsCancellationRequested)];
+            if (looking.Count == 0)
+            {
+                return answers;
+            }
+
+            var asked = looking.Select(i => reads[i].Facts with { Title = spans[i][round].Text }).ToList();
+            var pools = await FindLocalManyAsync(asked, cancellationToken);
+            var scored = await Task.WhenAll(looking.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
+
+            var next = new List<int>(looking.Count);
+            for (var n = 0; n < looking.Count; n++)
+            {
+                var i = looking[n];
+                if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
+                {
+                    answers[i] = Offered(reads[i].Answer, scored[n], spans[i][round]);
+                }
+                else
+                {
+                    next.Add(i);
+                }
+            }
+
+            looking = next;
+        }
+
+        return answers;
+    }
+
+    /// <summary>What a span found, as an answer for the read it was cut from: the same releases, never Matched, and a step to say why.</summary>
+    private static BarcodeResolution Offered(BarcodeResolution original, BarcodeResolution found, TrimmedSpan span) => found with
+    {
+        Verdict = ResolutionVerdict.Ambiguous,
+        Steps = [.. original.Steps, new TraceStep("trimmed", $"{span.Text} (dropped: {span.Dropped})", 0), .. found.Steps],
+    };
 }

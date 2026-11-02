@@ -7,7 +7,7 @@ public sealed record TrimmedSpan(string Text, string Dropped);
 /// The spans a spine read is asked again with when the whole read found nothing. Vision reads a shelf spine with an author's
 /// first name, a publisher's mark or OCR junk at one end ("SARAH J. CROWN OF MIDNIGHT"), and the whole string then matches no
 /// title, while the same words without the stray ones at their ends do. A span is the read's words with some dropped from its
-/// ends, the rest kept in order. Pure; the retry itself is <see cref="IdentifyGrounding"/>.
+/// ends, the rest kept in order. Pure; the retry itself is <see cref="IdentifyGrounding.RetryTrimmedAsync"/>.
 /// </summary>
 /// <remarks>
 /// Not <c>TextSearchResolver</c>'s own ladder, which drops words to find more releases and still scores them against the whole
