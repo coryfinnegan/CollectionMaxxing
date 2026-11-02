@@ -36,6 +36,7 @@ internal static class TrimmedRetryHarness
     public sealed class Catalogue(params LocalHit[] books) : ILocalCatalogSearch
     {
         private readonly object _gate = new();
+        private int _inFlight;
 
         /// <summary>Every title asked for, in the order asked.</summary>
         public List<string> Lookups { get; } = [];
@@ -43,36 +44,58 @@ internal static class TrimmedRetryHarness
         /// <summary>The titles asked for together, one entry per database call.</summary>
         public List<string[]> Batches { get; } = [];
 
-        public Task<IReadOnlyList<LocalHit>> FindAsync(LocalSearch search, CancellationToken cancellationToken)
-        {
-            lock (_gate)
-            {
-                Lookups.Add(search.NormalizedTitle);
-                Batches.Add([search.NormalizedTitle]);
-            }
+        /// <summary>The most database calls that were under way at the same moment: a DbContext serves one at a time, so it must stay 1.</summary>
+        public int MostAtOnce { get; private set; }
 
-            return Task.FromResult(Found(search));
+        public async Task<IReadOnlyList<LocalHit>> FindAsync(LocalSearch search, CancellationToken cancellationToken)
+        {
+            await UsingTheDatabaseAsync([search.NormalizedTitle]);
+            return Found(search);
         }
 
         async Task<IReadOnlyList<IReadOnlyList<LocalHit>>> ILocalCatalogSearch.FindManyAsync(
             IReadOnlyList<LocalSearch> searches, CancellationToken cancellationToken)
         {
+            await UsingTheDatabaseAsync([.. searches.Select(s => s.NormalizedTitle)]);
+            return [.. searches.Select(Found)];
+        }
+
+        private async Task UsingTheDatabaseAsync(string[] titles)
+        {
             lock (_gate)
             {
-                Lookups.AddRange(searches.Select(s => s.NormalizedTitle));
-                Batches.Add([.. searches.Select(s => s.NormalizedTitle)]);
+                Lookups.AddRange(titles);
+                Batches.Add(titles);
+                MostAtOnce = Math.Max(MostAtOnce, ++_inFlight);
             }
 
-            await Task.Yield();
-            return [.. searches.Select(Found)];
+            await Task.Delay(5); // long enough for a call that is not kept apart from another to overlap it
+            lock (_gate)
+            {
+                _inFlight--;
+            }
         }
 
         private IReadOnlyList<LocalHit> Found(LocalSearch search) =>
             [.. books.Where(book => string.Equals(book.Work.NormalizedTitle, search.NormalizedTitle, StringComparison.Ordinal))];
     }
 
-    /// <summary>A provider that knows no book, or is down. Remembers the titles it was asked about.</summary>
-    public sealed class Providers(bool down = false) : ICatalogProvider
+    /// <summary>A book a provider knows. Titles are neutral.</summary>
+    public static ProviderRelease Known(string title, string externalId = "b1") => new()
+    {
+        Provider = "openlibrary",
+        ExternalId = externalId,
+        Title = title,
+        Kind = WorkKind.Book,
+        Format = ReleaseFormat.Paperback,
+        Year = 2012,
+    };
+
+    /// <summary>
+    /// A provider that knows the books it was given (it finds one for a search of exactly its title, whatever the case) and no other,
+    /// or is down. Remembers the titles it was asked about.
+    /// </summary>
+    public sealed class Providers(bool down = false, params ProviderRelease[] known) : ICatalogProvider
     {
         private readonly object _gate = new();
 
@@ -91,7 +114,9 @@ internal static class TrimmedRetryHarness
                 Titles.Add(query.Title);
             }
 
-            return down ? throw new InvalidOperationException("the provider is down") : Task.FromResult<IReadOnlyList<ProviderRelease>>([]);
+            return down
+                ? throw new InvalidOperationException("the provider is down")
+                : Task.FromResult<IReadOnlyList<ProviderRelease>>([.. known.Where(book => string.Equals(book.Title, query.Title, StringComparison.OrdinalIgnoreCase))]);
         }
     }
 }

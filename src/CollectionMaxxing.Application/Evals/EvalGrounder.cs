@@ -125,20 +125,24 @@ public sealed class EvalGrounder(
         var places = Math.Min(Math.Max(1, evals.Value.GroundingParallelism), toAsk.Count);
         var budget = options.JobResolveBudget * places;
         using var gate = new SemaphoreSlim(places);
+        using var database = new SemaphoreSlim(1); // the catalogue calls of the trimmed retries, which run while other reads are being asked
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        await Task.WhenAll(toAsk.Select((claim, i) => AskProvidersAsync(claim, pools[i], gate, stop, budget, cancellationToken)));
+        await Task.WhenAll(toAsk.Select((claim, i) => AskProvidersAsync(claim, pools[i], gate, database, stop, budget, cancellationToken)));
     }
 
     /// <summary>
     /// Asks the providers about one read once a place frees up, and scores the answer. No one is waiting on an eval, so each read gets a
     /// patient budget (the background job's, scaled for the asks in flight), counted from the moment its ask starts on the injected
     /// clock, not the live request's. When one ask fails, the reads still waiting for a place are left for the next call, and the asks
-    /// already under way finish what they started.
+    /// already under way finish what they started. A spine that finds nothing is asked again without the stray words at its ends, as
+    /// <c>/identify</c> asks it (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>): inside the same budget, in the same place, and before the
+    /// read is remembered, so what the memo holds is the final answer.
     /// </summary>
     private async Task AskProvidersAsync(
         EvalGroundingMemo.Claim claim,
         LocalPool local,
         SemaphoreSlim gate,
+        SemaphoreSlim database,
         CancellationTokenSource stop,
         TimeSpan budget,
         CancellationToken cancellationToken)
@@ -170,7 +174,18 @@ public sealed class EvalGrounder(
 
                 // An ask cut short by the app stopping may hand back a thin answer instead of an error: never remember that.
                 cancellationToken.ThrowIfCancellationRequested();
-                claim.Complete(grounding.Score(claim.Facts, claim.Profile, local, providers));
+                var answer = grounding.Score(claim.Facts, claim.Profile, local, providers);
+                if (IdentifyGrounding.WantsTrimmedRetry(claim.Facts, claim.Profile, answer))
+                {
+                    var retried = await grounding.RetryTrimmedAsync(
+                        [new TrimmedRetry(claim.Facts, claim.Profile, answer, span => grounding.AskProvidersAsync(span, cancellationToken, asking.Token), asking.Token)],
+                        cancellationToken,
+                        database);
+                    answer = retried[0];
+                    cancellationToken.ThrowIfCancellationRequested(); // same as above: a retry cut short by the app stopping is never remembered
+                }
+
+                claim.Complete(answer);
             }
             finally
             {

@@ -182,11 +182,16 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <see cref="TrimmedRetry.Budget"/> has run out, when its NotFound stands.
     /// </para>
     /// <para>
+    /// The database step takes one call at a time. Reads that retry together in one batch share it; a caller that runs several
+    /// batches at once (the eval grounder, one batch per read) gives <paramref name="databaseGate"/> so their catalogue calls queue.
+    /// </para>
+    /// <para>
     /// What a span finds is offered, never decided: the verdict is capped at Ambiguous, so the person picks and a trimmed find can
     /// neither be added by itself nor become a title nobody read. The trace says which span found it and which words it dropped.
     /// </para>
     /// </remarks>
-    public async Task<IReadOnlyList<BarcodeResolution>> RetryTrimmedAsync(IReadOnlyList<TrimmedRetry> reads, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<BarcodeResolution>> RetryTrimmedAsync(
+        IReadOnlyList<TrimmedRetry> reads, CancellationToken cancellationToken, SemaphoreSlim? databaseGate = null)
     {
         var answers = reads.Select(r => r.Answer).ToArray();
         var spans = reads.Select(r => WantsTrimmedRetry(r.Facts, r.Profile, r.Answer) ? TrimmedSpans.For(r.Facts.SearchText) : []).ToArray();
@@ -200,7 +205,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             }
 
             var asked = looking.Select(i => reads[i].Facts with { Title = spans[i][round].Text }).ToList();
-            var pools = await FindLocalManyAsync(asked, cancellationToken);
+            var pools = await FindLocalGatedAsync(asked, databaseGate, cancellationToken);
             var scored = await Task.WhenAll(looking.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
 
             var next = new List<int>(looking.Count);
@@ -221,6 +226,29 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         return answers;
+    }
+
+    /// <summary>
+    /// <see cref="FindLocalManyAsync"/>, one caller at a time when <paramref name="databaseGate"/> is given: for callers whose reads
+    /// retry at the same time on one database context (a context serves one query at a time), each holding the gate only for its call.
+    /// </summary>
+    private async Task<IReadOnlyList<LocalPool>> FindLocalGatedAsync(
+        IReadOnlyList<ReadFacts> reads, SemaphoreSlim? databaseGate, CancellationToken cancellationToken)
+    {
+        if (databaseGate is null)
+        {
+            return await FindLocalManyAsync(reads, cancellationToken);
+        }
+
+        await databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await FindLocalManyAsync(reads, cancellationToken);
+        }
+        finally
+        {
+            databaseGate.Release();
+        }
     }
 
     /// <summary>What a span found, as an answer for the read it was cut from: the same releases, never Matched, and a step to say why.</summary>
