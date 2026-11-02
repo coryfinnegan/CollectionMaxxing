@@ -46,6 +46,10 @@ describe('shelfKind: film print makes a film shelf', () => {
     ['a short running time', '47 min'],
     ['a running time in the short form', '98 mins'],
     ['a running time as it is printed', '90 MINUTES'],
+    ['a running time with the color word after it', '92 Minutes Color'],
+    ['an approximate running time', 'Approx. 98 mins'],
+    ['an approximate running time with the color word after it', 'Approx. 98 mins Color'],
+    ['a running time with two format words after it', '92 Minutes Color Stereo'],
   ])('reads %s on two spines as a film shelf', (_why, text) => {
     expect(onTwoSpines(text)).toBe('film');
   });
@@ -72,6 +76,32 @@ describe('shelfKind: film print makes a film shelf', () => {
 
   it('says nothing for a book shelf with one 92 Minutes spine', () => {
     expect(kindOf(['THE SECRET HISTORY'], ['92 Minutes'], ['DUNE'], ['EMMA'])).toBeUndefined();
+  });
+
+  describe('a running time inside a title is no running time (#628)', () => {
+    it('says nothing for two book spines titled 90 Minutes in Heaven and 23 Minutes in Hell', () => {
+      expect(kindOf(['90 Minutes in Heaven'], ['23 Minutes in Hell'], ['DUNE'], ['EMMA'])).toBeUndefined();
+    });
+
+    it('says nothing for two cookbooks that end in a running time', () => {
+      expect(kindOf(['Dinner in 30 Minutes'], ['Bread in 45 Minutes'], ['DUNE'])).toBeUndefined();
+    });
+
+    it('says nothing when the running time sits at the front of the title line, whatever follows it', () => {
+      expect(kindOf(['90 Minutes in Heaven'], ['90 Minutes to Midnight'], ['EMMA'])).toBeUndefined();
+    });
+
+    it('says nothing when the title line is read as a running time plus words that are not a color or a format', () => {
+      expect(kindOf(['SOME SPINE'], ['92 Minutes Later'], ['ANOTHER SPINE'], ['98 mins of Fame'])).toBeUndefined();
+    });
+
+    it('reads a running time on a line apart from the title as a film shelf, whatever the title says', () => {
+      expect(kindOf(['STAR TREK GENERATIONS', '92 Minutes Color'], ['DUNE'], ['90 Minutes in Heaven', '90 Minutes/Color'])).toBe('film');
+    });
+
+    it('does not let a book titled with a running time hide a real case line on the spines beside it', () => {
+      expect(kindOf(['90 Minutes in Heaven'], ['92 Minutes Color'], ['23 Minutes in Hell'], ['Approx. 98 mins'])).toBe('film');
+    });
   });
 
   describe('one spine is read as several lines', () => {

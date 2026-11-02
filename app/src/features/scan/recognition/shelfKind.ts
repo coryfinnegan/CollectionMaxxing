@@ -28,12 +28,18 @@ const ASPECT_PHRASES: readonly string[] = ['widescreen', 'wide screen', 'fullscr
 const SHELF_KIND_MIN_SPINES = 2;
 
 /**
- * A running time as a case prints it: "92 Minutes", "90 Minutes/Color", "98 mins", "47 min". The word is what makes it one, so a year
- * ("1999") and a page count ("352 pages") are not, and the word must be whole, so a title that ends in those letters ("SAMIN") is not
- * either. A case never prints the singular, so "4 Minute Mile" and "30-Minute Meals" (a hyphen reads as a space) are titles.
- * Read from the normalized line, not the folded one: folding trades digits for letters, which is what a logo needs and a number is not.
+ * A running time as a case prints it, on a line of its own: "92 Minutes", "90 Minutes/Color", "98 mins", "Approx. 98 mins". A line
+ * that holds a time among other words is a title: "90 Minutes in Heaven", "Dinner in 30 Minutes" and "92 Minutes Later" are books
+ * (#628). Only a short lead-in may come before the time and only what a case prints beside it (the color, the sound) after it. The
+ * golden shelf prints its times on lines like that and no other, and a whole-line test needs no choice of the piece's title: a line
+ * with other words in it is the title, and the time is on another line.
+ *
+ * The word is what makes it a time, so a year ("1999") and a page count ("352 pages") are not, and it must be whole, so a title that
+ * ends in those letters ("SAMIN") is not either. A case never prints the singular, so "4 Minute Mile" and "30-Minute Meals" (a hyphen
+ * reads as a space) are titles. Read from the normalized line, not the folded one: folding trades digits for letters, which is what a
+ * logo needs and a number is not.
  */
-const RUNNING_TIME = /(?:^|[^0-9a-z])\d+ ?(?:min|mins|minutes)(?:[^a-z]|$)/;
+const RUNNING_TIME = /^(?:(?:approx|approximately|running time|runtime) )?\d+ ?(?:min|mins|minutes)(?: (?:color|b w|black and white|stereo|mono|hi fi))*$/;
 
 const namesARunningTime = (lines: TextLine[]): boolean => lines.some((l) => RUNNING_TIME.test(normalize(l.text)));
 
