@@ -1,8 +1,8 @@
 // Whether the shelf's own print backs up a title only the model read. On a shelf shot the model's reads carry no box of their own, so a
-// read that is none of Vision's items goes out as an item beside them, and the model invents titles: of the model-only additions on the stored
-// build-133 eval, most were wrong, and most of those shared no word with anything Vision's text read on that shelf. A title the print does not
-// have is not added. Pure: words in, a yes or no out. The server mirrors these rules (`PrintSupport.cs`, used by `EvalCombination`), so a change
-// here is a change there. The numbers are in defaults.ts (`PrintSupportTuning`).
+// read that is none of Vision's items goes out as an item beside them, and the model invents titles: most of the titles it alone adds are
+// wrong, and most of those share no word with anything Vision's text read on that shelf. A title the print does not have is not added.
+// Pure: words in, a yes or no out. The server mirrors these rules (`PrintSupport.cs`, used by `EvalCombination`), so a change here is a
+// change there. The numbers are in defaults.ts (`PrintSupportTuning`).
 import { DEFAULT_PRINT_SUPPORT_TUNING, type PrintSupportTuning } from './defaults';
 
 /** Words that join a title together and say nothing about which one it is: a title is not backed by "the" on the shelf. */

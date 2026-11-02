@@ -3,8 +3,8 @@ using System.Text.RegularExpressions;
 namespace CollectionMaxxing.Application.Evals;
 
 /// <summary>
-/// Whether a shelf's own print backs up a title only the picture model read (issue #643): the rule the phone applies before it adds
-/// a model-only read to a shelf (<c>printSupport.ts</c>), repeated here so the <c>apple_vision</c> row the M3 gate measures
+/// Whether a shelf's own print backs up a title only the picture model read: the rule the phone applies before it adds a
+/// model-only read to a shelf (<c>printSupport.ts</c>), repeated here so the <c>apple_vision</c> row the M3 gate measures
 /// (<see cref="EvalCombination"/>) shows what the app shows. A change to either is a change to both.
 /// </summary>
 /// <remarks>

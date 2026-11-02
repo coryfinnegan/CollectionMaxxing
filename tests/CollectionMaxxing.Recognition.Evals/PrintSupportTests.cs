@@ -3,7 +3,7 @@ using CollectionMaxxing.Application.Evals;
 namespace CollectionMaxxing.Recognition.Evals;
 
 /// <summary>
-/// Whether a shelf's own print backs up a title only the picture model read (issue #643). These are the phone's cases
+/// Whether a shelf's own print backs up a title only the picture model read. These are the phone's cases
 /// (<c>printSupport.test.ts</c>) word for word: the server scores the combined row by the same rule, so the two must not drift.
 /// </summary>
 public sealed class PrintSupportTests

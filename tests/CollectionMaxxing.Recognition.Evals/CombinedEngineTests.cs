@@ -1029,7 +1029,7 @@ public sealed class CombinedEngineTests : IDisposable
         model.Items.Single().ShouldBe(ungrounded); // the apple_model row the phone uploaded still measures the model alone
     }
 
-    // ---- a model-only read is shown only when the shelf's print has its words (#643) ---------------------------------------
+    // ---- a model-only read is shown only when the shelf's print has its words --------------------------------------------
 
     /// <summary>The lines Vision read on the shelf, as the phone uploads them: only their text matters to the print.</summary>
     private static List<GroundedOcrLine> Print(params string[] lines) => [.. lines.Select((text, i) => new GroundedOcrLine(text, 0.05 * i, 0.1, 0.04, 0.02))];
