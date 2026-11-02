@@ -132,7 +132,10 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         yield return new TraceStep("product_code", facts.ReadAs is { } readAs ? $"{code} = {game}; read as: {readAs}" : $"{code} = {game}", 0);
     }
 
-    /// <summary>The whole grounding for one read, one step after the other, within <paramref name="budget"/> for the providers.</summary>
+    /// <summary>
+    /// The whole grounding for one read, one step after the other, within <paramref name="budget"/> for the providers. A spine that
+    /// found nothing is then asked again without the stray words at its ends (<see cref="RetryTrimmedAsync"/>), within the same budget.
+    /// </summary>
     public async Task<BarcodeResolution> GroundAsync(ReadFacts facts, ScoringProfileKind profile, TimeSpan budget, CancellationToken cancellationToken)
     {
         if (facts.SearchText is null)
@@ -160,11 +163,13 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>
     /// Whether <see cref="RetryTrimmedAsync"/> may help a read: it was scored as a spine on a shelf, nothing was found for it (a
     /// Pending answer, where a provider could not answer, is asked again later instead, and an Ambiguous or Matched one has
-    /// found its release), and its title has words enough to drop some (<see cref="TrimmedSpans"/>).
+    /// found its release), and its title has words enough to drop some (<see cref="TrimmedSpans"/>). Never a read whose title a
+    /// printed product code decided (ADR-031): that title is the game table's, not words Vision ran stray print into.
     /// </summary>
     public static bool WantsTrimmedRetry(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer) =>
         profile == ScoringProfileKind.ShelfSpine
         && answer.Verdict == ResolutionVerdict.NotFound
+        && facts.ProductCode is null
         && TrimmedSpans.For(facts.SearchText).Count > 0;
 
     /// <summary>

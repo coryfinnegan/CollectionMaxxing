@@ -128,6 +128,19 @@ public class IdentifyGroundingTrimmedRetryTests
     }
 
     [Fact]
+    public async Task A_read_whose_title_a_product_code_decided_is_never_retried()
+    {
+        var catalogue = new Catalogue(Book("Quiet Harbor"));
+        var grounding = Grounding(catalogue);
+        var facts = Read() with { ProductCode = "SNS-8C-USA" };
+
+        var answer = await grounding.GroundAsync(facts, ScoringProfileKind.ShelfSpine, Budget, CancellationToken.None);
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        catalogue.Lookups.ShouldBe(["gary quiet harbor novel"]);
+    }
+
+    [Fact]
     public async Task A_read_of_two_words_is_never_retried()
     {
         var catalogue = new Catalogue(Book("Harbor"));
