@@ -1,6 +1,7 @@
 import type { Rect } from '@/native/cm-vision';
-import { addableItems, enrichedItems, isSameItem, titleCoverage } from './combine';
+import { addableItems, enrichedItems, isSameItem, shelfReading, titleCoverage } from './combine';
 import { DEFAULT_LOCAL_TUNING as T } from './defaults';
+import { printedWords } from './printSupport';
 import type { ReadItem } from './types';
 
 const item = (title: string, order: number, extra: Partial<ReadItem> = {}): ReadItem => ({
@@ -277,5 +278,79 @@ describe('addableItems', () => {
 
   it('adds nothing when there are no candidates', () => {
     expect(addableItems([], [item('Dune', 0)], T)).toEqual([]);
+  });
+});
+
+/** The print of a shelf whose Vision text read these lines. */
+const printOf = (...lines: string[]) => printedWords(lines.map((text) => ({ text })));
+
+describe('addableItems: a model-only read is added only when the shelf\'s print has its words', () => {
+  const existing = [item('Dune', 0, { confidence: 'low', box: spineAt(0.1) })];
+
+  it('does not add a model-only read whose words the shelf did not print', () => {
+    const invented = item('The Matrix', 0);
+    expect(addableItems([invented], existing, T, printOf('DUNE', 'FRANK HERBERT'))).toEqual([]);
+  });
+
+  it('adds one the print has, unconfirmed, as it always was', () => {
+    const added = addableItems([item('Neuromancer', 0)], existing, T, printOf('DUNE', 'NEUROMANCER'));
+    expect(added.map((i) => [i.title, i.order, i.unconfirmed])).toEqual([['Neuromancer', 1, true]]);
+  });
+
+  it('adds one with two thirds of its words printed, and not one with less', () => {
+    const print = printOf('RED', 'OCTOBER');
+    expect(addableItems([item('The First for a Red October', 0)], [], T, print)).toHaveLength(1);
+    expect(addableItems([item('The Lion, the Witch and the Wardrobe', 0)], [], T, printOf('KIMBA THE LION'))).toHaveLength(0);
+  });
+
+  it('numbers the items it adds one after another, with no gap where it left one out', () => {
+    const added = addableItems([item('The Matrix', 0), item('Neuromancer', 1), item('Warcraft', 2), item('Emma', 3)], existing, T, printOf('NEUROMANCER', 'EMMA'));
+    expect(added.map((i) => [i.title, i.order])).toEqual([['Neuromancer', 1], ['Emma', 2]]);
+  });
+
+  it('leaves a candidate that is an existing item read again to the existing item, with print or without', () => {
+    expect(addableItems([item('Dune', 0, { box: spineAt(0.1) })], existing, T, printOf('SOMETHING ELSE'))).toEqual([]);
+  });
+
+  it('adds every model-only read when there is no print to check against: Vision failed, or read no lines', () => {
+    const added = addableItems([item('The Matrix', 0), item('Warcraft', 1)], existing, T, undefined);
+    expect(added.map((i) => i.title)).toEqual(['The Matrix', 'Warcraft']);
+  });
+});
+
+describe('shelfReading: the shelf\'s print only decides which model-only reads are added', () => {
+  const visionDune = () => item('DUNE FRANK HERBERT', 0, { localId: 'v-dune', kind: 'other', confidence: 'low', box: spineAt(0.1) });
+  const modelDune = () => item('Dune', 0, { localId: 'm-dune', kind: 'book', format: 'paperback', box: { x: 0.11, y: 0.2, width: 0.03, height: 0.3 } });
+
+  it('adds a read the print has and leaves out one it does not, numbering the added ones after Vision\'s', () => {
+    const out = shelfReading([visionDune()], [item('The Matrix', 1), item('Neuromancer', 2)], T, printOf('DUNE FRANK HERBERT', 'NEUROMANCER'));
+    expect(out.map((i) => [i.title, i.order, i.unconfirmed])).toEqual([['DUNE FRANK HERBERT', 0, undefined], ['Neuromancer', 1, true]]);
+  });
+
+  it('still lends the kind and format of a read of a Vision item, even when the print does not have the read\'s words', () => {
+    const out = shelfReading([visionDune()], [modelDune()], T, printOf('SOMETHING ELSE ENTIRELY'));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ localId: 'v-dune', title: 'DUNE FRANK HERBERT', kind: 'book', format: 'paperback' });
+  });
+
+  it('adds the same read beside the Vision item when the print has it', () => {
+    const out = shelfReading([visionDune()], [modelDune()], T, printOf('DUNE FRANK HERBERT'));
+    expect(out.map((i) => [i.title, i.unconfirmed])).toEqual([['DUNE FRANK HERBERT', undefined], ['Dune', true]]);
+    expect(out[0].kind).toBe('book');
+  });
+
+  it('drops a Vision piece that holds several model reads whatever the print says, and adds only the reads the print has', () => {
+    const piece = item('EMMA DUNE UBIK', 0, { localId: 'v-piece', box: { x: 0.1, y: 0.1, width: 0.3, height: 0.6 } });
+    const reads = [
+      item('Emma', 1, { box: { x: 0.1, y: 0.1, width: 0.05, height: 0.6 } }),
+      item('Dune', 2, { box: { x: 0.2, y: 0.1, width: 0.05, height: 0.6 } }),
+    ];
+    const out = shelfReading([piece], reads, T, printOf('EMMA'));
+    expect(out.map((i) => i.title)).toEqual(['Emma']);
+  });
+
+  it('adds every model read when there is no print', () => {
+    const out = shelfReading([visionDune()], [item('The Matrix', 1)], T, undefined);
+    expect(out.map((i) => i.title)).toEqual(['DUNE FRANK HERBERT', 'The Matrix']);
   });
 });

@@ -4,11 +4,13 @@
 // takes what it lacks (the model's kind and format steer the server's search). A model item that reads something else is a second read
 // of that place, and goes out beside it: the server shows whichever of the two grounds better and skips the other (`ReadPlaces`), because
 // the phone cannot know which read finds the item, only whether the two read the same words. A Vision piece holding several model reads
-// is several spines merged into one piece, so it is dropped and each model read inside it stands. Pure: items in, items out.
+// is several spines merged into one piece, so it is dropped and each model read inside it stands. A model read that is none of Vision's
+// items goes out only when the shelf's print backs up its title (printSupport.ts): the model invents titles. Pure: items in, items out.
 import type { LocalTuning } from './defaults';
 import { overlapShare } from './geometry';
 import { wordsOf } from './lines';
 import { wordsMatch } from './matching';
+import { printSupports } from './printSupport';
 import type { ReadItem } from './types';
 
 /** Words that join a title together and say nothing about which book it is: two titles do not match because both say "the". */
@@ -202,25 +204,38 @@ export function asUnconfirmed(item: ReadItem): ReadItem {
 }
 
 /**
- * The candidates that are not an item already read (`isNewItem`), numbered after the existing items and otherwise left as their
- * engine made them (their own confidence, kind and box). Each is unconfirmed: nothing else read it that way.
+ * Whether `candidate` goes out as an item of its own: it is no item already read (`isNewItem`), and the shelf's print backs up its
+ * title (`printSupports`). The model invents titles, and on a shelf shot its reads carry no box of their own, so a title nothing on the
+ * shelf prints would otherwise be added as a book that is not there. `printed` is absent when there is no print to check against (Vision
+ * failed, or read no text at all), and then the model's reads stand, as they did before.
  */
-export function addableItems(candidates: ReadItem[], existing: ReadItem[], tuning: LocalTuning): ReadItem[] {
+export function isAddable(candidate: ReadItem, existing: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): boolean {
+  return isNewItem(candidate, existing, tuning) && (!printed || printSupports(candidate.title, printed));
+}
+
+/**
+ * The candidates that are not an item already read (`isNewItem`) and that the shelf's print backs up (`isAddable`), numbered after the
+ * existing items and otherwise left as their engine made them (their own confidence, kind and box). Each is unconfirmed: nothing else
+ * read it that way.
+ */
+export function addableItems(candidates: ReadItem[], existing: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): ReadItem[] {
   const next = nextOrder(existing);
-  return candidates.filter((c) => isNewItem(c, existing, tuning)).map((item, i) => asUnconfirmed({ ...item, order: next + i }));
+  return candidates.filter((c) => isAddable(c, existing, tuning, printed)).map((item, i) => asUnconfirmed({ ...item, order: next + i }));
 }
 
 /**
  * What a shelf shot read: the Vision pipeline's items, less the pieces that turned out to hold several model reads, each taking what it
- * lacks from the model's read of it, and then every model read that is not one of them read again. A model read of a place Vision read as
- * something else goes out beside it, so the server can show whichever of the two grounds better.
+ * lacks from the model's read of it, and then every model read that is not one of them read again and that the shelf's print backs up
+ * (`printed`, the words Vision read on the shot; see `addableItems`). A model read of a place Vision read as something else goes out beside
+ * it, so the server can show whichever of the two grounds better. What the model read of Vision's own items is lent whether or not the print
+ * backs it up: only an item added on the model's word alone needs the print.
  */
-export function shelfReading(base: ReadItem[], candidates: ReadItem[], tuning: LocalTuning): ReadItem[] {
+export function shelfReading(base: ReadItem[], candidates: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): ReadItem[] {
   const merged = mergedPieces(base, candidates, tuning);
   const filled = enrichedItems(
     base.filter((_, i) => !merged.has(i)),
     candidates,
     tuning,
   );
-  return [...filled, ...addableItems(candidates, filled, tuning)];
+  return [...filled, ...addableItems(candidates, filled, tuning, printed)];
 }
