@@ -231,12 +231,13 @@ public class EvalGroundingBudgetTests
     }
 
     [Fact]
-    public async Task A_retry_that_runs_out_of_the_reads_budget_is_cut_and_the_not_found_stands_not_a_pending()
+    public async Task A_retry_that_runs_out_of_the_reads_budget_is_cut_and_the_read_is_pending_not_a_final_not_found()
     {
         // The ladder takes 3 s of the 3.5 s the read has; the first span's search is cut at 3.5 s, and no second span is asked.
+        // The retry did not finish, so the read is not answered: pending, as a read whose first search was cut is.
         var (searches, spine) = await ShelfAsync(TimeSpan.FromSeconds(3.5));
 
-        spine.ShouldBe("not_found");
+        spine.ShouldBe("pending");
         searches.ShouldBe(3 + 1 + 3);
     }
 }

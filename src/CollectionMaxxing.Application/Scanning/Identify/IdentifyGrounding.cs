@@ -175,7 +175,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>
     /// A spine read that found nothing is asked again without the stray words at its ends (<see cref="TrimmedSpans"/>): Vision reads
     /// an author's name or OCR junk into the title, and the whole string then matches nothing while the rest of it matches a book.
-    /// The answers come back in the order of <paramref name="reads"/>, each the one it had unless a span found a release.
+    /// The answers come back in the order of <paramref name="reads"/>, each the one it had unless a span found a release (or the
+    /// budget cut the retry short, which makes it Pending).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -184,7 +185,15 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <see cref="TrimmedRetry.Ask"/>. A span is searched and scored as the read's title, with the read's other facts unchanged
     /// (<see cref="ReadFacts.Text"/> stays what was read). A read stops at the first span whose grounding names a release at or
     /// above the Ambiguous threshold; at most <see cref="TrimmedSpans.MaxSpans"/> spans are asked for a read, and none once its
-    /// <see cref="TrimmedRetry.Budget"/> has run out, when its NotFound stands.
+    /// <see cref="TrimmedRetry.Budget"/> has run out.
+    /// </para>
+    /// <para>
+    /// A retry that tried every span and found nothing leaves the read's NotFound as it was (the same answer). A retry the budget cut
+    /// short does not: if a span was left untried because the time ran out, or a span's providers could not answer (they failed, or
+    /// the budget cancelled the call), the read is <b>Pending</b>, not a final NotFound. A live <c>/identify</c> request has little
+    /// time, and its Pending row is finished by the background job (<c>ResolvePendingIdentify</c> runs <see cref="GroundAsync"/> again
+    /// with the job's much larger budget), so <c>/identify</c> ends up with the answer the eval, with its patient budget, measures.
+    /// The Pending answer's trace ends with a <c>trimmed</c> step, <c>cut_short</c>.
     /// </para>
     /// <para>
     /// The database step takes one call at a time. Reads that retry together in one batch share it; a caller that runs several
@@ -200,13 +209,28 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     {
         var answers = reads.Select(r => r.Answer).ToArray();
         var spans = reads.Select(r => WantsTrimmedRetry(r.Facts, r.Profile, r.Answer) ? TrimmedSpans.For(r.Facts.SearchText) : []).ToArray();
+        var cutShort = new bool[reads.Count];
         var looking = Enumerable.Range(0, reads.Count).Where(i => spans[i].Count > 0).ToList();
-        for (var round = 0; round < TrimmedSpans.MaxSpans; round++)
+        for (var round = 0; round < TrimmedSpans.MaxSpans && looking.Count > 0; round++)
         {
-            looking = [.. looking.Where(i => round < spans[i].Count && !reads[i].Budget.IsCancellationRequested)];
+            // A read with a span left to try and no time to try it in has not finished: its NotFound is not the final word.
+            var open = new List<int>(looking.Count);
+            foreach (var i in looking.Where(i => round < spans[i].Count))
+            {
+                if (reads[i].Budget.IsCancellationRequested)
+                {
+                    cutShort[i] = true;
+                }
+                else
+                {
+                    open.Add(i);
+                }
+            }
+
+            looking = open;
             if (looking.Count == 0)
             {
-                return answers;
+                break;
             }
 
             var asked = looking.Select(i => reads[i].Facts with { Title = spans[i][round].Text }).ToList();
@@ -223,11 +247,21 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 }
                 else
                 {
+                    // A span the providers could not answer (they failed, or the budget cancelled the call) was not really tried.
+                    cutShort[i] |= scored[n].Verdict == ResolutionVerdict.Pending;
                     next.Add(i);
                 }
             }
 
             looking = next;
+        }
+
+        for (var i = 0; i < answers.Length; i++)
+        {
+            if (cutShort[i] && ReferenceEquals(answers[i], reads[i].Answer))
+            {
+                answers[i] = BarcodeResolution.Pending([.. reads[i].Answer.Steps, new TraceStep("trimmed", "cut_short", 0)]);
+            }
         }
 
         return answers;
@@ -260,6 +294,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     private static BarcodeResolution Offered(BarcodeResolution original, BarcodeResolution found, TrimmedSpan span) => found with
     {
         Verdict = ResolutionVerdict.Ambiguous,
+        FoundByTrimmedSpan = true,
         Steps = [.. original.Steps, new TraceStep("trimmed", $"{span.Text} (dropped: {span.Dropped})", 0), .. found.Steps],
     };
 }

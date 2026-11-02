@@ -40,7 +40,10 @@ public static class RepeatReads
     /// (<see cref="Of"/>'s pick between the two does not ask which engine made either read): the two engines agree there, so a
     /// model read that stands is not model-only, the way a Vision row always stood for it before a noisy Vision read and a
     /// clean model read of one spine arrived as two separate reads. Two reads one engine made of a place are not this: an
-    /// engine reading its own spine twice is no agreement between engines. <paramref name="unconfirmed"/> says which read is
+    /// engine reading its own spine twice is no agreement between engines. Nor is an answer a spine read got only by being asked
+    /// again without the stray words at its ends (<see cref="BarcodeResolution.FoundByTrimmedSpan"/>): that is an offer for the
+    /// person to pick from, not a second engine agreeing, so it never confirms another read (it can still be a repeat, and it can
+    /// still be confirmed itself by a read that found the book whole). <paramref name="unconfirmed"/> says which read is
     /// the model's own, position for position with <paramref name="answers"/>. Pure.
     /// </summary>
     public static IReadOnlyList<int> ConfirmedByOtherEngine(
@@ -93,7 +96,8 @@ public static class RepeatReads
 
                 for (var j = 0; j < answers.Count; j++)
                 {
-                    if (j != i && unconfirmed[j] != unconfirmed[i] && BookOf(answers[j]) == book && ReadBox.SamePlace(BoxAt(boxes, i), BoxAt(boxes, j)))
+                    if (j != i && unconfirmed[j] != unconfirmed[i] && !answers[j].FoundByTrimmedSpan
+                        && BookOf(answers[j]) == book && ReadBox.SamePlace(BoxAt(boxes, i), BoxAt(boxes, j)))
                     {
                         confirmed.Add(i);
                         break;

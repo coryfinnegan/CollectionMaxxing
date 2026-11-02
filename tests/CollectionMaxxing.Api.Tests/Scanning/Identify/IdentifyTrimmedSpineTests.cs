@@ -21,13 +21,28 @@ public class IdentifyTrimmedSpineTests(ApiFixture api) : IdentifyTest(api)
     /// <summary>A shelf: four reads make it one, the first three of two words (never retried), and the one given.</summary>
     private static object[] Shelf(string last) => [Book("Alpha Quest"), Book("Beta Quest"), Book("Gamma Quest"), Book(last)];
 
-    private async Task<(HttpClient Client, Guid SessionId)> StartAsync(bool autoAdd = true)
+    /// <summary>The same stray print, in front of the title only, so that the span without it is exactly "IRON FOX" (the catalogue's search wants a third of the trigrams in common).</summary>
+    private const string Stray = "XQZTRWVKLMNBHDPLMKJNHB IRON FOX";
+
+    private Task SeedIronFoxAsync() => CatalogSeed.AddAsync(Db, "Iron Fox", WorkKind.Book, 1999, format: ReleaseFormat.Paperback);
+
+    private async Task<(HttpClient Client, Guid SessionId)> StartAsync(bool autoAdd = true, bool seed = true)
     {
         var library = await CreateLibraryAsync();
-        await CatalogSeed.AddAsync(Db, "Iron Fox", WorkKind.Book, 1999, format: ReleaseFormat.Paperback);
+        if (seed)
+        {
+            await SeedIronFoxAsync();
+        }
+
         var client = As(library, LibraryRole.Editor);
         return (client, autoAdd ? await StartSessionWithAutoCommitAsync(client, library.Id) : await StartSessionWithoutAutoCommitAsync(client, library.Id));
     }
+
+    private static string? Tier(JsonElement candidate) =>
+        candidate.TryGetProperty("tier", out var tier) && tier.ValueKind == JsonValueKind.String ? tier.GetString() : null;
+
+    private static bool Added(JsonElement candidate) =>
+        candidate.TryGetProperty("createdItemId", out var id) && id.ValueKind == JsonValueKind.String;
 
     private async Task<string?> TraceOfAsync(JsonElement candidate)
     {
@@ -120,7 +135,7 @@ public class IdentifyTrimmedSpineTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
-    public async Task A_retry_the_providers_never_answer_ends_with_the_requests_own_budget_and_the_not_found_stands()
+    public async Task A_retry_the_providers_never_answer_ends_with_the_requests_own_budget_and_the_read_goes_pending_not_final_not_found()
     {
         Options.ResolveBudget = TimeSpan.FromSeconds(1);
         var calls = 0;
@@ -140,7 +155,69 @@ public class IdentifyTrimmedSpineTests(ApiFixture api) : IdentifyTest(api)
 
         clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10)); // it ended: the budget cut the retry, nothing waited for it
         calls.ShouldBeGreaterThan(6); // the retry did ask
-        Resolution(spine).ShouldBe("not_found");
+        Resolution(spine).ShouldBe("pending"); // the time ran out before the retry could finish: the background job finishes it
+        (await TrimmedStepsOfAsync(spine)).ShouldBe(["cut_short"]);
+    }
+
+    [Fact]
+    public async Task A_retry_the_requests_budget_cut_short_is_finished_by_the_background_job_with_its_own_budget()
+    {
+        Options.ResolveBudget = TimeSpan.FromSeconds(1);
+        Options.JobResolveBudget = TimeSpan.FromSeconds(30);
+        var calls = 0;
+        var blocking = true;
+
+        // As above, the shelf's first asks take 6 calls and the retry's first never answers (while the request lasts). Nothing
+        // knows the book yet; it reaches the catalogue after the request, so only a retry that is run again can find it.
+        Books.Behaviour = async ct =>
+        {
+            if (blocking && Interlocked.Increment(ref calls) > 6)
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+        };
+        var (client, sessionId) = await StartAsync(autoAdd: false, seed: false);
+        Resolution((await IdentifyOkAsync(client, sessionId, Shelf(Stray)))[3]).ShouldBe("pending");
+
+        blocking = false;
+        await SeedIronFoxAsync();
+        for (var job = 0; job < 2; job++)
+        {
+            await RunNextJobAsync();
+        }
+
+        var stored = (await GetSessionAsync(client, sessionId)).GetProperty("candidates");
+        var spine = stored.EnumerateArray().Single(c => c.GetProperty("visibleText").GetString() == Stray);
+        Resolution(spine).ShouldBe("ambiguous", "the job runs the whole grounding again, retry included, and finishes it");
+        AlternativeTitles(spine).ShouldBe(["Iron Fox"]);
+        (await TrimmedStepsOfAsync(spine)).ShouldBe(["IRON FOX (dropped: XQZTRWVKLMNBHDPLMKJNHB)"]);
+    }
+
+    [Fact]
+    public async Task A_model_only_read_is_not_confirmed_by_a_Vision_read_that_found_the_same_book_only_through_a_trimmed_span()
+    {
+        var library = await CreateLibraryAsync();
+        await SeedIronFoxAsync();
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id, new { autoCommitTiers = new[] { "T0", "T1" } });
+        var model = Book("Iron Fox");
+        model["unconfirmed"] = true;
+        var body = Body(Guid.NewGuid(), [.. Shelf(Stray), model]);
+        body["shotKind"] = "shelf_segment";
+
+        var response = await editor.PostAsync(IdentifyUrl(sessionId), Json(body));
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var candidates = (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().ToList();
+
+        var (vision, modelRead) = (candidates[3], candidates[4]);
+        Resolution(vision).ShouldBe("ambiguous"); // Vision's read found the book only through the span "IRON FOX"
+        (await TrimmedStepsOfAsync(vision)).ShouldBe(["IRON FOX (dropped: XQZTRWVKLMNBHDPLMKJNHB)"]);
+        Decision(vision).ShouldBe("rejected"); // and is the weaker read of the book in that place, so it is skipped
+        Resolution(modelRead).ShouldBe("matched");
+        Tier(modelRead).ShouldBe("T2", "a trimmed find is no second engine agreeing: the model read is still model-only");
+        Decision(modelRead).ShouldBe("undecided");
+        Added(modelRead).ShouldBeFalse();
+        (await ScanReaders.ItemsAsync(Db, library.Id)).ShouldBeEmpty();
     }
 
     [Fact]

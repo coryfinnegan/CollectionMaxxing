@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
@@ -197,43 +198,120 @@ public class IdentifyGroundingTrimmedRetryTests
         facts.Title.ShouldBe(Spine);
     }
 
-    [Fact]
-    public async Task A_read_whose_budget_is_spent_keeps_its_not_found()
+    // ---- a retry the budget cut short is not an answer: the read goes Pending, so the job finishes it ------------------------------
+
+    private static async Task<(BarcodeResolution Original, BarcodeResolution Retried, Catalogue Catalogue)> RetryWithAsync(
+        Func<CancellationTokenSource, ReadFacts, Task<ProviderAnswers>> ask, bool budgetSpentAlready = false, params LocalHit[] books)
     {
-        var catalogue = new Catalogue(Book("Quiet Harbor"));
-        var grounding = Grounding(catalogue);
-        var facts = Read();
-        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
-        using var spent = new CancellationTokenSource();
-        await spent.CancelAsync();
-
-        var answers = await grounding.RetryTrimmedAsync(
-            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, _ => Task.FromResult(ProviderAnswers.None), spent.Token)],
-            CancellationToken.None);
-
-        answers.Single().ShouldBeSameAs(notFound);
-        catalogue.Lookups.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task A_budget_that_runs_out_during_the_retry_ends_it_and_the_not_found_stands()
-    {
-        var catalogue = new Catalogue(Book("Quiet Harbor"));
+        var catalogue = new Catalogue(books);
         var grounding = Grounding(catalogue);
         var facts = Read();
         var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
         using var budget = new CancellationTokenSource();
+        if (budgetSpentAlready)
+        {
+            await budget.CancelAsync();
+        }
 
         var answers = await grounding.RetryTrimmedAsync(
-            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, async _ =>
-            {
-                await budget.CancelAsync(); // the first span's ask uses up the time that was left
-                return new ProviderAnswers([], [new TraceStep("openlibrary", "failed", 0)], true);
-            }, budget.Token)],
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, spanFacts => ask(budget, spanFacts), budget.Token)],
             CancellationToken.None);
+        return (notFound, answers.Single(), catalogue);
+    }
 
-        answers.Single().ShouldBeSameAs(notFound);
+    [Fact]
+    public async Task A_read_whose_budget_was_spent_before_any_span_was_tried_goes_pending()
+    {
+        var (original, retried, catalogue) = await RetryWithAsync((_, _) => Task.FromResult(ProviderAnswers.None), budgetSpentAlready: true, Book("Quiet Harbor"));
+
+        retried.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        retried.Options.ShouldBeEmpty();
+        retried.Steps.ShouldBe([.. original.Steps, new TraceStep("trimmed", "cut_short", 0)]);
+        catalogue.Lookups.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_span_whose_provider_call_the_budget_cancelled_leaves_the_read_pending_and_no_later_span_is_tried()
+    {
+        var (_, retried, catalogue) = await RetryWithAsync(async (budget, _) =>
+        {
+            await budget.CancelAsync(); // the first span's ask uses up the time that was left
+            return new ProviderAnswers([], [new TraceStep("openlibrary", "failed", 0)], true);
+        }, books: Book("Quiet Harbor"));
+
+        retried.Verdict.ShouldBe(ResolutionVerdict.Pending);
         catalogue.Lookups.ShouldBe(["quiet harbor novel"]); // one span was looked for; the later ones, which would have found it, were not
+    }
+
+    [Fact]
+    public async Task A_budget_that_runs_out_after_a_span_that_answered_cleanly_leaves_the_untried_spans_pending()
+    {
+        var (_, retried, catalogue) = await RetryWithAsync(async (budget, _) =>
+        {
+            await budget.CancelAsync(); // the ask finished, but the time is gone before the next span can be tried
+            return ProviderAnswers.None;
+        }, books: Book("Quiet Harbor"));
+
+        retried.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        catalogue.Lookups.ShouldBe(["quiet harbor novel"]);
+    }
+
+    [Fact]
+    public async Task A_budget_that_runs_out_on_the_last_span_after_it_answered_cleanly_is_a_retry_that_finished_and_stays_not_found()
+    {
+        string[] asked = [];
+        var (original, retried, _) = await RetryWithAsync((budget, span) =>
+        {
+            asked = [.. asked, span.Title!];
+            if (asked.Length == TrimmedSpans.MaxSpans)
+            {
+                budget.Cancel();
+            }
+
+            return Task.FromResult(ProviderAnswers.None);
+        });
+
+        asked.Length.ShouldBe(TrimmedSpans.MaxSpans);
+        retried.ShouldBeSameAs(original);
+    }
+
+    [Fact]
+    public async Task A_span_the_providers_could_not_answer_leaves_the_read_pending_so_that_a_later_run_asks_again()
+    {
+        var (_, retried, _) = await RetryWithAsync((_, _) => Task.FromResult(new ProviderAnswers([], [new TraceStep("openlibrary", "failed", 0)], true)));
+
+        retried.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        retried.Steps.ShouldContain(new TraceStep("trimmed", "cut_short", 0));
+    }
+
+    [Fact]
+    public async Task A_span_that_finds_a_release_after_another_could_not_be_answered_is_offered_as_usual()
+    {
+        var calls = 0;
+        var (_, retried, _) = await RetryWithAsync(
+            (_, _) => Task.FromResult(++calls == 1 ? new ProviderAnswers([], [new TraceStep("openlibrary", "failed", 0)], true) : ProviderAnswers.None),
+            books: Book("Quiet Harbor")); // the third span, "quiet harbor", finds it
+
+        retried.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        retried.FoundByTrimmedSpan.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_retry_that_tried_every_span_and_found_nothing_stays_not_found()
+    {
+        var (original, retried, _) = await RetryWithAsync((_, _) => Task.FromResult(ProviderAnswers.None));
+
+        retried.ShouldBeSameAs(original);
+        retried.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
+    [Fact]
+    public async Task What_a_span_finds_is_flagged_so_that_nothing_counts_it_as_agreement()
+    {
+        var answer = await GroundAsync(Grounding(new Catalogue(Book("Quiet Harbor"))));
+
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        (await GroundAsync(Grounding(new Catalogue(Book("Quiet Harbor"))), title: "Quiet Harbor")).FoundByTrimmedSpan.ShouldBeFalse();
     }
 
     [Fact]
