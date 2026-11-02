@@ -9,7 +9,7 @@ import { DEFAULT_RECOGNITION_SETTINGS as S, type RecognitionSettings } from './d
 import { EngineSelector } from './EngineSelector';
 import { failedRead, FakeCropper, line, modelItem, okRead, RecordingVision, STILL, testIds, type Scene } from './fakes';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
-import type { ReadItem } from './types';
+import type { ReadItem, ReadOptions, Still } from './types';
 
 const spine = (name: string, x: number) => line(name, x, 0.1, 0.05, 0.6);
 const column = (x: number): Rect => ({ x: x - 0.02, y: 0.05, width: 0.09, height: 0.7 });
@@ -37,6 +37,28 @@ function visionReads(items: ReadItem[]) {
     return { items, unreadableCount: 0, engine: 'vision_pipeline', timings: { totalMs: 1, visionMs: 1 } };
   });
 }
+
+/**
+ * Makes the Vision pipeline read the scene as it does, with these words printed on the shelf besides: small print that made no item of its
+ * own (a tagline, a publisher's line), which is all the print a model-only title can lean on when no Vision item reads it.
+ */
+function visionAlsoPrints(...words: string[]) {
+  const real = VisionPipelineEngine.prototype.read;
+  return jest.spyOn(VisionPipelineEngine.prototype, 'read').mockImplementation(async function (this: VisionPipelineEngine, still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions) {
+    const reading = await real.call(this, still, onItem, options);
+    const small = words.map((w) => line(w, 0.95, 0.9, 0.04, 0.02));
+    return { ...reading, ocr: { lines: [...(reading.ocr?.lines ?? []), ...small], pieces: reading.ocr?.pieces ?? [] } };
+  });
+}
+
+/** Makes the Vision pipeline read exactly these items and print exactly these lines, so a test can put both where it wants them. */
+function visionReadsWithPrint(items: ReadItem[], printed: string[]) {
+  return jest.spyOn(VisionPipelineEngine.prototype, 'read').mockImplementation(async (_still, onItem) => {
+    items.forEach(onItem);
+    const lines = printed.map((text) => line(text, 0.1, 0.1, 0.05, 0.02));
+    return { items, unreadableCount: 0, engine: 'vision_pipeline', ocr: { lines, pieces: [] }, timings: { totalMs: 1, visionMs: 1 } };
+  });
+}
 const visionItem = (title: string, box: Rect, order: number): ReadItem => ({
   localId: `vision-${order}`,
   text: title,
@@ -51,6 +73,7 @@ afterEach(() => jest.restoreAllMocks());
 
 describe('a shelf shot read by the picture model', () => {
   it('streams the Vision items first, in order, before the model has read anything, then the items the model adds', async () => {
+    visionAlsoPrints('Ubik');
     const { vision, selector } = selectorFor({ ...shelf, read: okRead([modelItem('Dune', 'Dune', 0, { kind: 'other' }), modelItem('Emma', 'Emma', 1, { kind: 'other' }), ubik]) });
     const streamed: string[] = [];
     const modelReadsStarted: number[] = [];
@@ -86,12 +109,12 @@ describe('a shelf shot read by the picture model', () => {
 
   it('sends a model item that reads a Vision item\'s place as something else beside it, for the server to pick between (#614)', async () => {
     const scene: Scene = {
-      read: okRead([modelItem('A Completely Different Title', 'GREAT GATSBY', 0), modelItem('Neuromancer', 'Neuromancer', 1)]),
+      read: okRead([modelItem('Great Gatsby Annotated', 'GREAT GATSBY', 0), modelItem('Neuromancer', 'Neuromancer', 1)]),
       text: [spine('GREAT GATSBY', 0.1), spine('Neuromancer', 0.4)],
       rectangles: [column(0.1), column(0.4)],
     };
     const reading = await selectorFor(scene).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(titles(reading.items)).toEqual(['GREAT GATSBY', 'Neuromancer', 'A Completely Different Title']);
+    expect(titles(reading.items)).toEqual(['GREAT GATSBY', 'Neuromancer', 'Great Gatsby Annotated']);
     expect(reading.items[2]).toMatchObject({ unconfirmed: true, order: 2 });
     expect(reading.items[2].box?.x).toBe(0.1); // the line the model's text matched, which overlaps the Vision piece: the server reads it as one place
     expect(reading.items[0]).not.toHaveProperty('unconfirmed');
@@ -477,6 +500,7 @@ describe('a shelf shot where the model adds nothing new', () => {
   });
 
   it('does not let a failing item callback fail the snap, or lose an item', async () => {
+    visionAlsoPrints('Ubik');
     const reading = await selectorFor({ ...shelf, read: okRead([modelItem('Dune', 'Dune', 0), ubik]) }).selector.read(
       STILL,
       () => {
@@ -513,6 +537,7 @@ describe('a shelf shot where the model gives no reading', () => {
   });
 
   it('keeps what the model had read when it ran out of time part way, as the model\'s snap', async () => {
+    visionAlsoPrints('Ubik');
     const reading = await selectorFor({ ...shelf, read: failedRead('timeout', [ubik]) }).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
     expect(reading.engine).toBe('apple_model');
     expect(reading.fellBackFrom).toBeUndefined();
@@ -520,6 +545,7 @@ describe('a shelf shot where the model gives no reading', () => {
   });
 
   it('adds what the OCR-text tier reads when the picture read fails, as that tier\'s snap with the picture failure as the reason', async () => {
+    visionAlsoPrints('Ubik');
     const extract = okRead([modelItem('Dune', 'Dune', 0, { kind: 'other' }), modelItem('Emma', 'Emma', 1, { kind: 'other' }), ubik]);
     const streamed: ReadItem[] = [];
     const reading = await selectorFor({ ...shelf, read: failedRead('declined'), extract }).selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
@@ -532,6 +558,97 @@ describe('a shelf shot where the model gives no reading', () => {
   it('fails the snap, as before, when Vision and every model tier fail', async () => {
     jest.spyOn(VisionPipelineEngine.prototype, 'read').mockRejectedValue(new Error('vision broke'));
     await expect(selectorFor(nothing).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' })).rejects.toThrow('vision broke');
+  });
+});
+
+describe('a title only the model read is added only when the shelf\'s print has its words (#643)', () => {
+  const matrix = modelItem('The Matrix', 'The Matrix', 3);
+  /** The two spines Vision read too, as the model read them: they add nothing to Vision's items, so only the model-only reads show in a stream. */
+  const known = () => [modelItem('Dune', 'Dune', 0, { kind: 'other' }), modelItem('Emma', 'Emma', 1, { kind: 'other' })];
+
+  it('neither streams nor keeps a model-only read whose words nothing on the shelf printed', async () => {
+    const { vision, selector } = selectorFor({ ...shelf, read: okRead([...known(), ubik, matrix]) });
+    const streamed: ReadItem[] = [];
+    const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+    expect(vision.readCalls.length).toBe(1); // the model did read
+    expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(reading.items.some((i) => i.unconfirmed)).toBe(false);
+  });
+
+  it('adds one the print has, unconfirmed, as it always was, and streams it with the order it ends with', async () => {
+    visionAlsoPrints('Ubik');
+    const { selector } = selectorFor({ ...shelf, read: okRead([...known(), matrix, ubik]) });
+    const streamed: ReadItem[] = [];
+    const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+    expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Neuromancer', 'Ubik']);
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer', 'Ubik']);
+    expect(reading.items[3]).toMatchObject({ unconfirmed: true, order: 3 }); // numbered after Vision's three, with no gap where The Matrix was left out
+    expect(streamed[3]).toMatchObject({ unconfirmed: true, order: 3, localId: reading.items[3].localId });
+  });
+
+  it('counts a title as printed with two thirds of its words on the shelf, and a plural or one wrong letter as the word', async () => {
+    visionAlsoPrints('RED', 'OCTOBERS', 'KIMBA THE LION');
+    const reads = [
+      modelItem('The First for a Red October', 'Red October', 3), // red, october: two of three words
+      modelItem('The Lion, the Witch and the Wardrobe', 'Lion', 4), // only lion: one of three
+    ];
+    const { selector } = selectorFor({ ...shelf, read: okRead([...known(), ...reads]) });
+    const reading = await selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer', 'The First for a Red October']);
+  });
+
+  it('still lends a Vision item what the model read of it, kind and format, though the print does not have the model\'s words', async () => {
+    visionReadsWithPrint([{ ...visionItem('DUNE FRANK HERBERT', column(0.1), 0), localId: 'v-dune' }], ['SOMETHING ELSE']);
+    const { selector } = selectorFor({ ...shelf, read: okRead([modelItem('Dune', 'Dune', 0, { kind: 'book' })]) });
+    const streamed: ReadItem[] = [];
+    const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+    expect(titles(streamed)).toEqual(['DUNE FRANK HERBERT']);
+    expect(reading.items).toHaveLength(1);
+    expect(reading.items[0]).toMatchObject({ localId: 'v-dune', title: 'DUNE FRANK HERBERT', kind: 'book' });
+    expect(reading.items[0]).not.toHaveProperty('unconfirmed');
+  });
+
+  it('leaves out a model-only read the OCR-text tier made without print, as it does the picture\'s', async () => {
+    const extract = okRead([modelItem('Dune', 'Dune', 0, { kind: 'other' }), modelItem('Emma', 'Emma', 1, { kind: 'other' }), ubik, matrix]);
+    const streamed: ReadItem[] = [];
+    const reading = await selectorFor({ ...shelf, read: failedRead('declined'), extract }).selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+    expect(reading.engine).toBe('fm_text');
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+  });
+
+  it('keeps every model read when Vision failed: the model\'s reading stands whole', async () => {
+    jest.spyOn(VisionPipelineEngine.prototype, 'read').mockRejectedValue(new Error('vision broke'));
+    const streamed: ReadItem[] = [];
+    const reading = await selectorFor({ ...shelf, read: okRead([modelItem('Dune', 'Dune', 0), modelItem('Emma', 'Emma', 1), ubik, matrix]) }).selector.read(
+      STILL,
+      (i) => streamed.push(i),
+      { shotKind: 'shelf_segment' },
+    );
+
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Ubik', 'The Matrix']);
+    expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Ubik', 'The Matrix']);
+  });
+
+  it('keeps every model read when Vision read no text at all', async () => {
+    const streamed: ReadItem[] = [];
+    const quiet: Scene = { ...shelf, text: [], rectangles: [], read: okRead([modelItem('Dune', 'Dune', 0), ubik, matrix]) };
+    const reading = await selectorFor(quiet).selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+    expect(titles(reading.items)).toEqual(['Dune', 'Ubik', 'The Matrix']);
+    expect(titles(streamed)).toEqual(['Dune', 'Ubik', 'The Matrix']);
+  });
+
+  it('leaves a single cover alone: the model\'s reading is read as it is, with no print to check against', async () => {
+    const reading = await selectorFor({ ...shelf, read: okRead([modelItem('The Matrix', 'The Matrix', 0)]) }).selector.read(STILL, () => {}, { shotKind: 'single_cover' });
+    expect(titles(reading.items)).toEqual(['The Matrix']);
+    expect(reading.items[0]).not.toHaveProperty('unconfirmed');
   });
 });
 

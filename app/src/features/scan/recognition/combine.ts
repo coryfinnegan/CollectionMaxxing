@@ -209,7 +209,7 @@ export function asUnconfirmed(item: ReadItem): ReadItem {
  * shelf prints would otherwise be added as a book that is not there. `printed` is absent when there is no print to check against (Vision
  * failed, or read no text at all), and then the model's reads stand, as they did before.
  */
-export function isAddable(candidate: ReadItem, existing: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): boolean {
+function isAddable(candidate: ReadItem, existing: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): boolean {
   return isNewItem(candidate, existing, tuning) && (!printed || printSupports(candidate.title, printed));
 }
 

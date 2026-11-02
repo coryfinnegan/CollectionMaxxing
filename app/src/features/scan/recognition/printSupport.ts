@@ -1,28 +1,19 @@
-// Whether the shelf's own print backs up a title only the picture model read. On a shelf shot the model's reads carry no box of their own, so a
+// Whether the shelf's own print backs up a title only the model read. On a shelf shot the model's reads carry no box of their own, so a
 // read that is none of Vision's items goes out as an item beside them, and the model invents titles: of the model-only additions on the stored
 // build-133 eval, most were wrong, and most of those shared no word with anything Vision's text read on that shelf. A title the print does not
 // have is not added. Pure: words in, a yes or no out. The server mirrors these rules (`PrintSupport.cs`, used by `EvalCombination`), so a change
-// here is a change there.
+// here is a change there. The numbers are in defaults.ts (`PrintSupportTuning`).
+import { DEFAULT_PRINT_SUPPORT_TUNING, type PrintSupportTuning } from './defaults';
 
 /** Words that join a title together and say nothing about which one it is: a title is not backed by "the" on the shelf. */
 const STOP_WORDS = new Set(['the', 'a', 'an', 'of', 'and', 'to', 'in', 'on', 'for', 'at', 'by', 'with', 'from', 'or', 'is']);
-
-/** A title shorter than this is never read fuzzily, and neither is a print word: "cat" and "car" are two words, not one misread. */
-const FUZZY_MIN_LENGTH = 5;
-
-/** The shortest word that says anything about a title. */
-const MIN_WORD_LENGTH = 2;
-
-/** At least this share of a title's words (as a fraction: `PRINTED_OF * 3 >= WORDS * 2`) has to be on the shelf. */
-const SUPPORT_NUMERATOR = 2;
-const SUPPORT_DENOMINATOR = 3;
 
 /** The lowercased words of a text: what is left when it is split on anything that is not a letter or a digit. */
 const splitWords = (text: string): string[] => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 0);
 
 /** The words of a model-read title that can back it up: stop words and one-letter words say nothing about which title it is. */
-export function titleWords(title: string): string[] {
-  return splitWords(title).filter((w) => w.length >= MIN_WORD_LENGTH && !STOP_WORDS.has(w));
+export function titleWords(title: string, tuning: PrintSupportTuning = DEFAULT_PRINT_SUPPORT_TUNING): string[] {
+  return splitWords(title).filter((w) => w.length >= tuning.minWordLength && !STOP_WORDS.has(w));
 }
 
 /** Every word of every line Vision read on the shot: all its lines, not only the ones that became a piece's title. */
@@ -45,10 +36,10 @@ function oneEditApart(a: string, b: string): boolean {
  * Whether `word` is on the shelf: a print word is it, is it with one trailing "s" more or less, or (when both are long enough that one wrong
  * letter is a misread and not another word) is one edit away from it.
  */
-function isPrinted(word: string, printed: ReadonlySet<string>): boolean {
+function isPrinted(word: string, printed: ReadonlySet<string>, tuning: PrintSupportTuning): boolean {
   if (printed.has(word) || printed.has(`${word}s`) || (word.endsWith('s') && printed.has(word.slice(0, -1)))) return true;
-  if (word.length < FUZZY_MIN_LENGTH) return false;
-  for (const candidate of printed) if (candidate.length >= FUZZY_MIN_LENGTH && oneEditApart(word, candidate)) return true;
+  if (word.length < tuning.fuzzyMinLength) return false;
+  for (const candidate of printed) if (candidate.length >= tuning.fuzzyMinLength && oneEditApart(word, candidate)) return true;
   return false;
 }
 
@@ -57,9 +48,9 @@ function isPrinted(word: string, printed: ReadonlySet<string>): boolean {
  * them are printed (`isPrinted`). "The First for a Red October" has three words, so "RED" and "OCTOBER" back it; "The Lion, the Witch and the
  * Wardrobe" has three, and "KIMBA THE LION" backs one of them.
  */
-export function printSupports(title: string, printed: ReadonlySet<string>): boolean {
-  const words = titleWords(title);
+export function printSupports(title: string, printed: ReadonlySet<string>, tuning: PrintSupportTuning = DEFAULT_PRINT_SUPPORT_TUNING): boolean {
+  const words = titleWords(title, tuning);
   if (words.length === 0) return false;
-  const found = words.filter((w) => isPrinted(w, printed)).length;
-  return found * SUPPORT_DENOMINATOR >= words.length * SUPPORT_NUMERATOR;
+  const found = words.filter((w) => isPrinted(w, printed, tuning)).length;
+  return found / words.length >= tuning.minPrintedShare;
 }

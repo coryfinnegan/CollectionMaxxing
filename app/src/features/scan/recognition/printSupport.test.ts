@@ -41,6 +41,14 @@ describe('printSupports: a model read added on its own needs the shelf\'s print 
     expect(printSupports('The Lion, the Witch and the Wardrobe', printOf('KIMBA THE LION'))).toBe(false);
   });
 
+  it('asks for two thirds exactly, whatever the number of words', () => {
+    const title = 'Alpha Bravo Charlie Delta Echo Foxtrot';
+    expect(printSupports(title, printOf('alpha', 'bravo', 'charlie', 'delta'))).toBe(true); // 4 of 6
+    expect(printSupports(title, printOf('alpha', 'bravo', 'charlie'))).toBe(false); // 3 of 6
+    expect(printSupports('Alpha Bravo Charlie Delta', printOf('alpha', 'bravo', 'charlie'))).toBe(true); // 3 of 4
+    expect(printSupports('Alpha Bravo Charlie Delta', printOf('alpha', 'bravo'))).toBe(false); // 2 of 4
+  });
+
   it('supports a title with every word printed, on any line', () => {
     expect(printSupports('Neuromancer', printOf('some', 'NEUROMANCER'))).toBe(true);
     expect(printSupports('Lantern Road Cookbook', printOf('LANTERN ROAD', 'COOKBOOK'))).toBe(true);

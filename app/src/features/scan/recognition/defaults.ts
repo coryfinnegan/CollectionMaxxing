@@ -230,6 +230,25 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   creatorMinLetters: 3,
 };
 
+/**
+ * What a title only the picture model read needs from the shelf's own print before a shelf shot adds it (printSupport.ts). The PC's eval
+ * scores the same rule on the same words (`PrintSupport.cs`), so a change to a number here is a change there.
+ */
+export interface PrintSupportTuning {
+  /** A word shorter than this says nothing about which title it is. */
+  minWordLength: number;
+  /** A title word is read fuzzily (one letter wrong, missing or extra) only when it and the print word are both at least this long. */
+  fuzzyMinLength: number;
+  /** The share of a title's words the shelf's print must have. */
+  minPrintedShare: number;
+}
+
+export const DEFAULT_PRINT_SUPPORT_TUNING: PrintSupportTuning = {
+  minWordLength: 2,
+  fuzzyMinLength: 5,
+  minPrintedShare: 2 / 3,
+};
+
 export const DEFAULT_RECOGNITION_SETTINGS: RecognitionSettings = {
   ...DEFAULT_RECOGNITION_CONFIG,
   local: DEFAULT_LOCAL_TUNING,
