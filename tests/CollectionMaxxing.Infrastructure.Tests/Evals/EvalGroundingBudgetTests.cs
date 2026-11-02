@@ -94,6 +94,27 @@ public class EvalGroundingBudgetTests
         }
     }
 
+    /// <summary>Takes one second of the fake clock over every search and finds nothing, counting the searches it starts.</summary>
+    private sealed class OneSecondProvider(TimeProvider time) : ICatalogProvider
+    {
+        private int _searches;
+
+        public int Searches => Volatile.Read(ref _searches);
+
+        public string Name => "one_second";
+
+        public bool Supports(WorkKind kind) => true;
+
+        public Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct) => Task.FromResult<ProviderRelease?>(null);
+
+        public async Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _searches);
+            await Task.Delay(TimeSpan.FromSeconds(1), time, ct);
+            return [];
+        }
+    }
+
     private static EvalReadItemInput Read(string title) => new(
         new IdentifyItemInput(null, null, title, title, null, null, null, WorkKind.Game, ReleaseFormat.GameCartridge, null, "Nintendo 64", null),
         null);
@@ -108,9 +129,12 @@ public class EvalGroundingBudgetTests
     }
 
     /// <summary>Grounds the titles and moves the fake clock along until it is done, failing if it never is.</summary>
-    private static async Task<string[]> VerdictsAsync(FakeTimeProvider time, EvalGrounder grounder, params string[] titles)
+    private static Task<string[]> VerdictsAsync(FakeTimeProvider time, EvalGrounder grounder, params string[] titles) =>
+        VerdictsOfAsync(time, grounder, [.. titles.Select(Read)]);
+
+    private static async Task<string[]> VerdictsOfAsync(FakeTimeProvider time, EvalGrounder grounder, EvalReadItemInput[] reads)
     {
-        var grounding = grounder.GroundAsync(ScanEngine.VisionPipeline, [.. titles.Select(Read)], new EvalGroundingMemo(), printKind: null, CancellationToken.None);
+        var grounding = grounder.GroundAsync(ScanEngine.VisionPipeline, reads, new EvalGroundingMemo(), printKind: null, CancellationToken.None);
         for (var step = 0; !grounding.IsCompleted; step++)
         {
             step.ShouldBeLessThan(MostSteps, "the grounding never finished");
@@ -178,5 +202,41 @@ public class EvalGroundingBudgetTests
         var verdicts = await VerdictsAsync(time, grounder, "Slow Poke Quest", "Quick Quest");
 
         verdicts.ShouldBe(["pending", "matched"]);
+    }
+
+    private static EvalReadItemInput Book(string title) => new(
+        new IdentifyItemInput(null, null, title, title, null, null, null, WorkKind.Book, null, null, null, null),
+        null);
+
+    /// <summary>
+    /// A shelf (four reads) whose first, spine, read needs three searches of one second to find nothing; the other three are two words,
+    /// which are not asked again without their ends and cost one search each. One place, so the asks follow one another.
+    /// </summary>
+    private static async Task<(int Searches, string Spine)> ShelfAsync(TimeSpan budget)
+    {
+        var time = new FakeTimeProvider();
+        var provider = new OneSecondProvider(time);
+        var verdicts = await VerdictsOfAsync(
+            time, Grounder(time, provider, parallelism: 1, budget), [Book("Amber Birch Cedar"), Book("Dune Elm"), Book("Fir Gale"), Book("Haze Iris")]);
+        return (provider.Searches, verdicts[0]);
+    }
+
+    [Fact]
+    public async Task A_spine_that_found_nothing_is_asked_again_without_its_ends_while_its_budget_lasts()
+    {
+        var (searches, spine) = await ShelfAsync(TimeSpan.FromHours(1));
+
+        spine.ShouldBe("not_found");
+        searches.ShouldBe(3 + 2 + 3); // the spine's ladder, its two spans, and one search for each of the other reads
+    }
+
+    [Fact]
+    public async Task A_retry_that_runs_out_of_the_reads_budget_is_cut_and_the_not_found_stands_not_a_pending()
+    {
+        // The ladder takes 3 s of the 3.5 s the read has; the first span's search is cut at 3.5 s, and no second span is asked.
+        var (searches, spine) = await ShelfAsync(TimeSpan.FromSeconds(3.5));
+
+        spine.ShouldBe("not_found");
+        searches.ShouldBe(3 + 1 + 3);
     }
 }

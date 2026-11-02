@@ -429,9 +429,9 @@ public static class IdentifyItems
                 local[toAsk[i].Candidate.Id] = pools[i];
             }
 
-            foreach (var (candidate, item, providers) in await AskProvidersAsync(toAsk, cancellationToken))
+            foreach (var (candidate, answer) in await GroundTextAsync(toAsk, local, cancellationToken))
             {
-                answers[candidate.Id] = grounding.Score(item.Facts, item.Profile, local[candidate.Id], providers);
+                answers[candidate.Id] = answer;
             }
 
             // One book in one place, one candidate per picture: a read that repeats a stronger read of the same release in the same
@@ -549,39 +549,94 @@ public static class IdentifyItems
             }
 
             using var failFast = CollectionMaxxing.Application.Catalog.Providers.ProviderCalls.FailFast(); // a person is waiting
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(options.ResolveBudget);
-            using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
-            var started = Stopwatch.GetTimestamp();
+            using var round = new AskRound(options, cancellationToken);
+            return await AskAllAsync(toAsk, round, cancellationToken);
+        }
 
-            var tasks = toAsk.Select(async entry =>
+        /// <summary>
+        /// Grounds several items that have words to look for, within the request's budget: the providers are asked about all of them
+        /// at once, and each answer is scored against the local pool found for it. A spine that found nothing is asked again without
+        /// the stray words at its ends (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>), within the same budget and the same
+        /// places, round by round for all such spines together, so the retries are batched the way the first asks were. The answers
+        /// come back with their candidates, in the order of <paramref name="toAsk"/>.
+        /// </summary>
+        private async Task<List<(ScanCandidate Candidate, BarcodeResolution Answer)>> GroundTextAsync(
+            List<(ScanCandidate Candidate, CleanItem Item)> toAsk, Dictionary<Guid, LocalPool> local, CancellationToken cancellationToken)
+        {
+            if (toAsk.Count == 0)
             {
+                return [];
+            }
+
+            using var failFast = CollectionMaxxing.Application.Catalog.Providers.ProviderCalls.FailFast(); // a person is waiting
+            using var round = new AskRound(options, cancellationToken);
+            var asked = await AskAllAsync(toAsk, round, cancellationToken);
+            var scored = asked.Select(a => (a.Candidate, a.Item, Answer: grounding.Score(a.Item.Facts, a.Item.Profile, local[a.Candidate.Id], a.Answers))).ToList();
+
+            var retried = await grounding.RetryTrimmedAsync(
+                [.. scored.Select(s => new TrimmedRetry(
+                    s.Item.Facts, s.Item.Profile, s.Answer, facts => AskOneAsync(facts, round, cancellationToken), round.Budget.Token))],
+                cancellationToken);
+            return [.. scored.Select((s, i) => (s.Candidate, retried[i]))];
+        }
+
+        private async Task<List<(ScanCandidate Candidate, CleanItem Item, ProviderAnswers Answers)>> AskAllAsync(
+            List<(ScanCandidate Candidate, CleanItem Item)> toAsk, AskRound round, CancellationToken cancellationToken)
+        {
+            var tasks = toAsk.Select(async entry => (entry.Candidate, entry.Item, Answers: await AskOneAsync(entry.Item.Facts, round, cancellationToken))).ToList();
+            return [.. await Task.WhenAll(tasks)];
+        }
+
+        /// <summary>Asks the providers about one read when a place is free, within the round's budget; an ask the budget runs out on, or that fails, is a failed answer (Pending), never an exception.</summary>
+        private async Task<ProviderAnswers> AskOneAsync(ReadFacts facts, AskRound round, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await round.Gate.WaitAsync(round.Budget.Token);
                 try
                 {
-                    await gate.WaitAsync(timeout.Token);
-                    try
-                    {
-                        return (entry.Candidate, entry.Item, Answers: await grounding.AskProvidersAsync(entry.Item.Facts, cancellationToken, timeout.Token));
-                    }
-                    finally
-                    {
-                        gate.Release();
-                    }
+                    return await grounding.AskProvidersAsync(facts, cancellationToken, round.Budget.Token);
                 }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                finally
                 {
-                    return (entry.Candidate, entry.Item, Answers: Failed("budget", "timeout", started));
+                    round.Gate.Release();
                 }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return Failed("budget", "timeout", round.Started);
+            }
 #pragma warning disable CA1031 // Whatever goes wrong with one item must not fail the picture.
-                catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception) when (exception is not OperationCanceledException)
 #pragma warning restore CA1031
-                {
-                    logger.LogWarning("Looking up a scanned item failed ({Failure}); leaving it pending.", exception.GetType().Name);
-                    return (entry.Candidate, entry.Item, Answers: Failed("resolver", "failed", started));
-                }
-            }).ToList();
+            {
+                logger.LogWarning("Looking up a scanned item failed ({Failure}); leaving it pending.", exception.GetType().Name);
+                return Failed("resolver", "failed", round.Started);
+            }
+        }
 
-            return [.. await Task.WhenAll(tasks)];
+        /// <summary>The time and places the provider asks of one picture share: the request's budget, counted from when the round starts, and at most <c>Parallelism</c> asks at once.</summary>
+        private sealed class AskRound : IDisposable
+        {
+            public AskRound(ScanningOptions options, CancellationToken cancellationToken)
+            {
+                Budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                Budget.CancelAfter(options.ResolveBudget);
+                Gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
+                Started = Stopwatch.GetTimestamp();
+            }
+
+            public CancellationTokenSource Budget { get; }
+
+            public SemaphoreSlim Gate { get; }
+
+            public long Started { get; }
+
+            public void Dispose()
+            {
+                Gate.Dispose();
+                Budget.Dispose();
+            }
         }
 
         private static ProviderAnswers Failed(string provider, string outcome, long started) =>
