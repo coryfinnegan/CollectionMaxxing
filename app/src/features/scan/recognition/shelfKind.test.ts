@@ -50,6 +50,16 @@ describe('shelfKind: film print makes a film shelf', () => {
     ['an approximate running time', 'Approx. 98 mins'],
     ['an approximate running time with the color word after it', 'Approx. 98 mins Color'],
     ['a running time with two format words after it', '92 Minutes Color Stereo'],
+    ['the color word before the running time', 'Color/98 Min.'],
+    ['a running time with the color and the captions after it', '98 Min. Color CC'],
+    ['a running time in black and white', '92 Minutes Black & White'],
+    ['a running time in black and white spelled out', '92 Minutes Black and White'],
+    ['a running time in B&W', '92 Min. B&W'],
+    ['black and white before an approximate running time', 'Black & White Approx. 98 min'],
+    ['a running time with the hours counted out', 'Running Time: 1 hr 32 min'],
+    ['hours and minutes with full stops', '1 hr. 32 min.'],
+    ['hours and minutes spelled out', 'Approx. 1 hour 45 minutes'],
+    ['a running time in hours', '2 hrs'],
   ])('reads %s on two spines as a film shelf', (_why, text) => {
     expect(onTwoSpines(text)).toBe('film');
   });
@@ -93,6 +103,14 @@ describe('shelfKind: film print makes a film shelf', () => {
 
     it('says nothing when the title line is read as a running time plus words that are not a color or a format', () => {
       expect(kindOf(['SOME SPINE'], ['92 Minutes Later'], ['ANOTHER SPINE'], ['98 mins of Fame'])).toBeUndefined();
+    });
+
+    it('says nothing for book spines titled with hours', () => {
+      expect(kindOf(['24 Hours'], ['2 Hours to Midnight'], ['1 Hour 45 Minutes of Fame'], ['EMMA'])).toBeUndefined();
+    });
+
+    it('says nothing when the case words surround a title', () => {
+      expect(kindOf(['Color 90 Minutes in Heaven'], ['23 Minutes in Hell CC'], ['EMMA'])).toBeUndefined();
     });
 
     it('reads a running time on a line apart from the title as a film shelf, whatever the title says', () => {

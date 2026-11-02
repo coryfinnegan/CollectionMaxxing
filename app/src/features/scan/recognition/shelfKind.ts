@@ -28,18 +28,23 @@ const ASPECT_PHRASES: readonly string[] = ['widescreen', 'wide screen', 'fullscr
 const SHELF_KIND_MIN_SPINES = 2;
 
 /**
- * A running time as a case prints it, on a line of its own: "92 Minutes", "90 Minutes/Color", "98 mins", "Approx. 98 mins". A line
- * that holds a time among other words is a title: "90 Minutes in Heaven", "Dinner in 30 Minutes" and "92 Minutes Later" are books
- * (#628). Only a short lead-in may come before the time and only what a case prints beside it (the color, the sound) after it. The
- * golden shelf prints its times on lines like that and no other, and a whole-line test needs no choice of the piece's title: a line
- * with other words in it is the title, and the time is on another line.
+ * A running time as a case prints it, on a line of its own: "92 Minutes", "90 Minutes/Color", "Color/98 Min.", "98 Min. Color CC",
+ * "Approx. 98 mins", "Running Time: 1 hr 32 min", "2 hrs". A line that holds a time among other words is a title: "90 Minutes in
+ * Heaven", "Dinner in 30 Minutes" and "92 Minutes Later" are books (#628). So the time is the whole line: only a lead-in ("Approx.",
+ * "Running time") and the words a case prints beside it (the color, the sound, the captions), in any order before or after it, may
+ * come with it. The golden shelf prints its times on lines like that and no other, and a whole-line test needs no choice of the
+ * piece's title: a line with other words in it is the title, and the time is on another line.
  *
  * The word is what makes it a time, so a year ("1999") and a page count ("352 pages") are not, and it must be whole, so a title that
  * ends in those letters ("SAMIN") is not either. A case never prints the singular, so "4 Minute Mile" and "30-Minute Meals" (a hyphen
- * reads as a space) are titles. Read from the normalized line, not the folded one: folding trades digits for letters, which is what a
- * logo needs and a number is not.
+ * reads as a space) are titles. Hours count with minutes ("1 hr 32 min", "1 hour 45 minutes") or as the short "2 hrs", never as the
+ * plain word on its own: "24 Hours" is a title. Read from the normalized line, not the folded one: folding trades digits for letters,
+ * which is what a logo needs and a number is not; it also turns "&" into a space, so "Black & White" reads as "black white".
  */
-const RUNNING_TIME = /^(?:(?:approx|approximately|running time|runtime) )?\d+ ?(?:min|mins|minutes)(?: (?:color|b w|black and white|stereo|mono|hi fi))*$/;
+const CASE_WORD = 'color|b w|black (?:and )?white|stereo|mono|hi fi|cc';
+const MINUTES = String.raw`\d+ ?(?:min|mins|minutes)`;
+const TIME = String.raw`(?:\d+ ?(?:hr|hrs|hour|hours) ${MINUTES}|\d+ ?(?:hr|hrs)|${MINUTES})`;
+const RUNNING_TIME = new RegExp(`^(?:(?:approx|approximately|running time|runtime|${CASE_WORD}) )*${TIME}(?: (?:${CASE_WORD}))*$`);
 
 const namesARunningTime = (lines: TextLine[]): boolean => lines.some((l) => RUNNING_TIME.test(normalize(l.text)));
 
