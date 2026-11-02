@@ -204,31 +204,41 @@ export function asUnconfirmed(item: ReadItem): ReadItem {
 }
 
 /**
- * Whether `candidate` goes out as an item of its own: it is no item already read (`isNewItem`), and the shelf's print backs up its
- * title (`printSupports`). The model invents titles, and on a shelf shot its reads carry no box of their own, so a title nothing on the
- * shelf prints would otherwise be added as a book that is not there. `printed` is absent when there is no print to check against (Vision
- * failed, or read no text at all), and then the model's reads stand, as they did before.
+ * Whether `candidate` may go out as an item of its own as far as the shelf's print goes. The model invents titles, and on a shelf shot its
+ * reads carry no box of their own, so a title nothing on the shelf prints would otherwise be added as a book that is not there. Only a read
+ * that sits on no Vision item (`placeOf` among `visionItems`, every item Vision made, including a piece that holds several spines) is
+ * checked: it needs the print to back up its title (`printSupports`). A read at a Vision item's place, whether it reads the same thing, or
+ * something else that goes out beside it for the server to settle, is that place's business. `printed` is absent when there is no print to
+ * check against (Vision failed, or read no text at all), and then the model's reads stand, as they did before.
  */
-function isAddable(candidate: ReadItem, existing: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): boolean {
-  return isNewItem(candidate, existing, tuning) && (!printed || printSupports(candidate.title, printed));
+export function passesPrint(candidate: ReadItem, visionItems: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): boolean {
+  return !printed || placeOf(candidate, visionItems, tuning) >= 0 || printSupports(candidate.title, printed);
 }
 
 /**
- * The candidates that are not an item already read (`isNewItem`) and that the shelf's print backs up (`isAddable`), numbered after the
- * existing items and otherwise left as their engine made them (their own confidence, kind and box). Each is unconfirmed: nothing else
- * read it that way.
+ * The candidates that are not an item already read (`isNewItem`) and that pass the shelf's print (`passesPrint`, against `visionItems`,
+ * which are `existing` unless given), numbered after the existing items and otherwise left as their engine made them (their own
+ * confidence, kind and box). Each is unconfirmed: nothing else read it that way.
  */
-export function addableItems(candidates: ReadItem[], existing: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): ReadItem[] {
+export function addableItems(
+  candidates: ReadItem[],
+  existing: ReadItem[],
+  tuning: LocalTuning,
+  printed?: ReadonlySet<string>,
+  visionItems: ReadItem[] = existing,
+): ReadItem[] {
   const next = nextOrder(existing);
-  return candidates.filter((c) => isAddable(c, existing, tuning, printed)).map((item, i) => asUnconfirmed({ ...item, order: next + i }));
+  return candidates
+    .filter((c) => isNewItem(c, existing, tuning) && passesPrint(c, visionItems, tuning, printed))
+    .map((item, i) => asUnconfirmed({ ...item, order: next + i }));
 }
 
 /**
  * What a shelf shot read: the Vision pipeline's items, less the pieces that turned out to hold several model reads, each taking what it
- * lacks from the model's read of it, and then every model read that is not one of them read again and that the shelf's print backs up
- * (`printed`, the words Vision read on the shot; see `addableItems`). A model read of a place Vision read as something else goes out beside
- * it, so the server can show whichever of the two grounds better. What the model read of Vision's own items is lent whether or not the print
- * backs it up: only an item added on the model's word alone needs the print.
+ * lacks from the model's read of it, and then every model read that is not one of them read again and that passes the shelf's print
+ * (`printed`, the words Vision read on the shot; see `passesPrint`: a read that sits on no Vision item needs it, and a read inside a piece
+ * that held several spines sat on one). A model read of a place Vision read as something else goes out beside it, so the server can show
+ * whichever of the two grounds better. What the model read of Vision's own items is lent whether or not the print backs it up.
  */
 export function shelfReading(base: ReadItem[], candidates: ReadItem[], tuning: LocalTuning, printed?: ReadonlySet<string>): ReadItem[] {
   const merged = mergedPieces(base, candidates, tuning);
@@ -237,5 +247,5 @@ export function shelfReading(base: ReadItem[], candidates: ReadItem[], tuning: L
     candidates,
     tuning,
   );
-  return [...filled, ...addableItems(candidates, filled, tuning, printed)];
+  return [...filled, ...addableItems(candidates, filled, tuning, printed, base)];
 }

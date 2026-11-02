@@ -109,12 +109,12 @@ describe('a shelf shot read by the picture model', () => {
 
   it('sends a model item that reads a Vision item\'s place as something else beside it, for the server to pick between (#614)', async () => {
     const scene: Scene = {
-      read: okRead([modelItem('Great Gatsby Annotated', 'GREAT GATSBY', 0), modelItem('Neuromancer', 'Neuromancer', 1)]),
+      read: okRead([modelItem('A Completely Different Title', 'GREAT GATSBY', 0), modelItem('Neuromancer', 'Neuromancer', 1)]),
       text: [spine('GREAT GATSBY', 0.1), spine('Neuromancer', 0.4)],
       rectangles: [column(0.1), column(0.4)],
     };
     const reading = await selectorFor(scene).selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(titles(reading.items)).toEqual(['GREAT GATSBY', 'Neuromancer', 'Great Gatsby Annotated']);
+    expect(titles(reading.items)).toEqual(['GREAT GATSBY', 'Neuromancer', 'A Completely Different Title']);
     expect(reading.items[2]).toMatchObject({ unconfirmed: true, order: 2 });
     expect(reading.items[2].box?.x).toBe(0.1); // the line the model's text matched, which overlaps the Vision piece: the server reads it as one place
     expect(reading.items[0]).not.toHaveProperty('unconfirmed');
@@ -602,15 +602,40 @@ describe('a title only the model read is added only when the shelf\'s print has 
   });
 
   it('still lends a Vision item what the model read of it, kind and format, though the print does not have the model\'s words', async () => {
-    visionReadsWithPrint([{ ...visionItem('DUNE FRANK HERBERT', column(0.1), 0), localId: 'v-dune' }], ['SOMETHING ELSE']);
+    visionReadsWithPrint([{ ...visionItem('Dune', column(0.1), 0), localId: 'v-dune' }], ['SOMETHING ELSE']);
     const { selector } = selectorFor({ ...shelf, read: okRead([modelItem('Dune', 'Dune', 0, { kind: 'book' })]) });
     const streamed: ReadItem[] = [];
     const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
 
-    expect(titles(streamed)).toEqual(['DUNE FRANK HERBERT']);
+    expect(titles(streamed)).toEqual(['Dune', 'Dune']); // Vision's item, then the same item again with the kind it took
     expect(reading.items).toHaveLength(1);
-    expect(reading.items[0]).toMatchObject({ localId: 'v-dune', title: 'DUNE FRANK HERBERT', kind: 'book' });
+    expect(reading.items[0]).toMatchObject({ localId: 'v-dune', title: 'Dune', kind: 'book' });
     expect(reading.items[0]).not.toHaveProperty('unconfirmed');
+  });
+
+  it('sends a model read at a Vision item\'s place that reads it as something else beside it, though the print has none of its words', async () => {
+    visionReadsWithPrint([{ ...visionItem('FRANK HERBERT', column(0.1), 0), localId: 'v-author' }], ['FRANK HERBERT']);
+    const { selector } = selectorFor({ ...shelf, read: okRead([modelItem('Dune', 'Dune', 0, { kind: 'book' }), modelItem('The Matrix', 'The Matrix', 1)]) });
+    const streamed: ReadItem[] = [];
+    const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+
+    expect(titles(streamed)).toEqual(['FRANK HERBERT', 'Dune']); // the Matrix sits at no Vision item's place, and no word of it is printed
+    expect(titles(reading.items)).toEqual(['FRANK HERBERT', 'Dune']);
+    expect(reading.items[1]).toMatchObject({ unconfirmed: true, order: 1 });
+    expect(reading.items[1].box?.x).toBe(0.1); // the line the model's text matched, at the Vision item's place
+    expect(streamed[1].localId).toBe(reading.items[1].localId);
+  });
+
+  it('keeps every model read inside a Vision piece that holds several spines, whatever the print says', async () => {
+    visionReadsWithPrint([visionItem('DUNE EMMA NEUROMANCER', { x: 0.05, y: 0.05, width: 0.7, height: 0.7 }, 0)], ['EMMA']);
+    const { selector } = selectorFor({
+      ...shelf,
+      read: okRead([modelItem('Dune', 'Dune', 0), modelItem('Emma', 'Emma', 1), modelItem('Neuromancer', 'Neuromancer', 2)]),
+    });
+    const reading = await selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(reading.items.map((i) => i.unconfirmed)).toEqual([true, true, true]);
   });
 
   it('leaves out a model-only read the OCR-text tier made without print, as it does the picture\'s', async () => {
