@@ -58,7 +58,25 @@ interface Column {
   lines: TextLine[];
 }
 
-/** Lines left to right (the tall ones for spines, the flat ones for a pile): a line joins the last column when it shares enough of its own width with it. */
+/**
+ * Whether a tall line is the shorter line beside one of the column's lines: the first line of a two-line title, set a little off the
+ * second (#655), shares too little of its width with the column to join it, yet it sits within the band of the line it is set beside,
+ * overlapping it in x. A line about as tall as that one is the next spine's lettering, whose box overlaps the same way.
+ */
+function besideTaller(l: TextLine, column: Column, tuning: LocalTuning): boolean {
+  return column.lines.some(
+    (k) =>
+      Math.min(right(k.box), right(l.box)) - Math.max(k.box.x, l.box.x) >= l.box.width * tuning.spineShortLineOverlap &&
+      yOverlapShare(k.box, l.box) >= tuning.spineRowOverlap &&
+      l.box.height <= k.box.height * tuning.spineShortLineHeight,
+  );
+}
+
+/**
+ * Lines left to right (the tall ones for spines, the flat ones for a pile): a line joins the last column when it shares enough of its own
+ * width with it. A tall line that is the shorter line beside one of the column's lines joins it too, without widening the column, so the
+ * lines that overlap the short line only (the next spine's author below it) do not follow it in.
+ */
 function columnsOf(columnLines: TextLine[], tuning: LocalTuning): Column[] {
   const columns: Column[] = [];
   for (const l of [...columnLines].sort((a, b) => a.box.x - b.box.x)) {
@@ -67,6 +85,8 @@ function columnsOf(columnLines: TextLine[], tuning: LocalTuning): Column[] {
     if (last && shared >= l.box.width * tuning.spineColumnOverlap) {
       last.lines.push(l);
       last.box = union([last.box, l.box]);
+    } else if (last && isTall(l) && besideTaller(l, last, tuning)) {
+      last.lines.push(l);
     } else {
       columns.push({ box: l.box, lines: [l] });
     }

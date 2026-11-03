@@ -275,12 +275,12 @@ describe('real shelf photos', () => {
     // Romance paperback spines, each with the author beside the title: more titles said on their own. Before shelf rows were
     // cut apart (splitting.ts), the pieces held several books' lines rather than one spine, where the biggest print belongs to
     // another book than the one that was found: three held titles traded for two (held 20 to 19, exact 7 to 9). The two shelves
-    // of this bookcase are now cut apart, which lifts both counts (held 19 to 24, exact 9 to 11). Held is 6 titles gained and 1 lost
-    // (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash in; "And Now, Back to
-    // You" out); exact is 3 gained (Heir of Fire, Empire of Storms, Kingdom of Ash) and the same 1 lost. Cut apart, "AND NOW,"
-    // no longer joins "BACK TO YOU" in a column and goes in with the next spine's "TARAH DEWITT" (#655; stackedSpines.test.ts pins
-    // it). The before is the old choice on the old split, so it stays at 20 and 7.
-    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 24, exact: 11 } },
+    // of this bookcase are now cut apart, which lifts both counts (held 19 to 25, exact 9 to 12). Held is 6 titles gained
+    // (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash); exact is 3 gained (Heir
+    // of Fire, Empire of Storms, Kingdom of Ash). Cut apart, "AND NOW," no longer joined "BACK TO YOU" in a column and went in with
+    // the next spine's "TARAH DEWITT", so "And Now, Back to You" was lost (held 24, exact 11) until a shorter line beside a taller one
+    // joined its column (#655; stackedSpines.test.ts pins it). The before is the old choice on the old split, so it stays at 20 and 7.
+    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 25, exact: 12 } },
     'accept-shelf-01': { before: { held: 14, exact: 6 }, after: { held: 14, exact: 7 } },
     'accept-shelf-02': { before: { held: 15, exact: 10 }, after: { held: 15, exact: 12 } },
   };
