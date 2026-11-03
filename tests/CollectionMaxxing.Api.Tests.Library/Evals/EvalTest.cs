@@ -59,7 +59,7 @@ public abstract class EvalTest : IdentifyTest
     protected static object PhotoResult(
         string photoId, string engine, object[] items, string outcome = "ok", long latencyMs = 1500, long? firstItemMs = 800,
         string thermalState = "nominal", int unreadableCount = 0, string? fellBackFrom = null,
-        object[]? ocrLines = null, int[][]? ocrPieces = null, string? printKind = null) => new
+        object[]? ocrLines = null, int[][]? ocrPieces = null, string? printKind = null, object[]? ocrProbes = null) => new
         {
             photoId,
             engine,
@@ -73,11 +73,19 @@ public abstract class EvalTest : IdentifyTest
             ocrLines,
             ocrPieces,
             printKind,
+            ocrProbes,
         };
 
     /// <summary>One cleaned OCR line as the phone uploads it: the text and its box, each value 0 to 1.</summary>
     protected static object OcrLine(string text, double x = 0.1, double y = 0.1, double width = 0.05, double height = 0.5) =>
         new { text, x, y, width, height };
+
+    /// <summary>One OCR line of a probe as the phone uploads it: the text, the confidence, the rotation of the pass that read it, and its box.</summary>
+    protected static object ProbeLine(string text, int pass = 0, double confidence = 0.9, double x = 0.1, double y = 0.1, double width = 0.05, double height = 0.5) =>
+        new { text, confidence, pass, x, y, width, height };
+
+    /// <summary>One OCR probe as the phone uploads it: a name, how long it took, and the lines it read.</summary>
+    protected static object OcrProbe(string name, long ms, params object[] lines) => new { name, ms, lines };
 
     /// <summary>A whole run body.</summary>
     protected static Dictionary<string, object?> RunBody(params object[] results) => new()

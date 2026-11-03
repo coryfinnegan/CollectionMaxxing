@@ -4,7 +4,7 @@ import type { DetectedCode, DeviceStatus, FeaturePrint, ModelCapabilities, Model
 // by Jest. The `true` assignments fail to type-check when a field is added to an interface
 // without being listed here.
 export const RECT_KEYS = ['x', 'y', 'width', 'height'] as const;
-export const TEXT_LINE_KEYS = ['text', 'confidence', 'box'] as const;
+export const TEXT_LINE_KEYS = ['text', 'confidence', 'box', 'pass', 'region'] as const;
 export const FEATURE_PRINT_KEYS = ['revision', 'data'] as const;
 export const DETECTED_CODE_KEYS = ['value', 'symbology', 'bounds'] as const;
 export const MODEL_ITEM_KEYS = [
@@ -18,6 +18,8 @@ export const DEVICE_STATUS_KEYS = ['thermalState', 'osVersion'] as const;
 export const OPTIONAL_KEYS: Record<string, readonly string[]> = {
   ModelItem: ['creator', 'platform', 'editionMarks', 'completeness'],
   ModelCapabilities: ['reason'],
+  // `pass` is always sent by Swift but a hand-written line in a test may leave it out; `region` is sent only for a read of regions.
+  TextLine: ['pass', 'region'],
 };
 
 type Unlisted<T, K extends PropertyKey> = Exclude<keyof T, K>;

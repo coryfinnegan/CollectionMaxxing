@@ -68,8 +68,16 @@ public sealed class EvalRunScoring(
             result.Engine == ScanEngine.VisionPipeline ? result.OcrLines?.Select(l => new GroundedOcrLine(l.Text!, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value)).ToList() : null,
             result.Engine == ScanEngine.VisionPipeline ? result.OcrPieces?.Select(p => (IReadOnlyList<int>)[.. p]).ToList() : null,
             EvalCoverCue.Clean(result.CoverCue),
-            result.Engine == ScanEngine.VisionPipeline && result.PrintKind is { } printKind ? EnumText.ToText(printKind) : null);
+            result.Engine == ScanEngine.VisionPipeline && result.PrintKind is { } printKind ? EnumText.ToText(printKind) : null,
+            OcrProbes: result.Engine == ScanEngine.VisionPipeline ? GroundedProbes(result.OcrProbes) : null);
     }
+
+    /// <summary>The probes as the PC keeps them. The checks at the door have already made every field present and within range; nothing here scores them.</summary>
+    private static List<GroundedOcrProbe>? GroundedProbes(IReadOnlyList<EvalOcrProbeInput>? probes) =>
+        probes?.Select(p => new GroundedOcrProbe(
+            p.Name!,
+            p.Ms!.Value,
+            [.. p.Lines!.Select(l => new GroundedOcrProbeLine(l.Text!, l.Confidence!.Value, l.Pass!.Value, l.X!.Value, l.Y!.Value, l.Width!.Value, l.Height!.Value))])).ToList();
 
     /// <summary>
     /// Grounds every engine row of one photo, as <see cref="GroundAsync"/> grounds one, and then, only for a shelf's apple_model row

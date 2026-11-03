@@ -45,6 +45,14 @@
         },
         "box": {
           "$ref": "#/$defs/Rect"
+        },
+        "pass": {
+          "type": "integer",
+          "description": "The degrees the picture was turned clockwise for the pass that read the line: 0, 90, 180 or 270. Swift always sends it."
+        },
+        "region": {
+          "type": "integer",
+          "description": "Only when the read named regions: the index of the region that read the line. Its box is inside that region, and TypeScript puts it back on the whole picture."
         }
       }
     },
