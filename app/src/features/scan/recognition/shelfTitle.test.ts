@@ -253,9 +253,9 @@ describe('real shelf photos', () => {
     return items.map((i) => i.title);
   }
 
-  /** The choice shelfTitle.ts replaced: the piece's surest, longest single line, whatever that line said. */
+  /** The choice shelfTitle.ts replaced: the piece's surest, longest single line, whatever that line said (on the split before shelf rows were cut apart). */
   function before(id: string): string[] {
-    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, T);
+    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity });
     return pieces.map((p) => p.title ?? p.lines.reduce((b, l) => (l.confidence * l.text.length > b.confidence * b.text.length ? l : b)).text);
   }
 
@@ -272,11 +272,15 @@ describe('real shelf photos', () => {
     'vhs-dvd-shelf-01': { before: { held: 6, exact: 6 }, after: { held: 6, exact: 6 } },
     // Upright DVD spines under shelf labels and edition stickers: "THEY LIVE", "DUNE" and "HALLOWEEN" come out instead.
     'vhs-dvd-shelf-02': { before: { held: 3, exact: 3 }, after: { held: 5, exact: 5 } },
-    // Romance paperback spines, each with the author beside the title: more titles said on their own, and three held
-    // titles traded for two. All five of those sit in pieces that hold several books' lines rather than one spine, where
-    // the biggest print belongs to another book than the one that was found before. No rule that reads one piece as one
-    // item can see that; the split owns it (splitting.ts).
-    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 19, exact: 9 } },
+    // Romance paperback spines, each with the author beside the title: more titles said on their own. Before shelf rows were
+    // cut apart (splitting.ts), the pieces held several books' lines rather than one spine, where the biggest print belongs to
+    // another book than the one that was found: three held titles traded for two (held 20 to 19, exact 7 to 9). The two shelves
+    // of this bookcase are now cut apart, which lifts both counts (held 19 to 24, exact 9 to 11). Held is 6 titles gained and 1 lost
+    // (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash in; "And Now, Back to
+    // You" out); exact is 3 gained (Heir of Fire, Empire of Storms, Kingdom of Ash) and the same 1 lost. Cut apart, "AND NOW,"
+    // no longer joins "BACK TO YOU" in a column and goes in with the next spine's "TARAH DEWITT" (#655; stackedSpines.test.ts pins
+    // it). The before is the old choice on the old split, so it stays at 20 and 7.
+    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 24, exact: 11 } },
     'accept-shelf-01': { before: { held: 14, exact: 6 }, after: { held: 14, exact: 7 } },
     'accept-shelf-02': { before: { held: 15, exact: 10 }, after: { held: 15, exact: 12 } },
   };
