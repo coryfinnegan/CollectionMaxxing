@@ -565,9 +565,10 @@ public static class IdentifyItems
         /// Grounds several items that have words to look for, within <paramref name="round"/>'s budget and places (the caller's, so
         /// that the asks it goes on to make share them): the providers are asked about all of them
         /// at once, and each answer is scored against the local pool found for it. An item the budget runs out on comes back with a
-        /// failed answer, which scores as Pending. A spine that found nothing is asked again without the stray words at its ends
-        /// (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>), within the same budget and the same places, round by round for all such
-        /// spines together, so the retries are batched the way the first asks were. The answers come back with their candidates, in
+        /// failed answer, which scores as Pending. A spine that found nothing is asked again without the stray words at its ends, a
+        /// cover or spine that found nothing or only a release it is not sure of without a possessive name in front of its title, and
+        /// a cover that found nothing without its sequel number (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>), within the same
+        /// budget and the same places, round by round for all such reads together, so the retries are batched the way the first asks were. The answers come back with their candidates, in
         /// the order of <paramref name="toAsk"/>. The caller makes the calls inside <c>ProviderCalls.FailFast</c>.
         /// </summary>
         private async Task<List<(ScanCandidate Candidate, BarcodeResolution Answer)>> GroundTextAsync(
@@ -583,7 +584,7 @@ public static class IdentifyItems
 
             var retried = await grounding.RetryTrimmedAsync(
                 [.. scored.Select(s => new TrimmedRetry(
-                    s.Item.Facts, s.Item.Profile, s.Answer, facts => AskOneAsync(facts, round, cancellationToken), round.Budget.Token))],
+                    s.Item.Facts, s.Item.Profile, s.Answer, facts => AskOneAsync(facts, round, cancellationToken), round.Budget.Token, local[s.Candidate.Id]))],
                 cancellationToken);
             return [.. scored.Select((s, i) => (s.Candidate, retried[i]))];
         }

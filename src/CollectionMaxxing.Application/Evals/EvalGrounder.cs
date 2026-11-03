@@ -180,10 +180,10 @@ public sealed class EvalGrounder(
                 // An ask cut short by the app stopping may hand back a thin answer instead of an error: never remember that.
                 cancellationToken.ThrowIfCancellationRequested();
                 var answer = grounding.Score(claim.Facts, claim.Profile, local, providers);
-                if (IdentifyGrounding.WantsRetry(claim.Facts, claim.Profile, answer))
+                if (IdentifyGrounding.WantsRetry(claim.Facts, claim.Profile, answer, local))
                 {
                     var retried = await grounding.RetryTrimmedAsync(
-                        [new TrimmedRetry(claim.Facts, claim.Profile, answer, span => grounding.AskProvidersAsync(span, cancellationToken, asking.Token), asking.Token)],
+                        [new TrimmedRetry(claim.Facts, claim.Profile, answer, span => grounding.AskProvidersAsync(span, cancellationToken, asking.Token), asking.Token, local)],
                         cancellationToken,
                         database);
                     answer = retried[0];

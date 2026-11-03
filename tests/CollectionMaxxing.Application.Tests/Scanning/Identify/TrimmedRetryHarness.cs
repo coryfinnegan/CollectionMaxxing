@@ -28,6 +28,13 @@ internal static class TrimmedRetryHarness
         return book;
     }
 
+    /// <summary>A film on tape the catalogue holds.</summary>
+    public static LocalHit Film(string title)
+    {
+        var work = new Work { Id = Guid.NewGuid(), Kind = WorkKind.Film, Title = title, NormalizedTitle = TitleNormalizer.Normalize(title), CreatorsJson = "[]" };
+        return new LocalHit(new Release { Id = Guid.NewGuid(), WorkId = work.Id, Format = ReleaseFormat.Vhs }, work);
+    }
+
     /// <summary>A game the catalogue holds (no platform). Titles are neutral.</summary>
     public static LocalHit Game(string title)
     {
@@ -118,6 +125,10 @@ internal static class TrimmedRetryHarness
     {
         private readonly object _gate = new();
 
+        /// <summary>Which of its books a search finds, by the title asked for. By default the ones whose title is exactly that, whatever the case.</summary>
+        public Func<string, ProviderRelease, bool> Finds { get; init; } =
+            (title, book) => string.Equals(book.Title, title, StringComparison.OrdinalIgnoreCase);
+
         public List<string> Titles { get; } = [];
 
         public string Name => "openlibrary";
@@ -135,7 +146,7 @@ internal static class TrimmedRetryHarness
 
             return down
                 ? throw new InvalidOperationException("the provider is down")
-                : Task.FromResult<IReadOnlyList<ProviderRelease>>([.. known.Where(book => string.Equals(book.Title, query.Title, StringComparison.OrdinalIgnoreCase))]);
+                : Task.FromResult<IReadOnlyList<ProviderRelease>>([.. known.Where(book => Finds(query.Title, book))]);
         }
     }
 }
