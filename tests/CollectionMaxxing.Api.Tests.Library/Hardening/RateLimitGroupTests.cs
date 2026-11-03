@@ -1,13 +1,16 @@
 using System.Net;
 using System.Net.Http.Json;
+using CollectionMaxxing.Api.Tests.Catalog;
 using CollectionMaxxing.Api.Tests.RateLimiting;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Libraries;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace CollectionMaxxing.Api.Tests.Hardening;
 
@@ -20,6 +23,9 @@ namespace CollectionMaxxing.Api.Tests.Hardening;
 public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposable
 {
     private static readonly Guid Session = Guid.NewGuid();
+
+    /// <summary>The window a lowered group gets: far longer than any test, so it never rolls over mid-test.</summary>
+    private const int TestWindowSeconds = 3600;
 
     private readonly List<WebApplicationFactory<Program>> _factories = [];
 
@@ -323,14 +329,28 @@ public sealed class RateLimitGroupTests(ApiFixture api) : ApiTest(api), IDisposa
         defaults.AuthHourly.ShouldBe(new(30, 3600));
     }
 
-    /// <summary>The API with the given groups lowered to the given permits (a window of a minute, or the hour the table says).</summary>
+    /// <summary>
+    /// The API with the given groups lowered to the given permits, in a window of an hour, and with an instant fake in place of the real catalogue
+    /// providers. Neither the window nor a provider's speed may decide a test: the real keyless providers (Open Library) are a network call, and on CI
+    /// each search once took the full 20-second provider timeout, so four searches outlasted the table's one-minute window, the window reset,
+    /// and the fourth was answered instead of refused. Nothing in these tests waits on the clock or the network.
+    /// </summary>
     private WebApplicationFactory<Program> Host(params (string Group, int Permits)[] limits)
     {
         var factory = Api.Factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-                limits.ToDictionary(l => $"Security:Limits:{l.Group}:Permits", l => (string?)l.Permits.ToString(System.Globalization.CultureInfo.InvariantCulture))));
-            builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, PeerFilter>());
+                limits.SelectMany(l => new[]
+                {
+                    KeyValuePair.Create($"Security:Limits:{l.Group}:Permits", (string?)l.Permits.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    KeyValuePair.Create($"Security:Limits:{l.Group}:WindowSeconds", (string?)TestWindowSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                })));
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<IStartupFilter, PeerFilter>();
+                services.RemoveAll<ICatalogProvider>();
+                services.AddSingleton<ICatalogProvider>(new FakeProvider());
+            });
         });
         _factories.Add(factory);
         return factory;
