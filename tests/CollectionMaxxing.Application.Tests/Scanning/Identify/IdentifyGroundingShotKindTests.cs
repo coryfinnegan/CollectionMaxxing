@@ -436,7 +436,10 @@ public class IdentifyGroundingShotKindTests
         var calls = new List<Guid[]>();
         var kinds = new Dictionary<Guid, WorkKind>
         {
-            [bookA.Release.Id] = WorkKind.Book, [bookB.Release.Id] = WorkKind.Book, [bookC.Release.Id] = WorkKind.Book, [film.Release.Id] = WorkKind.Film,
+            [bookA.Release.Id] = WorkKind.Book,
+            [bookB.Release.Id] = WorkKind.Book,
+            [bookC.Release.Id] = WorkKind.Book,
+            [film.Release.Id] = WorkKind.Film,
         };
         ShotKindRetry Local(LocalHit hit, string title, ResolutionVerdict verdict) =>
             Retry(grounding, asks, Vision(title), new BarcodeResolution(verdict, [new ResolutionOption(hit.Release.Id, null, verdict == ResolutionVerdict.Matched ? 0.97 : 0.5)], null, []));
