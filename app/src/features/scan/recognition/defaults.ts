@@ -86,6 +86,21 @@ export interface LocalTuning {
   /** A shelf row needs this many tall lines on each side of a cut, so a sticker read sideways does not make a row of its own. */
   shelfRowMinLines: number;
   /**
+   * An item lying flat across the tops of the spines (a tape on a row of DVDs) is its own item, not a line of the spine under its center.
+   * A flat line lies across when its height is at least this share of a spine column's width (the row's median; a spine's lettering reads
+   * sideways, so that width is its letter height), which keeps a sticker or small print with its spine, and it passes `lyingLineWidth` and
+   * `lyingLineReach` too.
+   */
+  lyingLineLetters: number;
+  /**
+   * A flat line lies across the spines only when it is at least this many of its spine's column widths wide: a name printed flat across its
+   * own spine is 1.3 columns wide and the narrowest recorded tape 2.1, and the same titles are found from 1.5 to 2. Infinity switches the
+   * cut off, and a line then joins the spine under its center.
+   */
+  lyingLineWidth: number;
+  /** ...and its center lies at least this many column widths above its spine's top or below its bottom: a title printed within the spine's own span is the spine's. */
+  lyingLineReach: number;
+  /**
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
    * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
@@ -231,6 +246,9 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   minSpineColumns: 2,
   shelfRowGap: 4,
   shelfRowMinLines: 2,
+  lyingLineLetters: 0.5,
+  lyingLineWidth: 2,
+  lyingLineReach: 0.5,
   flatLineAspect: 2.5,
   stackMinBands: 3,
   stackSureBands: 5,

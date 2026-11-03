@@ -474,6 +474,47 @@ describe('splitting Vision text into items', () => {
     });
   });
 
+  describe('a tape lying across the tops of the spines is its own item', () => {
+    const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
+    /** A spine's lettering, 0.07 wide: the columns of a row stand 0.1 apart, so a column is 0.07 wide and 0.03 clear of the next. */
+    const spine = (text: string, x: number, y = 0.45, height = 0.2) => line(text, x, y, 0.07, height);
+    // DELTA stands from 0.05 to 0.65, so the band the columns make reaches the top of the frame and a flat line up there is inside it.
+    const row = [spine('ALPHA', 0.1), spine('BRAVO', 0.2), spine('CHARLIE', 0.3), spine('DELTA', 0.4, 0.05, 0.6)];
+    /** A tape 0.5 wide (7 columns) and 0.09 tall lying flat across the tops of the spines, its center over CHARLIE. */
+    const tape = line("Charlotte's Web", 0.12, 0.1, 0.5, 0.09);
+
+    it("cuts the tape from the spine under its center instead of joining the two: CHARLIE keeps its own name and the tape is one more item", () => {
+      const { pieces } = splitIntoPieces([...row, tape], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ['CHARLIE'], ['DELTA'], ["Charlotte's Web"]]);
+    });
+
+    it('keeps a flat line a column and a third wide with its spine: an author printed flat across the spine belongs to it', () => {
+      const { pieces } = splitIntoPieces([...row, line('GARTEN', 0.195, 0.3, 0.09, 0.03)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['GARTEN', 'BRAVO'], ['CHARLIE'], ['DELTA']]);
+    });
+
+    it("keeps a wide flat line inside its spine's own reach with that spine: the tape is printed on the spine, not across the tops", () => {
+      const { pieces } = splitIntoPieces([...row, line("Charlotte's Web", 0.12, 0.4, 0.5, 0.09)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ["Charlotte's Web", 'CHARLIE'], ['DELTA']]);
+    });
+
+    it('keeps small print with its spine: a wide line set small is a sticker, not a tape', () => {
+      const { pieces } = splitIntoPieces([...row, line('SPECIAL EDITION', 0.19, 0.2, 0.16, 0.02)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['SPECIAL EDITION', 'BRAVO'], ['CHARLIE'], ['DELTA']]);
+    });
+
+    it('takes a line beside the tape, outside every column, into the tape', () => {
+      const credit = line('Hanna Barbera', 0.5, 0.12, 0.1, 0.02);
+      const { pieces } = splitIntoPieces([...row, tape, credit], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ['CHARLIE'], ['DELTA'], ["Charlotte's Web", 'Hanna Barbera']]);
+    });
+
+    it('is off when the width needed is infinite: the tape joins the spine under it, as it did', () => {
+      const { pieces } = splitIntoPieces([...row, tape], [], C.splitting, { ...T, lyingLineWidth: Infinity });
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ["Charlotte's Web", 'CHARLIE'], ['DELTA']]);
+    });
+  });
+
   describe('#637: how far apart, and how alike in size, a stack of tapes lying flat must be to be cut one per tape', () => {
     /** Tapes lying flat in one column 0.35 wide (the lettering of `heights`, one each), each `gap` letters below the last. */
     function stack(heights: number[], gap: number) {

@@ -14,11 +14,14 @@ const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.
 /** The pile rules of #637 off: a pile's median gap is at most a letter (not 1.25), and a stack of four needs lettering of one size (0.5, not 0.4). */
 const BEFORE_637 = { stackSureMaxGap: 1, stackFourLetters: 0.5 };
 
+/** The cut of a tape lying across the tops of the spines off: a flat line joins the spine under its center. */
+const BEFORE_LYING = { lyingLineWidth: Infinity };
+
 /** The split with piles switched off: what the splitter did before items lying flat were cut one per spine (nor was the frame cut into shelf rows). */
-const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637 };
+const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING };
 
 /** The values before #618: a pile needed 5 bands in a column no wider than half the frame, and a row 60% of its neighbors in one band. */
-const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity, ...BEFORE_637 };
+const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING };
 
 /** A tape lying flat: a title line 0.35 wide and 0.05 tall, 0.08 below the last, so the gap is a little over half a letter. */
 const tape = (i: number, text = `Tape ${i}`, x = 0.3, top = 0.1) => line(text, x, top + i * 0.08, 0.35, 0.05);
@@ -212,9 +215,10 @@ describe('real shelf photos', () => {
   const COUNTS: Record<string, { before: { items: number; found: number }; after: { items: number; found: number } }> = {
     // Three piles of tapes with a row of DVDs between: 7 lumps, then one item per tape. The OCR kept 7 titles whole on one line.
     'vhs-dvd-shelf-01': { before: { items: 7, found: 0 }, after: { items: 32, found: 6 } },
-    // Upright DVD spines and no pile of flat items: nothing for the split to change (its misses are merged spines).
-    // The counts rose with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns that.
-    'vhs-dvd-shelf-02': { before: { items: 12, found: 5 }, after: { items: 12, found: 5 } },
+    // Upright DVD spines and no pile of flat items; a tape of "Charlotte's Web" lies across their tops. The before counts rose with the
+    // spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns that. The after moved when the tape became an
+    // item of its own instead of joining the CRITTERS spine under its center (items 12 to 13, found 5 to 6: Critters).
+    'vhs-dvd-shelf-02': { before: { items: 12, found: 5 }, after: { items: 13, found: 6 } },
     // A pile of hardcovers lies under a row of upright books; the 2-line titles of the pile now come out whole.
     // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it. The after
     // moved again when the frame was cut into its two shelf rows (items 32 to 40, found 19 to 25): 6 titles gained and none lost. The cut
@@ -233,14 +237,14 @@ describe('real shelf photos', () => {
     expect({ items: after.items, found: after.found }).toEqual(counts.after);
   });
 
-  it.each(['vhs-dvd-shelf-01', 'accept-shelf-04'])('%s: more truth titles are found, and more items are read, than before', async (id) => {
+  it.each(['vhs-dvd-shelf-01', 'vhs-dvd-shelf-02', 'accept-shelf-04'])('%s: more truth titles are found, and more items are read, than before', async (id) => {
     const before = await read(id, WITHOUT_PILES);
     const after = await read(id, T);
     expect(after.found).toBeGreaterThan(before.found);
     expect(after.items).toBeGreaterThan(before.items);
   });
 
-  it.each(['vhs-dvd-shelf-02', 'accept-shelf-01', 'accept-shelf-02'])('%s: finds no fewer truth titles than before', async (id) => {
+  it.each(['accept-shelf-01', 'accept-shelf-02'])('%s: finds no fewer truth titles than before', async (id) => {
     const before = await read(id, WITHOUT_PILES);
     const after = await read(id, T);
     expect(after.found).toBeGreaterThanOrEqual(before.found);
@@ -249,7 +253,7 @@ describe('real shelf photos', () => {
 
   describe('a bookcase shot with two shelves in the frame is cut into its two shelf rows', () => {
     /** The split before the frame was cut into rows: a spine on the lower shelf joined the spine above it, whose x it shares. */
-    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity, ...BEFORE_637 };
+    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING };
 
     // The stretch of y that no tall line covers, from one row's last tall line to the next row's first: 10.0, 5.4 and 4.5 letters (the
     // median tall line's width). The single-row photos show 2.3 to 3.6 letters at their edges, or too few lines beyond to count as a row.
@@ -348,6 +352,28 @@ describe('real shelf photos', () => {
         'A COURT OF THORNS AND ROSES',
       ]);
       expect(splitIntoPieces(pile(), [], C.splitting, { ...T, ...BEFORE_637 }).pieces).toHaveLength(1);
+    });
+  });
+
+  describe('a tape lying across the tops of the spines is not joined to the spine under it', () => {
+    // vhs-dvd-shelf-02: a tape of "Charlotte's Web" (0.679 wide, 0.126 tall) lies across the tops of a row of DVDs. Its center is over the
+    // "CRITTERS" spine, and the title read for that piece was the tape's.
+    const lines = () => photos['vhs-dvd-shelf-02'].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
+    const piecesWith = (text: string, local: typeof T) =>
+      splitIntoPieces(lines(), [], C.splitting, local).pieces.filter((p) => p.lines.some((l) => l.text === text));
+
+    it("keeps the Charlotte's Web tape out of the piece that holds CRITTERS, and makes it an item of its own", () => {
+      expect(photos['vhs-dvd-shelf-02'].lines[17].text).toBe("Charlotte's Web");
+      expect(photos['vhs-dvd-shelf-02'].lines[32].text).toBe('CRITTERS');
+      const critters = piecesWith('CRITTERS', T);
+      expect(critters).toHaveLength(1);
+      expect(critters[0].lines.map((l) => l.text)).not.toContain("Charlotte's Web");
+      expect(piecesWith("Charlotte's Web", T)[0].lines.map((l) => l.text)).toEqual(["Charlotte's Web"]);
+    });
+
+    it("joined them before: the piece that held CRITTERS held the tape's title too", () => {
+      const critters = piecesWith('CRITTERS', { ...T, ...BEFORE_LYING });
+      expect(critters[0].lines.map((l) => l.text)).toContain("Charlotte's Web");
     });
   });
 
