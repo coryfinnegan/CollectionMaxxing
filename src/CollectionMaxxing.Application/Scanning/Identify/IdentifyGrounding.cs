@@ -61,14 +61,17 @@ public sealed record ReadFacts(
 /// One read for <see cref="IdentifyGrounding.RetryTrimmedAsync"/>: the read, the profile it was scored with, the answer it got, and
 /// how the caller asks the providers about a span of it. <see cref="Ask"/> is the caller's, so a span is asked within the same
 /// places and time as the read itself (the live request's budget, or the eval's patient one); <see cref="Budget"/> is that time,
-/// so the retry stops when it has run out. Reads of one batch may share both.
+/// so the retry stops when it has run out. Reads of one batch may share both. <see cref="Local"/> is the catalogue's releases the
+/// answer was scored against: an option holds only a release's id, and with the pool the retry can tell whether the read's best
+/// release already holds the possessive name it would drop (<see cref="PossessivePrefix"/>). Without it that check is skipped.
 /// </summary>
 public sealed record TrimmedRetry(
     ReadFacts Facts,
     ScoringProfileKind Profile,
     BarcodeResolution Answer,
     Func<ReadFacts, Task<ProviderAnswers>> Ask,
-    CancellationToken Budget);
+    CancellationToken Budget,
+    LocalPool? Local = null);
 
 /// <summary>
 /// One read of a shot for <see cref="IdentifyGrounding.RetrySeriesAsync"/>: the read, the profile it was scored with, where it sat
@@ -168,14 +171,14 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         timeout.CancelAfter(budget);
         var providers = await AskProvidersAsync(facts, cancellationToken, timeout.Token);
         var answer = Score(facts, profile, local, providers);
-        if (!WantsRetry(facts, profile, answer))
+        if (!WantsRetry(facts, profile, answer, local))
         {
             return answer;
         }
 
         // The read is asked again in the ways AttemptsFor lists, within the budget it has.
         var retried = await RetryTrimmedAsync(
-            [new TrimmedRetry(facts, profile, answer, spanFacts => AskProvidersAsync(spanFacts, cancellationToken, timeout.Token), timeout.Token)],
+            [new TrimmedRetry(facts, profile, answer, spanFacts => AskProvidersAsync(spanFacts, cancellationToken, timeout.Token), timeout.Token, local)],
             cancellationToken);
         return retried[0];
     }
@@ -186,13 +189,15 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// may be asked several ways: for a spine, a title with words enough to drop some (<see cref="TrimmedSpans"/>), a sequel number to
     /// drop (<see cref="SequelNumber"/>) or a creator as read worth asking as the title (<see cref="CreatorSwap"/>); for a cover, a
     /// sequel number; for either, a possessive name in front of the title (<see cref="PossessivePrefix"/>). A read that found a
-    /// release it is not sure of (Ambiguous) is asked only the last: a cover's possessive name and tagline are the commonest
-    /// reason that it found the wrong one. A Pending answer, where a provider could not answer, is asked again later instead, and a
+    /// release it is not sure of (Ambiguous) is asked only the last, and only when its best release does not already hold the
+    /// possessive name (<paramref name="local"/> gives the titles of the catalogue's releases): "Schindler's List" found as
+    /// "Schindler's List" has no tagline in it, while a cover's name and tagline are the commonest reason that it found the wrong
+    /// one. A Pending answer, where a provider could not answer, is asked again later instead, and a
     /// Matched one is never touched. Never a read whose title a printed product code decided (ADR-031): that title is the game
     /// table's, not words Vision ran stray print into.
     /// </summary>
-    public static bool WantsRetry(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer) =>
-        AttemptsFor(facts, profile, answer).Count > 0;
+    public static bool WantsRetry(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer, LocalPool? local = null) =>
+        AttemptsFor(facts, profile, answer, local).Count > 0;
 
     /// <summary>One more way to ask about a read: the facts to ask with, and the trace step that says what they are.</summary>
     private sealed record Attempt(ReadFacts Facts, TraceStep Step);
@@ -201,10 +206,11 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// The ways to ask again about a read, in the order they are tried. A read that found nothing: its title without its possessive
     /// name, then for a spine its trimmed spans, then its title without its sequel number, then, last, for a spine its creator as the
     /// title (the stray words at the ends of a spine and the author line of a spine are no cover's). A read that found a release
-    /// it is not sure of: its title without its possessive name, and nothing else. None for any other profile, a read that matched
-    /// or is Pending, one already answered by one of these, or one that a product code named.
+    /// it is not sure of: its title without its possessive name, and nothing else, unless its best release already holds that name.
+    /// None for any other profile, a read that matched or is Pending, one already answered by one of these, or one that a product
+    /// code named.
     /// </summary>
-    private static List<Attempt> AttemptsFor(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer)
+    private static List<Attempt> AttemptsFor(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer, LocalPool? local)
     {
         var spine = profile == ScoringProfileKind.ShelfSpine;
         var unsure = answer.Verdict == ResolutionVerdict.Ambiguous && !answer.FoundByTrimmedSpan;
@@ -217,7 +223,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         var asked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // The title without its possessive name goes first: it is the most pointed guess, and the only one for a read that found something.
-        if (PossessivePrefix.For(facts.SearchText) is { } possessive && asked.Add(possessive.Title))
+        if (PossessivePrefix.For(facts.SearchText) is { } possessive && !NamedByBest(answer, local, possessive) && asked.Add(possessive.Title))
         {
             attempts.Add(new Attempt(facts with { Title = possessive.Title }, new TraceStep("possessive", $"{possessive.Title} (dropped: {possessive.Dropped})", 0)));
         }
@@ -253,6 +259,23 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     }
 
     /// <summary>
+    /// Whether the read's best release already holds the possessive name its title starts with, compared as titles are (accents,
+    /// case and punctuation aside) and as whole words: "Bram Stoker's Dracula" holds "Bram Stoker's", so the possessive is the real
+    /// title and the title without it ("Dracula") is a different work. "Walt Disney Masterpieces" does not hold "Walt Disney's".
+    /// A read with no options, or a best release whose title is not known, holds nothing.
+    /// </summary>
+    private static bool NamedByBest(BarcodeResolution answer, LocalPool? local, PossessiveDrop possessive)
+    {
+        if (answer.Options.Count == 0 || TitleOf(answer.Options[0], local ?? LocalPool.Empty) is not { } title)
+        {
+            return false;
+        }
+
+        var name = TitleNormalizer.Normalize(possessive.Name);
+        return name.Length > 0 && $" {TitleNormalizer.Normalize(title)} ".Contains($" {name} ", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A cover or spine read whose title starts with a possessive name (<see cref="PossessivePrefix"/>: "WALT DISNEY'S MASTERPIECE
     /// PINOCCHIO") is asked again without it, whether it found nothing or only a release it is not sure of: the cover's tagline
     /// read into the title is the commonest reason a cover finds the wrong release, and the wrong release can score as Ambiguous.
@@ -284,8 +307,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// final NotFound. A live <c>/identify</c> request has little time, and its Pending row is finished by the background job
     /// (<c>ResolvePendingIdentify</c> runs <see cref="GroundAsync"/> again with the job's much larger budget), so <c>/identify</c>
     /// ends up with the answer the eval, with its patient budget, measures. The Pending answer's trace ends with a <c>trimmed</c>
-    /// step, <c>cut_short</c>. A read that had found a release it is not sure of keeps that answer when the retry is cut short:
-    /// the person can pick from it now, and the background job asks again for the rest.
+    /// step, <c>cut_short</c>. A read that had found a release it is not sure of keeps that answer when the retry is cut short, for
+    /// good: the job only takes Pending rows, so nothing asks that read again.
     /// </para>
     /// <para>
     /// The database step takes one call at a time. Reads that retry together in one batch share it; a caller that runs several
@@ -306,7 +329,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         IReadOnlyList<TrimmedRetry> reads, CancellationToken cancellationToken, SemaphoreSlim? databaseGate = null)
     {
         var answers = reads.Select(r => r.Answer).ToArray();
-        var attempts = reads.Select(r => AttemptsFor(r.Facts, r.Profile, r.Answer)).ToArray();
+        var attempts = reads.Select(r => AttemptsFor(r.Facts, r.Profile, r.Answer, r.Local)).ToArray();
         var cutShort = new bool[reads.Count];
         var looking = Enumerable.Range(0, reads.Count).Where(i => attempts[i].Count > 0).ToList();
         var rounds = attempts.Select(a => a.Count).DefaultIfEmpty(0).Max();
@@ -342,9 +365,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 var i = looking[n];
                 if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
                 {
-                    // The find first, then the releases the read itself found: a possessive can be the real title, and the read then right.
-                    var offer = scored[n] with { Options = SeriesNeighbour.WithOriginals(scored[n].Options, reads[i].Answer.Options) };
-                    answers[i] = Offered(reads[i].Answer, offer, attempts[i][round].Step);
+                    answers[i] = OfferedByAttempt(reads[i].Answer, scored[n], attempts[i][round].Step);
                 }
                 else
                 {
@@ -523,9 +544,36 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     }
 
     /// <summary>
+    /// What an attempt found, as an answer for the read it was cut from. A read that found nothing has no release of its own to
+    /// lose: the answer is the find (<see cref="Offered"/>). A read that found a release it is not sure of keeps it: when the find
+    /// scores at least as well as the read's best, it goes first and the read's releases follow (<see cref="SeriesNeighbour.WithOriginals"/>),
+    /// flagged as a find (<see cref="BarcodeResolution.FoundByTrimmedSpan"/>); when it scores worse, the read's best release stays
+    /// first, the find's releases come right after it and the read's other releases after those, at most three, and the answer
+    /// is still the read's own: not flagged, so it can still be a repeat of, and confirm, another engine's read of the same release.
+    /// A possessive can be the real title ("Ocean's Eleven"), and then the title without it is a different, shorter work.
+    /// </summary>
+    private static BarcodeResolution OfferedByAttempt(BarcodeResolution original, BarcodeResolution found, TraceStep why)
+    {
+        if (original.Options.Count == 0 || found.Options.Count == 0 || found.Options[0].Score >= original.Options[0].Score)
+        {
+            return Offered(original, found with { Options = SeriesNeighbour.WithOriginals(found.Options, original.Options) }, why);
+        }
+
+        var options = new List<ResolutionOption> { original.Options[0] };
+        foreach (var option in found.Options.Concat(original.Options.Skip(1)))
+        {
+            if (options.Count < SeriesNeighbour.MaxOptions && !options.Any(kept => SeriesNeighbour.SameRelease(kept, option)))
+            {
+                options.Add(option);
+            }
+        }
+
+        return original with { Options = options, Steps = [.. original.Steps, why, .. found.Steps] };
+    }
+
+    /// <summary>
     /// What a possessive-less title, a span, the numberless title, the swap or the neighbour's series found, as an answer for the
-    /// read it was cut from: the find's options as given, never Matched, and a step to say why. A caller that must keep the releases
-    /// the read itself found among them puts them there first (<see cref="SeriesNeighbour.WithOriginals"/>).
+    /// read it was cut from: the find's options as given, never Matched, and a step to say why.
     /// </summary>
     private static BarcodeResolution Offered(BarcodeResolution original, BarcodeResolution found, TraceStep why) => found with
     {

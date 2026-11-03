@@ -63,6 +63,34 @@ public class PossessivePrefixTests
         PossessivePrefix.For(title).ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("IT'S A WONDERFUL LIFE")]
+    [InlineData("THAT'S ENTERTAINMENT")]
+    [InlineData("LET'S GO")]
+    [InlineData("WHAT'S EATING GILBERT GRAPE")]
+    [InlineData("THERE'S SOMETHING ABOUT MARY")]
+    [InlineData("HERE'S LUCY")]
+    [InlineData("WHO'S AFRAID OF VIRGINIA WOOLF")]
+    [InlineData("WHERE'S WALDO")]
+    [InlineData("HE'S JUST NOT THAT INTO YOU")]
+    [InlineData("SHE'S ALL THAT")]
+    [InlineData("It's a Wonderful Life")]
+    [InlineData("IT’S A WONDERFUL LIFE")] // a curly apostrophe is the same
+    [InlineData("TESS HARROWGATE WHAT'S EATING GILBERT")] // nor is it one at the end of a longer name
+    public void A_contraction_is_no_possessive_name(string title)
+    {
+        PossessivePrefix.For(title).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("WALT DISNEY'S MASTERPIECE PINOCCHIO", "WALT DISNEY'S")]
+    [InlineData("DISNEY'S ALADDIN", "DISNEY'S")]
+    [InlineData("Jim Henson's Classic Labyrinth", "Jim Henson's")]
+    public void The_name_is_the_words_up_to_the_possessive_without_the_marketing_word_after_it(string title, string name)
+    {
+        PossessivePrefix.For(title)!.Name.ShouldBe(name);
+    }
+
     [Fact]
     public void The_first_possessive_word_ends_the_name()
     {

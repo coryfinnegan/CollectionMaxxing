@@ -146,35 +146,73 @@ public class IdentifyGroundingPossessiveRetryTests
 
     // ---- the possessive is the real title ---------------------------------------------------------------------------------------------
 
-    [Fact]
-    public async Task A_title_that_is_a_possessive_keeps_the_release_it_found_among_the_options()
+    [Theory]
+    [InlineData("BRAM STOKER'S DRACULA", "Bram Stoker's Dracula", "Dracula")]
+    [InlineData("BRAM STOKER’S DRACULA", "Bram Stoker's Dracula", "Dracula")]
+    [InlineData("SCHINDLER'S LIST", "Schindler's List", "List")]
+    [InlineData("CHARLOTTE'S WEB", "Charlotte's Web", "Web")]
+    [InlineData("OCEAN'S ELEVEN", "Ocean's Eleven", "Eleven")]
+    [InlineData("PAN'S LABYRINTH", "Pan's Labyrinth", "Labyrinth")]
+    [InlineData("ENDER'S GAME", "Ender's Game", "Game")]
+    public async Task An_ambiguous_read_whose_best_release_already_holds_the_possessive_name_is_not_asked_again(string read, string real, string generic)
     {
-        var first = Film("Bram Stoker's Dracula");
-        var second = Film("Bram Stoker's Dracula"); // two releases tie: Ambiguous
-        var dracula = Film("Dracula");
-        var catalogue = new Catalogue(first, second, dracula);
+        // Two releases of the real title tie (two tapes, two remakes), and a release of the shorter title exists: asking would put it first.
+        var first = Film(real);
+        var second = Film(real);
+        var catalogue = new Catalogue(first, second, Film(generic));
+        var asRead = await WithoutTheRetryAsync(new Catalogue(first, second, Film(generic)), FilmRead(read));
+        asRead.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
 
-        var answer = await GroundAsync(Grounding(catalogue), FilmRead("BRAM STOKER'S DRACULA"), ScoringProfileKind.Cover);
+        var answer = await GroundAsync(Grounding(catalogue), FilmRead(read), ScoringProfileKind.Cover);
 
         answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
-        Ids(answer).ShouldBe([dracula.Release.Id, first.Release.Id, second.Release.Id]);
-        catalogue.Lookups.ShouldBe([Key("BRAM STOKER'S DRACULA"), "dracula"]);
+        Ids(answer).ShouldBe(Ids(asRead)); // both ties, in the order the read had them
+        answer.FoundByTrimmedSpan.ShouldBeFalse();
+        answer.Steps.ShouldNotContain(s => s.Provider == "possessive");
+        catalogue.Lookups.Count.ShouldBe(1);
     }
 
     [Fact]
-    public async Task The_best_release_the_read_found_always_keeps_a_place_when_the_shorter_title_finds_a_full_offer()
+    public async Task Two_reads_of_a_real_possessive_title_still_collapse_into_one_item()
     {
-        var first = Film("Bram Stoker's Dracula");
-        var second = Film("Bram Stoker's Dracula");
-        var draculas = new[] { Film("Dracula"), Film("Dracula"), Film("Dracula") }; // three tie: the find alone fills the offer
-        var catalogue = new Catalogue([first, second, .. draculas]);
-        var original = await WithoutTheRetryAsync(catalogue, FilmRead("BRAM STOKER'S DRACULA"));
-        original.Options.Count.ShouldBe(2); // control: two ties, in some order
+        var catalogue = new Catalogue(Film("Bram Stoker's Dracula"), Film("Bram Stoker's Dracula"), Film("Dracula"));
+        var grounding = Grounding(catalogue);
 
-        var answer = await GroundAsync(Grounding(catalogue), FilmRead("BRAM STOKER'S DRACULA"), ScoringProfileKind.Cover);
+        var visionRead = await GroundAsync(grounding, FilmRead("BRAM STOKER'S DRACULA"), ScoringProfileKind.Cover);
+        var modelRead = await GroundAsync(grounding, FilmRead("Bram Stoker's Dracula"), ScoringProfileKind.Cover);
+
+        RepeatReads.Of([visionRead, modelRead]).Count.ShouldBe(1);
+        visionRead.FoundByTrimmedSpan.ShouldBeFalse(); // so each can still confirm the other engine's read
+        modelRead.FoundByTrimmedSpan.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_one_word_left_still_asks_a_read_that_found_nothing()
+    {
+        var game = Film("Game");
+        var catalogue = new Catalogue(game);
+
+        var answer = await GroundAsync(Grounding(catalogue), FilmRead("ENDER'S GAME"), ScoringProfileKind.Cover);
+
+        Ids(answer).ShouldBe([game.Release.Id]);
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        catalogue.Lookups.ShouldBe([Key("ENDER'S GAME"), "game"]);
+    }
+
+    [Fact]
+    public async Task The_best_release_the_read_found_keeps_a_place_when_the_title_without_the_name_finds_a_full_offer()
+    {
+        var first = Film(Collection);
+        var second = Film(Collection);
+        var pinocchios = new[] { Film("Pinocchio"), Film("Pinocchio"), Film("Pinocchio") }; // three tie: the find alone fills the offer
+        var catalogue = Near("masterpiece", [first, second, .. pinocchios]);
+        var original = await WithoutTheRetryAsync(Near("masterpiece", [first, second, .. pinocchios]), FilmRead(Misread));
+        original.Options.Count.ShouldBe(2); // control: the two collections tie, in some order
+
+        var answer = await GroundAsync(Grounding(catalogue), FilmRead(Misread), ScoringProfileKind.Cover);
 
         answer.Options.Count.ShouldBe(3);
-        Ids(answer)[..2].ShouldAllBe(id => draculas.Any(d => d.Release.Id == id));
+        Ids(answer)[..2].ShouldAllBe(id => pinocchios.Any(p => p.Release.Id == id));
         Ids(answer)[2].ShouldBe(original.Options[0].LocalReleaseId!.Value);
     }
 
@@ -182,44 +220,41 @@ public class IdentifyGroundingPossessiveRetryTests
     public async Task A_release_the_title_without_the_name_found_again_is_offered_once()
     {
         // The whole read finds both releases, and so does the shorter title.
-        var catalogue = Near("dracula", Film("Dracula"), Film("Bram Stoker's Dracula"));
+        var catalogue = Near("pinocchio", Film("Pinocchio"), Film("Walt Disney Masterpieces Pinocchio"));
 
-        var answer = await GroundAsync(Grounding(catalogue), FilmRead("BRAM STOKER'S DRACULA"), ScoringProfileKind.Cover);
+        var answer = await GroundAsync(Grounding(catalogue), FilmRead(Misread), ScoringProfileKind.Cover);
 
         Ids(answer).Distinct().Count().ShouldBe(answer.Options.Count);
         answer.Options.Count.ShouldBe(2);
     }
 
     [Fact]
-    public async Task A_one_word_left_still_asks_and_the_releases_the_read_found_stay_offered()
+    public async Task A_find_that_scores_below_the_best_release_the_read_found_is_put_after_it_and_the_read_keeps_its_standing()
     {
-        var first = Book("Ender's Game");
-        var second = Book("Ender's Game");
-        var game = Book("Game");
-        var catalogue = new Catalogue(first, second, game);
+        // The read's two tied releases do not hold "Tess Harrowgate's" in their title, but they are the better answer: the title
+        // without the name only finds a longer title that merely starts with the words.
+        var first = Book("Tess Harrowgate Copper Lantern");
+        var second = Book("Tess Harrowgate Copper Lantern");
+        var tales = Book("Copper Lantern Tales");
+        const string Read = "TESS HARROWGATE'S COPPER LANTERN";
+        Catalogue Holding() => new(first, second, tales)
+        {
+            Finds = (hit, search) => hit.Work.NormalizedTitle == search.NormalizedTitle
+                || (search.NormalizedTitle.Contains("harrowgate", StringComparison.Ordinal) && hit.Work.NormalizedTitle.Contains("harrowgate", StringComparison.Ordinal))
+                || (search.NormalizedTitle == "copper lantern" && hit.Work.NormalizedTitle.StartsWith("copper lantern", StringComparison.Ordinal)),
+        };
+        var asRead = await WithoutTheRetryAsync(Holding(), BookRead(Read));
+        asRead.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
 
-        var answer = await GroundAsync(Grounding(catalogue), BookRead("ENDER'S GAME"), ScoringProfileKind.Cover);
+        var catalogue = Holding();
+        var answer = await GroundAsync(Grounding(catalogue), BookRead(Read), ScoringProfileKind.Cover);
 
+        catalogue.Lookups.ShouldBe([Key(Read), "copper lantern"]);
         answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
-        Ids(answer).ShouldContain(first.Release.Id);
-        Ids(answer).ShouldContain(second.Release.Id);
-        catalogue.Lookups.ShouldBe([Key("ENDER'S GAME"), "game"]);
-    }
-
-    [Fact]
-    public async Task A_one_word_left_that_finds_nothing_leaves_the_answer_the_read_had()
-    {
-        var first = Book("Ender's Game");
-        var second = Book("Ender's Game");
-        var catalogue = new Catalogue(first, second);
-
-        var answer = await GroundAsync(Grounding(catalogue), BookRead("ENDER'S GAME"), ScoringProfileKind.Cover);
-
-        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
-        Ids(answer).ShouldBe([first.Release.Id, second.Release.Id], ignoreOrder: true);
+        Ids(answer).ShouldBe([asRead.Options[0].LocalReleaseId!.Value, tales.Release.Id, asRead.Options[1].LocalReleaseId!.Value]);
         answer.FoundByTrimmedSpan.ShouldBeFalse();
-        answer.Steps.ShouldNotContain(s => s.Provider == "possessive");
-        catalogue.Lookups.ShouldBe([Key("ENDER'S GAME"), "game"]);
+        answer.Steps.ShouldContain(s => s.Provider == "possessive");
+        RepeatReads.Of([answer, asRead]).Count.ShouldBe(1); // the same best release as the read had
     }
 
     // ---- reads that are never asked again without a name ------------------------------------------------------------------------------

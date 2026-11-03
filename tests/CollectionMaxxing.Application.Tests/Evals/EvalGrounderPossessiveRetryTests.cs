@@ -68,6 +68,34 @@ public class EvalGrounderPossessiveRetryTests
     }
 
     [Fact]
+    public async Task A_read_whose_best_release_a_provider_gave_and_already_holds_the_name_is_not_asked_again_by_the_app_or_the_eval()
+    {
+        // Two releases of the real title tie (two years), and a shorter title exists that asking would put first.
+        Providers Holding() => new(false, Known("Schindler's List", "b1"), Known("Schindler's List", "b2") with { Year = 1993 }, Known("List", "b3"))
+        {
+            Finds = (title, book) => title.Contains("SCHINDLER", StringComparison.OrdinalIgnoreCase)
+                ? book.Title.Contains("Schindler", StringComparison.Ordinal)
+                : string.Equals(book.Title, title, StringComparison.OrdinalIgnoreCase),
+        };
+        var liveProviders = Holding();
+        var evalProviders = Holding();
+
+        var live = await Live(new Catalogue(), liveProviders).GroundAsync(
+            new ReadFacts("SCHINDLER'S LIST", "SCHINDLER'S LIST", null, null, null, WorkKind.Book, null, null, null),
+            ScoringProfileKind.Cover, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var items = await Grounder(new Catalogue(), evalProviders)
+            .GroundAsync(ScanEngine.VisionPipeline, [Cover("SCHINDLER'S LIST")], new EvalGroundingMemo(), printKind: null, CancellationToken.None)
+            .WaitAsync(Patience);
+
+        live.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        live.FoundByTrimmedSpan.ShouldBeFalse();
+        live.Options.Select(o => o.Provider!.Title).ShouldNotContain("List");
+        liveProviders.Titles.ShouldNotContain(title => string.Equals(title, "LIST", StringComparison.OrdinalIgnoreCase));
+        evalProviders.Titles.ShouldNotContain(title => string.Equals(title, "LIST", StringComparison.OrdinalIgnoreCase));
+        items.Single().Candidates.Select(c => c.Title).ShouldBe(live.Options.Select(o => o.Provider!.Title));
+    }
+
+    [Fact]
     public async Task The_answer_the_run_remembers_is_the_one_after_the_retry()
     {
         var catalogue = new Catalogue();
