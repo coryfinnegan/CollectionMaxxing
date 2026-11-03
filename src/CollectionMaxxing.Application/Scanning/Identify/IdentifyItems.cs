@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.GameSerials;
 using CollectionMaxxing.Application.Items;
@@ -356,7 +357,9 @@ public static class IdentifyItems
             else
             {
                 var local = await grounding.FindLocalAsync(proof.Facts, cancellationToken);
-                answer = (await GroundTextAsync([(candidate, proof)], new Dictionary<Guid, LocalPool> { [candidate.Id] = local }, cancellationToken)).Single().Answer;
+                using var failFast = ProviderCalls.FailFast(); // a person is waiting
+                using var round = new AskRound(options, cancellationToken);
+                answer = (await GroundTextAsync([(candidate, proof)], new Dictionary<Guid, LocalPool> { [candidate.Id] = local }, round, cancellationToken)).Single().Answer;
             }
 
             // The answer lands under the session's lock: the session is reloaded inside it (another request may
@@ -428,9 +431,29 @@ public static class IdentifyItems
                 local[toAsk[i].Candidate.Id] = pools[i];
             }
 
-            foreach (var (candidate, answer) in await GroundTextAsync(toAsk, local, cancellationToken))
+            // The reads of the picture are asked within one budget. Then the pass over the whole picture: a spine that is only a
+            // series' subtitle, asked again with the series its neighbour carries, within a budget of its own (the same one the eval
+            // gives it): the pending job cannot make this pass, so what is left of this request's budget is not what it is given.
+            using (ProviderCalls.FailFast()) // a person is waiting
             {
-                answers[candidate.Id] = answer;
+                using (var round = new AskRound(options, cancellationToken))
+                {
+                    foreach (var (candidate, answer) in await GroundTextAsync(toAsk, local, round, cancellationToken))
+                    {
+                        answers[candidate.Id] = answer;
+                    }
+                }
+
+                using var seriesRound = new AskRound(options, cancellationToken, SeriesNeighbour.Budget);
+                var withSeries = await grounding.RetrySeriesAsync(
+                    [.. fresh.Select(f => new SeriesRetry(
+                        f.Item.Facts, f.Item.Profile, f.Item.Box, answers[f.Candidate.Id], facts => AskOneAsync(facts, seriesRound, cancellationToken), seriesRound.Budget.Token))],
+                    (releaseIds, token) => SeriesNeighbour.LocalTitlesAsync(db, releaseIds, token),
+                    cancellationToken);
+                for (var i = 0; i < fresh.Count; i++)
+                {
+                    answers[fresh[i].Candidate.Id] = withSeries[i];
+                }
             }
 
             // One book in one place, one candidate per picture: a read that repeats a stronger read of the same release in the same
@@ -539,23 +562,22 @@ public static class IdentifyItems
         }
 
         /// <summary>
-        /// Grounds several items that have words to look for, within the request's budget: the providers are asked about all of them
+        /// Grounds several items that have words to look for, within <paramref name="round"/>'s budget and places (the caller's, so
+        /// that the asks it goes on to make share them): the providers are asked about all of them
         /// at once, and each answer is scored against the local pool found for it. An item the budget runs out on comes back with a
         /// failed answer, which scores as Pending. A spine that found nothing is asked again without the stray words at its ends
         /// (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>), within the same budget and the same places, round by round for all such
         /// spines together, so the retries are batched the way the first asks were. The answers come back with their candidates, in
-        /// the order of <paramref name="toAsk"/>.
+        /// the order of <paramref name="toAsk"/>. The caller makes the calls inside <c>ProviderCalls.FailFast</c>.
         /// </summary>
         private async Task<List<(ScanCandidate Candidate, BarcodeResolution Answer)>> GroundTextAsync(
-            List<(ScanCandidate Candidate, CleanItem Item)> toAsk, Dictionary<Guid, LocalPool> local, CancellationToken cancellationToken)
+            List<(ScanCandidate Candidate, CleanItem Item)> toAsk, Dictionary<Guid, LocalPool> local, AskRound round, CancellationToken cancellationToken)
         {
             if (toAsk.Count == 0)
             {
                 return [];
             }
 
-            using var failFast = CollectionMaxxing.Application.Catalog.Providers.ProviderCalls.FailFast(); // a person is waiting
-            using var round = new AskRound(options, cancellationToken);
             var asked = await Task.WhenAll(toAsk.Select(async entry => (entry.Candidate, entry.Item, Answers: await AskOneAsync(entry.Item.Facts, round, cancellationToken))));
             var scored = asked.Select(a => (a.Candidate, a.Item, Answer: grounding.Score(a.Item.Facts, a.Item.Profile, local[a.Candidate.Id], a.Answers))).ToList();
 
@@ -594,13 +616,13 @@ public static class IdentifyItems
             }
         }
 
-        /// <summary>The time and places the provider asks of one picture share: the request's budget, counted from when the round starts, and at most <c>Parallelism</c> asks at once.</summary>
+        /// <summary>The time and places the provider asks of one round share: the request's budget (or the one given), counted from when the round starts, and at most <c>Parallelism</c> asks at once.</summary>
         private sealed class AskRound : IDisposable
         {
-            public AskRound(ScanningOptions options, CancellationToken cancellationToken)
+            public AskRound(ScanningOptions options, CancellationToken cancellationToken, TimeSpan? budget = null)
             {
                 Budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                Budget.CancelAfter(options.ResolveBudget);
+                Budget.CancelAfter(budget ?? options.ResolveBudget);
                 Gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
                 Started = Stopwatch.GetTimestamp();
             }

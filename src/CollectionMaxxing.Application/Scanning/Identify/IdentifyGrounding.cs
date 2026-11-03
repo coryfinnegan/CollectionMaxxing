@@ -71,6 +71,19 @@ public sealed record TrimmedRetry(
     CancellationToken Budget);
 
 /// <summary>
+/// One read of a shot for <see cref="IdentifyGrounding.RetrySeriesAsync"/>: the read, the profile it was scored with, where it sat
+/// in the picture (null when the phone sent no position), the answer it has after its own retries, and how the caller asks the
+/// providers about a changed read. <see cref="Ask"/> and <see cref="Budget"/> are the caller's, as for <see cref="TrimmedRetry"/>.
+/// </summary>
+public sealed record SeriesRetry(
+    ReadFacts Facts,
+    ScoringProfileKind Profile,
+    ReadBox? Box,
+    BarcodeResolution Answer,
+    Func<ReadFacts, Task<ProviderAnswers>> Ask,
+    CancellationToken Budget);
+
+/// <summary>
 /// Grounds a read in the catalogue: the local catalogue first (trigram search), then the providers (whose answers are cached
 /// by the provider layer), scored with the profile chosen for the item and the live <see cref="ScoringOptions"/>. This is where
 /// "the model never decides a match alone" is enforced: whatever the phone claimed, the verdict comes from what the catalogue
@@ -326,6 +339,136 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     }
 
     /// <summary>
+    /// A spine that is only a series' subtitle ("NEMESIS", "ILVER FLAMES") is asked once more with the series its neighbour carries
+    /// (<see cref="SeriesNeighbour"/>): "Star Trek nEMESIS", "A Court of ILVER FLAMES". It needs the neighbours' answers, so it is
+    /// a pass over a whole shot after every read has been grounded and has had its own retries (<see cref="RetryTrimmedAsync"/>), not
+    /// a retry of one read. The answers come back in the order of <paramref name="reads"/>, each the one it had unless the ask named
+    /// a release whose title holds both the series and the words read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only a spine with a box that found nothing, or only an ambiguous answer whose best release carries no series, is asked, and
+    /// only when a neighbour (the spine to its left or right, or the leading words both share) names a series. A Matched read is
+    /// never asked again. A read is asked at most once, within its <see cref="SeriesRetry.Budget"/> (<see cref="SeriesNeighbour.Budget"/>,
+    /// the round's own, the same wherever the pass runs): the asks are made together
+    /// (one catalogue call for all of them, then the providers through each read's <see cref="SeriesRetry.Ask"/>). The neighbours
+    /// are judged on the answers the reads had when the pass began, so one read's find never becomes another's series.
+    /// <paramref name="localTitles"/> gives the title of a catalogue release (an answer's option only holds its id); it is called
+    /// only when a read could ask and an answer's best release is in the catalogue.
+    /// </para>
+    /// <para>
+    /// What the ask finds is offered, never decided, as for a trimmed span: only the releases whose titles name the series and the
+    /// words read are kept, the verdict is capped at Ambiguous, the answer is flagged
+    /// (<see cref="BarcodeResolution.FoundByTrimmedSpan"/>) and its trace says which series was put in front (a <c>series</c> step).
+    /// A read that already had an ambiguous answer keeps its own options after the ones the series named
+    /// (<see cref="SeriesNeighbour.WithOriginals"/>): the series find is a better guess for a subtitle read alone, not proof that the
+    /// release the read found was wrong, so the person can still pick it. An ask that names nothing leaves the read's answer as it
+    /// was (the same object).
+    /// </para>
+    /// <para>
+    /// A round that runs out of time, or whose ask the providers could not answer, leaves the read's answer exactly as it was: a
+    /// read that found nothing stays NotFound, never Pending, because nothing could finish it later. <see cref="ResolvePendingIdentify"/>
+    /// grounds one read on its own, and a stored read has no box, so a Pending read would only come back as the same answer after a
+    /// job and a spinner (and as an error, if the providers were down).
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<BarcodeResolution>> RetrySeriesAsync(
+        IReadOnlyList<SeriesRetry> reads,
+        Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, string>>> localTitles,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reads);
+        ArgumentNullException.ThrowIfNull(localTitles);
+
+        var answers = reads.Select(r => r.Answer).ToArray();
+        if (!reads.Any(r => SeriesNeighbour.MayAsk(SeriesNeighbour.Of(r.Facts, r.Profile, r.Box, r.Answer, null))))
+        {
+            return answers;
+        }
+
+        var titles = await BestTitlesAsync(reads, localTitles, cancellationToken);
+        var series = SeriesNeighbour.SeriesFor([.. reads.Select((r, i) => SeriesNeighbour.Of(r.Facts, r.Profile, r.Box, r.Answer, titles[i]))]);
+
+        // A read with no time left to make its ask is left as it was.
+        var open = Enumerable.Range(0, reads.Count).Where(i => series[i] is not null && !reads[i].Budget.IsCancellationRequested).ToList();
+        if (open.Count == 0)
+        {
+            return answers;
+        }
+
+        var asked = open.Select(i => SeriesAsk(reads[i].Facts, series[i]!)).ToList();
+        var pools = await FindLocalManyAsync(asked, cancellationToken);
+        var scored = await Task.WhenAll(open.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
+        for (var n = 0; n < open.Count; n++)
+        {
+            // An ask the providers could not answer (they failed, or the budget cancelled the call) is Pending, and found nothing.
+            if (scored[n].Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous))
+            {
+                continue;
+            }
+
+            var i = open[n];
+            var named = scored[n].Options.Where(o => SeriesNeighbour.Names(TitleOf(o, pools[n]), series[i]!, reads[i].Facts.SearchText!)).ToList();
+            if (named.Count > 0)
+            {
+                var why = new TraceStep(SeriesNeighbour.StepName, $"{asked[n].Title} (series: {series[i]})", 0);
+                answers[i] = Offered(reads[i].Answer, scored[n] with { Options = SeriesNeighbour.WithOriginals(named, reads[i].Answer.Options) }, why);
+            }
+        }
+
+        return answers;
+    }
+
+    /// <summary>The read asked with the series in front of the words read, cleaned as a read is (the length cut, the creator judged again against the new title).</summary>
+    private static ReadFacts SeriesAsk(ReadFacts facts, string series) => ReadSanitizer.Sanitize(
+        facts with { Title = IdentifyCleaning.Text(SeriesNeighbour.AskTitle(series, facts.SearchText!), IdentifyCleaning.MaxFieldLength) });
+
+    /// <summary>The title of the best release of each answer that has one (null for the rest), the catalogue's releases through <paramref name="localTitles"/>.</summary>
+    private static async Task<string?[]> BestTitlesAsync(
+        IReadOnlyList<SeriesRetry> reads,
+        Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, string>>> localTitles,
+        CancellationToken cancellationToken)
+    {
+        var titles = new string?[reads.Count];
+        var inCatalogue = new Dictionary<int, Guid>();
+        for (var i = 0; i < reads.Count; i++)
+        {
+            var answer = reads[i].Answer;
+            if (answer.Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous) || answer.Options.Count == 0)
+            {
+                continue;
+            }
+
+            var best = answer.Options[0]; // best first
+            if (best.LocalReleaseId is { } id)
+            {
+                inCatalogue[i] = id;
+            }
+            else
+            {
+                titles[i] = best.Provider?.Title;
+            }
+        }
+
+        if (inCatalogue.Count > 0)
+        {
+            var found = await localTitles([.. inCatalogue.Values.Distinct()], cancellationToken);
+            foreach (var (i, id) in inCatalogue)
+            {
+                titles[i] = found.TryGetValue(id, out var title) ? title : null;
+            }
+        }
+
+        return titles;
+    }
+
+    /// <summary>The title of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
+    private static string? TitleOf(ResolutionOption option, LocalPool pool) =>
+        option.LocalReleaseId is { } id
+            ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => item.Scoring.Title).FirstOrDefault()
+            : option.Provider?.Title;
+
+    /// <summary>
     /// <see cref="FindLocalManyAsync"/>, one caller at a time when <paramref name="databaseGate"/> is given: for callers whose reads
     /// retry at the same time on one database context (a context serves one query at a time), each holding the gate only for its call.
     /// </summary>
@@ -348,7 +491,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
     }
 
-    /// <summary>What a span, the numberless title or the swap found, as an answer for the read it was cut from: the same releases, never Matched, and a step to say why.</summary>
+    /// <summary>What a span, the numberless title, the swap or the neighbour's series found, as an answer for the read it was cut from: the same releases, never Matched, and a step to say why.</summary>
     private static BarcodeResolution Offered(BarcodeResolution original, BarcodeResolution found, TraceStep why) => found with
     {
         Verdict = ResolutionVerdict.Ambiguous,
