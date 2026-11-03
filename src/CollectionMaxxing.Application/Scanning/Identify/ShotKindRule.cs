@@ -7,10 +7,14 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 
 /// <summary>
 /// One read of a shot as <see cref="ShotKindRule"/> sees it: whether it was scored as a shelf spine with words to ask about
-/// (<see cref="Spine"/>), whether it names a kind of its own (<see cref="NamesKind"/>: the picture model's reads do, the Vision
-/// tier's do not), how it grounded, and the kind of its best release (null when it names none, or the caller does not know it).
+/// (<see cref="Spine"/>), the kind it names of its own (<see cref="OwnKind"/>: the picture model's reads do, the Vision tier's do
+/// not), how it grounded, and the kind of its best release (null when it names none, or the caller does not know it).
 /// </summary>
-public readonly record struct ShotKindRead(bool Spine, bool NamesKind, ResolutionVerdict Verdict, WorkKind? BestKind);
+public readonly record struct ShotKindRead(bool Spine, WorkKind? OwnKind, ResolutionVerdict Verdict, WorkKind? BestKind)
+{
+    /// <summary>Whether the read names a kind of its own. <see cref="WorkKind.Other"/> is the reader saying it does not know.</summary>
+    public bool NamesKind => OwnKind is { } kind && kind != WorkKind.Other;
+}
 
 /// <summary>
 /// The kind a shot's spines found, and the spines that found another. The Vision tier reads text, not kinds, so a read such as
@@ -24,12 +28,14 @@ public readonly record struct ShotKindRead(bool Spine, bool NamesKind, Resolutio
 /// </summary>
 /// <remarks>
 /// <para>
-/// The shot's kind is <see cref="KindContext.Of"/> over the kinds of the best releases of the shot's Matched spines: the print's,
-/// when no Matched spine is of the print's family (<see cref="KindContext.PrintThatSpeaks"/>), else the kind at least
-/// <see cref="KindContext.MinReads"/> of them agree on at <see cref="KindContext.MinShare"/>. The signal is Matched on purpose:
-/// a high score is not it (the Vision reads of a shelf of tapes ground to books at 0.9 and over), while a Matched spine has
-/// cleared the lead the scorer needs for a sure thing. On a shelf of films the Matched spines are none or one, so the rule never
-/// says "book" there.
+/// The shot's kind is <see cref="KindContext.Of"/> over what the reads say the shot is of: a read that names a kind says it, and a
+/// Matched spine that names none says the kind of its best release. The print's kind wins when no read says one of its family
+/// (<see cref="KindContext.PrintThatSpeaks"/>), else it is the kind at least <see cref="KindContext.MinReads"/> of them agree on at
+/// <see cref="KindContext.MinShare"/>. So a photo whose reads name their kinds (the picture model's) gets the kind the cleaning
+/// gave its kind-less reads, and the Vision tier's reads, which name none, speak through what they matched. The signal is Matched
+/// on purpose: a high score is not it (the Vision reads of a shelf of tapes ground to books at 0.9 and over), while a Matched spine
+/// has cleared the lead the scorer needs for a sure thing. On a shelf of films the Matched spines are none or one, so the rule
+/// never says "book" there.
 /// </para>
 /// <para>
 /// A spine is asked again when it was scored as a spine with a title (no product code), names no kind of its own, is Ambiguous,
@@ -60,30 +66,34 @@ public static class ShotKindRule
     /// </summary>
     internal static ShotKindRead Of(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer, WorkKind? bestKind) => new(
         profile == ScoringProfileKind.ShelfSpine && facts.ProductCode is null && facts.SearchText is not null,
-        facts.Kind is { } kind && kind != WorkKind.Other,
+        facts.Kind,
         answer.Verdict,
         answer.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous ? bestKind : null);
 
     /// <summary>
-    /// The kind the shot is of: <see cref="KindContext.Of"/> over the kinds of the best releases of its Matched spines, with the
-    /// shelf's own print (<paramref name="printKind"/>, null when it said none). Null when the shot has no clear kind. Pure.
+    /// The kind the shot is of: <see cref="KindContext.Of"/> over what each read says (<see cref="Said"/>), with the shelf's own
+    /// print (<paramref name="printKind"/>, null when it said none). Null when the shot has no clear kind. Pure.
     /// </summary>
     public static WorkKind? Of(WorkKind? printKind, IReadOnlyList<ShotKindRead> reads)
     {
         ArgumentNullException.ThrowIfNull(reads);
 
-        return KindContext.Of(printKind, reads.Where(r => r is { Spine: true, Verdict: ResolutionVerdict.Matched }).Select(r => r.BestKind));
+        return KindContext.Of(printKind, reads.Select(Said));
     }
+
+    /// <summary>The kind a read says the shot is of: its own when it names one, else the kind of its best release when it is a Matched spine, else none.</summary>
+    private static WorkKind? Said(ShotKindRead read) =>
+        read.NamesKind ? read.OwnKind : read is { Spine: true, Verdict: ResolutionVerdict.Matched } ? read.BestKind : null;
 
     /// <summary>
     /// Whether the pass could ask anything, judged before any release is looked up: some spine is a kind-less ambiguous read, and
-    /// the shot could have a kind (the shelf printed one, or at least <see cref="KindContext.MinReads"/> spines matched). A cheap
+    /// the shot could have a kind (the shelf printed one, or at least <see cref="KindContext.MinReads"/> reads say one). A cheap
     /// test that spares the lookup of the kinds of the answers on the shots where nothing can happen.
     /// </summary>
     internal static bool CouldAsk(IReadOnlyList<ShotKindRead> reads, WorkKind? printKind) =>
         reads.Any(r => r is { Spine: true, NamesKind: false, Verdict: ResolutionVerdict.Ambiguous })
         && (printKind is { } printed && printed != WorkKind.Other
-            || reads.Count(r => r is { Spine: true, Verdict: ResolutionVerdict.Matched }) >= KindContext.MinReads);
+            || reads.Count(r => r.NamesKind || r is { Spine: true, Verdict: ResolutionVerdict.Matched }) >= KindContext.MinReads);
 
     /// <summary>The kind to ask each read again with, by position: null for a read that is not asked again. Pure.</summary>
     public static IReadOnlyList<WorkKind?> AskKinds(WorkKind? printKind, IReadOnlyList<ShotKindRead> reads)

@@ -11,10 +11,10 @@ namespace CollectionMaxxing.Application.Tests.Scanning.Identify;
 public class ShotKindRuleTests
 {
     /// <summary>A kind-less spine that matched a release of the kind given.</summary>
-    private static ShotKindRead Matched(WorkKind best) => new(Spine: true, NamesKind: false, ResolutionVerdict.Matched, best);
+    private static ShotKindRead Matched(WorkKind best) => new(Spine: true, OwnKind: null, ResolutionVerdict.Matched, best);
 
     /// <summary>A kind-less spine whose answer is ambiguous and whose best release is of the kind given.</summary>
-    private static ShotKindRead Ambiguous(WorkKind best) => new(Spine: true, NamesKind: false, ResolutionVerdict.Ambiguous, best);
+    private static ShotKindRead Ambiguous(WorkKind best) => new(Spine: true, OwnKind: null, ResolutionVerdict.Ambiguous, best);
 
     private static ShotKindRead[] Matches(WorkKind kind, int count) => [.. Enumerable.Range(0, count).Select(_ => Matched(kind))];
 
@@ -68,6 +68,25 @@ public class ShotKindRuleTests
     }
 
     [Fact]
+    public void A_read_that_names_a_kind_says_it_whatever_it_matched()
+    {
+        ShotKindRead Model(WorkKind own) => new(Spine: true, OwnKind: own, ResolutionVerdict.Ambiguous, WorkKind.Film);
+
+        ShotKind(null, Model(WorkKind.Book), Model(WorkKind.Book), Model(WorkKind.Book)).ShouldBe(WorkKind.Book);
+        ShotKind(null, Model(WorkKind.Other), Model(WorkKind.Other), Model(WorkKind.Other)).ShouldBeNull(); // the reader does not know
+    }
+
+    [Fact]
+    public void A_read_that_names_the_prints_kind_silences_the_print_so_the_other_reads_decide()
+    {
+        // One film read among four books: the engines can tell a film from a book on this photo, so the print of film has nothing to add.
+        ShotKindRead Model(WorkKind own) => new(Spine: true, OwnKind: own, ResolutionVerdict.Ambiguous, WorkKind.Book);
+
+        ShotKind(WorkKind.Film, [.. Enumerable.Range(0, 4).Select(_ => Model(WorkKind.Book)), Model(WorkKind.Film), Ambiguous(WorkKind.Book)]).ShouldBe(WorkKind.Book);
+        Asked(WorkKind.Film, [.. Enumerable.Range(0, 4).Select(_ => Model(WorkKind.Book)), Model(WorkKind.Film), Ambiguous(WorkKind.Book)]).ShouldAllBe(kind => kind == null);
+    }
+
+    [Fact]
     public void A_print_of_other_says_nothing()
     {
         ShotKind(WorkKind.Other).ShouldBeNull();
@@ -78,8 +97,8 @@ public class ShotKindRuleTests
     {
         // The Vision reads of a shelf of tapes ground to books at 0.9 and over: a high score is not the signal, a Matched verdict is.
         ShotKind(null, [Ambiguous(WorkKind.Book), Ambiguous(WorkKind.Book), Ambiguous(WorkKind.Book), Ambiguous(WorkKind.Book)]).ShouldBeNull();
-        ShotKind(null, [new ShotKindRead(Spine: false, NamesKind: false, ResolutionVerdict.Matched, WorkKind.Book), .. Matches(WorkKind.Book, 2)]).ShouldBeNull(); // a cover is not a spine
-        ShotKind(null, [new ShotKindRead(Spine: true, NamesKind: false, ResolutionVerdict.Pending, null), .. Matches(WorkKind.Book, 2)]).ShouldBeNull();
+        ShotKind(null, [new ShotKindRead(Spine: false, OwnKind: null, ResolutionVerdict.Matched, WorkKind.Book), .. Matches(WorkKind.Book, 2)]).ShouldBeNull(); // a cover is not a spine
+        ShotKind(null, [new ShotKindRead(Spine: true, OwnKind: null, ResolutionVerdict.Pending, null), .. Matches(WorkKind.Book, 2)]).ShouldBeNull();
     }
 
     [Fact]
@@ -105,7 +124,7 @@ public class ShotKindRuleTests
     [Fact]
     public void A_read_with_its_own_kind_is_not_asked_again()
     {
-        var model = new ShotKindRead(Spine: true, NamesKind: true, ResolutionVerdict.Ambiguous, WorkKind.Film);
+        var model = new ShotKindRead(Spine: true, OwnKind: WorkKind.Film, ResolutionVerdict.Ambiguous, WorkKind.Film);
 
         Asked(null, [.. Matches(WorkKind.Book, 3), model])[3].ShouldBeNull();
     }
@@ -115,13 +134,13 @@ public class ShotKindRuleTests
     [InlineData(ResolutionVerdict.Pending)]
     public void A_read_that_found_nothing_is_not_asked_again(ResolutionVerdict verdict)
     {
-        Asked(null, [.. Matches(WorkKind.Book, 3), new ShotKindRead(Spine: true, NamesKind: false, verdict, null)])[3].ShouldBeNull();
+        Asked(null, [.. Matches(WorkKind.Book, 3), new ShotKindRead(Spine: true, OwnKind: null, verdict, null)])[3].ShouldBeNull();
     }
 
     [Fact]
     public void A_cover_or_a_read_with_a_product_code_is_not_asked_again()
     {
-        var cover = new ShotKindRead(Spine: false, NamesKind: false, ResolutionVerdict.Ambiguous, WorkKind.Film);
+        var cover = new ShotKindRead(Spine: false, OwnKind: null, ResolutionVerdict.Ambiguous, WorkKind.Film);
 
         Asked(null, [.. Matches(WorkKind.Book, 3), cover])[3].ShouldBeNull();
     }
@@ -142,7 +161,7 @@ public class ShotKindRuleTests
     public void A_best_release_of_unknown_kind_gives_no_reason_to_ask()
     {
         Asked(null, [.. Matches(WorkKind.Book, 3), Ambiguous(WorkKind.Other)])[3].ShouldBeNull();
-        Asked(null, [.. Matches(WorkKind.Book, 3), new ShotKindRead(Spine: true, NamesKind: false, ResolutionVerdict.Ambiguous, null)])[3].ShouldBeNull();
+        Asked(null, [.. Matches(WorkKind.Book, 3), new ShotKindRead(Spine: true, OwnKind: null, ResolutionVerdict.Ambiguous, null)])[3].ShouldBeNull();
     }
 
     [Fact]
