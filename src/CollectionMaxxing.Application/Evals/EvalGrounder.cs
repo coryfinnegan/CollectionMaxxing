@@ -56,9 +56,11 @@ public sealed class EvalGrounder(
         var remembered = await memo.GroundManyAsync(
             [.. cleaned.Select(c => (c.Facts, c.Profile))], claims => GroundClaimsAsync(claims, cancellationToken), cancellationToken);
 
-        // Then the pass over the whole photo that /identify makes: a spine that is only a series' subtitle is asked again with the
-        // series its neighbour carries. It needs the neighbours' answers, so it follows the memo and is never remembered by it.
-        var answers = await RetrySeriesAsync(cleaned, remembered, cancellationToken);
+        // Then the passes over the whole photo that /identify makes: a spine that is only a series' subtitle is asked again with the
+        // series its neighbour carries, and a spine that found another kind than the photo's is asked again as the photo's kind.
+        // They need the neighbours' answers, so they follow the memo and are never remembered by it.
+        var withSeries = await RetrySeriesAsync(cleaned, remembered, cancellationToken);
+        var answers = await RetryShotKindAsync(cleaned, withSeries, printKind, cancellationToken);
 
         // One book in one place, one item per photo and engine: a read that repeats a stronger read of the same release in the same
         // place is not scored, the same rule /identify applies, so the scorer sees what a person scanning this photo would have been
@@ -221,16 +223,38 @@ public sealed class EvalGrounder(
         using var expiry = new CancellationTokenSource(SeriesNeighbour.Budget, time);
         using var round = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
         return await grounding.RetrySeriesAsync(
-            [.. cleaned.Select((c, i) => new SeriesRetry(c.Facts, c.Profile, c.Box, answers[i], facts => AskSeriesAsync(facts, gate, round.Token, cancellationToken), round.Token))],
+            [.. cleaned.Select((c, i) => new SeriesRetry(c.Facts, c.Profile, c.Box, answers[i], facts => AskWithinRoundAsync(facts, gate, round.Token, cancellationToken), round.Token))],
             (releaseIds, token) => SeriesNeighbour.LocalTitlesAsync(db, releaseIds, token),
             cancellationToken);
     }
 
     /// <summary>
-    /// Asks the providers about one series ask once a place frees up, within the round's budget; an ask the budget runs out on is a
-    /// failed answer (the read keeps the answer it had). An ask cut short by the call being cancelled is no answer: it throws.
+    /// The kind pass of <c>/identify</c> over the photo's reads, once the series round is done (<see cref="IdentifyGrounding.RetryShotKindAsync"/>):
+    /// a spine on a shelf that found another kind than the shelf's is asked again as the shelf's kind, offered and never matched. The
+    /// photo's kind is what its Matched spines agree on, or the shelf's own print. The pass has the budget <c>/identify</c> gives it
+    /// (<see cref="ShotKindRule.Budget"/>, counted from when the pass starts, on the injected clock) and the places it has
+    /// (<see cref="ScanningOptions.Parallelism"/>), as the series round does. A pass that runs out leaves the answers as they were. The
+    /// catalogue is asked after the series round is done, so it needs no gate. The answers are the photo's own and are not remembered
+    /// by the run: they depend on the other spines.
     /// </summary>
-    private async Task<ProviderAnswers> AskSeriesAsync(ReadFacts facts, SemaphoreSlim gate, CancellationToken budget, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<BarcodeResolution>> RetryShotKindAsync(
+        List<CleanItem> cleaned, IReadOnlyList<BarcodeResolution> answers, WorkKind? printKind, CancellationToken cancellationToken)
+    {
+        using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
+        using var expiry = new CancellationTokenSource(ShotKindRule.Budget, time);
+        using var round = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+        return await grounding.RetryShotKindAsync(
+            [.. cleaned.Select((c, i) => new ShotKindRetry(c.Facts, c.Profile, answers[i], facts => AskWithinRoundAsync(facts, gate, round.Token, cancellationToken), round.Token))],
+            printKind,
+            (releaseIds, token) => ShotKindRule.LocalKindsAsync(db, releaseIds, token),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Asks the providers about one ask of a whole-photo pass once a place frees up, within the pass's budget; an ask the budget runs
+    /// out on is a failed answer (the read keeps the answer it had). An ask cut short by the call being cancelled is no answer: it throws.
+    /// </summary>
+    private async Task<ProviderAnswers> AskWithinRoundAsync(ReadFacts facts, SemaphoreSlim gate, CancellationToken budget, CancellationToken cancellationToken)
     {
         try
         {
