@@ -255,7 +255,7 @@ describe('real shelf photos', () => {
 
   /** The choice shelfTitle.ts replaced: the piece's surest, longest single line, whatever that line said (on the split before shelf rows were cut apart). */
   function before(id: string): string[] {
-    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity, stackSureMaxGap: 1, stackFourLetters: 0.5, lyingLineWidth: Infinity, twoRowLetters: Infinity });
+    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity, stackSureMaxGap: 1, stackFourLetters: 0.5, lyingLineWidth: Infinity, twoRowLetters: Infinity, bandJoinGap: -Infinity });
     return pieces.map((p) => p.title ?? p.lines.reduce((b, l) => (l.confidence * l.text.length > b.confidence * b.text.length ? l : b)).text);
   }
 

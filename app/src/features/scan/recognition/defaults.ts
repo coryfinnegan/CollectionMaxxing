@@ -165,6 +165,13 @@ export interface LocalTuning {
   bandMinLetters: number;
   /** A band's title is made of the lines whose letters are at least this share of the band's tallest. */
   bandTitleLetters: number;
+  /**
+   * A hardcover lying flat prints a small "A COURT OF" a little above its big subtitle, further than `bandMaxGap`, so the two were bands of
+   * their own. A band whose title ends on a joining word ("of", "the", "and") is the first line of the band right below it when it lies
+   * within this share of the smaller band's lettering from it. A title cannot end on such a word, so the word is what tells the pair from two
+   * books; the gap alone does not (a name and the title below it sit as close). -Infinity switches the join off.
+   */
+  bandJoinGap: number;
   /** How far either side of the cut the two halves of a wide shot reach, as a share of the picture's width. */
   halfOverlap: number;
   /** The cut is looked for within this distance of the middle. */
@@ -286,6 +293,7 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   bandSameLetters: 0.6,
   bandMinLetters: 0.3,
   bandTitleLetters: 0.6,
+  bandJoinGap: 0.5,
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,

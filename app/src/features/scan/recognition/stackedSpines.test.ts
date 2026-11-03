@@ -17,8 +17,8 @@ const BEFORE_637 = { stackSureMaxGap: 1, stackFourLetters: 0.5 };
 /** The cut of a tape lying across the tops of the spines off: a flat line joins the spine under its center. */
 const BEFORE_LYING = { lyingLineWidth: Infinity };
 
-/** The two-row rule off: the two rows of one spine title are two columns, each read alone. */
-const BEFORE_TWO_ROWS = { twoRowLetters: Infinity };
+/** The two-row rules off: the two rows of one spine title are two columns, and a pile's band that ends on a joining word ("A COURT OF") stands alone. */
+const BEFORE_TWO_ROWS = { twoRowLetters: Infinity, bandJoinGap: -Infinity };
 
 /** The split with piles switched off: what the splitter did before items lying flat were cut one per spine (nor was the frame cut into shelf rows). */
 const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS };
@@ -66,6 +66,49 @@ describe('a pile of items lying flat is one item per spine', () => {
     const spines = [tape(0, 'Alpha'), tape(1, 'Beta'), line('A COURT OF', 0.33, 0.1 + 2 * 0.08, 0.3, 0.025), line('WINGS AND RUIN', 0.31, 0.1 + 2 * 0.08 + 0.025, 0.33, 0.025), tape(3, 'Delta'), tape(4, 'Echo'), tape(5, 'Foxtrot')];
     const { pieces } = splitIntoPieces(spines, [], C.splitting, T);
     expect(pieces.map((p) => p.title)).toEqual(['Alpha', 'Beta', 'A COURT OF WINGS AND RUIN', 'Delta', 'Echo', 'Foxtrot']);
+  });
+
+  describe('a band that ends on a joining word reads with the band below it', () => {
+    // A hardcover lying flat prints a small "A COURT OF" a little above its big subtitle. It sits further above it than a line may sit from its
+    // band, so it came out as a band of its own. `gap` is how far above, as a share of the small lettering's height (0.025).
+    const hardcovers = (small: string, gap: number) => [
+      tape(0, 'Alpha'),
+      tape(1, 'Beta'),
+      line(small, 0.33, 0.26, 0.3, 0.025),
+      line('SILVER FLAMES', 0.31, 0.285 + gap * 0.025, 0.33, 0.035),
+      line('Delta', 0.3, 0.42, 0.35, 0.05),
+      line('Echo', 0.3, 0.5, 0.35, 0.05),
+    ];
+    const titlesOf = (lines: TextLine[], local: typeof T = T) => splitIntoPieces(lines, [], C.splitting, local).pieces.map((p) => p.title);
+
+    it('makes "A COURT OF" and the subtitle below it one item', () => {
+      const { pieces } = splitIntoPieces(hardcovers('A COURT OF', 0.4), [], C.splitting, T);
+      expect(pieces.map((p) => p.title)).toEqual(['Alpha', 'Beta', 'A COURT OF SILVER FLAMES', 'Delta', 'Echo']);
+      expect(pieces[2].lines.map((l) => l.text)).toEqual(['A COURT OF', 'SILVER FLAMES']);
+    });
+
+    it.each(['A COURT OF', 'THE', 'Pride and', 'Salt &', 'Wings of a'])('joins a band that ends on "%s"', (small) => {
+      expect(titlesOf(hardcovers(small, 0.4))).toHaveLength(5);
+    });
+
+    it.each(['A COURT', 'OFFICE', 'Dune', 'Orphan'])('leaves a band that ends on "%s", which is not a joining word, where it is', (small) => {
+      expect(titlesOf(hardcovers(small, 0.4))).toEqual(['Alpha', 'Beta', small, 'SILVER FLAMES', 'Delta', 'Echo']);
+    });
+
+    it('joins within half the small lettering and no further: 0.6 above stays apart', () => {
+      expect(titlesOf(hardcovers('A COURT OF', 0.45))).toHaveLength(5);
+      expect(titlesOf(hardcovers('A COURT OF', 0.6))).toEqual(['Alpha', 'Beta', 'A COURT OF', 'SILVER FLAMES', 'Delta', 'Echo']);
+      expect(titlesOf(hardcovers('A COURT OF', 2))).toHaveLength(6);
+    });
+
+    it('does not change which columns are piles: the same six bands are cut either way', () => {
+      expect(hasPile(hardcovers('A COURT OF', 0.4), T)).toBe(true);
+      expect(hasPile(hardcovers('A COURT OF', 0.4), { ...T, ...BEFORE_TWO_ROWS })).toBe(true);
+    });
+
+    it('is off when the gap needed is below zero: the band stands alone, as it did', () => {
+      expect(titlesOf(hardcovers('A COURT OF', 0.4), { ...T, ...BEFORE_TWO_ROWS })).toEqual(['Alpha', 'Beta', 'A COURT OF', 'SILVER FLAMES', 'Delta', 'Echo']);
+    });
   });
 
   it('leaves the lettering that is not big out of the title, and keeps a surer reading of one place over its twin', () => {
@@ -226,8 +269,9 @@ describe('real shelf photos', () => {
     // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it. The after
     // moved again when the frame was cut into its two shelf rows (items 32 to 40, found 19 to 25): 6 titles gained and none lost. The cut
     // lost "And Now, Back to You" until a shorter line beside a taller one joined its column (#655, 24 to 25). The shelf rows describe
-    // below owns that.
-    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 40, found: 25 } },
+    // below owns that. The items then fell from 40 to 39: the small "A COURT OF" above the subtitle of A Court of Silver Flames is read
+    // with it now, not as an item of its own (the #637 describe below owns that).
+    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 39, found: 25 } },
     // Upright rows with no pile. The two rows of "Indian FOR Everyone" were two items, each read alone, and are one spine now (items 19 to
     // 18, found 14 to 15); splitting.test.ts owns the rule.
     'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 18, found: 15 } },
@@ -278,11 +322,12 @@ describe('real shelf photos', () => {
     // the hardcover pile of A Court of Thorns and Roses books, cut into its 8 bands once a pile of 5 or more may have a median gap of 1.25
     // letters (#637): A Court of Wings and Ruin, A Court of Mist and Fury and A Court of Thorns and Roses, and none lost. shelf-01's 12 to 14
     // (items 36 to 38) is the two rows of "The Exquisite Torment of Loving Your Enemy", each too narrow to be a spine, joined into one that
-    // stands, and "Rose in Chains", which no longer shares a leftover piece with them; none lost.
+    // stands, and "Rose in Chains", which no longer shares a leftover piece with them; none lost. The items of shelf-02 (44 to 42) and
+    // accept-shelf-04 (40 to 39) fell as the small "A COURT OF" of 2 and 1 hardcovers of A Court of Silver Flames joined their subtitles.
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
       'shelf-01': { without: { items: 32, found: 11 }, with: { items: 38, found: 14 } },
-      'shelf-02': { without: { items: 26, found: 16 }, with: { items: 44, found: 24 } },
-      'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 40, found: 25 } },
+      'shelf-02': { without: { items: 26, found: 16 }, with: { items: 42, found: 24 } },
+      'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 39, found: 25 } },
     };
 
     const linesOf = (id: string) => photos[id].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
@@ -343,7 +388,8 @@ describe('real shelf photos', () => {
     // The recorded shelf-02 pile of A Court of Thorns and Roses books: 8 bands in one column 0.146 wide. Hardcover spines are thick against
     // their letters, so the gaps run 0.14, 1.09, 2.37, 0.11, 1.61, 1.18 and 0.51 letters, a median of 1.09 where a tape stack's is 0.3 to 0.5.
     // On two of the books "A COURT OF" sits 0.003 to 0.004 above "SILVER FLAMES", further than a line may be from its band, so each comes
-    // out as two bands ("ACourt of" over "Silver Flames", and "A COURT OF" over "ILVER FLAMES").
+    // out as two bands ("ACourt of" over "Silver Flames", and "A COURT OF" over "ILVER FLAMES"). A band that ends on a joining word reads
+    // with the band below it, which makes each one item.
     const PILE = [63, 66, 67, 68, 69, 70, 71, 75, 76, 77, 80, 81, 82, 83, 87, 90];
     const pile = () => PILE.map((i) => photos['shelf-02'].lines[i]).map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
 
@@ -356,12 +402,32 @@ describe('real shelf photos', () => {
 
     it('splits one item per book: the pile has a median gap of 1.09 letters, within the 1.25 a pile of 5 or more may have', () => {
       const { pieces } = splitIntoPieces(pile(), [], C.splitting, T);
-      expect(pieces).toHaveLength(8);
+      expect(pieces).toHaveLength(6);
+      expect(pieces.map((p) => p.title)).toEqual([
+        'ACourt of Silver Flames', 'ND STARLIGHT', 'A COURT OF ILVER FLAMES', 'A COURT OF WINGS AND RUIN', 'A COURT OF MIST AND FURY',
+        'A COURT OF THORNS AND ROSES',
+      ]);
+      expect(splitIntoPieces(pile(), [], C.splitting, { ...T, ...BEFORE_637 }).pieces).toHaveLength(1);
+    });
+
+    it('cuts "A COURT OF" from the subtitle below it when the joining-word rule is off: 8 items, two of them half titles', () => {
+      const { pieces } = splitIntoPieces(pile(), [], C.splitting, { ...T, ...BEFORE_TWO_ROWS });
       expect(pieces.map((p) => p.title)).toEqual([
         'ACourt of', 'Silver Flames', 'ND STARLIGHT', 'A COURT OF', 'ILVER FLAMES', 'A COURT OF WINGS AND RUIN', 'A COURT OF MIST AND FURY',
         'A COURT OF THORNS AND ROSES',
       ]);
-      expect(splitIntoPieces(pile(), [], C.splitting, { ...T, ...BEFORE_637 }).pieces).toHaveLength(1);
+    });
+
+    it('keeps two recorded bands of a pile apart when the first does not end on a joining word, though they sit 0.3 letters apart (shelf-01: MEDUSA AYANA GRAY over HEKATE THE WITCH)', () => {
+      // The three tapes above are made up so that the recorded lines stand in a pile of five bands.
+      const tapes = Array.from({ length: 3 }, (_, i) => line(`Tape ${i}`, 0.6568, 0.2279 + i * 0.05, 0.1821, 0.0252));
+      const medusa = [
+        line('MEDUSA AYANA GRAY', 0.6568, 0.3779, 0.1821, 0.0252),
+        line('MEDUSA', 0.6584, 0.3798, 0.0741, 0.0136),
+        line('HEKATE THE WITCH', 0.6904, 0.4107, 0.1584, 0.0311),
+      ];
+      const { pieces } = splitIntoPieces([...tapes, ...medusa], [], C.splitting, T);
+      expect(pieces.map((p) => p.title)).toEqual(['Tape 0', 'Tape 1', 'Tape 2', 'MEDUSA AYANA GRAY', 'HEKATE THE WITCH']);
     });
   });
 

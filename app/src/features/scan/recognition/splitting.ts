@@ -180,6 +180,28 @@ function bandTitle(lines: TextLine[], tuning: LocalTuning): string {
   return distinct.sort(readingOrder).map((l) => l.text).join(' ');
 }
 
+/** Words no title ends on: a title that stops on one is the first line of a longer title. */
+const JOINING_WORDS = new Set(['of', 'the', 'and', 'a', 'an', 'to', 'in', 'for', 'with', 'on', 'at', 'by', 'from', 'or', '&']);
+
+const endsOnJoiningWord = (title: string) => JOINING_WORDS.has(title.toLowerCase().split(/[^\p{L}\p{N}&]+/u).filter(Boolean).pop() ?? '');
+
+/**
+ * A hardcover lying flat prints a small "A COURT OF" a little above its big subtitle, further than `bandMaxGap`, so the two come out as bands
+ * of their own. A band whose title ends on a joining word is joined to the band right below it when it lies within `bandJoinGap` of the
+ * smaller band's lettering from it. Looking from the bottom up lets a title of three bands join all three.
+ */
+function joinBands(bands: Band[], tuning: LocalTuning): Band[] {
+  const joined = [...bands];
+  for (let i = joined.length - 2; i >= 0; i--) {
+    const [first, next] = [joined[i], joined[i + 1]];
+    const gap = next.top - first.bottom;
+    if (endsOnJoiningWord(bandTitle(first.lines, tuning)) && gap <= Math.min(first.letters, next.letters) * tuning.bandJoinGap) {
+      joined.splice(i, 2, { ...next, top: first.top, letters: Math.max(first.letters, next.letters), lines: [...first.lines, ...next.lines] });
+    }
+  }
+  return joined;
+}
+
 /**
  * A column of flat lines is a pile of spines when it is as wide as a spine and no wider than `stackMaxWidth` (a cover fills the frame),
  * has enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters (`stackSureMaxGap`
@@ -208,7 +230,7 @@ function byPiles(lines: TextLine[], tuning: LocalTuning): { pieces: Piece[]; res
     const biggest = Math.max(...bands.map((b) => b.letters));
     const real = bands.filter((b) => b.letters >= biggest * tuning.bandMinLetters);
     if (!isPile(column, real, tuning)) continue;
-    for (const b of real) {
+    for (const b of joinBands(real, tuning)) {
       pieces.push({ ...piece(b.lines), title: bandTitle(b.lines, tuning) });
       b.lines.forEach((l) => rest.delete(l));
     }
