@@ -134,9 +134,9 @@ public sealed class EvalGrounder(
     /// Asks the providers about one read once a place frees up, and scores the answer. No one is waiting on an eval, so each read gets a
     /// patient budget (the background job's, scaled for the asks in flight), counted from the moment its ask starts on the injected
     /// clock, not the live request's. When one ask fails, the reads still waiting for a place are left for the next call, and the asks
-    /// already under way finish what they started. A spine that finds nothing is asked again without the stray words at its ends, as
-    /// <c>/identify</c> asks it (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>): inside the same budget, in the same place, and before the
-    /// read is remembered, so what the memo holds is the final answer.
+    /// already under way finish what they started. A spine that finds nothing is asked again without the stray words at its ends, and
+    /// last with its creator as the title, as <c>/identify</c> asks it (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>): inside the
+    /// same budget, in the same place, and before the read is remembered, so what the memo holds is the final answer.
     /// </summary>
     private async Task AskProvidersAsync(
         EvalGroundingMemo.Claim claim,
@@ -175,7 +175,7 @@ public sealed class EvalGrounder(
                 // An ask cut short by the app stopping may hand back a thin answer instead of an error: never remember that.
                 cancellationToken.ThrowIfCancellationRequested();
                 var answer = grounding.Score(claim.Facts, claim.Profile, local, providers);
-                if (IdentifyGrounding.WantsTrimmedRetry(claim.Facts, claim.Profile, answer))
+                if (IdentifyGrounding.WantsRetry(claim.Facts, claim.Profile, answer))
                 {
                     var retried = await grounding.RetryTrimmedAsync(
                         [new TrimmedRetry(claim.Facts, claim.Profile, answer, span => grounding.AskProvidersAsync(span, cancellationToken, asking.Token), asking.Token)],

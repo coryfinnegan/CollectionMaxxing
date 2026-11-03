@@ -127,6 +127,59 @@ public class EvalGrounderTrimmedRetryTests
         memo.Reused.ShouldBe(4);
     }
 
+    // ---- the swap: a title that is the author line, with the real title sent as the creator -------------------------------------------
+
+    /// <summary>A spine whose creator the phone sent with "the" in it: cleaning drops it, so only the creator as read still has the real title.</summary>
+    private static EvalReadItemInput SpineBy(string title, string creator) => new(
+        new IdentifyItemInput(null, null, title, title, creator, null, null, WorkKind.Book, null, null, null, null),
+        null);
+
+    private static EvalReadItemInput[] ShelfOf(EvalReadItemInput spine) => [Book("Alpha Quest"), Book("Beta Quest"), spine, Book("Gamma Quest")];
+
+    [Fact]
+    public async Task A_spine_whose_title_is_the_author_line_is_offered_the_book_found_with_the_creator_as_read_as_its_title()
+    {
+        var grounder = Grounder(new Catalogue(), new Providers(false, Known("The Copper Lantern")));
+
+        var items = await GroundAsync(grounder, new EvalGroundingMemo(), ShelfOf(SpineBy("TESS HARROWGATE", "THE COPPER LANTERN")));
+
+        items[2].ReadTitle.ShouldBe("TESS HARROWGATE");
+        items[2].Read!.Creator.ShouldBeNull("cleaning dropped it: the sanitiser keeps no author line with \"the\" in it");
+        items[2].Read!.CreatorAsRead.ShouldBe("THE COPPER LANTERN");
+        items[2].Verdict.ShouldBe("ambiguous");
+        items[2].Candidates.Select(c => c.Title).ShouldBe(["The Copper Lantern"]);
+        items.Where((_, i) => i != 2).Select(i => i.Verdict).ShouldAllBe(v => v == "not_found");
+    }
+
+    [Fact]
+    public async Task The_same_title_read_with_another_creator_as_read_is_another_read_to_the_memo()
+    {
+        var grounder = Grounder(new Catalogue(), new Providers(false, Known("The Copper Lantern")));
+        var memo = new EvalGroundingMemo();
+
+        var first = await GroundAsync(grounder, memo, ShelfOf(SpineBy("TESS HARROWGATE", "THE COPPER LANTERN")));
+        var second = await GroundAsync(grounder, memo, ShelfOf(SpineBy("TESS HARROWGATE", "THE IRON FOX")));
+
+        first[2].Verdict.ShouldBe("ambiguous");
+        second[2].Verdict.ShouldBe("not_found"); // cleaned the same, but it was not asked about the same creator
+    }
+
+    [Fact]
+    public async Task A_swap_that_found_nothing_is_a_not_found_the_run_remembers()
+    {
+        var catalogue = new Catalogue();
+        var grounder = Grounder(catalogue, new Providers());
+        var memo = new EvalGroundingMemo();
+
+        var first = await GroundAsync(grounder, memo, ShelfOf(SpineBy("TESS HARROWGATE", "THE COPPER LANTERN")));
+        var calls = catalogue.Batches.Count;
+        var second = await GroundAsync(grounder, memo, ShelfOf(SpineBy("TESS HARROWGATE", "THE COPPER LANTERN")));
+
+        first[2].Verdict.ShouldBe("not_found");
+        second[2].Verdict.ShouldBe("not_found");
+        catalogue.Batches.Count.ShouldBe(calls);
+    }
+
     [Fact]
     public async Task A_retry_cut_short_by_cancelling_remembers_nothing()
     {

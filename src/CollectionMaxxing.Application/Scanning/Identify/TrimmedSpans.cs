@@ -71,7 +71,8 @@ public static class TrimmedSpans
         return spans;
     }
 
-    private static bool WorthSearching(string[] kept) =>
+    /// <summary>Whether words are enough to search for: at least <see cref="MinWordsKept"/>, or one of at least <see cref="MinLettersOfOneWord"/> letters.</summary>
+    internal static bool WorthSearching(string[] kept) =>
         kept.Length >= MinWordsKept || (kept.Length == 1 && kept[0].Count(char.IsLetter) >= MinLettersOfOneWord);
 
     /// <summary>The dropped words in the order they were read; "start, end" when both ends lost some.</summary>

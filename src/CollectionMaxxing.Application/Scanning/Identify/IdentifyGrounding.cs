@@ -15,6 +15,10 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <see cref="KindContext"/> is not part of the read: it is the kind the rest of the snap agreed on (<see cref="Identify.KindContext"/>),
 /// set only on a read that names no kind, and it only orders level-scoring releases. It lives here so that it is part of the read's
 /// value, which is what the eval run's memo keys on: the same words in a snap of films and in one of books are two lookups.
+/// <see cref="CreatorAsRead"/> is the same kind of field: the author line as the phone sent it, before the sanitiser decided
+/// whether it reads as a name (<see cref="ReadSanitizer"/> drops a line with "the" or "for" in it, which is how a real title
+/// ends up in the author field and is lost). It is kept on a spine read only, for <see cref="IdentifyGrounding.RetryTrimmedAsync"/>
+/// to ask again with the two swapped; null on every other read.
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -28,7 +32,8 @@ public sealed record ReadFacts(
     string? Platform,
     string? ProductCode = null,
     string? ReadAs = null,
-    WorkKind? KindContext = null)
+    WorkKind? KindContext = null,
+    string? CreatorAsRead = null)
 {
     /// <summary>The words to look for: the model's title when it gave one, else everything that was legible. Null when there is nothing to search.</summary>
     public string? SearchText => !string.IsNullOrWhiteSpace(Title) ? Title : !string.IsNullOrWhiteSpace(Text) ? Text : null;
@@ -134,7 +139,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
     /// <summary>
     /// The whole grounding for one read, one step after the other, within <paramref name="budget"/> for the providers. A spine that
-    /// found nothing is then asked again without the stray words at its ends (<see cref="RetryTrimmedAsync"/>), within the same budget.
+    /// found nothing is then asked again without the stray words at its ends, and last with its creator as the title
+    /// (<see cref="RetryTrimmedAsync"/>), within the same budget.
     /// </summary>
     public async Task<BarcodeResolution> GroundAsync(ReadFacts facts, ScoringProfileKind profile, TimeSpan budget, CancellationToken cancellationToken)
     {
@@ -148,12 +154,12 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         timeout.CancelAfter(budget);
         var providers = await AskProvidersAsync(facts, cancellationToken, timeout.Token);
         var answer = Score(facts, profile, local, providers);
-        if (!WantsTrimmedRetry(facts, profile, answer))
+        if (!WantsRetry(facts, profile, answer))
         {
             return answer;
         }
 
-        // A spine that found nothing is asked again without the stray words at its ends, within the budget it has.
+        // A spine that found nothing is asked again without the stray words at its ends, then with its creator as the title, within the budget it has.
         var retried = await RetryTrimmedAsync(
             [new TrimmedRetry(facts, profile, answer, spanFacts => AskProvidersAsync(spanFacts, cancellationToken, timeout.Token), timeout.Token)],
             cancellationToken);
@@ -163,20 +169,45 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>
     /// Whether <see cref="RetryTrimmedAsync"/> may help a read: it was scored as a spine on a shelf, nothing was found for it (a
     /// Pending answer, where a provider could not answer, is asked again later instead, and an Ambiguous or Matched one has
-    /// found its release), and its title has words enough to drop some (<see cref="TrimmedSpans"/>). Never a read whose title a
-    /// printed product code decided (ADR-031): that title is the game table's, not words Vision ran stray print into.
+    /// found its release), and there is something to ask: its title has words enough to drop some (<see cref="TrimmedSpans"/>), or it
+    /// has a creator as read worth asking as the title (<see cref="CreatorSwap"/>). Never a read whose title a printed product code
+    /// decided (ADR-031): that title is the game table's, not words Vision ran stray print into.
     /// </summary>
-    public static bool WantsTrimmedRetry(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer) =>
+    public static bool WantsRetry(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer) =>
         profile == ScoringProfileKind.ShelfSpine
         && answer.Verdict == ResolutionVerdict.NotFound
         && facts.ProductCode is null
-        && TrimmedSpans.For(facts.SearchText).Count > 0;
+        && (TrimmedSpans.For(facts.SearchText).Count > 0 || CreatorSwap.For(facts) is not null);
+
+    /// <summary>One more way to ask about a read that found nothing: the facts to ask with, and the trace step that says what they are.</summary>
+    private sealed record Attempt(ReadFacts Facts, TraceStep Step);
+
+    /// <summary>The ways to ask again about a read, in the order they are tried: its trimmed spans, then, last, its creator as the title. None when <see cref="WantsRetry"/> says no.</summary>
+    private static IReadOnlyList<Attempt> AttemptsFor(TrimmedRetry read)
+    {
+        if (!WantsRetry(read.Facts, read.Profile, read.Answer))
+        {
+            return [];
+        }
+
+        var attempts = TrimmedSpans.For(read.Facts.SearchText)
+            .Select(span => new Attempt(read.Facts with { Title = span.Text }, new TraceStep("trimmed", $"{span.Text} (dropped: {span.Dropped})", 0)))
+            .ToList();
+        if (CreatorSwap.For(read.Facts) is { } swapped)
+        {
+            attempts.Add(new Attempt(swapped, new TraceStep("swapped", $"{swapped.Title} (creator as read; title read: {read.Facts.Title})", 0)));
+        }
+
+        return attempts;
+    }
 
     /// <summary>
     /// A spine read that found nothing is asked again without the stray words at its ends (<see cref="TrimmedSpans"/>): Vision reads
     /// an author's name or OCR junk into the title, and the whole string then matches nothing while the rest of it matches a book.
-    /// The answers come back in the order of <paramref name="reads"/>, each the one it had unless a span found a release (or the
-    /// budget cut the retry short, which makes it Pending).
+    /// When no span finds a release it is asked once more with its creator as the title and its title as the creator
+    /// (<see cref="CreatorSwap"/>): the phone sometimes sends the author line as the title and the real title as the creator.
+    /// The answers come back in the order of <paramref name="reads"/>, each the one it had unless a span or the swap found a release
+    /// (or the budget cut the retry short, which makes it Pending).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -185,12 +216,13 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <see cref="TrimmedRetry.Ask"/>. A span is searched and scored as the read's title, with the read's other facts unchanged
     /// (<see cref="ReadFacts.Text"/> stays what was read). A read stops at the first span whose grounding names a release at or
     /// above the Ambiguous threshold; at most <see cref="TrimmedSpans.MaxSpans"/> spans are asked for a read, and none once its
-    /// <see cref="TrimmedRetry.Budget"/> has run out.
+    /// <see cref="TrimmedRetry.Budget"/> has run out. The swap is one more attempt after the read's last span, in a round of its own
+    /// (the first, for a read with no span), asked and scored the same way.
     /// </para>
     /// <para>
-    /// A retry that tried every span and found nothing leaves the read's NotFound as it was (the same answer). A retry the budget cut
-    /// short does not: if a span was left untried because the time ran out, or a span's providers could not answer (they failed, or
-    /// the budget cancelled the call), the read is <b>Pending</b>, not a final NotFound. A live <c>/identify</c> request has little
+    /// A retry that tried every span and the swap and found nothing leaves the read's NotFound as it was (the same answer). A retry the
+    /// budget cut short does not: if a span or the swap was left untried because the time ran out, or an attempt's providers could not
+    /// answer (they failed, or the budget cancelled the call), the read is <b>Pending</b>, not a final NotFound. A live <c>/identify</c> request has little
     /// time, and its Pending row is finished by the background job (<c>ResolvePendingIdentify</c> runs <see cref="GroundAsync"/> again
     /// with the job's much larger budget), so <c>/identify</c> ends up with the answer the eval, with its patient budget, measures.
     /// The Pending answer's trace ends with a <c>trimmed</c> step, <c>cut_short</c>.
@@ -200,22 +232,25 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// batches at once (the eval grounder, one batch per read) gives <paramref name="databaseGate"/> so their catalogue calls queue.
     /// </para>
     /// <para>
-    /// What a span finds is offered, never decided: the verdict is capped at Ambiguous, so the person picks and a trimmed find can
-    /// neither be added by itself nor become a title nobody read. The trace says which span found it and which words it dropped.
+    /// What a span or the swap finds is offered, never decided: the verdict is capped at Ambiguous and flagged
+    /// (<see cref="BarcodeResolution.FoundByTrimmedSpan"/>), so the person picks and such a find can neither be added by itself,
+    /// nor become a title nobody read, nor confirm another engine's read. The trace says which span found it and which words it
+    /// dropped (a <c>trimmed</c> step), or that the creator as read was asked as the title (a <c>swapped</c> step).
     /// </para>
     /// </remarks>
     public async Task<IReadOnlyList<BarcodeResolution>> RetryTrimmedAsync(
         IReadOnlyList<TrimmedRetry> reads, CancellationToken cancellationToken, SemaphoreSlim? databaseGate = null)
     {
         var answers = reads.Select(r => r.Answer).ToArray();
-        var spans = reads.Select(r => WantsTrimmedRetry(r.Facts, r.Profile, r.Answer) ? TrimmedSpans.For(r.Facts.SearchText) : []).ToArray();
+        var attempts = reads.Select(AttemptsFor).ToArray();
         var cutShort = new bool[reads.Count];
-        var looking = Enumerable.Range(0, reads.Count).Where(i => spans[i].Count > 0).ToList();
-        for (var round = 0; round < TrimmedSpans.MaxSpans && looking.Count > 0; round++)
+        var looking = Enumerable.Range(0, reads.Count).Where(i => attempts[i].Count > 0).ToList();
+        var rounds = attempts.Select(a => a.Count).DefaultIfEmpty(0).Max();
+        for (var round = 0; round < rounds && looking.Count > 0; round++)
         {
-            // A read with a span left to try and no time to try it in has not finished: its NotFound is not the final word.
+            // A read with an attempt left to try and no time to try it in has not finished: its NotFound is not the final word.
             var open = new List<int>(looking.Count);
-            foreach (var i in looking.Where(i => round < spans[i].Count))
+            foreach (var i in looking.Where(i => round < attempts[i].Count))
             {
                 if (reads[i].Budget.IsCancellationRequested)
                 {
@@ -233,7 +268,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 break;
             }
 
-            var asked = looking.Select(i => reads[i].Facts with { Title = spans[i][round].Text }).ToList();
+            var asked = looking.Select(i => attempts[i][round].Facts).ToList();
             var pools = await FindLocalGatedAsync(asked, databaseGate, cancellationToken);
             var scored = await Task.WhenAll(looking.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
 
@@ -243,11 +278,11 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 var i = looking[n];
                 if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
                 {
-                    answers[i] = Offered(reads[i].Answer, scored[n], spans[i][round]);
+                    answers[i] = Offered(reads[i].Answer, scored[n], attempts[i][round].Step);
                 }
                 else
                 {
-                    // A span the providers could not answer (they failed, or the budget cancelled the call) was not really tried.
+                    // An attempt the providers could not answer (they failed, or the budget cancelled the call) was not really tried.
                     cutShort[i] |= scored[n].Verdict == ResolutionVerdict.Pending;
                     next.Add(i);
                 }
@@ -290,11 +325,11 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
     }
 
-    /// <summary>What a span found, as an answer for the read it was cut from: the same releases, never Matched, and a step to say why.</summary>
-    private static BarcodeResolution Offered(BarcodeResolution original, BarcodeResolution found, TrimmedSpan span) => found with
+    /// <summary>What a span or the swap found, as an answer for the read it was cut from: the same releases, never Matched, and a step to say why.</summary>
+    private static BarcodeResolution Offered(BarcodeResolution original, BarcodeResolution found, TraceStep why) => found with
     {
         Verdict = ResolutionVerdict.Ambiguous,
         FoundByTrimmedSpan = true,
-        Steps = [.. original.Steps, new TraceStep("trimmed", $"{span.Text} (dropped: {span.Dropped})", 0), .. found.Steps],
+        Steps = [.. original.Steps, why, .. found.Steps],
     };
 }

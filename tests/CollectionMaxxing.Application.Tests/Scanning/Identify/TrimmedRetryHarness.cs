@@ -20,6 +20,14 @@ internal static class TrimmedRetryHarness
         return new LocalHit(new Release { Id = Guid.NewGuid(), WorkId = work.Id, Format = ReleaseFormat.Hardcover }, work);
     }
 
+    /// <summary>A book the catalogue holds, with its author. Titles and names are neutral.</summary>
+    public static LocalHit BookBy(string title, string creator)
+    {
+        var book = Book(title);
+        book.Work.CreatorsJson = $"[\"{creator}\"]";
+        return book;
+    }
+
     public sealed class FixedScoring : IOptionsMonitor<ScoringOptions>
     {
         public ScoringOptions CurrentValue { get; } = new();
