@@ -65,7 +65,8 @@ namespace CollectionMaxxing.Application.Evals;
 /// with nothing read, a refusal, a context overflow or an error: <c>ModelUnusableError</c> and the catch around the picture read) the
 /// scanner tries the text tier (<c>fm_text</c>) and then Vision's own reading. So the combined row of such a photo is the <c>fm_text</c>
 /// row when it answered, else the <c>vision_pipeline</c> row when it answered, either with the model's failure as its
-/// <c>FellBackFrom</c> and the model's wait plus the fallback's read as its time; only when neither answered is it the model's failure,
+/// <c>FellBackFrom</c> and the model row's own time as its time (the phone times <c>selector.read</c>, which runs the fallback inside
+/// that call, so it is already the whole wait); only when neither answered is it the model's failure,
 /// as the model's own row says. A model that answered, even with nothing, is the combined row whole. The gate's
 /// <c>model_timeouts</c> still reads the model's own row.
 /// </para>
@@ -200,9 +201,10 @@ public static class EvalCombination
     /// failure, and a timeout that kept items is an answer: only a timeout with nothing read, a refusal, a context overflow or an
     /// error falls through (<c>ModelUnusableError</c> and the catch around the picture read). The fallback row is the snap whole, with the
     /// model's failure as its <c>FellBackFrom</c> (the reason the phone sent, else the one its outcome says), and the total is the
-    /// model's wait plus the fallback's read, since the person waited for both; the first item arrives after the wait too. When neither
-    /// fallback row answered the combined row is the model's own failure, as it was. The gate's <c>model_timeouts</c> still reads the
-    /// model's own row.
+    /// model row's own time: the phone times the whole <c>selector.read</c> call, which runs the fallback inside it, so adding the
+    /// fallback row's time would count it twice. When items were read the first item is shown by the end of that read (no earlier time
+    /// is known). When neither fallback row answered the combined row is the model's own failure, as it was. The gate's
+    /// <c>model_timeouts</c> still reads the model's own row.
     /// </summary>
     private static GroundedPhoto AfterTheModelFellThrough(GroundedPhoto apple, GroundedPhoto? text, GroundedPhoto vision)
     {
@@ -216,8 +218,8 @@ public static class EvalCombination
         {
             Engine = Engine,
             FellBackFrom = apple.FellBackFrom ?? FellBackFromOutcome(apple.Outcome),
-            LatencyMs = apple.LatencyMs + fallback.LatencyMs,
-            FirstItemMs = fallback.Items.Count > 0 ? apple.LatencyMs + (fallback.FirstItemMs ?? fallback.LatencyMs) : null,
+            LatencyMs = apple.LatencyMs,
+            FirstItemMs = fallback.Items.Count > 0 ? apple.LatencyMs : null,
             DuplicateRescan = fallback.DuplicateRescan ?? apple.DuplicateRescan,
 
             // Vision's OCR lines belong to its own row.

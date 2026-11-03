@@ -522,8 +522,8 @@ public sealed class CombinedEngineTests : IDisposable
         built.FellBackFrom.ShouldBe("timeout");
         built.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
         built.Items.Single().Provisional.ShouldBeFalse("it is the text tier's own row, not Vision's guess");
-        built.LatencyMs.ShouldBe(14000, "the person waited for the model's 12 s and then for the text tier's 2 s");
-        built.FirstItemMs.ShouldBe(12900, "the first item came after the model gave up");
+        built.LatencyMs.ShouldBe(12000, "the phone timed the model's read, which ran the text tier inside it, so that time is the whole wait");
+        built.FirstItemMs.ShouldBe(12000, "an item is shown by the time the read ends, and no earlier is known");
     }
 
     [Theory]
@@ -572,7 +572,7 @@ public sealed class CombinedEngineTests : IDisposable
         built.Outcome.ShouldBe("ok");
         built.FellBackFrom.ShouldBe("timeout");
         built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
-        built.LatencyMs.ShouldBe(12700);
+        built.LatencyMs.ShouldBe(12000, "the model row already holds the fallback's time");
     }
 
     [Fact]
