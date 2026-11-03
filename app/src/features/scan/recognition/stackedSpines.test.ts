@@ -198,7 +198,8 @@ describe('real shelf photos', () => {
     'vhs-dvd-shelf-02': { before: { items: 12, found: 5 }, after: { items: 12, found: 5 } },
     // A pile of hardcovers lies under a row of upright books; the 2-line titles of the pile now come out whole.
     // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it. The after
-    // moved again when the frame was cut into its two shelf rows (items 32 to 40, found 19 to 24); the shelf rows describe below owns that.
+    // moved again when the frame was cut into its two shelf rows (items 32 to 40, found 19 to 24): that is 6 titles gained and 1 lost,
+    // "And Now, Back to You", which the cut no longer finds (#655). The shelf rows describe below owns that.
     'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 40, found: 24 } },
     // Upright rows with no pile: unchanged.
     'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 19, found: 14 } },
@@ -239,7 +240,9 @@ describe('real shelf photos', () => {
     };
 
     // Items and truth titles found with the cut off, then on. The title counts are the whole frame's; with Vision's rectangles the
-    // pieces are cut inside each rectangle, and the gain on the phone is measured by the next eval run.
+    // pieces are cut inside each rectangle, and the gain on the phone is measured by the next eval run. accept-shelf-04's 19 to 24 is
+    // 6 gained (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash) and 1 lost
+    // ("And Now, Back to You", see the known failure below), not 5 gained.
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
       'shelf-01': { without: { items: 32, found: 11 }, with: { items: 36, found: 12 } },
       'shelf-02': { without: { items: 26, found: 16 }, with: { items: 36, found: 21 } },
@@ -265,6 +268,25 @@ describe('real shelf photos', () => {
     it.each(Object.keys(GAPS))('%s: no item holds lines from both sides of the gap between its shelf rows', (id) => {
       expect(crossing(id, WITHOUT_ROWS)).toBeGreaterThan(0);
       expect(crossing(id, T)).toBe(0);
+    });
+
+    // KNOWN FAILURE (#655): the cut loses one title it used to find. Without the cut, one 10-line piece held "BACK TO YOU", "AND NOW,"
+    // and the lower shelf's "HEIR OF FIRE" among others, and the title read from it was found. Cut apart, the lower spine no longer
+    // widens the column, so "AND NOW," (x 0.642, the title's first row) no longer joins "BACK TO YOU" (x 0.628) in columnsOf and goes in
+    // with the next spine's "TARAH DEWITT" (x 0.656). This asserts today's behavior, so the test passes while the title is lost; when
+    // #655 is fixed, flip it to say the title is found.
+    it('known failure (#655): accept-shelf-04 loses "And Now, Back to You" to the cut, because "AND NOW," falls in with TARAH DEWITT', async () => {
+      const titlesWith = async (local: typeof T) => {
+        const vision = new RecordingVision({ [STILL.uri]: { text: linesOf('accept-shelf-04'), rectangles: [] } });
+        const engine = new VisionPipelineEngine({ vision, settings: () => ({ ...S, local }), newId: testIds });
+        return (await engine.read(STILL, () => {}, { shotKind: 'shelf_segment' })).items.map((i) => i.title);
+      };
+      expect((await titlesWith(WITHOUT_ROWS)).some((t) => has(t, 'And Now, Back to You'))).toBe(true);
+      expect((await titlesWith(T)).some((t) => has(t, 'And Now, Back to You'))).toBe(false);
+      const { pieces } = splitIntoPieces(linesOf('accept-shelf-04'), [], C.splitting, T);
+      const andNow = pieces.find((p) => p.lines.some((l) => l.text === 'AND NOW,'))?.lines.map((l) => l.text);
+      expect(andNow).toContain('TARAH DEWITT');
+      expect(andNow).not.toContain('BACK TO YOU');
     });
 
     it('finds more truth titles and reads more items in each of the three photos', async () => {
