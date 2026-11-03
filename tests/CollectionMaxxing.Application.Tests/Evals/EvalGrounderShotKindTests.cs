@@ -89,8 +89,11 @@ public class EvalGrounderShotKindTests
         }
     }
 
-    /// <summary>A shelf of books the providers know, and the read that finds only films until it is asked as a book.</summary>
-    private static (OfKind Books, OfKind Films) Providers()
+    /// <summary>
+    /// A shelf of books the providers know, and the read that finds only films until it is asked as a book. The films are titled
+    /// <paramref name="filmTitle"/>: the book's own title, which the read matches just as well, or a looser one.
+    /// </summary>
+    private static (OfKind Books, OfKind Films) Providers(string filmTitle = "Emergency Contact")
     {
         var books = new OfKind(WorkKind.Book)
             .Know("A COURT OF MIST AND FURY", false, Release("A Court of Mist and Fury", WorkKind.Book, "m1", "Sarah J. Maas"))
@@ -101,9 +104,9 @@ public class EvalGrounderShotKindTests
             .Know(
                 "cnoi Emergency Contact o",
                 false,
-                Release("Emergency Contact", WorkKind.Film, "f1") with { Year = 2019 },
-                Release("Emergency Contact", WorkKind.Film, "f2") with { Year = 2020 },
-                Release("Emergency Contact", WorkKind.Film, "f3") with { Year = 2021 });
+                Release(filmTitle, WorkKind.Film, "f1") with { Year = 2019 },
+                Release(filmTitle, WorkKind.Film, "f2") with { Year = 2020 },
+                Release(filmTitle, WorkKind.Film, "f3") with { Year = 2021 });
         return (books, films);
     }
 
@@ -128,17 +131,29 @@ public class EvalGrounderShotKindTests
         grounder.GroundAsync(ScanEngine.VisionPipeline, reads, memo, printKind, CancellationToken.None).WaitAsync(Patience);
 
     [Fact]
-    public async Task A_read_beside_matched_books_that_found_three_films_is_offered_the_book_first_and_a_film_after()
+    public async Task A_read_beside_matched_books_that_found_three_looser_films_is_offered_the_book_first_and_a_film_after()
     {
-        var (books, films) = Providers();
+        var (books, films) = Providers("Emergency Contact Live");
 
         var items = await GroundAsync(Grounder(books, films), new EvalGroundingMemo(), null, BookShelf());
 
         items.Take(3).Select(i => i.Verdict).ShouldAllBe(v => v == "matched");
         items[3].Verdict.ShouldBe("ambiguous");
         items[3].Candidates.Select(c => c.Kind).ShouldBe(["book", "film", "film"]);
-        items[3].Candidates.Select(c => c.Title).ShouldAllBe(t => t == "Emergency Contact");
+        items[3].Candidates[0].Title.ShouldBe("Emergency Contact");
         books.Asked.ShouldContain(("cnoi Emergency Contact o", WorkKind.Book)); // and it was the ask as a book that found it
+    }
+
+    [Fact]
+    public async Task A_book_that_is_only_as_good_a_title_match_as_the_films_the_read_found_is_offered_after_the_first_film()
+    {
+        var (books, films) = Providers();
+
+        var items = await GroundAsync(Grounder(books, films), new EvalGroundingMemo(), null, BookShelf());
+
+        items[3].Verdict.ShouldBe("ambiguous");
+        items[3].Candidates.Select(c => c.Kind).ShouldBe(["film", "book", "film"]);
+        books.Asked.ShouldContain(("cnoi Emergency Contact o", WorkKind.Book));
     }
 
     [Fact]
@@ -148,7 +163,7 @@ public class EvalGrounderShotKindTests
 
         var items = await GroundAsync(Grounder(books, films), new EvalGroundingMemo(), WorkKind.Book, Spine("cnoi Emergency Contact o"), Spine("GAMMA QUEST"), Spine("DELTA QUEST"), Spine("EPSILON QUEST"));
 
-        items[0].Candidates.Select(c => c.Kind).ShouldBe(["book", "film", "film"]);
+        items[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "book", "film"]);
     }
 
     [Fact]
@@ -172,7 +187,7 @@ public class EvalGrounderShotKindTests
         var onTheShelf = await GroundAsync(grounder, memo, null, BookShelf());
         var alone = await GroundAsync(grounder, memo, null, Spine("cnoi Emergency Contact o"), Spine("GAMMA QUEST"), Spine("DELTA QUEST"), Spine("EPSILON QUEST"));
 
-        onTheShelf[3].Candidates.Select(c => c.Kind).ShouldBe(["book", "film", "film"]);
+        onTheShelf[3].Candidates.Select(c => c.Kind).ShouldBe(["film", "book", "film"]);
         alone[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "film", "film"]); // the read as it stands alone, from the memo
         memo.Reused.ShouldBeGreaterThan(0);
     }

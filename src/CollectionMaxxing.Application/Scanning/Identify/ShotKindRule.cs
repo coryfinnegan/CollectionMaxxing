@@ -60,6 +60,9 @@ public static class ShotKindRule
     /// <summary>The most releases an answer offers: the usual three.</summary>
     public const int MaxOptions = SeriesNeighbour.MaxOptions;
 
+    /// <summary>The name the scorer gives the term that sets the read's kind (or format) against the release's.</summary>
+    private const string TypeTerm = "type";
+
     /// <summary>
     /// A read as the rule sees it. <paramref name="bestKind"/> is the kind of the best release of the answer (the caller resolves a
     /// catalogue release to its work's kind), null when the answer names none or the caller does not know it.
@@ -132,22 +135,43 @@ public static class ShotKindRule
 
     /// <summary>
     /// The options of an answer the ask found something for, <paramref name="found"/> being the releases of the shot's kind it
-    /// found (best first, at least one). When the best of them scores at least as well as the read's best option the find comes first
-    /// and the read's own options follow (<see cref="SeriesNeighbour.WithOriginals"/>: at most <see cref="MaxOptions"/>, and the
-    /// read keeps at least its best one, so the film stays pickable on a shelf of books). When it scores worse the read's best
-    /// option stays first and the finds come after it. A release is never offered twice. Pure.
+    /// found (best first, at least one), already on the footing the read's own answer had (<see cref="OnOriginalFooting"/>). Only
+    /// when the best of them scores strictly better than the read's best option does the find come first and the read's own
+    /// options follow (<see cref="SeriesNeighbour.WithOriginals"/>: at most <see cref="MaxOptions"/>, and the read keeps at least
+    /// its best one, so the film stays pickable on a shelf of books). On a tie or worse the read's best option stays first and the
+    /// finds come after it: a same-titled book is not a better answer than the right film of a DVD among books. A release is never
+    /// offered twice. Pure.
     /// </summary>
     public static IReadOnlyList<ResolutionOption> Offer(IReadOnlyList<ResolutionOption> found, IReadOnlyList<ResolutionOption> original)
     {
         ArgumentNullException.ThrowIfNull(found);
         ArgumentNullException.ThrowIfNull(original);
 
-        if (original.Count == 0 || Math.Round(found[0].Score - original[0].Score, 9) >= 0)
+        if (original.Count == 0 || Math.Round(found[0].Score - original[0].Score, 9) > 0)
         {
             return SeriesNeighbour.WithOriginals(found, original);
         }
 
         return [original[0], .. SeriesNeighbour.WithOriginals(found, [.. original.Skip(1)]).Take(MaxOptions - 1)];
+    }
+
+    /// <summary>
+    /// An option the ask found, scored the way the read's own answer was: as if the ask had named no kind. The ask names the shot's
+    /// kind, so what it finds earns the type term that the read's own answer never had, and a same-titled book would beat the right
+    /// film of a DVD among books by that term alone. The option's score is the scorer's own terms without the type term, weighed the
+    /// way it weighs them (the caps for a known conflict are not applied, so the number is never lower than the scorer's for the
+    /// same terms), and its terms are those. That is the score everything after this sees, the order of the offer included. An
+    /// option with no terms (not scored by the text search) is returned as it is.
+    /// </summary>
+    public static ResolutionOption OnOriginalFooting(ResolutionOption option)
+    {
+        ArgumentNullException.ThrowIfNull(option);
+
+        var terms = option.Terms.Where(term => term.Name != TypeTerm).ToList();
+        var weight = terms.Sum(term => term.Weight);
+        return option.Terms.Count == 0 || weight <= 0
+            ? option
+            : option with { Score = Math.Round(terms.Sum(term => term.Weight * term.Value) / weight, 9), Terms = terms };
     }
 
     /// <summary>The kinds of the works of the releases (by id) the catalogue holds, for the reads whose best release is one of them. Uses the database: one call at a time.</summary>

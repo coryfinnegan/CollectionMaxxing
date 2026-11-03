@@ -204,6 +204,64 @@ public class IdentifyGroundingShotKindTests
         answers[3].FoundByTrimmedSpan.ShouldBeTrue();
     }
 
+    // The ask is scored as a book, so a book earns the type term that the film, found with no kind, never had. The find is compared
+    // with the read's best option on the footing the read's own answer had (the score without the type term), and goes first only
+    // when it is strictly better there: a tie keeps the film the read found first, and the book second.
+
+    /// <summary>The answer a kind-less read got for a film of its title: the real scorer's, so the options carry the score and the terms the read earned.</summary>
+    private static BarcodeResolution FoundAsFilm(IdentifyGrounding grounding, string read, string filmTitle) => grounding.Score(
+        Vision(read), ScoringProfileKind.ShelfSpine, LocalPool.Empty, new ProviderAnswers([Release(filmTitle, WorkKind.Film, "f7")], [], false));
+
+    [Fact]
+    public async Task A_book_of_the_same_title_does_not_go_ahead_of_the_film_the_read_found()
+    {
+        var books = new OfKind(WorkKind.Book).Know("CONGO", Release("Congo", WorkKind.Book, "b7"));
+        var grounding = Grounding([books]);
+        var asks = new Asks();
+        var congo = Retry(grounding, asks, Vision("CONGO"), FoundAsFilm(grounding, "CONGO", "Congo"));
+
+        var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, congo));
+
+        Kinds(answers[3]).ShouldBe(["Film", "Book"]);
+        answers[3].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answers[3].FoundByTrimmedSpan.ShouldBeTrue();
+        asks.Facts.Single().Kind.ShouldBe(WorkKind.Book);
+    }
+
+    [Fact]
+    public async Task A_misread_title_gives_the_book_no_lead_over_the_film_for_the_type_term_it_earns()
+    {
+        // The film scores a little under 1 on a misread title, and the book scores more in the ask only because the type term
+        // agrees; on the footing the film had, the two are level.
+        var books = new OfKind(WorkKind.Book).Know("CONGOO", Release("Congo", WorkKind.Book, "b8"));
+        var grounding = Grounding([books]);
+        var asks = new Asks();
+        var filmAnswer = FoundAsFilm(grounding, "CONGOO", "Congo");
+        var congo = Retry(grounding, asks, Vision("CONGOO"), filmAnswer);
+
+        var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, congo));
+
+        filmAnswer.Options[0].Score.ShouldBeLessThan(1.0);
+        asks.Facts.Single().Kind.ShouldBe(WorkKind.Book); // the ask did name the kind, and the book was scored with the type term there
+        answers[3].Options[1].Score.ShouldBe(filmAnswer.Options[0].Score); // but it is kept with the score it has without it, level with the film's
+        Kinds(answers[3]).ShouldBe(["Film", "Book"]);
+    }
+
+    [Fact]
+    public async Task A_book_that_matches_the_read_better_than_the_film_even_without_the_type_term_goes_first()
+    {
+        // The film is a looser title match than the book is: strictly better on the film's own footing.
+        var books = new OfKind(WorkKind.Book).Know("CONGO", Release("Congo", WorkKind.Book, "b9"));
+        var grounding = Grounding([books]);
+        var asks = new Asks();
+        var looserFilm = Answer(ResolutionVerdict.Ambiguous, Option(Release("Congo The Movie", WorkKind.Film, "f9"), 0.7));
+        var congo = Retry(grounding, asks, Vision("CONGO"), looserFilm);
+
+        var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, congo));
+
+        Kinds(answers[3]).ShouldBe(["Book", "Film"]);
+    }
+
     [Fact]
     public async Task A_single_dvd_among_books_is_offered_the_book_first_and_the_film_second()
     {

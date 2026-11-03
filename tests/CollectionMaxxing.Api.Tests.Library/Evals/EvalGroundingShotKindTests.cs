@@ -84,7 +84,7 @@ public class EvalGroundingShotKindTests(ApiFixture api) : EvalTest(api)
     {
         ArrangeKindedProviders();
         _films.Know(
-            Misread, false, Rel("Emergency Contact", WorkKind.Film, "f1", 2019), Rel("Emergency Contact", WorkKind.Film, "f2", 2020), Rel("Emergency Contact", WorkKind.Film, "f3", 2021));
+            Misread, false, Rel("Emergency Contact Live", WorkKind.Film, "f1", 2019), Rel("Emergency Contact Live", WorkKind.Film, "f2", 2020), Rel("Emergency Contact Live", WorkKind.Film, "f3", 2021));
         UseScriptedProviders();
         var library = await CreateLibraryAsync();
         var client = As(library, LibraryRole.Editor);
@@ -107,9 +107,9 @@ public class EvalGroundingShotKindTests(ApiFixture api) : EvalTest(api)
         await CatalogSeed.AddAsync(Db, $"A Court of Mist and Fury {Tag}", WorkKind.Book, 2016, format: ReleaseFormat.Paperback, creators: ["Sarah J. Maas"]);
         await CatalogSeed.AddAsync(Db, $"A Court of Wings and Ruin {Tag}", WorkKind.Book, 2017, format: ReleaseFormat.Paperback, creators: ["Sarah J. Maas"]);
         await CatalogSeed.AddAsync(Db, $"Assassins Apprentice {Tag}", WorkKind.Book, 1995, format: ReleaseFormat.Paperback, creators: ["Robin Hobb"]);
-        await CatalogSeed.AddAsync(Db, $"Emergency Contact {Tag}", WorkKind.Film, 2019, format: ReleaseFormat.Dvd);
-        await CatalogSeed.AddAsync(Db, $"Emergency Contact {Tag}", WorkKind.Film, 2020, format: ReleaseFormat.Dvd);
-        await CatalogSeed.AddAsync(Db, $"Emergency Contact {Tag}", WorkKind.Film, 2021, format: ReleaseFormat.Dvd);
+        await CatalogSeed.AddAsync(Db, $"Emergency Contact Live {Tag}", WorkKind.Film, 2019, format: ReleaseFormat.Dvd);
+        await CatalogSeed.AddAsync(Db, $"Emergency Contact Live {Tag}", WorkKind.Film, 2020, format: ReleaseFormat.Dvd);
+        await CatalogSeed.AddAsync(Db, $"Emergency Contact Live {Tag}", WorkKind.Film, 2021, format: ReleaseFormat.Dvd);
         _books.Know(Misread, true, Rel("Emergency Contact", WorkKind.Book, "b1", 2018));
         UseScriptedProviders();
         var library = await CreateLibraryAsync();

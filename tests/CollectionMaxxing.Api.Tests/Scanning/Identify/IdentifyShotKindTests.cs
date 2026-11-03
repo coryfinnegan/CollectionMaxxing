@@ -38,19 +38,24 @@ public class IdentifyShotKindTests(ApiFixture api) : IdentifyTest(api)
     private object[] BookShelf(params Dictionary<string, object?>[] others) =>
         [Spine("A COURT OF MIST AND FURY", "Sarah J. Maas"), Spine("A COURT OF WINGS AND RUIN", "Sarah J. Maas"), Spine("ASSASSINS APPRENTICE", "Robin Hobb"), .. others];
 
-    private void ArrangeBooksAndFilms()
+    /// <summary>
+    /// The books of the shelf, and the films the read finds with no kind. The films are titled <paramref name="filmTitle"/>: the
+    /// book's own title, which the read matches just as well, or a looser one. The misread "cnoi" is the author's surname on the
+    /// spine, so a book that names <paramref name="bookAuthor"/> is better evidence than the films, whatever its kind.
+    /// </summary>
+    private void ArrangeBooksAndFilms(string filmTitle = "Emergency Contact", string? bookAuthor = "Mary H. K. Choi")
     {
         _books
             .Know($"A COURT OF MIST AND FURY {Tag}", false, Rel("A Court of Mist and Fury", WorkKind.Book, "m1", 2016, "Sarah J. Maas"))
             .Know($"A COURT OF WINGS AND RUIN {Tag}", false, Rel("A Court of Wings and Ruin", WorkKind.Book, "m2", 2017, "Sarah J. Maas"))
             .Know($"ASSASSINS APPRENTICE {Tag}", false, Rel("Assassins Apprentice", WorkKind.Book, "m3", 1995, "Robin Hobb"))
-            .Know(Misread, true, Rel("Emergency Contact", WorkKind.Book, "b1", 2018, "Mary H. K. Choi"));
+            .Know(Misread, true, Rel("Emergency Contact", WorkKind.Book, "b1", 2018, bookAuthor is null ? [] : [bookAuthor]));
         _films.Know(
             Misread,
             false,
-            Rel("Emergency Contact", WorkKind.Film, "f1", 2019),
-            Rel("Emergency Contact", WorkKind.Film, "f2", 2020),
-            Rel("Emergency Contact", WorkKind.Film, "f3", 2021));
+            Rel(filmTitle, WorkKind.Film, "f1", 2019),
+            Rel(filmTitle, WorkKind.Film, "f2", 2020),
+            Rel(filmTitle, WorkKind.Film, "f3", 2021));
     }
 
     private async Task<(HttpClient Client, Guid SessionId, TestLibrary Library)> StartAsync(bool autoAdd = true)
@@ -91,9 +96,9 @@ public class IdentifyShotKindTests(ApiFixture api) : IdentifyTest(api)
     // ---- the cases of the stored eval ----------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_read_beside_matched_books_that_found_three_films_is_offered_the_book_first_and_never_added()
+    public async Task A_read_beside_matched_books_that_found_three_looser_films_is_offered_the_book_first_and_never_added()
     {
-        ArrangeBooksAndFilms();
+        ArrangeBooksAndFilms("Emergency Contact Live");
         var (client, sessionId, library) = await StartAsync();
 
         var shelf = await IdentifyOkAsync(client, sessionId, BookShelf(Lone(Misread)));
@@ -110,9 +115,23 @@ public class IdentifyShotKindTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_book_that_is_only_as_good_a_title_match_as_the_films_the_read_found_is_offered_after_the_first_film()
+    {
+        // The book earns the type term in the ask and the films never had it: on the footing the films had, the book is level with them.
+        ArrangeBooksAndFilms(bookAuthor: null);
+        var (client, sessionId, _) = await StartAsync(autoAdd: false);
+
+        var shelf = await IdentifyOkAsync(client, sessionId, BookShelf(Lone(Misread)));
+
+        Resolution(shelf[3]).ShouldBe("ambiguous");
+        AlternativeFormats(shelf[3]).ShouldBe(["dvd", "paperback", "dvd"]);
+        (await KindStepsOfAsync(shelf[3])).ShouldBe([$"{Misread} (kind: book)"]);
+    }
+
+    [Fact]
     public async Task The_shelfs_own_print_is_enough_when_no_spine_matched()
     {
-        ArrangeBooksAndFilms();
+        ArrangeBooksAndFilms("Emergency Contact Live");
         var (client, sessionId, _) = await StartAsync(autoAdd: false);
 
         var shelf = await IdentifyPrintedAsync(client, sessionId, "book", Lone(Misread), Lone("GAMMA QUEST"), Lone("DELTA QUEST"), Lone("EPSILON QUEST"));

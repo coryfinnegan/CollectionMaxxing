@@ -2,6 +2,7 @@ using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Tests.Scanning.Identify;
 
@@ -186,10 +187,52 @@ public class ShotKindRuleTests
     private static string[] Ids(IEnumerable<ResolutionOption> options) => [.. options.Select(o => o.Provider!.ExternalId)];
 
     [Fact]
-    public void A_find_that_scores_as_well_as_the_reads_best_option_comes_first_and_the_film_stays_pickable()
+    public void A_find_that_scores_strictly_better_than_the_reads_best_option_comes_first_and_the_film_stays_pickable()
     {
-        Ids(ShotKindRule.Offer([Option(1, 0.9)], [Option(10, 0.9), Option(11, 0.8), Option(12, 0.7)])).ShouldBe(["r1", "r10", "r11"]);
         Ids(ShotKindRule.Offer([Option(1, 0.95)], [Option(10, 0.9), Option(11, 0.8)])).ShouldBe(["r1", "r10", "r11"]);
+        Ids(ShotKindRule.Offer([Option(1, 0.91)], [Option(10, 0.9), Option(11, 0.8), Option(12, 0.7)])).ShouldBe(["r1", "r10", "r11"]);
+    }
+
+    [Fact]
+    public void A_find_that_only_ties_the_reads_best_option_comes_after_it()
+    {
+        Ids(ShotKindRule.Offer([Option(1, 0.9)], [Option(10, 0.9), Option(11, 0.8), Option(12, 0.7)])).ShouldBe(["r10", "r1", "r11"]);
+    }
+
+    [Fact]
+    public void A_find_is_scored_without_its_type_term_and_so_compared_with_the_reads_best_option_on_the_same_footing()
+    {
+        // The ask scored the book 0.875 with the type term; without it the book is 0.85, the film's own score: a tie, so the film stays first.
+        ResolutionOption Scored(int n, double score, params ScoreTerm[] terms) => Option(n, score) with { Terms = terms };
+        var book = Scored(1, 0.875, new ScoreTerm("title", 0.5, 0.85, true), new ScoreTerm("type", 0.1, 1.0, true));
+        var stronger = Scored(2, 0.95, new ScoreTerm("title", 0.5, 0.9, true), new ScoreTerm("type", 0.1, 1.0, true));
+
+        var footing = ShotKindRule.OnOriginalFooting(book);
+
+        footing.Score.ShouldBe(0.85, 1e-9);
+        footing.Terms.Select(term => term.Name).ShouldBe(["title"]);
+        footing.Provider.ShouldBeSameAs(book.Provider);
+        Ids(ShotKindRule.Offer([footing], [Option(10, 0.85)])).ShouldBe(["r10", "r1"]);
+        Ids(ShotKindRule.Offer([ShotKindRule.OnOriginalFooting(stronger)], [Option(10, 0.85)])).ShouldBe(["r2", "r10"]);
+    }
+
+    [Fact]
+    public void The_other_terms_keep_their_weight_when_the_type_term_is_taken_off()
+    {
+        var book = Option(1, 0.8) with
+        {
+            Terms = [new ScoreTerm("title", 0.5, 0.8, true), new ScoreTerm("type", 0.1, 1.0, true), new ScoreTerm("creator", 0.15, 1.0, true)],
+        };
+
+        ShotKindRule.OnOriginalFooting(book).Score.ShouldBe(((0.5 * 0.8) + 0.15) / 0.65, 1e-9);
+    }
+
+    [Fact]
+    public void An_option_with_no_terms_is_left_as_it_is()
+    {
+        var option = Option(1, 0.7);
+
+        ShotKindRule.OnOriginalFooting(option).ShouldBeSameAs(option);
     }
 
     [Fact]

@@ -557,8 +557,11 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// What the ask finds is offered, never decided, as for a trimmed span: only when the best release of the ask is of the shot's
     /// kind, only the releases of that kind are kept, the verdict is capped at Ambiguous, the answer is flagged
     /// (<see cref="BarcodeResolution.FoundByTrimmedSpan"/>) and its trace says which kind was asked (a <c>kind</c> step). The read
-    /// keeps its own options (<see cref="ShotKindRule.Offer"/>): the find first when it scores at least as well as the read's best
-    /// option, else after it, and always with at least one of the read's own, so a film on a shelf of books can still be picked.
+    /// keeps its own options (<see cref="ShotKindRule.Offer"/>): the find first only when it scores strictly better than the read's
+    /// best option, else after it, and always with at least one of the read's own, so a film on a shelf of books can still be picked.
+    /// The ask names the shot's kind, so what it finds earns a type term that the read's own answer never had; the finds are kept
+    /// with the score they have without it (<see cref="ShotKindRule.OnOriginalFooting"/>), so a same-titled book does not go ahead
+    /// of the right film of a DVD among books on the strength of its kind alone.
     /// An ask that finds nothing of the shot's kind leaves the read's answer as it was (the same object).
     /// </para>
     /// <para>
@@ -615,7 +618,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             }
 
             var why = new TraceStep(ShotKindRule.StepName, $"{asked[n].Title} (kind: {EnumText.ToText(shotKind)})", 0);
-            var found = scored[n].Options.Where(OfShotKind).ToList();
+            var found = scored[n].Options.Where(OfShotKind).Select(ShotKindRule.OnOriginalFooting).ToList();
             answers[i] = Offered(reads[i].Answer, scored[n] with { Options = ShotKindRule.Offer(found, reads[i].Answer.Options) }, why);
         }
 
