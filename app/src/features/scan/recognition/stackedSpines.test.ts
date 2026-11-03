@@ -226,6 +226,56 @@ describe('real shelf photos', () => {
     expect(after.items).toBe(before.items);
   });
 
+  describe('a bookcase shot with two shelves in the frame is cut into its two shelf rows', () => {
+    /** The split before the frame was cut into rows: a spine on the lower shelf joined the spine above it, whose x it shares. */
+    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity };
+
+    // The stretch of y that no tall line covers, from one row's last tall line to the next row's first: 10.0, 5.4 and 4.5 letters (the
+    // median tall line's width). The single-row photos show 2.3 to 3.6 letters at their edges, or too few lines beyond to count as a row.
+    const GAPS: Record<string, { from: number; to: number }> = {
+      'shelf-01': { from: 0.444, to: 0.615 },
+      'shelf-02': { from: 0.433, to: 0.545 },
+      'accept-shelf-04': { from: 0.487, to: 0.583 },
+    };
+
+    // Items and truth titles found with the cut off, then on. The title counts are the whole frame's; with Vision's rectangles the
+    // pieces are cut inside each rectangle, and the gain on the phone is measured by the next eval run.
+    const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
+      'shelf-01': { without: { items: 32, found: 11 }, with: { items: 36, found: 12 } },
+      'shelf-02': { without: { items: 26, found: 16 }, with: { items: 36, found: 21 } },
+      'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 40, found: 24 } },
+    };
+
+    const linesOf = (id: string) => photos[id].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
+    /** The pieces that hold a line centered above the gap and one centered below it. */
+    const crossing = (id: string, local: typeof T) => {
+      const { from, to } = GAPS[id];
+      const mid = (from + to) / 2;
+      const side = (l: TextLine) => l.box.y + l.box.height / 2 > mid;
+      return splitIntoPieces(linesOf(id), [], C.splitting, local).pieces.filter((p) => new Set(p.lines.map(side)).size > 1).length;
+    };
+
+    it.each(Object.entries(ROW_COUNTS))('%s: items and truth titles found without and with the cut', async (id, counts) => {
+      const without = await read(id, WITHOUT_ROWS);
+      const cut = await read(id, T);
+      expect({ items: without.items, found: without.found }).toEqual(counts.without);
+      expect({ items: cut.items, found: cut.found }).toEqual(counts.with);
+    });
+
+    it.each(Object.keys(GAPS))('%s: no item holds lines from both sides of the gap between its shelf rows', (id) => {
+      expect(crossing(id, WITHOUT_ROWS)).toBeGreaterThan(0);
+      expect(crossing(id, T)).toBe(0);
+    });
+
+    it('finds more truth titles and reads more items in each of the three photos', async () => {
+      for (const id of Object.keys(GAPS)) {
+        const without = await read(id, WITHOUT_ROWS);
+        const cut = await read(id, T);
+        expect([id, cut.found > without.found, cut.items > without.items]).toEqual([id, true, true]);
+      }
+    });
+  });
+
   it('reads a pile of tapes as one item per tape: the tape stack of the first photo is no longer one lump', async () => {
     const { items } = await read('vhs-dvd-shelf-01', T);
     expect(items).toBeGreaterThanOrEqual(photos['vhs-dvd-shelf-01'].truth.length - 5); // 5 of the 32 are unreadable

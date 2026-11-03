@@ -271,7 +271,7 @@ describe('splitting Vision text into items', () => {
       expect(splitIntoPieces(lines, [], C.splitting, T).pieces).toHaveLength(2);
     });
 
-    it('sends a flat line to the row its centre sits in', () => {
+    it('sends a flat line to the row its center sits in', () => {
       const top = Array.from({ length: 3 }, (_, i) => spine(`Top ${i}`, i, 0.05));
       const bottom = Array.from({ length: 3 }, (_, i) => spine(`Bottom ${i}`, i, 0.6));
       const label = line('Shelf 2', 0.04, 0.7, 0.05, 0.02);
