@@ -167,7 +167,8 @@ public static class SeriesNeighbour
         return [.. named.Take(MaxOptions - Math.Min(kept.Count, 1)).Concat(kept).Take(MaxOptions)];
     }
 
-    private static bool SameRelease(ResolutionOption one, ResolutionOption other) =>
+    /// <summary>Whether two options are the same release: the same catalogue release, or the same provider's release.</summary>
+    internal static bool SameRelease(ResolutionOption one, ResolutionOption other) =>
         one.LocalReleaseId is { } id
             ? one.LocalReleaseId == other.LocalReleaseId
             : one.Provider is { } provider && other.Provider is { } theirs && provider.Provider == theirs.Provider && provider.ExternalId == theirs.ExternalId;
