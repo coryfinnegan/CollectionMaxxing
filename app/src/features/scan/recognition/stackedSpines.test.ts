@@ -11,11 +11,11 @@ import { VisionPipelineEngine } from './VisionPipelineEngine';
 
 const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
 
-/** The split with piles switched off: what the splitter did before items lying flat were cut one per spine. */
-const WITHOUT_PILES = { ...T, stackMinBands: Infinity };
+/** The split with piles switched off: what the splitter did before items lying flat were cut one per spine (nor was the frame cut into shelf rows). */
+const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity };
 
 /** The values before #618: a pile needed 5 bands in a column no wider than half the frame, and a row 60% of its neighbors in one band. */
-const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6 };
+const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity };
 
 /** A tape lying flat: a title line 0.35 wide and 0.05 tall, 0.08 below the last, so the gap is a little over half a letter. */
 const tape = (i: number, text = `Tape ${i}`, x = 0.3, top = 0.1) => line(text, x, top + i * 0.08, 0.35, 0.05);
@@ -197,8 +197,10 @@ describe('real shelf photos', () => {
     // The counts rose with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns that.
     'vhs-dvd-shelf-02': { before: { items: 12, found: 5 }, after: { items: 12, found: 5 } },
     // A pile of hardcovers lies under a row of upright books; the 2-line titles of the pile now come out whole.
-    // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it.
-    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 32, found: 19 } },
+    // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it. The after
+    // moved again when the frame was cut into its two shelf rows (items 32 to 40, found 19 to 24): that is 6 titles gained and 1 lost,
+    // "And Now, Back to You", which the cut no longer finds (#655). The shelf rows describe below owns that.
+    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 40, found: 24 } },
     // Upright rows with no pile: unchanged.
     'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 19, found: 14 } },
     'accept-shelf-02': { before: { items: 17, found: 15 }, after: { items: 17, found: 15 } },
@@ -223,6 +225,77 @@ describe('real shelf photos', () => {
     const after = await read(id, T);
     expect(after.found).toBeGreaterThanOrEqual(before.found);
     expect(after.items).toBe(before.items);
+  });
+
+  describe('a bookcase shot with two shelves in the frame is cut into its two shelf rows', () => {
+    /** The split before the frame was cut into rows: a spine on the lower shelf joined the spine above it, whose x it shares. */
+    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity };
+
+    // The stretch of y that no tall line covers, from one row's last tall line to the next row's first: 10.0, 5.4 and 4.5 letters (the
+    // median tall line's width). The single-row photos show 2.3 to 3.6 letters at their edges, or too few lines beyond to count as a row.
+    const GAPS: Record<string, { from: number; to: number }> = {
+      'shelf-01': { from: 0.444, to: 0.615 },
+      'shelf-02': { from: 0.433, to: 0.545 },
+      'accept-shelf-04': { from: 0.487, to: 0.583 },
+    };
+
+    // Items and truth titles found with the cut off, then on. The title counts are the whole frame's; with Vision's rectangles the
+    // pieces are cut inside each rectangle, and the gain on the phone is measured by the next eval run. accept-shelf-04's 19 to 24 is
+    // 6 gained (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash) and 1 lost
+    // ("And Now, Back to You", see the known failure below), not 5 gained.
+    const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
+      'shelf-01': { without: { items: 32, found: 11 }, with: { items: 36, found: 12 } },
+      'shelf-02': { without: { items: 26, found: 16 }, with: { items: 36, found: 21 } },
+      'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 40, found: 24 } },
+    };
+
+    const linesOf = (id: string) => photos[id].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
+    /** The pieces that hold a line centered above the gap and one centered below it. */
+    const crossing = (id: string, local: typeof T) => {
+      const { from, to } = GAPS[id];
+      const mid = (from + to) / 2;
+      const side = (l: TextLine) => l.box.y + l.box.height / 2 > mid;
+      return splitIntoPieces(linesOf(id), [], C.splitting, local).pieces.filter((p) => new Set(p.lines.map(side)).size > 1).length;
+    };
+
+    it.each(Object.entries(ROW_COUNTS))('%s: items and truth titles found without and with the cut', async (id, counts) => {
+      const without = await read(id, WITHOUT_ROWS);
+      const cut = await read(id, T);
+      expect({ items: without.items, found: without.found }).toEqual(counts.without);
+      expect({ items: cut.items, found: cut.found }).toEqual(counts.with);
+    });
+
+    it.each(Object.keys(GAPS))('%s: no item holds lines from both sides of the gap between its shelf rows', (id) => {
+      expect(crossing(id, WITHOUT_ROWS)).toBeGreaterThan(0);
+      expect(crossing(id, T)).toBe(0);
+    });
+
+    // KNOWN FAILURE (#655): the cut loses one title it used to find. Without the cut, one 10-line piece held "BACK TO YOU", "AND NOW,"
+    // and the lower shelf's "HEIR OF FIRE" among others, and the title read from it was found. Cut apart, the lower spine no longer
+    // widens the column, so "AND NOW," (x 0.642, the title's first row) no longer joins "BACK TO YOU" (x 0.628) in columnsOf and goes in
+    // with the next spine's "TARAH DEWITT" (x 0.656). This asserts today's behavior, so the test passes while the title is lost; when
+    // #655 is fixed, flip it to say the title is found.
+    it('known failure (#655): accept-shelf-04 loses "And Now, Back to You" to the cut, because "AND NOW," falls in with TARAH DEWITT', async () => {
+      const titlesWith = async (local: typeof T) => {
+        const vision = new RecordingVision({ [STILL.uri]: { text: linesOf('accept-shelf-04'), rectangles: [] } });
+        const engine = new VisionPipelineEngine({ vision, settings: () => ({ ...S, local }), newId: testIds });
+        return (await engine.read(STILL, () => {}, { shotKind: 'shelf_segment' })).items.map((i) => i.title);
+      };
+      expect((await titlesWith(WITHOUT_ROWS)).some((t) => has(t, 'And Now, Back to You'))).toBe(true);
+      expect((await titlesWith(T)).some((t) => has(t, 'And Now, Back to You'))).toBe(false);
+      const { pieces } = splitIntoPieces(linesOf('accept-shelf-04'), [], C.splitting, T);
+      const andNow = pieces.find((p) => p.lines.some((l) => l.text === 'AND NOW,'))?.lines.map((l) => l.text);
+      expect(andNow).toContain('TARAH DEWITT');
+      expect(andNow).not.toContain('BACK TO YOU');
+    });
+
+    it('finds more truth titles and reads more items in each of the three photos', async () => {
+      for (const id of Object.keys(GAPS)) {
+        const without = await read(id, WITHOUT_ROWS);
+        const cut = await read(id, T);
+        expect([id, cut.found > without.found, cut.items > without.items]).toEqual([id, true, true]);
+      }
+    });
   });
 
   it('reads a pile of tapes as one item per tape: the tape stack of the first photo is no longer one lump', async () => {
@@ -271,11 +344,11 @@ describe('real shelf photos', () => {
     });
   });
 
-  it('wants the extra upside-down pass for the two photos with a pile and for none of the others', () => {
+  it('wants the extra upside-down pass for the three photos with a pile (two of them hardcovers lying flat) and for none of the others', () => {
     const wanted = Object.entries(photos)
       .filter(([, p]) => hasPile(p.lines.map((l) => line(l.text, l.x, l.y, l.width, l.height)), T))
       .map(([id]) => id);
-    expect(wanted).toEqual(['vhs-dvd-shelf-01', 'accept-shelf-04']);
+    expect(wanted).toEqual(['vhs-dvd-shelf-01', 'accept-shelf-04', 'shelf-01']);
   });
 
   /** The recorded covers, each line's box moved and sized about the frame's center, so the cover is shot from further away. */

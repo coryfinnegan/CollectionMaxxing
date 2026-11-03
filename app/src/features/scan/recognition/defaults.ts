@@ -67,6 +67,15 @@ export interface LocalTuning {
   /** A shelf needs this many columns before it is read as spines. */
   minSpineColumns: number;
   /**
+   * A frame is cut into shelf rows (the upper and lower shelf of one bookcase) where no tall line covers a stretch at least this many letters
+   * high, a letter being the median tall line's width (it reads sideways), so a lower spine never joins the upper spine at its x. On one
+   * spine the stretch between its author and its title reached 2.6 letters (a series shelf); the recorded two-row photos show 4.5 to 10.
+   * Infinity switches the cut off.
+   */
+  shelfRowGap: number;
+  /** A shelf row needs this many tall lines on each side of a cut, so a sticker read sideways does not make a row of its own. */
+  shelfRowMinLines: number;
+  /**
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
    * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
@@ -200,6 +209,8 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   spineRowOverlap: 0.5,
   spineRowShare: 0.45,
   minSpineColumns: 2,
+  shelfRowGap: 4,
+  shelfRowMinLines: 2,
   flatLineAspect: 2.5,
   stackMinBands: 3,
   stackSureBands: 5,
