@@ -66,7 +66,7 @@ public sealed class NoiseAwareRegressionTests : IDisposable
 
         check.Regressions.Select(r => r.Metric).ShouldBeEmpty();
         check.Status.ShouldBe(EvalRegression.Ok);
-        check.Compared.ShouldBe(20); // the 23 less the three raw counts (provisional twice, t1_auto once), which are not judged
+        check.Compared.ShouldBe(12); // the 23 less the three raw counts (provisional twice, t1_auto once) and the eight run totals (the owner's pace is in them), which are not judged
     }
 
     [Fact]
@@ -328,12 +328,12 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     [Fact]
     public void A_time_is_a_regression_only_past_the_allowed_ratio_of_the_baseline()
     {
-        var baseline = Of("apple_model.shelf.total_time_to_trustworthy", 300);
+        var baseline = Of("apple_model.shelf.time_to_first_results_p50", 300);
 
-        EvalRegression.Check(baseline, Of("apple_model.shelf.total_time_to_trustworthy", 390)).Regressions.ShouldBeEmpty(); // 1.3 x
-        EvalRegression.Check(baseline, Of("apple_model.shelf.total_time_to_trustworthy", 100)).Regressions.ShouldBeEmpty(); // faster
+        EvalRegression.Check(baseline, Of("apple_model.shelf.time_to_first_results_p50", 390)).Regressions.ShouldBeEmpty(); // 1.3 x
+        EvalRegression.Check(baseline, Of("apple_model.shelf.time_to_first_results_p50", 100)).Regressions.ShouldBeEmpty(); // faster
 
-        var check = EvalRegression.Check(baseline, Of("apple_model.shelf.total_time_to_trustworthy", 750)); // 2.5 x
+        var check = EvalRegression.Check(baseline, Of("apple_model.shelf.time_to_first_results_p50", 750)); // 2.5 x
         check.Status.ShouldBe(EvalRegression.Regressed);
         var item = check.Regressions.Single();
         item.Points.ShouldBe(450); // seconds slower
@@ -343,10 +343,10 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     [Fact]
     public void The_time_to_first_results_is_judged_the_same_way_whatever_the_sample_sizes()
     {
-        var baseline = Of("apple_vision.shelf.time_to_first_results", 11.448);
+        var baseline = Of("apple_vision.shelf.time_to_first_results_p50", 11.448);
 
-        EvalRegression.Check(baseline, Of("apple_vision.shelf.time_to_first_results", 14.9), denominators: Items("apple_vision.shelf.time_to_first_results", 1)).Regressions.ShouldBeEmpty();
-        EvalRegression.Check(baseline, Of("apple_vision.shelf.time_to_first_results", 30)).Regressions.Single().Metric.ShouldBe("apple_vision.shelf.time_to_first_results");
+        EvalRegression.Check(baseline, Of("apple_vision.shelf.time_to_first_results_p50", 14.9), denominators: Items("apple_vision.shelf.time_to_first_results_p50", 1)).Regressions.ShouldBeEmpty();
+        EvalRegression.Check(baseline, Of("apple_vision.shelf.time_to_first_results_p50", 30)).Regressions.Single().Metric.ShouldBe("apple_vision.shelf.time_to_first_results_p50");
     }
 
     [Fact]
