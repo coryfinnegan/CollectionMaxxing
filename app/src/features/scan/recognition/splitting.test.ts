@@ -292,6 +292,69 @@ describe('splitting Vision text into items', () => {
     });
   });
 
+  describe('#655: the first line of a two-line title, set a little off its second line, stays on its own spine', () => {
+    const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text).sort());
+
+    it("keeps 'AND NOW,' with 'BACK TO YOU' beside it, not with the next spine's author below it (the recorded accept-shelf-04 lines)", () => {
+      // "AND NOW," is shorter than "BACK TO YOU" and shares 43% of its own width with it, under the half a spine column needs. It used to
+      // start a column of its own, and the garbage fragment ">a|]" and the next spine's "TARAH DEWITT" then joined that column.
+      const lines = [
+        line('I B.K. BORISON M', 0.6258, 0.3513, 0.02, 0.1246),
+        line('BACK TO YOU', 0.6285, 0.2002, 0.0222, 0.1249),
+        line('AND NOW,', 0.6416, 0.2138, 0.021, 0.0923),
+        line('>a|]', 0.6541, 0.4477, 0.0145, 0.0252),
+        line('TARAH DEWITT M', 0.6549, 0.3342, 0.0215, 0.1381),
+        line('TARAH DEWITT', 0.6556, 0.334, 0.0211, 0.1073),
+        line('Funny Feelings', 0.6654, 0.1644, 0.027, 0.1261),
+        line('JULIE SOTO &', 0.6765, 0.3589, 0.0283, 0.1164),
+      ];
+      const { pieces } = splitIntoPieces([...lines].reverse(), [], C.splitting, T);
+      expect(titles(pieces)).toEqual([
+        ['AND NOW,', 'BACK TO YOU', 'I B.K. BORISON M'],
+        ['>a|]', 'TARAH DEWITT', 'TARAH DEWITT M'],
+        ['Funny Feelings', 'JULIE SOTO &'],
+      ]);
+      expect(shelfTitleOf(pieces[0].lines, T)?.text).toBe('AND NOW, BACK TO YOU');
+    });
+
+    // Synthetic spines: lettering 0.025 wide, so "Short" (0.1135 to 0.1385) shares 46% of its width with "Long title" (0.1 to 0.125).
+    const longTitle = line('Long title', 0.1, 0.2, 0.025, 0.2);
+    const beside = line('Short', 0.1135, 0.22, 0.025, 0.1);
+    const spine = (text: string, x: number) => line(text, x, 0.2, 0.025, 0.2);
+
+    it('joins the short line to the tall one beside it', () => {
+      const { pieces } = splitIntoPieces([longTitle, beside, spine('Spine 2', 0.25)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['Long title', 'Short'], ['Spine 2']]);
+    });
+
+    it('does not widen the column for the short line, so a line beside the short line does not follow it in', () => {
+      // "Next author" shares 52% of its width with "Short" but none with "Long title", so it belongs to the next spine.
+      const lines = [longTitle, beside, line('Next author', 0.1255, 0.45, 0.025, 0.1), line('Next title', 0.135, 0.15, 0.025, 0.25)];
+      const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['Long title', 'Short'], ['Next author', 'Next title']]);
+    });
+
+    it('splits two neighboring spines whose lines are as tall as each other, however far the lettering overlaps', () => {
+      const lines = [spine('Spine 0', 0.1), spine('Spine 1', 0.1135), spine('Spine 2', 0.25)];
+      expect(titles(splitIntoPieces(lines, [], C.splitting, T).pieces)).toEqual([['Spine 0'], ['Spine 1'], ['Spine 2']]);
+    });
+
+    it('splits a short line that sits below the tall line instead of beside it', () => {
+      const lines = [spine('Spine 0', 0.1), line('Low print', 0.1135, 0.45, 0.025, 0.1), spine('Spine 1', 0.25), spine('Spine 2', 0.4), spine('Spine 3', 0.55)];
+      expect(titles(splitIntoPieces(lines, [], C.splitting, T).pieces)).toEqual([['Spine 0'], ['Low print'], ['Spine 1'], ['Spine 2'], ['Spine 3']]);
+    });
+
+    it("joins a short line only to a taller line on its left: a shorter line left of a taller one is the next spine's print", () => {
+      const lines = [line('Short', 0.1, 0.22, 0.025, 0.1), line('Long title', 0.1135, 0.2, 0.025, 0.2), spine('Spine 2', 0.25)];
+      expect(titles(splitIntoPieces(lines, [], C.splitting, T).pieces)).toEqual([['Short'], ['Long title'], ['Spine 2']]);
+    });
+
+    it('is off when the share needed is infinite: the column is built as it was', () => {
+      const { pieces } = splitIntoPieces([longTitle, beside, spine('Spine 2', 0.25)], [], C.splitting, { ...T, spineShortLineOverlap: Infinity });
+      expect(titles(pieces)).toEqual([['Long title'], ['Short'], ['Spine 2']]);
+    });
+  });
+
   describe('#509: lines outside the detected rectangles, and rectangles that hold several spines', () => {
     const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
 

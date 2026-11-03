@@ -52,6 +52,16 @@ export interface LocalTuning {
   sameBoxOverlap: number;
   /** Share of a line's width that must sit inside a spine column for the line to join it. */
   spineColumnOverlap: number;
+  /**
+   * The first line of a two-line title is set a little off the second and is often the shorter. A tall line that fails `spineColumnOverlap`
+   * still joins the last column when it lies beside one of that column's lines (sharing at least `spineRowOverlap` of its height), is at
+   * most `spineShortLineHeight` as tall as that line, and shares at least this share of its own width with it. On the recorded shelves the
+   * line is 0.43 of its width off its neighbor (#655), and a share of 0.35 or less starts to join the next spine's print too. Infinity switches
+   * it off.
+   */
+  spineShortLineOverlap: number;
+  /** A line joins a taller one beside it (spineShortLineOverlap) only when it is at most this share of that line's height; a line about as tall belongs to the next spine. */
+  spineShortLineHeight: number;
   /** Rectangles overlapping by at least this share of the smaller one depict one surface and merge before splitting (a cover's nested quads are one item; disjoint spines still split, #504). */
   rectangleMergeOverlap: number;
   /** Two neighboring spine columns share a band when they share this much of the shorter one's vertical span. */
@@ -205,6 +215,8 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   upsideDownOrientation: 180,
   sameBoxOverlap: 0.5,
   spineColumnOverlap: 0.5,
+  spineShortLineOverlap: 0.4,
+  spineShortLineHeight: 0.85,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
   spineRowShare: 0.45,
