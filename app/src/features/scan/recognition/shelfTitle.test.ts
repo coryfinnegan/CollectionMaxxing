@@ -255,7 +255,7 @@ describe('real shelf photos', () => {
 
   /** The choice shelfTitle.ts replaced: the piece's surest, longest single line, whatever that line said (on the split before shelf rows were cut apart). */
   function before(id: string): string[] {
-    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity });
+    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity, stackSureMaxGap: 1, stackFourLetters: 0.5, lyingLineWidth: Infinity });
     return pieces.map((p) => p.title ?? p.lines.reduce((b, l) => (l.confidence * l.text.length > b.confidence * b.text.length ? l : b)).text);
   }
 
@@ -270,8 +270,9 @@ describe('real shelf photos', () => {
   const COUNTS: Record<string, { before: { held: number; exact: number }; after: { held: number; exact: number } }> = {
     // Three piles of tapes with a row of DVDs between them: nearly every title is a pile band, which joined its rows already.
     'vhs-dvd-shelf-01': { before: { held: 6, exact: 6 }, after: { held: 6, exact: 6 } },
-    // Upright DVD spines under shelf labels and edition stickers: "THEY LIVE", "DUNE" and "HALLOWEEN" come out instead.
-    'vhs-dvd-shelf-02': { before: { held: 3, exact: 3 }, after: { held: 5, exact: 5 } },
+    // Upright DVD spines under shelf labels and edition stickers: "THEY LIVE", "DUNE" and "HALLOWEEN" come out instead. A tape of
+    // "Charlotte's Web" lying across their tops joined the CRITTERS spine and won its title; cut apart, "CRITTERS" comes out too (5 to 6).
+    'vhs-dvd-shelf-02': { before: { held: 3, exact: 3 }, after: { held: 6, exact: 6 } },
     // Romance paperback spines, each with the author beside the title: more titles said on their own. Before shelf rows were
     // cut apart (splitting.ts), the pieces held several books' lines rather than one spine, where the biggest print belongs to
     // another book than the one that was found: three held titles traded for two (held 20 to 19, exact 7 to 9). The two shelves

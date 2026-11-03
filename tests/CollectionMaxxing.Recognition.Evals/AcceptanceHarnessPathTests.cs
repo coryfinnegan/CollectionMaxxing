@@ -84,7 +84,7 @@ public sealed class AcceptanceHarnessPathTests : IDisposable
 
         metrics["apple_model.shelf.recall"].ShouldBe(96.67);
         metrics["apple_model.shelf.precision"].ShouldBe(100);
-        metrics["apple_model.shelf.time_to_first_results"].ShouldBe(120);
+        metrics["apple_model.shelf.time_to_first_results_p50"].ShouldBe(120);
         metrics["apple_model.shelf.total_time_to_trustworthy"].ShouldBe(120);
         metrics["apple_model.shelf.review_rate"].ShouldBe(10);
         metrics["apple_model.shelf.duplicate_clean"].ShouldBe(100);

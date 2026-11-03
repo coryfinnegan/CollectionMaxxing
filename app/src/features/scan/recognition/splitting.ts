@@ -149,18 +149,21 @@ function bandTitle(lines: TextLine[], tuning: LocalTuning): string {
 
 /**
  * A column of flat lines is a pile of spines when it is as wide as a spine and no wider than `stackMaxWidth` (a cover fills the frame),
- * has enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters. A name running
- * down a cover is narrower, and a cover's title, author and tagline sit far apart. A small stack of three or four (#618) is split too, but
- * band count, width and spacing alone do not tell it from a cover's three or four lines, so it must also have one size of lettering
- * (`stackSmallLetters`): tapes are set alike, a cover's title, author and tagline are not. It may stand a little wider than `stackMaxWidth`.
+ * has enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters (`stackSureMaxGap`
+ * for a pile of five or more, whose hardcovers sit a little further apart than tapes). A name running down a cover is narrower, and a
+ * cover's title, author and tagline sit far apart. A small stack of three or four (#618) is split too, but band count, width and spacing
+ * alone do not tell it from a cover's three or four lines, so it must also have one size of lettering (`stackSmallLetters`, a little less
+ * for a stack of four: `stackFourLetters`): tapes are set alike, a cover's title, author and tagline are not. It may stand a little wider
+ * than `stackMaxWidth`.
  */
 function isPile(column: Column, bands: Band[], tuning: LocalTuning): boolean {
   if (column.box.width < tuning.stackMinWidth || bands.length < tuning.stackMinBands) return false;
   const small = bands.length < tuning.stackSureBands;
   if (column.box.width > (small ? tuning.stackSmallMaxWidth : tuning.stackMaxWidth)) return false;
-  if (small && Math.min(...bands.map((b) => b.letters)) < Math.max(...bands.map((b) => b.letters)) * tuning.stackSmallLetters) return false;
+  const floor = bands.length === tuning.stackSureBands - 1 ? tuning.stackFourLetters : tuning.stackSmallLetters;
+  if (small && Math.min(...bands.map((b) => b.letters)) < Math.max(...bands.map((b) => b.letters)) * floor) return false;
   const gaps = bands.slice(1).map((b, i) => (b.top - bands[i].bottom) / Math.max(b.letters, bands[i].letters));
-  return gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)] <= tuning.stackMaxGap;
+  return gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)] <= (small ? tuning.stackMaxGap : tuning.stackSureMaxGap);
 }
 
 /** Piles of items lying flat: one piece per band. `rest` holds every line that is in no pile. */
@@ -225,9 +228,21 @@ function segment(lines: TextLine[], tuning: LocalTuning, minWidth: number, box?:
 }
 
 /**
+ * An item lying flat across the tops of the spines: a flat line as tall as half a spine's lettering and at least `lyingLineWidth` of its
+ * column wide, whose center is beyond the column's reach. The column's width stands in for a spine's lettering, which reads sideways.
+ */
+function liesAcross(l: TextLine, column: Column, letters: number, tuning: LocalTuning): boolean {
+  if (!isFlat(l, tuning) || l.box.height < letters * tuning.lyingLineLetters || l.box.width < column.box.width * tuning.lyingLineWidth) return false;
+  const reach = column.box.width * tuning.lyingLineReach;
+  return centerY(l.box) < column.box.y - reach || centerY(l.box) > bottom(column.box) + reach;
+}
+
+/**
  * Spine columns come from the tall lines alone, so books lying flat in the frame do not hide the spines. A short line whose center
- * sits across a column inside the row's band joins that column; every other line (a flat stack below the row) becomes one more piece.
- * A tall line in a column too narrow to be a spine is treated like a short line, so no line is dropped.
+ * sits across a column inside the row's band joins that column, unless it lies across the spines (a tape on top of them, `liesAcross`):
+ * those lines are cut into columns of their own, one piece each, and take in the lines left over that sit inside it. Every other line
+ * (a flat stack below the row) becomes one more piece. A tall line in a column too narrow to be a spine is treated like a short line, so
+ * no line is dropped.
  */
 function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Split | undefined {
   const tallColumns = columnsOf(lines.filter(isTall), tuning);
@@ -235,14 +250,26 @@ function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number
   if (columns.length < tuning.minSpineColumns || !inOneRow(columns, tuning)) return undefined;
   const band = union(columns.map((c) => c.box));
   const narrow = tallColumns.filter((c) => !columns.includes(c)).flatMap((c) => c.lines);
+  const letters = columns.map((c) => c.box.width).sort((a, b) => a - b)[Math.floor(columns.length / 2)];
   const rest: TextLine[] = [];
+  const lying: TextLine[] = [];
   for (const l of [...lines.filter((l) => !isTall(l)), ...narrow]) {
     const x = centerX(l.box);
     const across = centerY(l.box) >= band.y && centerY(l.box) <= bottom(band) ? columns.filter((c) => x >= c.box.x && x <= right(c.box)) : [];
-    if (across.length === 0) rest.push(l);
-    else across.reduce((a, b) => (Math.abs(x - centerX(b.box)) < Math.abs(x - centerX(a.box)) ? b : a)).lines.push(l);
+    if (across.length === 0) {
+      rest.push(l);
+      continue;
+    }
+    const home = across.reduce((a, b) => (Math.abs(x - centerX(b.box)) < Math.abs(x - centerX(a.box)) ? b : a));
+    if (liesAcross(l, home, letters, tuning)) lying.push(l);
+    else home.lines.push(l);
   }
   const pieces = columns.map((c) => piece(c.lines));
+  for (const c of columnsOf(lying, tuning)) {
+    const inside = rest.filter((l) => contains(c.box, centerX(l.box), centerY(l.box)));
+    pieces.push(piece([...c.lines, ...inside]));
+    for (const l of inside) rest.splice(rest.indexOf(l), 1);
+  }
   if (rest.length > 0) pieces.push(piece(rest));
   return { pieces, unreadableCount: 0 };
 }
