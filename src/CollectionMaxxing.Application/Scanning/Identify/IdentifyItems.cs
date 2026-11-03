@@ -4,6 +4,7 @@ using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.GameSerials;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Jobs;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -155,7 +156,7 @@ public static class IdentifyItems
                 await EnqueueResolveJobsAsync(session, candidates, userId, SafetyKey, options.ResolveBudget + SafetyMargin, cancellationToken);
             }
 
-            await ResolveAsync(session, fresh, userId, cancellationToken);
+            await ResolveAsync(session, fresh, userId, input.Kind is IdentifyKind.Shelf ? input.PrintKind : null, cancellationToken);
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, candidates, cancellationToken));
         }
 
@@ -236,7 +237,7 @@ public static class IdentifyItems
                 await EnqueueResolveJobsAsync(session, [candidate], userId, SafetyKey, options.ResolveBudget + SafetyMargin, cancellationToken);
             }
 
-            await ResolveAsync(session, [(candidate, item)], userId, cancellationToken);
+            await ResolveAsync(session, [(candidate, item)], userId, null, cancellationToken);
             return new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [candidate], cancellationToken));
         }
 
@@ -394,7 +395,7 @@ public static class IdentifyItems
             ResolutionVerdict.Matched, [new ResolutionOption(claim, null, 1.0)], null, [new TraceStep("feature_print", "hit", 0, 1.0)]);
 
         private async Task ResolveAsync(
-            ScanSession session, List<(ScanCandidate Candidate, CleanItem Item)> fresh, Guid userId, CancellationToken cancellationToken)
+            ScanSession session, List<(ScanCandidate Candidate, CleanItem Item)> fresh, Guid userId, WorkKind? printKind, CancellationToken cancellationToken)
         {
             // The phone's own feature-print hit is a claim: honoured only for a release this library may use.
             var claimed = fresh.Select(f => f.Item.LocalMatchReleaseId).OfType<Guid>().Distinct().ToList();
@@ -431,9 +432,10 @@ public static class IdentifyItems
                 local[toAsk[i].Candidate.Id] = pools[i];
             }
 
-            // The reads of the picture are asked within one budget. Then the pass over the whole picture: a spine that is only a
-            // series' subtitle, asked again with the series its neighbour carries, within a budget of its own (the same one the eval
-            // gives it): the pending job cannot make this pass, so what is left of this request's budget is not what it is given.
+            // The reads of the picture are asked within one budget. Then the passes over the whole picture: a spine that is only a
+            // series' subtitle, asked again with the series its neighbour carries, and a spine that found another kind than the
+            // shelf's, asked again as the shelf's kind. Each has a budget of its own (the same one the eval gives it): the pending
+            // job cannot make these passes, so what is left of this request's budget is not what they are given.
             using (ProviderCalls.FailFast()) // a person is waiting
             {
                 using (var round = new AskRound(options, cancellationToken))
@@ -453,6 +455,18 @@ public static class IdentifyItems
                 for (var i = 0; i < fresh.Count; i++)
                 {
                     answers[fresh[i].Candidate.Id] = withSeries[i];
+                }
+
+                using var kindRound = new AskRound(options, cancellationToken, ShotKindRule.Budget);
+                var withKind = await grounding.RetryShotKindAsync(
+                    [.. fresh.Select(f => new ShotKindRetry(
+                        f.Item.Facts, f.Item.Profile, answers[f.Candidate.Id], facts => AskOneAsync(facts, kindRound, cancellationToken), kindRound.Budget.Token))],
+                    printKind,
+                    (releaseIds, token) => ShotKindRule.LocalKindsAsync(db, releaseIds, token),
+                    cancellationToken);
+                for (var i = 0; i < fresh.Count; i++)
+                {
+                    answers[fresh[i].Candidate.Id] = withKind[i];
                 }
             }
 

@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
+using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Items;
 using Microsoft.Extensions.Options;
 
@@ -82,6 +83,19 @@ public sealed record SeriesRetry(
     ReadFacts Facts,
     ScoringProfileKind Profile,
     ReadBox? Box,
+    BarcodeResolution Answer,
+    Func<ReadFacts, Task<ProviderAnswers>> Ask,
+    CancellationToken Budget);
+
+/// <summary>
+/// One read of a shot for <see cref="IdentifyGrounding.RetryShotKindAsync"/>: the read, the profile it was scored with, the answer
+/// it has after its own retries and the series round, and how the caller asks the providers about a changed read.
+/// <see cref="Ask"/> and <see cref="Budget"/> are the caller's, as for <see cref="TrimmedRetry"/>. Where the read sat does not
+/// matter to this pass.
+/// </summary>
+public sealed record ShotKindRetry(
+    ReadFacts Facts,
+    ScoringProfileKind Profile,
     BarcodeResolution Answer,
     Func<ReadFacts, Task<ProviderAnswers>> Ask,
     CancellationToken Budget);
@@ -519,6 +533,142 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         option.LocalReleaseId is { } id
             ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => item.Scoring.Title).FirstOrDefault()
             : option.Provider?.Title;
+
+    /// <summary>
+    /// A spine on a shelf that found another kind than the shelf's is asked once more as the shelf's kind (<see cref="ShotKindRule"/>):
+    /// "cnoi Emergency Contact o" beside books that matched finds three films, and asked as a book it finds the book. It needs the
+    /// other spines' answers (the shot's kind is the kind its Matched spines agree on, or what the shelf's own print said), so it is
+    /// a pass over a whole shot after every read has been grounded and has had its own retries (<see cref="RetryTrimmedAsync"/>) and
+    /// the series round (<see cref="RetrySeriesAsync"/>), not a retry of one read. The answers come back in the order of
+    /// <paramref name="reads"/>, each the one it had unless the ask named a release of the shot's kind.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only a spine that names no kind of its own, is Ambiguous, and whose best release is of a known kind outside the shot's family
+    /// is asked (<see cref="ShotKindRule.Asks"/>); a Matched, not-found or pending read, and a read with its own kind, never are. The
+    /// ask is the read with <see cref="ReadFacts.Kind"/> set to the shot's kind, so the providers of that kind alone are asked and
+    /// the type term counts. A read is asked at most once, within its <see cref="ShotKindRetry.Budget"/>
+    /// (<see cref="ShotKindRule.Budget"/>, the pass's own, the same wherever it runs): the asks are made together (one catalogue call
+    /// for all of them, then the providers through each read's <see cref="ShotKindRetry.Ask"/>). The kinds are judged on the answers
+    /// the reads had when the pass began. <paramref name="localKinds"/> gives the kind of a catalogue release (an answer's option only
+    /// holds its id); it is called only when the shot could ask at all and an answer's best release is in the catalogue.
+    /// </para>
+    /// <para>
+    /// What the ask finds is offered, never decided, as for a trimmed span: only when the best release of the ask is of the shot's
+    /// kind, only the releases of that kind are kept, the verdict is capped at Ambiguous, the answer is flagged
+    /// (<see cref="BarcodeResolution.FoundByTrimmedSpan"/>) and its trace says which kind was asked (a <c>kind</c> step). The read
+    /// keeps its own options (<see cref="ShotKindRule.Offer"/>): the find first only when it scores strictly better than the read's
+    /// best option, else after it, and always with at least one of the read's own, so a film on a shelf of books can still be picked.
+    /// The ask names the shot's kind, so what it finds earns a type term that the read's own answer never had; the finds are kept
+    /// with the score they have without it (<see cref="ShotKindRule.OnOriginalFooting"/>), so a same-titled book does not go ahead
+    /// of the right film of a DVD among books on the strength of its kind alone.
+    /// An ask that finds nothing of the shot's kind leaves the read's answer as it was (the same object).
+    /// </para>
+    /// <para>
+    /// A pass that runs out of time, or whose ask the providers could not answer, leaves the read's answer exactly as it was, and
+    /// never makes a read Pending: <see cref="ResolvePendingIdentify"/> grounds one read on its own, with no neighbours, so it could
+    /// only come back as the same answer after a job and a spinner.
+    /// </para>
+    /// </remarks>
+    public async Task<IReadOnlyList<BarcodeResolution>> RetryShotKindAsync(
+        IReadOnlyList<ShotKindRetry> reads,
+        WorkKind? printKind,
+        Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, WorkKind>>> localKinds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reads);
+        ArgumentNullException.ThrowIfNull(localKinds);
+
+        var answers = reads.Select(r => r.Answer).ToArray();
+        if (!ShotKindRule.CouldAsk([.. reads.Select(r => ShotKindRule.Of(r.Facts, r.Profile, r.Answer, null))], printKind))
+        {
+            return answers;
+        }
+
+        var bestKinds = await BestKindsAsync(reads, localKinds, cancellationToken);
+        var kinds = ShotKindRule.AskKinds(printKind, [.. reads.Select((r, i) => ShotKindRule.Of(r.Facts, r.Profile, r.Answer, bestKinds[i]))]);
+
+        // A read with no time left to make its ask is left as it was.
+        var open = Enumerable.Range(0, reads.Count).Where(i => kinds[i] is not null && !reads[i].Budget.IsCancellationRequested).ToList();
+        if (open.Count == 0)
+        {
+            return answers;
+        }
+
+        var asked = open.Select(i => ReadSanitizer.Sanitize(reads[i].Facts with { Kind = kinds[i] })).ToList();
+        var pools = await FindLocalManyAsync(asked, cancellationToken);
+        var scored = await Task.WhenAll(open.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
+        for (var n = 0; n < open.Count; n++)
+        {
+            // An ask the providers could not answer (they failed, or the budget cancelled the call) is Pending, and found nothing.
+            if (scored[n].Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous))
+            {
+                continue;
+            }
+
+            var i = open[n];
+            var shotKind = kinds[i]!.Value;
+            var pool = pools[n];
+            bool OfShotKind(ResolutionOption option) => ShotKindRule.IsOfKind(KindOf(option, pool), shotKind);
+
+            // The ask must have come out for the shot's kind: if its best release is another kind, the read keeps what it found.
+            if (!OfShotKind(scored[n].Options[0]))
+            {
+                continue;
+            }
+
+            var why = new TraceStep(ShotKindRule.StepName, $"{asked[n].Title} (kind: {EnumText.ToText(shotKind)})", 0);
+            var found = scored[n].Options.Where(OfShotKind).Select(ShotKindRule.OnOriginalFooting).ToList();
+            answers[i] = Offered(reads[i].Answer, scored[n] with { Options = ShotKindRule.Offer(found, reads[i].Answer.Options) }, why);
+        }
+
+        return answers;
+    }
+
+    /// <summary>The kind of the best release of each answer that has one (null for the rest): a provider release's own, a catalogue release's through <paramref name="localKinds"/>.</summary>
+    private static async Task<WorkKind?[]> BestKindsAsync(
+        IReadOnlyList<ShotKindRetry> reads,
+        Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, WorkKind>>> localKinds,
+        CancellationToken cancellationToken)
+    {
+        var kinds = new WorkKind?[reads.Count];
+        var inCatalogue = new Dictionary<int, Guid>();
+        for (var i = 0; i < reads.Count; i++)
+        {
+            var answer = reads[i].Answer;
+            if (answer.Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous) || answer.Options.Count == 0)
+            {
+                continue;
+            }
+
+            var best = answer.Options[0]; // best first
+            if (best.LocalReleaseId is { } id)
+            {
+                inCatalogue[i] = id;
+            }
+            else
+            {
+                kinds[i] = best.Provider?.Kind;
+            }
+        }
+
+        if (inCatalogue.Count > 0)
+        {
+            var found = await localKinds([.. inCatalogue.Values.Distinct()], cancellationToken);
+            foreach (var (i, id) in inCatalogue)
+            {
+                kinds[i] = found.TryGetValue(id, out var kind) ? kind : null;
+            }
+        }
+
+        return kinds;
+    }
+
+    /// <summary>The kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
+    private static WorkKind? KindOf(ResolutionOption option, LocalPool pool) =>
+        option.LocalReleaseId is { } id
+            ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => (WorkKind?)item.Scoring.Kind).FirstOrDefault()
+            : option.Provider?.Kind;
 
     /// <summary>
     /// <see cref="FindLocalManyAsync"/>, one caller at a time when <paramref name="databaseGate"/> is given: for callers whose reads
