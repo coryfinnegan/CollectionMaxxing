@@ -34,7 +34,8 @@ public sealed class EvalGrounder(
     /// it, so the catalogue and the providers are asked once per distinct read in a run, not once per engine and photo. The reads
     /// that are not known yet are grounded together, the way <c>/identify</c> grounds a picture: the catalogue is asked once for all
     /// of them, then the providers for up to <see cref="EvalsOptions.GroundingParallelism"/> of them at a time. The answers are the
-    /// ones asking each read on its own would give, in the order the reads came in.
+    /// ones asking each read on its own would give, in the order the reads came in, except that a spine that is only a series' subtitle is
+    /// then asked again with the series its neighbour carries, as <c>/identify</c> does it (<see cref="IdentifyGrounding.RetrySeriesAsync"/>).
     /// </summary>
     public async Task<IReadOnlyList<GroundedItem>> GroundAsync(
         ScanEngine engine,
@@ -52,8 +53,12 @@ public sealed class EvalGrounder(
         // names that kind, else what the rest of the photo's reads agreed on, the one rule /identify applies. The memo below keys on
         // the read with it, so a lookup made under another photo's kind is never reused.
         var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials, printKind: printKind);
-        var answers = await memo.GroundManyAsync(
+        var remembered = await memo.GroundManyAsync(
             [.. cleaned.Select(c => (c.Facts, c.Profile))], claims => GroundClaimsAsync(claims, cancellationToken), cancellationToken);
+
+        // Then the pass over the whole photo that /identify makes: a spine that is only a series' subtitle is asked again with the
+        // series its neighbour carries. It needs the neighbours' answers, so it follows the memo and is never remembered by it.
+        var answers = await RetrySeriesAsync(cleaned, remembered, cancellationToken);
 
         // One book in one place, one item per photo and engine: a read that repeats a stronger read of the same release in the same
         // place is not scored, the same rule /identify applies, so the scorer sees what a person scanning this photo would have been
@@ -196,6 +201,54 @@ public sealed class EvalGrounder(
         {
             await stop.CancelAsync();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// The series pass of <c>/identify</c> over the photo's reads, once each is grounded (<see cref="IdentifyGrounding.RetrySeriesAsync"/>):
+    /// a spine that is only a series' subtitle is asked again with the series its neighbour carries, offered and never matched. The
+    /// round has the budget <c>/identify</c> gives it (<see cref="SeriesNeighbour.Budget"/>, counted from when the round starts, on
+    /// the injected clock) and the places it has (<see cref="ScanningOptions.Parallelism"/>), not the patient budget of the first
+    /// asks: the pending job cannot make this pass, so a person scanning is only ever given this much, and the eval measures that.
+    /// A round that runs out leaves the answers as they were. The catalogue is asked after the
+    /// first asks are done, so it needs no gate. The answers are the photo's own and are not remembered by the run: they depend on
+    /// the neighbours.
+    /// </summary>
+    private async Task<IReadOnlyList<BarcodeResolution>> RetrySeriesAsync(
+        List<CleanItem> cleaned, IReadOnlyList<BarcodeResolution> answers, CancellationToken cancellationToken)
+    {
+        using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
+        using var expiry = new CancellationTokenSource(SeriesNeighbour.Budget, time);
+        using var round = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+        return await grounding.RetrySeriesAsync(
+            [.. cleaned.Select((c, i) => new SeriesRetry(c.Facts, c.Profile, c.Box, answers[i], facts => AskSeriesAsync(facts, gate, round.Token, cancellationToken), round.Token))],
+            (releaseIds, token) => SeriesNeighbour.LocalTitlesAsync(db, releaseIds, token),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Asks the providers about one series ask once a place frees up, within the round's budget; an ask the budget runs out on is a
+    /// failed answer (the read keeps the answer it had). An ask cut short by the call being cancelled is no answer: it throws.
+    /// </summary>
+    private async Task<ProviderAnswers> AskSeriesAsync(ReadFacts facts, SemaphoreSlim gate, CancellationToken budget, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await gate.WaitAsync(budget);
+            try
+            {
+                var providers = await grounding.AskProvidersAsync(facts, cancellationToken, budget);
+                cancellationToken.ThrowIfCancellationRequested(); // an ask cut short by the app stopping may hand back a thin answer: never use it
+                return providers;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new ProviderAnswers([], [new TraceStep("budget", "timeout", 0)], true);
         }
     }
 
