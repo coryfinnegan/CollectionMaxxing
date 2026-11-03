@@ -62,6 +62,30 @@ export interface LocalTuning {
   spineShortLineOverlap: number;
   /** A line joins a taller one beside it (spineShortLineOverlap) only when it is at most this share of that line's height; a line about as tall belongs to the next spine. */
   spineShortLineHeight: number;
+  /**
+   * The two rows of one spine title stand in two columns whose lettering overlaps across by only a part of a letter (0.19 to 0.34 on the
+   * recorded shelves), too little to join one column (`spineColumnOverlap`), so each row was read alone as half a title. Two neighboring
+   * tall lines are one column anyway when they pass this test and the three after it. This one: the narrower line's width is at least this
+   * share of the wider one's, since the rows of a title are set in one size of lettering. Infinity switches the join off.
+   */
+  twoRowLetters: number;
+  /**
+   * The rows of one title overlap across by at least `titleRowTouch` and at most this share of the narrower line's width. A neighboring
+   * spine's lettering overlaps further (0.46 on a recorded pair of neighbors) while the rows of a real title top out at 0.34.
+   */
+  twoRowMaxTouch: number;
+  /**
+   * The rows of a title lie upright: each line is at least this many times as long as it is wide for each of its characters. A slanted
+   * line's box is far wider than its lettering and overlaps the next spine's, so it never counts (the real rows score 0.39 to 1, leaning
+   * neighbors 0.13 to 0.34). The rows must also run along each other for `titleRowOverlap` of the longer.
+   */
+  twoRowUpright: number;
+  /**
+   * Only title-sized lines pair: a row is at least this share of the tallest line in its own column. The rows of a title on the recorded
+   * shelves are 0.38 or more ("FAMILY AND FRIENDS" under a long author), while the short print at the foot of a spine (a publisher mark, a
+   * cut-off word) is 0.17 or less, and two such fragments side by side would otherwise join two whole books into one item. 0 lets every line pair.
+   */
+  twoRowTitleShare: number;
   /** Rectangles overlapping by at least this share of the smaller one depict one surface and merge before splitting (a cover's nested quads are one item; disjoint spines still split, #504). */
   rectangleMergeOverlap: number;
   /** Two neighboring spine columns share a band when they share this much of the shorter one's vertical span. */
@@ -147,6 +171,14 @@ export interface LocalTuning {
   bandMinLetters: number;
   /** A band's title is made of the lines whose letters are at least this share of the band's tallest. */
   bandTitleLetters: number;
+  /**
+   * A hardcover lying flat prints a small "A COURT OF" a little above its big subtitle, further than `bandMaxGap`, so the two were bands of
+   * their own. A band whose title ends on a joining word ("of", "the", "and", "a", "an", "to", "&") is the first line of the band right
+   * below it when it lies within this share of the smaller band's lettering from it. A title almost never ends on such a word, so the word is
+   * what tells the pair from two books; the gap alone does not (tapes of a stack sit as close, and a name sits as close to the title below it).
+   * Words a real title ends on ("Hold On", "Lean In", "Worth Fighting For") are not joining words. -Infinity switches the join off.
+   */
+  bandJoinGap: number;
   /** How far either side of the cut the two halves of a wide shot reach, as a share of the picture's width. */
   halfOverlap: number;
   /** The cut is looked for within this distance of the middle. */
@@ -242,6 +274,10 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   spineColumnOverlap: 0.5,
   spineShortLineOverlap: 0.4,
   spineShortLineHeight: 0.85,
+  twoRowLetters: 0.7,
+  twoRowMaxTouch: 0.4,
+  twoRowUpright: 0.37,
+  twoRowTitleShare: 0.3,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
   spineRowShare: 0.45,
@@ -265,6 +301,7 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   bandSameLetters: 0.6,
   bandMinLetters: 0.3,
   bandTitleLetters: 0.6,
+  bandJoinGap: 0.5,
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,
