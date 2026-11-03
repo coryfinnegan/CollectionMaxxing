@@ -17,11 +17,14 @@ const BEFORE_637 = { stackSureMaxGap: 1, stackFourLetters: 0.5 };
 /** The cut of a tape lying across the tops of the spines off: a flat line joins the spine under its center. */
 const BEFORE_LYING = { lyingLineWidth: Infinity };
 
+/** The two-row rule off: the two rows of one spine title are two columns, each read alone. */
+const BEFORE_TWO_ROWS = { twoRowLetters: Infinity };
+
 /** The split with piles switched off: what the splitter did before items lying flat were cut one per spine (nor was the frame cut into shelf rows). */
-const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING };
+const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS };
 
 /** The values before #618: a pile needed 5 bands in a column no wider than half the frame, and a row 60% of its neighbors in one band. */
-const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING };
+const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS };
 
 /** A tape lying flat: a title line 0.35 wide and 0.05 tall, 0.08 below the last, so the gap is a little over half a letter. */
 const tape = (i: number, text = `Tape ${i}`, x = 0.3, top = 0.1) => line(text, x, top + i * 0.08, 0.35, 0.05);
@@ -225,8 +228,9 @@ describe('real shelf photos', () => {
     // lost "And Now, Back to You" until a shorter line beside a taller one joined its column (#655, 24 to 25). The shelf rows describe
     // below owns that.
     'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 40, found: 25 } },
-    // Upright rows with no pile: unchanged.
-    'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 19, found: 14 } },
+    // Upright rows with no pile. The two rows of "Indian FOR Everyone" were two items, each read alone, and are one spine now (items 19 to
+    // 18, found 14 to 15); splitting.test.ts owns the rule.
+    'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 18, found: 15 } },
     'accept-shelf-02': { before: { items: 17, found: 15 }, after: { items: 17, found: 15 } },
   };
 
@@ -244,16 +248,20 @@ describe('real shelf photos', () => {
     expect(after.items).toBeGreaterThan(before.items);
   });
 
-  it.each(['accept-shelf-01', 'accept-shelf-02'])('%s: finds no fewer truth titles than before', async (id) => {
+  // Upright rows with no pile: the split changes only where the two rows of one title were two items (accept-shelf-01 has one such title).
+  it.each([
+    ['accept-shelf-01', 1],
+    ['accept-shelf-02', 0],
+  ])('%s: finds no fewer truth titles than before, and reads %i fewer items', async (id, joined) => {
     const before = await read(id, WITHOUT_PILES);
     const after = await read(id, T);
     expect(after.found).toBeGreaterThanOrEqual(before.found);
-    expect(after.items).toBe(before.items);
+    expect(after.items).toBe(before.items - joined);
   });
 
   describe('a bookcase shot with two shelves in the frame is cut into its two shelf rows', () => {
     /** The split before the frame was cut into rows: a spine on the lower shelf joined the spine above it, whose x it shares. */
-    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING };
+    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS };
 
     // The stretch of y that no tall line covers, from one row's last tall line to the next row's first: 10.0, 5.4 and 4.5 letters (the
     // median tall line's width). The single-row photos show 2.3 to 3.6 letters at their edges, or too few lines beyond to count as a row.
@@ -268,9 +276,11 @@ describe('real shelf photos', () => {
     // 6 gained (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash) and none lost:
     // "And Now, Back to You" was lost to the cut until #655 (see below), which made it 19 to 24. shelf-02's 21 to 24 (items 36 to 44) is
     // the hardcover pile of A Court of Thorns and Roses books, cut into its 8 bands once a pile of 5 or more may have a median gap of 1.25
-    // letters (#637): A Court of Wings and Ruin, A Court of Mist and Fury and A Court of Thorns and Roses, and none lost.
+    // letters (#637): A Court of Wings and Ruin, A Court of Mist and Fury and A Court of Thorns and Roses, and none lost. shelf-01's 12 to 14
+    // (items 36 to 38) is the two rows of "The Exquisite Torment of Loving Your Enemy", each too narrow to be a spine, joined into one that
+    // stands, and "Rose in Chains", which no longer shares a leftover piece with them; none lost.
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
-      'shelf-01': { without: { items: 32, found: 11 }, with: { items: 36, found: 12 } },
+      'shelf-01': { without: { items: 32, found: 11 }, with: { items: 38, found: 14 } },
       'shelf-02': { without: { items: 26, found: 16 }, with: { items: 44, found: 24 } },
       'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 40, found: 25 } },
     };

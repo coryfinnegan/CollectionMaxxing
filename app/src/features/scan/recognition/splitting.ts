@@ -94,6 +94,39 @@ function columnsOf(columnLines: TextLine[], tuning: LocalTuning): Column[] {
   return columns;
 }
 
+/** Whether the line's box is about one letter wide: a leaning line's box is far wider than its lettering. */
+const readsUpright = (l: TextLine, tuning: LocalTuning) => l.box.height / Math.max(1, l.text.trim().length) >= l.box.width * tuning.twoRowUpright;
+
+/**
+ * Whether two tall lines are the two rows of one title printed down a spine: set in one size of lettering, each upright, running along each
+ * other for most of the longer, and overlapping across by a part of a letter (at least `titleRowTouch`, at most `twoRowMaxTouch` of the
+ * narrower line's width). The next spine's lettering is told apart by overlapping further, by leaning, or by running along for less.
+ */
+function twoRows(a: TextLine, b: TextLine, tuning: LocalTuning): boolean {
+  const [narrower, wider] = [Math.min(a.box.width, b.box.width), Math.max(a.box.width, b.box.width)];
+  if (!(narrower >= wider * tuning.twoRowLetters)) return false;
+  const across = Math.min(right(a.box), right(b.box)) - Math.max(a.box.x, b.box.x);
+  if (across < narrower * tuning.titleRowTouch || across > narrower * tuning.twoRowMaxTouch) return false;
+  if (!readsUpright(a, tuning) || !readsUpright(b, tuning)) return false;
+  const along = Math.min(bottom(a.box), bottom(b.box)) - Math.max(a.box.y, b.box.y);
+  return along > 0 && along >= Math.max(a.box.height, b.box.height) * tuning.titleRowOverlap;
+}
+
+/** Neighboring columns whose lines include the two rows of one title are one column, so that the title is read whole and is wide enough to be a spine. */
+function joinTwoRows(columns: Column[], tuning: LocalTuning): Column[] {
+  const joined: Column[] = [];
+  for (const column of columns) {
+    const last = joined[joined.length - 1];
+    if (last && last.lines.some((a) => column.lines.some((b) => twoRows(a, b, tuning)))) {
+      last.lines.push(...column.lines);
+      last.box = union([last.box, column.box]);
+    } else {
+      joined.push({ box: column.box, lines: [...column.lines] });
+    }
+  }
+  return joined;
+}
+
 /**
  * Spines stand in one row: most neighbors share their vertical band, so one short book beside tall ones does not undo the split.
  * Scattered cover lines share almost none, so they are not split (#504).
@@ -245,7 +278,7 @@ function liesAcross(l: TextLine, column: Column, letters: number, tuning: LocalT
  * no line is dropped.
  */
 function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Split | undefined {
-  const tallColumns = columnsOf(lines.filter(isTall), tuning);
+  const tallColumns = joinTwoRows(columnsOf(lines.filter(isTall), tuning), tuning);
   const columns = tallColumns.filter((c) => c.box.width >= minWidth);
   if (columns.length < tuning.minSpineColumns || !inOneRow(columns, tuning)) return undefined;
   const band = union(columns.map((c) => c.box));

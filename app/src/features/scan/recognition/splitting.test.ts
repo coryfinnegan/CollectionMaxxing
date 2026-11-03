@@ -356,6 +356,107 @@ describe('splitting Vision text into items', () => {
     });
   });
 
+  describe('the two rows of one spine title are one item, not two half-titles', () => {
+    const texts = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text).sort());
+    // Neighbors on either side make a shelf row of three spines, each one letter column (0.025) wide.
+    const neighbor = (x: number, y = 0.3) => line(`Neighbor ${x}`, x, y, 0.025, 0.4);
+    const piecesOf = (lines: TextLine[], local: typeof T = T) => splitIntoPieces(lines, [], C.splitting, local).pieces;
+    const titleOf = (lines: TextLine[], text: string) => shelfTitleOf(piecesOf(lines).find((p) => p.lines.some((l) => l.text === text))!.lines, T)?.text;
+
+    // Recorded on shelf-07: the rows share 0.0123 of 0.0243 across (0.19 of a letter), under the half a column that joins a line to a column.
+    const avalon = [
+      line('OF AVALON', 0.7207, 0.3039, 0.0243, 0.1848),
+      line('THE MISTS', 0.7403, 0.3114, 0.0284, 0.1777),
+      line('MARION ZIMMER BRADLEY', 0.7387, 0.5055, 0.0164, 0.2003),
+    ];
+
+    it('keeps both rows of The Mists of Avalon, and its author under them, on one spine (the recorded shelf-07 lines)', () => {
+      const lines = [neighbor(0.6), ...avalon, neighbor(0.85)];
+      expect(texts(piecesOf(lines))).toEqual([['Neighbor 0.6'], ['MARION ZIMMER BRADLEY', 'OF AVALON', 'THE MISTS'], ['Neighbor 0.85']]);
+      expect(titleOf(lines, 'THE MISTS')).toBe('THE MISTS OF AVALON');
+    });
+
+    it('keeps both rows of Indian for Everyone, and its author, on one spine (the recorded accept-shelf-01 lines)', () => {
+      const lines = [
+        neighbor(0.7),
+        neighbor(0.8),
+        line('FOR Everyone', 0.9031, 0.5074, 0.0307, 0.1437),
+        line('Indian', 0.9252, 0.5157, 0.0276, 0.1025),
+        line('Singla', 0.9236, 0.3586, 0.0279, 0.0907),
+      ];
+      expect(texts(piecesOf(lines)).slice(2)).toEqual([['FOR Everyone', 'Indian', 'Singla']]);
+      expect(titleOf(lines, 'Indian')).toBe('Indian FOR Everyone');
+    });
+
+    it('splits the same rows into two items when the lettering needed is infinite: the columns are built as they were', () => {
+      expect(texts(piecesOf([neighbor(0.6), ...avalon, neighbor(0.85)], { ...T, twoRowLetters: Infinity }))).toEqual([
+        ['Neighbor 0.6'],
+        ['OF AVALON'],
+        ['MARION ZIMMER BRADLEY', 'THE MISTS'],
+        ['Neighbor 0.85'],
+      ]);
+    });
+
+    it('makes one spine wide enough to stand of two rows that are each too narrow to (the recorded shelf-01 lines, 0.0154 and 0.0127 wide)', () => {
+      // Each row is under the 0.02 a spine column needs, so both used to fall into the piece of leftover lines. Together they span 0.0258.
+      const lines = [
+        neighbor(0.7, 0.55),
+        line('OF LOVING YOUR ENEMY', 0.8031, 0.6663, 0.0154, 0.1461),
+        line('THE EXQUISITE TORMENT', 0.8162, 0.6684, 0.0127, 0.142),
+        neighbor(0.95, 0.55),
+      ];
+      expect(texts(piecesOf(lines))).toEqual([['Neighbor 0.7'], ['OF LOVING YOUR ENEMY', 'THE EXQUISITE TORMENT'], ['Neighbor 0.95']]);
+      expect(titleOf(lines, 'THE EXQUISITE TORMENT')).toBe('THE EXQUISITE TORMENT OF LOVING YOUR ENEMY');
+      expect(texts(piecesOf(lines, { ...T, twoRowLetters: Infinity }))).toEqual([
+        ['Neighbor 0.7'],
+        ['Neighbor 0.95'],
+        ['OF LOVING YOUR ENEMY', 'THE EXQUISITE TORMENT'],
+      ]);
+    });
+
+    describe('what stays two spines', () => {
+      // Recorded on accept-shelf-04: "The Fake Mate" and "A LITTLE BUZZED'" lean, so their boxes are wider than their lettering.
+      const fakeMate = [line('The Fake Mate LANA FERGUSON', 0.3497, 0.1928, 0.0277, 0.2556), line("A LITTLE BUZZED'", 0.3731, 0.1831, 0.0237, 0.1761)];
+      // Recorded on shelf-04: two neighbors of one size whose lettering runs side by side for only 0.63 of the longer.
+      const correspondent = [line('—E— Kaveh Akbar ol', 0.2902, 0.244, 0.0593, 0.5182), line('The Correspondent', 0.3359, 0.1481, 0.0561, 0.4237)];
+
+      it('keeps two leaning spines apart: a leaning line is a box much wider than its lettering', () => {
+        const lines = [neighbor(0.2), ...fakeMate, neighbor(0.5)];
+        expect(piecesOf(lines)).toHaveLength(4);
+        // They are held apart by the lettering test and by how far they run along each other (0.65); with both relaxed they join.
+        expect(piecesOf(lines, { ...T, titleRowOverlap: 0.6 })).toHaveLength(4);
+        expect(piecesOf(lines, { ...T, twoRowUpright: 0.3 })).toHaveLength(4);
+        expect(piecesOf(lines, { ...T, titleRowOverlap: 0.6, twoRowUpright: 0.3 })).toHaveLength(3);
+      });
+
+      it('keeps two neighbors apart that run side by side for only 0.63 of the longer', () => {
+        const lines = [neighbor(0.1), ...correspondent, neighbor(0.5)];
+        expect(piecesOf(lines)).toHaveLength(4);
+        expect(piecesOf(lines, { ...T, titleRowOverlap: 0.6 })).toHaveLength(3);
+      });
+
+      it('keeps two lines apart whose lettering differs in size by more than a third', () => {
+        const lines = [neighbor(0.6), line('Big row', 0.7, 0.3, 0.03, 0.2), line('Small row', 0.7265, 0.3, 0.018, 0.2), neighbor(0.85)];
+        expect(piecesOf(lines)).toHaveLength(4);
+        expect(piecesOf([neighbor(0.6), line('Big row', 0.7, 0.3, 0.03, 0.2), line('Small row', 0.7265, 0.3, 0.022, 0.2), neighbor(0.85)])).toHaveLength(3);
+      });
+
+      it('keeps two lines apart that overlap across by more than 0.4 of a letter, however alike they are (the neighboring spines of #655)', () => {
+        const spine = (text: string, x: number) => line(text, x, 0.2, 0.025, 0.2);
+        // 0.0115 of 0.025: 0.46 of a letter, the overlap #655's own test pins; the rows of a real title top out at 0.34.
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.1135), spine('Spine 2', 0.25)])).toHaveLength(3);
+        // 0.0075 of 0.025: 0.3 of a letter joins.
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.1175), spine('Spine 2', 0.25)])).toHaveLength(2);
+      });
+
+      it('keeps two lines apart that only graze each other: the rows of one title run into each other by a tenth of a letter at least (0.06 here, 0.12 joins)', () => {
+        const spine = (text: string, x: number) => line(text, x, 0.2, 0.025, 0.2);
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.1235), spine('Spine 2', 0.25)])).toHaveLength(3);
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.122), spine('Spine 2', 0.25)])).toHaveLength(2);
+      });
+    });
+  });
+
   describe('#509: lines outside the detected rectangles, and rectangles that hold several spines', () => {
     const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
 
