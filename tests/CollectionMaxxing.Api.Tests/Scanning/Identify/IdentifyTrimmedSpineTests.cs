@@ -247,4 +247,90 @@ public class IdentifyTrimmedSpineTests(ApiFixture api) : IdentifyTest(api)
         Resolution(spine).ShouldBe("ambiguous");
         AlternativeTitles(spine).ShouldBe(["Iron Fox"]);
     }
+
+    // ---- a spine whose title is the author line: asked once more with its creator as the title ---------------------------------------
+
+    private const string AuthorLine = "TESS HARROWGATE";
+
+    /// <summary>The real title, sent as the creator: the sanitiser drops an author line with "the" in it, so only the creator as read still has it.</summary>
+    private const string TitleAsCreator = "THE COPPER LANTERN";
+
+    private static Dictionary<string, object?> SpineBy(string title, string creator) => Read(title: title, kind: "book", creator: creator);
+
+    private Task SeedCopperLanternAsync() =>
+        CatalogSeed.AddAsync(Db, "The Copper Lantern", WorkKind.Book, 1999, format: ReleaseFormat.Paperback, creators: ["Tess Harrowgate"]);
+
+    [Fact]
+    public async Task A_spine_whose_title_is_the_author_line_is_offered_the_book_its_creator_names()
+    {
+        var library = await CreateLibraryAsync();
+        await SeedCopperLanternAsync();
+        using var client = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithAutoCommitAsync(client, library.Id);
+
+        var spine = (await IdentifyOkAsync(client, sessionId, [Book("Alpha Quest"), Book("Beta Quest"), Book("Gamma Quest"), SpineBy(AuthorLine, TitleAsCreator)]))[3];
+
+        Resolution(spine).ShouldBe("ambiguous"); // the book scores a sure match, and is only offered
+        Decision(spine).ShouldBe("undecided");
+        Added(spine).ShouldBeFalse();
+        spine.GetProperty("release").ValueKind.ShouldBe(JsonValueKind.Null);
+        AlternativeTitles(spine).ShouldBe(["The Copper Lantern"]);
+        spine.GetProperty("visibleText").GetString().ShouldBe(AuthorLine);
+        (await SwappedStepsOfAsync(spine)).ShouldBe([$"{TitleAsCreator} (creator as read; title read: {AuthorLine})"]);
+        (await ScanReaders.ItemsAsync(Db, library.Id)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task The_same_title_without_a_creator_to_swap_with_stays_not_found()
+    {
+        var library = await CreateLibraryAsync();
+        await SeedCopperLanternAsync();
+        using var client = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithAutoCommitAsync(client, library.Id);
+
+        var spine = (await IdentifyOkAsync(client, sessionId, [Book("Alpha Quest"), Book("Beta Quest"), Book("Gamma Quest"), Book(AuthorLine)]))[3];
+
+        Resolution(spine).ShouldBe("not_found");
+        (await SwappedStepsOfAsync(spine)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_book_the_pending_job_finds_by_the_creator_as_the_title_is_offered_the_same_way()
+    {
+        Options.ResolveBudget = TimeSpan.FromMilliseconds(300);
+        var slow = true;
+        Books.Behaviour = async ct =>
+        {
+            if (slow)
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+        };
+        var library = await CreateLibraryAsync();
+        await SeedCopperLanternAsync();
+        using var client = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id);
+        Resolution((await IdentifyOkAsync(client, sessionId, [Book("Alpha Quest"), Book("Beta Quest"), Book("Gamma Quest"), SpineBy(AuthorLine, TitleAsCreator)]))[3])
+            .ShouldBe("pending");
+
+        slow = false;
+        for (var job = 0; job < 4; job++)
+        {
+            await RunNextJobAsync(); // one resolve job for each of the four reads of the shelf, all of which were pending
+        }
+
+        var stored = (await GetSessionAsync(client, sessionId)).GetProperty("candidates");
+        var spine = stored.EnumerateArray().Single(c => c.GetProperty("visibleText").GetString() == AuthorLine);
+        Resolution(spine).ShouldBe("ambiguous", "the job asks with the creator as read, which the stored read kept");
+        AlternativeTitles(spine).ShouldBe(["The Copper Lantern"]);
+    }
+
+    /// <summary>The outcome of each <c>swapped</c> step of the stored trace: the title it was asked with and the title it was read as.</summary>
+    private async Task<string[]> SwappedStepsOfAsync(JsonElement candidate)
+    {
+        using var trace = JsonDocument.Parse(await TraceOfAsync(candidate) ?? "{}");
+        return trace.RootElement.TryGetProperty("steps", out var steps)
+            ? [.. steps.EnumerateArray().Where(s => s.GetProperty("provider").GetString() == "swapped").Select(s => s.GetProperty("outcome").GetString()!)]
+            : [];
+    }
 }
