@@ -15,14 +15,20 @@ namespace CollectionMaxxing.Application.Evals;
 /// A baseline of exactly 0 or 100 has no spread, so <c>p</c> is smoothed there: <c>1 / (n + 2)</c> and <c>(n + 1) / (n + 2)</c>. The deterministic Vision
 /// row (<c>vision_pipeline</c>) and the combined row the app shows (<c>apple_vision</c>) rerun to the same numbers, so they keep the plain 2 points,
 /// as does a rate with no <c>n</c>.</item>
-/// <item>A <b>time</b> (seconds to first results, to trustworthy) is a regression only when this run took more than
-/// <see cref="MaxTimeRatio"/> times the baseline: a phone's speed moves with its heat and load.</item>
+/// <item>A <b>time</b> is a regression only when this run took more than <see cref="MaxTimeRatio"/> times the baseline: a phone's speed moves with its
+/// heat and load. Only the scanner's speed is judged: <c>time_to_first_results_p50</c>, the median over photos of each photo's own capture to its
+/// results, which one cold first read does not move. Its p95 shows that read and is reported, not judged. <c>total_time_to_trustworthy</c> is the
+/// run's (first capture to last result, however long the owner took between photos; the home acceptance scenario sets it against a barcode pass of the
+/// same shelf, docs/16 §17), so it is reported, not judged.</item>
 /// <item>A <b>raw count</b> (tier counts, provisionals, unreconciled photos, excess unreadable) is not judged; it stays in the metrics and
 /// the result file, and the rates and the M3 gate carry the verdict. <c>duplicate_clean</c> (100 or 0) keeps the 2 points, so a flip is flagged.</item>
 /// </list>
 /// The baseline holds each engine row's own numbers under that row's name (<c>apple_model.single.top1</c>) and never a gate measure,
 /// so moving the gate onto the combined row (ADR-032) changes what none of its keys mean: a key from a baseline taken before it
 /// is compared with the same row as ever, and the combined row's keys are new to such a baseline, not a regression.
+/// A baseline taken before a metric's definition changed is never compared on that metric: the metric moved to a new name (<see cref="Retired"/>), and the
+/// baseline's value under the old one is skipped and named in <see cref="RegressionCheck.Skipped"/>, so the change does not pass silently. A baseline taken
+/// from a run of this version holds only the new names, so the skip ends with the next baseline.
 /// </summary>
 public static class EvalRegression
 {
@@ -72,7 +78,23 @@ public static class EvalRegression
         "invented_pct", "refusal_pct", "timeout_pct", "review_rate",
     ];
 
-    private static readonly HashSet<string> Times = ["time_to_first_results", "total_time_to_trustworthy"];
+    private static readonly HashSet<string> Times = ["time_to_first_results_p50", "time_to_first_results_p95", "total_time_to_trustworthy"];
+
+    /// <summary>
+    /// Numbers that are published and kept in the baseline for reading, but are not judged: the p95 of the first results (one slow photo is meant to move
+    /// it) and the run's total time (the owner's pace is in it).
+    /// </summary>
+    private static readonly HashSet<string> Reported = ["time_to_first_results_p95", "total_time_to_trustworthy"];
+
+    /// <summary>
+    /// Metric names whose definition changed, by their last part, with what changed. <c>time_to_first_results</c> was the slice's first capture to its first
+    /// correct photo, so one slow first read (the model engine loading) moved the whole number although nothing in the matching got slower; it is now the per-photo median
+    /// <c>time_to_first_results_p50</c>. A baseline value under a retired name is skipped, never compared with the new measure.
+    /// </summary>
+    private static readonly Dictionary<string, string> Retired = new(StringComparer.Ordinal)
+    {
+        ["time_to_first_results"] = "a change of its definition (it was the slice's first capture to its first correct photo; it is now the median of each photo's own span, as time_to_first_results_p50)",
+    };
 
     private static readonly HashSet<string> Counts =
     [
@@ -134,7 +156,8 @@ public static class EvalRegression
         Add("t2_review", slice.T2Review);
         Add("provisional", slice.ProvisionalItems);
         Add("duplicate_clean", slice.DuplicateClean is { } clean ? clean ? 100 : 0 : null);
-        Add("time_to_first_results", slice.TimeToFirstResultsMs is { } first ? first / 1000.0 : null);
+        Add("time_to_first_results_p50", slice.TimeToFirstResultsP50Ms is { } first ? first / 1000.0 : null);
+        Add("time_to_first_results_p95", slice.TimeToFirstResultsP95Ms is { } slowest ? slowest / 1000.0 : null);
         Add("total_time_to_trustworthy", slice.TotalTimeToTrustworthyMs is { } total ? total / 1000.0 : null);
         Add("unreconciled_photos", slice.UnreconciledPhotos);
         Add("excess_unreadable", slice.ExcessUnreadable);
@@ -214,8 +237,15 @@ public static class EvalRegression
         }
     }
 
-    /// <summary>Whether <see cref="Check"/> judges the metric. The raw counts are not judged (and not counted as compared).</summary>
-    public static bool IsJudged(string metric) => !Counts.Contains(Leaf(metric));
+    /// <summary>
+    /// Whether <see cref="Check"/> judges the metric. The raw counts, the reported times (<see cref="Reported"/>) and a retired name (<see cref="Retired"/>)
+    /// are not judged (and not counted as compared).
+    /// </summary>
+    public static bool IsJudged(string metric)
+    {
+        var leaf = Leaf(metric);
+        return !Counts.Contains(leaf) && !Reported.Contains(leaf) && !Retired.ContainsKey(leaf);
+    }
 
     /// <summary>Whether the metric is a rate: a percentage that is a share of some number of items.</summary>
     public static bool IsRate(string metric)
@@ -260,9 +290,16 @@ public static class EvalRegression
         }
 
         var regressions = new List<RegressionItem>();
+        var skipped = new List<RegressionSkip>();
         var compared = 0;
         foreach (var (name, was) in baseline.OrderBy(b => b.Key, StringComparer.Ordinal))
         {
+            if (Retired.TryGetValue(Leaf(name), out var reason))
+            {
+                skipped.Add(new RegressionSkip(name, reason));
+                continue;
+            }
+
             if (!IsJudged(name) || !actual.TryGetValue(name, out var now))
             {
                 continue;
@@ -288,7 +325,7 @@ public static class EvalRegression
         }
 
         var status = regressions.Count > 0 ? Regressed : compared == 0 ? NoOverlap : Ok;
-        return new RegressionCheck(status, compared, regressions);
+        return new RegressionCheck(status, compared, regressions, skipped);
     }
 
     /// <summary>

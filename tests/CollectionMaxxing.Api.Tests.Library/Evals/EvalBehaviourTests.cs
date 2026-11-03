@@ -434,7 +434,8 @@ public class EvalBehaviourTests(ApiFixture api) : EvalTest(api)
         single.GetProperty("autoAddPrecisionPct").GetDouble().ShouldBe(100);
         single.GetProperty("reviewRatePct").GetDouble().ShouldBe(0);
         single.GetProperty("duplicateClean").GetBoolean().ShouldBeTrue();
-        single.GetProperty("timeToFirstResultsMs").GetInt64().ShouldBe(1800);
+        single.GetProperty("timeToFirstResultsP50Ms").GetInt64().ShouldBe(1800);
+        single.GetProperty("timeToFirstResultsP95Ms").GetInt64().ShouldBe(1800);
         single.GetProperty("totalTimeToTrustworthyMs").GetInt64().ShouldBe(1800);
         single.GetProperty("unreconciledPhotos").GetInt32().ShouldBe(0);
         summary.GetProperty("metrics").GetProperty("apple_model.single.auto_add_precision").GetDouble().ShouldBe(100);

@@ -9,6 +9,8 @@ public sealed record KindMetrics(int Items, int Top1Hits, int Top3Hits, double? 
 /// result file can be committed. A percentage is null when there was nothing to divide by.
 /// <c>TitleHits</c>, <c>PlatformChecks</c> and <c>CompletenessChecks</c> are what <c>TypeAccuracyPct</c>, <c>PlatformAccuracyPct</c> and
 /// <c>CompletenessAccuracyPct</c> divide by, kept so the regression check can tell how much chance moves each of them.
+/// <c>TimeToFirstResultsP50Ms</c> and <c>TimeToFirstResultsP95Ms</c> are the median and the 95th percentile, over the slice's photos that gave a correct
+/// item, of each photo's own capture to its results (the scanner's speed); <c>TotalTimeToTrustworthyMs</c> is the run's: the first capture to the last result.
 /// </summary>
 public sealed record SliceMetrics(
     int Photos,
@@ -49,7 +51,8 @@ public sealed record SliceMetrics(
     double? ReviewRatePct = null,
     double? AutoAddPrecisionPct = null,
     bool? DuplicateClean = null,
-    long? TimeToFirstResultsMs = null,
+    long? TimeToFirstResultsP50Ms = null,
+    long? TimeToFirstResultsP95Ms = null,
     long? TotalTimeToTrustworthyMs = null,
     int UnreconciledPhotos = 0,
     int ExcessUnreadable = 0,
@@ -88,9 +91,13 @@ public sealed record RegressionItem(string Metric, double Baseline, double Actua
 /// <summary>
 /// The regression check against <c>evals/baseline.json</c>: <c>ok</c>, <c>regressed</c> (a metric moved the wrong way by more than it was allowed to, see <see cref="EvalRegression"/>),
 /// <c>no_baseline</c>, <c>no_overlap</c> (the baseline shares no judged metric with the run, so nothing was compared) or <c>partial_run</c> (the run was cancelled part way, so it is not compared).
-/// <c>Compared</c> counts the metrics that were judged; the raw counts are not.
+/// <c>Compared</c> counts the metrics that were judged; the raw counts are not. <c>Skipped</c> lists the baseline metrics that were not compared because
+/// their definition changed since the baseline was taken (null in a result file from before it was recorded, and none when the baseline is current).
 /// </summary>
-public sealed record RegressionCheck(string Status, int Compared, IReadOnlyList<RegressionItem> Regressions);
+public sealed record RegressionCheck(string Status, int Compared, IReadOnlyList<RegressionItem> Regressions, IReadOnlyList<RegressionSkip>? Skipped = null);
+
+/// <summary>A baseline metric the check did not compare, and why: its definition changed, so the baseline's number and this run's are not the same measure.</summary>
+public sealed record RegressionSkip(string Metric, string Reason);
 
 /// <summary>
 /// Marks a run the PC made by itself from the phone readings of an earlier run: that run's id and when the phone read it. A run with this was

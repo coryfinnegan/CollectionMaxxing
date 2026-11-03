@@ -10889,6 +10889,15 @@
             "items": {
               "$ref": "#/components/schemas/RegressionItem"
             }
+          },
+          "skipped": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RegressionSkip"
+            }
           }
         }
       },
@@ -10920,6 +10929,21 @@
             "type": "number",
             "format": "double",
             "default": 2
+          }
+        }
+      },
+      "RegressionSkip": {
+        "required": [
+          "metric",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
           }
         }
       },
@@ -11794,7 +11818,14 @@
               "boolean"
             ]
           },
-          "timeToFirstResultsMs": {
+          "timeToFirstResultsP50Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "timeToFirstResultsP95Ms": {
             "type": [
               "null",
               "integer"
