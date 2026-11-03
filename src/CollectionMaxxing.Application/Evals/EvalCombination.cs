@@ -53,12 +53,30 @@ namespace CollectionMaxxing.Application.Evals;
 /// model's failure as its <c>FellBackFrom</c>, the way the scanner records such a snap: it is not a timeout, error or refusal of
 /// its own, the model row reports those; its total time still includes the wait for the model. When Vision failed and the model answered, the items are the model's.
 /// </para>
+/// <para>
+/// The captured segments the phone counted are counted here only while a read of them stands in the shown items: the model's while at
+/// least one model read stands, Vision's while at least one Vision read stands. Since a title only the model read is dropped when the
+/// print does not back it, a shelf can show none of the model's reads; the shot was captured once, Vision's reads account for it, and
+/// the scanner deliberately shows no row for the unbacked read, so the dropped read's segment is not a gap. A segment with standing
+/// reads is still counted, and one the phone counted that carries no read at all is still reported as unaccounted for.
+/// </para>
+/// <para>
+/// A single cover or loose item is read by the model alone (<c>EngineSelector.read</c>), and when the model fails there (a timeout
+/// with nothing read, a refusal, a context overflow or an error: <c>ModelUnusableError</c> and the catch around the picture read) the
+/// scanner tries the text tier (<c>fm_text</c>) and then Vision's own reading. So the combined row of such a photo is the <c>fm_text</c>
+/// row when it answered, else the <c>vision_pipeline</c> row when it answered, either with the model's failure as its
+/// <c>FellBackFrom</c> and the model row's own time as its time (the phone times <c>selector.read</c>, which runs the fallback inside
+/// that call, so it is already the whole wait); only when neither answered is it the model's failure,
+/// as the model's own row says. A model that answered, even with nothing, is the combined row whole. The gate's
+/// <c>model_timeouts</c> still reads the model's own row.
+/// </para>
 /// </remarks>
 public static class EvalCombination
 {
     /// <summary>The engine name the combination is reported under, next to the three the phone reads.</summary>
     public const string Engine = "apple_vision";
 
+    private const string TextEngine = "fm_text";
     private const string Ok = "ok";
     private const string Timeout = "timeout";
     private const string Refused = "refused";
@@ -69,7 +87,8 @@ public static class EvalCombination
     /// <summary>
     /// One combined photo for every photo that has both an <c>apple_model</c> and a <c>vision_pipeline</c> row (and a truth file).
     /// A single-item picture (the single set, or a shelf-set photo labelled a single cover or a loose item) is not combined in
-    /// the scanner, so its combined row is the model's own row whole (items, tiers, cover cue, time, thermal state).
+    /// the scanner, so its combined row is the model's own row whole (items, tiers, cover cue, time, thermal state); when the model
+    /// failed on it, the row of the tier the scanner fell back to (<see cref="AfterTheModelFellThrough"/>).
     /// </summary>
     public static IReadOnlyList<GroundedPhoto> Of(IReadOnlyList<GroundedPhoto> photos, IReadOnlyDictionary<string, TruthEntry> truths)
     {
@@ -79,12 +98,18 @@ public static class EvalCombination
             visionRows.TryAdd(photo.PhotoId, photo);
         }
 
+        var textRows = new Dictionary<string, GroundedPhoto>(StringComparer.Ordinal);
+        foreach (var photo in photos.Where(p => p.Engine == TextEngine))
+        {
+            textRows.TryAdd(photo.PhotoId, photo);
+        }
+
         var combined = new List<GroundedPhoto>();
         foreach (var apple in photos.Where(p => p.Engine == M3Gate.Engine))
         {
             if (truths.TryGetValue(apple.PhotoId, out var truth) && visionRows.TryGetValue(apple.PhotoId, out var vision))
             {
-                combined.Add(Combine(apple, vision, IsShelfShot(truth)));
+                combined.Add(Combine(apple, textRows.GetValueOrDefault(apple.PhotoId), vision, IsShelfShot(truth)));
             }
         }
 
@@ -95,11 +120,11 @@ public static class EvalCombination
     private static bool IsShelfShot(TruthEntry truth) =>
         truth.Set == GoldenSets.Shelf && truth.ShotKind is not ("single_cover" or "loose_item");
 
-    private static GroundedPhoto Combine(GroundedPhoto apple, GroundedPhoto vision, bool shelf)
+    private static GroundedPhoto Combine(GroundedPhoto apple, GroundedPhoto? text, GroundedPhoto vision, bool shelf)
     {
         if (!shelf)
         {
-            return apple with { Engine = Engine };
+            return apple.Outcome == Ok ? apple with { Engine = Engine } : AfterTheModelFellThrough(apple, text, vision);
         }
 
         // The model failed and Vision read: the scanner shows Vision's reading, and the model's failure is the fellBackFrom.
@@ -116,18 +141,17 @@ public static class EvalCombination
         // one snap with Vision.
         var modelItems = apple.ItemsLentPrint ?? apple.Items;
 
-        var visionOnly = both && vision.Items.Any(visionItem => !modelItems.Any(model => SameItem(model, visionItem)));
-
         // The shelf's own print: every word of every line Vision read on the shot. A run from before the phone sent its lines, or a shelf
         // Vision read no text on, has no print to check against, so every model read stands, as it did before.
         var printed = both && vision.OcrLines is { Count: > 0 } lines ? PrintSupport.PrintedWords(lines.Select(line => line.Text)) : null;
+        var shown = both ? Settled(WithKindsLent(vision.Items, modelItems, EnumText.ParseOrNull<WorkKind>(vision.PrintKind)), modelItems, printed) : null;
         return apple with
         {
             Engine = Engine,
 
             // Vision's reads and the model's, one item per place: the read of a place that grounds better is the row shown, and a
             // Vision read that named no kind carries the one the model gave its place.
-            Items = both ? Settled(WithKindsLent(vision.Items, modelItems, EnumText.ParseOrNull<WorkKind>(vision.PrintKind)), modelItems, printed) : modelItems,
+            Items = shown?.Items ?? modelItems,
 
             // The scanner reads with Vision and then the model, one after the other, so the combined read took both. The first item
             // is Vision's (its own first-item time, or its whole read when it sent none). The outcome and the unreadable count are
@@ -136,9 +160,9 @@ public static class EvalCombination
             FirstItemMs = FirstItemOf(apple, vision, both),
             ThermalState = vision.ThermalState,
 
-            // Vision items the model did not read are segments the model did not capture, so the captured count (when the phone
-            // sent one) grows by that read.
-            CapturedCount = apple.CapturedCount > 0 && visionOnly ? apple.CapturedCount + 1 : apple.CapturedCount,
+            // The segments the shown items carry (when the phone sent a count): the model's while a model read stands, Vision's while
+            // a Vision read stands. Either engine failing, the items are the model's own and so is the count.
+            CapturedCount = shown is null ? apple.CapturedCount : CapturedOf(apple, shown),
 
             // The lent regrounding is already folded into Items above; the combined row carries neither it nor a print of its own.
             ItemsLentPrint = null,
@@ -170,6 +194,39 @@ public static class EvalCombination
             CoverCue = null,
             PrintKind = null,
         };
+
+    /// <summary>
+    /// The scanner's snap when the model failed on a single cover (<c>EngineSelector.read</c>): the text tier reads what Vision's text
+    /// found (<c>fm_text</c>), and when that fails too Vision's own reading stands. A model that answers, even with nothing, is not a
+    /// failure, and a timeout that kept items is an answer: only a timeout with nothing read, a refusal, a context overflow or an
+    /// error falls through (<c>ModelUnusableError</c> and the catch around the picture read). The fallback row is the snap whole, with the
+    /// model's failure as its <c>FellBackFrom</c> (the reason the phone sent, else the one its outcome says), and the total is the
+    /// model row's own time: the phone times the whole <c>selector.read</c> call, which runs the fallback inside it, so adding the
+    /// fallback row's time would count it twice. When items were read the first item is shown by the end of that read (no earlier time
+    /// is known). When neither fallback row answered the combined row is the model's own failure, as it was. The gate's
+    /// <c>model_timeouts</c> still reads the model's own row.
+    /// </summary>
+    private static GroundedPhoto AfterTheModelFellThrough(GroundedPhoto apple, GroundedPhoto? text, GroundedPhoto vision)
+    {
+        var fallback = text is { Outcome: Ok } ? text : vision.Outcome == Ok ? vision : null;
+        if (fallback is null)
+        {
+            return apple with { Engine = Engine };
+        }
+
+        return fallback with
+        {
+            Engine = Engine,
+            FellBackFrom = apple.FellBackFrom ?? FellBackFromOutcome(apple.Outcome),
+            LatencyMs = apple.LatencyMs,
+            FirstItemMs = fallback.Items.Count > 0 ? apple.LatencyMs : null,
+            DuplicateRescan = fallback.DuplicateRescan ?? apple.DuplicateRescan,
+
+            // Vision's OCR lines belong to its own row.
+            OcrLines = null,
+            OcrPieces = null,
+        };
+    }
 
     /// <summary>Why a model row that sent no reason failed, in the scanner's words: a refusal is declined, a timeout a timeout, anything else unavailable.</summary>
     private static string FellBackFromOutcome(string outcome) => EnumText.ToText(
@@ -205,7 +262,7 @@ public static class EvalCombination
     /// (<see cref="PrintSupport.Supports"/>, <paramref name="printed"/>), as the app adds it only then. A read at a Vision item's
     /// place is that place's contest as above, whatever it printed. With no <paramref name="printed"/>, every read stands.
     /// </summary>
-    private static List<GroundedItem> Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model, IReadOnlySet<string>? printed)
+    private static Shown Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model, IReadOnlySet<string>? printed)
     {
         var modelReads = model
             .Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem)))
@@ -222,6 +279,8 @@ public static class EvalCombination
         var weaker = ReadPlaces.Weaker(placed).ToHashSet();
         var confirmed = ReadPlaces.Confirmed(placed).ToHashSet();
         var kept = new List<GroundedItem>(reads.Count - weaker.Count);
+        var visionStands = false;
+        var modelStands = false;
         for (var i = 0; i < reads.Count; i++)
         {
             if (weaker.Contains(i))
@@ -229,10 +288,36 @@ public static class EvalCombination
                 continue;
             }
 
+            // The reads are Vision's first, then the model's: which engine a standing read is from is where it sat in that list.
+            visionStands |= i < vision.Count;
+            modelStands |= i >= vision.Count;
             kept.Add(confirmed.Contains(i) ? reads[i] with { Unconfirmed = false } : reads[i]);
         }
 
-        return kept;
+        return new Shown(kept, visionStands, modelStands);
+    }
+
+    /// <summary>The shelf's items, and whether any read of each engine is among them (a segment is accounted for only by a read that stands).</summary>
+    private sealed record Shown(List<GroundedItem> Items, bool VisionStands, bool ModelStands);
+
+    /// <summary>
+    /// The captured segments of the shelf as it is shown. The phone counts what each engine captured (a read is one segment, shared by
+    /// its items, plus the spines it called unreadable), and the combined row reports the model's unreadable spines as the snap does. A
+    /// segment is counted only while a read of it stands in the shown items: the model's when at least one model read stands, Vision's
+    /// when at least one Vision read stands. A segment whose every read was dropped (a model title the print does not back, a read that
+    /// lost its place) has left the shelf, and the scorer, which counts the segments the shown items carry, would otherwise report a
+    /// gap the scanner never had. A segment the phone counted that carries no read at all is still a gap, and is still reported.
+    /// 0 stays 0: the phone sent no count, so there is nothing to reconcile.
+    /// </summary>
+    private static int CapturedOf(GroundedPhoto apple, Shown shown)
+    {
+        if (apple.CapturedCount <= 0)
+        {
+            return apple.CapturedCount;
+        }
+
+        var modelSegments = Math.Max(0, apple.CapturedCount - apple.UnreadableCount);
+        return apple.UnreadableCount + (shown.ModelStands ? modelSegments : 0) + (shown.VisionStands ? 1 : 0);
     }
 
     /// <summary>
@@ -243,7 +328,7 @@ public static class EvalCombination
         new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead, BookOf(item));
 
     /// <summary>The release a read's best option names, its normalised title and year, as a single key; null when it has none.</summary>
-    private static string? BookOf(GroundedItem item) => KeyOf(item) is { } key ? $"{key.Title} {key.Year}" : null;
+    private static string? BookOf(GroundedItem item) => KeyOf(item) is { } key ? $"{key.Title}\0{key.Year}" : null;
 
     /// <summary>The verdict the phone's run recorded, on the ladder a place is settled by. A verdict still pending grounds nothing yet.</summary>
     private static ReadGrounding GroundingOf(string verdict) => verdict switch
@@ -264,8 +349,8 @@ public static class EvalCombination
     /// <summary>
     /// Whether a model item and a Vision item are the same item on the shelf. With a box on both, the same item is the same place
     /// (whatever each read there); without one on either side, the same item is the same best release. A read with no release
-    /// to compare is never the same item by title. Only the captured-segment count asks this: what the shelf shows is settled
-    /// one place at a time (<see cref="Settled"/>).
+    /// to compare is never the same item by title. Only the print check asks this (a read at a Vision item's place is not checked):
+    /// what the shelf shows is settled one place at a time (<see cref="Settled"/>).
     /// </summary>
     private static bool SameItem(GroundedItem model, GroundedItem vision) =>
         model.Box is { } modelBox && vision.Box is { } visionBox
