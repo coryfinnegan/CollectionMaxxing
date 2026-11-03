@@ -42,6 +42,17 @@ public static class SeriesNeighbour
     /// <summary>The trace step a read asked again with its neighbour's series carries (and the step of one whose ask ran out of time).</summary>
     public const string StepName = "series";
 
+    /// <summary>
+    /// The time the series round has, whoever runs it: the asks of every read that has a series to ask with share it, counted from
+    /// the moment the round starts. It is the round's own, not what is left of the request's budget, and the eval grounder uses the
+    /// same one, so the eval measures what a person scanning can be given. The pending job cannot make this pass (a stored read has
+    /// no box), so a round that runs out leaves every answer as it was; nothing is made Pending for it.
+    /// </summary>
+    public static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>The most releases an answer offers: the usual three.</summary>
+    public const int MaxOptions = 3;
+
     /// <summary>A read needs at least this many letters to be worth asking with a series in front.</summary>
     public const int MinLetters = 4;
 
@@ -139,6 +150,27 @@ public static class SeriesNeighbour
             && $" {title} ".Contains($" {seriesKey} ", StringComparison.Ordinal)
             && title.Contains(readKey, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The options of an answer the series ask found something for: the releases the series named first, then the read's own options
+    /// that they do not repeat, at most <see cref="MaxOptions"/>. A read that had options keeps at least its best one: when the
+    /// series names more than fit, the last of them gives its place up, because a subtitle read alone is better guessed with its
+    /// series but that does not make the release it found wrong, and the person must still be able to pick it. A release is the
+    /// same release when it is the same catalogue release, or the same provider's release. Pure.
+    /// </summary>
+    public static IReadOnlyList<ResolutionOption> WithOriginals(IReadOnlyList<ResolutionOption> named, IReadOnlyList<ResolutionOption> original)
+    {
+        ArgumentNullException.ThrowIfNull(named);
+        ArgumentNullException.ThrowIfNull(original);
+
+        var kept = original.Where(own => !named.Any(found => SameRelease(found, own))).ToList();
+        return [.. named.Take(MaxOptions - Math.Min(kept.Count, 1)).Concat(kept).Take(MaxOptions)];
+    }
+
+    private static bool SameRelease(ResolutionOption one, ResolutionOption other) =>
+        one.LocalReleaseId is { } id
+            ? one.LocalReleaseId == other.LocalReleaseId
+            : one.Provider is { } provider && other.Provider is { } theirs && provider.Provider == theirs.Provider && provider.ExternalId == theirs.ExternalId;
 
     /// <summary>The titles of the releases (by id) the catalogue holds, for the reads whose best release is one of them. Uses the database: one call at a time.</summary>
     internal static async Task<IReadOnlyDictionary<Guid, string>> LocalTitlesAsync(

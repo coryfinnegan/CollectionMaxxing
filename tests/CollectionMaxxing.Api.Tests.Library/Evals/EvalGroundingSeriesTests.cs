@@ -69,7 +69,33 @@ public class EvalGroundingSeriesTests(ApiFixture api) : EvalTest(api)
         eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
         eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
         Resolution(live[1]).ShouldBe("ambiguous"); // and it was the series ask that found the film
-        eval[1].Candidates.Select(c => c.Title).ShouldBe(["Star Trek: Nemesis"]);
+        eval[1].Candidates.Select(c => c.Title).ShouldBe(["Star Trek: Nemesis", "Nemesis", "Nemesis"]);
+    }
+
+    [Fact]
+    public async Task The_eval_and_identify_leave_a_shelf_as_it_was_when_the_series_round_runs_out_of_time()
+    {
+        var provider = new ScriptedByTitle()
+            .Know("STAR TREK FIRST CONTACT", Release("Star Trek: First Contact", WorkKind.Film, "f1", 1996))
+            .Know("nEMESIS", Release("Nemesis", WorkKind.Film, "n1", 1998), Release("Nemesis", WorkKind.Film, "n2", 2005))
+            .Know("Star Trek nEMESIS", Release("Star Trek: Nemesis", WorkKind.Film, "f2", 2002));
+        provider.Hangs = title => title == "Star Trek nEMESIS"; // the series round has the same fixed budget in both, and then stops
+        ConfigureServices = services =>
+        {
+            services.RemoveAll<ICatalogProvider>();
+            services.AddSingleton<ICatalogProvider>(provider);
+        };
+        var library = await CreateLibraryAsync();
+        var client = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id);
+
+        var eval = await GroundedByTheEvalAsync(StarTrekShelf);
+        var live = await IdentifiedAsync(client, sessionId, StarTrekShelf);
+
+        eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
+        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
+        AlternativeTitles(live[1]).ShouldBe(["Nemesis", "Nemesis"]);
+        (await SeriesStepsOfAsync(live[1])).ShouldBeEmpty();
     }
 
     [Fact]
@@ -90,7 +116,7 @@ public class EvalGroundingSeriesTests(ApiFixture api) : EvalTest(api)
 
         eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
         eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
-        AlternativeTitles(live[1]).ShouldBe(["Star Trek: Nemesis"]);
+        AlternativeTitles(live[1]).ShouldBe(["Star Trek: Nemesis", "Nemesis", "Nemesis"]);
         (await SeriesStepsOfAsync(live[1])).ShouldBe(["Star Trek nEMESIS (series: Star Trek)"]); // and it was the series ask that found it
     }
 

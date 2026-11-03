@@ -72,7 +72,7 @@ public class IdentifySeriesNeighbourTests(ApiFixture api) : IdentifyTest(api)
 
         Resolution(shelf[0]).ShouldBe("matched");
         Resolution(shelf[1]).ShouldBe("ambiguous");
-        AlternativeTitles(shelf[1]).ShouldBe(["Star Trek: Nemesis"]);
+        AlternativeTitles(shelf[1]).ShouldBe(["Star Trek: Nemesis", "Nemesis", "Nemesis"]); // the film first, the novels it found after it
         Decision(shelf[1]).ShouldBe("undecided");
         shelf[1].GetProperty("release").ValueKind.ShouldBe(JsonValueKind.Null);
         (await StepsOfAsync(shelf[1], "series")).ShouldBe(["Star Trek nEMESIS (series: Star Trek)"]);
@@ -164,33 +164,31 @@ public class IdentifySeriesNeighbourTests(ApiFixture api) : IdentifyTest(api)
 
     // ---- the budget ----------------------------------------------------------------------------------------------------------------
 
+    // The series round has its own fixed budget (SeriesNeighbour.Budget), whatever is left of the request's: the pending job cannot
+    // make this pass (a stored read has no box), so a round that runs out leaves every answer as it was, never Pending. The request
+    // budget stays at the default two minutes in these tests, so a search that never answers ends the request only because the
+    // series round's own budget cancels it.
+
     [Fact]
-    public async Task A_series_ask_the_budget_cut_short_leaves_the_read_pending_and_the_job_finishes_it_without_the_series()
+    public async Task A_series_round_that_ran_out_of_time_leaves_a_read_that_found_nothing_not_found()
     {
-        Options.ResolveBudget = TimeSpan.FromSeconds(2);
-        Options.JobResolveBudget = TimeSpan.FromSeconds(30);
         StarTrekShelf();
         _provider.Hangs = title => title == "Star Trek nEMESIS";
         var (client, sessionId, _) = await StartAsync(autoAdd: false);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
 
         var shelf = await IdentifyOkAsync(client, sessionId, Shelf("film", Spine("STAR TREK FIRST CONTACT", 0.30), Spine("nEMESIS", 0.36)));
 
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(30)); // the series round ended itself; the request budget is two minutes
         Resolution(shelf[0]).ShouldBe("matched");
-        Resolution(shelf[1]).ShouldBe("pending");
-        (await StepsOfAsync(shelf[1], "series")).ShouldBe(["cut_short"]);
-
-        // The background job grounds one read on its own: a stored read has no box, so it cannot ask with a neighbour's series.
-        _provider.Hangs = null;
-        await RunNextJobAsync();
-        var stored = (await GetSessionAsync(client, sessionId)).GetProperty("candidates");
-        var spine = stored.EnumerateArray().Single(c => c.GetProperty("visibleText").GetString() == "nEMESIS");
-        Resolution(spine).ShouldBe("not_found");
+        Resolution(shelf[1]).ShouldBe("not_found");
+        (await StepsOfAsync(shelf[1], "series")).ShouldBeEmpty();
+        _provider.Asked.ShouldContain("Star Trek nEMESIS");
     }
 
     [Fact]
-    public async Task An_ambiguous_read_whose_series_ask_the_budget_cut_short_keeps_its_answer()
+    public async Task A_series_round_that_ran_out_of_time_leaves_an_ambiguous_read_with_its_options()
     {
-        Options.ResolveBudget = TimeSpan.FromSeconds(2);
         StarTrekShelf().Know("nEMESIS", Release("Nemesis", WorkKind.Film, "n1", 1998), Release("Nemesis", WorkKind.Film, "n2", 2005));
         _provider.Hangs = title => title == "Star Trek nEMESIS";
         var (client, sessionId, _) = await StartAsync(autoAdd: false);
@@ -199,5 +197,23 @@ public class IdentifySeriesNeighbourTests(ApiFixture api) : IdentifyTest(api)
 
         Resolution(shelf[1]).ShouldBe("ambiguous");
         AlternativeTitles(shelf[1]).ShouldBe(["Nemesis", "Nemesis"]);
+    }
+
+    // ---- an ambiguous read keeps its own options ------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task An_ambiguous_voyager_beside_a_Star_Trek_film_is_offered_the_series_find_first_and_still_the_novel()
+    {
+        _provider
+            .Know("STAR TREK FIRST CONTACT", FirstContact)
+            .Know("VOYAGER", Release("Voyager", WorkKind.Film, "v1", 1991), Release("Voyager", WorkKind.Film, "v2", 2001))
+            .Know("Star Trek VOYAGER", Release("Star Trek: Voyager", WorkKind.Film, "v3", 1995));
+        var (client, sessionId, _) = await StartAsync();
+
+        var shelf = await IdentifyOkAsync(client, sessionId, Shelf("film", Spine("STAR TREK FIRST CONTACT", 0.30), Spine("VOYAGER", 0.36)));
+
+        Resolution(shelf[1]).ShouldBe("ambiguous");
+        AlternativeTitles(shelf[1]).ShouldBe(["Star Trek: Voyager", "Voyager", "Voyager"]);
+        Decision(shelf[1]).ShouldBe("undecided");
     }
 }

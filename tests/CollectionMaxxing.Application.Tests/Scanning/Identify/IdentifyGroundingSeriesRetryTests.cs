@@ -122,10 +122,80 @@ public class IdentifyGroundingSeriesRetryTests
             Retry(grounding, asks, "nEMESIS", At(0.36), Ambiguous("Nemesis", 14)));
 
         answers[1].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
-        Titles(answers[1]).ShouldBe(["Star Trek: Nemesis"]);
+        Titles(answers[1]).ShouldBe(["Star Trek: Nemesis", "Nemesis"]); // the film first, and the novel it found is still a pick
         answers[1].FoundByTrimmedSpan.ShouldBeTrue();
         answers[1].Steps.ShouldContain(new TraceStep("series", "Star Trek nEMESIS (series: Star Trek)", 0));
         asks.Facts.Select(f => f.Title).ShouldBe(["Star Trek nEMESIS"]);
+    }
+
+    // ---- an ambiguous read keeps its own options ------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task An_ambiguous_voyager_beside_a_Star_Trek_film_still_offers_the_novel_after_the_series_find()
+    {
+        var grounding = Grounding(new Scripted(false, Release("Star Trek: Voyager", 40), Release("Voyager", 41), Release("Star Trek: First Contact", 12)));
+        var asks = new Asks();
+
+        var answers = await RetryAsync(
+            grounding,
+            Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12)),
+            Retry(grounding, asks, "VOYAGER", At(0.36), Ambiguous("Voyager", 41)));
+
+        answers[1].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answers[1].FoundByTrimmedSpan.ShouldBeTrue();
+        Titles(answers[1]).ShouldBe(["Star Trek: Voyager", "Voyager"]);
+        answers[1].Options[1].Score.ShouldBe(0.7); // the novel keeps the score it was found with
+    }
+
+    [Fact]
+    public async Task A_read_keeps_its_own_best_option_within_the_usual_three_when_the_series_names_more()
+    {
+        var grounding = Grounding(new Scripted(false, Release("Star Trek: Voyager", 40), Release("Star Trek: Voyager II", 42), Release("Star Trek: Voyager III", 43)));
+        var asks = new Asks();
+        var own = new BarcodeResolution(
+            ResolutionVerdict.Ambiguous,
+            [new ResolutionOption(null, Release("Voyager", 41), 0.7), new ResolutionOption(null, Release("Voyager Reissue", 44), 0.65)],
+            null,
+            []);
+
+        var answers = await RetryAsync(
+            grounding,
+            Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12)),
+            Retry(grounding, asks, "VOYAGER", At(0.36), own));
+
+        answers[1].Options.Count.ShouldBe(SeriesNeighbour.MaxOptions);
+        Titles(answers[1])[^1].ShouldBe("Voyager");
+        Titles(answers[1])[0].ShouldStartWith("Star Trek: Voyager");
+    }
+
+    [Fact]
+    public async Task A_release_the_read_already_had_and_the_series_names_too_is_offered_once()
+    {
+        var grounding = Grounding(new Scripted(false, Release("Star Trek: Nemesis", 10)));
+        var asks = new Asks();
+        var own = new BarcodeResolution(
+            ResolutionVerdict.Ambiguous,
+            [new ResolutionOption(null, Release("Nemesis", 14), 0.7), new ResolutionOption(null, Release("Star Trek: Nemesis", 10), 0.65)],
+            null,
+            []);
+
+        var answers = await RetryAsync(
+            grounding,
+            Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12)),
+            Retry(grounding, asks, "nEMESIS", At(0.36), own));
+
+        Titles(answers[1]).ShouldBe(["Star Trek: Nemesis", "Nemesis"]);
+    }
+
+    [Fact]
+    public void The_options_of_a_read_come_after_the_ones_the_series_named_without_repeating_a_release()
+    {
+        ResolutionOption Option(int n) => new(null, Release($"Title {n}", n), 0.5);
+
+        SeriesNeighbour.WithOriginals([Option(1), Option(2)], [Option(2), Option(3), Option(4)]).Select(o => o.Provider!.ExternalId).ShouldBe(["r1", "r2", "r3"]);
+        SeriesNeighbour.WithOriginals([Option(1)], []).Select(o => o.Provider!.ExternalId).ShouldBe(["r1"]);
+        SeriesNeighbour.WithOriginals([Option(1), Option(2), Option(3)], [Option(4)]).Select(o => o.Provider!.ExternalId).ShouldBe(["r1", "r2", "r4"]);
+        SeriesNeighbour.WithOriginals([Option(1), Option(2), Option(3)], [Option(1)]).Select(o => o.Provider!.ExternalId).ShouldBe(["r1", "r2", "r3"]);
     }
 
     [Fact]
@@ -313,52 +383,41 @@ public class IdentifyGroundingSeriesRetryTests
 
     // ---- the budget ----------------------------------------------------------------------------------------------------------------
 
+    // The pending job cannot make this pass (a stored read has no box), so a read the round ran out of time for is not left
+    // Pending for it: every answer stays exactly as it was.
+
     [Fact]
-    public async Task A_read_that_found_nothing_goes_pending_when_the_budget_ran_out_before_its_ask()
+    public async Task A_series_round_that_ran_out_of_time_before_its_asks_leaves_every_answer_as_it_was()
     {
         var grounding = Grounding(new Scripted(false, Franchise));
         var asks = new Asks();
         using var spent = new CancellationTokenSource();
         await spent.CancelAsync();
+        var neighbour = Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12), budget: spent.Token);
+        var lost = Retry(grounding, asks, "GENERATIONS", At(0.24), Nothing, budget: spent.Token);
+        var book = Retry(grounding, asks, "nEMESIS", At(0.36), Ambiguous("Nemesis", 14), budget: spent.Token);
 
-        var answers = await RetryAsync(
-            grounding,
-            Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12), budget: spent.Token),
-            Retry(grounding, asks, "nEMESIS", At(0.36), Nothing, budget: spent.Token));
+        var answers = await RetryAsync(grounding, lost, neighbour, book);
 
-        answers[1].Verdict.ShouldBe(ResolutionVerdict.Pending);
-        answers[1].Steps[^1].ShouldBe(new TraceStep("series", "cut_short", 0));
+        answers[0].ShouldBeSameAs(lost.Answer); // NotFound stays NotFound, not Pending
+        answers[0].Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answers[1].ShouldBeSameAs(neighbour.Answer);
+        answers[2].ShouldBeSameAs(book.Answer);
         asks.Facts.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task A_read_that_found_nothing_goes_pending_when_the_providers_could_not_answer_its_ask()
+    public async Task A_read_that_found_nothing_stays_not_found_when_the_providers_could_not_answer_its_ask()
     {
         var grounding = Grounding(new Scripted(down: true));
         var asks = new Asks();
+        var lost = Retry(grounding, asks, "nEMESIS", At(0.36), Nothing);
 
-        var answers = await RetryAsync(
-            grounding,
-            Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12)),
-            Retry(grounding, asks, "nEMESIS", At(0.36), Nothing));
+        var answers = await RetryAsync(grounding, Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12)), lost);
 
-        answers[1].Verdict.ShouldBe(ResolutionVerdict.Pending);
-        answers[1].Steps[^1].ShouldBe(new TraceStep("series", "cut_short", 0));
+        answers[1].ShouldBeSameAs(lost.Answer);
+        answers[1].Verdict.ShouldBe(ResolutionVerdict.NotFound);
         asks.Facts.Count.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task An_ambiguous_read_keeps_its_answer_when_the_budget_cut_its_ask_short()
-    {
-        var grounding = Grounding(new Scripted(false, Franchise));
-        var asks = new Asks();
-        using var spent = new CancellationTokenSource();
-        await spent.CancelAsync();
-        var book = Retry(grounding, asks, "nEMESIS", At(0.36), Ambiguous("Nemesis", 14), budget: spent.Token);
-
-        var answers = await RetryAsync(grounding, Retry(grounding, asks, "STAR TREK FIASI CONTACI", At(0.30), Matched("Star Trek: First Contact", 12), budget: spent.Token), book);
-
-        answers[1].ShouldBeSameAs(book.Answer); // a pickable answer is not worth less because the extra ask had no time
     }
 
     [Fact]

@@ -101,9 +101,9 @@ public class EvalGrounderSeriesTests
     private static EvalReadItemInput[] Shelf(params EvalReadItemInput[] spines) =>
         [.. spines, Spine("ALPHA QUEST", 0.70), Spine("BETA QUEST", 0.80)];
 
-    private static EvalGrounder Grounder(Scripted providers, TimeSpan? jobBudget = null)
+    private static EvalGrounder Grounder(Scripted providers)
     {
-        var scanning = new ScanningOptions { JobResolveBudget = jobBudget ?? TimeSpan.FromSeconds(30) };
+        var scanning = new ScanningOptions { JobResolveBudget = TimeSpan.FromSeconds(30) };
         var resolver = new TextSearchResolver(null!, new Catalogue(), [providers], scanning, NullLogger<TextSearchResolver>.Instance);
         return new EvalGrounder(
             new IdentifyGrounding(resolver, new FixedScoring()), null!, scanning,
@@ -121,7 +121,7 @@ public class EvalGrounderSeriesTests
         items[0].Verdict.ShouldBe("matched");
         items[1].Read!.Profile.ShouldBe("shelf_spine");
         items[1].Verdict.ShouldBe("ambiguous");
-        items[1].Candidates.Select(c => c.Title).ShouldBe(["Star Trek: Nemesis"]);
+        items[1].Candidates.Select(c => c.Title).ShouldBe(["Star Trek: Nemesis", "Nemesis", "Nemesis"]); // the film first, the novels it found after it
         items.Skip(2).Select(i => i.Verdict).ShouldAllBe(v => v == "not_found");
     }
 
@@ -134,7 +134,7 @@ public class EvalGrounderSeriesTests
         var withNeighbour = await GroundAsync(grounder, memo, Shelf(Spine("STAR TREK FIRST CONTACT", 0.30), Spine("nEMESIS", 0.36)));
         var alone = await GroundAsync(grounder, memo, Shelf(Spine("nEMESIS", 0.36), Spine("GAMMA QUEST", 0.45)));
 
-        withNeighbour[1].Candidates.Select(c => c.Title).ShouldBe(["Star Trek: Nemesis"]);
+        withNeighbour[1].Candidates.Select(c => c.Title).ShouldBe(["Star Trek: Nemesis", "Nemesis", "Nemesis"]);
         alone[0].Verdict.ShouldBe("ambiguous");
         alone[0].Candidates.Select(c => c.Title).ShouldBe(["Nemesis", "Nemesis"]); // the read as it stands alone, from the memo
         memo.Reused.ShouldBeGreaterThan(0);
@@ -161,17 +161,35 @@ public class EvalGrounderSeriesTests
         providers.Titles.ShouldNotContain(title => title.Equals("Star Trek nEMESIS", StringComparison.OrdinalIgnoreCase));
     }
 
+    // The series round has its own fixed budget (SeriesNeighbour.Budget), the one /identify gives it, not the patient one the first
+    // asks get: the eval measures what a person scanning could be given. A round that runs out leaves every answer as it was.
+
     [Fact]
-    public async Task A_series_ask_the_patient_budget_cut_short_leaves_a_read_that_found_nothing_pending()
+    public async Task A_series_round_that_ran_out_of_time_leaves_a_read_that_found_nothing_not_found_after_the_live_budget_not_the_jobs()
     {
         var providers = new Scripted()
             .Know("STAR TREK FIRST CONTACT", Release("Star Trek: First Contact", "f1", 1996));
         providers.Hangs = "Star Trek nEMESIS";
+        var clock = System.Diagnostics.Stopwatch.StartNew();
 
-        var items = await GroundAsync(Grounder(providers, jobBudget: TimeSpan.FromMilliseconds(400)), new EvalGroundingMemo(), Shelf(Spine("STAR TREK FIRST CONTACT", 0.30), Spine("nEMESIS", 0.36)));
+        var items = await GroundAsync(Grounder(providers), new EvalGroundingMemo(), Shelf(Spine("STAR TREK FIRST CONTACT", 0.30), Spine("nEMESIS", 0.36)));
 
         items[0].Verdict.ShouldBe("matched");
-        items[1].Verdict.ShouldBe("pending");
+        items[1].Verdict.ShouldBe("not_found"); // and not pending: nothing could finish it later
+        providers.Titles.ShouldContain("Star Trek nEMESIS");
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10)); // the job budget of the grounder is 30 s; the series round took its own
+    }
+
+    [Fact]
+    public async Task A_series_round_that_ran_out_of_time_leaves_an_ambiguous_read_with_its_options()
+    {
+        var providers = StarTrek();
+        providers.Hangs = "Star Trek nEMESIS";
+
+        var items = await GroundAsync(Grounder(providers), new EvalGroundingMemo(), Shelf(Spine("STAR TREK FIRST CONTACT", 0.30), Spine("nEMESIS", 0.36)));
+
+        items[1].Verdict.ShouldBe("ambiguous");
+        items[1].Candidates.Select(c => c.Title).ShouldBe(["Nemesis", "Nemesis"]);
     }
 
     [Fact]

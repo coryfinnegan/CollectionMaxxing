@@ -431,19 +431,23 @@ public static class IdentifyItems
                 local[toAsk[i].Candidate.Id] = pools[i];
             }
 
-            // The reads of the picture are asked within one budget and the same places, and so is the pass over the whole picture
-            // after them: a spine that is only a series' subtitle, asked again with the series its neighbour carries.
+            // The reads of the picture are asked within one budget. Then the pass over the whole picture: a spine that is only a
+            // series' subtitle, asked again with the series its neighbour carries, within a budget of its own (the same one the eval
+            // gives it): the pending job cannot make this pass, so what is left of this request's budget is not what it is given.
             using (ProviderCalls.FailFast()) // a person is waiting
             {
-                using var round = new AskRound(options, cancellationToken);
-                foreach (var (candidate, answer) in await GroundTextAsync(toAsk, local, round, cancellationToken))
+                using (var round = new AskRound(options, cancellationToken))
                 {
-                    answers[candidate.Id] = answer;
+                    foreach (var (candidate, answer) in await GroundTextAsync(toAsk, local, round, cancellationToken))
+                    {
+                        answers[candidate.Id] = answer;
+                    }
                 }
 
+                using var seriesRound = new AskRound(options, cancellationToken, SeriesNeighbour.Budget);
                 var withSeries = await grounding.RetrySeriesAsync(
                     [.. fresh.Select(f => new SeriesRetry(
-                        f.Item.Facts, f.Item.Profile, f.Item.Box, answers[f.Candidate.Id], facts => AskOneAsync(facts, round, cancellationToken), round.Budget.Token))],
+                        f.Item.Facts, f.Item.Profile, f.Item.Box, answers[f.Candidate.Id], facts => AskOneAsync(facts, seriesRound, cancellationToken), seriesRound.Budget.Token))],
                     (releaseIds, token) => SeriesNeighbour.LocalTitlesAsync(db, releaseIds, token),
                     cancellationToken);
                 for (var i = 0; i < fresh.Count; i++)
@@ -612,13 +616,13 @@ public static class IdentifyItems
             }
         }
 
-        /// <summary>The time and places the provider asks of one picture share: the request's budget, counted from when the round starts, and at most <c>Parallelism</c> asks at once.</summary>
+        /// <summary>The time and places the provider asks of one round share: the request's budget (or the one given), counted from when the round starts, and at most <c>Parallelism</c> asks at once.</summary>
         private sealed class AskRound : IDisposable
         {
-            public AskRound(ScanningOptions options, CancellationToken cancellationToken)
+            public AskRound(ScanningOptions options, CancellationToken cancellationToken, TimeSpan? budget = null)
             {
                 Budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                Budget.CancelAfter(options.ResolveBudget);
+                Budget.CancelAfter(budget ?? options.ResolveBudget);
                 Gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
                 Started = Stopwatch.GetTimestamp();
             }

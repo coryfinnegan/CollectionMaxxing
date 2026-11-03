@@ -206,39 +206,49 @@ public sealed class EvalGrounder(
 
     /// <summary>
     /// The series pass of <c>/identify</c> over the photo's reads, once each is grounded (<see cref="IdentifyGrounding.RetrySeriesAsync"/>):
-    /// a spine that is only a series' subtitle is asked again with the series its neighbour carries, offered and never matched. No one
-    /// is waiting on an eval, so each ask gets a patient budget (the background job's, scaled for the asks in flight), counted from
-    /// the moment its ask starts on the injected clock, within the same places as the first asks. The catalogue is asked after the
+    /// a spine that is only a series' subtitle is asked again with the series its neighbour carries, offered and never matched. The
+    /// round has the budget <c>/identify</c> gives it (<see cref="SeriesNeighbour.Budget"/>, counted from when the round starts, on
+    /// the injected clock) and the places it has (<see cref="ScanningOptions.Parallelism"/>), not the patient budget of the first
+    /// asks: the pending job cannot make this pass, so a person scanning is only ever given this much, and the eval measures that.
+    /// A round that runs out leaves the answers as they were. The catalogue is asked after the
     /// first asks are done, so it needs no gate. The answers are the photo's own and are not remembered by the run: they depend on
     /// the neighbours.
     /// </summary>
     private async Task<IReadOnlyList<BarcodeResolution>> RetrySeriesAsync(
         List<CleanItem> cleaned, IReadOnlyList<BarcodeResolution> answers, CancellationToken cancellationToken)
     {
-        var places = Math.Min(Math.Max(1, evals.Value.GroundingParallelism), cleaned.Count);
-        var budget = options.JobResolveBudget * places;
-        using var gate = new SemaphoreSlim(places);
+        using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
+        using var expiry = new CancellationTokenSource(SeriesNeighbour.Budget, time);
+        using var round = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
         return await grounding.RetrySeriesAsync(
-            [.. cleaned.Select((c, i) => new SeriesRetry(c.Facts, c.Profile, c.Box, answers[i], facts => AskSeriesAsync(facts, gate, budget, cancellationToken), CancellationToken.None))],
+            [.. cleaned.Select((c, i) => new SeriesRetry(c.Facts, c.Profile, c.Box, answers[i], facts => AskSeriesAsync(facts, gate, round.Token, cancellationToken), round.Token))],
             (releaseIds, token) => SeriesNeighbour.LocalTitlesAsync(db, releaseIds, token),
             cancellationToken);
     }
 
-    /// <summary>Asks the providers about one series ask once a place frees up, within its own patient budget. An ask cut short by the call being cancelled is no answer: it throws.</summary>
-    private async Task<ProviderAnswers> AskSeriesAsync(ReadFacts facts, SemaphoreSlim gate, TimeSpan budget, CancellationToken cancellationToken)
+    /// <summary>
+    /// Asks the providers about one series ask once a place frees up, within the round's budget; an ask the budget runs out on is a
+    /// failed answer (the read keeps the answer it had). An ask cut short by the call being cancelled is no answer: it throws.
+    /// </summary>
+    private async Task<ProviderAnswers> AskSeriesAsync(ReadFacts facts, SemaphoreSlim gate, CancellationToken budget, CancellationToken cancellationToken)
     {
-        await gate.WaitAsync(cancellationToken);
         try
         {
-            using var expiry = new CancellationTokenSource(budget, time);
-            using var asking = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
-            var providers = await grounding.AskProvidersAsync(facts, cancellationToken, asking.Token);
-            cancellationToken.ThrowIfCancellationRequested(); // an ask cut short by the app stopping may hand back a thin answer: never use it
-            return providers;
+            await gate.WaitAsync(budget);
+            try
+            {
+                var providers = await grounding.AskProvidersAsync(facts, cancellationToken, budget);
+                cancellationToken.ThrowIfCancellationRequested(); // an ask cut short by the app stopping may hand back a thin answer: never use it
+                return providers;
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
-        finally
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            gate.Release();
+            return new ProviderAnswers([], [new TraceStep("budget", "timeout", 0)], true);
         }
     }
 

@@ -343,14 +343,14 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// (<see cref="SeriesNeighbour"/>): "Star Trek nEMESIS", "A Court of ILVER FLAMES". It needs the neighbours' answers, so it is
     /// a pass over a whole shot after every read has been grounded and has had its own retries (<see cref="RetryTrimmedAsync"/>), not
     /// a retry of one read. The answers come back in the order of <paramref name="reads"/>, each the one it had unless the ask named
-    /// a release whose title holds both the series and the words read (or the budget cut the ask short, which makes a read that
-    /// found nothing Pending).
+    /// a release whose title holds both the series and the words read.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Only a spine with a box that found nothing, or only an ambiguous answer whose best release carries no series, is asked, and
     /// only when a neighbour (the spine to its left or right, or the leading words both share) names a series. A Matched read is
-    /// never asked again. A read is asked at most once, within its <see cref="SeriesRetry.Budget"/>: the asks are made together
+    /// never asked again. A read is asked at most once, within its <see cref="SeriesRetry.Budget"/> (<see cref="SeriesNeighbour.Budget"/>,
+    /// the round's own, the same wherever the pass runs): the asks are made together
     /// (one catalogue call for all of them, then the providers through each read's <see cref="SeriesRetry.Ask"/>). The neighbours
     /// are judged on the answers the reads had when the pass began, so one read's find never becomes another's series.
     /// <paramref name="localTitles"/> gives the title of a catalogue release (an answer's option only holds its id); it is called
@@ -360,10 +360,16 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// What the ask finds is offered, never decided, as for a trimmed span: only the releases whose titles name the series and the
     /// words read are kept, the verdict is capped at Ambiguous, the answer is flagged
     /// (<see cref="BarcodeResolution.FoundByTrimmedSpan"/>) and its trace says which series was put in front (a <c>series</c> step).
-    /// An ask that names nothing leaves the read's answer as it was (the same object). An ask the budget cut short, or the providers
-    /// could not answer, leaves a read that found nothing <b>Pending</b> (a <c>series</c> step, <c>cut_short</c>); a read that had
-    /// an ambiguous answer keeps it, because that answer is already a find the person can pick from and the background job cannot
-    /// finish this pass: <see cref="ResolvePendingIdentify"/> grounds one read on its own, and a stored read has no box.
+    /// A read that already had an ambiguous answer keeps its own options after the ones the series named
+    /// (<see cref="SeriesNeighbour.WithOriginals"/>): the series find is a better guess for a subtitle read alone, not proof that the
+    /// release the read found was wrong, so the person can still pick it. An ask that names nothing leaves the read's answer as it
+    /// was (the same object).
+    /// </para>
+    /// <para>
+    /// A round that runs out of time, or whose ask the providers could not answer, leaves the read's answer exactly as it was: a
+    /// read that found nothing stays NotFound, never Pending, because nothing could finish it later. <see cref="ResolvePendingIdentify"/>
+    /// grounds one read on its own, and a stored read has no box, so a Pending read would only come back as the same answer after a
+    /// job and a spinner (and as an error, if the providers were down).
     /// </para>
     /// </remarks>
     public async Task<IReadOnlyList<BarcodeResolution>> RetrySeriesAsync(
@@ -382,50 +388,31 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         var titles = await BestTitlesAsync(reads, localTitles, cancellationToken);
         var series = SeriesNeighbour.SeriesFor([.. reads.Select((r, i) => SeriesNeighbour.Of(r.Facts, r.Profile, r.Box, r.Answer, titles[i]))]);
-        var cutShort = new bool[reads.Count];
-        var open = new List<int>();
-        foreach (var i in Enumerable.Range(0, reads.Count).Where(i => series[i] is not null))
+
+        // A read with no time left to make its ask is left as it was.
+        var open = Enumerable.Range(0, reads.Count).Where(i => series[i] is not null && !reads[i].Budget.IsCancellationRequested).ToList();
+        if (open.Count == 0)
         {
-            if (reads[i].Budget.IsCancellationRequested)
-            {
-                cutShort[i] = true; // a read with an ask to make and no time to make it has not finished
-            }
-            else
-            {
-                open.Add(i);
-            }
+            return answers;
         }
 
-        if (open.Count > 0)
+        var asked = open.Select(i => SeriesAsk(reads[i].Facts, series[i]!)).ToList();
+        var pools = await FindLocalManyAsync(asked, cancellationToken);
+        var scored = await Task.WhenAll(open.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
+        for (var n = 0; n < open.Count; n++)
         {
-            var asked = open.Select(i => SeriesAsk(reads[i].Facts, series[i]!)).ToList();
-            var pools = await FindLocalManyAsync(asked, cancellationToken);
-            var scored = await Task.WhenAll(open.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
-            for (var n = 0; n < open.Count; n++)
+            // An ask the providers could not answer (they failed, or the budget cancelled the call) is Pending, and found nothing.
+            if (scored[n].Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous))
             {
-                var i = open[n];
-                if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
-                {
-                    var named = scored[n].Options.Where(o => SeriesNeighbour.Names(TitleOf(o, pools[n]), series[i]!, reads[i].Facts.SearchText!)).ToList();
-                    if (named.Count > 0)
-                    {
-                        var why = new TraceStep(SeriesNeighbour.StepName, $"{asked[n].Title} (series: {series[i]})", 0);
-                        answers[i] = Offered(reads[i].Answer, scored[n] with { Options = named }, why);
-                    }
-                }
-                else
-                {
-                    // An ask the providers could not answer (they failed, or the budget cancelled the call) was not really made.
-                    cutShort[i] = scored[n].Verdict == ResolutionVerdict.Pending;
-                }
+                continue;
             }
-        }
 
-        for (var i = 0; i < answers.Length; i++)
-        {
-            if (cutShort[i] && reads[i].Answer.Verdict == ResolutionVerdict.NotFound && ReferenceEquals(answers[i], reads[i].Answer))
+            var i = open[n];
+            var named = scored[n].Options.Where(o => SeriesNeighbour.Names(TitleOf(o, pools[n]), series[i]!, reads[i].Facts.SearchText!)).ToList();
+            if (named.Count > 0)
             {
-                answers[i] = BarcodeResolution.Pending([.. reads[i].Answer.Steps, new TraceStep(SeriesNeighbour.StepName, "cut_short", 0)]);
+                var why = new TraceStep(SeriesNeighbour.StepName, $"{asked[n].Title} (series: {series[i]})", 0);
+                answers[i] = Offered(reads[i].Answer, scored[n] with { Options = SeriesNeighbour.WithOriginals(named, reads[i].Answer.Options) }, why);
             }
         }
 
