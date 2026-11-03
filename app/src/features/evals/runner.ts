@@ -5,6 +5,7 @@
 // It never touches the library: the only requests are the eval routes and the config fetch, and a photo file is deleted the moment it has been read.
 import type { EvalOpenRunStatus, EvalPhotoResult, EvalReadItem, EvalRunPhoto, ScanTier } from '@/api/generated/models';
 import { ApiError } from '@/lib/http';
+import { prepareSnapPhoto, type Resizer } from '@/features/scan/autosnap/snapPhoto';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
 import { toItemBox } from '@/features/scan/recognition/mapping';
@@ -46,7 +47,7 @@ export interface EvalState {
   partial: boolean;
   /** Readings kept on this phone because the PC has not taken them yet. */
   pending: number;
-  /** Photos that could not be downloaded, so were not read. */
+  /** Photos that could not be downloaded or scaled, so were not read. */
   skipped: string[];
   /** Photos the PC would not take, so are left out of the score. */
   refused: string[];
@@ -73,6 +74,11 @@ export interface EvalRunnerDeps {
     download(id: string): Promise<string>;
     sizeOf(uri: string): Promise<{ width: number; height: number }>;
   };
+  /**
+   * The scanner's own resizer. Every golden photo is scaled and saved by it before any engine reads it (`prepareSnapPhoto`: long edge at most 2576 px, JPEG
+   * 0.85), so the eval reads the picture the scanner reads and not the camera original. Left out, the scanner's real one (expo-image-manipulator) is used.
+   */
+  resize?: Resizer;
   /** The scanner's own selector: the Apple model, then the tiers below it when the model gives no reading. */
   selector: { read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading> };
   /** The OCR-text extraction tier on its own, forced. */
@@ -583,9 +589,19 @@ export class EvalRunner {
       this.set({ skipped: [...this.state.skipped, photo.id] });
       return;
     }
+    // What the scanner reads of a camera still: scaled to a long edge of at most 2576 px and saved as a JPEG. The download is deleted the moment the scaled
+    // picture exists, or when scaling fails; the scaled picture is deleted when the photo is done.
+    let still: Still;
     try {
       const size = await this.deps.files.sizeOf(uri).catch(() => ({ width: 0, height: 0 }));
-      const still: Still = { uri, ...size };
+      still = await prepareSnapPhoto({ uri, ...size, orientation: 1 }, this.deps.resize);
+    } catch {
+      if (this.epoch !== epoch) return; // cut short by the app leaving: read it again
+      // A photo this phone cannot scale says nothing about the PC: it is left out of this run, like one that did not download, and the rest are read.
+      this.set({ skipped: [...this.state.skipped, photo.id] });
+      return;
+    }
+    try {
       const shotKind = shotKindOf(photo.set);
       const results: EvalPhotoResult[] = [];
       for (const { engine, step } of ENGINES) {
@@ -598,7 +614,7 @@ export class EvalRunner {
       }
       this.keep({ photoId: photo.id, results });
     } finally {
-      await discardPicture(uri);
+      await discardPicture(still.uri);
     }
   }
 

@@ -5,7 +5,8 @@ import { MemoryNativeAuth } from '@/lib/auth/native';
 import { evalsMock, type MockSendFailure } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
-import { failedRead, makeKit, uriOf } from './evalsTestKit';
+import type { Resizer } from '@/features/scan/autosnap/snapPhoto';
+import { failedRead, makeKit, scaledUriOf, uriOf } from './evalsTestKit';
 import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import type { ReadItem } from '@/features/scan/recognition/types';
@@ -380,6 +381,76 @@ describe('the eval runner', () => {
       expect(trackedPictures()).toEqual([]);
       expect(kit.runner.getState().phase).toBe('scoring');
       expect(results().filter((r) => r.engine === 'apple_model').every((r) => r.outcome === 'error')).toBe(true);
+    });
+
+    describe('the picture the engines read', () => {
+      interface Asked {
+        uri: string;
+        width: number;
+        height: number;
+        orientation: number;
+        target: { width: number; height: number } | null;
+      }
+      /** A resizer that keeps what it was asked and, when asked to scale, makes a new file like the scanner's does. */
+      const scaling = (asked: Asked[]): Resizer => async (photo, target) => {
+        asked.push({ uri: photo.uri, width: photo.width, height: photo.height, orientation: photo.orientation, target });
+        return target ? { uri: photo.uri.replace('.jpg', '-scaled.jpg'), ...target } : { uri: photo.uri, width: photo.width, height: photo.height };
+      };
+      const pictureEveryTierRead = (kit: ReturnType<typeof makeKit>) => [
+        ...new Set([...kit.vision.readCalls.map((c) => c.imageUri), ...kit.vision.textCalls.map((c) => c.imageUri), ...kit.vision.rectangleCalls]),
+      ];
+
+      it("reads a golden photo bigger than the scanner's still at the scanner's size, and deletes both files after it", async () => {
+        const asked: Asked[] = [];
+        const kit = makeKit({ photos: 1, size: { width: 5712, height: 4284 }, resize: scaling(asked) });
+        await kit.runner.start();
+
+        expect(asked).toEqual([{ uri: uriOf('photo-001'), width: 5712, height: 4284, orientation: 1, target: { width: 2576, height: 1932 } }]);
+        expect(pictureEveryTierRead(kit)).toEqual([scaledUriOf('photo-001')]);
+        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
+        expect(kit.deleted).toEqual([uriOf('photo-001'), scaledUriOf('photo-001')]);
+        expect(trackedPictures()).toEqual([]);
+      });
+
+      it('reads a photo at or under 2576 px as it is', async () => {
+        const asked: Asked[] = [];
+        const kit = makeKit({ photos: 1, size: { width: 2048, height: 1536 }, resize: scaling(asked) });
+        await kit.runner.start();
+
+        expect(asked).toEqual([{ uri: uriOf('photo-001'), width: 2048, height: 1536, orientation: 1, target: null }]);
+        expect(pictureEveryTierRead(kit)).toEqual([uriOf('photo-001')]);
+        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
+        expect(kit.deleted).toEqual([uriOf('photo-001')]);
+        expect(trackedPictures()).toEqual([]);
+      });
+
+      it("deletes the scaled picture of each photo before the next is downloaded, so only one photo's files are ever on the phone", async () => {
+        const asked: Asked[] = [];
+        const kit = makeKit({ photos: 2, size: { width: 5712, height: 4284 }, resize: scaling(asked) });
+        await kit.runner.start();
+
+        expect(kit.deleted).toEqual(kit.ids.flatMap((id) => [uriOf(id), scaledUriOf(id)]));
+        expect(trackedPictures()).toEqual([]);
+      });
+
+      it('skips a photo the scaler cannot make a picture of, leaves no file behind and reads the rest', async () => {
+        let calls = 0;
+        const kit = makeKit({
+          photos: 2,
+          size: { width: 5712, height: 4284 },
+          resize: async (photo, target) => {
+            calls += 1;
+            if (calls === 1) throw new Error('out of memory');
+            return { uri: photo.uri.replace('.jpg', '-scaled.jpg'), ...target! };
+          },
+        });
+        await kit.runner.start();
+
+        expect(kit.runner.getState().skipped).toEqual(['photo-001']);
+        expect(sentIds()).toEqual(['photo-002']);
+        expect(kit.deleted).toEqual([uriOf('photo-001'), uriOf('photo-002'), scaledUriOf('photo-002')]);
+        expect(trackedPictures()).toEqual([]);
+      });
     });
 
     it('skips a photo it cannot download, says so, and sends the rest', async () => {

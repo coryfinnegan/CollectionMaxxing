@@ -2,6 +2,7 @@
 // and whether the app is in front.
 // Everything native loads on first use; nothing here runs on the web build or in tests (they build their own).
 import { AppState } from 'react-native';
+import { manipulatorResizer } from '@/features/scan/autosnap/snapPhoto';
 import { MemoryKeyValueStore, type KeyValueStore } from '@/features/scan/tray/trayStore';
 import { apiBaseUrl } from '@/lib/http';
 import { DownloadError, EvalRunner, type AppStateSource, type EvalRunnerDeps } from './runner';
@@ -104,6 +105,8 @@ export function getEvalRunner(): EvalRunner {
     current = new EvalRunner({
       api: evalApi,
       files: deviceFiles,
+      // The scanner's own: the eval reads the 2576 px picture the camera path reads, not the golden original.
+      resize: manipulatorResizer,
       selector,
       // The two lower tiers are the selector's own, cover cue and all: the eval measures what the scanner does.
       fmText: selector.tiers.fmText,
