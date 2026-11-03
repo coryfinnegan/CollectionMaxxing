@@ -28,6 +28,13 @@ internal static class TrimmedRetryHarness
         return book;
     }
 
+    /// <summary>A game the catalogue holds (no platform). Titles are neutral.</summary>
+    public static LocalHit Game(string title)
+    {
+        var work = new Work { Id = Guid.NewGuid(), Kind = WorkKind.Game, Title = title, NormalizedTitle = TitleNormalizer.Normalize(title), CreatorsJson = "[]" };
+        return new LocalHit(new Release { Id = Guid.NewGuid(), WorkId = work.Id, Format = ReleaseFormat.GameDisc }, work);
+    }
+
     public sealed class FixedScoring : IOptionsMonitor<ScoringOptions>
     {
         public ScoringOptions CurrentValue { get; } = new();
@@ -45,6 +52,10 @@ internal static class TrimmedRetryHarness
     {
         private readonly object _gate = new();
         private int _inFlight;
+
+        /// <summary>Which of its books a lookup finds. By default the ones whose (normalised) title is exactly the one asked for.</summary>
+        public Func<LocalHit, LocalSearch, bool> Finds { get; init; } =
+            (book, search) => string.Equals(book.Work.NormalizedTitle, search.NormalizedTitle, StringComparison.Ordinal);
 
         /// <summary>Every title asked for, in the order asked.</summary>
         public List<string> Lookups { get; } = [];
@@ -85,7 +96,7 @@ internal static class TrimmedRetryHarness
         }
 
         private IReadOnlyList<LocalHit> Found(LocalSearch search) =>
-            [.. books.Where(book => string.Equals(book.Work.NormalizedTitle, search.NormalizedTitle, StringComparison.Ordinal))];
+            [.. books.Where(book => Finds(book, search))];
     }
 
     /// <summary>A book a provider knows. Titles are neutral.</summary>
