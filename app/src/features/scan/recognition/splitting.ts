@@ -149,18 +149,21 @@ function bandTitle(lines: TextLine[], tuning: LocalTuning): string {
 
 /**
  * A column of flat lines is a pile of spines when it is as wide as a spine and no wider than `stackMaxWidth` (a cover fills the frame),
- * has enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters. A name running
- * down a cover is narrower, and a cover's title, author and tagline sit far apart. A small stack of three or four (#618) is split too, but
- * band count, width and spacing alone do not tell it from a cover's three or four lines, so it must also have one size of lettering
- * (`stackSmallLetters`): tapes are set alike, a cover's title, author and tagline are not. It may stand a little wider than `stackMaxWidth`.
+ * has enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters (`stackSureMaxGap`
+ * for a pile of five or more, whose hardcovers sit a little further apart than tapes). A name running down a cover is narrower, and a
+ * cover's title, author and tagline sit far apart. A small stack of three or four (#618) is split too, but band count, width and spacing
+ * alone do not tell it from a cover's three or four lines, so it must also have one size of lettering (`stackSmallLetters`, a little less
+ * for a stack of four: `stackFourLetters`): tapes are set alike, a cover's title, author and tagline are not. It may stand a little wider
+ * than `stackMaxWidth`.
  */
 function isPile(column: Column, bands: Band[], tuning: LocalTuning): boolean {
   if (column.box.width < tuning.stackMinWidth || bands.length < tuning.stackMinBands) return false;
   const small = bands.length < tuning.stackSureBands;
   if (column.box.width > (small ? tuning.stackSmallMaxWidth : tuning.stackMaxWidth)) return false;
-  if (small && Math.min(...bands.map((b) => b.letters)) < Math.max(...bands.map((b) => b.letters)) * tuning.stackSmallLetters) return false;
+  const floor = bands.length === tuning.stackSureBands - 1 ? tuning.stackFourLetters : tuning.stackSmallLetters;
+  if (small && Math.min(...bands.map((b) => b.letters)) < Math.max(...bands.map((b) => b.letters)) * floor) return false;
   const gaps = bands.slice(1).map((b, i) => (b.top - bands[i].bottom) / Math.max(b.letters, bands[i].letters));
-  return gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)] <= tuning.stackMaxGap;
+  return gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)] <= (small ? tuning.stackMaxGap : tuning.stackSureMaxGap);
 }
 
 /** Piles of items lying flat: one piece per band. `rest` holds every line that is in no pile. */

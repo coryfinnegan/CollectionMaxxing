@@ -1,3 +1,4 @@
+import type { TextLine } from '@/native/cm-vision';
 import { DEFAULT_LOCAL_TUNING as T, DEFAULT_RECOGNITION_CONFIG as C } from './defaults';
 import { line } from './fakes';
 import { shelfTitleOf } from './shelfTitle';
@@ -470,6 +471,44 @@ describe('splitting Vision text into items', () => {
         expect(pieces.filter((p) => p.lines.some((l) => l.text === wanted))).toHaveLength(1);
       }
       expect(unreadableCount).toBe(0);
+    });
+  });
+
+  describe('#637: how far apart, and how alike in size, a stack of tapes lying flat must be to be cut one per tape', () => {
+    /** Tapes lying flat in one column 0.35 wide (the lettering of `heights`, one each), each `gap` letters below the last. */
+    function stack(heights: number[], gap: number) {
+      let top = 0.1;
+      return heights.map((height, i) => {
+        const tape = line(`Tape ${i}`, 0.3, top, 0.35, height);
+        top += height + gap * Math.max(height, heights[i + 1] ?? height);
+        return tape;
+      });
+    }
+    const cut = (lines: TextLine[]) => splitIntoPieces(lines, [], C.splitting, T).pieces.length;
+
+    it('keeps a stack of 3 whose smallest lettering is 0.45 of its biggest as one item, and cuts one at 0.55', () => {
+      expect(cut(stack([0.05, 0.0225, 0.05], 0.6))).toBe(1);
+      expect(cut(stack([0.05, 0.0275, 0.05], 0.6))).toBe(3);
+    });
+
+    it('cuts a stack of 4 whose smallest lettering is 0.45 of its biggest, and keeps one at 0.35 as one item', () => {
+      expect(cut(stack([0.05, 0.0225, 0.05, 0.05], 0.6))).toBe(4);
+      expect(cut(stack([0.05, 0.0175, 0.05, 0.05], 0.6))).toBe(1);
+    });
+
+    it('keeps a stack of 4 tapes 1.1 letters apart as one item: a small stack keeps the gap of 1 letter', () => {
+      expect(cut(stack([0.05, 0.05, 0.05, 0.05], 1.1))).toBe(1);
+    });
+
+    it('cuts a pile of 6 tapes 1.1 letters apart, and keeps 6 tapes 1.4 apart as one item', () => {
+      expect(cut(stack(Array(6).fill(0.05), 1.1))).toBe(6);
+      expect(cut(stack(Array(6).fill(0.05), 1.4))).toBe(1);
+    });
+
+    it('is off when the gap and the lettering needed are the old ones: the stack of 4 and the pile of 6 stay one item', () => {
+      const before = { ...T, stackSureMaxGap: 1, stackFourLetters: 0.5 };
+      expect(splitIntoPieces(stack([0.05, 0.0225, 0.05, 0.05], 0.6), [], C.splitting, before).pieces).toHaveLength(1);
+      expect(splitIntoPieces(stack(Array(6).fill(0.05), 1.1), [], C.splitting, before).pieces).toHaveLength(1);
     });
   });
 

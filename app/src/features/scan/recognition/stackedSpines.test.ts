@@ -11,11 +11,14 @@ import { VisionPipelineEngine } from './VisionPipelineEngine';
 
 const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
 
+/** The pile rules of #637 off: a pile's median gap is at most a letter (not 1.25), and a stack of four needs lettering of one size (0.5, not 0.4). */
+const BEFORE_637 = { stackSureMaxGap: 1, stackFourLetters: 0.5 };
+
 /** The split with piles switched off: what the splitter did before items lying flat were cut one per spine (nor was the frame cut into shelf rows). */
-const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity };
+const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637 };
 
 /** The values before #618: a pile needed 5 bands in a column no wider than half the frame, and a row 60% of its neighbors in one band. */
-const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity };
+const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity, ...BEFORE_637 };
 
 /** A tape lying flat: a title line 0.35 wide and 0.05 tall, 0.08 below the last, so the gap is a little over half a letter. */
 const tape = (i: number, text = `Tape ${i}`, x = 0.3, top = 0.1) => line(text, x, top + i * 0.08, 0.35, 0.05);
@@ -111,6 +114,22 @@ describe('a pile of items lying flat is one item per spine', () => {
   it('#618: cuts 3 lines whose lettering is about one size, however the sizes drift a little', () => {
     const stack = [line('Tape A', 0.3, 0.1, 0.35, 0.05), line('Tape B', 0.3, 0.18, 0.35, 0.04), line('Tape C', 0.3, 0.26, 0.35, 0.045)];
     expect(titles(splitIntoPieces(stack, [], C.splitting, T).pieces)).toEqual([['Tape A'], ['Tape B'], ['Tape C']]);
+  });
+
+  it('#637: cuts a stack of four tapes whose smallest lettering is 0.46 of its biggest (the recorded shelf-12 stack), though three would stay one', () => {
+    // Four tapes in one column 0.305 wide: their gaps (0.88, 0.65 and 0.24 letters) pass, but a small stack needs lettering of one size
+    // (0.5), and the smallest of these is 0.46 of the biggest. A stack of four needs 0.4, since only a cover's tagline, author and title
+    // sit as far apart in size as 0.32.
+    const stack = [
+      line('RED OCTOBER', 0.0031, 0.2917, 0.1353, 0.0216), line('THE HUNT FOR', 0.0034, 0.2758, 0.1386, 0.0197),
+      line('20 Quer Diangp Nontdl.', 0.0374, 0.3548, 0.2701, 0.0473), line('2°00 Cнeт Dвenep Noнl.', 0.0384, 0.3547, 0.2701, 0.045),
+      line('Little People WONTEWRES', 0.1246, 0.4476, 0.1619, 0.0282), line('Little People', 0.1254, 0.4517, 0.1118, 0.0198),
+      line("Darby O'Gill", 0.1257, 0.4338, 0.1069, 0.0213), line('IID0 KqrG', 0.1274, 0.4328, 0.1058, 0.0194),
+      line('HER GRODVEBACK', 0.079, 0.5034, 0.2179, 0.025), line('HOWSTELLAGOT', 0.0368, 0.4826, 0.2054, 0.0203),
+    ];
+    const { pieces } = splitIntoPieces(stack, [], C.splitting, T);
+    expect(pieces.map((p) => p.title)).toEqual(['THE HUNT FOR RED OCTOBER', '20 Quer Diangp Nontdl.', "Darby O'Gill Little People WONTEWRES", 'HOWSTELLAGOT HER GRODVEBACK']);
+    expect(splitIntoPieces(stack, [], C.splitting, { ...T, ...BEFORE_637 }).pieces).toHaveLength(1);
   });
 
   it('does not cut a column too narrow to be a spine: a name repeated down a pile of covers is not a pile', () => {
@@ -230,7 +249,7 @@ describe('real shelf photos', () => {
 
   describe('a bookcase shot with two shelves in the frame is cut into its two shelf rows', () => {
     /** The split before the frame was cut into rows: a spine on the lower shelf joined the spine above it, whose x it shares. */
-    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity };
+    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity, ...BEFORE_637 };
 
     // The stretch of y that no tall line covers, from one row's last tall line to the next row's first: 10.0, 5.4 and 4.5 letters (the
     // median tall line's width). The single-row photos show 2.3 to 3.6 letters at their edges, or too few lines beyond to count as a row.
@@ -243,10 +262,12 @@ describe('real shelf photos', () => {
     // Items and truth titles found with the cut off, then on. The title counts are the whole frame's; with Vision's rectangles the
     // pieces are cut inside each rectangle, and the gain on the phone is measured by the next eval run. accept-shelf-04's 19 to 25 is
     // 6 gained (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash) and none lost:
-    // "And Now, Back to You" was lost to the cut until #655 (see below), which made it 19 to 24.
+    // "And Now, Back to You" was lost to the cut until #655 (see below), which made it 19 to 24. shelf-02's 21 to 24 (items 36 to 44) is
+    // the hardcover pile of A Court of Thorns and Roses books, cut into its 8 bands once a pile of 5 or more may have a median gap of 1.25
+    // letters (#637): A Court of Wings and Ruin, A Court of Mist and Fury and A Court of Thorns and Roses, and none lost.
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
       'shelf-01': { without: { items: 32, found: 11 }, with: { items: 36, found: 12 } },
-      'shelf-02': { without: { items: 26, found: 16 }, with: { items: 36, found: 21 } },
+      'shelf-02': { without: { items: 26, found: 16 }, with: { items: 44, found: 24 } },
       'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 40, found: 25 } },
     };
 
@@ -304,6 +325,32 @@ describe('real shelf photos', () => {
     expect(items).toBeGreaterThanOrEqual(photos['vhs-dvd-shelf-01'].truth.length - 5); // 5 of the 32 are unreadable
   });
 
+  describe('#637: a pile of hardcovers lying flat, whose books sit further apart than tapes do', () => {
+    // The recorded shelf-02 pile of A Court of Thorns and Roses books: 8 bands in one column 0.146 wide. Hardcover spines are thick against
+    // their letters, so the gaps run 0.14, 1.09, 2.37, 0.11, 1.61, 1.18 and 0.51 letters, a median of 1.09 where a tape stack's is 0.3 to 0.5.
+    // On two of the books "A COURT OF" sits 0.003 to 0.004 above "SILVER FLAMES", further than a line may be from its band, so each comes
+    // out as two bands ("ACourt of" over "Silver Flames", and "A COURT OF" over "ILVER FLAMES").
+    const PILE = [63, 66, 67, 68, 69, 70, 71, 75, 76, 77, 80, 81, 82, 83, 87, 90];
+    const pile = () => PILE.map((i) => photos['shelf-02'].lines[i]).map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
+
+    it('holds the lines it should (the recorded indices have not drifted)', () => {
+      expect(pile().map((l) => l.text)).toEqual([
+        'Silver Flames', 'FROST AND STARLIGH', 'FROST AI', 'ACourt of', 'A CourTOi', 'THORNS AND ROSES', 'WINGS AND RUIN', 'MIST AND FURY',
+        'A COURT OF', 'A COURT OF', 'ND STARLIGHT', 'SILVER FLAMES', 'A COURT OF', 'ILVER FLAMES', 'A COURT OF', 'COURT OF',
+      ]);
+    });
+
+    it('splits one item per book: the pile has a median gap of 1.09 letters, within the 1.25 a pile of 5 or more may have', () => {
+      const { pieces } = splitIntoPieces(pile(), [], C.splitting, T);
+      expect(pieces).toHaveLength(8);
+      expect(pieces.map((p) => p.title)).toEqual([
+        'ACourt of', 'Silver Flames', 'ND STARLIGHT', 'A COURT OF', 'ILVER FLAMES', 'A COURT OF WINGS AND RUIN', 'A COURT OF MIST AND FURY',
+        'A COURT OF THORNS AND ROSES',
+      ]);
+      expect(splitIntoPieces(pile(), [], C.splitting, { ...T, ...BEFORE_637 }).pieces).toHaveLength(1);
+    });
+  });
+
   describe('small stacks cut out of a real pile photo, each window of consecutive bands on its own', () => {
     /** The photo's bands as the pile cut them, column by column (a band whose top is above the last one's starts the next column). */
     function pileColumns(id: string): Piece[][] {
@@ -331,25 +378,26 @@ describe('real shelf photos', () => {
       return { windows, split };
     }
 
-    // KNOWN LIMIT (#618): only about half of the real small stacks split. Without the lettering check 14 of the 16 four-band windows and 10 of
-    // the 19 three-band windows would, but the tapes' smallest-to-biggest lettering runs from 0.31 to 0.82 while the cover paperback-01 has 0.32,
-    // so no cut-off on that ratio separates them (#637 needs another cue). The real hardcover pile (accept-shelf-04) splits 0 of 6
-    // three-band windows and 1 of 5 four-band ones with or without the check, because the gap rule rejects the rest. These are floors,
-    // so the windows that split today keep splitting, not the goal.
-    it('splits at least 8 of the 16 four-tape windows and 8 of the 19 three-tape windows of the real tape piles into one item per tape', () => {
+    // KNOWN LIMIT (#618, #637): a stack of three splits only about 8 of 19 times. Without the lettering check 10 of the 19 three-band windows
+    // would, but the tapes' smallest-to-biggest lettering runs from 0.31 to 0.82 while the cover paperback-01 has 0.32, and that cover's three
+    // bands match real three-tape windows on every other signal tried (width, gap, alignment, pitch and fill), so no cut-off separates them.
+    // A stack of four needs 0.4 (stackFourLetters), since no recorded cover has four bands that pass the width and gap rules: 11 of the 16
+    // four-band windows split, where 14 would with no check at all. The real hardcover pile (accept-shelf-04) splits 0 of 6 three-band
+    // windows and 1 of 5 four-band ones, because the gap rule rejects the rest. The three-band count is a floor, not the goal.
+    it('splits 11 of the 16 four-tape windows and at least 8 of the 19 three-tape windows of the real tape piles into one item per tape', () => {
       const fours = windowsOf('vhs-dvd-shelf-01', 4);
       const threes = windowsOf('vhs-dvd-shelf-01', 3);
       expect([fours.windows, threes.windows]).toEqual([16, 19]);
-      expect(fours.split).toBeGreaterThanOrEqual(8);
+      expect(fours.split).toBe(11);
       expect(threes.split).toBeGreaterThanOrEqual(8);
     });
   });
 
-  it('wants the extra upside-down pass for the three photos with a pile (two of them hardcovers lying flat) and for none of the others', () => {
+  it('wants the extra upside-down pass for the four photos with a pile (three of them books lying flat) and for none of the others', () => {
     const wanted = Object.entries(photos)
       .filter(([, p]) => hasPile(p.lines.map((l) => line(l.text, l.x, l.y, l.width, l.height)), T))
       .map(([id]) => id);
-    expect(wanted).toEqual(['vhs-dvd-shelf-01', 'accept-shelf-04', 'shelf-01']);
+    expect(wanted).toEqual(['vhs-dvd-shelf-01', 'accept-shelf-04', 'shelf-01', 'shelf-02']);
   });
 
   /** The recorded covers, each line's box moved and sized about the frame's center, so the cover is shot from further away. */
