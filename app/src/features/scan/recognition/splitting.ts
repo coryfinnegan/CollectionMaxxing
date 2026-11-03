@@ -166,10 +166,38 @@ export function hasPile(lines: TextLine[], tuning: LocalTuning): boolean {
 }
 
 /**
- * Upright spines and piles of items lying flat, side by side: piles are cut first, so a flat stack below a row of spines does not
- * lend its lines to the spine above. What is left is split by spine columns, else stays one piece (with `box`, when nothing was cut).
+ * The lines cut into shelf rows. A frame can hold two shelves of one bookcase, and a spine column joins tall lines on x alone, so a lower
+ * spine would join the upper spine at its x and the two would be read as one. A cut goes in the middle of any stretch of at least
+ * `shelfRowGap` letters (the median tall line's width, since tall lines read sideways) that no tall line covers, when `shelfRowMinLines`
+ * tall lines lie on each side of it. Every line, tall or not, goes to the row its center sits in. Returns the lines as they are when
+ * nothing is cut.
+ */
+function shelfRows(lines: TextLine[], tuning: LocalTuning): TextLine[][] {
+  const tall = lines.filter(isTall).sort((a, b) => a.box.y - b.box.y);
+  if (tall.length < 2 * tuning.shelfRowMinLines) return [lines];
+  const letters = tall.map((l) => l.box.width).sort((a, b) => a - b)[Math.floor(tall.length / 2)];
+  const cuts: number[] = [];
+  let reach = bottom(tall[0].box);
+  for (const [i, l] of tall.entries()) {
+    if (i >= tuning.shelfRowMinLines && tall.length - i >= tuning.shelfRowMinLines && l.box.y - reach >= letters * tuning.shelfRowGap) {
+      cuts.push((reach + l.box.y) / 2);
+    }
+    reach = Math.max(reach, bottom(l.box));
+  }
+  if (cuts.length === 0) return [lines];
+  const rows: TextLine[][] = Array.from({ length: cuts.length + 1 }, () => []);
+  for (const l of lines) rows[cuts.filter((c) => centerY(l.box) > c).length].push(l);
+  return rows.filter((row) => row.length > 0);
+}
+
+/**
+ * Upright spines and piles of items lying flat, side by side: shelf rows are cut apart first, each segmented alone. Within a row, piles
+ * are cut first, so a flat stack below a row of spines does not lend its lines to the spine above. What is left is split by spine
+ * columns, else stays one piece (with `box`, when nothing was cut).
  */
 function segment(lines: TextLine[], tuning: LocalTuning, minWidth: number, box?: Rect): Piece[] {
+  const rows = shelfRows(lines, tuning);
+  if (rows.length > 1) return rows.flatMap((row) => segment(row, tuning, minWidth));
   const piles = byPiles(lines, tuning);
   const cut = piles.pieces.length > 0;
   const upright = bySpineColumns(piles.rest, tuning, minWidth)?.pieces ?? (piles.rest.length > 0 ? [piece(piles.rest, cut ? undefined : box)] : []);

@@ -11,11 +11,11 @@ import { VisionPipelineEngine } from './VisionPipelineEngine';
 
 const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
 
-/** The split with piles switched off: what the splitter did before items lying flat were cut one per spine. */
-const WITHOUT_PILES = { ...T, stackMinBands: Infinity };
+/** The split with piles switched off: what the splitter did before items lying flat were cut one per spine (nor was the frame cut into shelf rows). */
+const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity };
 
 /** The values before #618: a pile needed 5 bands in a column no wider than half the frame, and a row 60% of its neighbors in one band. */
-const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6 };
+const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity };
 
 /** A tape lying flat: a title line 0.35 wide and 0.05 tall, 0.08 below the last, so the gap is a little over half a letter. */
 const tape = (i: number, text = `Tape ${i}`, x = 0.3, top = 0.1) => line(text, x, top + i * 0.08, 0.35, 0.05);
@@ -197,8 +197,9 @@ describe('real shelf photos', () => {
     // The counts rose with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns that.
     'vhs-dvd-shelf-02': { before: { items: 12, found: 5 }, after: { items: 12, found: 5 } },
     // A pile of hardcovers lies under a row of upright books; the 2-line titles of the pile now come out whole.
-    // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it.
-    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 32, found: 19 } },
+    // Both counts moved with the spine-title rule (shelfTitle.ts, #617), which the split shares; shelfTitle.test.ts owns it. The after
+    // moved again when the frame was cut into its two shelf rows (items 32 to 40, found 19 to 24); the shelf rows describe below owns that.
+    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 40, found: 24 } },
     // Upright rows with no pile: unchanged.
     'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 19, found: 14 } },
     'accept-shelf-02': { before: { items: 17, found: 15 }, after: { items: 17, found: 15 } },
@@ -271,11 +272,11 @@ describe('real shelf photos', () => {
     });
   });
 
-  it('wants the extra upside-down pass for the two photos with a pile and for none of the others', () => {
+  it('wants the extra upside-down pass for the three photos with a pile (two of them hardcovers lying flat) and for none of the others', () => {
     const wanted = Object.entries(photos)
       .filter(([, p]) => hasPile(p.lines.map((l) => line(l.text, l.x, l.y, l.width, l.height)), T))
       .map(([id]) => id);
-    expect(wanted).toEqual(['vhs-dvd-shelf-01', 'accept-shelf-04']);
+    expect(wanted).toEqual(['vhs-dvd-shelf-01', 'accept-shelf-04', 'shelf-01']);
   });
 
   /** The recorded covers, each line's box moved and sized about the frame's center, so the cover is shot from further away. */
