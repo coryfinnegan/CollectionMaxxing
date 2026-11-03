@@ -94,6 +94,52 @@ function columnsOf(columnLines: TextLine[], tuning: LocalTuning): Column[] {
   return columns;
 }
 
+/** Whether the line's box is about one letter wide: a leaning line's box is far wider than its lettering. */
+const readsUpright = (l: TextLine, tuning: LocalTuning) => l.box.height / Math.max(1, l.text.trim().length) >= l.box.width * tuning.twoRowUpright;
+
+/**
+ * Whether two tall lines are the two rows of one title printed down a spine: set in one size of lettering, each upright, running along each
+ * other for most of the longer, and overlapping across by a part of a letter (at least `titleRowTouch`, at most `twoRowMaxTouch` of the
+ * narrower line's width). The next spine's lettering is told apart by overlapping further, by leaning, or by running along for less.
+ */
+function twoRows(a: TextLine, b: TextLine, tuning: LocalTuning): boolean {
+  const [narrower, wider] = [Math.min(a.box.width, b.box.width), Math.max(a.box.width, b.box.width)];
+  if (!(narrower >= wider * tuning.twoRowLetters)) return false;
+  const across = Math.min(right(a.box), right(b.box)) - Math.max(a.box.x, b.box.x);
+  if (across < narrower * tuning.titleRowTouch || across > narrower * tuning.twoRowMaxTouch) return false;
+  if (!readsUpright(a, tuning) || !readsUpright(b, tuning)) return false;
+  const along = Math.min(bottom(a.box), bottom(b.box)) - Math.max(a.box.y, b.box.y);
+  return along > 0 && along >= Math.max(a.box.height, b.box.height) * tuning.titleRowOverlap;
+}
+
+/** The column's lines that can be a row of a title: at least `twoRowTitleShare` of its tallest line, so short print at the foot of a spine is none. */
+function titleSized(column: Column, tuning: LocalTuning): TextLine[] {
+  const tallest = Math.max(...column.lines.map((l) => l.box.height));
+  return column.lines.filter((l) => l.box.height >= tallest * tuning.twoRowTitleShare);
+}
+
+/**
+ * Neighboring columns whose title-sized lines include the two rows of one title are one column, so that the title is read whole and is wide
+ * enough to be a spine. Only those lines are tested: two fragments side by side at the foot of two books would otherwise join the books.
+ */
+function joinTwoRows(columns: Column[], tuning: LocalTuning): Column[] {
+  const joined: Column[] = [];
+  let lastRows: TextLine[] = [];
+  for (const column of columns) {
+    const last = joined[joined.length - 1];
+    const rows = titleSized(column, tuning);
+    if (last && lastRows.some((a) => rows.some((b) => twoRows(a, b, tuning)))) {
+      last.lines.push(...column.lines);
+      last.box = union([last.box, column.box]);
+      lastRows.push(...rows);
+    } else {
+      joined.push({ box: column.box, lines: [...column.lines] });
+      lastRows = rows;
+    }
+  }
+  return joined;
+}
+
 /**
  * Spines stand in one row: most neighbors share their vertical band, so one short book beside tall ones does not undo the split.
  * Scattered cover lines share almost none, so they are not split (#504).
@@ -148,6 +194,31 @@ function bandTitle(lines: TextLine[], tuning: LocalTuning): string {
 }
 
 /**
+ * Words a title almost never ends on: a title that stops on one is the first line of a longer title. Words a real title ends on ("Hold On",
+ * "Lean In", "Worth Fighting For", "Written By") are left out, since the band below could be another tape of a stack.
+ */
+const JOINING_WORDS = new Set(['of', 'the', 'and', 'a', 'an', 'to', '&']);
+
+const endsOnJoiningWord = (title: string) => JOINING_WORDS.has(title.toLowerCase().split(/[^\p{L}\p{N}&]+/u).filter(Boolean).pop() ?? '');
+
+/**
+ * A hardcover lying flat prints a small "A COURT OF" a little above its big subtitle, further than `bandMaxGap`, so the two come out as bands
+ * of their own. A band whose title ends on a joining word is joined to the band right below it when it lies within `bandJoinGap` of the
+ * smaller band's lettering from it. Looking from the bottom up lets a title of three bands join all three.
+ */
+function joinBands(bands: Band[], tuning: LocalTuning): Band[] {
+  const joined = [...bands];
+  for (let i = joined.length - 2; i >= 0; i--) {
+    const [first, next] = [joined[i], joined[i + 1]];
+    const gap = next.top - first.bottom;
+    if (endsOnJoiningWord(bandTitle(first.lines, tuning)) && gap <= Math.min(first.letters, next.letters) * tuning.bandJoinGap) {
+      joined.splice(i, 2, { ...next, top: first.top, letters: Math.max(first.letters, next.letters), lines: [...first.lines, ...next.lines] });
+    }
+  }
+  return joined;
+}
+
+/**
  * A column of flat lines is a pile of spines when it is as wide as a spine and no wider than `stackMaxWidth` (a cover fills the frame),
  * has enough bands, and its bands sit close: the median gap between two bands is under `stackMaxGap` of their letters (`stackSureMaxGap`
  * for a pile of five or more, whose hardcovers sit a little further apart than tapes). A name running down a cover is narrower, and a
@@ -175,7 +246,7 @@ function byPiles(lines: TextLine[], tuning: LocalTuning): { pieces: Piece[]; res
     const biggest = Math.max(...bands.map((b) => b.letters));
     const real = bands.filter((b) => b.letters >= biggest * tuning.bandMinLetters);
     if (!isPile(column, real, tuning)) continue;
-    for (const b of real) {
+    for (const b of joinBands(real, tuning)) {
       pieces.push({ ...piece(b.lines), title: bandTitle(b.lines, tuning) });
       b.lines.forEach((l) => rest.delete(l));
     }
@@ -245,7 +316,7 @@ function liesAcross(l: TextLine, column: Column, letters: number, tuning: LocalT
  * no line is dropped.
  */
 function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Split | undefined {
-  const tallColumns = columnsOf(lines.filter(isTall), tuning);
+  const tallColumns = joinTwoRows(columnsOf(lines.filter(isTall), tuning), tuning);
   const columns = tallColumns.filter((c) => c.box.width >= minWidth);
   if (columns.length < tuning.minSpineColumns || !inOneRow(columns, tuning)) return undefined;
   const band = union(columns.map((c) => c.box));
