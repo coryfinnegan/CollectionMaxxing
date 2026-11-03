@@ -215,7 +215,8 @@ public sealed record EvalPhotoCheck(EvalPhotoInput? Photo, DomainError? Problem,
 /// The checks on one photo of an eval run. They keep the run safe to ground and write, and no more: a photo is the phone's one chance to
 /// have read a shelf, so what can be cleaned is cleaned and only what cannot be is a problem (and then only that photo is skipped).
 /// <list type="bullet">
-/// <item>An OCR box value within <see cref="BoxSlack"/> of 0 to 1 is clamped into range (the 180 degree pass maps a box as 1 - (x + width), which rounds just outside).</item>
+/// <item>An OCR box value within <see cref="BoxSlack"/> of 0 to 1 is clamped into range (the 180 degree pass maps a box as 1 - (x + width), which rounds just outside). So is a box value or a confidence of an OCR probe.</item>
+/// <item>The OCR probes (extra reads of the same picture, never scored) are kept within their limits: at most <see cref="MaxOcrProbes"/>, each with at most <see cref="MaxProbeLines"/> lines. Only the Vision photo has them; any other engine's are dropped.</item>
 /// <item>A product code the server's shape check refuses is dropped; the item stays.</item>
 /// <item>Items past <see cref="IdentifyCleaning.MaxItems"/> are cut (the first ones, in reading order, are kept) and the cut is the note.</item>
 /// </list>
@@ -228,6 +229,9 @@ public static class EvalPhotoChecks
     private const int MaxCounted = 1000;
     private const int MaxOcrLines = 1000;
     private const int MaxOcrText = 200;
+    private const int MaxOcrProbes = 4;
+    private const int MaxProbeLines = 1500;
+    private const int MaxProbeName = 64;
     private const long MaxMillis = 3_600_000;
     private const double Epsilon = 1e-9; // 1.01 - 1 is 0.010000000000000009 in doubles
 
@@ -252,6 +256,10 @@ public static class EvalPhotoChecks
             }
 
             cleaned = ocr!;
+        }
+        else if (cleaned.OcrProbes is not null)
+        {
+            cleaned = cleaned with { OcrProbes = null }; // only the Vision photo reads the picture's text
         }
 
         if (cleaned.Items is not { Count: > 0 })
@@ -386,7 +394,83 @@ public static class EvalPhotoChecks
             return null;
         }
 
-        return lines is null ? photo : photo with { OcrLines = clamped };
+        var probes = CleanProbes(photo.OcrProbes, at, out problem);
+        if (problem is not null)
+        {
+            return null;
+        }
+
+        return lines is null && photo.OcrProbes is null ? photo : photo with { OcrLines = lines is null ? null : clamped, OcrProbes = probes };
+    }
+
+    /// <summary>
+    /// The probes with each line's box and confidence clamped into 0 to 1 (a value within <see cref="BoxSlack"/> outside is pulled in). A probe is a name
+    /// (up to 64 characters), a time in milliseconds (0 to an hour) and at most 1500 lines of text up to 200 characters, a confidence and a box from 0
+    /// to 1, and the rotation of the pass that read it (0, 90, 180 or 270); at most 4 probes. Anything else is the problem.
+    /// </summary>
+    private static List<EvalOcrProbeInput>? CleanProbes(IReadOnlyList<EvalOcrProbeInput>? probes, string at, out DomainError? problem)
+    {
+        problem = null;
+        if (probes is null)
+        {
+            return null;
+        }
+
+        var field = $"{at}.ocrProbes";
+        if (probes.Count > MaxOcrProbes)
+        {
+            problem = ProbeProblem(field);
+            return null;
+        }
+
+        var cleaned = new List<EvalOcrProbeInput>(probes.Count);
+        for (var i = 0; i < probes.Count; i++)
+        {
+            var probe = probes[i];
+            var probeField = $"{field}[{i}]";
+            if (probe is not { Name: { } name, Ms: { } ms, Lines: { } lines }
+                || string.IsNullOrWhiteSpace(name) || name.Length > MaxProbeName
+                || ms is < 0 or > MaxMillis
+                || lines.Count > MaxProbeLines)
+            {
+                problem = ProbeProblem(probeField);
+                return null;
+            }
+
+            var kept = new List<EvalOcrProbeLineInput>(lines.Count);
+            for (var j = 0; j < lines.Count; j++)
+            {
+                if (Clamp(lines[j]) is not { } line)
+                {
+                    problem = ProbeProblem($"{probeField}.lines[{j}]");
+                    return null;
+                }
+
+                kept.Add(line);
+            }
+
+            cleaned.Add(probe with { Lines = kept });
+        }
+
+        return cleaned;
+    }
+
+    private static DomainError ProbeProblem(string field) => EvalErrors.Invalid(
+        "evals.ocr_probe_invalid",
+        $"Send at most {MaxOcrProbes} OCR probes, each a name, a time in milliseconds and at most {MaxProbeLines} lines of text (up to {MaxOcrText} characters), a confidence and a box, each from 0 to 1, and a pass of 0, 90, 180 or 270.",
+        field);
+
+    /// <summary>The probe line with its box and confidence clamped into 0 to 1, or null when it has no text, too much, an unknown pass, or a value too far outside.</summary>
+    private static EvalOcrProbeLineInput? Clamp(EvalOcrProbeLineInput? line)
+    {
+        if (line is not { Text.Length: <= MaxOcrText, Pass: 0 or 90 or 180 or 270 }
+            || Clamp(line.Confidence) is not { } confidence
+            || Clamp(line.X) is not { } x || Clamp(line.Y) is not { } y || Clamp(line.Width) is not { } width || Clamp(line.Height) is not { } height)
+        {
+            return null;
+        }
+
+        return line with { Confidence = confidence, X = x, Y = y, Width = width, Height = height };
     }
 
     /// <summary>The line with its box values clamped into 0 to 1, or null when it has no text, too much, or a value too far outside.</summary>

@@ -263,7 +263,13 @@ public static class EvalsEndpoints
             r.OcrLines?.Select(l => l is null ? null! : new EvalOcrLineInput(l.Text, l.X, l.Y, l.Width, l.Height)).ToList(),
             r.OcrPieces,
             r.CoverCue,
-            r.PrintKind);
+            r.PrintKind,
+            r.OcrProbes?.Select(p => p is null
+                ? null!
+                : new EvalOcrProbeInput(
+                    p.Name,
+                    p.Ms,
+                    p.Lines?.Select(l => l is null ? null! : new EvalOcrProbeLineInput(l.Text, l.Confidence, l.Pass, l.X, l.Y, l.Width, l.Height)).ToList())).ToList());
 
     // ---- the resumable run -------------------------------------------------------------------------------------------------
 
