@@ -93,9 +93,11 @@ export interface LocalTuning {
    */
   lyingLineLetters: number;
   /**
-   * A flat line lies across the spines only when it is at least this many of its spine's column widths wide: a name printed flat across its
-   * own spine is 1.3 columns wide and the narrowest recorded tape 2.1, and the same titles are found from 1.5 to 2. Infinity switches the
-   * cut off, and a line then joins the spine under its center.
+   * A flat line lies across the spines only when it is at least this many of its spine's column widths wide. The widest author's name
+   * printed flat across its own spine is 1.93 columns (two "SARAH J." lines on shelf-02 are 1.87 and 1.93), and the narrowest tape that lies
+   * across is 2.13 (Body Worlds). The margin below 2 is 0.07 columns: at 1.93 or less a name is cut out as an item of its own, though the
+   * titles found stay the same, so the count of titles does not guard this number; a recorded test does. Infinity switches the cut off,
+   * and a line then joins the spine under its center.
    */
   lyingLineWidth: number;
   /** ...and its center lies at least this many column widths above its spine's top or below its bottom: a title printed within the spine's own span is the spine's. */

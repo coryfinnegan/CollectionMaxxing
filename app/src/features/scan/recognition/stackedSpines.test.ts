@@ -377,6 +377,34 @@ describe('real shelf photos', () => {
     });
   });
 
+  describe("an author's name printed flat across a hardcover's spine is no tape lying across the tops", () => {
+    // shelf-02: on two Crescent City hardcovers "SARAH J." is printed flat above the sideways title, 0.0408 and 0.0392 wide on spines
+    // 0.0218 and 0.0203 wide: 1.87 and 1.93 columns. The cut needs a line 2 columns wide (lyingLineWidth), so these stand 0.07 columns inside
+    // it, the narrowest margin of the rule: at 1.93 or less one of them would be cut out as an item of its own, at 1.87 or less both. The
+    // titles found do not move between 1.5 and 2, so only these lines (and shelf-02's 44 items) guard the number.
+    const AUTHORS = [20, 35];
+    const all = photos['shelf-02'].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
+    const piecesOf = (local: typeof T) => {
+      const { pieces } = splitIntoPieces(all, [], C.splitting, local);
+      return AUTHORS.map((i) => pieces.find((p) => p.lines.includes(all[i]))!);
+    };
+
+    it('holds the lines it should (the recorded indices have not drifted)', () => {
+      expect(AUTHORS.map((i) => [all[i].text, all[i].box.x, all[i].box.width])).toEqual([['SARAH J.', 0.1381, 0.0408], ['SARAH J.', 0.202, 0.0392]]);
+    });
+
+    it('keeps both SARAH J. lines in their Crescent City spines, never an item of their own', () => {
+      for (const p of piecesOf(T)) {
+        expect(p.lines.length).toBeGreaterThan(1);
+        expect(p.lines.map((l) => l.text)).toContain('CRESCENT');
+      }
+    });
+
+    it('would cut both out as items of their own with the width needed at 1.85 columns', () => {
+      expect(piecesOf({ ...T, lyingLineWidth: 1.85 }).map((p) => p.lines.map((l) => l.text))).toEqual([['SARAH J.'], ['SARAH J.']]);
+    });
+  });
+
   describe('small stacks cut out of a real pile photo, each window of consecutive bands on its own', () => {
     /** The photo's bands as the pile cut them, column by column (a band whose top is above the last one's starts the next column). */
     function pileColumns(id: string): Piece[][] {
