@@ -159,9 +159,10 @@ public static class ShotKindRule
     /// An option the ask found, scored the way the read's own answer was: as if the ask had named no kind. The ask names the shot's
     /// kind, so what it finds earns the type term that the read's own answer never had, and a same-titled book would beat the right
     /// film of a DVD among books by that term alone. The option's score is the scorer's own terms without the type term, weighed the
-    /// way it weighs them (the caps for a known conflict are not applied, so the number is never lower than the scorer's for the
-    /// same terms), and its terms are those. That is the score everything after this sees, the order of the offer included. An
-    /// option with no terms (not scored by the text search) is returned as it is.
+    /// way it weighs them, and its terms are those. The cap the scorer put on the option for a known conflict (a platform or a
+    /// title-year mismatch) is not in the terms, but it is in the option's score, so the rescored score never exceeds that score:
+    /// a capped option stays capped. That is the score everything after this sees, the order of the offer included. An option
+    /// with no terms (not scored by the text search) is returned as it is.
     /// </summary>
     public static ResolutionOption OnOriginalFooting(ResolutionOption option)
     {
@@ -171,7 +172,7 @@ public static class ShotKindRule
         var weight = terms.Sum(term => term.Weight);
         return option.Terms.Count == 0 || weight <= 0
             ? option
-            : option with { Score = Math.Round(terms.Sum(term => term.Weight * term.Value) / weight, 9), Terms = terms };
+            : option with { Score = Math.Min(Math.Round(terms.Sum(term => term.Weight * term.Value) / weight, 9), option.Score), Terms = terms };
     }
 
     /// <summary>The kinds of the works of the releases (by id) the catalogue holds, for the reads whose best release is one of them. Uses the database: one call at a time.</summary>

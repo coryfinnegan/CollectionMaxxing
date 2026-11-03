@@ -219,12 +219,25 @@ public class ShotKindRuleTests
     [Fact]
     public void The_other_terms_keep_their_weight_when_the_type_term_is_taken_off()
     {
-        var book = Option(1, 0.8) with
+        var book = Option(1, ((0.5 * 0.8) + 0.1 + 0.15) / 0.75) with
         {
             Terms = [new ScoreTerm("title", 0.5, 0.8, true), new ScoreTerm("type", 0.1, 1.0, true), new ScoreTerm("creator", 0.15, 1.0, true)],
         };
 
         ShotKindRule.OnOriginalFooting(book).Score.ShouldBe(((0.5 * 0.8) + 0.15) / 0.65, 1e-9);
+    }
+
+    [Fact]
+    public void An_option_the_scorer_capped_for_a_known_conflict_stays_capped_after_the_rescore()
+    {
+        // Every term agrees (1.0), so the terms alone would score 1.0 without the type term; the scorer capped the option at 0.85
+        // (a platform or title-year conflict), and the rescored option can never exceed that.
+        var capped = Option(1, 0.85) with
+        {
+            Terms = [new ScoreTerm("title", 0.5, 1.0, true), new ScoreTerm("type", 0.1, 1.0, true)],
+        };
+
+        ShotKindRule.OnOriginalFooting(capped).Score.ShouldBe(0.85);
     }
 
     [Fact]
