@@ -6,11 +6,13 @@ import { evalsMock, type MockSendFailure } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import type { Resizer } from '@/features/scan/autosnap/snapPhoto';
-import { failedRead, makeKit, scaledUriOf, uriOf } from './evalsTestKit';
+import { failedRead, makeKit, scaledUriOf, uriOf, type KitOptions } from './evalsTestKit';
+import { gridRegions } from '../../../modules/cm-vision/src/regions'; // the native entry cannot load in tests
+import type { RecognizeTextOptions, TextLine } from '@/native/cm-vision';
 import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import type { ReadItem } from '@/features/scan/recognition/types';
-import { PC_NOT_DOWNLOADING, SCORING_POLL_MS, sendWaitMs } from './runner';
+import { MAX_OCR_PROBES, OCR_PROBES, PC_NOT_DOWNLOADING, SCORING_POLL_MS, sendWaitMs } from './runner';
 
 interface Result {
   photoId: string;
@@ -586,6 +588,224 @@ describe('the eval runner', () => {
       expect(evalsMock.opened).toHaveLength(1);
       expect(sentIds()).toEqual(kit.ids);
       expect(kit.vision.maxConcurrentReads).toBe(1);
+    });
+  });
+
+  describe('the OCR probes of a shelf photo', () => {
+    interface ProbeLine {
+      text: string;
+      confidence: number;
+      pass: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
+    interface Probe {
+      name: string;
+      ms: number;
+      lines: ProbeLine[];
+    }
+    const probesOf = (photoId: string, engine = 'vision_pipeline') => (results().find((r) => r.photoId === photoId && r.engine === engine) as { ocrProbes?: Probe[] } | undefined)?.ocrProbes;
+
+    /** Which request a text read is: the scanner's own, or one of the four probes. */
+    const shapeOf = (options?: RecognizeTextOptions) =>
+      options?.level === 'fast'
+        ? 'fast0'
+        : options?.languageCorrection
+          ? 'corrected0'
+          : options?.regions
+            ? 'tiles0'
+            : options?.orientations?.length === 4
+              ? 'production'
+              : 'scanner';
+    const PROBES = ['production', 'fast0', 'corrected0', 'tiles0'];
+    /** What each probe takes on the fake clock. The clock moves only while a probe reads, so any time a row counts for itself is a probe read inside it. */
+    const TOOK: Record<string, number> = { production: 410, fast0: 61, corrected0: 122, tiles0: 305 };
+    const FAST: TextLine = { text: 'TITLE OF PHOTO-001', confidence: 0.45, box: { x: 0.12, y: 0.1, width: 0.08, height: 0.4 }, pass: 0 };
+    const TILE: TextLine = { text: 'Other of', confidence: 0.8, box: { x: 0.5, y: 0.1, width: 0.1, height: 0.3 }, pass: 0, region: 1 };
+
+    /** A kit whose vision engine answers each probe shape with its own lines and takes its own time on a fake clock. */
+    function probeKit({ text: ownText, ...extra }: Partial<KitOptions> = {}) {
+      let clock = 1_700_000_000_000;
+      return makeKit({
+        photos: 1,
+        now: () => clock,
+        text: (uri, options) => {
+          const shape = shapeOf(options);
+          if (shape === 'scanner') return undefined;
+          clock += TOOK[shape];
+          const own = ownText?.(uri, options); // may throw, to fail the read, or stop the run
+          if (own) return own;
+          if (shape === 'fast0') return [FAST];
+          if (shape === 'corrected0') return [{ ...FAST, text: 'Title of photo-001', confidence: 0.99 }];
+          if (shape === 'tiles0') return [TILE];
+          return undefined; // production: the scene's own lines, each saying its pass
+        },
+        ...extra,
+      });
+    }
+
+    it('sends the four probes on the Vision row of a shelf photo, each with its own lines and time', async () => {
+      const kit = probeKit();
+      await kit.runner.start();
+
+      const probes = probesOf('photo-001')!;
+      expect(probes.map((p) => p.name)).toEqual(PROBES);
+      expect(probes.map((p) => p.ms)).toEqual(PROBES.map((name) => TOOK[name]));
+      expect(probes[0].lines).toEqual([
+        { text: 'Title of photo-001', confidence: 0.9, pass: 0, x: 0.1, y: 0.1, width: 0.1, height: 0.5 },
+        { text: 'Other of photo-001', confidence: 0.9, pass: 0, x: 0.5, y: 0.1, width: 0.1, height: 0.5 },
+      ]);
+      expect(probes[1].lines).toEqual([{ text: 'TITLE OF PHOTO-001', confidence: 0.45, pass: 0, x: 0.12, y: 0.1, width: 0.08, height: 0.4 }]);
+      expect(probes[2].lines.map((l) => [l.text, l.confidence])).toEqual([['Title of photo-001', 0.99]]);
+      expect(probes[3].lines).toEqual([{ text: 'Other of', confidence: 0.8, pass: 0, x: 0.5, y: 0.1, width: 0.1, height: 0.3 }]);
+    });
+
+    it('asks for production as the scanner\'s own three passes and the upside-down one, and for each other probe by one option', async () => {
+      const kit = probeKit();
+      await kit.runner.start();
+
+      const asked = kit.vision.textCalls.filter((c) => shapeOf(c.options) !== 'scanner');
+      expect(asked.map((c) => shapeOf(c.options))).toEqual(PROBES);
+      expect(asked.map((c) => c.options)).toEqual([
+        { orientations: [0, 90, 270, 180] },
+        { orientations: [0], level: 'fast' },
+        { orientations: [0], languageCorrection: true },
+        { orientations: [0], regions: gridRegions(2, 2, 0.1) },
+      ]);
+    });
+
+    it('reads the probes after all three rows, so no row\'s latency or first item counts one', async () => {
+      const kit = probeKit();
+      await kit.runner.start();
+
+      const rows = results();
+      expect(rows.map((r) => r.engine)).toEqual(['apple_model', 'fm_text', 'vision_pipeline']);
+      expect(rows.map((r) => r.latencyMs)).toEqual([0, 0, 0]); // the clock moves only inside a probe
+      const calls = kit.vision.textCalls.map((c) => shapeOf(c.options));
+      expect(calls.indexOf('production')).toBeGreaterThan(calls.lastIndexOf('scanner'));
+      expect(rows.every((r) => r.outcome === 'ok')).toBe(true);
+    });
+
+    it('reads the probes from the same picture the engines read, at the scanner\'s size', async () => {
+      const kit = probeKit({
+        size: { width: 5712, height: 4284 },
+        resize: async (photo, target) => ({ uri: photo.uri.replace('.jpg', '-scaled.jpg'), ...target! }),
+      });
+      await kit.runner.start();
+
+      const uris = new Set(kit.vision.textCalls.map((c) => c.imageUri));
+      expect([...uris]).toEqual([scaledUriOf('photo-001')]);
+      expect(kit.vision.textCalls.some((c) => shapeOf(c.options) === 'tiles0')).toBe(true);
+    });
+
+    it('asks for no more probes than the PC accepts, each with a name it accepts', () => {
+      expect(OCR_PROBES.map((p) => p.name)).toEqual(PROBES);
+      expect(OCR_PROBES.length).toBeLessThanOrEqual(MAX_OCR_PROBES);
+      expect(OCR_PROBES.every((p) => p.name.length > 0 && p.name.length <= 64)).toBe(true);
+    });
+
+    it('sends the probes on the Vision row only', async () => {
+      const kit = probeKit();
+      await kit.runner.start();
+
+      expect(probesOf('photo-001', 'apple_model')).toBeUndefined();
+      expect(probesOf('photo-001', 'fm_text')).toBeUndefined();
+    });
+
+    it('sends a single cover with no probes and does not read any', async () => {
+      const kit = probeKit({ photos: 2 }); // photo-001 is a shelf, photo-002 a single
+      await kit.runner.start();
+
+      expect(probesOf('photo-001')).toHaveLength(4);
+      expect(probesOf('photo-002')).toBeUndefined();
+      const onCover = kit.vision.textCalls.filter((c) => c.imageUri === uriOf('photo-002'));
+      expect(onCover.length).toBeGreaterThan(0);
+      expect(onCover.every((c) => shapeOf(c.options) === 'scanner')).toBe(true);
+    });
+
+    it('leaves a probe that fails out and sends the photo and its rows as they were', async () => {
+      const kit = probeKit({
+        text: (_uri, options) => {
+          if (shapeOf(options) === 'fast0') throw new Error('Vision gave up');
+          return undefined;
+        },
+      });
+      await kit.runner.start();
+
+      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'corrected0', 'tiles0']);
+      expect(sentIds()).toEqual(['photo-001']);
+      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
+      expect(results().map((r) => r.items.length)).toEqual([2, 2, 2]);
+    });
+
+    it('sends no probes at all when every one of them fails', async () => {
+      const kit = probeKit({
+        text: (_uri, options) => {
+          if (shapeOf(options) !== 'scanner') throw new Error('Vision gave up');
+          return undefined;
+        },
+      });
+      await kit.runner.start();
+
+      expect(sentIds()).toEqual(['photo-001']);
+      expect(results()[2]).not.toHaveProperty('ocrProbes');
+      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
+    });
+
+    it('cuts a probe to what the PC accepts: 1500 lines, text up to 200 characters, boxes and confidence from 0 to 1', async () => {
+      const long: TextLine = { text: 'x'.repeat(300), confidence: 1.0000001, box: { x: -0.000001, y: 1.002, width: 1.01, height: 0.5 }, pass: 180 };
+      const kit = probeKit({ text: (_uri, options) => (shapeOf(options) === 'fast0' ? Array.from({ length: 1600 }, () => long) : undefined) });
+      await kit.runner.start();
+
+      const fast = probesOf('photo-001')!.find((p) => p.name === 'fast0')!;
+      expect(fast.lines).toHaveLength(1500);
+      expect(fast.lines[0]).toEqual({ text: 'x'.repeat(200), confidence: 1, pass: 180, x: 0, y: 1, width: 1, height: 0.5 });
+    });
+
+    it('keeps the photo, with the probes read so far, when the owner stops during them', async () => {
+      const kit: ReturnType<typeof makeKit> = probeKit({
+        text: (_uri, options) => {
+          if (shapeOf(options) === 'fast0') kit.runner.stop();
+          return undefined;
+        },
+      });
+      await kit.runner.start();
+
+      expect(sentIds()).toEqual(['photo-001']);
+      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'fast0']);
+    });
+
+    it('reads a photo again, probes and all, when the app went to the background during a probe, and records the first read nowhere', async () => {
+      let left = false;
+      const kit: ReturnType<typeof makeKit> = probeKit({
+        text: (_uri, options) => {
+          if (shapeOf(options) === 'fast0' && !left) {
+            left = true;
+            kit.app.go('background');
+          }
+          return undefined;
+        },
+      });
+
+      const finished = kit.runner.start();
+      await waitFor(() => kit.runner.getState().phase === 'paused');
+      expect(evalsMock.sent).toEqual([]);
+      kit.app.go('active');
+      await finished;
+
+      expect(kit.downloaded).toEqual(['photo-001', 'photo-001']);
+      expect(evalsMock.sent).toHaveLength(1);
+      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
+    });
+
+    it('deletes the photo\'s files once its probes are read', async () => {
+      const kit = probeKit();
+      await kit.runner.start();
+
+      expect(kit.deleted).toEqual([uriOf('photo-001')]);
+      expect(trackedPictures()).toEqual([]);
     });
   });
 
