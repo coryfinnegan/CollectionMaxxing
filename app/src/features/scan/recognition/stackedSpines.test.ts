@@ -87,12 +87,21 @@ describe('a pile of items lying flat is one item per spine', () => {
       expect(pieces[2].lines.map((l) => l.text)).toEqual(['A COURT OF', 'SILVER FLAMES']);
     });
 
-    it.each(['A COURT OF', 'THE', 'Pride and', 'Salt &', 'Wings of a'])('joins a band that ends on "%s"', (small) => {
+    it.each(['A COURT OF', 'THE', 'Pride and', 'Salt &', 'Wings of a', 'Ready to', 'An'])('joins a band that ends on "%s"', (small) => {
       expect(titlesOf(hardcovers(small, 0.4))).toHaveLength(5);
     });
 
-    it.each(['A COURT', 'OFFICE', 'Dune', 'Orphan'])('leaves a band that ends on "%s", which is not a joining word, where it is', (small) => {
-      expect(titlesOf(hardcovers(small, 0.4))).toEqual(['Alpha', 'Beta', small, 'SILVER FLAMES', 'Delta', 'Echo']);
+    it.each(['A COURT', 'OFFICE', 'Dune', 'Orphan', 'Bring It On', 'Hold On', 'Lean In', 'Worth Fighting For', 'Written By', 'Away From'])(
+      'leaves a band that ends on "%s", which a title can end on, where it is',
+      (small) => {
+        expect(titlesOf(hardcovers(small, 0.4))).toEqual(['Alpha', 'Beta', small, 'SILVER FLAMES', 'Delta', 'Echo']);
+      },
+    );
+
+    it('keeps tapes of one size apart that sit 0.4 letters apart, though one is named "Bring It On" (a stack of tapes sits 0.3 to 0.5 apart)', () => {
+      const names = ['Alpha', 'Bring It On', 'Charlie', 'Delta', 'Echo'];
+      const tapes = names.map((name, i) => line(name, 0.3, 0.1 + i * 0.07, 0.35, 0.05));
+      expect(titlesOf(tapes)).toEqual(names);
     });
 
     it('joins within half the small lettering and no further: 0.6 above stays apart', () => {
@@ -321,8 +330,9 @@ describe('real shelf photos', () => {
     // "And Now, Back to You" was lost to the cut until #655 (see below), which made it 19 to 24. shelf-02's 21 to 24 (items 36 to 44) is
     // the hardcover pile of A Court of Thorns and Roses books, cut into its 8 bands once a pile of 5 or more may have a median gap of 1.25
     // letters (#637): A Court of Wings and Ruin, A Court of Mist and Fury and A Court of Thorns and Roses, and none lost. shelf-01's 12 to 14
-    // (items 36 to 38) is the two rows of "The Exquisite Torment of Loving Your Enemy", each too narrow to be a spine, joined into one that
-    // stands, and "Rose in Chains", which no longer shares a leftover piece with them; none lost. The items of shelf-02 (44 to 42) and
+    // (items 36 to 38) is two titles whose rows were two columns, each too narrow to be a spine, joined into one that stands: "The Exquisite
+    // Torment of Loving Your Enemy" and "The Irresistible Urge to Fall for Your Enemy"; none lost. (With Vision's rectangles, the second
+    // title gained is "Rose in Chains" instead, which no longer shares a leftover piece with them; neither path loses a title.) The items of shelf-02 (44 to 42) and
     // accept-shelf-04 (40 to 39) fell as the small "A COURT OF" of 2 and 1 hardcovers of A Court of Silver Flames joined their subtitles.
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
       'shelf-01': { without: { items: 32, found: 11 }, with: { items: 38, found: 14 } },

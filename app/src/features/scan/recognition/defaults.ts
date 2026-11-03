@@ -80,6 +80,12 @@ export interface LocalTuning {
    * neighbors 0.13 to 0.34). The rows must also run along each other for `titleRowOverlap` of the longer.
    */
   twoRowUpright: number;
+  /**
+   * Only title-sized lines pair: a row is at least this share of the tallest line in its own column. The rows of a title on the recorded
+   * shelves are 0.38 or more ("FAMILY AND FRIENDS" under a long author), while the short print at the foot of a spine (a publisher mark, a
+   * cut-off word) is 0.17 or less, and two such fragments side by side would otherwise join two whole books into one item. 0 lets every line pair.
+   */
+  twoRowTitleShare: number;
   /** Rectangles overlapping by at least this share of the smaller one depict one surface and merge before splitting (a cover's nested quads are one item; disjoint spines still split, #504). */
   rectangleMergeOverlap: number;
   /** Two neighboring spine columns share a band when they share this much of the shorter one's vertical span. */
@@ -167,9 +173,10 @@ export interface LocalTuning {
   bandTitleLetters: number;
   /**
    * A hardcover lying flat prints a small "A COURT OF" a little above its big subtitle, further than `bandMaxGap`, so the two were bands of
-   * their own. A band whose title ends on a joining word ("of", "the", "and") is the first line of the band right below it when it lies
-   * within this share of the smaller band's lettering from it. A title cannot end on such a word, so the word is what tells the pair from two
-   * books; the gap alone does not (a name and the title below it sit as close). -Infinity switches the join off.
+   * their own. A band whose title ends on a joining word ("of", "the", "and", "a", "an", "to", "&") is the first line of the band right
+   * below it when it lies within this share of the smaller band's lettering from it. A title almost never ends on such a word, so the word is
+   * what tells the pair from two books; the gap alone does not (tapes of a stack sit as close, and a name sits as close to the title below it).
+   * Words a real title ends on ("Hold On", "Lean In", "Worth Fighting For") are not joining words. -Infinity switches the join off.
    */
   bandJoinGap: number;
   /** How far either side of the cut the two halves of a wide shot reach, as a share of the picture's width. */
@@ -270,6 +277,7 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   twoRowLetters: 0.7,
   twoRowMaxTouch: 0.4,
   twoRowUpright: 0.37,
+  twoRowTitleShare: 0.3,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
   spineRowShare: 0.45,

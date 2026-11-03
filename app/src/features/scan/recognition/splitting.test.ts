@@ -454,6 +454,35 @@ describe('splitting Vision text into items', () => {
         expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.1235), spine('Spine 2', 0.25)])).toHaveLength(3);
         expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.122), spine('Spine 2', 0.25)])).toHaveLength(2);
       });
+
+      it('keeps two books apart whose short print at the foot touches: a fragment is no row of a title, only title-sized lines pair', () => {
+        // A publisher mark or a cut-off word at the foot of each spine, set alike at one height, passes every test of two rows but one:
+        // each is 0.17 of the tallest line of its own spine.
+        const lines = [
+          line('Neighbor L', 0.03, 0.2, 0.03, 0.3),
+          line('FIRST BOOK TITLE', 0.1, 0.2, 0.03, 0.3),
+          line('Pub A', 0.115, 0.52, 0.02, 0.05),
+          line('Pub B', 0.131, 0.52, 0.02, 0.05),
+          line('SECOND BOOK TITLE', 0.132, 0.2, 0.03, 0.3),
+          line('Neighbor R', 0.22, 0.2, 0.03, 0.3),
+        ];
+        expect(texts(piecesOf(lines))).toEqual([['Neighbor L'], ['FIRST BOOK TITLE', 'Pub A'], ['Pub B', 'SECOND BOOK TITLE'], ['Neighbor R']]);
+        expect(piecesOf(lines, { ...T, twoRowTitleShare: 0 })).toHaveLength(3);
+        expect(piecesOf(lines, { ...T, twoRowLetters: Infinity })).toHaveLength(4);
+      });
+
+      it('pairs a row that is 0.38 of the tallest line of its spine (an author printed long under it), and not one that is 0.24', () => {
+        // The rows of "FAMILY AND FRIENDS" under a long author on the recorded shelves are at least 0.38 of it; the fragments are 0.17 or less.
+        const spineWith = (rowHeight: number) => [
+          neighbor(0.6),
+          line('Row one', 0.1, 0.2, 0.025, rowHeight),
+          line('Row two', 0.1175, 0.2, 0.025, rowHeight),
+          line('Author name', 0.1175, 0.3, 0.025, 0.5),
+          neighbor(0.85),
+        ];
+        expect(piecesOf(spineWith(0.19))).toHaveLength(3);
+        expect(piecesOf(spineWith(0.12))).toHaveLength(4);
+      });
     });
   });
 

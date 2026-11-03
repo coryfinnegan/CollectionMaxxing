@@ -112,16 +112,29 @@ function twoRows(a: TextLine, b: TextLine, tuning: LocalTuning): boolean {
   return along > 0 && along >= Math.max(a.box.height, b.box.height) * tuning.titleRowOverlap;
 }
 
-/** Neighboring columns whose lines include the two rows of one title are one column, so that the title is read whole and is wide enough to be a spine. */
+/** The column's lines that can be a row of a title: at least `twoRowTitleShare` of its tallest line, so short print at the foot of a spine is none. */
+function titleSized(column: Column, tuning: LocalTuning): TextLine[] {
+  const tallest = Math.max(...column.lines.map((l) => l.box.height));
+  return column.lines.filter((l) => l.box.height >= tallest * tuning.twoRowTitleShare);
+}
+
+/**
+ * Neighboring columns whose title-sized lines include the two rows of one title are one column, so that the title is read whole and is wide
+ * enough to be a spine. Only those lines are tested: two fragments side by side at the foot of two books would otherwise join the books.
+ */
 function joinTwoRows(columns: Column[], tuning: LocalTuning): Column[] {
   const joined: Column[] = [];
+  let lastRows: TextLine[] = [];
   for (const column of columns) {
     const last = joined[joined.length - 1];
-    if (last && last.lines.some((a) => column.lines.some((b) => twoRows(a, b, tuning)))) {
+    const rows = titleSized(column, tuning);
+    if (last && lastRows.some((a) => rows.some((b) => twoRows(a, b, tuning)))) {
       last.lines.push(...column.lines);
       last.box = union([last.box, column.box]);
+      lastRows.push(...rows);
     } else {
       joined.push({ box: column.box, lines: [...column.lines] });
+      lastRows = rows;
     }
   }
   return joined;
@@ -180,8 +193,11 @@ function bandTitle(lines: TextLine[], tuning: LocalTuning): string {
   return distinct.sort(readingOrder).map((l) => l.text).join(' ');
 }
 
-/** Words no title ends on: a title that stops on one is the first line of a longer title. */
-const JOINING_WORDS = new Set(['of', 'the', 'and', 'a', 'an', 'to', 'in', 'for', 'with', 'on', 'at', 'by', 'from', 'or', '&']);
+/**
+ * Words a title almost never ends on: a title that stops on one is the first line of a longer title. Words a real title ends on ("Hold On",
+ * "Lean In", "Worth Fighting For", "Written By") are left out, since the band below could be another tape of a stack.
+ */
+const JOINING_WORDS = new Set(['of', 'the', 'and', 'a', 'an', 'to', '&']);
 
 const endsOnJoiningWord = (title: string) => JOINING_WORDS.has(title.toLowerCase().split(/[^\p{L}\p{N}&]+/u).filter(Boolean).pop() ?? '');
 
