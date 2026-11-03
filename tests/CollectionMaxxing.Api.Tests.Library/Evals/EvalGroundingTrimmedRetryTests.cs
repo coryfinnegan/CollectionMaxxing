@@ -60,4 +60,29 @@ public class EvalGroundingTrimmedRetryTests(ApiFixture api) : EvalTest(api)
         eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
         Resolution(live[3]).ShouldBe("ambiguous"); // and it was the retry that found the book
     }
+
+    [Fact]
+    public async Task The_eval_and_identify_give_a_spine_whose_title_is_the_author_line_the_same_offer_of_the_book_its_creator_names()
+    {
+        var library = await CreateLibraryAsync();
+        await CatalogSeed.AddAsync(Db, "The Copper Lantern", WorkKind.Book, 1999, format: ReleaseFormat.Paperback, creators: ["Tess Harrowgate"]);
+        var client = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id);
+        (string Title, string? Creator)[] reads =
+            [("Alpha Quest", null), ("Beta Quest", null), ("Gamma Quest", null), ("TESS HARROWGATE", "THE COPPER LANTERN")];
+
+        var live = await IdentifyOkAsync(client, sessionId, [.. reads.Select(r => (object)Read(title: r.Title, kind: "book", creator: r.Creator))]);
+        using var scope = Factory.Services.CreateScope();
+        var eval = await scope.ServiceProvider.GetRequiredService<EvalGrounder>().GroundAsync(
+            ScanEngine.VisionPipeline,
+            [.. reads.Select(r => new EvalReadItemInput(
+                new IdentifyItemInput(null, null, r.Title, r.Title, r.Creator, null, null, WorkKind.Book, null, null, null, null), null))],
+            new EvalGroundingMemo(), printKind: null, CancellationToken.None);
+
+        eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
+        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
+        Resolution(live[3]).ShouldBe("ambiguous"); // it was the swap that found the book
+        eval[3].Candidates.Select(c => c.Title).ShouldBe(["The Copper Lantern"]);
+        eval[3].Read!.CreatorAsRead.ShouldBe("THE COPPER LANTERN");
+    }
 }

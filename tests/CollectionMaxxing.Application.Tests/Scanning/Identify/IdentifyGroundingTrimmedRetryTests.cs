@@ -350,4 +350,321 @@ public class IdentifyGroundingTrimmedRetryTests
         answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
         answer.Steps.ShouldNotContain(s => s.Provider == "trimmed");
     }
+
+    // ---- a spine that found nothing asks once more with its creator as the title ----------------------------------------------------
+    // The phone sometimes sends the spine's author line as the title and the real title as the creator (the author is printed as big
+    // as the title, or a neighbour's author is in the piece). The catalogue can tell which is which. What is found that way is offered,
+    // never decided, and it is the last thing asked.
+
+    /// <summary>A spine whose title the phone read as <paramref name="title"/> and whose creator as <paramref name="creatorAsRead"/>, which cleaning dropped.</summary>
+    private static ReadFacts SpineBy(string title, string? creatorAsRead) => new(
+        title, title, null, null, null, WorkKind.Book, null, null, null, CreatorAsRead: creatorAsRead);
+
+    private static Task<BarcodeResolution> GroundSpineAsync(
+        IdentifyGrounding grounding, ReadFacts facts, ScoringProfileKind profile = ScoringProfileKind.ShelfSpine) =>
+        grounding.GroundAsync(facts, profile, Budget, CancellationToken.None);
+
+    [Fact]
+    public async Task A_spine_whose_title_is_the_author_line_is_offered_the_book_found_with_its_creator_as_the_title()
+    {
+        var book = BookBy("Copper Lantern", "Tess Harrowgate");
+        var catalogue = new Catalogue(book);
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), SpineBy("TESS HARROWGATE", "COPPER LANTERN"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answer.Options.Single().LocalReleaseId.ShouldBe(book.Release.Id);
+        answer.Options.Single().Score.ShouldBeGreaterThanOrEqualTo(new ScoringThresholds().MatchedScore); // the scorer would say Matched
+        catalogue.Lookups.ShouldBe(["tess harrowgate", "copper lantern"]);
+    }
+
+    [Fact]
+    public async Task The_trace_says_the_read_was_swapped_and_what_it_was_read_as()
+    {
+        var answer = await GroundSpineAsync(
+            Grounding(new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"))), SpineBy("TESS HARROWGATE", "COPPER LANTERN"));
+
+        answer.Steps.ShouldContain(new TraceStep("swapped", "COPPER LANTERN (creator as read; title read: TESS HARROWGATE)", 0));
+        var steps = answer.Steps.Select(s => s.Provider).ToList();
+        steps.IndexOf("catalogue").ShouldBeLessThan(steps.IndexOf("swapped"));
+        steps.Last().ShouldBe("profile");
+    }
+
+    [Fact]
+    public async Task What_the_swap_found_is_flagged_so_that_nothing_counts_it_as_agreement()
+    {
+        var answer = await GroundSpineAsync(
+            Grounding(new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"))), SpineBy("TESS HARROWGATE", "COPPER LANTERN"));
+
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_neighbours_author_in_the_title_does_not_stop_the_book_from_being_offered()
+    {
+        // The title line holds an author, but not this book's: the creator mismatch costs score and must not hide the book.
+        var book = BookBy("The Salt Road Home", "Iris Fenwick");
+
+        var answer = await GroundSpineAsync(Grounding(new Catalogue(book)), SpineBy("NORA QUILLFEATHER", "THE SALT ROAD HOME"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answer.Options.Single().LocalReleaseId.ShouldBe(book.Release.Id);
+    }
+
+    [Fact]
+    public async Task A_damaged_author_line_in_the_title_still_finds_the_book_by_the_creator_as_the_title()
+    {
+        var book = BookBy("From Ember and Ash", "Jennifer Armbruster");
+
+        var answer = await GroundSpineAsync(Grounding(new Catalogue(book)), SpineBy("ANNIFER ARMBRUSTER", "FROM EMBER AND ASH"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answer.Options.Single().LocalReleaseId.ShouldBe(book.Release.Id);
+    }
+
+    [Fact]
+    public async Task A_read_whose_title_found_a_release_but_not_a_sure_one_is_never_swapped()
+    {
+        var catalogue = new Catalogue(Book("Copper Lantern"), Book("Copper Lantern")); // two releases tie: Ambiguous
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), SpineBy("COPPER LANTERN", "TESS HARROWGATE"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        catalogue.Lookups.ShouldBe(["copper lantern"]);
+        answer.FoundByTrimmedSpan.ShouldBeFalse();
+        answer.Steps.ShouldNotContain(s => s.Provider == "swapped");
+    }
+
+    [Fact]
+    public async Task A_read_that_matched_is_never_swapped()
+    {
+        var catalogue = new Catalogue(Book("Copper Lantern"));
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), SpineBy("COPPER LANTERN", "TESS HARROWGATE"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Matched);
+        catalogue.Lookups.ShouldBe(["copper lantern"]);
+        answer.Steps.ShouldNotContain(s => s.Provider == "swapped");
+    }
+
+    [Fact]
+    public async Task A_read_a_trimmed_span_found_a_book_for_never_reaches_the_swap()
+    {
+        var harbor = Book("Quiet Harbor");
+        var catalogue = new Catalogue(harbor, BookBy("Copper Lantern", "Gary Someone"));
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), SpineBy(Spine, "COPPER LANTERN"));
+
+        answer.Options.Single().LocalReleaseId.ShouldBe(harbor.Release.Id);
+        catalogue.Lookups.ShouldNotContain("copper lantern");
+        answer.Steps.ShouldNotContain(s => s.Provider == "swapped");
+        answer.Steps.ShouldContain(s => s.Provider == "trimmed");
+    }
+
+    [Fact]
+    public async Task The_swap_is_asked_last_after_every_trimmed_span_and_asks_for_the_creator_as_read_with_the_title_read_as_the_creator()
+    {
+        var grounding = Grounding(new Catalogue());
+        var facts = SpineBy(Spine, "COPPER LANTERN");
+        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
+        var asked = new List<ReadFacts>();
+
+        var answers = await grounding.RetryTrimmedAsync(
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, f => { asked.Add(f); return Task.FromResult(ProviderAnswers.None); }, CancellationToken.None)],
+            CancellationToken.None);
+
+        asked.Select(f => f.Title).ShouldBe(["QUIET HARBOR NOVEL", "GARY QUIET HARBOR", "QUIET HARBOR", "HARBOR NOVEL", "COPPER LANTERN"]);
+        var swapped = asked[^1];
+        swapped.Creator.ShouldBe(Spine);
+        swapped.CreatorAsRead.ShouldBeNull();
+        swapped.Text.ShouldBe(Spine); // what was read stays what was read
+        swapped.Kind.ShouldBe(WorkKind.Book);
+        answers.Single().ShouldBeSameAs(notFound); // and nothing found: the answer is the one it had
+    }
+
+    [Fact]
+    public async Task The_swap_is_asked_for_a_read_of_two_words_that_no_span_can_help()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), SpineBy("TESS HARROWGATE", "COPPER LANTERN"));
+
+        TrimmedSpans.For("TESS HARROWGATE").ShouldBeEmpty();
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    [InlineData("tess harrowgate")] // the title again, however it is written
+    [InlineData("HARROWGATE")] // nothing the title does not already say
+    [InlineData("LAMP")] // one short word finds anything
+    public async Task A_creator_that_is_missing_the_title_again_or_too_little_to_search_for_is_never_swapped(string? creatorAsRead)
+    {
+        var catalogue = new Catalogue(Book("Lamp"), BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), SpineBy("TESS HARROWGATE", creatorAsRead));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        catalogue.Lookups.ShouldBe(["tess harrowgate"]);
+        answer.Steps.ShouldNotContain(s => s.Provider == "swapped");
+    }
+
+    [Fact]
+    public async Task A_read_with_no_title_of_its_own_is_never_swapped()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+        var facts = SpineBy("TESS HARROWGATE", "COPPER LANTERN") with { Title = null };
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), facts);
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        catalogue.Lookups.ShouldBe(["tess harrowgate"]);
+    }
+
+    [Fact]
+    public async Task A_read_whose_title_a_product_code_decided_is_never_swapped()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+        var facts = SpineBy("TESS HARROWGATE", "COPPER LANTERN") with { ProductCode = "SNS-8C-USA" };
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), facts);
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        catalogue.Lookups.ShouldBe(["tess harrowgate"]);
+    }
+
+    [Theory]
+    [InlineData(ScoringProfileKind.Cover)]
+    [InlineData(ScoringProfileKind.BareLabel)]
+    [InlineData(ScoringProfileKind.LooseCartridge)]
+    [InlineData(ScoringProfileKind.BarcodeProduct)]
+    public async Task A_read_scored_with_any_profile_but_the_spine_one_is_never_swapped(ScoringProfileKind profile)
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var answer = await GroundSpineAsync(Grounding(catalogue), SpineBy("TESS HARROWGATE", "COPPER LANTERN"), profile);
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        catalogue.Lookups.ShouldBe(["tess harrowgate"]);
+    }
+
+    [Fact]
+    public async Task A_read_a_provider_could_not_answer_is_pending_and_is_not_swapped()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var answer = await GroundSpineAsync(Grounding(catalogue, new Providers(down: true)), SpineBy("TESS HARROWGATE", "COPPER LANTERN"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        catalogue.Lookups.ShouldBe(["tess harrowgate"]);
+    }
+
+    [Fact]
+    public async Task A_swap_that_finds_nothing_leaves_the_read_not_found_as_it_was()
+    {
+        var grounding = Grounding(new Catalogue());
+
+        var answer = await GroundSpineAsync(grounding, SpineBy("TESS HARROWGATE", "COPPER LANTERN"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answer.Options.ShouldBeEmpty();
+        answer.Steps.ShouldNotContain(s => s.Provider == "swapped" || s.Provider == "trimmed");
+    }
+
+    [Fact]
+    public async Task A_swap_the_provider_finds_the_book_for_is_offered_too()
+    {
+        // No local release: the providers are asked about the creator as the title and know the book.
+        var grounding = Grounding(new Catalogue(), new Providers(false, Known("Copper Lantern")));
+
+        var answer = await GroundSpineAsync(grounding, SpineBy("TESS HARROWGATE", "COPPER LANTERN"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answer.Options.Single().Provider!.Title.ShouldBe("Copper Lantern");
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+    }
+
+    // ---- the budget: a swap the time ran out on is not an answer either ------------------------------------------------------------
+
+    [Fact]
+    public async Task A_budget_that_runs_out_before_the_swap_leaves_the_read_pending_not_a_final_not_found()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Gary Someone"));
+        var grounding = Grounding(catalogue);
+        var facts = SpineBy(Spine, "COPPER LANTERN");
+        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
+        using var budget = new CancellationTokenSource();
+        var asks = 0;
+
+        var answers = await grounding.RetryTrimmedAsync(
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, _ =>
+            {
+                if (++asks == TrimmedSpans.MaxSpans)
+                {
+                    budget.Cancel(); // the last span answers cleanly, and then the time is gone
+                }
+
+                return Task.FromResult(ProviderAnswers.None);
+            }, budget.Token)],
+            CancellationToken.None);
+
+        asks.ShouldBe(TrimmedSpans.MaxSpans);
+        answers.Single().Verdict.ShouldBe(ResolutionVerdict.Pending);
+        answers.Single().Steps.ShouldBe([.. notFound.Steps, new TraceStep("trimmed", "cut_short", 0)]);
+        catalogue.Lookups.ShouldNotContain("copper lantern"); // the swap, which would have found the book, was not tried
+    }
+
+    [Fact]
+    public async Task A_read_of_two_words_whose_budget_was_spent_before_the_swap_goes_pending()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+        var grounding = Grounding(catalogue);
+        var facts = SpineBy("TESS HARROWGATE", "COPPER LANTERN");
+        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
+        using var budget = new CancellationTokenSource();
+        await budget.CancelAsync();
+
+        var answers = await grounding.RetryTrimmedAsync(
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, _ => Task.FromResult(ProviderAnswers.None), budget.Token)],
+            CancellationToken.None);
+
+        answers.Single().Verdict.ShouldBe(ResolutionVerdict.Pending);
+        answers.Single().Steps.ShouldContain(new TraceStep("trimmed", "cut_short", 0));
+        catalogue.Lookups.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_swap_the_providers_could_not_answer_leaves_the_read_pending_so_that_a_later_run_asks_again()
+    {
+        var grounding = Grounding(new Catalogue());
+        var facts = SpineBy("TESS HARROWGATE", "COPPER LANTERN");
+        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
+
+        var answers = await grounding.RetryTrimmedAsync(
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound,
+                _ => Task.FromResult(new ProviderAnswers([], [new TraceStep("openlibrary", "failed", 0)], true)), CancellationToken.None)],
+            CancellationToken.None);
+
+        answers.Single().Verdict.ShouldBe(ResolutionVerdict.Pending);
+        answers.Single().Steps.ShouldContain(new TraceStep("trimmed", "cut_short", 0));
+    }
+
+    [Fact]
+    public async Task Reads_retry_together_and_a_read_still_looking_asks_its_swap_in_the_round_after_its_last_span()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+        var grounding = Grounding(catalogue);
+        var swapOnly = SpineBy("TESS HARROWGATE", "COPPER LANTERN"); // no span: its swap is the first thing it asks
+        var spans = SpineBy("ONE TWO THREE", "COPPER LANTERN"); // two spans, then the swap
+        var reads = new[] { swapOnly, spans };
+        var answers = reads.Select(f => grounding.Score(f, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None)).ToArray();
+
+        var retried = await grounding.RetryTrimmedAsync(
+            [.. reads.Select((f, i) => new TrimmedRetry(f, ScoringProfileKind.ShelfSpine, answers[i], _ => Task.FromResult(ProviderAnswers.None), CancellationToken.None))],
+            CancellationToken.None);
+
+        retried.Select(a => a.Verdict).ShouldBe([ResolutionVerdict.Ambiguous, ResolutionVerdict.Ambiguous]);
+        catalogue.Batches.ShouldBe([["copper lantern", "two three"], ["one two"], ["copper lantern"]]);
+    }
 }

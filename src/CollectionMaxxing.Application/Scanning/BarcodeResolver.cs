@@ -40,8 +40,9 @@ public sealed record BarcodeResolution(
     ResolutionVerdict Verdict, IReadOnlyList<ResolutionOption> Options, string? ProductTitle, IReadOnlyList<TraceStep> Steps)
 {
     /// <summary>
-    /// True for an answer a spine read got only by being asked again without the stray words at its ends (<c>IdentifyGrounding.RetryTrimmedAsync</c>).
-    /// Such a find is offered, never decided, and never counts as another read's confirmation (<c>RepeatReads.ConfirmedByOtherEngine</c>).
+    /// True for an answer a spine read got only by being asked again without the stray words at its ends, or with its creator as the
+    /// title (<c>IdentifyGrounding.RetryTrimmedAsync</c>). Such a find is offered, never decided, and never counts as another read's
+    /// confirmation (<c>RepeatReads.ConfirmedByOtherEngine</c>).
     /// </summary>
     public bool FoundByTrimmedSpan { get; init; }
 
