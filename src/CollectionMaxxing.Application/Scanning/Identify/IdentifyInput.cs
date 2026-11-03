@@ -322,8 +322,10 @@ internal sealed record StoredRead
     public string? Creator { get; init; }
 
     /// <summary>
-    /// The author line as the phone sent it, on a spine read: kept because the background job asks the read again, with this as the
-    /// title when nothing was found (<see cref="CreatorSwap"/>), and the sanitiser may have dropped it from <see cref="Creator"/>.
+    /// The author line as the phone sent it, on a spine read, written only when the sanitiser did not keep it as <see cref="Creator"/>
+    /// (it drops a line with "the" in it, and a real title is often sent as the creator). The background job asks the read again, with
+    /// this as the title when nothing was found (<see cref="CreatorSwap"/>); where the creator survived cleaning it is the creator, so
+    /// nothing is stored twice and a read whose creator was kept is stored (and answered to the phone) as it always was.
     /// </summary>
     public string? CreatorAsRead { get; init; }
 
@@ -370,7 +372,7 @@ internal sealed record StoredRead
         {
             Title = facts.Title,
             Creator = facts.Creator,
-            CreatorAsRead = facts.CreatorAsRead,
+            CreatorAsRead = facts.CreatorAsRead == facts.Creator ? null : facts.CreatorAsRead,
             Edition = facts.Edition,
             Completeness = facts.Completeness is { } completeness ? EnumText.ToText(completeness) : null,
             Kind = facts.Kind is { } kind ? EnumText.ToText(kind) : null,
@@ -389,6 +391,7 @@ internal sealed record StoredRead
     public static (ReadFacts Facts, ScoringProfileKind Profile) From(ScanCandidate candidate)
     {
         var stored = ReadStored(candidate.InferredJson);
+        var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
         var facts = new ReadFacts(
             stored?.Title,
             candidate.VisibleText,
@@ -402,8 +405,7 @@ internal sealed record StoredRead
             stored?.ProductCode,
             stored?.ReadAs,
             EnumText.ParseOrNull<WorkKind>(stored?.SnapKind),
-            stored?.CreatorAsRead);
-        var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
+            profile == ScoringProfileKind.ShelfSpine ? stored?.CreatorAsRead ?? stored?.Creator : null);
         return (facts, profile);
     }
 

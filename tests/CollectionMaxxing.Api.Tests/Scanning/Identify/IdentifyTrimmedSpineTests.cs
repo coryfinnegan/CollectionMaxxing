@@ -294,8 +294,10 @@ public class IdentifyTrimmedSpineTests(ApiFixture api) : IdentifyTest(api)
         (await SwappedStepsOfAsync(spine)).ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task A_book_the_pending_job_finds_by_the_creator_as_the_title_is_offered_the_same_way()
+    [Theory]
+    [InlineData("THE COPPER LANTERN")] // cleaning drops it ("the" is no part of a name): the stored read keeps it as read
+    [InlineData("COPPER LANTERN")] // cleaning keeps it as the creator: the stored read has it there
+    public async Task A_book_the_pending_job_finds_by_the_creator_as_the_title_is_offered_the_same_way(string titleAsCreator)
     {
         Options.ResolveBudget = TimeSpan.FromMilliseconds(300);
         var slow = true;
@@ -310,7 +312,7 @@ public class IdentifyTrimmedSpineTests(ApiFixture api) : IdentifyTest(api)
         await SeedCopperLanternAsync();
         using var client = As(library, LibraryRole.Editor);
         var sessionId = await StartSessionWithoutAutoCommitAsync(client, library.Id);
-        Resolution((await IdentifyOkAsync(client, sessionId, [Book("Alpha Quest"), Book("Beta Quest"), Book("Gamma Quest"), SpineBy(AuthorLine, TitleAsCreator)]))[3])
+        Resolution((await IdentifyOkAsync(client, sessionId, [Book("Alpha Quest"), Book("Beta Quest"), Book("Gamma Quest"), SpineBy(AuthorLine, titleAsCreator)]))[3])
             .ShouldBe("pending");
 
         slow = false;
