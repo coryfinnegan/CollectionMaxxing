@@ -2,7 +2,7 @@ import schema from '../../contract.schema.json';
 import { FakeBarcodeSource } from '../FakeBarcodeSource';
 import { FakeVisionEngine } from '../FakeVisionEngine';
 import { fixtures } from '../fixtures';
-import type { DetectedCode, ModelCapabilities, ModelItem } from '../types';
+import type { DetectedCode, ModelCapabilities, ModelItem, Rect } from '../types';
 
 type Schema = Record<string, unknown>;
 const defs = schema.$defs as Record<string, Schema>;
@@ -212,6 +212,78 @@ describe('FakeVisionEngine model reading', () => {
 
   it('recognizeText fails loudly for an orientation with no fixture', async () => {
     await expect(new FakeVisionEngine().recognizeText('fixture://dvd-spine-1', { orientations: [90] })).rejects.toThrow(/no recognizeText fixture/);
+  });
+
+  describe('which pass and region read each line, and the options of a text read', () => {
+    const engine = new FakeVisionEngine();
+    const topRight: Rect = { x: 0.5, y: 0, width: 0.5, height: 0.5 };
+    const bottomLeft: Rect = { x: 0, y: 0.5, width: 0.5, height: 0.5 };
+
+    it('says on every line the pass that read it', async () => {
+      const lines = await engine.recognizeText('fixture://book-cover-1', { orientations: [0, 90, 270, 180] });
+      expect(lines.map((l) => [l.text, l.pass])).toEqual([
+        ['Dune', 0],
+        ['Frank Herbert', 0],
+        ['Ace Books', 0],
+        ['ECUD', 90],
+        ['Dune', 270],
+        ['enuD', 180],
+      ]);
+      expect(lines.every((l) => l.region === undefined)).toBe(true);
+    });
+
+    it('replays a fast read of a picture that has one recorded, apart from the accurate read', async () => {
+      const fast = await engine.recognizeText('fixture://book-cover-1', { level: 'fast' });
+      const accurate = await engine.recognizeText('fixture://book-cover-1', { level: 'accurate' });
+      expect(fast.map((l) => l.text)).toEqual(['Dune', 'FRANK HERBERT']);
+      expect(accurate.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert', 'Ace Books']);
+    });
+
+    it('replays a read with language correction apart from the one without', async () => {
+      const corrected = await engine.recognizeText('fixture://book-cover-1', { languageCorrection: true });
+      expect(corrected.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert']);
+      await expect(engine.recognizeText('fixture://book-cover-1', { languageCorrection: false })).resolves.toHaveLength(3);
+    });
+
+    it('fails loudly for a level or a correction it has no recording of', async () => {
+      await expect(engine.recognizeText('fixture://dvd-spine-1', { level: 'fast' })).rejects.toThrow(/no recognizeText fixture.*"level":"fast"/);
+      await expect(engine.recognizeText('fixture://dvd-spine-1', { languageCorrection: true })).rejects.toThrow(/no recognizeText fixture/);
+    });
+
+    it('reads each region as its own request and says which region read each line', async () => {
+      const lines = await engine.recognizeText('fixture://book-cover-1', { regions: [topRight, bottomLeft] });
+      expect(lines.map((l) => [l.text, l.pass, l.region])).toEqual([
+        ['HERBERT', 0, 0],
+        ['ACE', 0, 1],
+      ]);
+    });
+
+    it('puts the lines of a region on the whole picture, as the native wrapper does', async () => {
+      const [herbert, ace] = await engine.recognizeText('fixture://book-cover-1', { regions: [topRight, bottomLeft] });
+      // recorded inside the region at (0.2, 0.4, 0.5 x 0.2); the top-right quarter starts at x 0.5
+      expect(herbert.box.x).toBeCloseTo(0.6);
+      expect(herbert.box.y).toBeCloseTo(0.2);
+      expect(herbert.box.width).toBeCloseTo(0.25);
+      expect(herbert.box.height).toBeCloseTo(0.1);
+      // recorded at (0.1, 0.1, 0.4 x 0.2) in the bottom-left quarter, which starts at y 0.5
+      expect(ace.box.x).toBeCloseTo(0.05);
+      expect(ace.box.y).toBeCloseTo(0.55);
+    });
+
+    it('fails loudly for a region it has no recording of', async () => {
+      await expect(engine.recognizeText('fixture://book-cover-1', { regions: [{ x: 0.1, y: 0.1, width: 0.3, height: 0.3 }] })).rejects.toThrow(
+        /no recognizeText fixture.*"region"/,
+      );
+    });
+
+    it('refuses regions in a turned pass, as the native wrapper does', async () => {
+      await expect(engine.recognizeText('fixture://book-cover-1', { orientations: [0, 90], regions: [topRight] })).rejects.toThrow(/upright/);
+    });
+
+    it('treats an empty list of regions as the whole picture', async () => {
+      const lines = await engine.recognizeText('fixture://book-cover-1', { regions: [] });
+      expect(lines.map((l) => l.text)).toEqual(['Dune', 'Frank Herbert', 'Ace Books']);
+    });
   });
 });
 

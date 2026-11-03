@@ -14,7 +14,8 @@
           "y": 0.1,
           "width": 0.1,
           "height": 0.6
-        }
+        },
+        "pass": 0
       },
       {
         "text": "WARNER HOME VIDEO",
@@ -24,7 +25,8 @@
           "y": 0.75,
           "width": 0.1,
           "height": 0.2
-        }
+        },
+        "pass": 0
       }
     ]
   },
@@ -43,7 +45,8 @@
           "y": 0.2,
           "width": 0.4,
           "height": 0.1
-        }
+        },
+        "pass": 0
       },
       {
         "text": "Frank Herbert",
@@ -53,7 +56,8 @@
           "y": 0.8,
           "width": 0.4,
           "height": 0.06
-        }
+        },
+        "pass": 0
       },
       {
         "text": "Ace Books",
@@ -63,7 +67,8 @@
           "y": 0.92,
           "width": 0.2,
           "height": 0.03
-        }
+        },
+        "pass": 0
       }
     ]
   },
@@ -91,7 +96,8 @@
           "y": 0.1,
           "width": 0.1,
           "height": 0.3
-        }
+        },
+        "pass": 90
       }
     ]
   },
@@ -111,7 +117,8 @@
           "y": 0.2,
           "width": 0.4,
           "height": 0.1
-        }
+        },
+        "pass": 270
       }
     ]
   },
@@ -131,7 +138,126 @@
           "y": 0.2,
           "width": 0.4,
           "height": 0.1
-        }
+        },
+        "pass": 180
+      }
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://book-cover-1",
+      "level": "fast"
+    },
+    "output": [
+      {
+        "text": "Dune",
+        "confidence": 0.8,
+        "box": {
+          "x": 0.3,
+          "y": 0.2,
+          "width": 0.4,
+          "height": 0.1
+        },
+        "pass": 0
+      },
+      {
+        "text": "FRANK HERBERT",
+        "confidence": 0.55,
+        "box": {
+          "x": 0.3,
+          "y": 0.8,
+          "width": 0.4,
+          "height": 0.06
+        },
+        "pass": 0
+      }
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://book-cover-1",
+      "languageCorrection": true
+    },
+    "output": [
+      {
+        "text": "Dune",
+        "confidence": 1,
+        "box": {
+          "x": 0.3,
+          "y": 0.2,
+          "width": 0.4,
+          "height": 0.1
+        },
+        "pass": 0
+      },
+      {
+        "text": "Frank Herbert",
+        "confidence": 0.95,
+        "box": {
+          "x": 0.3,
+          "y": 0.8,
+          "width": 0.4,
+          "height": 0.06
+        },
+        "pass": 0
+      }
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://book-cover-1",
+      "region": {
+        "x": 0.5,
+        "y": 0,
+        "width": 0.5,
+        "height": 0.5
+      }
+    },
+    "output": [
+      {
+        "text": "HERBERT",
+        "confidence": 0.9,
+        "box": {
+          "x": 0.2,
+          "y": 0.4,
+          "width": 0.5,
+          "height": 0.2
+        },
+        "pass": 0,
+        "region": 0
+      }
+    ]
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "imageUri": "fixture://book-cover-1",
+      "region": {
+        "x": 0,
+        "y": 0.5,
+        "width": 0.5,
+        "height": 0.5
+      }
+    },
+    "output": [
+      {
+        "text": "ACE",
+        "confidence": 0.8,
+        "box": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.4,
+          "height": 0.2
+        },
+        "pass": 0,
+        "region": 0
       }
     ]
   }

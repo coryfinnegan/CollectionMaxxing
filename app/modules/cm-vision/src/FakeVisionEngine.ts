@@ -1,4 +1,6 @@
 import { fixtures, sameJson, type FixtureSet } from './fixtures';
+import { linesInPicture } from './regions';
+import { textRequest } from './textOptions';
 import type {
   DetectedCode,
   DetectRectanglesOptions,
@@ -8,9 +10,9 @@ import type {
   ModelItem,
   ReadItemsOptions,
   ReadItemsResult,
+  RecognizeTextOptions,
   Rect,
   TextLine,
-  TextOrientation,
   VisionEngine,
 } from './types';
 
@@ -72,10 +74,28 @@ export class FakeVisionEngine implements VisionEngine {
     return true;
   }
 
-  async recognizeText(imageUri: string, options?: { orientations?: TextOrientation[] }): Promise<TextLine[]> {
+  /**
+   * One recording per request shape: the picture, and what differs from the scanner's own request (a turned pass, the fast level, language
+   * correction, one region). Every line says its pass; with regions each is read as its own request, recorded in the region's own frame, and put on
+   * the whole picture the way the native wrapper does.
+   */
+  async recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]> {
+    const { orientations, level, languageCorrection, regions } = textRequest(options);
+    const shape = {
+      ...(level === 'fast' ? { level } : {}),
+      ...(languageCorrection ? { languageCorrection } : {}),
+    };
     const lines: TextLine[] = [];
-    for (const orientation of options?.orientations ?? [0]) {
-      lines.push(...this.replay('recognizeText', orientation === 0 ? { imageUri } : { imageUri, orientation }));
+    for (const orientation of orientations) {
+      const turned = orientation === 0 ? {} : { orientation };
+      if (regions.length === 0) {
+        lines.push(...this.replay('recognizeText', { imageUri, ...turned, ...shape }).map((line) => ({ ...line, pass: orientation })));
+        continue;
+      }
+      regions.forEach((region, index) => {
+        const recorded = this.replay('recognizeText', { imageUri, ...turned, ...shape, region });
+        lines.push(...linesInPicture(recorded.map((line) => ({ ...line, pass: orientation, region: index })), regions));
+      });
     }
     return lines;
   }
