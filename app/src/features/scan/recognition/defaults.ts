@@ -86,16 +86,34 @@ export interface LocalTuning {
   /** A shelf row needs this many tall lines on each side of a cut, so a sticker read sideways does not make a row of its own. */
   shelfRowMinLines: number;
   /**
+   * An item lying flat across the tops of the spines (a tape on a row of DVDs) is its own item, not a line of the spine under its center.
+   * A flat line lies across when its height is at least this share of a spine column's width (the row's median; a spine's lettering reads
+   * sideways, so that width is its letter height), which keeps a sticker or small print with its spine, and it passes `lyingLineWidth` and
+   * `lyingLineReach` too.
+   */
+  lyingLineLetters: number;
+  /**
+   * A flat line lies across the spines only when it is at least this many of its spine's column widths wide. The widest author's name
+   * printed flat across its own spine is 1.93 columns (two "SARAH J." lines on shelf-02 are 1.87 and 1.93), and the narrowest tape that lies
+   * across is 2.13 (Body Worlds). The margin below 2 is 0.07 columns: at 1.93 or less a name is cut out as an item of its own, though the
+   * titles found stay the same, so the count of titles does not guard this number; a recorded test does. Infinity switches the cut off,
+   * and a line then joins the spine under its center.
+   */
+  lyingLineWidth: number;
+  /** ...and its center lies at least this many column widths above its spine's top or below its bottom: a title printed within the spine's own span is the spine's. */
+  lyingLineReach: number;
+  /**
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
    * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
-   * heights apart. The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or wider than
+   * heights apart (hardcovers, thick against their letters, up to a median of 1.1; #637). The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or wider than
    * half the frame with 5 or more bands (a cover that fills the frame: a real cover of the twelve recorded is 0.73 wide with 6 bands, and
    * is still wider than 0.5 shrunk to 70% in the frame), or have fewer than 3 bands (two flat lines are never enough, since a
    * title and its author read exactly like two tapes), or have their bands 1 to 5 letter heights apart (title, author, tagline).
    * A small stack of 3 or 4 (#618) has too little else to go on, so it must also have one size of lettering: a stack of tapes sets each
    * title alike, while the real cover whose three bands read as a pile (a bestseller line, the author, the title) has its smallest
-   * lettering 0.32 of its biggest. The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under
+   * lettering 0.32 of its biggest; a stack of four needs a little less (0.4), since the four tapes of one recorded stack run to 0.46 and no
+   * recorded cover has four bands that pass the width and gap rules. The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under
    * 0.3 of the big lettering on its band.
    */
   /** A line lies flat when its width is at least this many times its height. */
@@ -114,6 +132,13 @@ export interface LocalTuning {
   stackMaxWidth: number;
   /** A pile's bands sit close: the median gap between two is at most this many of their letter heights. */
   stackMaxGap: number;
+  /**
+   * A pile of `stackSureBands` or more may have its bands further apart: hardcovers lying flat are thick against their letters, so a median
+   * gap runs to 1.1 letter heights where tapes sit 0.3 to 0.5 apart. A small stack keeps `stackMaxGap`: a cover's three lines can sit 1.5 apart.
+   */
+  stackSureMaxGap: number;
+  /** A stack of exactly four needs its smallest lettering to be at least this share of its biggest (a stack of three keeps `stackSmallLetters`). */
+  stackFourLetters: number;
   /** A line joins a band when it overlaps it or lies within this share of its own height from it. */
   bandMaxGap: number;
   /** A line stretches its band when its letters are at least this share of the band's tallest. */
@@ -223,6 +248,9 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   minSpineColumns: 2,
   shelfRowGap: 4,
   shelfRowMinLines: 2,
+  lyingLineLetters: 0.5,
+  lyingLineWidth: 2,
+  lyingLineReach: 0.5,
   flatLineAspect: 2.5,
   stackMinBands: 3,
   stackSureBands: 5,
@@ -231,6 +259,8 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   stackMinWidth: 0.1,
   stackMaxWidth: 0.5,
   stackMaxGap: 1,
+  stackSureMaxGap: 1.25,
+  stackFourLetters: 0.4,
   bandMaxGap: 0.05,
   bandSameLetters: 0.6,
   bandMinLetters: 0.3,
