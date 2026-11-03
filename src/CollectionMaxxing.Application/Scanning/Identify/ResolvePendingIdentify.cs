@@ -12,7 +12,10 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// it, in their library, so what it reads and writes is what they could. It asks again from the read kept on the candidate
 /// (no phone needed). If the providers still can't answer, the candidate becomes an Error (the person can search by hand)
 /// instead of waiting forever. Safe to run twice: a candidate that is no longer Pending is left alone, and a decision the
-/// person already made is never overwritten (<see cref="CandidateResolver.ApplyAsync"/>).
+/// person already made is never overwritten (<see cref="CandidateResolver.ApplyAsync"/>). It grounds one read on its own, so it
+/// cannot make the pass over a whole picture that <c>/identify</c> and the eval make (<see cref="SeriesNeighbour"/>, which asks a
+/// spine again with its neighbour's series): a stored read has no box and the job has no neighbours' answers. A read that pass left
+/// Pending is answered here as the read alone.
 /// </summary>
 public sealed class ResolvePendingIdentify(
     IAppDbContext db,

@@ -25,7 +25,7 @@ public readonly record struct SeriesRead(
 /// <para>
 /// A read may ask when it was scored as a spine, has a box, has words enough to search (<see cref="MinLetters"/>), and found nothing
 /// or only an ambiguous answer whose best release carries no series (and does not already name the series without a colon). A
-/// Matched read is never asked again. The neighbours are the nearest read on each side by the centre of its box, on the same row
+/// Matched read is never asked again, and neither is a read whose place another read already holds with a Matched answer. The neighbours are the nearest read on each side by the centre of its box, on the same row
 /// (the boxes overlap vertically by at least half the shorter one), and not in the read's own place (the other engine's read of the
 /// same spine is not a neighbour). Where several reads share the neighbour's place, the one that grounds best speaks for it.
 /// Only the adjacent spines count: a series two spines away is no evidence about this one. A read with no box has no neighbours, so
@@ -90,13 +90,23 @@ public static class SeriesNeighbour
         var series = new string?[reads.Count];
         for (var i = 0; i < reads.Count; i++)
         {
-            if (MayAsk(reads[i]) && SeriesOf(reads[i].BestTitle) is null)
+            if (MayAsk(reads[i]) && SeriesOf(reads[i].BestTitle) is null && !HeldByMatchedRead(reads, i))
             {
                 series[i] = NamedBy(reads, i);
             }
         }
 
         return series;
+    }
+
+    /// <summary>
+    /// Whether another read of the read's own place is Matched: that read takes the place (a Matched read beats any other of its
+    /// place), so what an ask found for this one would be skipped.
+    /// </summary>
+    private static bool HeldByMatchedRead(IReadOnlyList<SeriesRead> reads, int index)
+    {
+        var box = reads[index].Box!.Value;
+        return reads.Where((read, j) => j != index && read.Verdict == ResolutionVerdict.Matched && read.Box is { } other && box.SamePlaceAs(other)).Any();
     }
 
     /// <summary>The series a title carries: the text before its first colon, trimmed. Null for a title with none, or with too little before it to be a name.</summary>

@@ -28,7 +28,12 @@ public class EvalGrounderSeriesTests
 
     private static ProviderRelease Release(string title, string id, int year) => new()
     {
-        Provider = "scripted", ExternalId = id, Title = title, Kind = WorkKind.Film, Format = ReleaseFormat.Dvd, Year = year,
+        Provider = "scripted",
+        ExternalId = id,
+        Title = title,
+        Kind = WorkKind.Film,
+        Format = ReleaseFormat.Dvd,
+        Year = year,
     };
 
     /// <summary>Knows the releases it was told for exactly one asked title (whatever the case and punctuation), and can hang on one.</summary>

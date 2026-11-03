@@ -99,6 +99,19 @@ public class SeriesNeighbourTests
     }
 
     [Fact]
+    public void A_read_whose_place_another_read_already_holds_matched_is_not_asked()
+    {
+        var series = SeriesNeighbour.SeriesFor(
+            [
+                Found("STAR TREK FIASI CONTACI", "Star Trek: First Contact", At(0.30)),
+                Found("NEMESIS", "Nemesis", At(0.36), ResolutionVerdict.Matched, 0.97),
+                Lost("nEMESIS", At(0.37)),
+            ]);
+
+        series.ShouldBe([null, null, null]);
+    }
+
+    [Fact]
     public void A_read_still_pending_is_not_asked()
     {
         var series = SeriesNeighbour.SeriesFor(

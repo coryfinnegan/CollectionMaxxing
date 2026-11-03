@@ -22,7 +22,12 @@ public class IdentifyGroundingSeriesRetryTests
 
     private static ProviderRelease Release(string title, int n) => new()
     {
-        Provider = "scripted", ExternalId = $"r{n}", Title = title, Kind = WorkKind.Film, Format = ReleaseFormat.Dvd, Year = 2002,
+        Provider = "scripted",
+        ExternalId = $"r{n}",
+        Title = title,
+        Kind = WorkKind.Film,
+        Format = ReleaseFormat.Dvd,
+        Year = 2002,
     };
 
     private static BarcodeResolution Found(ResolutionVerdict verdict, string title, int n, double score) =>
