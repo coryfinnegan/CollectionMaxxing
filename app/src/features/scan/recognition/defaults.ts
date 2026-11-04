@@ -222,6 +222,21 @@ export interface LocalTuning {
    * of print is set tight. Two items' print at best grazes, so this is what keeps the next spine along out of the title.
    */
   titleRowTouch: number;
+  /**
+   * Flat words stacked on a spine (shelfTitle.ts): a word joins the stack above it when the gap between them is at most this many
+   * letter heights of the word above, and at least half a letter height of overlap.
+   */
+  stackRowGap: number;
+  /** A tile read adds a line only when its center lies in a spine's column and within this many letter widths of the spine line's ends (lines.ts). */
+  tileColumnReach: number;
+  /** A word may sit this share of the word above's height up into it and still be the next row of a stack: lines of a stack are set tight. */
+  stackRowTuck: number;
+  /** The shelf's tile read cuts the picture into 2 x 2 tiles that reach this share of the picture into their neighbors (lines.ts). */
+  tileOverlap: number;
+  /** A stack with one of these words is a publisher's imprint, never a title (shelfTitle.ts). */
+  stackPublisherWords: string[];
+  /** A stack with one of these words is a studio or distributor's block, never a title (shelfTitle.ts). */
+  stackStudioWords: string[];
   /** A run of this many digits or more says nothing but a shelf code; fewer could be a year or a count ("1984"). */
   stickerCodeDigits: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
@@ -315,6 +330,18 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   titleRowOverlap: 0.7,
   titleRowLetters: 0.5,
   titleRowTouch: 0.1,
+  stackRowGap: 1.5,
+  stackRowTuck: 0.5,
+  tileOverlap: 0.1,
+  tileColumnReach: 3,
+  stackStudioWords: [
+    'fox', 'century', 'pictures', 'paramount', 'universal', 'warner', 'columbia', 'tristar', 'disney', 'mgm', 'video', 'entertainment',
+    'films', 'studios',
+  ],
+  stackPublisherWords: [
+    'press', 'books', 'harper', 'collins', 'tor', 'daw', 'avon', 'orbit', 'ballantine', 'bantam', 'penguin', 'vintage', 'berkley',
+    'morrow', 'dell', 'scribner', 'atria', 'razorbill', 'speed', 'simon', 'schuster', 'griffin', 'putnam', 'knopf', 'bloomsbury', 'harlequin',
+  ],
   stickerCodeDigits: 5,
   creatorMaxWords: 5,
   creatorMinLetters: 3,
