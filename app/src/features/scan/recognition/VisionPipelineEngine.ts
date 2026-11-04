@@ -118,12 +118,14 @@ export class VisionPipelineEngine implements RecognitionEngine {
   /** The pieces in `covers` are single covers: each takes its biggest text as the title, and the kind its own text names. Any other piece is a stretch of shelf, whose title is its longest, surest line. */
   private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void, covers: ReadonlyMap<Piece, CoverRead>): SnapReading {
     const { pieces, unreadableCount } = split;
+    // The title each shelf piece reads on its own; a title a neighboring piece reads too is a series title, which no stack replaces.
+    const alone = pieces.map((p) => (covers.has(p) ? undefined : shelfTitleOf(p.lines, settings.local)?.text));
     const items = pieces.map((p, order): ReadItem => {
       const cover = covers.get(p);
       const biggest = cover?.title;
       // A shelf piece's title is chosen in shelfTitle.ts: never the author line or a sticker, the reading the other
       // readings of its place agree with, and both rows of a title printed over two (#617).
-      const shelf = cover ? undefined : shelfTitleOf(p.lines, settings.local, pieces.filter((q) => q !== p).flatMap((q) => q.lines));
+      const shelf = cover ? undefined : shelfTitleOf(p.lines, settings.local, pieces.filter((q) => q !== p).flatMap((q) => q.lines), alone.filter((t, i): t is string => t !== undefined && i !== order));
       // A cover whose own rule found no title falls back to its surest, longest line, as it always did (#504 owns covers).
       const titleLine =
         biggest?.line ??

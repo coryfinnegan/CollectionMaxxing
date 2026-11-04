@@ -9,7 +9,8 @@ import { VisionPipelineEngine } from './VisionPipelineEngine';
 /** Three spines: a series author on the first and the third, a title nobody else prints on the second. */
 const spineA = line('ELSIE SILVER', 0.6, 0.259, 0.03, 0.111);
 const spineB = line('THE ROGUE KING', 0.2, 0.1, 0.03, 0.6);
-const spineC = line('ELSIE SILVER', 0.8, 0.6, 0.03, 0.111);
+// The author's name on a third spine, in a longer line: a neighboring spine does not read the author's name alone as its title.
+const spineC = [line('DEEP END by ELSIE SILVER', 0.8, 0.6, 0.03, 0.3)];
 const stackA = [line('OFF TO', 0.605, 0.224, 0.02, 0.012), line('THE RACES', 0.601, 0.233, 0.028, 0.013)];
 
 type Tiles = (regions: Rect[]) => TextLine[];
@@ -35,19 +36,19 @@ const tileLines: Tiles = () => stackA.map((l) => ({ ...l, pass: 0 as const, regi
 
 describe('the shelf tile read', () => {
   it('asks only for the tiles a spine named by other spines touches', async () => {
-    const { fake, asked } = vision([spineA, spineB, spineC], tileLines);
+    const { fake, asked } = vision([spineA, spineB, ...spineC], tileLines);
     await titles(fake);
     const grid = tilesOf(T);
     expect(asked).toHaveLength(1);
     expect(asked[0].orientations).toEqual([0]);
-    // Spine A is top right and spine C is bottom right; the title of spine B is printed nowhere else, so the left tiles are not asked for.
-    expect(asked[0].regions).toEqual([grid[1], grid[3]]);
+    // Spine A is top right and its title is printed on spine C too; the titles of B and C are printed nowhere else, so no other tile is asked for.
+    expect(asked[0].regions).toEqual([grid[1]]);
   });
 
   it('reads the title stacked on a spine from the tile lines, and says the author as its creator', async () => {
-    const { fake } = vision([spineA, spineB, spineC], tileLines);
+    const { fake } = vision([spineA, spineB, ...spineC], tileLines);
     const { items } = await engine(fake).read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(items.map((i) => i.title).sort()).toEqual(['ELSIE SILVER', 'OFF TO THE RACES', 'THE ROGUE KING']);
+    expect(items.map((i) => i.title).sort()).toEqual(['DEEP END by ELSIE SILVER', 'OFF TO THE RACES', 'THE ROGUE KING']);
     expect(items.find((i) => i.title === 'OFF TO THE RACES')?.creator).toBe('ELSIE SILVER');
   });
 
@@ -58,20 +59,20 @@ describe('the shelf tile read', () => {
   });
 
   it('never reads tiles for a single cover', async () => {
-    const { fake, asked } = vision([spineA, spineC], tileLines);
+    const { fake, asked } = vision([spineA, ...spineC], tileLines);
     await titles(fake, 'single_cover');
     expect(asked).toEqual([]);
   });
 
   it('keeps what the passes read when the tile read fails', async () => {
-    const { fake } = vision([spineA, spineB, spineC], () => {
+    const { fake } = vision([spineA, spineB, ...spineC], () => {
       throw new Error('Vision declined');
     });
-    expect((await titles(fake)).sort()).toEqual(['ELSIE SILVER', 'ELSIE SILVER', 'THE ROGUE KING']);
+    expect((await titles(fake)).sort()).toEqual(['DEEP END by ELSIE SILVER', 'ELSIE SILVER', 'THE ROGUE KING']);
   });
 
   it('adds nothing a pass already read: a tile line in the same box is dropped', async () => {
-    const { fake } = vision([spineA, spineB, spineC], () => [{ ...spineA, text: 'ELS1E S1LVER', pass: 0, region: 0 }]);
-    expect((await titles(fake)).sort()).toEqual(['ELSIE SILVER', 'ELSIE SILVER', 'THE ROGUE KING']);
+    const { fake } = vision([spineA, spineB, ...spineC], () => [{ ...spineA, text: 'ELS1E S1LVER', pass: 0, region: 0 }]);
+    expect((await titles(fake)).sort()).toEqual(['DEEP END by ELSIE SILVER', 'ELSIE SILVER', 'THE ROGUE KING']);
   });
 });

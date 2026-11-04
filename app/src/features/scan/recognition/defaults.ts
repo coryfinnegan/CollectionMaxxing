@@ -235,6 +235,8 @@ export interface LocalTuning {
   tileOverlap: number;
   /** A stack with one of these words is a publisher's imprint, never a title (shelfTitle.ts). */
   stackPublisherWords: string[];
+  /** A stack with one of these words is a studio or distributor's block, never a title (shelfTitle.ts). */
+  stackStudioWords: string[];
   /** A run of this many digits or more says nothing but a shelf code; fewer could be a year or a count ("1984"). */
   stickerCodeDigits: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
@@ -332,9 +334,13 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   stackRowTuck: 0.5,
   tileOverlap: 0.1,
   tileColumnReach: 3,
+  stackStudioWords: [
+    'fox', 'century', 'pictures', 'paramount', 'universal', 'warner', 'columbia', 'tristar', 'disney', 'mgm', 'video', 'entertainment',
+    'films', 'studios',
+  ],
   stackPublisherWords: [
     'press', 'books', 'harper', 'collins', 'tor', 'daw', 'avon', 'orbit', 'ballantine', 'bantam', 'penguin', 'vintage', 'berkley',
-    'morrow', 'dell', 'scribner', 'atria', 'razorbill', 'speed',
+    'morrow', 'dell', 'scribner', 'atria', 'razorbill', 'speed', 'simon', 'schuster', 'griffin', 'putnam', 'knopf', 'bloomsbury', 'harlequin',
   ],
   stickerCodeDigits: 5,
   creatorMaxWords: 5,

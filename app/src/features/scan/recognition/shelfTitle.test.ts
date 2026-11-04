@@ -382,6 +382,27 @@ describe('flat words stacked on a spine read as its title (batch 7, brief B part
     });
   });
 
+  describe('a stacked block that is not a title never replaces a series title (HIGHLANDER on two spines)', () => {
+    const highlander = (x: number) => line('HIGHLANDER', x, 0.2, 0.02, 0.3);
+    const printed = [highlander(0.3)];
+    it.each([
+      [["DIRECTOR'S", 'CUT']],
+      [['WIDESCREEN', 'SPECIAL EDITION']],
+      [['20th', 'CENTURY', 'FOX']],
+      [['WALT DISNEY', 'HOME VIDEO']],
+      [['SIMON &', 'SCHUSTER']],
+    ])('keeps HIGHLANDER over the stack %j', (words) => {
+      const stack = words.map((w, i) => line(w, 0.5, 0.7 + i * 0.02, 0.05, 0.015));
+      expect(shelfTitleOf([highlander(0.5), ...stack], T, printed)?.text).toBe('HIGHLANDER');
+    });
+
+    it('keeps a title a neighboring spine reads as its own, whatever is stacked beneath it', () => {
+      const stack = [line('OFF TO', 0.5, 0.7, 0.05, 0.015), line('THE RACES', 0.5, 0.72, 0.05, 0.015)];
+      expect(shelfTitleOf([highlander(0.5), ...stack], T, printed, ['HIGHLANDER'])?.text).toBe('HIGHLANDER');
+      expect(shelfTitleOf([highlander(0.5), ...stack], T, printed, [])?.text).toBe('OFF TO THE RACES');
+    });
+  });
+
   it('a tile line is never the title on its own (a blurb line beside TROPIC THUNDER)', () => {
     const blurb = { ...line('y linged with mistg', 0.5, 0.1, 0.2, 0.03), region: 0 };
     const lines = [line('TROPIC THUNDER', 0.5, 0.3, 0.02, 0.3), blurb];

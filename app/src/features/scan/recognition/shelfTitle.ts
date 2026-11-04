@@ -20,7 +20,7 @@ import type { Rect, TextLine } from '@/native/cm-vision';
 import { readsAsRole } from './creators';
 import type { LocalTuning } from './defaults';
 import { bottom, overlapShare, right } from './geometry';
-import { wordsOf } from './lines';
+import { normalize, wordsOf } from './lines';
 
 /**
  * Words that mark a sticker: an edition, a format, a shelf code. Nearly every one of them is also a title on its own
@@ -280,7 +280,8 @@ function stackTitle(lines: TextLine[], today: string, others: TextLine[], tuning
   const mine = new Set(wordsOf(today));
   if (wordsOf(text).some((w) => mine.has(w))) return undefined;
   if (!namedElsewhere(today, others)) return undefined;
-  if (wordsOf(text).some((w) => tuning.stackPublisherWords.includes(w))) return undefined;
+  if (wordsOf(text).some((w) => tuning.stackPublisherWords.includes(w) || tuning.stackStudioWords.includes(w))) return undefined;
+  if (readsAsSticker(text, tuning) || readsAsRole(text)) return undefined;
   const elsewhere = new Set(others.flatMap((o) => [...longWords(o.text)]));
   const own = [...longWords(text)];
   if (own.length > 0 && own.every((w) => elsewhere.has(w))) return undefined;
@@ -291,9 +292,10 @@ function stackTitle(lines: TextLine[], today: string, others: TextLine[], tuning
  * The piece's title, or nothing when the piece holds no line at all. `others` are the lines of the shot's other pieces: with them, flat
  * words stacked on this spine can be the title where the biggest lettering is the series author's name printed on the others too; without
  * them, nothing is stacked. A line a tile read added (it has a `region`) is never the title on its own and never the author: it only
- * counts in a stack.
+ * counts in a stack. `siblings` are the titles the other pieces read: a title a neighboring spine reads as its own is a series title, and no
+ * stack replaces it.
  */
-export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning, others: TextLine[] = []): ShelfTitle | undefined {
+export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning, others: TextLine[] = [], siblings: string[] = []): ShelfTitle | undefined {
   if (lines.length === 0) return undefined;
   const readings = new Readings(lines, tuning);
   const own = lines.filter((l) => l.region === undefined);
@@ -304,7 +306,8 @@ export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning, others: Tex
   const second = readings.secondRow(chosen, said);
   const rows = second ? inRowOrder(chosen, second) : [chosen];
   const text = rows.map((l) => l.text.trim()).join(' ');
-  const stack = stackTitle(lines, text, others, tuning);
+  const same = (t: string) => normalize(t) === normalize(text);
+  const stack = siblings.some(same) ? undefined : stackTitle(lines, text, others, tuning);
   if (stack) {
     // Today's title line goes to `rest`, so the name it printed is the creator.
     const rest = lines.filter((l) => !stack.includes(l) && l.region === undefined && !readsAsSticker(l.text, tuning));
