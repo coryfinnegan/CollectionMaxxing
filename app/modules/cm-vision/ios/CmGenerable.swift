@@ -169,6 +169,43 @@ struct CmGenRead {
   var items: [CmGenItem]
 }
 
+/// What the picture reader generates for each spine of a shelf: the four fields that decide a match, in
+/// the order they stream. Platform, edition and completeness were junk on shelves and cost generation time.
+@available(iOS 26.0, *)
+@Generable
+struct CmGenSpine {
+  var title: String
+  var creator: String?
+  var kind: CmGenKind
+  var confidence: CmGenConfidence
+}
+
+@available(iOS 26.0, *)
+@Generable
+struct CmGenSpineRead {
+  var items: [CmGenSpine]
+}
+
+/// What the picture reader generates for a single cover: the full item without visibleText, which only
+/// copied taglines and review quotes.
+@available(iOS 26.0, *)
+@Generable
+struct CmGenCover {
+  var title: String
+  var creator: String?
+  var kind: CmGenKind
+  var platform: String?
+  var editionMarks: String?
+  var completeness: CmGenCompleteness?
+  var confidence: CmGenConfidence
+}
+
+@available(iOS 26.0, *)
+@Generable
+struct CmGenCoverRead {
+  var items: [CmGenCover]
+}
+
 /// Turns finished generated items into contract dictionaries. Both readers call it; neither decides
 /// what counts as a match, that stays in TypeScript and on the server.
 @available(iOS 26.0, *)
@@ -179,6 +216,44 @@ enum CmGeneration {
             let kind = partial.kind, let confidence = partial.confidence else { return nil }
       return CmContract.modelItem(
         visibleText: partial.visibleText ?? "",
+        title: title,
+        creator: partial.creator,
+        kind: kind.contractName,
+        platform: partial.platform,
+        editionMarks: partial.editionMarks,
+        completeness: partial.completeness?.contractName,
+        order: order,
+        confidence: confidence.contractName
+      )
+    }
+  }
+
+  /// A lean spine: its title doubles as the text TypeScript matches to a Vision line.
+  static func add(_ partial: CmGenSpine.PartiallyGenerated, to run: CmReadRun) {
+    run.add { order in
+      guard let title = partial.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+            let kind = partial.kind, let confidence = partial.confidence else { return nil }
+      return CmContract.modelItem(
+        visibleText: title,
+        title: title,
+        creator: partial.creator,
+        kind: kind.contractName,
+        platform: nil,
+        editionMarks: nil,
+        completeness: nil,
+        order: order,
+        confidence: confidence.contractName
+      )
+    }
+  }
+
+  /// A lean cover: as a full item, with the title standing in for the visible text.
+  static func add(_ partial: CmGenCover.PartiallyGenerated, to run: CmReadRun) {
+    run.add { order in
+      guard let title = partial.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+            let kind = partial.kind, let confidence = partial.confidence else { return nil }
+      return CmContract.modelItem(
+        visibleText: title,
         title: title,
         creator: partial.creator,
         kind: kind.contractName,

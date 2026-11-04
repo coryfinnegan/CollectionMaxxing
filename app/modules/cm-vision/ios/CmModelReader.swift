@@ -69,7 +69,8 @@ enum CmModelReader {
 
     let gate = CmOutcomeGate()
     let worker = Task.detached(priority: .userInitiated) {
-      gate.resolve(await consume(image: image, prompt: request.prompt, run: run))
+      let single = request.maxItems == 1
+      gate.resolve(await consume(image: image, prompt: request.prompt, single: single, run: run))
     }
     let timer = Task.detached {
       let nanoseconds = UInt64(min(max(request.timeoutMs, 0), 600_000) * 1_000_000)
@@ -82,30 +83,16 @@ enum CmModelReader {
     return finish(outcome)
   }
 
-  private static func consume(image: CmLoadedImage, prompt: String, run: CmReadRun) async -> CmOutcome {
+  /// One cover asks for the cover shape; anything else is a shelf and asks for the lean spine shape.
+  private static func consume(
+    image: CmLoadedImage, prompt: String, single: Bool, run: CmReadRun
+  ) async -> CmOutcome {
     do {
       let session = LanguageModelSession(instructions: prompt)
-      let stream = session.streamResponse(generating: CmGenRead.self) {
-        "Picture:"
-        Attachment(image.cgImage, orientation: image.orientation)
+      if single {
+        return try await streamCover(session: session, image: image, run: run)
       }
-      var latest: [CmGenItem.PartiallyGenerated] = []
-      var next = 0
-      for try await snapshot in stream {
-        try Task.checkCancellation()
-        latest = snapshot.content.items ?? []
-        // The last item may still be growing; every earlier one is finished.
-        while next < latest.count - 1 {
-          CmGeneration.add(latest[next], to: run)
-          next += 1
-        }
-        if run.isFull { return .ok }
-      }
-      while next < latest.count {
-        CmGeneration.add(latest[next], to: run)
-        next += 1
-      }
-      return .ok
+      return try await streamSpines(session: session, image: image, run: run)
     } catch is CancellationError {
       return .unavailable
     } catch let error as LanguageModelSession.GenerationError {
@@ -117,5 +104,56 @@ enum CmModelReader {
     } catch {
       return .unavailable
     }
+  }
+
+  private static func streamSpines(
+    session: LanguageModelSession, image: CmLoadedImage, run: CmReadRun
+  ) async throws -> CmOutcome {
+    let stream = session.streamResponse(generating: CmGenSpineRead.self) {
+      "Picture:"
+      Attachment(image.cgImage, orientation: image.orientation)
+    }
+    var latest: [CmGenSpine.PartiallyGenerated] = []
+    var next = 0
+    for try await snapshot in stream {
+      try Task.checkCancellation()
+      latest = snapshot.content.items ?? []
+      // The last item may still be growing; every earlier one is finished.
+      while next < latest.count - 1 {
+        CmGeneration.add(latest[next], to: run)
+        next += 1
+      }
+      if run.isFull { return .ok }
+    }
+    while next < latest.count {
+      CmGeneration.add(latest[next], to: run)
+      next += 1
+    }
+    return .ok
+  }
+
+  private static func streamCover(
+    session: LanguageModelSession, image: CmLoadedImage, run: CmReadRun
+  ) async throws -> CmOutcome {
+    let stream = session.streamResponse(generating: CmGenCoverRead.self) {
+      "Picture:"
+      Attachment(image.cgImage, orientation: image.orientation)
+    }
+    var latest: [CmGenCover.PartiallyGenerated] = []
+    var next = 0
+    for try await snapshot in stream {
+      try Task.checkCancellation()
+      latest = snapshot.content.items ?? []
+      while next < latest.count - 1 {
+        CmGeneration.add(latest[next], to: run)
+        next += 1
+      }
+      if run.isFull { return .ok }
+    }
+    while next < latest.count {
+      CmGeneration.add(latest[next], to: run)
+      next += 1
+    }
+    return .ok
   }
 }
