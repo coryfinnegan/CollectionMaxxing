@@ -21,13 +21,9 @@ describe('the picture reader generates a lean shape', () => {
     expect(names('CmGenSpine')).toEqual(['title', 'creator', 'kind', 'confidence']);
   });
 
-  it('a single cover generates no visibleText and keeps platform, editionMarks and completeness', () => {
-    expect(names('CmGenCover')).toEqual(['title', 'creator', 'kind', 'platform', 'editionMarks', 'completeness', 'confidence']);
-  });
-
   it('every generated field is a ModelItem key', () => {
     const keys = Object.keys(schema.$defs.ModelItem.properties);
-    for (const struct of ['CmGenSpine', 'CmGenCover']) {
+    for (const struct of ['CmGenSpine']) {
       for (const field of names(struct)) expect(keys).toContain(field);
     }
   });
@@ -35,13 +31,11 @@ describe('the picture reader generates a lean shape', () => {
   it('the enums are the shared contract enums', () => {
     expect(fieldsOf('CmGenSpine').find((f) => f.name === 'kind')?.type).toBe('CmGenKind');
     expect(fieldsOf('CmGenSpine').find((f) => f.name === 'confidence')?.type).toBe('CmGenConfidence');
-    expect(fieldsOf('CmGenCover').find((f) => f.name === 'completeness')?.type).toBe('CmGenCompleteness?');
   });
 
   it('each shape is wrapped in a read of items', () => {
     const src = swift('CmGenerable.swift');
     expect(src).toMatch(/struct CmGenSpineRead\s*\{\s*var items: \[CmGenSpine\]/);
-    expect(src).toMatch(/struct CmGenCoverRead\s*\{\s*var items: \[CmGenCover\]/);
   });
 
   it('the OCR-text extractor still generates visibleText', () => {
@@ -50,15 +44,23 @@ describe('the picture reader generates a lean shape', () => {
     expect(swift('CmTextReader.swift')).not.toMatch(/CmGenSpine|CmGenCover/);
   });
 
-  it('the picture reader picks the shape per read by maxItems, and no longer generates the full item', () => {
+  it('the picture reader picks the shape from the explicit schema option, not from maxItems', () => {
+    const request = swift('CmGenerable.swift');
+    expect(request).toMatch(/options\["schema"\]/);
+    expect(request).toMatch(/spine\s*=/);
     const src = swift('CmModelReader.swift');
-    expect(src).toMatch(/maxItems\s*==\s*1/);
     expect(src).toContain('CmGenSpineRead.self');
-    expect(src).toContain('CmGenCoverRead.self');
-    expect(src).not.toContain('CmGenRead.self');
+    expect(src).toContain('CmGenRead.self');
+    expect(src).not.toMatch(/maxItems\s*==\s*1/);
   });
 
-  it('a lean item hands TypeScript the title as its visibleText and leaves the missing fields out', () => {
+  it('the full shape is the default and still carries visibleText', () => {
+    expect(swift('CmGenerable.swift')).toMatch(/\] as\? String\) == "spine"/);
+    expect(names('CmGenItem')).toContain('visibleText');
+    expect(swift('CmGenerable.swift')).not.toMatch(/CmGenCover/);
+  });
+
+  it('a lean spine hands TypeScript the title as its visibleText and leaves the missing fields out', () => {
     const src = swift('CmGenerable.swift');
     expect(src).toMatch(/visibleText:\s*title/);
     expect(src).toMatch(/platform:\s*nil/);

@@ -12,7 +12,7 @@ import { withCoverCue } from './CoverCueEngine';
 import { FmTextEngine } from './FmTextEngine';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
 import { asUnconfirmed, fillPlace, isNewItem, nextOrder, passesPrint, shelfReading } from './combine';
-import type { CoverFormatTuning } from './defaults';
+import { type CoverFormatTuning, SPINE_SCHEMA_MIN_PIECES } from './defaults';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
 import type { ModelEngineDeps } from './modelReading';
@@ -150,7 +150,10 @@ export class EngineSelector {
       const filled = fillPlace(current, item, local);
       if (filled) emit(filled);
     };
-    const model = await this.readModel(still, streamNew, options, started);
+    // Vision's own split says what the shot is: many spine pieces and no covers is a shelf of spines, where the model writes only the
+    // fields that decide a match. Anything else (a cover framed as a segment, several covers) keeps the full item and its platform.
+    const spines = (vision?.ocr?.pieces.length ?? 0) >= SPINE_SCHEMA_MIN_PIECES && !vision?.coverCount;
+    const model = await this.readModel(still, streamNew, { ...options, modelSchema: spines ? 'spine' : 'full' }, started);
 
     const total = this.now() - started;
     if (typeof model === 'string') {

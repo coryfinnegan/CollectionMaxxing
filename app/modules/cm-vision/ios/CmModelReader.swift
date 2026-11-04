@@ -120,12 +120,12 @@ enum CmModelReader {
 
     let gate = CmOutcomeGate()
     let worker = Task.detached(priority: .userInitiated) {
-      let single = request.maxItems == 1
+      let spine = request.spine
       // A warmed session answers this one read; with none (or other instructions) a fresh one is built.
       let warmed = warmSlot.take(for: request.prompt)
       warmUse.record(warmed != nil)
       let session = warmed ?? LanguageModelSession(instructions: request.prompt)
-      gate.resolve(await consume(session: session, image: image, single: single, run: run))
+      gate.resolve(await consume(session: session, image: image, spine: spine, run: run))
       // The session that just answered is never reused; the next read gets a new, prewarmed one.
       warmSlot.warm(for: request.prompt)
     }
@@ -140,15 +140,15 @@ enum CmModelReader {
     return finish(outcome)
   }
 
-  /// One cover asks for the cover shape; anything else is a shelf and asks for the lean spine shape.
+  /// TypeScript asks for the lean spine shape on a shelf of spines; every other read is the full item.
   private static func consume(
-    session: LanguageModelSession, image: CmLoadedImage, single: Bool, run: CmReadRun
+    session: LanguageModelSession, image: CmLoadedImage, spine: Bool, run: CmReadRun
   ) async -> CmOutcome {
     do {
-      if single {
-        return try await streamCover(session: session, image: image, run: run)
+      if spine {
+        return try await streamSpines(session: session, image: image, run: run)
       }
-      return try await streamSpines(session: session, image: image, run: run)
+      return try await streamFull(session: session, image: image, run: run)
     } catch is CancellationError {
       return .unavailable
     } catch let error as LanguageModelSession.GenerationError {
@@ -188,14 +188,14 @@ enum CmModelReader {
     return .ok
   }
 
-  private static func streamCover(
+  private static func streamFull(
     session: LanguageModelSession, image: CmLoadedImage, run: CmReadRun
   ) async throws -> CmOutcome {
-    let stream = session.streamResponse(generating: CmGenCoverRead.self) {
+    let stream = session.streamResponse(generating: CmGenRead.self) {
       "Picture:"
       Attachment(image.cgImage, orientation: image.orientation)
     }
-    var latest: [CmGenCover.PartiallyGenerated] = []
+    var latest: [CmGenItem.PartiallyGenerated] = []
     var next = 0
     for try await snapshot in stream {
       try Task.checkCancellation()

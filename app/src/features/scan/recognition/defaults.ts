@@ -519,3 +519,9 @@ export const DEFAULT_MULTI_COVER_TUNING: MultiCoverTuning = {
   kindAgreeingCovers: 1,
   gameTitle: { duplicateLineOverlap: 0.9, coverNameMaxWords: 1, coverTitleSimilarHeight: 0.25 },
 };
+
+/**
+ * A shelf read asks the picture model for the lean spine shape (title, creator, kind, confidence) only when Vision split the shot into at
+ * least this many pieces and found no covers. Every real shelf in the eval has 6 or more pieces; a cover framed as a segment has 1.
+ */
+export const SPINE_SCHEMA_MIN_PIECES = 4;

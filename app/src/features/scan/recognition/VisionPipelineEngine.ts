@@ -86,7 +86,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
       onItem,
       new Map(covers.map((c) => [c.piece, c.read])),
     );
-    return printKind ? { ...reading, printKind } : reading;
+    return { ...reading, ...(printKind ? { printKind } : {}), ...(covers.length > 0 ? { coverCount: covers.length } : {}) };
   }
 
   /**

@@ -14,12 +14,15 @@ struct CmReadRequest {
   let prompt: String
   let timeoutMs: Double
   let maxItems: Int?
+  /// True when TypeScript asked for the lean spine shape; anything else is the full item.
+  let spine: Bool
 
   init?(_ options: [String: Any]) {
     guard let prompt = options["prompt"] as? String, !prompt.isEmpty,
           let timeoutMs = (options["timeoutMs"] as? NSNumber)?.doubleValue else { return nil }
     self.prompt = prompt
     self.timeoutMs = timeoutMs
+    self.spine = (options["schema"] as? String) == "spine"
     if let max = (options["maxItems"] as? NSNumber)?.intValue, max > 0 {
       self.maxItems = max
     } else {
@@ -186,26 +189,6 @@ struct CmGenSpineRead {
   var items: [CmGenSpine]
 }
 
-/// What the picture reader generates for a single cover: the full item without visibleText, which only
-/// copied taglines and review quotes.
-@available(iOS 26.0, *)
-@Generable
-struct CmGenCover {
-  var title: String
-  var creator: String?
-  var kind: CmGenKind
-  var platform: String?
-  var editionMarks: String?
-  var completeness: CmGenCompleteness?
-  var confidence: CmGenConfidence
-}
-
-@available(iOS 26.0, *)
-@Generable
-struct CmGenCoverRead {
-  var items: [CmGenCover]
-}
-
 /// Turns finished generated items into contract dictionaries. Both readers call it; neither decides
 /// what counts as a match, that stays in TypeScript and on the server.
 @available(iOS 26.0, *)
@@ -241,25 +224,6 @@ enum CmGeneration {
         platform: nil,
         editionMarks: nil,
         completeness: nil,
-        order: order,
-        confidence: confidence.contractName
-      )
-    }
-  }
-
-  /// A lean cover: as a full item, with the title standing in for the visible text.
-  static func add(_ partial: CmGenCover.PartiallyGenerated, to run: CmReadRun) {
-    run.add { order in
-      guard let title = partial.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
-            let kind = partial.kind, let confidence = partial.confidence else { return nil }
-      return CmContract.modelItem(
-        visibleText: title,
-        title: title,
-        creator: partial.creator,
-        kind: kind.contractName,
-        platform: partial.platform,
-        editionMarks: partial.editionMarks,
-        completeness: partial.completeness?.contractName,
         order: order,
         confidence: confidence.contractName
       )
