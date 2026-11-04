@@ -577,7 +577,7 @@ describe('upside-down text on a shelf of piled tapes', () => {
     const passes: number[][] = [];
     const recognize = vision.recognizeText.bind(vision);
     vision.recognizeText = (uri, options) => {
-      passes.push(options?.orientations ?? [0]);
+      if (!options?.regions) passes.push(options?.orientations ?? [0]); // the whole-picture passes: a tile read is counted in shelfTitle.test.ts
       return recognize(uri, options);
     };
     const engine = new VisionPipelineEngine({ vision, settings: () => S, newId: testIds });

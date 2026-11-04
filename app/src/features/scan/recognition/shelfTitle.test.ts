@@ -5,6 +5,7 @@ import type { TextLine } from '@/native/cm-vision';
 import { DEFAULT_LOCAL_TUNING as T, DEFAULT_RECOGNITION_CONFIG as C, DEFAULT_RECOGNITION_SETTINGS as S } from './defaults';
 import { line, RecordingVision, STILL, testIds } from './fakes';
 import { normalize } from './lines';
+import { creatorOf } from './creators';
 import { readsAsSticker, shelfTitleOf } from './shelfTitle';
 import reads from './shelfReads.json';
 import { splitIntoPieces } from './splitting';
@@ -304,5 +305,88 @@ describe('real shelf photos', () => {
     for (const author of ['DEB PERELMAN', 'FREDERICKSON', 'ALTON BROWN', 'BRYAN VOLTAGGIO']) {
       expect([author, read]).not.toContainEqual([author, expect.arrayContaining([author])]);
     }
+  });
+});
+
+describe('flat words stacked on a spine read as its title (batch 7, brief B part 1)', () => {
+  /** The series author, printed sideways and big on every spine of the series; the stacked title is flat words in small lettering. */
+  const elsie = (x: number, y = 0.259) => line('ELSIE SILVER', x, y, 0.018, 0.111);
+  const offToTheRaces = [line('OFF TO', 0.525, 0.224, 0.02, 0.012), line('THE RACES', 0.521, 0.233, 0.028, 0.013)];
+  const spineOf = [elsie(0.525), ...offToTheRaces];
+  const others = [line('ELSIE SILVER', 0.488, 0.254, 0.013, 0.087)];
+
+  it('Flat words stacked above a series author read as the title, and the author is the creator', () => {
+    const read = shelfTitleOf(spineOf, T, others);
+    expect(read?.text).toBe('OFF TO THE RACES');
+    expect(creatorOf(read?.rest ?? [], read!.line, T)).toBe('ELSIE SILVER');
+  });
+
+  it('The stack of a Crescent City spine beats J. MAAS', () => {
+    const stack = [
+      line('CRESCENT', 0.206, 0.736, 0.04, 0.016),
+      line('CITY', 0.208, 0.75, 0.03, 0.014),
+      line('HOUSE', 0.215, 0.774, 0.04, 0.015),
+      line('of', 0.225, 0.795, 0.02, 0.012),
+      line('FLAME', 0.218, 0.81, 0.04, 0.015),
+      line('and', 0.224, 0.828, 0.025, 0.012),
+      line('SHADOW', 0.217, 0.843, 0.045, 0.015),
+    ];
+    const maas = line('J. MAAS', 0.23, 0.5, 0.03, 0.2);
+    const read = shelfTitleOf([maas, ...stack], T, [line('J. MAAS', 0.6, 0.5, 0.03, 0.2), line('J. MAAS', 0.8, 0.5, 0.03, 0.2)]);
+    expect(read?.text).toBe('CRESCENT CITY HOUSE of FLAME and SHADOW');
+  });
+
+  it('drops a trailing BOOK n from the stack', () => {
+    const lines = [...spineOf, line('BOOK 2', 0.526, 0.247, 0.018, 0.012)];
+    expect(shelfTitleOf(lines, T, others)?.text).toBe('OFF TO THE RACES');
+  });
+
+  describe('picks as before', () => {
+    it.each([
+      ['a call without others', spineOf, undefined],
+      ['a piece without a stack', [elsie(0.525)], others],
+      ['a single flat line', [elsie(0.525), offToTheRaces[0]], others],
+    ])('%s', (_name, lines, given) => {
+      expect(shelfTitleOf(lines, T, given)?.text).toBe('ELSIE SILVER');
+    });
+
+    it("a publisher's stack never replaces a name (Harper / Collins beside LAURIE GILMORE)", () => {
+      const lines = [line('LAURIE GILMORE', 0.5, 0.2, 0.02, 0.2), line('Harper', 0.5, 0.7, 0.04, 0.015), line('Collins', 0.5, 0.72, 0.04, 0.015)];
+      expect(shelfTitleOf(lines, T, [line('LAURIE GILMORE', 0.3, 0.2, 0.02, 0.2)])?.text).toBe('LAURIE GILMORE');
+    });
+
+    it('a stack that shares a word with the title changes nothing (A COURT OF / SILVER FLAMES)', () => {
+      const lines = [line('SILVER FLAMES', 0.5, 0.2, 0.02, 0.2), line('A COURT OF', 0.5, 0.7, 0.04, 0.015), line('SILVER FLAMES', 0.5, 0.72, 0.05, 0.015)];
+      expect(shelfTitleOf(lines, T, [line('SILVER FLAMES', 0.3, 0.2, 0.02, 0.2)])?.text).toBe('SILVER FLAMES');
+    });
+
+    it('a stacked author repeated on other pieces is never a title (SARAH J. / MAAS)', () => {
+      const lines = [elsie(0.5), line('SARAH J.', 0.5, 0.7, 0.04, 0.015), line('MAAS', 0.502, 0.72, 0.03, 0.015)];
+      const printed = [...others, line('SARAH J. MAAS', 0.2, 0.2, 0.02, 0.3)];
+      expect(shelfTitleOf(lines, T, printed)?.text).toBe('ELSIE SILVER');
+    });
+
+    it('a title that no other piece prints is kept even with a stack (THE ROGUE KING over ABIGAIL OWEN)', () => {
+      const lines = [line('THE ROGUE KING', 0.5, 0.2, 0.02, 0.3), line('ABIGAIL', 0.5, 0.7, 0.04, 0.015), line('OWEN', 0.505, 0.72, 0.03, 0.015)];
+      expect(shelfTitleOf(lines, T, others)?.text).toBe('THE ROGUE KING');
+    });
+
+    it('the folded case stays as it is: a sideways read that holds the stack inside it (V.E. SCHWAB -HIES)', () => {
+      const lines = [
+        line('V.E. SCHWAB -HIES', 0.5, 0.2, 0.06, 0.4),
+        line('DARKER', 0.5, 0.3, 0.05, 0.02),
+        line('SHADE', 0.505, 0.33, 0.04, 0.02),
+        line('MAGIC', 0.505, 0.36, 0.04, 0.02),
+      ];
+      expect(shelfTitleOf(lines, T, [line('V.E. SCHWAB', 0.2, 0.2, 0.02, 0.3)])?.text).toBe('V.E. SCHWAB -HIES');
+    });
+  });
+
+  it('a tile line is never the title on its own (a blurb line beside TROPIC THUNDER)', () => {
+    const blurb = { ...line('y linged with mistg', 0.5, 0.1, 0.2, 0.03), region: 0 };
+    const lines = [line('TROPIC THUNDER', 0.5, 0.3, 0.02, 0.3), blurb];
+    const read = shelfTitleOf(lines, T, others);
+    expect(read?.text).toBe('TROPIC THUNDER');
+    expect(read?.rest).not.toContain(blurb);
   });
 });
