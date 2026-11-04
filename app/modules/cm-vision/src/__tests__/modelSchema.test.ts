@@ -64,3 +64,22 @@ describe('the picture reader generates a lean shape', () => {
     expect(src).toMatch(/platform:\s*nil/);
   });
 });
+
+
+describe('the picture reader warms the session for the next read', () => {
+  const src = swift('CmModelReader.swift');
+
+  it('warms the session for the next read and never streams twice from one session', () => {
+    expect(src).toMatch(/\.prewarm\(/);
+    // The warmed session leaves the slot when a read takes it, so it answers one read only.
+    expect(src).toMatch(/func take\(/);
+    expect(src).toMatch(/session\s*=\s*nil/);
+    // One stream per shape, each on a session that has answered nothing before.
+    expect(src.match(/streamResponse\(/g)?.length).toBe(2);
+  });
+
+  it('holds at most one warmed session, behind a lock, and only for identical instructions', () => {
+    expect(src).toMatch(/NSLock\(\)/);
+    expect(src).toMatch(/instructions\s*==\s*/);
+  });
+});
