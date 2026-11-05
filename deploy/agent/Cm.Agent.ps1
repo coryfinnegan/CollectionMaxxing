@@ -8,6 +8,8 @@
 #     That is a local read of the CLI's sign-in: no model, no network call of its own. With a token file, or with nothing
 #     queued, it is not run at all.
 #   * A model only runs inside Run-AgentIssue.ps1, started detached by a pass that found an issue, one run at a time.
+#   * The eval-due check (Cm.EvalDue.ps1) is the one thing a pass does besides the agent, and it runs with the agent switched
+#     off too. It starts no model either: gh and a few local files, at most once every 30 minutes.
 #
 # SIGN-IN (why a long-lived token)
 #   * The CLI's own sign-in is a short-lived access token plus a refresh token that lapses when the CLI sits unused, and this
@@ -33,6 +35,8 @@
 # The alert issues (Cm.Alerts.ps1, which needs the state reader in Cm.Deploy.ps1). Loaded from here so every script that
 # dot-sources this file gets them, as Cm.Deploy.ps1 does for the deployer.
 . (Join-Path $PSScriptRoot '../deployer/Cm.Deploy.ps1')
+# The eval-due check: the watcher opens and closes the needs:eval-run issue that asks the owner for a phone eval run.
+. (Join-Path $PSScriptRoot 'Cm.EvalDue.ps1')
 
 # An issue carrying any of these is somebody's: another run, a blocked one, or waiting for the owner.
 $script:CmAgentSkipLabels = @('agent-working', 'agent-blocked', 'needs:cory', 'status:blocked')
@@ -920,8 +924,8 @@ function Invoke-CmAgentWatch {
     param($Ctx)
     $envMap = Read-CmEnvFile -Path $Ctx.EnvFile
     $settings = Get-CmAgentSettings -EnvMap $envMap -Root $Ctx.Root
-    if (-not $settings.Enabled) { return New-CmAgentResult 'disabled' 0 }
-    # The token is a secret like any other: whatever the watcher posts or logs has it hidden, whatever shape it has.
+    # The token is a secret like any other: whatever the watcher posts or logs has it hidden, whatever shape it has. This is set up
+    # and the watcher lock taken with the agent switched off too, because the eval-due check below posts to GitHub on every pass.
     Initialize-Cm -Apply $global:CmApply -LogFile $Ctx.LogFile -Secrets (@(Get-CmAgentSecrets $envMap) + @(Read-CmAgentToken -Path $settings.TokenFile))
     $held = $null
     if ($global:CmApply) {
@@ -929,11 +933,19 @@ function Invoke-CmAgentWatch {
         $held = Enter-CmLock -Path $Ctx.WatcherLockFile
         if (-not $held) { return New-CmAgentResult 'busy' 0 }
     }
-    try { return Invoke-CmAgentWatchCore -Ctx $Ctx -Settings $settings }
-    catch {
-        $message = "the agent watcher crashed: $($_.Exception.Message)"
-        Write-CmLog $message 'ERROR'
-        return New-CmAgentResult 'crashed' 1 $message
+    try {
+        $result = if (-not $settings.Enabled) { New-CmAgentResult 'disabled' 0 }
+        else {
+            try { Invoke-CmAgentWatchCore -Ctx $Ctx -Settings $settings }
+            catch {
+                $message = "the agent watcher crashed: $($_.Exception.Message)"
+                Write-CmLog $message 'ERROR'
+                New-CmAgentResult 'crashed' 1 $message
+            }
+        }
+        # Whatever the agent did, a PC that keeps evals gets its eval-due check (at most every 30 minutes). It cannot change $result.
+        Invoke-CmEvalDueSafely -Ctx $Ctx -EnvMap $envMap
+        return $result
     }
     finally { Exit-CmLock $held }
 }

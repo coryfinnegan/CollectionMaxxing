@@ -10,6 +10,13 @@ export interface TextLine {
   text: string;
   confidence: number;
   box: Rect;
+  /**
+   * The pass that read the line: the degrees the picture was turned clockwise for it. Swift always says it; a hand-written line in a test may
+   * leave it out.
+   */
+  pass?: TextOrientation;
+  /** When the read named `regions`, the index in that list of the region that read the line. Left out for a read of the whole picture. */
+  region?: number;
 }
 
 export interface FeaturePrint {
@@ -31,6 +38,27 @@ export type Unsubscribe = () => void;
 
 /** Degrees the picture is turned clockwise for one text pass: 90 reads lines that run top to bottom, 270 bottom to top, 180 upside down. */
 export type TextOrientation = 0 | 90 | 180 | 270;
+
+/** How hard a text pass tries. `accurate` is what the scanner always asks; `fast` is quicker and reads only upright print. */
+export type TextLevel = 'accurate' | 'fast';
+
+/**
+ * What a text read is asked for. Left out entirely, the request is the scanner's own: one upright pass, `accurate`, no language correction, the
+ * whole picture. A caller that wants something else names only what it changes.
+ */
+export interface RecognizeTextOptions {
+  /** One pass per orientation (default `[0]`). */
+  orientations?: TextOrientation[];
+  /** Default `accurate`. */
+  level?: TextLevel;
+  /** Whether Vision corrects what it read against a dictionary. Default false: titles are not dictionary words. */
+  languageCorrection?: boolean;
+  /**
+   * Read only these parts of the picture (normalised, origin top-left), each as its own request, instead of the whole picture. Every line says
+   * which region read it, and its box is on the whole picture. Regions are read upright: with them `orientations` must be `[0]`.
+   */
+  regions?: Rect[];
+}
 
 /**
  * What a rectangle search is asked for. Left out entirely, the request is the shelf splitter's own: upright shapes, at least a tenth
@@ -58,10 +86,10 @@ export interface DetectRectanglesOptions {
 export interface VisionEngine {
   isAvailable(): Promise<boolean>;
   /**
-   * One pass per orientation (default `[0]`), lines concatenated in the order of `orientations`.
+   * One pass per orientation (default `[0]`), lines concatenated in the order of `orientations`; each line says its `pass`.
    * Lines are not de-duplicated across orientations; the caller decides.
    */
-  recognizeText(imageUri: string, options?: { orientations?: TextOrientation[] }): Promise<TextLine[]>;
+  recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
   detectRectangles(imageUri: string, options?: DetectRectanglesOptions): Promise<Rect[]>;
   /** Barcodes in a still picture (Photos import), through VNDetectBarcodesRequest. */
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;
@@ -121,6 +149,11 @@ export interface ReadItemsOptions {
   prompt: string;
   timeoutMs: number;
   maxItems?: number;
+  /**
+   * The shape the model writes for each item: `spine` is title, creator, kind and confidence only (a shelf of spines),
+   * `full` is every field including visibleText. Defaults to `full`.
+   */
+  schema?: 'spine' | 'full';
 }
 
 export type ReadOutcome = 'ok' | 'declined' | 'timeout' | 'contextExceeded' | 'unavailable';

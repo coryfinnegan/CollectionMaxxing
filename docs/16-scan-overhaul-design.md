@@ -431,9 +431,13 @@ not exist. Golden photos/truth live only on the owner's PC (`Evals:GoldenPath`).
    - `duplicate_clean` — duplicate re-scan test result: re-scan owned shelf →
      `true` iff zero new `Item` rows without explicit Add-copy AND every owned hit
      answered on-card.
-   - `time_to_first_results`, `total_time_to_trustworthy` — wall-clock from first
-     capture to first/last trustworthy record (audited, not self-reported: measured
-     by the harness run timestamps).
+   - `time_to_first_results_p50` (and `_p95`, reported only) — per photo, the
+     wall-clock from that photo's capture to its first trustworthy record, then the
+     median over the slice's photos (#629: one cold first read moves the p95, not
+     the median the regression check judges). `total_time_to_trustworthy` — the
+     run's wall-clock from first capture to last trustworthy record, compared with
+     a barcode pass of the same shelf; reported, not judged by the regression check.
+     Both are audited, not self-reported: measured by the harness run timestamps.
    - Per-tier counts (`t0_auto`, `t1_auto`, `t2_review`, `provisional`) for slice
      analysis; `shotKind` slices once §3 lands.
 3. **Anti-gaming rules (locked tests):**

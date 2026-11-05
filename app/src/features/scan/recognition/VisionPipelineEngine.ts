@@ -6,11 +6,11 @@ import type { CueKind } from './coverKind';
 import { coverTitleOf, type CoverTitle } from './coverTitle';
 import { creatorOf } from './creators';
 import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING, DEFAULT_MULTI_COVER_TUNING, type RecognitionSettings } from './defaults';
-import { readLines } from './lines';
+import { readLines, readTiles, tilesTouching, withTiles } from './lines';
 import { multipleCovers } from './multiCover';
 import { productCodeOf } from './productCode';
 import { shelfKind } from './shelfKind';
-import { shelfTitleOf } from './shelfTitle';
+import { namedElsewhere, shelfTitleOf } from './shelfTitle';
 import { splitIntoPieces, wholeFrame, type Piece, type Split } from './splitting';
 import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
 
@@ -62,7 +62,15 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const [rectangles, wide] = (await looking) ?? [[], []];
     // Several covers lying side by side are an item each; whatever lies outside them is a shelf as it always was.
     const several = multipleCovers(lines, wide, still, settings.local);
-    const rest = splitIntoPieces(several?.rest ?? lines, rectangles, settings.splitting, settings.local);
+    let shelfLines = several?.rest ?? lines;
+    let rest = splitIntoPieces(shelfLines, rectangles, settings.splitting, settings.local);
+    // A spine whose biggest print is a name printed on other spines (a series' author) may stack its title in flat words the passes missed: only
+    // the tiles that spine touches are read once more, and only the lines they add in new places are kept (lines.ts). No such spine, no read.
+    const extra = await this.tileLines(still, shelfLines, rest, several?.covers.map((c) => c.lines) ?? [], settings);
+    if (extra.length > shelfLines.length) {
+      shelfLines = extra;
+      rest = splitIntoPieces(shelfLines, rectangles, settings.splitting, settings.local);
+    }
     // A cover goes in as a plain piece (its lines and box); its title and kind ride beside it, since a piece's own `title` is a stack band's text.
     const covers = (several?.covers ?? []).map((c) => ({ piece: { lines: c.lines, box: c.box } satisfies Piece, read: { title: c.title, kind: c.kind } }));
     const pieces = [...covers.map((c) => c.piece), ...rest.pieces];
@@ -72,13 +80,30 @@ export class VisionPipelineEngine implements RecognitionEngine {
     const printKind = shelfKind(lines, pieces, this.deps.coverFormatTuning ?? DEFAULT_COVER_FORMAT_TUNING);
     const reading = this.reading(
       { pieces, unreadableCount: rest.unreadableCount },
-      lines,
+      [...lines, ...shelfLines.filter((l) => l.region !== undefined)],
       settings,
       started,
       onItem,
       new Map(covers.map((c) => [c.piece, c.read])),
     );
-    return printKind ? { ...reading, printKind } : reading;
+    return { ...reading, ...(printKind ? { printKind } : {}), ...(covers.length > 0 ? { coverCount: covers.length } : {}) };
+  }
+
+  /**
+   * The shelf's lines with the tile read's lines added (lines.ts `withTiles`), read for the tiles that touch a piece whose title is a name
+   * printed on another piece. The same lines when no piece is, or when the read fails or adds nothing.
+   */
+  private async tileLines(still: Still, lines: TextLine[], split: Split, coverLines: TextLine[][], settings: RecognitionSettings): Promise<TextLine[]> {
+    const { pieces } = split;
+    const named = pieces.filter((p, i) => {
+      const others = [...pieces.filter((_, j) => j !== i).flatMap((q) => q.lines), ...coverLines.flat()];
+      const title = shelfTitleOf(p.lines, settings.local)?.text;
+      return title !== undefined && namedElsewhere(title, others);
+    });
+    const touched = tilesTouching(named.map((p) => p.box), settings.local);
+    if (touched.length === 0) return lines;
+    const tiles = await readTiles(this.deps.vision, still.uri, touched, settings.local);
+    return withTiles(lines, tiles, settings.local);
   }
 
   /** One rectangle search: with no options, the splitter's; with `maximumAspectRatio`, as wide as a case (Vision's default would never return a game's). Never throws: no rectangles is a reading too. */
@@ -93,12 +118,14 @@ export class VisionPipelineEngine implements RecognitionEngine {
   /** The pieces in `covers` are single covers: each takes its biggest text as the title, and the kind its own text names. Any other piece is a stretch of shelf, whose title is its longest, surest line. */
   private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void, covers: ReadonlyMap<Piece, CoverRead>): SnapReading {
     const { pieces, unreadableCount } = split;
+    // The title each shelf piece reads on its own; a title a neighboring piece reads too is a series title, which no stack replaces.
+    const alone = pieces.map((p) => (covers.has(p) ? undefined : shelfTitleOf(p.lines, settings.local)?.text));
     const items = pieces.map((p, order): ReadItem => {
       const cover = covers.get(p);
       const biggest = cover?.title;
       // A shelf piece's title is chosen in shelfTitle.ts: never the author line or a sticker, the reading the other
       // readings of its place agree with, and both rows of a title printed over two (#617).
-      const shelf = cover ? undefined : shelfTitleOf(p.lines, settings.local);
+      const shelf = cover ? undefined : shelfTitleOf(p.lines, settings.local, pieces.filter((q) => q !== p).flatMap((q) => q.lines), alone.filter((t, i): t is string => t !== undefined && i !== order));
       // A cover whose own rule found no title falls back to its surest, longest line, as it always did (#504 owns covers).
       const titleLine =
         biggest?.line ??
@@ -124,7 +151,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
     });
     items.forEach(onItem);
     const total = this.now() - started;
-    // The lines and the pieces made of them are for the eval record only: nothing in the scanner reads them.
+    // The lines and the pieces made of them are for the eval record, and the engine selector counts the pieces to choose the shape the picture model writes.
     const ocr = { lines, pieces: pieces.map((p) => p.lines.map((l) => lines.indexOf(l))) };
     return { items, unreadableCount, engine: this.name, ocr, timings: { totalMs: total, visionMs: total } };
   }

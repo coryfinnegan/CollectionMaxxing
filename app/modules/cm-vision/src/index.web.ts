@@ -2,6 +2,7 @@
 import { UnavailableVisionEngine } from './UnavailableVisionEngine';
 
 export * from './types';
+export * from './regions';
 export { FakeBarcodeSource } from './FakeBarcodeSource';
 export { FakeVisionEngine } from './FakeVisionEngine';
 export { UnavailableVisionEngine } from './UnavailableVisionEngine';

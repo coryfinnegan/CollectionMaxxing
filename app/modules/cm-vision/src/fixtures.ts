@@ -9,8 +9,11 @@ import recognizeText from '../fixtures/recognizeText.json';
 import type { DetectedCode, FeaturePrint, FixtureRecord, ReadItemsResult, Rect, TextLine } from './types';
 
 export interface FixtureSet {
-  /** `orientation` absent means 0. */
-  recognizeText: FixtureRecord<{ imageUri: string; orientation?: 90 | 180 | 270 }, TextLine[]>[];
+  /** What is absent is the scanner's own request: `orientation` 0, the accurate level, no language correction, the whole picture. A `region` is recorded in its own frame. */
+  recognizeText: FixtureRecord<
+    { imageUri: string; orientation?: 90 | 180 | 270; level?: 'fast'; languageCorrection?: true; region?: Rect },
+    TextLine[]
+  >[];
   readItems: FixtureRecord<{ imageUri: string }, ReadItemsResult>[];
   /** Keyed by the exact OCR text the engine sends (lines joined with `\n`). */
   extractItems: FixtureRecord<{ ocrText: string }, ReadItemsResult>[];

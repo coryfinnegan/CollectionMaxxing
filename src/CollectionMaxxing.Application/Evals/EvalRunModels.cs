@@ -63,10 +63,17 @@ public sealed record DuplicateRescanInput(int OwnedHits, int AnsweredOnCard, int
 /// <summary>One cleaned OCR line the Vision engine split: its text and its box (normalised 0 to 1, origin top left).</summary>
 public sealed record EvalOcrLineInput(string? Text, double? X, double? Y, double? Width, double? Height);
 
+/// <summary>One line an OCR probe read: its text, confidence, the rotation of the pass that read it (0, 90, 180 or 270) and its box (normalised 0 to 1, origin top left).</summary>
+public sealed record EvalOcrProbeLineInput(string? Text, double? Confidence, int? Pass, double? X, double? Y, double? Width, double? Height);
+
+/// <summary>One extra read of a shelf picture, sent to try an OCR setting later (another recognition level, language correction, tiles): its name, how long it took, and the raw lines it read.</summary>
+public sealed record EvalOcrProbeInput(string? Name, long? Ms, IReadOnlyList<EvalOcrProbeLineInput>? Lines);
+
 /// <param name="OcrLines">Only the <c>vision_pipeline</c> photo carries these: the lines the engine split. Ignored for the other engines.</param>
 /// <param name="OcrPieces">Only the <c>vision_pipeline</c> photo: for each piece the engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
 /// <param name="CoverCue">What the phone's cover cue saw on a single picture, as one short line. Cleaned and cut to <see cref="EvalCoverCue.MaxLength"/> when kept; never a reason to refuse a run.</param>
 /// <param name="PrintKind">The kind the shelf's own print said it is a shelf of (the phone's <c>shelfKind.ts</c>). The phone names it only when at least two spines print it. It speaks only when no read of the photo names that kind, the one rule <c>/identify</c> applies; null on an older run or a shelf whose print said nothing.</param>
+/// <param name="OcrProbes">Only the <c>vision_pipeline</c> photo of a shelf: extra reads of the same picture, for a replay of an OCR setting. Kept with the grounded run and never scored. Ignored (and dropped) for the other engines.</param>
 public sealed record EvalPhotoInput(
     string? PhotoId,
     ScanEngine? Engine,
@@ -83,7 +90,8 @@ public sealed record EvalPhotoInput(
     IReadOnlyList<EvalOcrLineInput>? OcrLines = null,
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
     string? CoverCue = null,
-    WorkKind? PrintKind = null);
+    WorkKind? PrintKind = null,
+    IReadOnlyList<EvalOcrProbeInput>? OcrProbes = null);
 
 /// <param name="Partial">The phone cancelled the run part way. It is kept and shown, but never counts as a pass or a baseline.</param>
 /// <param name="BaselineNote">Why this run's thresholds may differ from the baseline's (docs/16 §17). Null most runs.</param>
@@ -155,6 +163,12 @@ public sealed record DuplicateRescan(int OwnedHits, int AnsweredOnCard, int Unso
 /// <summary>One cleaned OCR line the Vision engine split, with its box (normalised 0 to 1, origin top left). Kept on the PC only: it has titles.</summary>
 public sealed record GroundedOcrLine(string Text, double X, double Y, double Width, double Height);
 
+/// <summary>One raw line an OCR probe read: its text, confidence, the rotation of the pass that read it (0, 90, 180 or 270) and its box (normalised 0 to 1, origin top left). Kept on the PC only: it has titles.</summary>
+public sealed record GroundedOcrProbeLine(string Text, double Confidence, int Pass, double X, double Y, double Width, double Height);
+
+/// <summary>One extra read of a shelf picture (another recognition level, language correction, tiles): its name, how long it took in milliseconds, and the lines it read. Never scored.</summary>
+public sealed record GroundedOcrProbe(string Name, long Ms, IReadOnlyList<GroundedOcrProbeLine> Lines);
+
 /// <param name="OcrLines">The cleaned lines the Vision engine split. Only the <c>vision_pipeline</c> photo has them, and only runs from a phone that sends them.</param>
 /// <param name="OcrPieces">For each piece the Vision engine made, the indexes of its lines in <paramref name="OcrLines"/>.</param>
 /// <param name="CoverCue">What the phone's cover cue saw on a single picture (rectangles found and why each was left out, the format, kind and product code it gave, whether it came in time). Shown beside the picture's miss in the report; null when the phone sent none.</param>
@@ -166,6 +180,7 @@ public sealed record GroundedOcrLine(string Text, double X, double Y, double Wid
 /// apple_model row's own <see cref="Items"/> is left exactly as the phone's upload grounded it, no second grounding added. The
 /// phone never sends a print on the apple_model photo itself, so in every run today that row measures the model alone.
 /// </param>
+/// <param name="OcrProbes">Only the <c>vision_pipeline</c> photo of a shelf, and only from a phone that sends them: extra reads of the same picture, kept for a replay of an OCR setting. Nothing scores them.</param>
 public sealed record GroundedPhoto(
     string PhotoId,
     string Engine,
@@ -183,7 +198,8 @@ public sealed record GroundedPhoto(
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
     string? CoverCue = null,
     string? PrintKind = null,
-    IReadOnlyList<GroundedItem>? ItemsLentPrint = null);
+    IReadOnlyList<GroundedItem>? ItemsLentPrint = null,
+    IReadOnlyList<GroundedOcrProbe>? OcrProbes = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>
 public sealed record GroundedRun(

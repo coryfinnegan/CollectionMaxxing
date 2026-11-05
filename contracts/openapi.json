@@ -8161,6 +8161,86 @@
           }
         }
       },
+      "EvalOcrProbe": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "lines": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EvalOcrProbeLine"
+            }
+          }
+        }
+      },
+      "EvalOcrProbeLine": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "confidence": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "pass": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "x": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "y": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "width": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "height": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "EvalOpenRunRequest": {
         "type": "object",
         "properties": {
@@ -8434,6 +8514,15 @@
                 "$ref": "#/components/schemas/WorkKind"
               }
             ]
+          },
+          "ocrProbes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EvalOcrProbe"
+            }
           }
         }
       },
@@ -10889,6 +10978,15 @@
             "items": {
               "$ref": "#/components/schemas/RegressionItem"
             }
+          },
+          "skipped": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RegressionSkip"
+            }
           }
         }
       },
@@ -10920,6 +11018,21 @@
             "type": "number",
             "format": "double",
             "default": 2
+          }
+        }
+      },
+      "RegressionSkip": {
+        "required": [
+          "metric",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
           }
         }
       },
@@ -11794,7 +11907,14 @@
               "boolean"
             ]
           },
-          "timeToFirstResultsMs": {
+          "timeToFirstResultsP50Ms": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int64"
+          },
+          "timeToFirstResultsP95Ms": {
             "type": [
               "null",
               "integer"

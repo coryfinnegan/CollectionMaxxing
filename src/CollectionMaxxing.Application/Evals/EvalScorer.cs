@@ -115,9 +115,9 @@ public static class EvalScorer
         public int DuplicateUnsolicited;
         public bool HasDuplicateEvidence;
         public DateTimeOffset? FirstCapture;
-        public DateTimeOffset? FirstReady;
         public DateTimeOffset? LastReady;
         public List<long> Latency { get; } = [];
+        public List<long> FirstResults { get; } = [];
         public List<long> FirstItem { get; } = [];
         public Dictionary<string, (int Items, int Top1, int Top3)> Kinds { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, (int Items, int Top1, int Top3)> Shots { get; } = new(StringComparer.Ordinal);
@@ -236,7 +236,8 @@ public static class EvalScorer
             DuplicateClean: tally.HasDuplicateEvidence
                 ? tally.DuplicateUnsolicited == 0 && tally.DuplicateOwned > 0 && tally.DuplicateAnswered == tally.DuplicateOwned
                 : null,
-            TimeToFirstResultsMs: SpanMs(tally.FirstCapture, tally.FirstReady),
+            TimeToFirstResultsP50Ms: Percentile(tally.FirstResults, 50),
+            TimeToFirstResultsP95Ms: Percentile(tally.FirstResults, 95),
             TotalTimeToTrustworthyMs: SpanMs(tally.FirstCapture, tally.LastReady),
             tally.UnreconciledPhotos,
             tally.ExcessUnreadable,
@@ -454,8 +455,12 @@ public static class EvalScorer
 
         if (photo.Outcome == Ok && photo.CapturedAt is { } stamped && top1.Any(t => t))
         {
+            // Time to first results is the scanner's speed, so it is each photo's own capture to its results, not the slice's first capture to its
+            // first result: one cold first read, or the owner's pause between photos, then moves one photo, not the measure. The harness knows when a
+            // photo's read finished, not when each of its items appeared, so a photo's results are ready when its read is: its latency after capture.
+            tally.FirstResults.Add(photo.LatencyMs);
             var ready = stamped.AddMilliseconds(photo.LatencyMs);
-            tally.FirstReady = tally.FirstReady is { } first && first <= ready ? first : ready;
+            // Total time to trustworthy is the run's: the first capture to the last result, however long the owner took between photos.
             tally.LastReady = tally.LastReady is { } last && last >= ready ? last : ready;
         }
 

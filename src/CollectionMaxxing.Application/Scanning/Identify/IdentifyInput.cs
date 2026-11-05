@@ -257,6 +257,15 @@ internal static class IdentifyCleaning
             // What the model put in a field that cannot hold it is dropped before anything scores or stores it.
             var facts = ReadSanitizer.Sanitize(read);
             var profile = ScoringProfileSelector.Choose(facts.Completeness, facts.Kind, facts.Format, items.Count, kind is IdentifyKind.Cover or IdentifyKind.EditionProof);
+
+            // The author line as the phone sent it is kept on a spine read only: when the spine finds nothing, the sanitiser's verdict on
+            // that line is not the last word (it drops a line with "the" in it, and a real title is often sent as the creator), and the
+            // read is asked once more with it as the title (CreatorSwap). Any other read has no use for it, so it is not part of its value.
+            if (profile == ScoringProfileKind.ShelfSpine && facts.ProductCode is null)
+            {
+                facts = facts with { CreatorAsRead = read.Creator };
+            }
+
             return new CleanItem(
                 Text(item.LocalId, MaxLocalIdLength), Text(item.SegmentId, MaxSegmentIdLength), facts, item.LocalMatchReleaseId, profile, item.Box?.Clamped(),
                 item.Unconfirmed);
@@ -312,6 +321,14 @@ internal sealed record StoredRead
 
     public string? Creator { get; init; }
 
+    /// <summary>
+    /// The author line as the phone sent it, on a spine read, written only when the sanitiser did not keep it as <see cref="Creator"/>
+    /// (it drops a line with "the" in it, and a real title is often sent as the creator). The background job asks the read again, with
+    /// this as the title when nothing was found (<see cref="CreatorSwap"/>); where the creator survived cleaning it is the creator, so
+    /// nothing is stored twice and a read whose creator was kept is stored (and answered to the phone) as it always was.
+    /// </summary>
+    public string? CreatorAsRead { get; init; }
+
     public string? Edition { get; init; }
 
     public string? Completeness { get; init; }
@@ -355,6 +372,7 @@ internal sealed record StoredRead
         {
             Title = facts.Title,
             Creator = facts.Creator,
+            CreatorAsRead = facts.CreatorAsRead == facts.Creator ? null : facts.CreatorAsRead,
             Edition = facts.Edition,
             Completeness = facts.Completeness is { } completeness ? EnumText.ToText(completeness) : null,
             Kind = facts.Kind is { } kind ? EnumText.ToText(kind) : null,
@@ -373,6 +391,7 @@ internal sealed record StoredRead
     public static (ReadFacts Facts, ScoringProfileKind Profile) From(ScanCandidate candidate)
     {
         var stored = ReadStored(candidate.InferredJson);
+        var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
         var facts = new ReadFacts(
             stored?.Title,
             candidate.VisibleText,
@@ -385,8 +404,8 @@ internal sealed record StoredRead
             stored?.Platform,
             stored?.ProductCode,
             stored?.ReadAs,
-            EnumText.ParseOrNull<WorkKind>(stored?.SnapKind));
-        var profile = Enum.TryParse<ScoringProfileKind>(stored?.Profile, out var kind) ? kind : ScoringProfileKind.Cover;
+            EnumText.ParseOrNull<WorkKind>(stored?.SnapKind),
+            profile == ScoringProfileKind.ShelfSpine ? stored?.CreatorAsRead ?? stored?.Creator : null);
         return (facts, profile);
     }
 

@@ -24,6 +24,11 @@ enum CmContract {
     return CGRect(x: upright.x, y: 1 - (upright.y + upright.h), width: upright.w, height: upright.h)
   }
 
+  /// A region as the contract has it (normalised, origin top-left) as the region of interest Vision takes (normalised, origin bottom-left).
+  static func visionRegion(_ region: CGRect) -> CGRect {
+    return CGRect(x: region.minX, y: 1 - region.maxY, width: region.width, height: region.height)
+  }
+
   // contract: Rect
   /// Vision boxes are normalised with a bottom-left origin; the contract is top-left.
   static func rect(_ r: CGRect) -> [String: Any] {
@@ -36,12 +41,15 @@ enum CmContract {
   }
 
   // contract: TextLine
-  static func textLine(text: String, confidence: Float, box: CGRect) -> [String: Any] {
-    return [
+  static func textLine(text: String, confidence: Float, box: CGRect, pass: Int, region: Int?) -> [String: Any] {
+    var line: [String: Any] = [
       "text": text,
       "confidence": Double(confidence),
       "box": rect(box),
+      "pass": pass,
     ]
+    if let region = region { line["region"] = region }
+    return line
   }
 
   // contract: FeaturePrint

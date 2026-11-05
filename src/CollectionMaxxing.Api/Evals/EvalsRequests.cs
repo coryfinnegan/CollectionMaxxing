@@ -74,12 +74,20 @@ public sealed record EvalDuplicateRescan(int OwnedHits = 0, int AnsweredOnCard =
 /// <summary>One cleaned OCR line the Vision engine split: its text (up to 200 characters) and its box, each value 0 to 1 with the origin at the top left.</summary>
 public sealed record EvalOcrLine(string? Text = null, double? X = null, double? Y = null, double? Width = null, double? Height = null);
 
+/// <summary>One raw line an OCR probe read: its text (up to 200 characters), its confidence, the rotation of the pass that read it (0, 90, 180 or 270) and its box, each value 0 to 1 with the origin at the top left.</summary>
+public sealed record EvalOcrProbeLine(string? Text = null, double? Confidence = null, int? Pass = null, double? X = null, double? Y = null, double? Width = null, double? Height = null);
+
+/// <summary>One extra read of a shelf picture, sent to try an OCR setting later (another recognition level, language correction, tiles): its name, how long it took in milliseconds (0 to an hour) and the raw lines it read (at most 1500).</summary>
+public sealed record EvalOcrProbe(string? Name = null, long? Ms = null, IReadOnlyList<EvalOcrProbeLine>? Lines = null);
+
 /// <summary>
 /// One golden photo run through one engine on the phone. <c>CapturedCount</c> is how many segments the phone captured (reads plus
 /// unreadable must reconcile to it); <c>CapturedAt</c> stamps the capture for the wall-clock metrics; <c>DuplicateRescan</c> carries
 /// a duplicate re-scan's evidence, when the photo was one (docs/16 §17). <c>OcrLines</c> (at most 1000) and <c>OcrPieces</c> (for each
 /// piece the Vision engine made, the indexes of its lines) come from the <c>vision_pipeline</c> photo only, so a later fix can use the
-/// real lines; the PC keeps them with the grounded run and ignores them on any other engine's photo.
+/// real lines; the PC keeps them with the grounded run and ignores them on any other engine's photo. <c>OcrProbes</c> (at most 4, each at most 1500 lines)
+/// are extra reads of the same shelf picture (another recognition level, language correction, tiles) that a later replay of an OCR setting can use; the same
+/// photo only, kept with the grounded run and never scored.
 /// <c>CoverCue</c> is a short line (at most 300 characters; a longer one is cut, not refused) about what the cover cue saw on a single picture:
 /// the rectangles found and why each was left out, the format, kind and product code it gave, and whether it came in time. The eval report
 /// shows it beside the picture's miss; the scanner never reads it.
@@ -100,7 +108,8 @@ public sealed record EvalPhotoResult(
     IReadOnlyList<EvalOcrLine>? OcrLines = null,
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
     string? CoverCue = null,
-    CollectionMaxxing.Domain.Catalog.WorkKind? PrintKind = null);
+    CollectionMaxxing.Domain.Catalog.WorkKind? PrintKind = null,
+    IReadOnlyList<EvalOcrProbe>? OcrProbes = null);
 
 /// <summary>Body of <c>POST /api/admin/evals/runs/open</c>: the device and config version the run uses, and an optional note on a deliberate threshold move.</summary>
 public sealed record EvalOpenRunRequest(EvalDeviceRequest? Device = null, string? ConfigVersion = null, string? BaselineNote = null);

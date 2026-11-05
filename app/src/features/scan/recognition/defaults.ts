@@ -52,6 +52,40 @@ export interface LocalTuning {
   sameBoxOverlap: number;
   /** Share of a line's width that must sit inside a spine column for the line to join it. */
   spineColumnOverlap: number;
+  /**
+   * The first line of a two-line title is set a little off the second and is often the shorter. A tall line that fails `spineColumnOverlap`
+   * still joins the last column when it lies beside one of that column's lines (sharing at least `spineRowOverlap` of its height), is at
+   * most `spineShortLineHeight` as tall as that line, and shares at least this share of its own width with it. On the recorded shelves the
+   * line is 0.43 of its width off its neighbor (#655), and a share of 0.35 or less starts to join the next spine's print too. Infinity switches
+   * it off.
+   */
+  spineShortLineOverlap: number;
+  /** A line joins a taller one beside it (spineShortLineOverlap) only when it is at most this share of that line's height; a line about as tall belongs to the next spine. */
+  spineShortLineHeight: number;
+  /**
+   * The two rows of one spine title stand in two columns whose lettering overlaps across by only a part of a letter (0.19 to 0.34 on the
+   * recorded shelves), too little to join one column (`spineColumnOverlap`), so each row was read alone as half a title. Two neighboring
+   * tall lines are one column anyway when they pass this test and the three after it. This one: the narrower line's width is at least this
+   * share of the wider one's, since the rows of a title are set in one size of lettering. Infinity switches the join off.
+   */
+  twoRowLetters: number;
+  /**
+   * The rows of one title overlap across by at least `titleRowTouch` and at most this share of the narrower line's width. A neighboring
+   * spine's lettering overlaps further (0.46 on a recorded pair of neighbors) while the rows of a real title top out at 0.34.
+   */
+  twoRowMaxTouch: number;
+  /**
+   * The rows of a title lie upright: each line is at least this many times as long as it is wide for each of its characters. A slanted
+   * line's box is far wider than its lettering and overlaps the next spine's, so it never counts (the real rows score 0.39 to 1, leaning
+   * neighbors 0.13 to 0.34). The rows must also run along each other for `titleRowOverlap` of the longer.
+   */
+  twoRowUpright: number;
+  /**
+   * Only title-sized lines pair: a row is at least this share of the tallest line in its own column. The rows of a title on the recorded
+   * shelves are 0.38 or more ("FAMILY AND FRIENDS" under a long author), while the short print at the foot of a spine (a publisher mark, a
+   * cut-off word) is 0.17 or less, and two such fragments side by side would otherwise join two whole books into one item. 0 lets every line pair.
+   */
+  twoRowTitleShare: number;
   /** Rectangles overlapping by at least this share of the smaller one depict one surface and merge before splitting (a cover's nested quads are one item; disjoint spines still split, #504). */
   rectangleMergeOverlap: number;
   /** Two neighboring spine columns share a band when they share this much of the shorter one's vertical span. */
@@ -67,16 +101,43 @@ export interface LocalTuning {
   /** A shelf needs this many columns before it is read as spines. */
   minSpineColumns: number;
   /**
+   * A frame is cut into shelf rows (the upper and lower shelf of one bookcase) where no tall line covers a stretch at least this many letters
+   * high, a letter being the median tall line's width (it reads sideways), so a lower spine never joins the upper spine at its x. On one
+   * spine the stretch between its author and its title reached 2.6 letters (a series shelf); the recorded two-row photos show 4.5 to 10.
+   * Infinity switches the cut off.
+   */
+  shelfRowGap: number;
+  /** A shelf row needs this many tall lines on each side of a cut, so a sticker read sideways does not make a row of its own. */
+  shelfRowMinLines: number;
+  /**
+   * An item lying flat across the tops of the spines (a tape on a row of DVDs) is its own item, not a line of the spine under its center.
+   * A flat line lies across when its height is at least this share of a spine column's width (the row's median; a spine's lettering reads
+   * sideways, so that width is its letter height), which keeps a sticker or small print with its spine, and it passes `lyingLineWidth` and
+   * `lyingLineReach` too.
+   */
+  lyingLineLetters: number;
+  /**
+   * A flat line lies across the spines only when it is at least this many of its spine's column widths wide. The widest author's name
+   * printed flat across its own spine is 1.93 columns (two "SARAH J." lines on shelf-02 are 1.87 and 1.93), and the narrowest tape that lies
+   * across is 2.13 (Body Worlds). The margin below 2 is 0.07 columns: at 1.93 or less a name is cut out as an item of its own, though the
+   * titles found stay the same, so the count of titles does not guard this number; a recorded test does. Infinity switches the cut off,
+   * and a line then joins the spine under its center.
+   */
+  lyingLineWidth: number;
+  /** ...and its center lies at least this many column widths above its spine's top or below its bottom: a title printed within the spine's own span is the spine's. */
+  lyingLineReach: number;
+  /**
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
    * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
-   * heights apart. The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or wider than
+   * heights apart (hardcovers, thick against their letters, up to a median of 1.1; #637). The columns that only look like piles are 0.04 to 0.06 wide (one name or cover word repeated down books), or wider than
    * half the frame with 5 or more bands (a cover that fills the frame: a real cover of the twelve recorded is 0.73 wide with 6 bands, and
    * is still wider than 0.5 shrunk to 70% in the frame), or have fewer than 3 bands (two flat lines are never enough, since a
    * title and its author read exactly like two tapes), or have their bands 1 to 5 letter heights apart (title, author, tagline).
    * A small stack of 3 or 4 (#618) has too little else to go on, so it must also have one size of lettering: a stack of tapes sets each
    * title alike, while the real cover whose three bands read as a pile (a bestseller line, the author, the title) has its smallest
-   * lettering 0.32 of its biggest. The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under
+   * lettering 0.32 of its biggest; a stack of four needs a little less (0.4), since the four tapes of one recorded stack run to 0.46 and no
+   * recorded cover has four bands that pass the width and gap rules. The lines of one title touch or overlap; the lines of two neighbors rarely do. Small print is under
    * 0.3 of the big lettering on its band.
    */
   /** A line lies flat when its width is at least this many times its height. */
@@ -95,6 +156,13 @@ export interface LocalTuning {
   stackMaxWidth: number;
   /** A pile's bands sit close: the median gap between two is at most this many of their letter heights. */
   stackMaxGap: number;
+  /**
+   * A pile of `stackSureBands` or more may have its bands further apart: hardcovers lying flat are thick against their letters, so a median
+   * gap runs to 1.1 letter heights where tapes sit 0.3 to 0.5 apart. A small stack keeps `stackMaxGap`: a cover's three lines can sit 1.5 apart.
+   */
+  stackSureMaxGap: number;
+  /** A stack of exactly four needs its smallest lettering to be at least this share of its biggest (a stack of three keeps `stackSmallLetters`). */
+  stackFourLetters: number;
   /** A line joins a band when it overlaps it or lies within this share of its own height from it. */
   bandMaxGap: number;
   /** A line stretches its band when its letters are at least this share of the band's tallest. */
@@ -103,6 +171,14 @@ export interface LocalTuning {
   bandMinLetters: number;
   /** A band's title is made of the lines whose letters are at least this share of the band's tallest. */
   bandTitleLetters: number;
+  /**
+   * A hardcover lying flat prints a small "A COURT OF" a little above its big subtitle, further than `bandMaxGap`, so the two were bands of
+   * their own. A band whose title ends on a joining word ("of", "the", "and", "a", "an", "to", "&") is the first line of the band right
+   * below it when it lies within this share of the smaller band's lettering from it. A title almost never ends on such a word, so the word is
+   * what tells the pair from two books; the gap alone does not (tapes of a stack sit as close, and a name sits as close to the title below it).
+   * Words a real title ends on ("Hold On", "Lean In", "Worth Fighting For") are not joining words. -Infinity switches the join off.
+   */
+  bandJoinGap: number;
   /** How far either side of the cut the two halves of a wide shot reach, as a share of the picture's width. */
   halfOverlap: number;
   /** The cut is looked for within this distance of the middle. */
@@ -146,6 +222,21 @@ export interface LocalTuning {
    * of print is set tight. Two items' print at best grazes, so this is what keeps the next spine along out of the title.
    */
   titleRowTouch: number;
+  /**
+   * Flat words stacked on a spine (shelfTitle.ts): a word joins the stack above it when the gap between them is at most this many
+   * letter heights of the word above, and at least half a letter height of overlap.
+   */
+  stackRowGap: number;
+  /** A tile read adds a line only when its center lies in a spine's column and within this many letter widths of the spine line's ends (lines.ts). */
+  tileColumnReach: number;
+  /** A word may sit this share of the word above's height up into it and still be the next row of a stack: lines of a stack are set tight. */
+  stackRowTuck: number;
+  /** The shelf's tile read cuts the picture into 2 x 2 tiles that reach this share of the picture into their neighbors (lines.ts). */
+  tileOverlap: number;
+  /** A stack with one of these words is a publisher's imprint, never a title (shelfTitle.ts). */
+  stackPublisherWords: string[];
+  /** A stack with one of these words is a studio or distributor's block, never a title (shelfTitle.ts). */
+  stackStudioWords: string[];
   /** A run of this many digits or more says nothing but a shelf code; fewer could be a year or a count ("1984"). */
   stickerCodeDigits: number;
   /** A Vision line with more words than this is a blurb or a marketing line, never the author. */
@@ -196,10 +287,21 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   upsideDownOrientation: 180,
   sameBoxOverlap: 0.5,
   spineColumnOverlap: 0.5,
+  spineShortLineOverlap: 0.4,
+  spineShortLineHeight: 0.85,
+  twoRowLetters: 0.7,
+  twoRowMaxTouch: 0.4,
+  twoRowUpright: 0.37,
+  twoRowTitleShare: 0.3,
   rectangleMergeOverlap: 0.5,
   spineRowOverlap: 0.5,
   spineRowShare: 0.45,
   minSpineColumns: 2,
+  shelfRowGap: 4,
+  shelfRowMinLines: 2,
+  lyingLineLetters: 0.5,
+  lyingLineWidth: 2,
+  lyingLineReach: 0.5,
   flatLineAspect: 2.5,
   stackMinBands: 3,
   stackSureBands: 5,
@@ -208,10 +310,13 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   stackMinWidth: 0.1,
   stackMaxWidth: 0.5,
   stackMaxGap: 1,
+  stackSureMaxGap: 1.25,
+  stackFourLetters: 0.4,
   bandMaxGap: 0.05,
   bandSameLetters: 0.6,
   bandMinLetters: 0.3,
   bandTitleLetters: 0.6,
+  bandJoinGap: 0.5,
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
   seamTolerance: 0.04,
@@ -225,9 +330,40 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   titleRowOverlap: 0.7,
   titleRowLetters: 0.5,
   titleRowTouch: 0.1,
+  stackRowGap: 1.5,
+  stackRowTuck: 0.5,
+  tileOverlap: 0.1,
+  tileColumnReach: 3,
+  stackStudioWords: [
+    'fox', 'century', 'pictures', 'paramount', 'universal', 'warner', 'columbia', 'tristar', 'disney', 'mgm', 'video', 'entertainment',
+    'films', 'studios',
+  ],
+  stackPublisherWords: [
+    'press', 'books', 'harper', 'collins', 'tor', 'daw', 'avon', 'orbit', 'ballantine', 'bantam', 'penguin', 'vintage', 'berkley',
+    'morrow', 'dell', 'scribner', 'atria', 'razorbill', 'speed', 'simon', 'schuster', 'griffin', 'putnam', 'knopf', 'bloomsbury', 'harlequin',
+  ],
   stickerCodeDigits: 5,
   creatorMaxWords: 5,
   creatorMinLetters: 3,
+};
+
+/**
+ * What a title only the picture model read needs from the shelf's own print before a shelf shot adds it (printSupport.ts). The PC's eval
+ * scores the same rule on the same words (`PrintSupport.cs`), so a change to a number here is a change there.
+ */
+export interface PrintSupportTuning {
+  /** A word shorter than this says nothing about which title it is. */
+  minWordLength: number;
+  /** A title word is read fuzzily (one letter wrong, missing or extra) only when it and the print word are both at least this long. */
+  fuzzyMinLength: number;
+  /** The share of a title's words the shelf's print must have. */
+  minPrintedShare: number;
+}
+
+export const DEFAULT_PRINT_SUPPORT_TUNING: PrintSupportTuning = {
+  minWordLength: 2,
+  fuzzyMinLength: 5,
+  minPrintedShare: 2 / 3,
 };
 
 export const DEFAULT_RECOGNITION_SETTINGS: RecognitionSettings = {
@@ -383,3 +519,11 @@ export const DEFAULT_MULTI_COVER_TUNING: MultiCoverTuning = {
   kindAgreeingCovers: 1,
   gameTitle: { duplicateLineOverlap: 0.9, coverNameMaxWords: 1, coverTitleSimilarHeight: 0.25 },
 };
+
+/**
+ * A shelf read asks the picture model for the lean spine shape (title, creator, kind, confidence) only when Vision split the shot into at
+ * least this many pieces and found no covers. Measured on the recorded lines: a single cover framed as a segment (every recorded cover at
+ * 100%, 70% and 60% framing, with and without a neighbouring spine line) reaches at most 8 pieces, and the recorded shelves have 13 or
+ * more. The threshold sits strictly above the first and at or below the second, near the middle of the gap, so a cover keeps its platform.
+ */
+export const SPINE_SCHEMA_MIN_PIECES = 10;

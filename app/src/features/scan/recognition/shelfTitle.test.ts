@@ -5,6 +5,7 @@ import type { TextLine } from '@/native/cm-vision';
 import { DEFAULT_LOCAL_TUNING as T, DEFAULT_RECOGNITION_CONFIG as C, DEFAULT_RECOGNITION_SETTINGS as S } from './defaults';
 import { line, RecordingVision, STILL, testIds } from './fakes';
 import { normalize } from './lines';
+import { creatorOf } from './creators';
 import { readsAsSticker, shelfTitleOf } from './shelfTitle';
 import reads from './shelfReads.json';
 import { splitIntoPieces } from './splitting';
@@ -77,11 +78,62 @@ describe('a spine piece\'s title is never its author line or a sticker', () => {
   });
 
   it('says which lines read as a sticker and which do not', () => {
-    const stickers = ['WIDESCREEN', 'Stock No. 038', '03928', "COLLECTOR'S", '10th ANNIVERSARY EDITION', "DIRECTOR'S CUT", 'SPECIAL EDITION', 'Vol 2'];
+    const stickers = ['WIDESCREEN', 'Stock No. 038', '03928', '813.54', "COLLECTOR'S", '10th ANNIVERSARY EDITION', "DIRECTOR'S CUT", 'SPECIAL EDITION', 'Vol 2'];
     for (const sticker of stickers) expect([sticker, readsAsSticker(sticker, T)]).toEqual([sticker, true]);
     // A number says nothing either way, and nearly every sticker word is somebody's title on its own.
     const titles = ['HALLOWEEN', 'Full Metal Jacket', 'A Court of Thorns and Roses', 'Charlotte\'s Web', 'EXCALIBUR', '1984', 'SE7EN', 'GREMLINS2', '300', 'Used', 'Special', 'Side', 'Cut'];
     for (const title of titles) expect([title, readsAsSticker(title, T)]).toEqual([title, false]);
+  });
+});
+
+describe('a title made of numbers or initials is no sticker when it is the biggest lettering (#631)', () => {
+  it.each([
+    ['1984', 'GEORGE ORWELL'],
+    ['300', 'GERARD BUTLER'],
+    ['1917', 'DEAN-CHARLES CHAPMAN GEORGE MACKAY'],
+    ['SE7EN', 'BRAD PITT MORGAN FREEMAN'],
+    ['Se7en', 'Brad Pitt Morgan Freeman'],
+    ['9', 'ELIJAH WOOD JENNIFER CONNELLY'],
+    ['M*A*S*H', 'DONALD SUTHERLAND ELLIOTT GOULD'],
+    ['E.T.', 'HENRY THOMAS DEE WALLACE'],
+  ])('takes %s printed big over the smaller %s beside it', (title, other) => {
+    const lines = [row(title, 0.3, 0.2, 0.05, 0.12), row(other, 0.34, 0.2, 0.025, 0.4)];
+    expect(titleOf(lines)).toBe(title);
+    expect(creatorsOf(lines)).toEqual([other]);
+  });
+
+  it('takes it over a sticker word printed bigger than it, which is still no title', () => {
+    const lines = [row('WIDESCREEN', 0.1, 0.1, 0.09, 0.2), row('M*A*S*H', 0.3, 0.1, 0.05, 0.12)];
+    expect(titleOf(lines)).toBe('M*A*S*H');
+  });
+
+  it('drops a small stock number or shelf code under a big title', () => {
+    for (const code of ['813.54', '03928', '4 1']) {
+      const lines = [row('THE ROAD', 0.1, 0.1, 0.05, 0.2), row(code, 0.16, 0.1, 0.015, 0.05)];
+      expect([code, titleOf(lines), creatorsOf(lines)]).toEqual([code, 'THE ROAD', []]);
+    }
+  });
+
+  it('still drops a sticker word printed big beside a title of the same size', () => {
+    const lines = [row('WIDESCREEN', 0.1, 0.1, 0.05, 0.2), row('HALLOWEEN', 0.18, 0.1, 0.05, 0.25)];
+    expect(titleOf(lines)).toBe('HALLOWEEN');
+    expect(creatorsOf(lines)).toEqual([]);
+  });
+
+  it('keeps a code printed no bigger than the title beside it as a sticker', () => {
+    const lines = [row('THE ROAD', 0.1, 0.1, 0.05, 0.2), row('813.54', 0.18, 0.1, 0.05, 0.25)];
+    expect(titleOf(lines)).toBe('THE ROAD');
+    expect(creatorsOf(lines)).toEqual([]);
+  });
+
+  it('never takes a stray mark for a title, however big it is printed', () => {
+    const lines = [row('THEY LIVE', 0.1, 0.2, 0.05, 0.25), row('+T-', 0.2, 0.6, 0.08, 0.03)];
+    expect(titleOf(lines)).toBe('THEY LIVE');
+  });
+
+  it('still drops a code with a sticker word in it, printed big', () => {
+    const lines = [row('Stock No. 038', 0.1, 0.1, 0.06, 0.2), row('EXCALIBUR', 0.2, 0.1, 0.05, 0.2)];
+    expect(titleOf(lines)).toBe('EXCALIBUR');
   });
 });
 
@@ -202,9 +254,9 @@ describe('real shelf photos', () => {
     return items.map((i) => i.title);
   }
 
-  /** The choice shelfTitle.ts replaced: the piece's surest, longest single line, whatever that line said. */
+  /** The choice shelfTitle.ts replaced: the piece's surest, longest single line, whatever that line said (on the split before shelf rows were cut apart). */
   function before(id: string): string[] {
-    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, T);
+    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity, stackSureMaxGap: 1, stackFourLetters: 0.5, lyingLineWidth: Infinity, twoRowLetters: Infinity, bandJoinGap: -Infinity });
     return pieces.map((p) => p.title ?? p.lines.reduce((b, l) => (l.confidence * l.text.length > b.confidence * b.text.length ? l : b)).text);
   }
 
@@ -219,14 +271,20 @@ describe('real shelf photos', () => {
   const COUNTS: Record<string, { before: { held: number; exact: number }; after: { held: number; exact: number } }> = {
     // Three piles of tapes with a row of DVDs between them: nearly every title is a pile band, which joined its rows already.
     'vhs-dvd-shelf-01': { before: { held: 6, exact: 6 }, after: { held: 6, exact: 6 } },
-    // Upright DVD spines under shelf labels and edition stickers: "THEY LIVE", "DUNE" and "HALLOWEEN" come out instead.
-    'vhs-dvd-shelf-02': { before: { held: 3, exact: 3 }, after: { held: 5, exact: 5 } },
-    // Romance paperback spines, each with the author beside the title: more titles said on their own, and three held
-    // titles traded for two. All five of those sit in pieces that hold several books' lines rather than one spine, where
-    // the biggest print belongs to another book than the one that was found before. No rule that reads one piece as one
-    // item can see that; the split owns it (splitting.ts).
-    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 19, exact: 9 } },
-    'accept-shelf-01': { before: { held: 14, exact: 6 }, after: { held: 14, exact: 7 } },
+    // Upright DVD spines under shelf labels and edition stickers: "THEY LIVE", "DUNE" and "HALLOWEEN" come out instead. A tape of
+    // "Charlotte's Web" lying across their tops joined the CRITTERS spine and won its title; cut apart, "CRITTERS" comes out too (5 to 6).
+    'vhs-dvd-shelf-02': { before: { held: 3, exact: 3 }, after: { held: 6, exact: 6 } },
+    // Romance paperback spines, each with the author beside the title: more titles said on their own. Before shelf rows were
+    // cut apart (splitting.ts), the pieces held several books' lines rather than one spine, where the biggest print belongs to
+    // another book than the one that was found: three held titles traded for two (held 20 to 19, exact 7 to 9). The two shelves
+    // of this bookcase are now cut apart, which lifts both counts (held 19 to 25, exact 9 to 12). Held is 6 titles gained
+    // (Throne of Glass, Crown of Midnight, Heir of Fire, Queen of Shadows, Empire of Storms, Kingdom of Ash); exact is 3 gained (Heir
+    // of Fire, Empire of Storms, Kingdom of Ash). Cut apart, "AND NOW," no longer joined "BACK TO YOU" in a column and went in with
+    // the next spine's "TARAH DEWITT", so "And Now, Back to You" was lost (held 24, exact 11) until a shorter line beside a taller one
+    // joined its column (#655; stackedSpines.test.ts pins it). The before is the old choice on the old split, so it stays at 20 and 7.
+    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 25, exact: 12 } },
+    // The two rows of "Indian FOR Everyone" were two columns, each read alone, and are one spine now (held 14 to 15, exact 7 to 8).
+    'accept-shelf-01': { before: { held: 14, exact: 6 }, after: { held: 15, exact: 8 } },
     'accept-shelf-02': { before: { held: 15, exact: 10 }, after: { held: 15, exact: 12 } },
   };
 
@@ -247,5 +305,109 @@ describe('real shelf photos', () => {
     for (const author of ['DEB PERELMAN', 'FREDERICKSON', 'ALTON BROWN', 'BRYAN VOLTAGGIO']) {
       expect([author, read]).not.toContainEqual([author, expect.arrayContaining([author])]);
     }
+  });
+});
+
+describe('flat words stacked on a spine read as its title (batch 7, brief B part 1)', () => {
+  /** The series author, printed sideways and big on every spine of the series; the stacked title is flat words in small lettering. */
+  const elsie = (x: number, y = 0.259) => line('ELSIE SILVER', x, y, 0.018, 0.111);
+  const offToTheRaces = [line('OFF TO', 0.525, 0.224, 0.02, 0.012), line('THE RACES', 0.521, 0.233, 0.028, 0.013)];
+  const spineOf = [elsie(0.525), ...offToTheRaces];
+  const others = [line('ELSIE SILVER', 0.488, 0.254, 0.013, 0.087)];
+
+  it('Flat words stacked above a series author read as the title, and the author is the creator', () => {
+    const read = shelfTitleOf(spineOf, T, others);
+    expect(read?.text).toBe('OFF TO THE RACES');
+    expect(creatorOf(read?.rest ?? [], read!.line, T)).toBe('ELSIE SILVER');
+  });
+
+  it('The stack of a Crescent City spine beats J. MAAS', () => {
+    const stack = [
+      line('CRESCENT', 0.206, 0.736, 0.04, 0.016),
+      line('CITY', 0.208, 0.75, 0.03, 0.014),
+      line('HOUSE', 0.215, 0.774, 0.04, 0.015),
+      line('of', 0.225, 0.795, 0.02, 0.012),
+      line('FLAME', 0.218, 0.81, 0.04, 0.015),
+      line('and', 0.224, 0.828, 0.025, 0.012),
+      line('SHADOW', 0.217, 0.843, 0.045, 0.015),
+    ];
+    const maas = line('J. MAAS', 0.23, 0.5, 0.03, 0.2);
+    const read = shelfTitleOf([maas, ...stack], T, [line('J. MAAS', 0.6, 0.5, 0.03, 0.2), line('J. MAAS', 0.8, 0.5, 0.03, 0.2)]);
+    expect(read?.text).toBe('CRESCENT CITY HOUSE of FLAME and SHADOW');
+  });
+
+  it('drops a trailing BOOK n from the stack', () => {
+    const lines = [...spineOf, line('BOOK 2', 0.526, 0.247, 0.018, 0.012)];
+    expect(shelfTitleOf(lines, T, others)?.text).toBe('OFF TO THE RACES');
+  });
+
+  describe('picks as before', () => {
+    it.each([
+      ['a call without others', spineOf, undefined],
+      ['a piece without a stack', [elsie(0.525)], others],
+      ['a single flat line', [elsie(0.525), offToTheRaces[0]], others],
+    ])('%s', (_name, lines, given) => {
+      expect(shelfTitleOf(lines, T, given)?.text).toBe('ELSIE SILVER');
+    });
+
+    it("a publisher's stack never replaces a name (Harper / Collins beside LAURIE GILMORE)", () => {
+      const lines = [line('LAURIE GILMORE', 0.5, 0.2, 0.02, 0.2), line('Harper', 0.5, 0.7, 0.04, 0.015), line('Collins', 0.5, 0.72, 0.04, 0.015)];
+      expect(shelfTitleOf(lines, T, [line('LAURIE GILMORE', 0.3, 0.2, 0.02, 0.2)])?.text).toBe('LAURIE GILMORE');
+    });
+
+    it('a stack that shares a word with the title changes nothing (A COURT OF / SILVER FLAMES)', () => {
+      const lines = [line('SILVER FLAMES', 0.5, 0.2, 0.02, 0.2), line('A COURT OF', 0.5, 0.7, 0.04, 0.015), line('SILVER FLAMES', 0.5, 0.72, 0.05, 0.015)];
+      expect(shelfTitleOf(lines, T, [line('SILVER FLAMES', 0.3, 0.2, 0.02, 0.2)])?.text).toBe('SILVER FLAMES');
+    });
+
+    it('a stacked author repeated on other pieces is never a title (SARAH J. / MAAS)', () => {
+      const lines = [elsie(0.5), line('SARAH J.', 0.5, 0.7, 0.04, 0.015), line('MAAS', 0.502, 0.72, 0.03, 0.015)];
+      const printed = [...others, line('SARAH J. MAAS', 0.2, 0.2, 0.02, 0.3)];
+      expect(shelfTitleOf(lines, T, printed)?.text).toBe('ELSIE SILVER');
+    });
+
+    it('a title that no other piece prints is kept even with a stack (THE ROGUE KING over ABIGAIL OWEN)', () => {
+      const lines = [line('THE ROGUE KING', 0.5, 0.2, 0.02, 0.3), line('ABIGAIL', 0.5, 0.7, 0.04, 0.015), line('OWEN', 0.505, 0.72, 0.03, 0.015)];
+      expect(shelfTitleOf(lines, T, others)?.text).toBe('THE ROGUE KING');
+    });
+
+    it('the folded case stays as it is: a sideways read that holds the stack inside it (V.E. SCHWAB -HIES)', () => {
+      const lines = [
+        line('V.E. SCHWAB -HIES', 0.5, 0.2, 0.06, 0.4),
+        line('DARKER', 0.5, 0.3, 0.05, 0.02),
+        line('SHADE', 0.505, 0.33, 0.04, 0.02),
+        line('MAGIC', 0.505, 0.36, 0.04, 0.02),
+      ];
+      expect(shelfTitleOf(lines, T, [line('V.E. SCHWAB', 0.2, 0.2, 0.02, 0.3)])?.text).toBe('V.E. SCHWAB -HIES');
+    });
+  });
+
+  describe('a stacked block that is not a title never replaces a series title (HIGHLANDER on two spines)', () => {
+    const highlander = (x: number) => line('HIGHLANDER', x, 0.2, 0.02, 0.3);
+    const printed = [highlander(0.3)];
+    it.each([
+      [["DIRECTOR'S", 'CUT']],
+      [['WIDESCREEN', 'SPECIAL EDITION']],
+      [['20th', 'CENTURY', 'FOX']],
+      [['WALT DISNEY', 'HOME VIDEO']],
+      [['SIMON &', 'SCHUSTER']],
+    ])('keeps HIGHLANDER over the stack %j', (words) => {
+      const stack = words.map((w, i) => line(w, 0.5, 0.7 + i * 0.02, 0.05, 0.015));
+      expect(shelfTitleOf([highlander(0.5), ...stack], T, printed)?.text).toBe('HIGHLANDER');
+    });
+
+    it('keeps a title a neighboring spine reads as its own, whatever is stacked beneath it', () => {
+      const stack = [line('OFF TO', 0.5, 0.7, 0.05, 0.015), line('THE RACES', 0.5, 0.72, 0.05, 0.015)];
+      expect(shelfTitleOf([highlander(0.5), ...stack], T, printed, ['HIGHLANDER'])?.text).toBe('HIGHLANDER');
+      expect(shelfTitleOf([highlander(0.5), ...stack], T, printed, [])?.text).toBe('OFF TO THE RACES');
+    });
+  });
+
+  it('a tile line is never the title on its own (a blurb line beside TROPIC THUNDER)', () => {
+    const blurb = { ...line('y linged with mistg', 0.5, 0.1, 0.2, 0.03), region: 0 };
+    const lines = [line('TROPIC THUNDER', 0.5, 0.3, 0.02, 0.3), blurb];
+    const read = shelfTitleOf(lines, T, others);
+    expect(read?.text).toBe('TROPIC THUNDER');
+    expect(read?.rest).not.toContain(blurb);
   });
 });

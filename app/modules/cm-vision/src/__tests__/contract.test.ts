@@ -40,6 +40,15 @@ describe('cm-vision contract', () => {
     expect(keys.ModelItem).toEqual(['title', 'creator']);
   });
 
+  it('a text line says the pass that read it (always) and the region that read it (only when regions were asked for)', () => {
+    expect(Object.keys(defs.TextLine.properties)).toEqual(['text', 'confidence', 'box', 'pass', 'region']);
+    expect(defs.TextLine.required).toEqual(['text', 'confidence', 'box']);
+    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'ios', 'CmVisionContract.swift'), 'utf8');
+    expect(swiftKeys(source).TextLine).toEqual(['text', 'confidence', 'box', 'pass', 'region']);
+    expect(source).toMatch(/^\s*"pass": pass,$/m); // in the literal: every line has it
+    expect(source).toMatch(/^\s*if let region = region \{ line\["region"\] = region \}$/m); // by assignment: only a region's lines have it
+  });
+
   it('a Swift key missing from the schema is reported', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-contract-'));
     fs.mkdirSync(path.join(dir, 'ios'));

@@ -254,6 +254,38 @@ public class RepeatReadsTests
     }
 
     [Fact]
+    public void A_trimmed_find_of_Vision_does_not_confirm_a_model_read_of_the_same_book()
+    {
+        // Vision's read found nothing as read and the release only turned up once the stray words at its ends were dropped: that is
+        // an offer for the person to pick from, not a second engine agreeing on the book.
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.95) with { FoundByTrimmedSpan = true }, Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, true], [Spine(0.30), Spine(0.31)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_trimmed_find_still_makes_a_repeat_of_a_weaker_read_of_the_same_book_in_the_same_place()
+    {
+        var answers = new[] { Local(ResolutionVerdict.Ambiguous, BookA, 0.95) with { FoundByTrimmedSpan = true }, Local(ResolutionVerdict.Matched, BookA, 0.95) };
+
+        RepeatReads.Of(answers, [Spine(0.30), Spine(0.31)]).ShouldBe([0]); // one book in one place: the repeat is still skipped
+    }
+
+    [Fact]
+    public void A_model_read_that_stands_is_confirmed_by_a_Vision_read_that_found_the_book_whole_but_not_by_a_trimmed_one_beside_it()
+    {
+        var answers = new[]
+        {
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.7) with { FoundByTrimmedSpan = true },
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.7),
+            Local(ResolutionVerdict.Matched, BookA, 0.95),
+        };
+
+        RepeatReads.ConfirmedByOtherEngine(answers, [false, false, true]).ShouldBe([2]); // the whole-read find confirms it
+        RepeatReads.ConfirmedByOtherEngine([answers[0], answers[2]], [false, true]).ShouldBeEmpty(); // the trimmed one alone does not
+    }
+
+    [Fact]
     public void A_Visions_read_that_beats_a_models_read_of_the_same_book_is_confirmed_too_though_it_was_never_unconfirmed()
     {
         var answers = new[] { Local(ResolutionVerdict.Matched, BookA, 0.95), Local(ResolutionVerdict.Ambiguous, BookA, 0.7) };
