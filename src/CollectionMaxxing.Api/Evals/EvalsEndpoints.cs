@@ -269,7 +269,8 @@ public static class EvalsEndpoints
                 : new EvalOcrProbeInput(
                     p.Name,
                     p.Ms,
-                    p.Lines?.Select(l => l is null ? null! : new EvalOcrProbeLineInput(l.Text, l.Confidence, l.Pass, l.X, l.Y, l.Width, l.Height)).ToList())).ToList());
+                    p.Lines?.Select(l => l is null ? null! : new EvalOcrProbeLineInput(l.Text, l.Confidence, l.Pass, l.X, l.Y, l.Width, l.Height)).ToList())).ToList(),
+            r.TimedOut);
 
     // ---- the resumable run -------------------------------------------------------------------------------------------------
 

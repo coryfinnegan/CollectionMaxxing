@@ -724,6 +724,8 @@ export class EvalRunner {
             items: reading.items.map((i) => toItem(i, engine, segmentId)),
             unreadableCount: reading.unreadableCount,
             firstItemMs,
+            // The model ran out of time but kept the items it had finished: the row stays ok (its items score), and the PC counts it as a timeout.
+            ...(reading.timedOut && engine !== 'vision_pipeline' ? { timedOut: true } : {}),
             ...(engine === 'vision_pipeline' ? ocrRecord(reading.ocr) : {}),
             // What the cover cue saw on a single cover (rects found and why each was left out, the format it gave, whether it was in time): the PC shows it beside the miss.
             ...(reading.coverCue ? { coverCue: reading.coverCue } : {}),

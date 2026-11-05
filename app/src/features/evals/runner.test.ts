@@ -145,6 +145,25 @@ describe('the eval runner', () => {
       expect(vision).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
     });
 
+    it('a model row that ran out of time with items goes out ok, with its items and timedOut', async () => {
+      const dune = [modelItem('Dune', 'Dune', 0)];
+      const kit = makeKit({ photos: 1, scenes: { 'photo-001': { read: failedRead('timeout', dune), extract: failedRead('timeout', dune) } } });
+      await kit.runner.start();
+      const [model, fm, vision] = results();
+      expect(model).toMatchObject({ engine: 'apple_model', outcome: 'ok', timedOut: true });
+      expect(model.items.map((i) => i.title)).toEqual(['Dune']);
+      expect(model).not.toHaveProperty('fellBackFrom');
+      expect(fm).toMatchObject({ engine: 'fm_text', outcome: 'ok', timedOut: true });
+      expect(fm.items.map((i) => i.title)).toEqual(['Dune']);
+      expect(vision).not.toHaveProperty('timedOut');
+    });
+
+    it('a row that finished sends no timedOut', async () => {
+      const kit = makeKit({ photos: 1 });
+      await kit.runner.start();
+      for (const row of results()) expect(row).not.toHaveProperty('timedOut');
+    });
+
     it('sends an extraction refusal and timeout as their own outcomes, not as errors', async () => {
       const kit = makeKit({ photos: 2, scenes: { 'photo-001': { extract: failedRead('declined') }, 'photo-002': { extract: failedRead('timeout') } } });
       await kit.runner.start();
