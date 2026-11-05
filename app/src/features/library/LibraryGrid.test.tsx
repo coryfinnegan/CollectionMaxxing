@@ -54,6 +54,21 @@ describe('LibraryView grid', () => {
     expect(screen.getByLabelText('Super Mario 64, Cartridge, Nintendo 64')).toBeTruthy();
   });
 
+  it('names each filter chip by the words on it, with what it does as the hint (WCAG 2.5.3)', async () => {
+    await renderWithProviders(<LibraryView title="Library" />);
+    await screen.findByText('The Matrix');
+
+    for (const [name, hint] of [
+      ['Any format', 'Filter by format'],
+      ['Any platform', 'Filter by platform'],
+      ['Any location', 'Filter by location'],
+    ] as const) {
+      const chip = screen.getByRole('button', { name });
+      expect(chip.props.accessibilityLabel).toBe(name);
+      expect(chip.props.accessibilityHint).toBe(hint);
+    }
+  });
+
   it('opens an item when its cover is pressed', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await fireEvent.press(await screen.findByLabelText('The Matrix, DVD'));
@@ -130,11 +145,11 @@ describe('LibraryView grid', () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     expect(await screen.findByText('Nothing needs attention.')).toBeTruthy();
     expect(screen.queryByText('The Matrix')).toBeNull();
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     expect(await screen.findByText('The Matrix')).toBeTruthy();
   });
 
@@ -142,7 +157,7 @@ describe('LibraryView grid', () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     await screen.findByText('Nothing needs attention.');
 
     expect(screen.getByTestId('needs-attention').props.keyboardShouldPersistTaps).toBe('handled');
@@ -152,7 +167,7 @@ describe('LibraryView grid', () => {
     await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" />);
 
     expect(await screen.findByText('Blade Runner')).toBeTruthy();
-    expect(screen.queryByLabelText('Needs attention')).toBeNull();
+    expect(screen.queryByLabelText(/^Needs attention/)).toBeNull();
   });
 
   it('badges unverified editions and filters to just those', async () => {
@@ -182,7 +197,7 @@ describe('LibraryView grid', () => {
     await waitFor(() => expect(listRequests().some((u) => u.searchParams.get('cursor'))).toBe(true));
 
     requests = [];
-    await fireEvent.press(screen.getByLabelText('Games'));
+    await fireEvent.press(screen.getByLabelText(/^Games/));
     await waitFor(() => expect(listRequests().length).toBeGreaterThan(0));
     expect(listRequests().every((u) => u.searchParams.get('kind') === 'game' && !u.searchParams.get('cursor'))).toBe(true);
     expect(await screen.findByText('Super Mario 64')).toBeTruthy();
@@ -193,7 +208,7 @@ describe('LibraryView grid', () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Sort'));
+    await fireEvent.press(screen.getByLabelText(/^Sort/));
     await fireEvent.press(screen.getByLabelText('Title'));
 
     await waitFor(() => expect(listRequests().some((u) => u.searchParams.get('sort') === 'title')).toBe(true));
@@ -303,7 +318,7 @@ describe('Add item', () => {
     await fireEvent.press(await screen.findByLabelText('Add item'));
     await fireEvent.changeText(screen.getByLabelText('Search the catalog'), 'alien');
     // Alien has a DVD and a VHS release; open the work and pick the DVD.
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1979), DVD' }));
 
     await waitFor(() => expect(screen.queryByText('Add an item')).toBeNull());
@@ -344,7 +359,7 @@ describe('the library is what you have', () => {
   it('leaves the wishlisted and the sold out of the grid, and keeps the missing one in', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
-    await fireEvent.press(screen.getByLabelText('Games'));
+    await fireEvent.press(screen.getByLabelText(/^Games/));
 
     expect(await screen.findByText('Pong')).toBeTruthy();
     expect(screen.queryByText('Hades')).toBeNull(); // wishlisted
@@ -354,7 +369,7 @@ describe('the library is what you have', () => {
   it('badges a lent tile with who has it, and a missing tile as missing', async () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
-    await fireEvent.press(screen.getByLabelText('Games'));
+    await fireEvent.press(screen.getByLabelText(/^Games/));
 
     expect(await screen.findByText('Lent to Sam')).toBeTruthy();
     expect(screen.getByLabelText('GoldenEye 007, Cartridge, Nintendo 64, lent to Sam')).toBeTruthy();

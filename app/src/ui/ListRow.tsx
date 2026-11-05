@@ -15,11 +15,13 @@ type ListRowProps = {
   /** Nesting level; each level indents the row. */
   depth?: number;
   trailing?: ReactNode;
+  /** A decorative "›" for rows that open another screen. Hidden from assistive tech, so the row's name stays its visible words. */
+  chevron?: boolean;
   onPress?: () => void;
   testID?: string;
 };
 
-export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID }: ListRowProps) {
+export function ListRow({ title, subtitle, depth = 0, trailing, chevron = false, onPress, testID }: ListRowProps) {
   const press = usePressFeedback('tap');
   const reduceMotion = useReduceMotion();
   const entering = maybeEntering(reduceMotion, FadeIn.duration(motionMs.quick));
@@ -35,6 +37,11 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
         ) : null}
       </View>
       {trailing}
+      {chevron ? (
+        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden>
+          <Text tone="muted">›</Text>
+        </View>
+      ) : null}
     </View>
   );
   return onPress ? (
@@ -43,7 +50,8 @@ export function ListRow({ title, subtitle, depth = 0, trailing, onPress, testID 
       <Animated.View style={press.style} entering={entering}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
+          // With a subtitle the name comes from the visible words themselves (no label to drift from them, WCAG 2.5.3); a lone title is its own label.
+          accessibilityLabel={subtitle ? undefined : title}
           onPress={() => {
             press.buzz();
             onPress();

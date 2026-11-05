@@ -86,7 +86,7 @@ describe('AddItemPanel Search view adoption (#458)', () => {
     const onClose = jest.fn();
     await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
     await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'alien');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1980), VHS' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(sent).toHaveLength(1);
@@ -104,7 +104,7 @@ describe('AddItemPanel Search view adoption (#458)', () => {
     const onClose = jest.fn();
     await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
     await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'doom');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Doom II, id Software · 1994 · 1 edition' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Doom II.*id Software · 1994 · 1 edition$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(sent).toHaveLength(1);
@@ -117,7 +117,7 @@ describe('AddItemPanel Search view adoption (#458)', () => {
     const onClose = jest.fn();
     await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
     await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'doom');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Doom 3, id Software · 2004 · 1 edition' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Doom 3.*id Software · 2004 · 1 edition$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Doom 3 (2004), Game disc, Activision' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
@@ -143,7 +143,7 @@ describe('AddItemPanel Search view adoption (#458)', () => {
       const onClose = jest.fn();
       await renderWithProviders(<AddItemPanel libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
       await fireEvent.changeText(await screen.findByLabelText('Search the catalog'), 'doom');
-      await fireEvent.press(await screen.findByRole('button', { name: 'Doom II, id Software · 1994 · 1 edition' }));
+      await fireEvent.press(await screen.findByRole('button', { name: /^Doom II.*id Software · 1994 · 1 edition$/ }));
       await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' });
       const asked = searches.length;
 

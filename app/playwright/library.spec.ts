@@ -23,7 +23,7 @@ test.describe('library', () => {
 
   test('filter chips and search narrow the results', async ({ page, open }) => {
     await open('/library');
-    await page.getByRole('button', { name: 'Games', exact: true }).click();
+    await page.getByRole('button', { name: /^Games/ }).click();
     await expect(page.getByRole('link', { name: 'Open Super Mario 64' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open GoldenEye 007' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open The Matrix' })).toHaveCount(0);

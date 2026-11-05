@@ -158,12 +158,12 @@ export function SettingsScreen() {
       {isWeb() ? null : <RecognitionSection />}
       <AppearanceSection />
       {isWeb() ? <Card><GetIphoneAppRow /></Card> : null}
-      <Card><ListRow title="Devices and browsers" subtitle="Your browsers and iPhones" onPress={() => router.push('/me/devices')} trailing={<Text tone="muted">›</Text>} /></Card>
-      {isWeb() ? <Card><ListRow title="Sign-in methods" subtitle="Google and Apple accounts" onPress={() => router.push('/me/sign-in-methods')} trailing={<Text tone="muted">›</Text>} /></Card> : null}
+      <Card><ListRow title="Devices and browsers" subtitle="Your browsers and iPhones" onPress={() => router.push('/me/devices')} chevron /></Card>
+      {isWeb() ? <Card><ListRow title="Sign-in methods" subtitle="Google and Apple accounts" onPress={() => router.push('/me/sign-in-methods')} chevron /></Card> : null}
       {isWeb() ? null : <LibrariesSection />}
       <LeaveLibraryCard />
       <SecuritySection />
-      <Card><ListRow title="About and privacy" onPress={() => router.push('/about')} trailing={<Text tone="muted">›</Text>} /></Card>
+      <Card><ListRow title="About and privacy" onPress={() => router.push('/about')} chevron /></Card>
     </Screen>
   );
 }

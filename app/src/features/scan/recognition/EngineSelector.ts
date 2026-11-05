@@ -12,10 +12,11 @@ import { withCoverCue } from './CoverCueEngine';
 import { FmTextEngine } from './FmTextEngine';
 import { VisionPipelineEngine } from './VisionPipelineEngine';
 import { asUnconfirmed, fillPlace, isNewItem, nextOrder, passesPrint, shelfReading } from './combine';
-import { type CoverFormatTuning, SPINE_SCHEMA_MIN_PIECES } from './defaults';
+import type { CoverFormatTuning } from './defaults';
 import { chooseCut, halfRegions, mergeHalves } from './halves';
 import { readLines } from './lines';
 import type { ModelEngineDeps } from './modelReading';
+import { modelSchemaFor } from './modelSchema';
 import { printedWords } from './printSupport';
 import { type EngineName, type FellBackFrom, ModelUnusableError, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still, type StillCropper } from './types';
 
@@ -150,10 +151,8 @@ export class EngineSelector {
       const filled = fillPlace(current, item, local);
       if (filled) emit(filled);
     };
-    // Vision's own split says what the shot is: many spine pieces and no covers is a shelf of spines, where the model writes only the
-    // fields that decide a match. Anything else (a cover framed as a segment, several covers) keeps the full item and its platform.
-    const spines = (vision?.ocr?.pieces.length ?? 0) >= SPINE_SCHEMA_MIN_PIECES && !vision?.coverCount;
-    const model = await this.readModel(still, streamNew, { ...options, modelSchema: spines ? 'spine' : 'full' }, started);
+    // Vision's own split says which item schema the model reads this shelf with (modelSchema.ts).
+    const model = await this.readModel(still, streamNew, { ...options, modelSchema: modelSchemaFor(vision) }, started);
 
     const total = this.now() - started;
     if (typeof model === 'string') {

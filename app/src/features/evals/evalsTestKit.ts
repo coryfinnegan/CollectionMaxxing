@@ -48,6 +48,8 @@ export interface KitOptions {
    * scene's (which says each line's pass). Throw to fail the read. Called for every text read, so it can also move a fake clock.
    */
   text?: (imageUri: string, options: RecognizeTextOptions | undefined) => TextLine[] | undefined;
+  /** Wraps the runner's Vision pipeline engine (its own row), to fail it or move a fake clock; the selector's inner pipeline is left as it is. */
+  pipeline?: (real: EngineSelector['tiers']['pipeline']) => EngineSelector['tiers']['pipeline'];
   /** The runner's clock; the real one when left out. */
   now?: () => number;
   /** Called each time a photo is sent to the PC, before the request goes out: hold the promise to keep the send pending, reject it to fail the send. */
@@ -178,7 +180,7 @@ export function makeKit(options: KitOptions = {}) {
         : realSelector,
       // as on the phone (device.ts): the two lower tiers are the selector's own
       fmText: realSelector.tiers.fmText,
-      pipeline: realSelector.tiers.pipeline,
+      pipeline: options.pipeline ? options.pipeline(realSelector.tiers.pipeline) : realSelector.tiers.pipeline,
       config: store,
       vision,
       device: { model: 'iPhone16,1', appVersion: '1.2.3' },

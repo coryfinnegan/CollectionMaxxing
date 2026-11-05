@@ -26,7 +26,7 @@ describe('MeScreen Sold row', () => {
     await renderWithProviders(<MeScreen />);
 
     expect(await screen.findByText('Sold')).toBeTruthy();
-    expect(await screen.findByLabelText('Sold, 1 item')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Sold.*1 item/ })).toBeTruthy();
     expect(screen.getByText('Recently deleted')).toBeTruthy();
   });
 
@@ -40,7 +40,7 @@ describe('MeScreen Sold row', () => {
   it('opens the Sold page from its row', async () => {
     await renderWithProviders(<MeScreen />);
 
-    await fireEvent.press(await screen.findByLabelText('Sold, 1 item'));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Sold.*1 item/ }));
 
     expect(mockPush).toHaveBeenCalledWith('/sold');
   });
@@ -49,7 +49,7 @@ describe('MeScreen Sold row', () => {
     asRole('viewer');
     await renderWithProviders(<MeScreen />);
 
-    expect(await screen.findByLabelText('Sold, 1 item')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Sold.*1 item/ })).toBeTruthy();
     expect(screen.queryByText('Recently deleted')).toBeNull();
   });
 });
