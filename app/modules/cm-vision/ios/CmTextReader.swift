@@ -45,7 +45,7 @@ enum CmTextReader {
   ) async -> [String: Any] {
     let clock = ContinuousClock()
     let started = clock.now
-    let run = CmReadRun(maxItems: request.maxItems, emit: emit)
+    let run = CmReadRun(maxItems: request.maxItems, repeatStop: request.repeatStop, emit: emit)
 
     func finish(_ outcome: CmOutcome) -> [String: Any] {
       let read = run.close()
