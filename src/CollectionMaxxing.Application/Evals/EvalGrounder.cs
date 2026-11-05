@@ -67,10 +67,14 @@ public sealed class EvalGrounder(
         // shown. The same release read in another place is another item, and each is kept.
         var repeats = RepeatReads.Of(answers, [.. cleaned.Select(c => c.Box)]).ToHashSet();
         var local = await LoadLocalAsync(answers, cancellationToken);
+
+        // And a spine read that only found itself (FragmentReads) is not scored either: /identify skips it the same way.
+        var fragments = FragmentReads.Of(
+            [.. cleaned.Select((c, i) => FragmentReads.ReadOf(c.Facts, c.Profile, answers[i], id => ReleaseOf(local, id)))]).ToHashSet();
         var grounded = new List<GroundedItem>(items.Count - repeats.Count);
         for (var i = 0; i < items.Count; i++)
         {
-            if (repeats.Contains(i))
+            if (repeats.Contains(i) || fragments.Contains(i))
             {
                 continue;
             }
@@ -307,6 +311,9 @@ public sealed class EvalGrounder(
                 provider.Creators,
                 option.Terms);
     }
+
+    private static (string Title, IReadOnlyList<string> Creators)? ReleaseOf(Dictionary<Guid, GroundedCandidate> local, Guid id) =>
+        local.TryGetValue(id, out var release) ? (release.Title, release.Creators ?? []) : null;
 
     private async Task<Dictionary<Guid, GroundedCandidate>> LoadLocalAsync(IReadOnlyList<BarcodeResolution> answers, CancellationToken cancellationToken)
     {
