@@ -292,14 +292,15 @@ function Invoke-DotnetTest([string]$TestProject, [int]$TimeoutSeconds, [string]$
 #  Passed     exit 0 and a "Passed!" summary with at least one test.
 #  Failed     the summary says "Failed!", or the run reports failing tests.
 #  NoTests    the test host ran but the filter matched nothing.
-#  BuildError a C# compile error: the mutant is not valid code, so it is not a mutant.
+#  BuildError a C# compile or analyzer error (CS/CA/IDE, e.g. CA1805 on "= false"): the mutant is not valid code, so it is not a mutant.
 #  Error      anything else that stopped the tests from running (no restore, MSBuild/SDK/NuGet error, a crash, or no
 #             output at all: a fresh worktree makes `dotnet test --no-restore` exit 0 silently). Never "survived".
 function Get-TestRunStatus([int]$ExitCode, [string]$Text) {
   if ($Text -match '(?m)^\s*Failed!\s') { return 'Failed' }
   $m = [regex]::Match($Text, '(?m)^\s*Passed!\s.*?Total:\s*(\d+)')
   if ($ExitCode -eq 0 -and $m.Success) { if ([int]$m.Groups[1].Value -gt 0) { return 'Passed' } else { return 'NoTests' } }
-  if ($Text -match '(?m): error CS\d+') { return 'BuildError' }
+  # A compiler or analyzer diagnostic in a C# file (CS, CA, IDE: the build treats analyzer warnings as errors).
+  if ($Text -match '(?m)\.cs\(\d+,\d+\): error [A-Z]+\d+') { return 'BuildError' }
   if ($ExitCode -eq 0 -and $Text -match '(?m)^Test run for ') { return 'NoTests' }
   'Error'
 }
