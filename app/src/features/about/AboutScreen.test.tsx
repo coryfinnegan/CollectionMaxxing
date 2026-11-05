@@ -43,8 +43,17 @@ describe('About', () => {
     expect(screen.getByText('Provider data')).toBeTruthy();
     for (const a of ATTRIBUTIONS) {
       expect(screen.getByText(a.notice)).toBeTruthy();
-      fireEvent.press(screen.getByRole('link', { name: `${a.name}: ${a.url}` }));
+      await fireEvent.press(screen.getByRole('link', { name: `${a.notice} ${a.url}` }));
       expect(open).toHaveBeenCalledWith(a.url);
+    }
+  });
+
+  it('names each credit link starting with the words it shows, then the address (WCAG 2.5.3)', async () => {
+    await render(<AboutScreen />);
+    for (const a of ATTRIBUTIONS) {
+      const label = screen.getByRole('link', { name: `${a.notice} ${a.url}` }).props.accessibilityLabel as string;
+      expect(label.startsWith(a.notice)).toBe(true);
+      expect(label).toContain(a.url);
     }
   });
 });

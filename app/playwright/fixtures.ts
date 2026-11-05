@@ -6,8 +6,16 @@ import { join } from 'node:path';
 // Every test gets a fresh browser context and a fresh page load, so MSW's in-memory mock state starts from the seed.
 // Specs therefore move around by clicking (a full page load would reset the mock data) unless they want a reset.
 
-/** Serious or critical axe findings that are accepted for now. Empty: every finding fails the scan. */
-const knownIssues: { id: string; target?: RegExp }[] = [];
+/**
+ * Serious or critical axe findings that are accepted for now. A node is accepted when an entry's rule id matches and
+ * every pattern the entry gives (`target` against the selector, `html` against the node's markup) matches.
+ * Everything else fails the scan.
+ */
+const knownIssues: { id: string; issue: string; target?: RegExp; html?: RegExp }[] = [
+  // Grid tiles: a tile without art repeats its title in its placeholder; WCAG 2.5.3 holds because the name starts
+  // with the visible title.
+  { id: 'label-content-name-mismatch', issue: '#692', html: /data-testid="item-/ },
+];
 
 type Fixtures = {
   /** Console errors and uncaught page errors seen so far. */
@@ -48,9 +56,13 @@ export const test = base.extend<Fixtures>({
         .filter((v) => v.impact === 'serious' || v.impact === 'critical')
         .flatMap((v) =>
           v.nodes
-            .map((n) => n.target.join(' '))
-            .filter((target) => !knownIssues.some((k) => k.id === v.id && (!k.target || k.target.test(target))))
-            .map((target) => `${v.id} (${v.impact}): ${target}`),
+            .filter((n) => {
+              const target = n.target.join(' ');
+              return !knownIssues.some(
+                (k) => k.id === v.id && (!k.target || k.target.test(target)) && (!k.html || k.html.test(n.html)),
+              );
+            })
+            .map((n) => `${v.id} (${v.impact}): ${n.target.join(' ')}`),
         );
       expect(found).toEqual([]);
     });

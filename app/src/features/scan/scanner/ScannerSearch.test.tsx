@@ -66,7 +66,7 @@ describe('scanner search', () => {
 
       await searchFor('alien');
 
-      expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) expect(url).toContain('scope=library');
     } finally {
@@ -85,7 +85,7 @@ describe('scanner search', () => {
     await searchFor('alien');
 
     expect(await screen.findByText('In your library')).toBeTruthy();
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions, in your library' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions.*In your library$/ }));
     expect(await screen.findByText('You own 1')).toBeTruthy();
   });
 
@@ -102,7 +102,7 @@ describe('scanner search', () => {
     await renderWithProviders(<ScannerSearch libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
 
     await searchFor('alien');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1980), VHS' }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -123,7 +123,7 @@ describe('scanner search', () => {
     await renderWithProviders(<ScannerSearch libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
 
     await searchFor('doom');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Doom II, id Software · 1994 · 1 edition' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Doom II.*id Software · 1994 · 1 edition$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Doom II (1994), Game disc, GT Interactive' }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -144,7 +144,7 @@ describe('scanner search', () => {
     await renderWithProviders(<ScannerSearch libraryId={MOCK_LIBRARY_ID} onClose={onClose} />);
 
     await searchFor('alien');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1980), VHS' }));
 
     expect(await screen.findByText('Already in your library.')).toBeTruthy();

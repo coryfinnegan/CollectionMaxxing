@@ -119,13 +119,21 @@ export interface LocalTuning {
   /**
    * A flat line lies across the spines only when it is at least this many of its spine's column widths wide. The widest author's name
    * printed flat across its own spine is 1.93 columns (two "SARAH J." lines on shelf-02 are 1.87 and 1.93), and the narrowest tape that lies
-   * across is 2.13 (Body Worlds). The margin below 2 is 0.07 columns: at 1.93 or less a name is cut out as an item of its own, though the
-   * titles found stay the same, so the count of titles does not guard this number; a recorded test does. Infinity switches the cut off,
-   * and a line then joins the spine under its center.
+   * across is 2.13 (Body Worlds). The margin below 2 is only 0.07 columns, so width alone cannot guard it: `lyingNameMinPlaces` keeps a
+   * name printed on other spines from being cut out at any width. Infinity switches the cut off, and a line then joins the spine under
+   * its center.
    */
   lyingLineWidth: number;
   /** ...and its center lies at least this many column widths above its spine's top or below its bottom: a title printed within the spine's own span is the spine's. */
   lyingLineReach: number;
+  /**
+   * A flat line is never cut out as a tape lying across when every word of two letters or more in it is printed in at least this many other
+   * places of the shot (a place is one spot, however many times it is read, and none is a reread of the line): a series' author is on
+   * every spine, a tape's title once. Recorded: the author lines of the hardcover shelves have each word in 15 to 20 other places, the
+   * tapes of the DVD shelves in 0 to 3. Infinity switches the
+   * cue off, and width alone decides.
+   */
+  lyingNameMinPlaces: number;
   /**
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
@@ -301,6 +309,7 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   shelfRowMinLines: 2,
   lyingLineLetters: 0.5,
   lyingLineWidth: 2,
+  lyingNameMinPlaces: 2,
   lyingLineReach: 0.5,
   flatLineAspect: 2.5,
   stackMinBands: 3,

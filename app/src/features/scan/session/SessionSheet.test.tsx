@@ -95,7 +95,9 @@ describe('session sheet', () => {
     const saved = await open();
 
     await press(`Library: Cory's library. Change`);
-    await press(`Sam's library, Viewer`);
+    await act(async () => {
+      fireEvent.press(await screen.findByRole('button', { name: /^Sam's library.*Viewer/ }));
+    });
     expect(await screen.findByLabelText('Location: Not placed. Change')).toBeTruthy();
     expect(screen.getByLabelText('Wishlist').props.accessibilityState.selected).toBe(true);
 

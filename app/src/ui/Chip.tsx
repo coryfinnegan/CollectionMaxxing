@@ -14,11 +14,13 @@ type ChipProps = {
   selected?: boolean;
   onPress?: () => void;
   accessibilityLabel?: string;
+  /** Extra context spoken after the name. The name itself stays equal to (or starting with) the visible label. */
+  accessibilityHint?: string;
   testID?: string;
 };
 
 /** A pill for filters and single-choice fields. Selected is shown by fill and by the accessibility state. */
-export function Chip({ label, selected = false, onPress, accessibilityLabel, testID }: ChipProps) {
+export function Chip({ label, selected = false, onPress, accessibilityLabel, accessibilityHint, testID }: ChipProps) {
   const press = usePressFeedback('select');
   const reduceMotion = useReduceMotion();
   // A finger needs 44 pt: on a phone-width web screen the chip is that tall itself (react-native-web ignores hitSlop); a pointer gets the compact 36.
@@ -31,6 +33,7 @@ export function Chip({ label, selected = false, onPress, accessibilityLabel, tes
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={accessibilityLabel ?? label}
+          accessibilityHint={accessibilityHint}
           accessibilityState={{ selected }}
           onPress={
             onPress

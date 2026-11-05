@@ -94,7 +94,7 @@ describe('initial state', () => {
     saveRecentSearch(getRecentStorage(), 'alien');
     await renderSearch();
     await fireEvent.press(await screen.findByLabelText('Search again for alien'));
-    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
   });
 
   it('clears recent searches', async () => {
@@ -114,8 +114,8 @@ describe('results', () => {
     try {
       await renderSearch();
       await typeQuery('alien');
-      expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'Arrival, Denis Villeneuve · 2016 · 1 edition' })).toBeNull();
+      expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /^Arrival.*Denis Villeneuve · 2016 · 1 edition$/ })).toBeNull();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) {
         expect(param(url, 'q')).toBe('alien');
@@ -139,18 +139,18 @@ describe('results', () => {
     await renderSearch();
     await typeQuery('alien');
     expect(await screen.findByLabelText('Searching the catalog')).toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
   });
 
   it('searches the pinned query without typing', async () => {
     await renderSearch({ initialQuery: 'alien' });
-    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
   });
 
   it('remembers a search that found works', async () => {
     await renderSearch();
     await typeQuery('alien');
-    await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' });
+    await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ });
     await typeQuery('');
     expect(await screen.findByLabelText('Search again for alien')).toBeTruthy();
   });
@@ -163,7 +163,7 @@ describe('filters', () => {
       await renderSearch();
       await fireEvent.press(await screen.findByLabelText('Kind Books'));
       await typeQuery('ne');
-      expect(await screen.findByRole('button', { name: 'Neuromancer, William Gibson · 1984 · 1 edition' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Neuromancer.*William Gibson · 1984 · 1 edition$/ })).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) expect(param(url, 'kind')).toBe('book');
     } finally {
@@ -178,7 +178,7 @@ describe('filters', () => {
       await fireEvent.press(await screen.findByLabelText('Kind Books'));
       await fireEvent.press(await screen.findByLabelText('All kinds'));
       await typeQuery('ne');
-      expect(await screen.findByRole('button', { name: 'Neuromancer, William Gibson · 1984 · 1 edition' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Neuromancer.*William Gibson · 1984 · 1 edition$/ })).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) expect(param(url, 'kind')).toBeNull();
     } finally {
@@ -194,7 +194,7 @@ describe('filters', () => {
       expect(await screen.findByLabelText('All platforms')).toBeTruthy();
       await fireEvent.press(await screen.findByLabelText('Platform N64'));
       await typeQuery('mario');
-      expect(await screen.findByRole('button', { name: 'Super Mario 64, Nintendo · 1996 · 1 edition' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Super Mario 64.*Nintendo · 1996 · 1 edition$/ })).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) {
         expect(param(url, 'kind')).toBe('game');
@@ -216,8 +216,8 @@ describe('filters', () => {
       await fireEvent.press(screen.getByLabelText('Kind Movies'));
       expect(screen.queryByLabelText('Platform N64')).toBeNull();
       await typeQuery('ar');
-      expect(await screen.findByRole('button', { name: 'Arrival, Denis Villeneuve · 2016 · 1 edition' })).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'Super Mario 64, Nintendo · 1996 · 1 edition' })).toBeNull();
+      expect(await screen.findByRole('button', { name: /^Arrival.*Denis Villeneuve · 2016 · 1 edition$/ })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /^Super Mario 64.*Nintendo · 1996 · 1 edition$/ })).toBeNull();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) expect(param(url, 'platform')).toBeNull();
     } finally {
@@ -231,7 +231,7 @@ describe('filters', () => {
       await renderSearch();
       await fireEvent.changeText(await screen.findByLabelText('Year'), '1979');
       await typeQuery('alien');
-      expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) expect(param(url, 'year')).toBe('1979');
     } finally {
@@ -245,7 +245,7 @@ describe('filters', () => {
       await renderSearch();
       await fireEvent.changeText(await screen.findByLabelText('Year'), '197');
       await typeQuery('alien');
-      expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) expect(param(url, 'year')).toBeNull();
     } finally {
@@ -265,19 +265,19 @@ describe('editions', () => {
   it('opens the editions list and comes back', async () => {
     await renderSearch();
     await typeQuery('alien');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ }));
     expect(await screen.findByLabelText('Back to results')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Alien (1979), DVD' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Alien (1980), VHS' })).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Back to results'));
-    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
     expect(screen.queryByLabelText('Back to results')).toBeNull();
   });
 
   it('picks an edition', async () => {
     const { onPick } = await renderSearch();
     await typeQuery('alien');
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Alien (1980), VHS' }));
     expect(onPick).toHaveBeenCalledWith({ releaseId: ALIEN_VHS });
   });
@@ -290,7 +290,7 @@ describe('editions', () => {
     await renderSearch();
     await typeQuery('alien');
     expect(await screen.findByText('In your library')).toBeTruthy();
-    await fireEvent.press(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions, in your library' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions.*In your library$/ }));
     expect(await screen.findByText('You own 1')).toBeTruthy();
   });
 });
@@ -298,9 +298,9 @@ describe('editions', () => {
 // The server gives every work and release that only a provider knows the same empty id. Rows and picks must tell
 // them apart by something else (#572); the mock catalog's three Doom results share it like the real thing.
 describe('results only a provider knows', () => {
-  const DOOM = 'Doom, id Software · 1993 · 1 edition';
-  const DOOM_II = 'Doom II, id Software · 1994 · 1 edition';
-  const DOOM_3 = 'Doom 3, id Software · 2004 · 1 edition';
+  const DOOM = /^Doom.*id Software · 1993 · 1 edition$/;
+  const DOOM_II = /^Doom II.*id Software · 1994 · 1 edition$/;
+  const DOOM_3 = /^Doom 3.*id Software · 2004 · 1 edition$/;
 
   it('really share the empty id in the mock, as on the server', () => {
     const hits = seed().filter((result) => result.source === 'igdb');
@@ -376,7 +376,7 @@ describe('dead ends', () => {
     await typeQuery('alien');
     expect(await screen.findByText("Couldn't search the catalog")).toBeTruthy();
     await fireEvent.press(await screen.findByLabelText('Try again'));
-    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
   });
 
   it('says it is offline instead of hanging', async () => {
@@ -399,7 +399,7 @@ describe('library scope', () => {
     try {
       await renderSearch({ scope: 'library' });
       await typeQuery('alien');
-      expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
       expect(asked.length).toBeGreaterThan(0);
       for (const url of asked) expect(param(url, 'scope')).toBe('library');
     } finally {
@@ -476,7 +476,7 @@ describe('offline answers', () => {
     await typeQuery('alien');
     expect(await screen.findByText("Couldn't search the catalog")).toBeTruthy();
     await fireEvent.press(await screen.findByLabelText('Try again'));
-    expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
   });
 
   it('shows no matches without an action when the host has no manual path', async () => {
@@ -501,7 +501,7 @@ describe('pinned answers (fixtures)', () => {
     const { asked, stop } = listenSearches();
     try {
       await renderSearch({ initialQuery: 'alien', search: pinned({ items: seed() }) });
-      expect(await screen.findByRole('button', { name: 'Alien, Ridley Scott · 1979–1980 · 2 editions' })).toBeTruthy();
+      expect(await screen.findByRole('button', { name: /^Alien.*Ridley Scott · 1979–1980 · 2 editions$/ })).toBeTruthy();
       expect(asked).toHaveLength(0);
     } finally {
       stop();

@@ -54,11 +54,11 @@ export function MeScreen() {
       </Card>
       <Card>
         {links.map((link) => (
-          <ListRow key={link.title} title={link.title} subtitle={link.subtitle} onPress={() => router.push(link.href)} trailing={<Text tone="muted">›</Text>} />
+          <ListRow key={link.title} title={link.title} subtitle={link.subtitle} onPress={() => router.push(link.href)} chevron />
         ))}
       </Card>
       <Card>
-        <ListRow title="Delete account" onPress={() => router.push('/me/delete')} trailing={<Text tone="muted">›</Text>} />
+        <ListRow title="Delete account" onPress={() => router.push('/me/delete')} chevron />
       </Card>
     </Screen>
   );
