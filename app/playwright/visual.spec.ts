@@ -251,7 +251,7 @@ test.describe('visual', () => {
 
     test('search editions', async ({ page, open }) => {
       await openSearchResults(page, open);
-      await page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' }).click();
+      await page.getByRole('button', { name: /Alien.*Ridley Scott · 1979–2007 · 3 editions.*In your library/ }).click();
       await expect(page.getByRole('button', { name: 'Back to results' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Alien' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Alien (1979), VHS' })).toBeVisible();
@@ -302,7 +302,7 @@ test.describe('visual', () => {
 
       test('search editions dark', async ({ page, open }) => {
         await openSearchResults(page, open);
-        await page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' }).click();
+        await page.getByRole('button', { name: /Alien.*Ridley Scott · 1979–2007 · 3 editions.*In your library/ }).click();
         await expect(page.getByRole('button', { name: 'Back to results' })).toBeVisible();
         await expectShot(page, 'search-editions-dark');
       });
@@ -351,18 +351,18 @@ async function openCommitToast(page: Page, open: (path: string) => Promise<void>
 
 async function openSearchResults(page: Page, open: (path: string) => Promise<void>) {
   await open('/search?state=results');
-  await expect(page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Alien.*Ridley Scott · 1979–2007 · 3 editions.*In your library/ })).toBeVisible();
   await expect(page.getByText('In your library')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Arrival, Denis Villeneuve · 2016 · 1 edition' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Dune, Frank Herbert · 1990–2019 · 2 editions' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Arrival.*Denis Villeneuve · 2016 · 1 edition/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Dune.*Frank Herbert · 1990–2019 · 2 editions/ })).toBeVisible();
 }
 
 async function openSearchRows(page: Page, open: (path: string) => Promise<void>) {
   await open('/search-rows');
-  await expect(page.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Alien.*Ridley Scott · 1979–2007 · 3 editions.*In your library/ })).toBeVisible();
   await expect(page.getByText('In your library')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Arrival, Denis Villeneuve · 2016 · 1 edition' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Dune, Frank Herbert · 1990–2019 · 2 editions' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Arrival.*Denis Villeneuve · 2016 · 1 edition/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Dune.*Frank Herbert · 1990–2019 · 2 editions/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Alien (1979), VHS' })).toBeVisible();
   await expect(page.getByText('You own 1')).toBeVisible();
 }

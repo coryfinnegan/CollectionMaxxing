@@ -158,7 +158,7 @@ export function WorkRow({
     <Animated.View style={press.style}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${work.title}, ${facts}${owned ? ', in your library' : ''}`}
+        // No accessibilityLabel: the name comes from the visible title, facts and badge (WCAG 2.5.3).
         onPress={() => {
           press.buzz();
           onPress();

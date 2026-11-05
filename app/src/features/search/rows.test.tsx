@@ -243,14 +243,14 @@ describe('WorkRow', () => {
     await render(<WorkRow result={alien()} ownedReleaseIds={new Set(['r2'])} onPress={jest.fn()} />);
 
     expect(screen.getByText('In your library')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions, in your library' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Alien.*Ridley Scott · 1979–2007 · 3 editions.*In your library$/ })).toBeTruthy();
   });
 
   it('shows no badge when nothing is owned', async () => {
     await render(<WorkRow result={alien()} ownedReleaseIds={new Set()} onPress={jest.fn()} />);
 
     expect(screen.queryByText('In your library')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Alien.*Ridley Scott · 1979–2007 · 3 editions$/ })).toBeTruthy();
   });
 
   it('taps lightly and opens the work on press', async () => {
@@ -258,7 +258,7 @@ describe('WorkRow', () => {
     const onPress = jest.fn();
     await render(<WorkRow result={alien()} ownedReleaseIds={new Set()} onPress={onPress} />);
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Alien, Ridley Scott · 1979–2007 · 3 editions' }));
+    await fireEvent.press(screen.getByRole('button', { name: /^Alien.*Ridley Scott · 1979–2007 · 3 editions$/ }));
 
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(calls).toEqual(['tap']);
