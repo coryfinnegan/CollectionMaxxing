@@ -23,6 +23,36 @@ public class EvalPhotoChecksTests
     private static EvalOcrLineInput Line(double x = 0.1, double y = 0.1, double width = 0.05, double height = 0.5, string text = "Dune") =>
         new(text, x, y, width, height);
 
+    [Theory]
+    [InlineData(ScanEngine.AppleModel)]
+    [InlineData(ScanEngine.FmText)]
+    public void A_timed_out_flag_on_an_ok_model_row_passes(ScanEngine engine)
+    {
+        var check = EvalPhotoChecks.Check(Photo(engine) with { TimedOut = true }, 0);
+
+        check.Problem.ShouldBeNull();
+        check.Photo!.TimedOut.ShouldBe(true);
+    }
+
+    [Fact]
+    public void A_timed_out_flag_on_a_Vision_row_is_a_problem_for_that_photo()
+    {
+        var check = EvalPhotoChecks.Check(Photo(ScanEngine.VisionPipeline) with { TimedOut = true }, 0);
+
+        check.Problem!.Code.ShouldBe("evals.timed_out_invalid");
+    }
+
+    [Theory]
+    [InlineData(EvalOutcome.Timeout)]
+    [InlineData(EvalOutcome.Error)]
+    [InlineData(EvalOutcome.Refused)]
+    public void A_timed_out_flag_on_a_row_that_is_not_ok_is_a_problem_for_that_photo(EvalOutcome outcome)
+    {
+        var check = EvalPhotoChecks.Check(Photo(ScanEngine.AppleModel) with { Outcome = outcome, TimedOut = true }, 0);
+
+        check.Problem!.Code.ShouldBe("evals.timed_out_invalid");
+    }
+
     [Fact]
     public void A_good_photo_passes_unchanged()
     {
