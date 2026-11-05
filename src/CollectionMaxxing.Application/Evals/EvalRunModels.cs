@@ -74,6 +74,7 @@ public sealed record EvalOcrProbeInput(string? Name, long? Ms, IReadOnlyList<Eva
 /// <param name="CoverCue">What the phone's cover cue saw on a single picture, as one short line. Cleaned and cut to <see cref="EvalCoverCue.MaxLength"/> when kept; never a reason to refuse a run.</param>
 /// <param name="PrintKind">The kind the shelf's own print said it is a shelf of (the phone's <c>shelfKind.ts</c>). The phone names it only when at least two spines print it. It speaks only when no read of the photo names that kind, the one rule <c>/identify</c> applies; null on an older run or a shelf whose print said nothing.</param>
 /// <param name="OcrProbes">Only the <c>vision_pipeline</c> photo of a shelf: extra reads of the same picture, for a replay of an OCR setting. Kept with the grounded run and never scored. Ignored (and dropped) for the other engines.</param>
+/// <param name="TimedOut">Only an <c>ok</c> <c>apple_model</c> or <c>fm_text</c> row: the model ran out of time and these are the items it had finished. Scored as a timeout, items kept. Refused on any other row; null from an older build.</param>
 public sealed record EvalPhotoInput(
     string? PhotoId,
     ScanEngine? Engine,
@@ -91,7 +92,8 @@ public sealed record EvalPhotoInput(
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
     string? CoverCue = null,
     WorkKind? PrintKind = null,
-    IReadOnlyList<EvalOcrProbeInput>? OcrProbes = null);
+    IReadOnlyList<EvalOcrProbeInput>? OcrProbes = null,
+    bool? TimedOut = null);
 
 /// <param name="Partial">The phone cancelled the run part way. It is kept and shown, but never counts as a pass or a baseline.</param>
 /// <param name="BaselineNote">Why this run's thresholds may differ from the baseline's (docs/16 §17). Null most runs.</param>
@@ -181,6 +183,7 @@ public sealed record GroundedOcrProbe(string Name, long Ms, IReadOnlyList<Ground
 /// phone never sends a print on the apple_model photo itself, so in every run today that row measures the model alone.
 /// </param>
 /// <param name="OcrProbes">Only the <c>vision_pipeline</c> photo of a shelf, and only from a phone that sends them: extra reads of the same picture, kept for a replay of an OCR setting. Nothing scores them.</param>
+/// <param name="TimedOut">An <c>ok</c> model row (<c>apple_model</c> or <c>fm_text</c>) that ran out of time and kept the items it had finished. <see cref="EvalScorer"/> counts it as a timeout and still scores the items. Null on a row from an older build and on every combined row.</param>
 public sealed record GroundedPhoto(
     string PhotoId,
     string Engine,
@@ -199,7 +202,8 @@ public sealed record GroundedPhoto(
     string? CoverCue = null,
     string? PrintKind = null,
     IReadOnlyList<GroundedItem>? ItemsLentPrint = null,
-    IReadOnlyList<GroundedOcrProbe>? OcrProbes = null);
+    IReadOnlyList<GroundedOcrProbe>? OcrProbes = null,
+    bool? TimedOut = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>
 public sealed record GroundedRun(

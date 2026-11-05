@@ -91,6 +91,8 @@ public sealed record EvalOcrProbe(string? Name = null, long? Ms = null, IReadOnl
 /// <c>CoverCue</c> is a short line (at most 300 characters; a longer one is cut, not refused) about what the cover cue saw on a single picture:
 /// the rectangles found and why each was left out, the format, kind and product code it gave, and whether it came in time. The eval report
 /// shows it beside the picture's miss; the scanner never reads it.
+/// <c>TimedOut</c> is true on an <c>ok</c> <c>apple_model</c> or <c>fm_text</c> row whose model ran out of time and kept the items it had finished; the row is
+/// scored as a timeout for the rates and the latency, and still scores its items. Absent from an older build, whose row scores as it did. Any other row sending it is refused.
 /// </summary>
 public sealed record EvalPhotoResult(
     string? PhotoId = null,
@@ -109,7 +111,8 @@ public sealed record EvalPhotoResult(
     IReadOnlyList<IReadOnlyList<int>>? OcrPieces = null,
     string? CoverCue = null,
     CollectionMaxxing.Domain.Catalog.WorkKind? PrintKind = null,
-    IReadOnlyList<EvalOcrProbe>? OcrProbes = null);
+    IReadOnlyList<EvalOcrProbe>? OcrProbes = null,
+    bool? TimedOut = null);
 
 /// <summary>Body of <c>POST /api/admin/evals/runs/open</c>: the device and config version the run uses, and an optional note on a deliberate threshold move.</summary>
 public sealed record EvalOpenRunRequest(EvalDeviceRequest? Device = null, string? ConfigVersion = null, string? BaselineNote = null);

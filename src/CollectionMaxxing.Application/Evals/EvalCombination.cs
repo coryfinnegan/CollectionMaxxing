@@ -109,7 +109,7 @@ public static class EvalCombination
         {
             if (truths.TryGetValue(apple.PhotoId, out var truth) && visionRows.TryGetValue(apple.PhotoId, out var vision))
             {
-                combined.Add(Combine(apple, textRows.GetValueOrDefault(apple.PhotoId), vision, IsShelfShot(truth)));
+                combined.Add(Combine(apple, textRows.GetValueOrDefault(apple.PhotoId), vision, IsShelfShot(truth)) with { TimedOut = null }); // the model row reports its own timeouts; the combined row is not one
             }
         }
 

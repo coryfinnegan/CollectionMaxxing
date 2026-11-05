@@ -341,6 +341,15 @@ public static class EvalPhotoChecks
             return EvalErrors.Invalid("evals.captured_invalid", "capturedCount is 0 or more.", $"{at}.capturedCount");
         }
 
+        if (photo.TimedOut is not null
+            && (photo.Outcome != EvalOutcome.Ok || photo.Engine is not (ScanEngine.AppleModel or ScanEngine.FmText)))
+        {
+            return EvalErrors.Invalid(
+                "evals.timed_out_invalid",
+                "timedOut is sent only on an ok apple_model or fm_text result.",
+                $"{at}.timedOut");
+        }
+
         if (photo.DuplicateRescan is { } evidence
             && (evidence.OwnedHits is < 0 or > MaxCounted
                 || evidence.AnsweredOnCard is < 0

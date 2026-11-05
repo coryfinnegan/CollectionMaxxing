@@ -78,6 +78,11 @@ export interface SnapReading {
   printKind?: CueKind;
   /** Items that were there but could not be read; the scanner shows its "Get closer" chip when above 0. */
   unreadableCount: number;
+  /**
+   * The model ran out of time and these are the items it had finished. The reading stands as an ordinary one (the scanner ignores this); the eval
+   * runner reports it so the PC counts the read as a timeout. Absent when the model finished in time.
+   */
+  timedOut?: true;
   /** How many covers Vision found lying side by side on the shot (multiCover.ts); absent when none. */
   coverCount?: number;
   engine: EngineName;

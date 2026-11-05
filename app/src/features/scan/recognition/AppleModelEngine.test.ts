@@ -2,8 +2,9 @@
 // creator, kind and confidence, whose visibleText is its title.
 import { AppleModelEngine } from './AppleModelEngine';
 import { DEFAULT_RECOGNITION_SETTINGS } from './defaults';
-import { line, modelItem, okRead, RecordingVision, STILL, testIds } from './fakes';
-import type { ReadItem } from './types';
+import { EngineSelector } from './EngineSelector';
+import { failedRead, line, modelItem, okRead, RecordingVision, STILL, testIds } from './fakes';
+import { ModelUnusableError, type ReadItem } from './types';
 
 const deps = (vision: RecordingVision) => ({ vision, settings: () => DEFAULT_RECOGNITION_SETTINGS, newId: testIds });
 const lines = [line('DUNE', 0.1, 0.1, 0.3, 0.1), line('FRANK HERBERT', 0.1, 0.3, 0.3, 0.05), line('EMMA', 0.5, 0.1, 0.3, 0.1)];
@@ -44,5 +45,37 @@ describe('AppleModelEngine with lean items', () => {
     expect(item.box).toBeDefined();
     expect(item.edition).toBe("Collector's Edition");
     expect(item.completeness).toBeDefined();
+  });
+});
+
+describe('AppleModelEngine running out of time', () => {
+  const dune = [modelItem('Dune', 'Dune', 0)];
+
+  it('a picture read that ran out of time keeps its finished items and says it timed out', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: { text: lines, read: failedRead('timeout', dune) } });
+    const reading = await new AppleModelEngine(deps(vision)).read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    expect(reading.items.map((i) => i.title)).toEqual(['Dune']);
+    expect(reading.timedOut).toBe(true);
+  });
+
+  it('a read that finished in time says nothing about time', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: { text: lines, read: okRead(dune) } });
+    const reading = await new AppleModelEngine(deps(vision)).read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    expect(reading).not.toHaveProperty('timedOut');
+  });
+
+  it('a read that ran out of time with nothing read still falls back', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: { text: lines, read: failedRead('timeout') } });
+    const error = await new AppleModelEngine(deps(vision)).read(STILL, () => {}, { shotKind: 'shelf_segment' }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ModelUnusableError);
+  });
+
+  it('a timed-out single cover read through the selector still carries timedOut', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: { text: lines, read: failedRead('timeout', dune) } });
+    const selector = new EngineSelector({ vision, settings: () => DEFAULT_RECOGNITION_SETTINGS, newId: testIds });
+    const reading = await selector.read(STILL, () => {}, { shotKind: 'single_cover', combine: false });
+    expect(reading.engine).toBe('apple_model');
+    expect(reading.items.map((i) => i.title)).toEqual(['Dune']);
+    expect(reading.timedOut).toBe(true);
   });
 });
