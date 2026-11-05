@@ -486,8 +486,51 @@ describe('real shelf photos', () => {
       }
     });
 
-    it('would cut both out as items of their own with the width needed at 1.85 columns', () => {
-      expect(piecesOf({ ...T, lyingLineWidth: 1.85 }).map((p) => p.lines.map((l) => l.text))).toEqual([['SARAH J.'], ['SARAH J.']]);
+    it('would cut both out as items of their own with the width needed at 1.85 columns, were the name not printed on other spines', () => {
+      expect(piecesOf({ ...T, lyingLineWidth: 1.85, lyingNameMinPlaces: Infinity }).map((p) => p.lines.map((l) => l.text))).toEqual([['SARAH J.'], ['SARAH J.']]);
+    });
+
+    // #667: the name is printed on 15 to 20 other lines of the shot (one author on many spines), so no width cuts it out.
+    it.each([2.5, 3])('keeps the name with its spine when it is widened to %s columns, because it is printed on other spines', (columns) => {
+      const spineWidth = [0.0218, 0.0203];
+      const widened = all.map((l, i) => {
+        const k = AUTHORS.indexOf(i);
+        if (k < 0) return l;
+        const width = spineWidth[k] * columns;
+        return line(l.text, l.box.x + l.box.width / 2 - width / 2, l.box.y, width, l.box.height, l.confidence);
+      });
+      const { pieces } = splitIntoPieces(widened, [], C.splitting, T);
+      for (const i of AUTHORS) {
+        const p = pieces.find((q) => q.lines.includes(widened[i]))!;
+        expect(p.lines.map((l) => l.text)).toContain('CRESCENT');
+      }
+    });
+
+    it('decides by width, as before, for a line with a word printed nowhere else', () => {
+      const odd = all.map((l, i) => (i === AUTHORS[0] ? line('ZZQQ J.', l.box.x + l.box.width / 2 - 0.0327, l.box.y, 0.0654, l.box.height, l.confidence) : l));
+      const { pieces } = splitIntoPieces(odd, [], C.splitting, T);
+      expect(pieces.find((q) => q.lines.includes(odd[AUTHORS[0]]))!.lines).toHaveLength(1);
+    });
+  });
+
+  describe('#667: a tape lying across the spines is still an item of its own', () => {
+    const lines = () => photos['vhs-dvd-shelf-02'].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));
+    const tapeOf = (all: TextLine[], local: typeof T) =>
+      splitIntoPieces(all, [], C.splitting, local).pieces.find((p) => p.lines.some((l) => l.text === "Charlotte's Web"))!;
+
+    it("cuts the Charlotte's Web tape out alone, as before", () => {
+      expect(tapeOf(lines(), T).lines.map((l) => l.text)).toEqual(["Charlotte's Web"]);
+    });
+
+    it('cuts it out alone when its title is printed once more elsewhere, which is under lyingNameMinPlaces', () => {
+      expect(T.lyingNameMinPlaces).toBe(2);
+      const again = [...lines(), line("Charlotte's Web", 0.05, 0.9, 0.2, 0.03, 0.9)];
+      expect(tapeOf(again, T).lines.map((l) => l.text)).toEqual(["Charlotte's Web"]);
+    });
+
+    it('joins the spine under it when the title is printed on 2 other places, the limit', () => {
+      const again = [...lines(), line("Charlotte's Web", 0.05, 0.9, 0.2, 0.03, 0.9), line("Charlotte's Web", 0.05, 0.95, 0.2, 0.03, 0.9)];
+      expect(tapeOf(again, T).lines.length).toBeGreaterThan(1);
     });
   });
 

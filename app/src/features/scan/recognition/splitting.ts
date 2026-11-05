@@ -4,6 +4,7 @@
 import type { Rect, TextLine } from '@/native/cm-vision';
 import type { LocalTuning, RecognitionConfig } from './defaults';
 import { bottom, centerX, centerY, contains, overlapShare, right, union, yOverlapShare } from './geometry';
+import { wordsOf } from './lines';
 
 export interface Piece {
   lines: TextLine[];
@@ -37,7 +38,7 @@ function mergeSurfaces(rectangles: Rect[], minOverlap: number): Rect[] {
 }
 
 /** One item per rectangle, or one per spine when the text inside forms spine columns in one row. `outside` holds the lines in no rectangle. */
-function byRectangles(lines: TextLine[], rectangles: Rect[], tuning: LocalTuning, minWidth: number): Split & { outside: TextLine[] } {
+function byRectangles(lines: TextLine[], rectangles: Rect[], tuning: LocalTuning, minWidth: number, shot: TextLine[]): Split & { outside: TextLine[] } {
   const sorted = mergeSurfaces(rectangles, tuning.rectangleMergeOverlap);
   const pieces: Piece[] = [];
   const taken = new Set<TextLine>();
@@ -46,7 +47,7 @@ function byRectangles(lines: TextLine[], rectangles: Rect[], tuning: LocalTuning
     const inside = lines.filter((l) => contains(rect, centerX(l.box), centerY(l.box)));
     inside.forEach((l) => taken.add(l));
     if (inside.length === 0) unreadableCount += 1;
-    else pieces.push(...segment(inside, tuning, minWidth, rect));
+    else pieces.push(...segment(inside, tuning, minWidth, shot, rect));
   }
   return { pieces, unreadableCount, outside: lines.filter((l) => !taken.has(l)) };
 }
@@ -289,13 +290,31 @@ function shelfRows(lines: TextLine[], tuning: LocalTuning): TextLine[][] {
  * are cut first, so a flat stack below a row of spines does not lend its lines to the spine above. What is left is split by spine
  * columns, else stays one piece (with `box`, when nothing was cut).
  */
-function segment(lines: TextLine[], tuning: LocalTuning, minWidth: number, box?: Rect): Piece[] {
+function segment(lines: TextLine[], tuning: LocalTuning, minWidth: number, shot: TextLine[], box?: Rect): Piece[] {
   const rows = shelfRows(lines, tuning);
-  if (rows.length > 1) return rows.flatMap((row) => segment(row, tuning, minWidth));
+  if (rows.length > 1) return rows.flatMap((row) => segment(row, tuning, minWidth, shot));
   const piles = byPiles(lines, tuning);
   const cut = piles.pieces.length > 0;
-  const upright = bySpineColumns(piles.rest, tuning, minWidth)?.pieces ?? (piles.rest.length > 0 ? [piece(piles.rest, cut ? undefined : box)] : []);
+  const upright = bySpineColumns(piles.rest, tuning, minWidth, shot)?.pieces ?? (piles.rest.length > 0 ? [piece(piles.rest, cut ? undefined : box)] : []);
   return [...upright, ...piles.pieces];
+}
+
+/** Whether two boxes mark one place: they overlap by `min` of their union (the rule of `sameBox` in lines.ts), so a reread of a line is the line. */
+function samePlace(a: Rect, b: Rect, min: number): boolean {
+  const shared = overlapShare(a, b) * Math.min(a.width * a.height, b.width * b.height);
+  return shared / (a.width * a.height + b.width * b.height - shared) >= min;
+}
+
+/**
+ * Whether a flat line is a name printed on other spines: every word of two letters or more is on at least `lyingNameMinPlaces` other lines of
+ * the shot, a line that is not a reread of this one (`samePlace`). One author is printed on every spine of a series, flat across each; a tape
+ * lying across the spines has its title once. A line with no such word is not a name, and its width decides.
+ */
+function namedOnOtherSpines(l: TextLine, shot: TextLine[], tuning: LocalTuning): boolean {
+  const words = new Set(wordsOf(l.text).filter((w) => w.length >= 2));
+  if (words.size === 0) return false;
+  const others = shot.filter((o) => o !== l && !samePlace(o.box, l.box, tuning.sameBoxOverlap)).map((o) => new Set(wordsOf(o.text)));
+  return [...words].every((w) => others.filter((said) => said.has(w)).length >= tuning.lyingNameMinPlaces);
 }
 
 /**
@@ -315,7 +334,7 @@ function liesAcross(l: TextLine, column: Column, letters: number, tuning: LocalT
  * (a flat stack below the row) becomes one more piece. A tall line in a column too narrow to be a spine is treated like a short line, so
  * no line is dropped.
  */
-function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number): Split | undefined {
+function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number, shot: TextLine[]): Split | undefined {
   const tallColumns = joinTwoRows(columnsOf(lines.filter(isTall), tuning), tuning);
   const columns = tallColumns.filter((c) => c.box.width >= minWidth);
   if (columns.length < tuning.minSpineColumns || !inOneRow(columns, tuning)) return undefined;
@@ -332,7 +351,7 @@ function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number
       continue;
     }
     const home = across.reduce((a, b) => (Math.abs(x - centerX(b.box)) < Math.abs(x - centerX(a.box)) ? b : a));
-    if (liesAcross(l, home, letters, tuning)) lying.push(l);
+    if (liesAcross(l, home, letters, tuning) && !namedOnOtherSpines(l, shot, tuning)) lying.push(l);
     else home.lines.push(l);
   }
   const pieces = columns.map((c) => piece(c.lines));
@@ -358,9 +377,9 @@ export function splitIntoPieces(
   tuning: LocalTuning,
 ): Split {
   if (lines.length === 0) return { pieces: [], unreadableCount: 0 };
-  const withoutRectangles = (rest: TextLine[]): Split => ({ pieces: segment(rest, tuning, splitting.minSpineColumnWidth), unreadableCount: 0 });
+  const withoutRectangles = (rest: TextLine[]): Split => ({ pieces: segment(rest, tuning, splitting.minSpineColumnWidth, lines), unreadableCount: 0 });
   if (rectangles.length > 0) {
-    const { outside, ...split } = byRectangles(lines, rectangles, tuning, splitting.minSpineColumnWidth);
+    const { outside, ...split } = byRectangles(lines, rectangles, tuning, splitting.minSpineColumnWidth, lines);
     // Vision may box only some of the books: the lines outside every rectangle still become items.
     if (split.pieces.length > 0) return { ...split, pieces: [...split.pieces, ...withoutRectangles(outside).pieces] };
   }
