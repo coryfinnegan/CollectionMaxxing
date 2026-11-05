@@ -54,6 +54,100 @@ describe('reading text from a still', () => {
     await expect(readLines(vision, STILL.uri, T, { shelf: true })).resolves.toEqual([]);
   });
 
+  describe('two reads of one picture at the same time', () => {
+    /** A Vision whose native reads stay open until `release`, so a second caller arrives while the first is in flight. */
+    function held(scene: { text?: TextLine[]; text180?: TextLine[] }) {
+      const { vision } = reader(scene);
+      const read = vision.recognizeText.bind(vision);
+      const calls: number[][] = [];
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      vision.recognizeText = async (uri, options) => {
+        calls.push(options?.orientations ?? [0]);
+        await gate;
+        return read(uri, options);
+      };
+      return { vision, calls, release };
+    }
+
+    it('share one native read', async () => {
+      const { vision, calls, release } = held({ text: pile() });
+      const first = readLines(vision, STILL.uri, T);
+      const second = readLines(vision, STILL.uri, T);
+      release();
+      expect(texts(await first)).toEqual(texts(await second));
+      expect(calls).toEqual([[0, 90, 270]]);
+    });
+
+    it('do not share a read of another picture', async () => {
+      const { vision, calls, release } = held({ text: pile() });
+      const first = readLines(vision, STILL.uri, T);
+      const second = readLines(vision, 'fixture://other', T);
+      release();
+      await Promise.all([first, second]);
+      expect(calls).toHaveLength(2);
+    });
+
+    it('do not share a read between two engines', async () => {
+      const a = held({ text: pile() });
+      const b = held({ text: pile() });
+      const first = readLines(a.vision, STILL.uri, T);
+      const second = readLines(b.vision, STILL.uri, T);
+      a.release();
+      b.release();
+      await Promise.all([first, second]);
+      expect(a.calls).toHaveLength(1);
+      expect(b.calls).toHaveLength(1);
+    });
+
+    it('give each caller its own list', async () => {
+      const { vision, release } = held({ text: pile() });
+      const first = readLines(vision, STILL.uri, T);
+      const second = readLines(vision, STILL.uri, T);
+      release();
+      const [a, b] = [await first, await second];
+      expect(a).not.toBe(b);
+      a.pop();
+      expect(b).toHaveLength(6);
+    });
+
+    it('give every caller no lines when the shared read fails', async () => {
+      const { vision } = reader({ text: pile() });
+      let calls = 0;
+      vision.recognizeText = async () => {
+        calls += 1;
+        throw new Error('boom');
+      };
+      const results = await Promise.all([readLines(vision, STILL.uri, T), readLines(vision, STILL.uri, T)]);
+      expect(results).toEqual([[], []]);
+      expect(calls).toBe(1);
+    });
+  });
+
+  it('reads again when asked after the first read settled', async () => {
+    const { vision, orientations } = reader({ text: pile() });
+    await readLines(vision, STILL.uri, T);
+    await readLines(vision, STILL.uri, T);
+    expect(orientations).toEqual([[0, 90, 270], [0, 90, 270]]);
+  });
+
+  it('reads again after a failed read settled', async () => {
+    const { vision } = reader({ text: pile() });
+    const read = vision.recognizeText.bind(vision);
+    let calls = 0;
+    vision.recognizeText = (uri, options) => (++calls === 1 ? Promise.reject(new Error('boom')) : read(uri, options));
+    expect(await readLines(vision, STILL.uri, T)).toEqual([]);
+    expect(await readLines(vision, STILL.uri, T)).toHaveLength(6);
+  });
+
+  it('adds the upside-down pass for a shelf caller only when another caller shared its upright read', async () => {
+    const { vision, orientations } = reader({ text: pile(), text180: [line('Upside Down Tape', 0.3, 0.6, 0.4, 0.04)] });
+    const [plain, shelf] = await Promise.all([readLines(vision, STILL.uri, T), readLines(vision, STILL.uri, T, { shelf: true })]);
+    expect(orientations).toEqual([[0, 90, 270], [180]]);
+    expect(plain).toHaveLength(6);
+    expect(texts(shelf)).toContain('Upside Down Tape');
+  });
+
   describe('merging the upside-down reading with the upright ones', () => {
     // Tape 3 lies the other way up: read upright it is noise, read at 180 it is a title, in the same box.
     const upsideDownTape = (upright: number, flipped: number) => ({
