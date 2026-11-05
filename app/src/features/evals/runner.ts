@@ -9,6 +9,7 @@ import { prepareSnapPhoto, type Resizer } from '@/features/scan/autosnap/snapPho
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
 import { toItemBox } from '@/features/scan/recognition/mapping';
+import { modelSchemaFor } from '@/features/scan/recognition/modelSchema';
 import { ModelUnusableError, type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { KeyValueStore } from '@/features/scan/tray/trayStore';
@@ -647,15 +648,26 @@ export class EvalRunner {
     }
     try {
       const shotKind = shotKindOf(photo.set);
-      const results: EvalPhotoResult[] = [];
-      for (const { engine, step } of ENGINES) {
+      // The rows go out in ENGINES order, but a shelf is read Vision first: its split decides which item schema the model reads the shelf with,
+      // exactly as the scanner decides it (modelSchemaFor), so the model row measures the read that ships. A single is read in ENGINES order.
+      const order = shotKind === 'shelf_segment' ? [...ENGINES].sort((a, b) => Number(b.engine === 'vision_pipeline') - Number(a.engine === 'vision_pipeline')) : ENGINES;
+      const read = new Map<EngineName, EvalPhotoResult>();
+      let visionReading: SnapReading | undefined;
+      for (const { engine, step } of order) {
         if (this.stopRequested) return;
         if (!(await this.checkpoint())) return;
         if (this.epoch !== epoch) return;
         this.set({ step });
-        results.push(await this.readWith(engine, photo.id, still, shotKind));
+        const modelSchema = engine === 'apple_model' && shotKind === 'shelf_segment' ? modelSchemaFor(visionReading) : undefined;
+        read.set(
+          engine,
+          await this.readWith(engine, photo.id, still, shotKind, modelSchema, (reading) => {
+            if (engine === 'vision_pipeline') visionReading = reading;
+          }),
+        );
         if (this.epoch !== epoch) return;
       }
+      const results = ENGINES.map(({ engine }) => read.get(engine) as EvalPhotoResult);
       // The probes come last, outside every row's timing, and only for a shelf. The scanner's own read is already done and recorded.
       if (shotKind === 'shelf_segment') {
         const probes = await this.probe(still, epoch);
@@ -688,10 +700,17 @@ export class EvalRunner {
     return probes;
   }
 
-  private async readWith(engine: EngineName, photoId: string, still: Still, shotKind?: ShotKind): Promise<EvalPhotoResult> {
+  private async readWith(
+    engine: EngineName,
+    photoId: string,
+    still: Still,
+    shotKind?: ShotKind,
+    modelSchema?: 'spine' | 'full',
+    onReading?: (reading: SnapReading) => void,
+  ): Promise<EvalPhotoResult> {
     const started = this.now();
     // Every engine is told what the scanner's framing would have told it, so a single is read as a cover and a shelf as a shelf.
-    const options: ReadOptions = shotKind ? { shotKind } : {};
+    const options: ReadOptions = { ...(shotKind ? { shotKind } : {}), ...(modelSchema ? { modelSchema } : {}) };
     const segmentId = this.newId();
     const capturedAt = new Date(started).toISOString();
     let firstItemMs: number | undefined;
@@ -706,6 +725,7 @@ export class EvalRunner {
           : engine === 'fm_text'
             ? await this.deps.fmText.read(still, onItem, options)
             : await this.deps.pipeline.read(still, onItem, options);
+      onReading?.(reading);
       const modelFailed = engine === 'apple_model' && reading.engine !== 'apple_model';
       const reason = reading.fellBackFrom;
       result = modelFailed
