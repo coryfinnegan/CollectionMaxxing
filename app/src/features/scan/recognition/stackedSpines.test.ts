@@ -528,6 +528,11 @@ describe('real shelf photos', () => {
       expect(tapeOf(again, T).lines.map((l) => l.text)).toEqual(["Charlotte's Web"]);
     });
 
+    it('counts a name read twice on one other spine as one place, so the tape is still cut out alone', () => {
+      const again = [...lines(), line("CHARLOTTE'S WEB 2", 0.05, 0.9, 0.2, 0.03, 0.9), line("CHARLOTTE'S WEB II", 0.05, 0.9, 0.2, 0.03, 0.9)];
+      expect(tapeOf(again, T).lines.map((l) => l.text)).toEqual(["Charlotte's Web"]);
+    });
+
     it('joins the spine under it when the title is printed on 2 other places, the limit', () => {
       const again = [...lines(), line("Charlotte's Web", 0.05, 0.9, 0.2, 0.03, 0.9), line("Charlotte's Web", 0.05, 0.95, 0.2, 0.03, 0.9)];
       expect(tapeOf(again, T).lines.length).toBeGreaterThan(1);

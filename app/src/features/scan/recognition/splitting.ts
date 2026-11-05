@@ -306,15 +306,23 @@ function samePlace(a: Rect, b: Rect, min: number): boolean {
 }
 
 /**
- * Whether a flat line is a name printed on other spines: every word of two letters or more is on at least `lyingNameMinPlaces` other lines of
- * the shot, a line that is not a reread of this one (`samePlace`). One author is printed on every spine of a series, flat across each; a tape
- * lying across the spines has its title once. A line with no such word is not a name, and its width decides.
+ * Whether a flat line is a name printed on other spines: every word of two letters or more is printed in at least `lyingNameMinPlaces`
+ * other places of the shot, a place being a group of lines that are rereads of one another (`samePlace`), and none a reread of this line.
+ * One author is printed on every spine of a series, flat across each; a tape lying across the spines has its title once. A line with no
+ * such word is not a name, and its width decides.
  */
 function namedOnOtherSpines(l: TextLine, shot: TextLine[], tuning: LocalTuning): boolean {
   const words = new Set(wordsOf(l.text).filter((w) => w.length >= 2));
   if (words.size === 0) return false;
-  const others = shot.filter((o) => o !== l && !samePlace(o.box, l.box, tuning.sameBoxOverlap)).map((o) => new Set(wordsOf(o.text)));
-  return [...words].every((w) => others.filter((said) => said.has(w)).length >= tuning.lyingNameMinPlaces);
+  const others = shot.filter((o) => o !== l && !samePlace(o.box, l.box, tuning.sameBoxOverlap));
+  const wordsAt = others.map((o) => new Set(wordsOf(o.text)));
+  return [...words].every((w) => {
+    const places: Rect[] = [];
+    others.forEach((o, i) => {
+      if (wordsAt[i].has(w) && !places.some((p) => samePlace(p, o.box, tuning.sameBoxOverlap))) places.push(o.box);
+    });
+    return places.length >= tuning.lyingNameMinPlaces;
+  });
 }
 
 /**

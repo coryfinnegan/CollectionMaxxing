@@ -127,9 +127,10 @@ export interface LocalTuning {
   /** ...and its center lies at least this many column widths above its spine's top or below its bottom: a title printed within the spine's own span is the spine's. */
   lyingLineReach: number;
   /**
-   * A flat line is never cut out as a tape lying across when every word of two letters or more in it is printed on at least this many other
-   * lines of the shot (lines that are no reread of it): a series' author is on every spine, a tape's title once. Recorded: the author
-   * lines of the hardcover shelves have each word on 15 to 20 other lines, the tapes of the DVD shelves on 0 to 3. Infinity switches the
+   * A flat line is never cut out as a tape lying across when every word of two letters or more in it is printed in at least this many other
+   * places of the shot (a place is one spot, however many times it is read, and none is a reread of the line): a series' author is on
+   * every spine, a tape's title once. Recorded: the author lines of the hardcover shelves have each word in 15 to 20 other places, the
+   * tapes of the DVD shelves in 0 to 3. Infinity switches the
    * cue off, and width alone decides.
    */
   lyingNameMinPlaces: number;
