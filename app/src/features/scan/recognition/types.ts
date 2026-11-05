@@ -78,6 +78,8 @@ export interface SnapReading {
   printKind?: CueKind;
   /** Items that were there but could not be read; the scanner shows its "Get closer" chip when above 0. */
   unreadableCount: number;
+  /** How many covers Vision found lying side by side on the shot (multiCover.ts); absent when none. */
+  coverCount?: number;
   engine: EngineName;
   fellBackFrom?: FellBackFrom;
   timings: SnapTimings;
@@ -92,6 +94,8 @@ export interface ReadOptions {
    * `false` reads with the model alone; the eval runner does, because it reads and scores the Vision pipeline as its own engine.
    */
   combine?: boolean;
+  /** The shape the picture model is asked to write; the selector sets it from what Vision read. `full` when absent. */
+  modelSchema?: 'spine' | 'full';
 }
 
 export interface RecognitionEngine {

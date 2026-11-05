@@ -104,6 +104,11 @@ $runner = {
   param($Mutant)
   $filter = if ($TestFilter) { $TestFilter } elseif ($FeatureFilter) { Get-FeatureFilter $Mutant.File $Project $areas } else { '' }
   $r = Invoke-TestProjects $TimeoutSeconds $filter
+  if ($r.Status -eq 'Error') {
+    # Name the mutant and show the tail of what dotnet printed, so a CI log is enough to diagnose it.
+    Write-Host ("  ERRORED {0}:{1} [{2}]" -f $Mutant.File, $Mutant.Line, $Mutant.Operator)
+    $r.Output -split "\r?\n" | Where-Object { $_.Trim() } | Select-Object -Last 15 | ForEach-Object { Write-Host "     $_" }
+  }
   switch ($r.Status) { 'Passed' { 'Survived' } 'Failed' { 'Killed' } 'Timeout' { 'Timeout' } 'BuildError' { 'BuildError' } default { 'Error' } }
 }
 $progress = if ($ShowProgress) {
