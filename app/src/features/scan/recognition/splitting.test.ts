@@ -1,5 +1,7 @@
+import type { TextLine } from '@/native/cm-vision';
 import { DEFAULT_LOCAL_TUNING as T, DEFAULT_RECOGNITION_CONFIG as C } from './defaults';
 import { line } from './fakes';
+import { shelfTitleOf } from './shelfTitle';
 import { splitIntoPieces } from './splitting';
 
 describe('splitting Vision text into items', () => {
@@ -194,6 +196,296 @@ describe('splitting Vision text into items', () => {
     });
   });
 
+  describe('a frame with two shelf rows', () => {
+    const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
+    /** The spine at column `i` of a row: its lettering is 0.05 wide, so a row of them leaves gaps measured in 0.05s. */
+    const spine = (text: string, i: number, y: number, height = 0.2) => line(text, 0.04 + i * 0.15, y, 0.05, height);
+
+    it('splits two rows of spines standing at the same x into one item per spine, the top row first', () => {
+      // A column joins tall lines on x alone, so each bottom spine used to share a column with the top spine above it: 3 items, not 6.
+      const top = Array.from({ length: 3 }, (_, i) => spine(`Top ${i}`, i, 0.05));
+      const bottom = Array.from({ length: 3 }, (_, i) => spine(`Bottom ${i}`, i, 0.6));
+      const { pieces } = splitIntoPieces([...bottom, ...top].reverse(), [], C.splitting, T);
+      expect(titles(pieces)).toEqual([...top, ...bottom].map((l) => [l.text]));
+    });
+
+    it('cuts the recorded two spines of shelf-02 (a book on the upper shelf, another on the lower) into two items', () => {
+      // Seven pieces of the build-136 run held both: this piece (x 0.69 to 0.74) put "NOT ANOTHER LOVE SONG" and "QUEEN OF SHADOWS" together.
+      const lines = [
+        line('NOTVE SONG', 0.705, 0.117, 0.032, 0.107),
+        line('NOT ANOTHER', 0.715, 0.117, 0.02, 0.107),
+        line('LOVE SONG', 0.707, 0.131, 0.018, 0.084),
+        line('JULIE SOTO', 0.694, 0.29, 0.023, 0.094),
+        line('SARAR QUEEN OF SHADOWS', 0.701, 0.554, 0.021, 0.291),
+        line('SARAH J.', 0.709, 0.556, 0.013, 0.076),
+        line('SARAHJ. QUEEN OF SHADOWS', 0.701, 0.558, 0.024, 0.288),
+        line('MAAS', 0.698, 0.57, 0.012, 0.045),
+        line('QUEEN OF SHADOWS', 0.702, 0.632, 0.018, 0.215),
+      ];
+      const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+      expect(titles(pieces).map((p) => [...p].sort())).toEqual([
+        ['JULIE SOTO', 'LOVE SONG', 'NOT ANOTHER', 'NOTVE SONG'],
+        ['MAAS', 'QUEEN OF SHADOWS', 'SARAH J.', 'SARAHJ. QUEEN OF SHADOWS', 'SARAR QUEEN OF SHADOWS'],
+      ]);
+      expect(shelfTitleOf(pieces[1].lines, T)?.text).toContain('QUEEN OF SHADOWS');
+    });
+
+    it('cuts the recorded two spines of shelf-02 at x 0.63 to 0.67 (AND NOW, BACK TO YOU above HEIR OF FIRE) into two items', () => {
+      const lines = [
+        line('BANK TO YOU', 0.634, 0.101, 0.038, 0.159),
+        line('BACK TO YOU', 0.637, 0.121, 0.021, 0.132),
+        line('AND NOW,', 0.649, 0.138, 0.021, 0.095),
+        line('II B.K. BORISON I', 0.636, 0.284, 0.022, 0.127),
+        line('B.K. BORISON M', 0.637, 0.288, 0.016, 0.122),
+        line('B.K. BORISON', 0.638, 0.302, 0.014, 0.09),
+        line('SARAH J.', 0.66, 0.56, 0.013, 0.066),
+        line('MAAS', 0.65, 0.572, 0.012, 0.045),
+        line('HEIR OF FIRE', 0.656, 0.674, 0.016, 0.136),
+      ];
+      const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+      expect(titles(pieces).map((p) => [...p].sort())).toEqual([
+        ['AND NOW,', 'B.K. BORISON', 'B.K. BORISON M', 'BACK TO YOU', 'BANK TO YOU', 'II B.K. BORISON I'],
+        ['HEIR OF FIRE', 'MAAS', 'SARAH J.'],
+      ]);
+      expect(shelfTitleOf(pieces[1].lines, T)?.text).toBe('HEIR OF FIRE');
+    });
+
+    it('keeps one shelf row whole when every spine prints its author a little above its title (a gap of 2.6 letters)', () => {
+      // A series on one shelf: author at the top of each spine (y 0.21, 0.256 long), title below it from y 0.549. The gap is 0.083 on lettering 0.031 wide.
+      const lines = Array.from({ length: 4 }, (_, i) => [
+        line(`Author ${i}`, 0.05 + i * 0.12, 0.21, 0.031, 0.256),
+        line(`Title ${i}`, 0.05 + i * 0.12, 0.549, 0.031, 0.3),
+      ]).flat();
+      const { pieces } = splitIntoPieces([...lines].reverse(), [], C.splitting, T);
+      expect(titles(pieces).map((p) => [...p].sort())).toEqual(Array.from({ length: 4 }, (_, i) => [`Author ${i}`, `Title ${i}`]));
+    });
+
+    it('does not cut when one side of the gap holds a single tall line: a sticker read sideways above a spine stays with it', () => {
+      const sticker = line('Staff pick', 0.045, 0.02, 0.03, 0.1);
+      const lines = [sticker, ...Array.from({ length: 3 }, (_, i) => spine(`Spine ${i}`, i, 0.35, 0.5))];
+      const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+      expect(titles(pieces).map((p) => [...p].sort())).toEqual([['Spine 0', 'Staff pick'], ['Spine 1'], ['Spine 2']]);
+    });
+
+    it('does not cut a frame with fewer than 4 tall lines, however far apart they stand', () => {
+      const lines = [spine('Spine 0', 0, 0.05), spine('Spine 1', 1, 0.05), spine('Spine 2', 1, 0.7)];
+      expect(splitIntoPieces(lines, [], C.splitting, T).pieces).toHaveLength(2);
+    });
+
+    it('sends a flat line to the row its center sits in', () => {
+      const top = Array.from({ length: 3 }, (_, i) => spine(`Top ${i}`, i, 0.05));
+      const bottom = Array.from({ length: 3 }, (_, i) => spine(`Bottom ${i}`, i, 0.6));
+      const label = line('Shelf 2', 0.04, 0.7, 0.05, 0.02);
+      const { pieces } = splitIntoPieces([...top, ...bottom, label], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['Top 0'], ['Top 1'], ['Top 2'], ['Bottom 0', 'Shelf 2'], ['Bottom 1'], ['Bottom 2']]);
+    });
+
+    it('cuts the rows inside a rectangle too, since Vision may box the whole bookcase', () => {
+      const lines = [spine('Top 0', 0, 0.05), spine('Top 1', 1, 0.05), spine('Bottom 0', 0, 0.6), spine('Bottom 1', 1, 0.6)];
+      const { pieces } = splitIntoPieces(lines, [{ x: 0, y: 0, width: 0.5, height: 0.9 }], C.splitting, T);
+      expect(titles(pieces)).toEqual([['Top 0'], ['Top 1'], ['Bottom 0'], ['Bottom 1']]);
+    });
+
+    it('is off when the gap needed is infinite: the frame is split as it was', () => {
+      const lines = [spine('Top 0', 0, 0.05), spine('Top 1', 1, 0.05), spine('Bottom 0', 0, 0.6), spine('Bottom 1', 1, 0.6)];
+      const { pieces } = splitIntoPieces(lines, [], C.splitting, { ...T, shelfRowGap: Infinity });
+      expect(titles(pieces).map((p) => [...p].sort())).toEqual([['Bottom 0', 'Top 0'], ['Bottom 1', 'Top 1']]);
+    });
+  });
+
+  describe('#655: the first line of a two-line title, set a little off its second line, stays on its own spine', () => {
+    const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text).sort());
+
+    it("keeps 'AND NOW,' with 'BACK TO YOU' beside it, not with the next spine's author below it (the recorded accept-shelf-04 lines)", () => {
+      // "AND NOW," is shorter than "BACK TO YOU" and shares 43% of its own width with it, under the half a spine column needs. It used to
+      // start a column of its own, and the garbage fragment ">a|]" and the next spine's "TARAH DEWITT" then joined that column.
+      const lines = [
+        line('I B.K. BORISON M', 0.6258, 0.3513, 0.02, 0.1246),
+        line('BACK TO YOU', 0.6285, 0.2002, 0.0222, 0.1249),
+        line('AND NOW,', 0.6416, 0.2138, 0.021, 0.0923),
+        line('>a|]', 0.6541, 0.4477, 0.0145, 0.0252),
+        line('TARAH DEWITT M', 0.6549, 0.3342, 0.0215, 0.1381),
+        line('TARAH DEWITT', 0.6556, 0.334, 0.0211, 0.1073),
+        line('Funny Feelings', 0.6654, 0.1644, 0.027, 0.1261),
+        line('JULIE SOTO &', 0.6765, 0.3589, 0.0283, 0.1164),
+      ];
+      const { pieces } = splitIntoPieces([...lines].reverse(), [], C.splitting, T);
+      expect(titles(pieces)).toEqual([
+        ['AND NOW,', 'BACK TO YOU', 'I B.K. BORISON M'],
+        ['>a|]', 'TARAH DEWITT', 'TARAH DEWITT M'],
+        ['Funny Feelings', 'JULIE SOTO &'],
+      ]);
+      expect(shelfTitleOf(pieces[0].lines, T)?.text).toBe('AND NOW, BACK TO YOU');
+    });
+
+    // Synthetic spines: lettering 0.025 wide, so "Short" (0.1135 to 0.1385) shares 46% of its width with "Long title" (0.1 to 0.125).
+    const longTitle = line('Long title', 0.1, 0.2, 0.025, 0.2);
+    const beside = line('Short', 0.1135, 0.22, 0.025, 0.1);
+    const spine = (text: string, x: number) => line(text, x, 0.2, 0.025, 0.2);
+
+    it('joins the short line to the tall one beside it', () => {
+      const { pieces } = splitIntoPieces([longTitle, beside, spine('Spine 2', 0.25)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['Long title', 'Short'], ['Spine 2']]);
+    });
+
+    it('does not widen the column for the short line, so a line beside the short line does not follow it in', () => {
+      // "Next author" shares 52% of its width with "Short" but none with "Long title", so it belongs to the next spine.
+      const lines = [longTitle, beside, line('Next author', 0.1255, 0.45, 0.025, 0.1), line('Next title', 0.135, 0.15, 0.025, 0.25)];
+      const { pieces } = splitIntoPieces(lines, [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['Long title', 'Short'], ['Next author', 'Next title']]);
+    });
+
+    it('splits two neighboring spines whose lines are as tall as each other, however far the lettering overlaps', () => {
+      const lines = [spine('Spine 0', 0.1), spine('Spine 1', 0.1135), spine('Spine 2', 0.25)];
+      expect(titles(splitIntoPieces(lines, [], C.splitting, T).pieces)).toEqual([['Spine 0'], ['Spine 1'], ['Spine 2']]);
+    });
+
+    it('splits a short line that sits below the tall line instead of beside it', () => {
+      const lines = [spine('Spine 0', 0.1), line('Low print', 0.1135, 0.45, 0.025, 0.1), spine('Spine 1', 0.25), spine('Spine 2', 0.4), spine('Spine 3', 0.55)];
+      expect(titles(splitIntoPieces(lines, [], C.splitting, T).pieces)).toEqual([['Spine 0'], ['Low print'], ['Spine 1'], ['Spine 2'], ['Spine 3']]);
+    });
+
+    it("joins a short line only to a taller line on its left: a shorter line left of a taller one is the next spine's print", () => {
+      const lines = [line('Short', 0.1, 0.22, 0.025, 0.1), line('Long title', 0.1135, 0.2, 0.025, 0.2), spine('Spine 2', 0.25)];
+      expect(titles(splitIntoPieces(lines, [], C.splitting, T).pieces)).toEqual([['Short'], ['Long title'], ['Spine 2']]);
+    });
+
+    it('is off when the share needed is infinite: the column is built as it was', () => {
+      const { pieces } = splitIntoPieces([longTitle, beside, spine('Spine 2', 0.25)], [], C.splitting, { ...T, spineShortLineOverlap: Infinity });
+      expect(titles(pieces)).toEqual([['Long title'], ['Short'], ['Spine 2']]);
+    });
+  });
+
+  describe('the two rows of one spine title are one item, not two half-titles', () => {
+    const texts = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text).sort());
+    // Neighbors on either side make a shelf row of three spines, each one letter column (0.025) wide.
+    const neighbor = (x: number, y = 0.3) => line(`Neighbor ${x}`, x, y, 0.025, 0.4);
+    const piecesOf = (lines: TextLine[], local: typeof T = T) => splitIntoPieces(lines, [], C.splitting, local).pieces;
+    const titleOf = (lines: TextLine[], text: string) => shelfTitleOf(piecesOf(lines).find((p) => p.lines.some((l) => l.text === text))!.lines, T)?.text;
+
+    // Recorded on shelf-07: the rows share 0.0123 of 0.0243 across (0.19 of a letter), under the half a column that joins a line to a column.
+    const avalon = [
+      line('OF AVALON', 0.7207, 0.3039, 0.0243, 0.1848),
+      line('THE MISTS', 0.7403, 0.3114, 0.0284, 0.1777),
+      line('MARION ZIMMER BRADLEY', 0.7387, 0.5055, 0.0164, 0.2003),
+    ];
+
+    it('keeps both rows of The Mists of Avalon, and its author under them, on one spine (the recorded shelf-07 lines)', () => {
+      const lines = [neighbor(0.6), ...avalon, neighbor(0.85)];
+      expect(texts(piecesOf(lines))).toEqual([['Neighbor 0.6'], ['MARION ZIMMER BRADLEY', 'OF AVALON', 'THE MISTS'], ['Neighbor 0.85']]);
+      expect(titleOf(lines, 'THE MISTS')).toBe('THE MISTS OF AVALON');
+    });
+
+    it('keeps both rows of Indian for Everyone, and its author, on one spine (the recorded accept-shelf-01 lines)', () => {
+      const lines = [
+        neighbor(0.7),
+        neighbor(0.8),
+        line('FOR Everyone', 0.9031, 0.5074, 0.0307, 0.1437),
+        line('Indian', 0.9252, 0.5157, 0.0276, 0.1025),
+        line('Singla', 0.9236, 0.3586, 0.0279, 0.0907),
+      ];
+      expect(texts(piecesOf(lines)).slice(2)).toEqual([['FOR Everyone', 'Indian', 'Singla']]);
+      expect(titleOf(lines, 'Indian')).toBe('Indian FOR Everyone');
+    });
+
+    it('splits the same rows into two items when the lettering needed is infinite: the columns are built as they were', () => {
+      expect(texts(piecesOf([neighbor(0.6), ...avalon, neighbor(0.85)], { ...T, twoRowLetters: Infinity }))).toEqual([
+        ['Neighbor 0.6'],
+        ['OF AVALON'],
+        ['MARION ZIMMER BRADLEY', 'THE MISTS'],
+        ['Neighbor 0.85'],
+      ]);
+    });
+
+    it('makes one spine wide enough to stand of two rows that are each too narrow to (the recorded shelf-01 lines, 0.0154 and 0.0127 wide)', () => {
+      // Each row is under the 0.02 a spine column needs, so both used to fall into the piece of leftover lines. Together they span 0.0258.
+      const lines = [
+        neighbor(0.7, 0.55),
+        line('OF LOVING YOUR ENEMY', 0.8031, 0.6663, 0.0154, 0.1461),
+        line('THE EXQUISITE TORMENT', 0.8162, 0.6684, 0.0127, 0.142),
+        neighbor(0.95, 0.55),
+      ];
+      expect(texts(piecesOf(lines))).toEqual([['Neighbor 0.7'], ['OF LOVING YOUR ENEMY', 'THE EXQUISITE TORMENT'], ['Neighbor 0.95']]);
+      expect(titleOf(lines, 'THE EXQUISITE TORMENT')).toBe('THE EXQUISITE TORMENT OF LOVING YOUR ENEMY');
+      expect(texts(piecesOf(lines, { ...T, twoRowLetters: Infinity }))).toEqual([
+        ['Neighbor 0.7'],
+        ['Neighbor 0.95'],
+        ['OF LOVING YOUR ENEMY', 'THE EXQUISITE TORMENT'],
+      ]);
+    });
+
+    describe('what stays two spines', () => {
+      // Recorded on accept-shelf-04: "The Fake Mate" and "A LITTLE BUZZED'" lean, so their boxes are wider than their lettering.
+      const fakeMate = [line('The Fake Mate LANA FERGUSON', 0.3497, 0.1928, 0.0277, 0.2556), line("A LITTLE BUZZED'", 0.3731, 0.1831, 0.0237, 0.1761)];
+      // Recorded on shelf-04: two neighbors of one size whose lettering runs side by side for only 0.63 of the longer.
+      const correspondent = [line('—E— Kaveh Akbar ol', 0.2902, 0.244, 0.0593, 0.5182), line('The Correspondent', 0.3359, 0.1481, 0.0561, 0.4237)];
+
+      it('keeps two leaning spines apart: a leaning line is a box much wider than its lettering', () => {
+        const lines = [neighbor(0.2), ...fakeMate, neighbor(0.5)];
+        expect(piecesOf(lines)).toHaveLength(4);
+        // They are held apart by the lettering test and by how far they run along each other (0.65); with both relaxed they join.
+        expect(piecesOf(lines, { ...T, titleRowOverlap: 0.6 })).toHaveLength(4);
+        expect(piecesOf(lines, { ...T, twoRowUpright: 0.3 })).toHaveLength(4);
+        expect(piecesOf(lines, { ...T, titleRowOverlap: 0.6, twoRowUpright: 0.3 })).toHaveLength(3);
+      });
+
+      it('keeps two neighbors apart that run side by side for only 0.63 of the longer', () => {
+        const lines = [neighbor(0.1), ...correspondent, neighbor(0.5)];
+        expect(piecesOf(lines)).toHaveLength(4);
+        expect(piecesOf(lines, { ...T, titleRowOverlap: 0.6 })).toHaveLength(3);
+      });
+
+      it('keeps two lines apart whose lettering differs in size by more than a third', () => {
+        const lines = [neighbor(0.6), line('Big row', 0.7, 0.3, 0.03, 0.2), line('Small row', 0.7265, 0.3, 0.018, 0.2), neighbor(0.85)];
+        expect(piecesOf(lines)).toHaveLength(4);
+        expect(piecesOf([neighbor(0.6), line('Big row', 0.7, 0.3, 0.03, 0.2), line('Small row', 0.7265, 0.3, 0.022, 0.2), neighbor(0.85)])).toHaveLength(3);
+      });
+
+      it('keeps two lines apart that overlap across by more than 0.4 of a letter, however alike they are (the neighboring spines of #655)', () => {
+        const spine = (text: string, x: number) => line(text, x, 0.2, 0.025, 0.2);
+        // 0.0115 of 0.025: 0.46 of a letter, the overlap #655's own test pins; the rows of a real title top out at 0.34.
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.1135), spine('Spine 2', 0.25)])).toHaveLength(3);
+        // 0.0075 of 0.025: 0.3 of a letter joins.
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.1175), spine('Spine 2', 0.25)])).toHaveLength(2);
+      });
+
+      it('keeps two lines apart that only graze each other: the rows of one title run into each other by a tenth of a letter at least (0.06 here, 0.12 joins)', () => {
+        const spine = (text: string, x: number) => line(text, x, 0.2, 0.025, 0.2);
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.1235), spine('Spine 2', 0.25)])).toHaveLength(3);
+        expect(piecesOf([spine('Spine 0', 0.1), spine('Spine 1', 0.122), spine('Spine 2', 0.25)])).toHaveLength(2);
+      });
+
+      it('keeps two books apart whose short print at the foot touches: a fragment is no row of a title, only title-sized lines pair', () => {
+        // A publisher mark or a cut-off word at the foot of each spine, set alike at one height, passes every test of two rows but one:
+        // each is 0.17 of the tallest line of its own spine.
+        const lines = [
+          line('Neighbor L', 0.03, 0.2, 0.03, 0.3),
+          line('FIRST BOOK TITLE', 0.1, 0.2, 0.03, 0.3),
+          line('Pub A', 0.115, 0.52, 0.02, 0.05),
+          line('Pub B', 0.131, 0.52, 0.02, 0.05),
+          line('SECOND BOOK TITLE', 0.132, 0.2, 0.03, 0.3),
+          line('Neighbor R', 0.22, 0.2, 0.03, 0.3),
+        ];
+        expect(texts(piecesOf(lines))).toEqual([['Neighbor L'], ['FIRST BOOK TITLE', 'Pub A'], ['Pub B', 'SECOND BOOK TITLE'], ['Neighbor R']]);
+        expect(piecesOf(lines, { ...T, twoRowTitleShare: 0 })).toHaveLength(3);
+        expect(piecesOf(lines, { ...T, twoRowLetters: Infinity })).toHaveLength(4);
+      });
+
+      it('pairs a row that is 0.38 of the tallest line of its spine (an author printed long under it), and not one that is 0.24', () => {
+        // The rows of "FAMILY AND FRIENDS" under a long author on the recorded shelves are at least 0.38 of it; the fragments are 0.17 or less.
+        const spineWith = (rowHeight: number) => [
+          neighbor(0.6),
+          line('Row one', 0.1, 0.2, 0.025, rowHeight),
+          line('Row two', 0.1175, 0.2, 0.025, rowHeight),
+          line('Author name', 0.1175, 0.3, 0.025, 0.5),
+          neighbor(0.85),
+        ];
+        expect(piecesOf(spineWith(0.19))).toHaveLength(3);
+        expect(piecesOf(spineWith(0.12))).toHaveLength(4);
+      });
+    });
+  });
+
   describe('#509: lines outside the detected rectangles, and rectangles that hold several spines', () => {
     const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
 
@@ -309,6 +601,85 @@ describe('splitting Vision text into items', () => {
         expect(pieces.filter((p) => p.lines.some((l) => l.text === wanted))).toHaveLength(1);
       }
       expect(unreadableCount).toBe(0);
+    });
+  });
+
+  describe('a tape lying across the tops of the spines is its own item', () => {
+    const titles = (pieces: { lines: { text: string }[] }[]) => pieces.map((p) => p.lines.map((l) => l.text));
+    /** A spine's lettering, 0.07 wide: the columns of a row stand 0.1 apart, so a column is 0.07 wide and 0.03 clear of the next. */
+    const spine = (text: string, x: number, y = 0.45, height = 0.2) => line(text, x, y, 0.07, height);
+    // DELTA stands from 0.05 to 0.65, so the band the columns make reaches the top of the frame and a flat line up there is inside it.
+    const row = [spine('ALPHA', 0.1), spine('BRAVO', 0.2), spine('CHARLIE', 0.3), spine('DELTA', 0.4, 0.05, 0.6)];
+    /** A tape 0.5 wide (7 columns) and 0.09 tall lying flat across the tops of the spines, its center over CHARLIE. */
+    const tape = line("Charlotte's Web", 0.12, 0.1, 0.5, 0.09);
+
+    it("cuts the tape from the spine under its center instead of joining the two: CHARLIE keeps its own name and the tape is one more item", () => {
+      const { pieces } = splitIntoPieces([...row, tape], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ['CHARLIE'], ['DELTA'], ["Charlotte's Web"]]);
+    });
+
+    it('keeps a flat line a column and a third wide with its spine: an author printed flat across the spine belongs to it', () => {
+      const { pieces } = splitIntoPieces([...row, line('GARTEN', 0.195, 0.3, 0.09, 0.03)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['GARTEN', 'BRAVO'], ['CHARLIE'], ['DELTA']]);
+    });
+
+    it("keeps a wide flat line inside its spine's own reach with that spine: the tape is printed on the spine, not across the tops", () => {
+      const { pieces } = splitIntoPieces([...row, line("Charlotte's Web", 0.12, 0.4, 0.5, 0.09)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ["Charlotte's Web", 'CHARLIE'], ['DELTA']]);
+    });
+
+    it('keeps small print with its spine: a wide line set small is a sticker, not a tape', () => {
+      const { pieces } = splitIntoPieces([...row, line('SPECIAL EDITION', 0.19, 0.2, 0.16, 0.02)], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['SPECIAL EDITION', 'BRAVO'], ['CHARLIE'], ['DELTA']]);
+    });
+
+    it('takes a line beside the tape, outside every column, into the tape', () => {
+      const credit = line('Hanna Barbera', 0.5, 0.12, 0.1, 0.02);
+      const { pieces } = splitIntoPieces([...row, tape, credit], [], C.splitting, T);
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ['CHARLIE'], ['DELTA'], ["Charlotte's Web", 'Hanna Barbera']]);
+    });
+
+    it('is off when the width needed is infinite: the tape joins the spine under it, as it did', () => {
+      const { pieces } = splitIntoPieces([...row, tape], [], C.splitting, { ...T, lyingLineWidth: Infinity });
+      expect(titles(pieces)).toEqual([['ALPHA'], ['BRAVO'], ["Charlotte's Web", 'CHARLIE'], ['DELTA']]);
+    });
+  });
+
+  describe('#637: how far apart, and how alike in size, a stack of tapes lying flat must be to be cut one per tape', () => {
+    /** Tapes lying flat in one column 0.35 wide (the lettering of `heights`, one each), each `gap` letters below the last. */
+    function stack(heights: number[], gap: number) {
+      let top = 0.1;
+      return heights.map((height, i) => {
+        const tape = line(`Tape ${i}`, 0.3, top, 0.35, height);
+        top += height + gap * Math.max(height, heights[i + 1] ?? height);
+        return tape;
+      });
+    }
+    const cut = (lines: TextLine[]) => splitIntoPieces(lines, [], C.splitting, T).pieces.length;
+
+    it('keeps a stack of 3 whose smallest lettering is 0.45 of its biggest as one item, and cuts one at 0.55', () => {
+      expect(cut(stack([0.05, 0.0225, 0.05], 0.6))).toBe(1);
+      expect(cut(stack([0.05, 0.0275, 0.05], 0.6))).toBe(3);
+    });
+
+    it('cuts a stack of 4 whose smallest lettering is 0.45 of its biggest, and keeps one at 0.35 as one item', () => {
+      expect(cut(stack([0.05, 0.0225, 0.05, 0.05], 0.6))).toBe(4);
+      expect(cut(stack([0.05, 0.0175, 0.05, 0.05], 0.6))).toBe(1);
+    });
+
+    it('keeps a stack of 4 tapes 1.1 letters apart as one item: a small stack keeps the gap of 1 letter', () => {
+      expect(cut(stack([0.05, 0.05, 0.05, 0.05], 1.1))).toBe(1);
+    });
+
+    it('cuts a pile of 6 tapes 1.1 letters apart, and keeps 6 tapes 1.4 apart as one item', () => {
+      expect(cut(stack(Array(6).fill(0.05), 1.1))).toBe(6);
+      expect(cut(stack(Array(6).fill(0.05), 1.4))).toBe(1);
+    });
+
+    it('is off when the gap and the lettering needed are the old ones: the stack of 4 and the pile of 6 stay one item', () => {
+      const before = { ...T, stackSureMaxGap: 1, stackFourLetters: 0.5 };
+      expect(splitIntoPieces(stack([0.05, 0.0225, 0.05, 0.05], 0.6), [], C.splitting, before).pieces).toHaveLength(1);
+      expect(splitIntoPieces(stack(Array(6).fill(0.05), 1.1), [], C.splitting, before).pieces).toHaveLength(1);
     });
   });
 

@@ -20,7 +20,7 @@ import type { Rect, TextLine } from '@/native/cm-vision';
 import { readsAsRole } from './creators';
 import type { LocalTuning } from './defaults';
 import { bottom, overlapShare, right } from './geometry';
-import { wordsOf } from './lines';
+import { normalize, wordsOf } from './lines';
 
 /**
  * Words that mark a sticker: an edition, a format, a shelf code. Nearly every one of them is also a title on its own
@@ -66,18 +66,29 @@ function alongShare(a: Rect, b: Rect, sideways: boolean): number {
 }
 
 /**
- * Whether the line says nothing but a sticker: every word is a number or one of a sticker's words, and at least one of them
- * is a word and not a number. "WIDESCREEN", "Stock No. 038" and "10th ANNIVERSARY EDITION" are stickers; "1984", "SE7EN"
- * and "GREMLINS2" are titles. One word on its own is a sticker only when no item is called that, or when it is a run of
- * digits too long to be a year or a count. A single letter says nothing: it neither makes a sticker nor saves a line from
- * being one, so "COLLECTOR'S" is a sticker while "Vol 2", whose 2 is a number and does count, is one too.
+ * Whether the line says nothing but a sticker: every word is a number or one of a sticker's words. "WIDESCREEN", "Stock No.
+ * 038", "10th ANNIVERSARY EDITION" and a shelf code of two numbers ("813.54") are stickers; "1984", "SE7EN" and "GREMLINS2"
+ * are titles. One word on its own is a sticker only when no item is called that, or when it is a run of digits too long to
+ * be a year or a count. A single letter says nothing: it neither makes a sticker nor saves a line from being one, so
+ * "COLLECTOR'S" is a sticker while "Vol 2", whose 2 is a number and does count, is one too. A line of nothing but single
+ * letters ("M*A*S*H", "E.T.") has no word at all and reads as a sticker here; `titleCandidates` gives it back when it is the
+ * biggest lettering on the piece.
  */
 export function readsAsSticker(text: string, tuning: LocalTuning): boolean {
   const words = wordsOf(text).filter((w) => w.length > 1 || isNumber(w));
   if (words.length === 0) return true;
   if (words.length === 1) return STICKER_ALONE.has(words[0]) || (isNumber(words[0]) && words[0].length >= tuning.stickerCodeDigits);
-  return words.every((w) => isNumber(w) || STICKER_WORDS.has(w) || STICKER_ALONE.has(w)) && words.some((w) => !isNumber(w));
+  return words.every((w) => isNumber(w) || STICKER_WORDS.has(w) || STICKER_ALONE.has(w));
 }
+
+/**
+ * Whether a sticker is only a code: numbers, or initials, with no sticker word in it, and at least two characters, so a stray
+ * mark ("+T-") is never one. It is what a title can look like ("M*A*S*H", "E.T.", "10000"); "WIDESCREEN" and "Stock No. 038" never are.
+ */
+const isCode = (text: string) => {
+  const words = wordsOf(text);
+  return words.join('').length >= 2 && !words.some((w) => STICKER_WORDS.has(w) || STICKER_ALONE.has(w));
+};
 
 const jaccard = (a: Set<string>, b: Set<string>): number => {
   const shared = [...a].filter((w) => b.has(w)).length;
@@ -196,25 +207,114 @@ function inRowOrder(chosen: TextLine, second: TextLine): TextLine[] {
   return secondIsFirst ? [second, chosen] : [chosen, second];
 }
 
-/** Drops what cannot be a title, unless the piece held nothing else. */
-const without = (lines: TextLine[], cannot: (l: TextLine) => boolean): TextLine[] => {
-  const left = lines.filter((l) => !cannot(l));
-  return left.length > 0 ? left : lines;
-};
+/**
+ * The lines that can be the piece's title: a sticker and a line that names the author's standing are never an item's title,
+ * whatever size they are printed, with one exception (#631). A sticker that is only a code, numbers or initials with no
+ * sticker word in it, is a title when it is printed in bigger lettering than every line that stays: "M*A*S*H" or "E.T."
+ * printed big on a spine, where a stock number or shelf code is printed small. A sticker word never gets back in, however big.
+ * The piece's own lines are the candidates when nothing else is left.
+ */
+function titleCandidates(lines: TextLine[], tuning: LocalTuning): TextLine[] {
+  const stays = lines.filter((l) => !readsAsSticker(l.text, tuning) && !readsAsRole(l.text));
+  const biggest = Math.max(0, ...stays.map(letters));
+  const bigCodes = lines.filter((l) => readsAsSticker(l.text, tuning) && isCode(l.text) && !readsAsRole(l.text) && letters(l) > biggest);
+  const candidates = lines.filter((l) => stays.includes(l) || bigCodes.includes(l));
+  return candidates.length > 0 ? candidates : lines;
+}
 
-/** The piece's title, or nothing when the piece holds no line at all. */
-export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning): ShelfTitle | undefined {
+/** A trailing "BOOK 2" on a stack is the series number, not part of the title. */
+const isBookNumber = (text: string) => /^book\s*\d+$/i.test(text.trim());
+
+/** The words of two letters or more: a name's initial says nothing about whose name it is. */
+const longWords = (text: string) => new Set(wordsOf(text).filter((w) => w.length >= 2));
+
+/**
+ * Whether this title is a name printed on another piece of the shot: every one of its words of two letters or more is on one line
+ * of another piece. A series' author is printed on every spine of the series; a title is printed on one.
+ */
+export function namedElsewhere(title: string, others: TextLine[]): boolean {
+  const named = longWords(title);
+  return (
+    named.size > 0 &&
+    others.some((o) => {
+      const said = longWords(o.text);
+      return [...named].every((w) => said.has(w));
+    })
+  );
+}
+
+/**
+ * The flat words stacked one a row down a spine, read top to bottom: the longest chain of two or more lines that are not
+ * sideways, each set under the last within half the wider line's width of its center, at most `stackRowTuck` letter heights up into
+ * it and at most `stackRowGap` below its foot. A trailing "BOOK n" is dropped, and at least two lines must remain.
+ */
+function stackOf(lines: TextLine[], tuning: LocalTuning): TextLine[] | undefined {
+  const flat = lines.filter((l) => !isSideways(l) && /\p{L}/u.test(l.text)).sort((a, b) => a.box.y - b.box.y);
+  const chains: TextLine[][] = [];
+  for (const l of flat) {
+    const home = chains.find((chain) => {
+      const last = chain[chain.length - 1];
+      const across = Math.abs(l.box.x + l.box.width / 2 - (last.box.x + last.box.width / 2));
+      const gap = l.box.y - bottom(last.box);
+      return across <= Math.max(last.box.width, l.box.width) / 2 && gap >= -tuning.stackRowTuck * last.box.height && gap <= tuning.stackRowGap * last.box.height;
+    });
+    if (home) home.push(l);
+    else chains.push([l]);
+  }
+  const best = chains.filter((c) => c.length >= 2).sort((a, b) => b.length - a.length)[0];
+  if (!best) return undefined;
+  const kept = [...best];
+  while (kept.length > 0 && isBookNumber(kept[kept.length - 1].text)) kept.pop();
+  return kept.length >= 2 ? kept : undefined;
+}
+
+/**
+ * The stack that is the title in place of `today`'s, when all three hold: it shares no word with today's title; today's title is a name
+ * printed on another piece (the series author, sideways and big); and the stack is no publisher's imprint nor a stacked author name
+ * (every word of it printed on other pieces too).
+ */
+function stackTitle(lines: TextLine[], today: string, others: TextLine[], tuning: LocalTuning): TextLine[] | undefined {
+  const stack = stackOf(lines, tuning);
+  if (!stack) return undefined;
+  const text = stack.map((l) => l.text).join(' ');
+  const mine = new Set(wordsOf(today));
+  if (wordsOf(text).some((w) => mine.has(w))) return undefined;
+  if (!namedElsewhere(today, others)) return undefined;
+  if (wordsOf(text).some((w) => tuning.stackPublisherWords.includes(w) || tuning.stackStudioWords.includes(w))) return undefined;
+  if (readsAsSticker(text, tuning) || readsAsRole(text)) return undefined;
+  const elsewhere = new Set(others.flatMap((o) => [...longWords(o.text)]));
+  const own = [...longWords(text)];
+  if (own.length > 0 && own.every((w) => elsewhere.has(w))) return undefined;
+  return stack;
+}
+
+/**
+ * The piece's title, or nothing when the piece holds no line at all. `others` are the lines of the shot's other pieces: with them, flat
+ * words stacked on this spine can be the title where the biggest lettering is the series author's name printed on the others too; without
+ * them, nothing is stacked. A line a tile read added (it has a `region`) is never the title on its own and never the author: it only
+ * counts in a stack. `siblings` are the titles the other pieces read: a title a neighboring spine reads as its own is a series title, and no
+ * stack replaces it.
+ */
+export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning, others: TextLine[] = [], siblings: string[] = []): ShelfTitle | undefined {
   if (lines.length === 0) return undefined;
   const readings = new Readings(lines, tuning);
-  // A sticker and a line that names the author's standing are never an item's title, whatever size they are printed.
-  const said = without(lines, (l) => readsAsSticker(l.text, tuning) || readsAsRole(l.text));
+  const own = lines.filter((l) => l.region === undefined);
+  const said = titleCandidates(own.length > 0 ? own : lines, tuning);
   // One reading per place, then the place printed in the biggest lettering.
   const clearest = readings.places(said).map((place) => place.reduce((a, b) => readings.clearest(a, b, lines)));
   const chosen = clearest.reduce((a, b) => (letters(b) > letters(a) || (letters(b) === letters(a) && weight(b) > weight(a)) ? b : a));
   const second = readings.secondRow(chosen, said);
   const rows = second ? inRowOrder(chosen, second) : [chosen];
+  const text = rows.map((l) => l.text.trim()).join(' ');
+  const same = (t: string) => normalize(t) === normalize(text);
+  const stack = siblings.some(same) ? undefined : stackTitle(lines, text, others, tuning);
+  if (stack) {
+    // Today's title line goes to `rest`, so the name it printed is the creator.
+    const rest = lines.filter((l) => !stack.includes(l) && l.region === undefined && !readsAsSticker(l.text, tuning));
+    return { line: stack[0], text: stack.map((l) => l.text.trim()).join(' '), rest };
+  }
   // The author is looked for among what the title did not use, and never among the stickers: a shelf piece's creator is a
   // guess, but a guess of "WIDESCREEN", or of the title's own second row, costs the server a right title (creators.ts).
-  const rest = lines.filter((l) => !rows.includes(l) && !readsAsSticker(l.text, tuning));
-  return { line: chosen, text: rows.map((l) => l.text.trim()).join(' '), rest };
+  const rest = lines.filter((l) => !rows.includes(l) && !readsAsSticker(l.text, tuning) && (l.region === undefined || own.length === 0));
+  return { line: chosen, text, rest };
 }

@@ -219,7 +219,11 @@ public sealed class GateAndRegressionTests : IDisposable
     [Fact]
     public void A_refusal_rate_at_or_above_2_percent_of_photos_fails()
     {
-        var run = Evaluate(MeetingEveryBar(p => p.PhotoId == "b1" ? OnePhoto(Singles[0], Apple, outcome: "refused") : p));
+        // The combined row shows what the scanner shows: a cover the model refused is read by the text tier or Vision when either can, and
+        // is a refusal only when neither could (the model's own refusals stay on its row).
+        var run = Evaluate(MeetingEveryBar(
+            p => p.PhotoId == "b1" ? OnePhoto(Singles[0], Apple, outcome: "refused") : p,
+            p => p.PhotoId == "b1" ? OnePhoto(Singles[0], Vision, outcome: "error") : p));
 
         StatusOf(run, "guardrail_refusals").ShouldBe("fail");
     }

@@ -1,4 +1,4 @@
-import type { ModelItem, ReadItemsOptions, ReadItemsResult } from '../types';
+import type { ModelItem, ReadItemsOptions, ReadItemsResult, Rect, TextLine } from '../types';
 
 type Listener = (item: ModelItem) => void;
 
@@ -138,20 +138,75 @@ describe('the native wrapper', () => {
     });
   });
 
-  it('sends orientation [0] to Swift by default and the requested orientations otherwise', async () => {
-    mockNative.recognizeText.mockResolvedValue([]);
-    await visionEngine.recognizeText('file:///a.jpg');
-    await visionEngine.recognizeText('file:///a.jpg', { orientations: [0, 90, 270] });
-    expect(mockNative.recognizeText.mock.calls).toEqual([
-      ['file:///a.jpg', [0]],
-      ['file:///a.jpg', [0, 90, 270]],
-    ]);
-  });
+  describe('recognizeText', () => {
+    const quarter: Rect = { x: 0.5, y: 0, width: 0.5, height: 0.5 };
 
-  it('sends 180 to Swift when the caller asks for upside-down text', async () => {
-    mockNative.recognizeText.mockResolvedValue([]);
-    await visionEngine.recognizeText('file:///a.jpg', { orientations: [180] });
-    expect(mockNative.recognizeText.mock.calls).toEqual([['file:///a.jpg', [180]]]);
+    it('sends orientation [0] and no options to Swift by default, so the request stays what the scanner always asked: accurate, no correction, the whole picture', async () => {
+      mockNative.recognizeText.mockResolvedValue([]);
+      await visionEngine.recognizeText('file:///a.jpg');
+      await visionEngine.recognizeText('file:///a.jpg', {});
+      expect(mockNative.recognizeText.mock.calls).toEqual([
+        ['file:///a.jpg', [0], null],
+        ['file:///a.jpg', [0], null],
+      ]);
+    });
+
+    it('sends the requested orientations and, for the scanner read, still no options', async () => {
+      mockNative.recognizeText.mockResolvedValue([]);
+      await visionEngine.recognizeText('file:///a.jpg', { orientations: [0, 90, 270] });
+      expect(mockNative.recognizeText.mock.calls).toEqual([['file:///a.jpg', [0, 90, 270], null]]);
+    });
+
+    it('sends 180 to Swift when the caller asks for upside-down text', async () => {
+      mockNative.recognizeText.mockResolvedValue([]);
+      await visionEngine.recognizeText('file:///a.jpg', { orientations: [180] });
+      expect(mockNative.recognizeText.mock.calls).toEqual([['file:///a.jpg', [180], null]]);
+    });
+
+    it('sends the options the caller names as they were given, and only those', async () => {
+      mockNative.recognizeText.mockResolvedValue([]);
+      await visionEngine.recognizeText('file:///a.jpg', { level: 'fast' });
+      await visionEngine.recognizeText('file:///a.jpg', { languageCorrection: true });
+      await visionEngine.recognizeText('file:///a.jpg', { languageCorrection: false, level: 'accurate' });
+      await visionEngine.recognizeText('file:///a.jpg', { orientations: [0], level: 'fast', languageCorrection: true, regions: [quarter] });
+      expect(mockNative.recognizeText.mock.calls).toEqual([
+        ['file:///a.jpg', [0], { level: 'fast' }],
+        ['file:///a.jpg', [0], { languageCorrection: true }],
+        ['file:///a.jpg', [0], { level: 'accurate', languageCorrection: false }],
+        ['file:///a.jpg', [0], { level: 'fast', languageCorrection: true, regions: [quarter] }],
+      ]);
+    });
+
+    it('sends no regions for an empty list, which is the whole picture', async () => {
+      mockNative.recognizeText.mockResolvedValue([]);
+      await visionEngine.recognizeText('file:///a.jpg', { regions: [] });
+      expect(mockNative.recognizeText.mock.calls).toEqual([['file:///a.jpg', [0], null]]);
+    });
+
+    it('returns the lines Swift read, with their pass, unchanged when no region was asked for', async () => {
+      const lines: TextLine[] = [
+        { text: 'DUNE', confidence: 0.9, box: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pass: 0 },
+        { text: 'ENUD', confidence: 0.2, box: { x: 0.1, y: 0.3, width: 0.2, height: 0.1 }, pass: 180 },
+      ];
+      mockNative.recognizeText.mockResolvedValue(lines);
+      await expect(visionEngine.recognizeText('file:///a.jpg', { orientations: [0, 180] })).resolves.toEqual(lines);
+    });
+
+    it('puts the boxes Swift read inside each region back on the whole picture', async () => {
+      mockNative.recognizeText.mockResolvedValue([{ text: 'DUNE', confidence: 0.9, box: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 }, pass: 0, region: 1 }]);
+      const lines = await visionEngine.recognizeText('file:///a.jpg', { regions: [{ x: 0, y: 0, width: 0.5, height: 0.5 }, quarter] });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ text: 'DUNE', pass: 0, region: 1 });
+      expect(lines[0].box.x).toBeCloseTo(0.7);
+      expect(lines[0].box.y).toBeCloseTo(0.2);
+      expect(lines[0].box.width).toBeCloseTo(0.1);
+      expect(lines[0].box.height).toBeCloseTo(0.1);
+    });
+
+    it('does not ask Swift to read regions in a turned pass, which it cannot place', async () => {
+      await expect(visionEngine.recognizeText('file:///a.jpg', { orientations: [0, 90], regions: [quarter] })).rejects.toThrow(/upright/);
+      expect(mockNative.recognizeText).not.toHaveBeenCalled();
+    });
   });
 
   describe('detectRectangles', () => {

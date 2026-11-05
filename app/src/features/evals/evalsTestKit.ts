@@ -7,11 +7,15 @@ import { RecognitionConfigStore } from '@/features/scan/recognition/config';
 import { DEFAULT_RECOGNITION_CONFIG, type RecognitionConfig } from '@/features/scan/recognition/defaults';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import { failedRead, line, modelItem, okRead, RecordingVision, testIds, type Scene } from '@/features/scan/recognition/fakes';
+import type { RecognizeTextOptions, TextLine } from '@/native/cm-vision';
+import type { Resizer } from '@/features/scan/autosnap/snapPhoto';
 import { setPictureFiles, trackPicture } from '@/features/scan/pictureFiles';
 import { MemoryKeyValueStore } from '@/features/scan/tray/trayStore';
 import { evalsMock, goldenPhotos, holdRun } from '@/mocks/evals';
 
 export const uriOf = (id: string) => `file:///cache/cm-evals/${id}.jpg`;
+/** Where a test resizer that scales a golden photo puts the scaled picture. The kit has a scene for it too. */
+export const scaledUriOf = (id: string) => uriOf(id).replace('.jpg', '-scaled.jpg');
 
 /** What the fake vision engine sees for a golden photo: two items by the model, two lines of text for Vision, and the same two items extracted from that text. */
 export const sceneFor = (id: string, overrides: Partial<Scene> = {}): Scene => ({
@@ -31,10 +35,21 @@ export interface KitOptions {
   failDownload?: string[];
   /** The next downloads fail like this, one entry each, before any photo downloads: 'network' for no answer at all, or the HTTP status the PC answered. */
   downloadFailures?: ('network' | number)[];
+  /** How big the golden photo is on the PC; 3000 x 4000 when left out. */
+  size?: { width: number; height: number };
+  /** Replaces the resizer, which keeps the picture as it is (the scanner's own scales to 2576 px, which the tests that care ask for). */
+  resize?: Resizer;
   /** Makes the selector (the Apple model side) throw instead of reading. */
   selectorThrows?: boolean;
   /** Called each time the fake vision engine is asked to read, to pause or stop in the middle of a run. */
   onRead?: (uri: string) => void | Promise<void>;
+  /**
+   * Answers a text read before the fake vision engine does: return the lines for a request shape of its own, or undefined to let the engine replay the
+   * scene's (which says each line's pass). Throw to fail the read. Called for every text read, so it can also move a fake clock.
+   */
+  text?: (imageUri: string, options: RecognizeTextOptions | undefined) => TextLine[] | undefined;
+  /** The runner's clock; the real one when left out. */
+  now?: () => number;
   /** Called each time a photo is sent to the PC, before the request goes out: hold the promise to keep the send pending, reject it to fail the send. */
   onSend?: (photoId: string) => void | Promise<void>;
   /** The PC already holds a run with these photos stored (as if an earlier session had read them). */
@@ -50,11 +65,26 @@ export function makeKit(options: KitOptions = {}) {
   const ids = [...evalsMock.photos].sort((a, b) => (a.set === b.set ? a.id.localeCompare(b.id) : a.set.localeCompare(b.set))).map((p) => p.id);
   if (options.held) holdRun(options.held);
 
-  const scenes = Object.fromEntries(ids.map((id) => [uriOf(id), sceneFor(id, options.scenes?.[id])]));
+  // The scenes are for the golden photo and for the picture a test resizer makes of it: what the engines read is whichever the runner hands them.
+  const scenes = Object.fromEntries(ids.flatMap((id) => [uriOf(id), scaledUriOf(id)].map((uri) => [uri, sceneFor(id, options.scenes?.[id])])));
   class Vision extends RecordingVision {
+    /** Every picture a text read and a rectangle search were asked for, in order: which picture each tier really read. */
+    readonly textCalls: { imageUri: string; options?: RecognizeTextOptions }[] = [];
+    readonly rectangleCalls: string[] = [];
+
     override async readItems(...args: Parameters<RecordingVision['readItems']>) {
       await options.onRead?.(args[0]);
       return super.readItems(...args);
+    }
+
+    override async recognizeText(...args: Parameters<RecordingVision['recognizeText']>) {
+      this.textCalls.push({ imageUri: args[0], options: args[1] });
+      return options.text?.(args[0], args[1]) ?? super.recognizeText(...args);
+    }
+
+    override async detectRectangles(...args: Parameters<RecordingVision['detectRectangles']>) {
+      this.rectangleCalls.push(args[0]);
+      return super.detectRectangles(...args);
     }
   }
   const vision = new Vision(scenes);
@@ -78,9 +108,10 @@ export function makeKit(options: KitOptions = {}) {
       return trackPicture(uriOf(id));
     },
     async sizeOf() {
-      return { width: 3000, height: 4000 };
+      return options.size ?? { width: 3000, height: 4000 };
     },
   };
+  const keepAsIs: Resizer = async (photo) => ({ uri: photo.uri, width: photo.width, height: photo.height });
 
   const versions = options.versions ?? ['v1'];
   let refreshes = 0;
@@ -136,6 +167,8 @@ export function makeKit(options: KitOptions = {}) {
         },
       },
       files,
+      resize: options.resize ?? keepAsIs,
+      now: options.now,
       selector: options.selectorThrows
         ? {
             read: async () => {

@@ -5,13 +5,15 @@
 // It never touches the library: the only requests are the eval routes and the config fetch, and a photo file is deleted the moment it has been read.
 import type { EvalOpenRunStatus, EvalPhotoResult, EvalReadItem, EvalRunPhoto, ScanTier } from '@/api/generated/models';
 import { ApiError } from '@/lib/http';
+import { prepareSnapPhoto, type Resizer } from '@/features/scan/autosnap/snapPhoto';
 import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
 import { toItemBox } from '@/features/scan/recognition/mapping';
 import { ModelUnusableError, type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { KeyValueStore } from '@/features/scan/tray/trayStore';
-import type { ThermalState } from '@/native/cm-vision';
+import type { RecognizeTextOptions, TextLine, ThermalState } from '@/native/cm-vision';
+import { gridRegions } from '../../../modules/cm-vision/src/regions'; // only the geometry: the native entry is loaded on the phone alone
 import { RUN_GONE_CODES, type EvalApi } from './api';
 import { EvalOutbox, type PendingPhoto } from './outbox';
 
@@ -46,7 +48,7 @@ export interface EvalState {
   partial: boolean;
   /** Readings kept on this phone because the PC has not taken them yet. */
   pending: number;
-  /** Photos that could not be downloaded, so were not read. */
+  /** Photos that could not be downloaded or scaled, so were not read. */
   skipped: string[];
   /** Photos the PC would not take, so are left out of the score. */
   refused: string[];
@@ -73,6 +75,11 @@ export interface EvalRunnerDeps {
     download(id: string): Promise<string>;
     sizeOf(uri: string): Promise<{ width: number; height: number }>;
   };
+  /**
+   * The scanner's own resizer. Every golden photo is scaled and saved by it before any engine reads it (`prepareSnapPhoto`: long edge at most 2576 px, JPEG
+   * 0.85), so the eval reads the picture the scanner reads and not the camera original. Left out, the scanner's real one (expo-image-manipulator) is used.
+   */
+  resize?: Resizer;
   /** The scanner's own selector: the Apple model, then the tiers below it when the model gives no reading. */
   selector: { read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading> };
   /** The OCR-text extraction tier on its own, forced. */
@@ -80,7 +87,11 @@ export interface EvalRunnerDeps {
   /** The Vision text engine on its own, forced. */
   pipeline: RecognitionEngine;
   config: { refresh(): Promise<unknown>; current(): RecognitionSettings };
-  vision: { deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string }> };
+  vision: {
+    deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string }>;
+    /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the three rows are read. */
+    recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
+  };
   device: { model: string; appVersion: string };
   /** Holds the screen awake. The runner holds it only while it is reading in the foreground: never paused, waiting for the PC or while the PC scores. */
   keepAwake: { on(): Promise<void>; off(): Promise<void> };
@@ -200,6 +211,45 @@ export function ocrRecord(ocr: OcrReading | undefined): Pick<EvalPhotoResult, 'o
       height: unit(l.box.height),
     })),
     ocrPieces: ocr.pieces.map((piece) => piece.filter((index) => index >= 0 && index < lines.length)).filter((piece) => piece.length > 0),
+  };
+}
+
+/** What the server accepts of the probes: at most this many, each with at most this many lines (text up to `MAX_OCR_TEXT`) and a time up to this many milliseconds. */
+export const MAX_OCR_PROBES = 4;
+export const MAX_PROBE_LINES = 1500;
+export const MAX_PROBE_MS = 3_600_000;
+
+type OcrProbe = NonNullable<EvalPhotoResult['ocrProbes']>[number];
+
+/**
+ * The extra reads of a shelf picture, none of them the scanner's own. They are read once, after the three timed rows, and only the record reads them:
+ * the PC keeps them so an OCR setting can be tried on real pictures later without the phone, and never scores them.
+ */
+export const OCR_PROBES: readonly { name: string; options: RecognizeTextOptions }[] = [
+  // The scanner's three passes and the upside-down one, raw (nothing dropped or merged): what each pass reads, and what the confidence floor drops.
+  { name: 'production', options: { orientations: [0, 90, 270, 180] } },
+  // Upright print only, and quicker: flat words stacked on a spine.
+  { name: 'fast0', options: { orientations: [0], level: 'fast' } },
+  // Vision corrects what it read against a dictionary: script and display type.
+  { name: 'corrected0', options: { orientations: [0], languageCorrection: true } },
+  // Four tiles that overlap by a tenth, each read on its own: small print.
+  { name: 'tiles0', options: { orientations: [0], regions: gridRegions(2, 2, 0.1) } },
+];
+
+/** One probe shaped for the upload, cut to the PC's limits (a box or confidence a hair outside 0 to 1 is pulled in) instead of losing the photo. */
+export function probeRecord(name: string, ms: number, lines: TextLine[]): OcrProbe {
+  return {
+    name,
+    ms: Math.min(MAX_PROBE_MS, Math.max(0, Math.round(ms))),
+    lines: lines.slice(0, MAX_PROBE_LINES).map((l) => ({
+      text: l.text.slice(0, MAX_OCR_TEXT),
+      confidence: unit(l.confidence),
+      pass: l.pass ?? 0,
+      x: unit(l.box.x),
+      y: unit(l.box.y),
+      width: unit(l.box.width),
+      height: unit(l.box.height),
+    })),
   };
 }
 
@@ -583,9 +633,19 @@ export class EvalRunner {
       this.set({ skipped: [...this.state.skipped, photo.id] });
       return;
     }
+    // What the scanner reads of a camera still: scaled to a long edge of at most 2576 px and saved as a JPEG. The download is deleted the moment the scaled
+    // picture exists, or when scaling fails; the scaled picture is deleted when the photo is done.
+    let still: Still;
     try {
       const size = await this.deps.files.sizeOf(uri).catch(() => ({ width: 0, height: 0 }));
-      const still: Still = { uri, ...size };
+      still = await prepareSnapPhoto({ uri, ...size, orientation: 1 }, this.deps.resize);
+    } catch {
+      if (this.epoch !== epoch) return; // cut short by the app leaving: read it again
+      // A photo this phone cannot scale says nothing about the PC: it is left out of this run, like one that did not download, and the rest are read.
+      this.set({ skipped: [...this.state.skipped, photo.id] });
+      return;
+    }
+    try {
       const shotKind = shotKindOf(photo.set);
       const results: EvalPhotoResult[] = [];
       for (const { engine, step } of ENGINES) {
@@ -596,10 +656,36 @@ export class EvalRunner {
         results.push(await this.readWith(engine, photo.id, still, shotKind));
         if (this.epoch !== epoch) return;
       }
+      // The probes come last, outside every row's timing, and only for a shelf. The scanner's own read is already done and recorded.
+      if (shotKind === 'shelf_segment') {
+        const probes = await this.probe(still, epoch);
+        if (this.epoch !== epoch) return;
+        const vision = results.find((r) => r.engine === 'vision_pipeline');
+        if (vision && probes.length > 0) vision.ocrProbes = probes;
+      }
       this.keep({ photoId: photo.id, results });
     } finally {
-      await discardPicture(uri);
+      await discardPicture(still.uri);
     }
+  }
+
+  /**
+   * Reads the picture's text once more for each of `OCR_PROBES`, one after another, and keeps each with the time it took. A probe that throws is left out. The owner's
+   * stop and the app leaving end the list where it is (the photo is then kept with what was read, or read again, as it is for a row).
+   */
+  private async probe(still: Still, epoch: number): Promise<OcrProbe[]> {
+    const probes: OcrProbe[] = [];
+    for (const { name, options } of OCR_PROBES) {
+      if (this.stopRequested || this.epoch !== epoch) break;
+      const started = this.now();
+      try {
+        const lines = await this.deps.vision.recognizeText(still.uri, options);
+        probes.push(probeRecord(name, this.now() - started, lines));
+      } catch {
+        // Nothing but the record reads a probe: it is left out, and the photo's rows are as they were.
+      }
+    }
+    return probes;
   }
 
   private async readWith(engine: EngineName, photoId: string, still: Still, shotKind?: ShotKind): Promise<EvalPhotoResult> {

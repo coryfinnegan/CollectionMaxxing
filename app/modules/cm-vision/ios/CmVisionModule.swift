@@ -15,12 +15,14 @@ public class CmVisionModule: Module {
       return true
     }
 
-    AsyncFunction("recognizeText") { (imageUri: String, orientations: [Int]?) -> [[String: Any]] in
+    // With no options the request is exactly the scanner's own: accurate, no language correction, the whole picture. A caller names only what it changes.
+    AsyncFunction("recognizeText") { (imageUri: String, orientations: [Int]?, options: [String: Any]?) -> [[String: Any]] in
       let image = try CmImage.load(imageUri)
+      let textOptions = try CmTextOptions(options)
       let passes = (orientations?.isEmpty ?? true) ? [0] : orientations!
       var lines: [[String: Any]] = []
       for rotation in passes {
-        lines.append(contentsOf: try CmText.recognize(image, rotation: rotation))
+        lines.append(contentsOf: try CmText.recognize(image, rotation: rotation, options: textOptions))
       }
       return lines
     }

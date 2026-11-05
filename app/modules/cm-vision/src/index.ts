@@ -4,6 +4,8 @@ import { useCallback, useRef } from 'react';
 import { useObjectOutput } from 'react-native-vision-camera';
 
 import { mapScannedObjects } from './mapScannedObjects';
+import { linesInPicture } from './regions';
+import { nativeTextOptions, textRequest, type NativeTextOptions } from './textOptions';
 import type {
   DetectedCode,
   DetectRectanglesOptions,
@@ -13,13 +15,14 @@ import type {
   ModelItem,
   ReadItemsOptions,
   ReadItemsResult,
+  RecognizeTextOptions,
   Rect,
   TextLine,
-  TextOrientation,
   VisionEngine,
 } from './types';
 
 export * from './types';
+export * from './regions';
 export { FakeBarcodeSource } from './FakeBarcodeSource';
 export { FakeVisionEngine } from './FakeVisionEngine';
 export { UnavailableVisionEngine } from './UnavailableVisionEngine';
@@ -27,7 +30,8 @@ export { UnavailableVisionEngine } from './UnavailableVisionEngine';
 /** What ios/CmVisionModule.swift exposes; result keys are pinned by contract.schema.json. */
 interface NativeCmVision {
   isAvailable(): Promise<boolean>;
-  recognizeText(imageUri: string, orientations: number[]): Promise<TextLine[]>;
+  /** `options` is null for the scanner's own request. With regions, each box comes back inside its region and each line names its region's index. */
+  recognizeText(imageUri: string, orientations: number[], options: NativeTextOptions | null): Promise<TextLine[]>;
   detectRectangles(imageUri: string, options: DetectRectanglesOptions | null): Promise<Rect[]>;
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;
   featurePrint(imageUri: string, cropBox: Rect | null): Promise<FeaturePrint>;
@@ -56,8 +60,10 @@ class NativeVisionEngine implements VisionEngine {
       return false; // e.g. Expo Go, which does not contain the module
     }
   }
-  recognizeText(imageUri: string, options?: { orientations?: TextOrientation[] }) {
-    return this.native().recognizeText(imageUri, options?.orientations ?? [0]);
+  async recognizeText(imageUri: string, options?: RecognizeTextOptions) {
+    const { orientations, regions } = textRequest(options);
+    const lines = await this.native().recognizeText(imageUri, orientations, nativeTextOptions(options));
+    return regions.length > 0 ? linesInPicture(lines, regions) : lines;
   }
   detectRectangles(imageUri: string, options?: DetectRectanglesOptions) {
     return this.native().detectRectangles(imageUri, options ?? null);

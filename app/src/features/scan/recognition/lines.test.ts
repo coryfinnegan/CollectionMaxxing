@@ -1,7 +1,7 @@
 import type { TextLine } from '@/native/cm-vision';
 import { DEFAULT_LOCAL_TUNING as T } from './defaults';
 import { line, RecordingVision, STILL } from './fakes';
-import { readLines } from './lines';
+import { readLines, tilesTouching, withTiles } from './lines';
 
 /** Six tapes lying flat in one pile: a flat line each, 0.4 wide and 0.04 tall, touching top to bottom. */
 const pile = (): TextLine[] => Array.from({ length: 6 }, (_, i) => line(`Tape ${i}`, 0.3, 0.1 + i * 0.07, 0.4, 0.04));
@@ -93,5 +93,33 @@ describe('reading text from a still', () => {
       const { vision } = reader({ text: pile(), text180: [line('Noise', 0.3, 0.9, 0.4, 0.04, 0.1)] });
       expect(texts(await readLines(vision, STILL.uri, T, { shelf: true }))).not.toContain('Noise');
     });
+  });
+});
+
+describe('adding what a tile read found', () => {
+  /** A spine read sideways: tall, 0.018 wide. */
+  const spine = line('ELSIE SILVER', 0.525, 0.259, 0.018, 0.111);
+  const tile = (text: string, x: number, y: number, w: number, h: number) => ({ ...line(text, x, y, w, h), region: 0 });
+
+  it('keeps a tile line in a new place on a spine', () => {
+    const added = tile('OFF TO', 0.525, 0.224, 0.02, 0.012);
+    expect(withTiles([spine], [added], T)).toContain(added);
+  });
+
+  it.each([
+    ['in a box a pass already read', tile('ELSIE SILVER', 0.526, 0.26, 0.018, 0.11)],
+    ['tall', tile('OFF TO THE RACES', 0.53, 0.224, 0.012, 0.05)],
+    ['of one letter', tile('O', 0.525, 0.224, 0.02, 0.012)],
+    ['outside every spine column', tile('OFF TO', 0.8, 0.224, 0.02, 0.012)],
+    ['further than three letter widths past the spine\'s end', tile('OFF TO', 0.525, 0.1, 0.02, 0.012)],
+  ])('drops a tile line %s', (_name, dropped) => {
+    expect(withTiles([spine], [dropped], T)).toEqual([spine]);
+  });
+
+  it('asks for the tiles that boxes touch and no others', () => {
+    const touched = tilesTouching([{ x: 0.6, y: 0.2, width: 0.05, height: 0.1 }], T);
+    expect(touched).toHaveLength(1);
+    expect(touched[0].x).toBeGreaterThan(0.4); // the top right tile
+    expect(touched[0].y).toBe(0);
   });
 });

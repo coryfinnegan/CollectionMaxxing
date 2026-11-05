@@ -120,6 +120,13 @@ public static class EvalReport
                 .Append(" (").Append(EvalRegression.Describe(item)).AppendLine(")");
         }
 
+        // A baseline metric whose definition changed is not compared. Say so, once per reason, so the change does not pass silently.
+        foreach (var group in (summary.Regression.Skipped ?? []).GroupBy(s => s.Reason, StringComparer.Ordinal))
+        {
+            text.AppendLine().Append("Not compared: ").Append(string.Join(", ", group.Select(s => s.Metric))).Append(". The baseline's value is from before ")
+                .Append(group.Key).AppendLine(", so it is not the same measure as this run's. It is compared again once the baseline is replaced by a run of this version.");
+        }
+
         foreach (var (engine, numbers) in summary.Engines)
         {
             text.AppendLine().Append("## ").AppendLine(engine).AppendLine();
@@ -180,7 +187,8 @@ public static class EvalReport
             .Append(" (").Append(slice.CorrectAutoAdds).Append(" of ").Append(slice.AutoAdds).Append("), tiers T0 ").Append(slice.T0Auto)
             .Append(" / T1 ").Append(slice.T1Auto).Append(" / T2 ").Append(slice.T2Review).Append(" / provisional ").Append(slice.ProvisionalItems)
             .Append(", duplicates ").Append(slice.DuplicateClean is { } clean ? clean ? "clean" : "dirty" : "n/a")
-            .Append(", first results ").Append(Millis(slice.TimeToFirstResultsMs)).Append(", trustworthy ").Append(Millis(slice.TotalTimeToTrustworthyMs))
+            .Append(", first results p50 ").Append(Millis(slice.TimeToFirstResultsP50Ms)).Append(" / p95 ").Append(Millis(slice.TimeToFirstResultsP95Ms))
+            .Append(", run trustworthy ").Append(Millis(slice.TotalTimeToTrustworthyMs))
             .Append(", unreconciled ").Append(slice.UnreconciledPhotos).Append(", excess unreadable ").AppendLine(slice.ExcessUnreadable.ToString(CultureInfo.InvariantCulture));
     }
 

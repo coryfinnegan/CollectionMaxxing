@@ -241,6 +241,92 @@ public sealed class CombinedEngineTests : IDisposable
         scored.ShelfOf(Combined).Top1Hits.ShouldBe(2);
     }
 
+    // ---- the segments the shelf shows are the ones a read of them stands for -----------------------------------------------
+
+    private static readonly DateTimeOffset CapturedAt = new(2026, 10, 17, 9, 0, 0, TimeSpan.Zero);
+
+    private static GroundedItem InSegment(GroundedItem item, string segment) => item with { SegmentId = segment };
+
+    private static GroundedPhoto ModelSegment(int captured, params GroundedItem[] items) =>
+        Photo("s1", Apple, items.Select(i => InSegment(i, "m")), capturedCount: captured, capturedAt: CapturedAt);
+
+    private static GroundedPhoto VisionSegment(params GroundedItem[] items) =>
+        Photo("s1", Vision, items.Select(i => InSegment(i, "v")), capturedCount: 1, capturedAt: CapturedAt);
+
+    [Fact]
+    public void A_shelf_where_the_print_dropped_every_model_only_read_has_no_model_segment_left_to_account_for()
+    {
+        var truths = ArrangeShelf("Star Fox 64", "Mario Kart 64");
+        var model = ModelSegment(1, T1(Matched("Star Fox 64")).At(0.10), T1(Matched("The Matrix", readAs: "The Matrix")).At(0.60));
+        var vision = Printing(VisionSegment(GuessedByVision("Star Fox 64").At(0.10), GuessedByVision("Mario Kart 64").At(0.30)), "STAR FOX 64", "MARIO KART 64");
+
+        var built = EvalCombination.Of([model, vision], truths).Single();
+        var scored = Score(truths, model, vision);
+
+        built.Items.Select(i => i.SegmentId).Distinct().ShouldBe(["v"], "the model's invented title is not shown and nothing else of the model's is");
+        built.CapturedCount.ShouldBe(1, "the shot was captured once and Vision's reads account for it");
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+        scored.ShelfOf(Combined).InventedTitles.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_shelf_where_a_model_only_read_stands_counts_the_model_segment_and_Visions_both()
+    {
+        var truths = ArrangeShelf("Star Fox 64", "Mario Kart 64", "Banjo-Kazooie");
+        var model = ModelSegment(1, T1(Matched("Star Fox 64")).At(0.10), T1(Matched("Mario Kart 64")).At(0.30));
+        var vision = Printing(VisionSegment(GuessedByVision("Star Fox 64").At(0.10), GuessedByVision("Banjo-Kazooie").At(0.50)), "STAR FOX 64", "MARIO KART 64", "BANJO KAZOOIE");
+
+        var built = EvalCombination.Of([model, vision], truths).Single();
+        var scored = Score(truths, model, vision);
+
+        built.Items.Select(i => i.SegmentId).Distinct().OrderBy(s => s).ShouldBe(["m", "v"]);
+        built.CapturedCount.ShouldBe(2);
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_shelf_where_each_engine_won_a_place_counts_both_segments_though_Vision_read_nothing_the_model_did_not()
+    {
+        var truths = ArrangeShelf("Star Fox 64", "Mario Kart 64");
+        var model = ModelSegment(1, T1(Matched("Star Fox 64")).At(0.10), T1(Matched("Mario Kart 64")).At(0.30));
+        var vision = VisionSegment(GuessedByVision("Star Fox 64").At(0.10), ReadByVisionButNotFound().At(0.30));
+
+        var built = EvalCombination.Of([model, vision], truths).Single();
+        var scored = Score(truths, model, vision);
+
+        built.Items.Select(i => i.SegmentId).ShouldBe(["v", "m"], "Vision's read stands at the first place, and the model's better one at the second");
+        built.CapturedCount.ShouldBe(2);
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_shelf_where_the_model_won_every_place_counts_only_the_model_segment()
+    {
+        var truths = ArrangeShelf("Star Fox 64");
+        var model = ModelSegment(1, T1(Matched("Star Fox 64")).At(0.10));
+        var vision = VisionSegment(ReadByVisionButNotFound().At(0.10));
+
+        var built = EvalCombination.Of([model, vision], truths).Single();
+
+        built.Items.Select(i => i.SegmentId).ShouldBe(["m"]);
+        built.CapturedCount.ShouldBe(1);
+        Score(truths, model, vision).ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_segment_the_phone_counted_that_carries_no_read_is_still_reported_as_unaccounted_for()
+    {
+        var truths = ArrangeShelf("Star Fox 64", "Mario Kart 64");
+        var model = ModelSegment(2, T1(Matched("Star Fox 64")).At(0.10), T1(Matched("Mario Kart 64")).At(0.30)); // two segments counted, one carried
+        var vision = Printing(VisionSegment(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64", "MARIO KART 64");
+
+        var scored = Score(truths, model, vision);
+
+        var both = scored.ShelfOf(Combined);
+        both.UnreconciledPhotos.ShouldBe(1);
+        scored.Misses.Single(m => m.Engine == Combined && m.Kind == "unreconciled").Read.ShouldBe("1 of 3 captured segments unaccounted for");
+    }
+
     [Fact]
     public void A_photo_without_both_rows_gets_no_combined_row()
     {
@@ -408,18 +494,148 @@ public sealed class CombinedEngineTests : IDisposable
 
     // ---- a cover shot is not combined ------------------------------------------------------------------------------------
 
-    [Fact]
-    public void A_single_picture_the_model_timed_out_on_does_not_borrow_Visions_items()
-    {
+    // ---- a single cover the model failed on falls back the way the scanner does ------------------------------------------
+
+    private const string Text = "fm_text";
+
+    private void ArrangeCover() =>
         _golden.AddSingle("c1", new SyntheticGolden.SingleItem("Star Fox 64", "game_cartridge", "cart_only", EvalKinds.LooseCartridge, "Nintendo 64"));
-        var model = Photo("c1", Apple, [], latencyMs: 8200, outcome: "timeout", fellBackFrom: "timeout");
-        var vision = Photo("c1", Vision, [GuessedByVision("Star Fox 64")], latencyMs: 700);
 
-        var scored = EvalScorer.Score([model, vision], TruthsOf(_golden));
+    /// <summary>A cover the model gave up on after its 12 s budget: no items, and the reason the phone recorded.</summary>
+    private static GroundedPhoto CoverModelTimedOut() => Photo("c1", Apple, [], latencyMs: 12000, outcome: "timeout", fellBackFrom: "timeout");
 
-        var both = scored.SoloOf(Combined);
-        both.PredictedItems.ShouldBe(0);
-        both.Timeouts.ShouldBe(1);
+    private static GroundedPhoto CoverText(params GroundedItem[] items) => Photo("c1", Text, items, latencyMs: 2000, firstItemMs: 900);
+
+    private static GroundedPhoto CoverVision(params GroundedItem[] items) => Photo("c1", Vision, items, latencyMs: 700, firstItemMs: null);
+
+    [Fact]
+    public void A_single_cover_the_model_timed_out_on_is_the_text_tiers_reading_because_the_scanner_falls_back_to_it()
+    {
+        ArrangeCover();
+
+        var built = EvalCombination.Of(
+            [CoverModelTimedOut(), CoverText(T1(Matched("Star Fox 64"))), CoverVision(GuessedByVision("Zorblax Quest"))],
+            TruthsOf(_golden)).Single();
+
+        built.Engine.ShouldBe(Combined);
+        built.Outcome.ShouldBe("ok");
+        built.FellBackFrom.ShouldBe("timeout");
+        built.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
+        built.Items.Single().Provisional.ShouldBeFalse("it is the text tier's own row, not Vision's guess");
+        built.LatencyMs.ShouldBe(12000, "the phone timed the model's read, which ran the text tier inside it, so that time is the whole wait");
+        built.FirstItemMs.ShouldBe(12000, "an item is shown by the time the read ends, and no earlier is known");
+    }
+
+    [Theory]
+    [InlineData("timeout", null, "timeout")]
+    [InlineData("refused", null, "declined")]
+    [InlineData("error", null, "unavailable")]
+    [InlineData("error", "context", "context")]
+    [InlineData("refused", "declined", "declined")]
+    public void The_reason_a_single_covers_model_failed_is_the_one_the_phone_sent_else_what_its_outcome_says(string outcome, string? sent, string expected)
+    {
+        ArrangeCover();
+        var model = Photo("c1", Apple, [], latencyMs: 12000, outcome: outcome, fellBackFrom: sent);
+
+        var built = EvalCombination.Of([model, CoverText(T1(Matched("Star Fox 64"))), CoverVision()], TruthsOf(_golden)).Single();
+
+        built.Outcome.ShouldBe("ok");
+        built.FellBackFrom.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void A_single_cover_the_model_timed_out_on_scores_as_the_text_tier_read_it_while_the_models_own_row_still_reports_the_timeout()
+    {
+        ArrangeCover();
+        GroundedPhoto[] photos = [CoverModelTimedOut(), CoverText(T1(Matched("Star Fox 64"))), CoverVision(GuessedByVision("Zorblax Quest"))];
+
+        var scored = EvalScorer.Score(photos, TruthsOf(_golden));
+
+        scored.SoloOf(Combined).Top1Hits.ShouldBe(1);
+        scored.SoloOf(Combined).Timeouts.ShouldBe(0, "the combined row is the text tier's reading, which answered");
+        scored.SoloOf(Apple).Timeouts.ShouldBe(1);
+        var gate = EvalReport.Evaluate(RunOf(photos), TruthsOf(_golden), null, "abc1234", []).Summary.Gate;
+        gate.Measures.Single(m => m.Name == "model_timeouts").Actual.ShouldBe("100%", "the timeouts measure reads the model's own row");
+    }
+
+    [Fact]
+    public void A_single_cover_the_model_timed_out_on_and_the_text_tier_could_not_read_is_Visions_reading()
+    {
+        ArrangeCover();
+        var failedText = Photo("c1", Text, [], latencyMs: 300, outcome: "error");
+
+        var built = EvalCombination.Of(
+            [CoverModelTimedOut(), failedText, CoverVision(GuessedByVision("Star Fox 64"))],
+            TruthsOf(_golden)).Single();
+
+        built.Engine.ShouldBe(Combined);
+        built.Outcome.ShouldBe("ok");
+        built.FellBackFrom.ShouldBe("timeout");
+        built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
+        built.LatencyMs.ShouldBe(12000, "the model row already holds the fallback's time");
+    }
+
+    [Fact]
+    public void A_single_cover_the_model_timed_out_on_with_no_text_tier_row_is_Visions_reading()
+    {
+        ArrangeCover();
+
+        var scored = EvalScorer.Score([CoverModelTimedOut(), CoverVision(GuessedByVision("Star Fox 64"))], TruthsOf(_golden));
+
+        scored.SoloOf(Combined).PredictedItems.ShouldBe(1);
+        scored.SoloOf(Combined).Timeouts.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_single_cover_neither_the_text_tier_nor_Vision_could_read_stays_the_models_failure()
+    {
+        ArrangeCover();
+        var model = CoverModelTimedOut();
+
+        var built = EvalCombination.Of(
+            [model, Photo("c1", Text, [], outcome: "error"), Photo("c1", Vision, [], outcome: "error")],
+            TruthsOf(_golden)).Single();
+
+        built.ShouldBe(model with { Engine = Combined });
+        built.Outcome.ShouldBe("timeout");
+    }
+
+    [Fact]
+    public void A_single_cover_the_text_tier_answered_with_nothing_on_is_that_empty_reading_because_the_scanner_stops_there()
+    {
+        ArrangeCover();
+
+        var built = EvalCombination.Of(
+            [CoverModelTimedOut(), CoverText(), CoverVision(GuessedByVision("Star Fox 64"))],
+            TruthsOf(_golden)).Single();
+
+        built.Outcome.ShouldBe("ok");
+        built.FellBackFrom.ShouldBe("timeout");
+        built.Items.ShouldBeEmpty();
+        built.FirstItemMs.ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_single_cover_the_model_answered_is_the_models_row_whole_whatever_the_other_rows_read()
+    {
+        ArrangeCover();
+        var model = Photo("c1", Apple, [T1(Matched("Star Fox 64"))], latencyMs: 2000);
+
+        var built = EvalCombination.Of([model, CoverText(T1(Matched("Mario Kart 64"))), CoverVision(GuessedByVision("Zorblax Quest"))], TruthsOf(_golden)).Single();
+
+        built.ShouldBe(model with { Engine = Combined });
+    }
+
+    [Fact]
+    public void A_single_cover_the_model_answered_with_nothing_on_is_not_a_failure_so_the_scanner_does_not_fall_back()
+    {
+        ArrangeCover();
+        var model = Photo("c1", Apple, [], latencyMs: 2000);
+
+        var built = EvalCombination.Of([model, CoverText(T1(Matched("Star Fox 64"))), CoverVision(GuessedByVision("Star Fox 64"))], TruthsOf(_golden)).Single();
+
+        built.ShouldBe(model with { Engine = Combined });
+        built.FellBackFrom.ShouldBeNull();
     }
 
     [Fact]
@@ -1027,6 +1243,131 @@ public sealed class CombinedEngineTests : IDisposable
         EvalCombination.Of([model, vision], ArrangeShelf("Midnight Reel"));
 
         model.Items.Single().ShouldBe(ungrounded); // the apple_model row the phone uploaded still measures the model alone
+    }
+
+    // ---- a model-only read is shown only when the shelf's print has its words --------------------------------------------
+
+    /// <summary>The lines Vision read on the shelf, as the phone uploads them: only their text matters to the print.</summary>
+    private static List<GroundedOcrLine> Print(params string[] lines) => [.. lines.Select((text, i) => new GroundedOcrLine(text, 0.05 * i, 0.1, 0.04, 0.02))];
+
+    private static GroundedPhoto Printing(GroundedPhoto vision, params string[] lines) => vision with { OcrLines = Print(lines) };
+
+    [Fact]
+    public void A_model_only_read_whose_words_the_shelf_did_not_print_is_not_in_the_combined_row()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("The Matrix", readAs: "The Matrix"))),
+                Printing(VisionRead(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64", "NINTENDO"),
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"], "nothing on the shelf says Matrix, so the model made that title up");
+    }
+
+    [Fact]
+    public void A_model_only_read_the_shelf_printed_stays_in_the_row_unconfirmed_as_it_always_was()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("Mario Kart 64"))),
+                Printing(VisionRead(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64", "MARIO KART"),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64")).Single();
+
+        built.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64", "Mario Kart 64"]);
+        built.Items[1].Unconfirmed.ShouldBeTrue();
+        built.Items[1].ResolvedBy.ShouldBe("model");
+    }
+
+    [Fact]
+    public void A_model_only_read_with_a_box_in_a_place_Vision_read_nothing_is_checked_too()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("The Matrix", readAs: "The Matrix")).At(0.60), T1(Matched("Mario Kart 64")).At(0.80)),
+                Printing(VisionRead(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64", "MARIO KART 64"),
+            ],
+            ArrangeShelf("Star Fox 64", "Mario Kart 64")).Single();
+
+        built.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64", "Mario Kart 64"]);
+    }
+
+    [Fact]
+    public void A_model_read_with_two_thirds_of_its_words_printed_stays_and_one_with_less_goes()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(
+                    T1(Matched("The Hunt for Red October", readAs: "THE FIRST FOR A RED OCTOBER")),
+                    T1(Matched("The Lion, the Witch and the Wardrobe", readAs: "The Lion, the Witch and the Wardrobe"))),
+                Printing(VisionRead(GuessedByVision("Star Fox 64").At(0.10)), "RED", "OCTOBER", "KIMBA THE LION"),
+            ],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Select(i => i.ReadTitle).ShouldBe(["Star Fox 64", "THE FIRST FOR A RED OCTOBER"]);
+    }
+
+    [Fact]
+    public void A_vision_row_that_sent_no_lines_keeps_every_model_read_as_before()
+    {
+        var model = ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("The Matrix", readAs: "The Matrix")));
+
+        var older = EvalCombination.Of([model, VisionRead(GuessedByVision("Star Fox 64").At(0.10))], ArrangeShelf("Star Fox 64")).Single();
+        var noText = EvalCombination.Of([model, VisionRead(GuessedByVision("Star Fox 64").At(0.10)) with { OcrLines = [] }], ArrangeShelf("Star Fox 64")).Single();
+
+        older.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64", "The Matrix"]);
+        noText.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64", "The Matrix"]);
+    }
+
+    [Fact]
+    public void A_model_read_in_a_Vision_items_place_is_the_contest_it_always_was_whatever_the_print_says()
+    {
+        var built = EvalCombination.Of(
+            [
+                ModelRead(MatchedAt("Mario Kart 64", 0.99).At(0.31)),
+                Printing(VisionRead(MatchedAt("Star Fox 64", 0.80, "vision_text").At(0.30)), "STAR FOX 64"),
+            ],
+            ArrangeShelf("Mario Kart 64")).Single();
+
+        var item = built.Items.ShouldHaveSingleItem();
+        item.Best!.Title.ShouldBe("Mario Kart 64");
+        item.Unconfirmed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_model_read_the_same_release_as_a_Vision_read_with_no_place_is_still_dropped_as_the_same_item()
+    {
+        var built = EvalCombination.Of(
+            [ModelRead(T1(Matched("Star Fox 64"))), Printing(VisionRead(GuessedByVision("Star Fox 64")), "SOMETHING ELSE")],
+            ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
+    }
+
+    [Fact]
+    public void When_Vision_failed_every_model_read_stands_whatever_lines_it_sent()
+    {
+        var model = ModelRead(T1(Matched("The Matrix", readAs: "The Matrix")));
+        var vision = Printing(Photo("s1", Vision, [], outcome: "error"), "STAR FOX 64");
+
+        var built = EvalCombination.Of([model, vision], ArrangeShelf("Star Fox 64")).Single();
+
+        built.Items.Select(i => i.Best!.Title).ShouldBe(["The Matrix"]);
+    }
+
+    [Fact]
+    public void The_apple_model_row_and_the_vision_row_are_not_touched_by_the_check()
+    {
+        var model = ModelRead(T1(Matched("Star Fox 64")).At(0.10), T1(Matched("The Matrix", readAs: "The Matrix")));
+        var vision = Printing(VisionRead(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64");
+
+        var scored = Score(ArrangeShelf("Star Fox 64"), model, vision);
+
+        scored.ShelfOf(Apple).PredictedItems.ShouldBe(2);
+        scored.ShelfOf(Vision).PredictedItems.ShouldBe(1);
+        scored.ShelfOf(Combined).PredictedItems.ShouldBe(1);
+        scored.ShelfOf(Combined).InventedTitles.ShouldBe(0);
     }
 
     private static string EnumTextOf(ScanTier tier) => CollectionMaxxing.Domain.Common.EnumText.ToText(tier);
