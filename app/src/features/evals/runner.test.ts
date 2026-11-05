@@ -211,6 +211,71 @@ describe('the eval runner', () => {
       ]);
     });
 
+    describe('the item schema the model reads a shelf with', () => {
+      // n upright spines side by side: Vision splits one piece per spine.
+      const spines = (n: number) => Array.from({ length: n }, (_, i) => line(`Spine ${i}`, 0.02 + i * 0.07, 0.1, 0.05, 0.6));
+      const schemasOf = (kit: ReturnType<typeof makeKit>) => kit.vision.readCalls.map((c) => (c.options as { schema?: string }).schema);
+
+      it('is the spine schema on a shelf Vision split into ten pieces with no covers, as the scanner reads it', async () => {
+        const kit = makeKit({ photos: 1, scenes: { 'photo-001': { text: spines(10) } } });
+        await kit.runner.start();
+        expect(schemasOf(kit)).toEqual(['spine']);
+      });
+
+      it('is the full schema on a shelf Vision split into nine pieces', async () => {
+        const kit = makeKit({ photos: 1, scenes: { 'photo-001': { text: spines(9) } } });
+        await kit.runner.start();
+        expect(schemasOf(kit)).toEqual([undefined]);
+      });
+
+      it('is the full schema when Vision failed to read the shelf', async () => {
+        const kit = makeKit({
+          photos: 1,
+          scenes: { 'photo-001': { text: spines(10) } },
+          pipeline: (real) => ({
+            ...real,
+            read: async () => {
+              throw new Error('vision broke');
+            },
+          }),
+        });
+        await kit.runner.start();
+        expect(results().find((r) => r.engine === 'vision_pipeline')?.outcome).toBe('error');
+        expect(schemasOf(kit)).toEqual([undefined]);
+      });
+
+      it('is not sent for a single cover, which never reads with the spine schema', async () => {
+        const kit = makeKit({ photos: 2, scenes: { 'photo-002': { text: spines(12) } } });
+        await kit.runner.start();
+        // photo-001 is the shelf and photo-002 the single
+        expect(schemasOf(kit)).toEqual([undefined, undefined]);
+      });
+
+      it('sends the rows in the usual order, and the model row is not timed with the Vision read', async () => {
+        let now = 0;
+        const kit = makeKit({
+          photos: 1,
+          scenes: { 'photo-001': { text: spines(10) } },
+          now: () => now,
+          onRead: () => {
+            now += 100; // the model's read moves the clock
+          },
+          pipeline: (real) => ({
+            ...real,
+            read: async (...args) => {
+              now += 5000; // the Vision row's own read is slow
+              return real.read(...args);
+            },
+          }),
+        });
+        await kit.runner.start();
+        const rows = results();
+        expect(rows.map((r) => r.engine)).toEqual(['apple_model', 'fm_text', 'vision_pipeline']);
+        expect(rows[0].latencyMs).toBe(100);
+        expect(rows[2].latencyMs).toBe(5000);
+      });
+    });
+
     it('corrects a single cover in every engine\'s row the way the scanner does, and a shelf in none', async () => {
       // photo-001 is a shelf and photo-002 a single. Both model tiers read the Criterion film as a book; the Vision engine says "other".
       const criterion = {
