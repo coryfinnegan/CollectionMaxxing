@@ -31,7 +31,11 @@ updates:
       - dependency-name: "expo"
       - dependency-name: "expo-*"
       - dependency-name: "@expo/*"
-      - dependency-name: "jest-expo"
+      - dependency-name: "*-expo"
+      # Native and SDK-pinned packages that `npx expo install --fix` owns, outside the expo-* names.
+      - dependency-name: "@react-native-community/*"
+      - dependency-name: "@shopify/flash-list"
+      - dependency-name: "lottie-react-native"
       - dependency-name: "react"
       - dependency-name: "react-dom"
       - dependency-name: "react-native"
