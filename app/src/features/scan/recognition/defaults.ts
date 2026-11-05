@@ -522,6 +522,8 @@ export const DEFAULT_MULTI_COVER_TUNING: MultiCoverTuning = {
 
 /**
  * A shelf read asks the picture model for the lean spine shape (title, creator, kind, confidence) only when Vision split the shot into at
- * least this many pieces and found no covers. Every real shelf in the eval has 6 or more pieces; a cover framed as a segment has 1.
+ * least this many pieces and found no covers. Measured on the recorded lines: a single cover framed as a segment (every recorded cover at
+ * 100%, 70% and 60% framing, with and without a neighbouring spine line) reaches at most 8 pieces, and the recorded shelves have 13 or
+ * more. The threshold sits strictly above the first and at or below the second, near the middle of the gap, so a cover keeps its platform.
  */
-export const SPINE_SCHEMA_MIN_PIECES = 4;
+export const SPINE_SCHEMA_MIN_PIECES = 10;
