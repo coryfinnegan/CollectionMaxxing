@@ -160,7 +160,6 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
             <Chip
               key={kind}
               label={count ? `${kindLabels[kind]} ${count}` : kindLabels[kind]}
-              accessibilityLabel={kindLabels[kind]}
               selected={filters.kind === kind}
               onPress={() => filter({ kind: filters.kind === kind ? undefined : kind })}
             />
@@ -171,19 +170,19 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
         <Chip
           label={filters.format ? formatLabels[filters.format] : 'Any format'}
-          accessibilityLabel="Filter by format"
+          accessibilityHint="Filter by format"
           selected={!!filters.format}
           onPress={() => setPanel('format')}
         />
         <Chip
           label={filters.platform ?? 'Any platform'}
-          accessibilityLabel="Filter by platform"
+          accessibilityHint="Filter by platform"
           selected={!!filters.platform}
           onPress={() => setPanel('platform')}
         />
         <Chip
           label={locationName ?? 'Any location'}
-          accessibilityLabel="Filter by location"
+          accessibilityHint="Filter by location"
           selected={!!filters.locationId}
           onPress={() => setPanel('location')}
         />
@@ -192,11 +191,10 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
           selected={!!filters.unverifiedOnly}
           onPress={() => filter({ unverifiedOnly: filters.unverifiedOnly ? undefined : true })}
         />
-        <Chip label={`Sort: ${sortLabel(filters.sort)}`} accessibilityLabel="Sort" onPress={() => setPanel('sort')} />
+        <Chip label={`Sort: ${sortLabel(filters.sort)}`} accessibilityHint="Change the sort order" onPress={() => setPanel('sort')} />
         {!fixedStatus ? (
           <Chip
             label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
-            accessibilityLabel="Needs attention"
             selected={attention}
             onPress={() => setAttention((a) => !a)}
           />
@@ -303,7 +301,6 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
               <Chip
                 label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
-                accessibilityLabel="Needs attention"
                 selected
                 onPress={() => setAttention(false)}
               />

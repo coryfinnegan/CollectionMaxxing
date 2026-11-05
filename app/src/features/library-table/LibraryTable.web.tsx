@@ -272,19 +272,19 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           ))}
           <Chip
             label={filters.format ? formatLabels[filters.format] : 'Any format'}
-            accessibilityLabel="Filter by format"
+            accessibilityHint="Filter by format"
             selected={!!filters.format}
             onPress={() => setPanel('format')}
           />
           <Chip
             label={filters.platform ?? 'Any platform'}
-            accessibilityLabel="Filter by platform"
+            accessibilityHint="Filter by platform"
             selected={!!filters.platform}
             onPress={() => setPanel('platform')}
           />
           <Chip
             label={locationName(filters.locationId ?? null) ?? 'Any location'}
-            accessibilityLabel="Filter by location"
+            accessibilityHint="Filter by location"
             selected={!!filters.locationId}
             onPress={() => setPanel('location')}
           />
@@ -297,7 +297,6 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           {!fixedStatus ? (
             <Chip
               label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
-              accessibilityLabel="Needs attention"
               selected={attention}
               onPress={() => setAttention((a) => !a)}
             />
