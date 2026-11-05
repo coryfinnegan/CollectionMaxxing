@@ -42,7 +42,8 @@ public sealed class EvalGrounder(
         IReadOnlyList<EvalReadItemInput> items,
         EvalGroundingMemo memo,
         WorkKind? printKind,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null)
     {
         if (items.Count == 0)
         {
@@ -60,7 +61,7 @@ public sealed class EvalGrounder(
         // series its neighbour carries, and a spine that found another kind than the photo's is asked again as the photo's kind.
         // They need the neighbours' answers, so they follow the memo and are never remembered by it.
         var withSeries = await RetrySeriesAsync(cleaned, remembered, cancellationToken);
-        var answers = await RetryShotKindAsync(cleaned, withSeries, printKind, cancellationToken);
+        var answers = await RetryShotKindAsync(cleaned, withSeries, printKind, kindsOfTheSnap, cancellationToken);
 
         // One book in one place, one item per photo and engine: a read that repeats a stronger read of the same release in the same
         // place is not scored, the same rule /identify applies, so the scorer sees what a person scanning this photo would have been
@@ -232,13 +233,14 @@ public sealed class EvalGrounder(
     /// The kind pass of <c>/identify</c> over the photo's reads, once the series round is done (<see cref="IdentifyGrounding.RetryShotKindAsync"/>):
     /// a spine on a shelf that found another kind than the shelf's is asked again as the shelf's kind, offered and never matched. The
     /// photo's kind is what its Matched spines agree on, or the shelf's own print. The pass has the budget <c>/identify</c> gives it
-    /// (<see cref="ShotKindRule.Budget"/>, counted from when the pass starts, on the injected clock) and the places it has
+    /// (<see cref="ShotKindRule.Budget"/>, counted from when the pass starts, on the injected clock). <paramref name="kindsOfTheSnap"/> are the kinds the other engine's reads of the same snap name (the picture model's, beside Vision's): the app sends one identify per snap holding both engines' reads, so they vote on the shot's kind and are not asked and the places it has
     /// (<see cref="ScanningOptions.Parallelism"/>), as the series round does. A pass that runs out leaves the answers as they were. The
     /// catalogue is asked after the series round is done, so it needs no gate. The answers are the photo's own and are not remembered
     /// by the run: they depend on the other spines.
     /// </summary>
     private async Task<IReadOnlyList<BarcodeResolution>> RetryShotKindAsync(
-        List<CleanItem> cleaned, IReadOnlyList<BarcodeResolution> answers, WorkKind? printKind, CancellationToken cancellationToken)
+        List<CleanItem> cleaned, IReadOnlyList<BarcodeResolution> answers, WorkKind? printKind, IReadOnlyList<WorkKind?>? kindsOfTheSnap,
+        CancellationToken cancellationToken)
     {
         using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
         using var expiry = new CancellationTokenSource(ShotKindRule.Budget, time);
@@ -247,7 +249,8 @@ public sealed class EvalGrounder(
             [.. cleaned.Select((c, i) => new ShotKindRetry(c.Facts, c.Profile, answers[i], facts => AskWithinRoundAsync(facts, gate, round.Token, cancellationToken), round.Token))],
             printKind,
             (releaseIds, token) => ShotKindRule.LocalKindsAsync(db, releaseIds, token),
-            cancellationToken);
+            cancellationToken,
+            [.. (kindsOfTheSnap ?? []).Select(kind => new ShotKindRead(Spine: true, kind, ResolutionVerdict.Pending, null))]);
     }
 
     /// <summary>

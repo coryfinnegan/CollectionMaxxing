@@ -268,4 +268,70 @@ public class ShotKindRuleTests
         Ids(ShotKindRule.Offer([Option(1, 0.9), Option(2, 0.8)], [Option(10, 0.85), Option(2, 0.7)])).ShouldBe(["r1", "r2", "r10"]);
         Ids(ShotKindRule.Offer([Option(1, 0.7), Option(2, 0.65)], [Option(10, 0.9), Option(2, 0.5)])).ShouldBe(["r10", "r1", "r2"]);
     }
+
+    // ---- the decision of 2026-11-05: the same-titled release of the shot's kind comes first ----------------------------------------
+
+    private static ResolutionOption Titled(string id, string title, WorkKind kind, double score) => new(
+        null, new ProviderRelease { Provider = "scripted", ExternalId = id, Title = title, Kind = kind }, score);
+
+    private static (string Title, WorkKind Kind)? Describe(ResolutionOption option) =>
+        option.Provider is { } provider ? (provider.Title, provider.Kind) : null;
+
+    private static string[] SameTitledFirst(WorkKind shotKind, params ResolutionOption[] options) =>
+        Ids(ShotKindRule.SameTitledOfKindFirst(options, Describe, shotKind));
+
+    [Fact]
+    public void A_same_titled_book_comes_before_the_film_on_a_shelf_of_books()
+    {
+        SameTitledFirst(WorkKind.Book, Titled("f1", "The Quiet Harbor", WorkKind.Film, 0.9), Titled("b1", "The Quiet Harbor", WorkKind.Book, 0.6))
+            .ShouldBe(["b1", "f1"]);
+    }
+
+    [Fact]
+    public void A_same_titled_film_comes_before_the_book_on_a_shelf_of_tapes()
+    {
+        SameTitledFirst(
+            WorkKind.Film,
+            Titled("b1", "The Quiet Harbor", WorkKind.Book, 0.9),
+            Titled("x1", "Another Name", WorkKind.Book, 0.8),
+            Titled("f1", "the quiet harbor!", WorkKind.Film, 0.5)).ShouldBe(["f1", "b1", "x1"]);
+    }
+
+    [Fact]
+    public void A_differently_titled_release_of_the_shots_kind_does_not_jump_a_better_one()
+    {
+        SameTitledFirst(WorkKind.Book, Titled("f1", "The Quiet Harbor", WorkKind.Film, 0.9), Titled("b1", "The Loud Harbor", WorkKind.Book, 0.95))
+            .ShouldBe(["f1", "b1"]);
+    }
+
+    [Fact]
+    public void A_best_option_already_of_the_shots_kind_is_not_reordered()
+    {
+        SameTitledFirst(WorkKind.Book, Titled("b1", "The Quiet Harbor", WorkKind.Book, 0.9), Titled("b2", "The Quiet Harbor", WorkKind.Book, 0.95))
+            .ShouldBe(["b1", "b2"]);
+    }
+
+    [Fact]
+    public void An_option_whose_title_or_kind_is_unknown_does_not_move()
+    {
+        var unknown = new ResolutionOption(Guid.NewGuid(), null, 0.6);
+        var options = new[] { Titled("f1", "The Quiet Harbor", WorkKind.Film, 0.9), unknown };
+
+        ShotKindRule.SameTitledOfKindFirst(options, Describe, WorkKind.Book).ShouldBe(options);
+    }
+
+    [Fact]
+    public void A_read_that_names_its_own_kind_is_not_reordered()
+    {
+        // Only a read asked again is reordered (Asks), and a read that names its own kind is never asked again.
+        ShotKindRule.Asks(new ShotKindRead(Spine: true, OwnKind: WorkKind.Film, ResolutionVerdict.Ambiguous, WorkKind.Film), WorkKind.Book).ShouldBeFalse();
+        ShotKindRule.Asks(new ShotKindRead(Spine: true, OwnKind: WorkKind.Book, ResolutionVerdict.Ambiguous, WorkKind.Film), WorkKind.Book).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_mixed_shelf_has_no_shot_kind_so_nothing_is_asked_or_moved()
+    {
+        Asked(null, [Matched(WorkKind.Book), Matched(WorkKind.Film), Matched(WorkKind.Book), Matched(WorkKind.Film), Ambiguous(WorkKind.Book)])
+            .ShouldAllBe(kind => kind == null);
+    }
 }

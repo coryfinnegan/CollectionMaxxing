@@ -45,10 +45,11 @@ public sealed class EvalRunScoring(
     ILogger<EvalRunScoring> logger)
 {
     /// <summary>Grounds the items one engine read in one photo, as a dry run (nothing is persisted), and keeps what the PC knows of the reading.</summary>
-    private async Task<GroundedPhoto> GroundAsync(EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken)
+    private async Task<GroundedPhoto> GroundAsync(
+        EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken, IReadOnlyList<WorkKind?>? kindsOfTheSnap = null)
     {
         var items = result.Outcome == EvalOutcome.Ok
-            ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken)
+            ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken, kindsOfTheSnap)
             : [];
         return new GroundedPhoto(
             result.PhotoId!,
@@ -93,9 +94,14 @@ public sealed class EvalRunScoring(
     {
         var grounded = new List<GroundedPhoto>(results.Count);
         var appleIndex = -1;
+
+        // The app sends one identify per snap holding both engines' reads, so the shot's kind is taken from Vision's reads and the model's
+        // together: the Vision row's kind pass is told the kinds the model's reads name (a model read names its kind, a Vision read does not).
+        var modelKinds = results.FirstOrDefault(r => r.Engine == ScanEngine.AppleModel && r.Outcome == EvalOutcome.Ok)?.Items?
+            .Select(item => item.Read.Kind).Where(kind => kind is not null).ToList();
         for (var i = 0; i < results.Count; i++)
         {
-            grounded.Add(await GroundAsync(results[i], memo, cancellationToken));
+            grounded.Add(await GroundAsync(results[i], memo, cancellationToken, results[i].Engine == ScanEngine.VisionPipeline ? modelKinds : null));
             if (results[i].Engine == ScanEngine.AppleModel)
             {
                 appleIndex = i;
