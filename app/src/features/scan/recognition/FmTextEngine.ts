@@ -73,7 +73,7 @@ export class FmTextEngine implements RecognitionEngine {
     // A cover shot depicts one item, so the model is asked for one (#504), and given a shorter time to answer; a shelf shot gets the full snap.
     const maxItems = isSingleItemShot(options.shotKind) ? 1 : settings.engine.maxItemsPerSnap;
     const result = await this.deps.vision
-      .extractItems(ocrTextOf(lines), { prompt: extractionPromptOf(settings), timeoutMs: modelTimeoutMs(settings, options, this.deps.singleShotTuning), maxItems }, onModelItem)
+      .extractItems(ocrTextOf(lines), { prompt: extractionPromptOf(settings), timeoutMs: modelTimeoutMs(settings, options, this.deps.singleShotTuning), maxItems, repeatStop: settings.local.modelRepeatStop }, onModelItem)
       .catch(() => undefined);
     const modelMs = this.now() - modelStarted;
     await emitting;

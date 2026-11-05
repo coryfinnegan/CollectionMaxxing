@@ -83,7 +83,7 @@ describe('RecognitionConfigStore', () => {
     await store.refresh();
     await selector.read(STILL, () => {});
     expect(vision.readCalls[0].options.prompt).toBe(promptOf(D));
-    expect(vision.readCalls[1].options).toEqual({ prompt: promptOf(v2), timeoutMs: 3000, maxItems: 10 });
+    expect(vision.readCalls[1].options).toEqual({ prompt: promptOf(v2), timeoutMs: 3000, maxItems: 10, repeatStop: 4 });
   });
 
   it('gives the next extractItems call the new extraction prompt', async () => {
