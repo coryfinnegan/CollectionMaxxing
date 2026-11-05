@@ -169,7 +169,7 @@ jobs:
       # Only sharded suites report (the `rest` shard has no filter): see the shard check in the `backend` job.
       - name: Upload shard report
         if: matrix.filter != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shard-report-${{ matrix.shard }}
           path: ${{ runner.temp }}/shard-report/${{ matrix.shard }}.txt
@@ -248,7 +248,7 @@ jobs:
       # skipped and none runs twice. A suite with fewer than two reports fails too, so a dropped shard cannot pass.
       - name: Download shard reports
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.backend != 'false' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: shard-report-*
           path: shard-reports
@@ -311,7 +311,7 @@ jobs:
       # Keep the failure evidence (#260): the step log plus the jest report that names the failed tests.
       - name: Upload app gate logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: app-check-logs
           path: ${{ runner.temp }}/cm-app-check/
@@ -342,7 +342,7 @@ jobs:
         run: npm run test:e2e
       - name: Upload Playwright results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-results
           path: app/test-results/

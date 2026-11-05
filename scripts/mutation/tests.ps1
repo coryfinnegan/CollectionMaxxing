@@ -290,6 +290,16 @@ It 'a compile error in the mutant is BuildError (not a mutant); a missing restor
   Should-Be (Get-TestRunStatus 1 ($started + 'The test host process crashed')) 'Error'
 }
 
+It 'a mutant the analyzers reject (CA1805: "= false" on a bool that defaults to false) is BuildError, not Error' {
+  $ca = 'C:\a\src\X\Items\Item.cs(91,47): error CA1805: Member ''EditionVerified'' is explicitly initialized to its default value (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1805) [C:\a\src\X\X.csproj]'
+  Should-Be (Get-TestRunStatus 1 $ca) 'BuildError'
+  Should-Be (Get-TestRunStatus 1 "C:\a\F.cs(3,9): error IDE0005: Using directive is unnecessary. [C:\a\P.csproj]") 'BuildError'
+}
+
+It 'an SDK, NuGet or MSBuild error is still Error even though it has an error code' {
+  Should-Be (Get-TestRunStatus 1 'C:\sdk\x.targets(266,5): error NETSDK1004: Assets file not found. [C:\a\P.csproj]') 'Error'
+  Should-Be (Get-TestRunStatus 1 'C:\a\P.csproj : error NU1101: Unable to find package X. No packages exist with this id [C:\a\P.csproj]') 'Error'
+}
 # ---- one answer from several test projects ---------------------------------------------------------------------
 It 'several test projects: the first failure kills; all must pass to survive; NoTests is skipped' {
   Should-Be (Merge-TestStatuses @('Passed', 'Failed')) 'Failed'
