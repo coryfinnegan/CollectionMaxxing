@@ -86,7 +86,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
       onItem,
       new Map(covers.map((c) => [c.piece, c.read])),
     );
-    return printKind ? { ...reading, printKind } : reading;
+    return { ...reading, ...(printKind ? { printKind } : {}), ...(covers.length > 0 ? { coverCount: covers.length } : {}) };
   }
 
   /**
@@ -151,7 +151,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
     });
     items.forEach(onItem);
     const total = this.now() - started;
-    // The lines and the pieces made of them are for the eval record only: nothing in the scanner reads them.
+    // The lines and the pieces made of them are for the eval record, and the engine selector counts the pieces to choose the shape the picture model writes.
     const ocr = { lines, pieces: pieces.map((p) => p.lines.map((l) => lines.indexOf(l))) };
     return { items, unreadableCount, engine: this.name, ocr, timings: { totalMs: total, visionMs: total } };
   }

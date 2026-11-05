@@ -149,6 +149,11 @@ export interface ReadItemsOptions {
   prompt: string;
   timeoutMs: number;
   maxItems?: number;
+  /**
+   * The shape the model writes for each item: `spine` is title, creator, kind and confidence only (a shelf of spines),
+   * `full` is every field including visibleText. Defaults to `full`.
+   */
+  schema?: 'spine' | 'full';
 }
 
 export type ReadOutcome = 'ok' | 'declined' | 'timeout' | 'contextExceeded' | 'unavailable';
