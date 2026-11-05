@@ -150,8 +150,13 @@ export interface ReadItemsOptions {
   timeoutMs: number;
   maxItems?: number;
   /**
+   * Stop the read once this many finished items in a row share one title, creator and kind (compared without case or extra spaces):
+   * the model is looping. The read ends at once with what it has and resolves `ok`. Native clamps anything below 3 up to 3.
+   */
+  repeatStop?: number;
+  /**
    * The shape the model writes for each item: `spine` is title, creator, kind and confidence only (a shelf of spines),
-   * `full` is every field including visibleText. Defaults to `full`.
+   * `full` is every field except the free-text visibleText, which native sets to the title. Defaults to `full`.
    */
   schema?: 'spine' | 'full';
 }
