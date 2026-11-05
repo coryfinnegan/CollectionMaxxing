@@ -85,6 +85,7 @@ export class AppleModelEngine implements RecognitionEngine {
     return {
       items,
       unreadableCount: result.unreadableCount,
+      ...(result.outcome === 'timeout' ? { timedOut: true as const } : {}), // only a timeout with items gets here; see above
       engine: this.name,
       timings: { totalMs: total, modelMs, visionMs: total - modelMs },
     };

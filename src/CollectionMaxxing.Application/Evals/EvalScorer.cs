@@ -277,8 +277,10 @@ public static class EvalScorer
         tally.Refusals += photo.Outcome == Refused ? 1 : 0;
         tally.Failures += photo.Outcome == Error ? 1 : 0;
         tally.Fallbacks += photo.FellBackFrom is null ? 0 : 1;
-        tally.Timeouts += photo.Outcome == Timeout ? 1 : 0;
-        if (photo.Outcome == Timeout)
+        // A model that ran out of time but kept its items is an ok row that says so: it is a timeout here, and still scores what it read.
+        var timedOut = photo.Outcome == Timeout || (photo.Outcome == Ok && photo.TimedOut == true);
+        tally.Timeouts += timedOut ? 1 : 0;
+        if (timedOut)
         {
             // The slowest reads must not vanish from p50/p95: a timeout counts at its measured time, or at the budget if larger.
             tally.Latency.Add(Math.Max(photo.LatencyMs, ModelTimeoutBudgetMs));
@@ -286,7 +288,11 @@ public static class EvalScorer
 
         if (photo.Outcome == Ok)
         {
-            tally.Latency.Add(photo.LatencyMs);
+            if (photo.TimedOut != true)
+            {
+                tally.Latency.Add(photo.LatencyMs);
+            }
+
             if (photo.FirstItemMs is { } first)
             {
                 tally.FirstItem.Add(first);
