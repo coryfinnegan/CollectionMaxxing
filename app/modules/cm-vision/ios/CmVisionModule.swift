@@ -1,8 +1,13 @@
 import ExpoModulesCore
+import Foundation
 import Vision
 
 // Deliberately thin: call Apple (Vision, Foundation Models), shape the result with CmContract, nothing else.
 // The prompt, timeouts and limits arrive from TypeScript; no prompt text lives here.
+// Expo runs every plain AsyncFunction on one serial queue. The model's reads get a queue of their own, so a text or rectangle read asked
+// just before them never makes them wait. The Vision calls stay on Expo's queue: on a queue of their own they would contend with the model.
+private let modelQueue = DispatchQueue(label: "cm-vision.model", qos: .userInitiated)
+
 public class CmVisionModule: Module {
   public func definition() -> ModuleDefinition {
     Name("CmVision")
@@ -55,7 +60,7 @@ public class CmVisionModule: Module {
         }
         promise.resolve(result)
       }
-    }
+    }.runOnQueue(modelQueue)
 
     // Spike #505: typed extraction from OCR text, no picture. Never rejects either.
     AsyncFunction("extractItems") { [weak self] (ocrText: String, options: [String: Any], promise: Promise) in
@@ -74,7 +79,7 @@ public class CmVisionModule: Module {
         }
         promise.resolve(result)
       }
-    }
+    }.runOnQueue(modelQueue)
 
     AsyncFunction("deviceStatus") { () -> [String: Any] in
       return CmContract.deviceStatus(

@@ -58,6 +58,24 @@ export interface ReadLinesOptions {
   shelf?: boolean;
 }
 
+/** The three-pass reads under way, by engine and picture. An entry lives only while its read is pending: this shares a read, it never caches one. */
+const inFlight = new WeakMap<VisionEngine, Map<string, Promise<TextLine[]>>>();
+
+/** One native three-pass read per engine and picture at a time: a caller that asks while one is pending awaits that same read. */
+function threePassRead(vision: VisionEngine, uri: string): Promise<TextLine[]> {
+  let reads = inFlight.get(vision);
+  if (!reads) inFlight.set(vision, (reads = new Map()));
+  const pending = reads.get(uri);
+  if (pending) return pending;
+  const started = vision.recognizeText(uri, { orientations: [0, 90, 270] });
+  const settled = () => {
+    if (reads.get(uri) === started) reads.delete(uri);
+  };
+  started.then(settled, settled);
+  reads.set(uri, started);
+  return started;
+}
+
 /**
  * Upright, then turned 90 and 270 degrees, so lines on spines are read too. A shelf with a pile of items lying flat is read once more
  * upside down, since alternate tapes in a pile lie the other way up; a shelf without one costs nothing extra.
@@ -66,7 +84,7 @@ export interface ReadLinesOptions {
 export async function readLines(vision: VisionEngine, uri: string, tuning: LocalTuning, options: ReadLinesOptions = {}): Promise<TextLine[]> {
   let lines: TextLine[];
   try {
-    lines = cleanLines(await vision.recognizeText(uri, { orientations: [0, 90, 270] }), tuning);
+    lines = cleanLines(await threePassRead(vision, uri), tuning);
   } catch {
     return [];
   }
