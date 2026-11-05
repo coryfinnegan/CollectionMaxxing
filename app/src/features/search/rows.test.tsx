@@ -214,7 +214,7 @@ describe('WorkRow', () => {
     r.releases[2].coverUrl = 'https://example.invalid/bluray.jpg';
     await render(<WorkRow result={r} ownedReleaseIds={new Set(['r3'])} onPress={jest.fn()} />);
 
-    expect(screen.getByLabelText('Cover of Alien').props.source).toEqual({ uri: 'https://example.invalid/bluray.jpg' });
+    expect(screen.getByLabelText('Cover of Alien', { includeHiddenElements: true }).props.source).toEqual({ uri: 'https://example.invalid/bluray.jpg' });
   });
 
   it('falls back to the first edition with art when nothing is owned', async () => {
@@ -222,7 +222,7 @@ describe('WorkRow', () => {
     r.releases[1].coverUrl = 'https://example.invalid/dvd.jpg';
     await render(<WorkRow result={r} ownedReleaseIds={new Set()} onPress={jest.fn()} />);
 
-    expect(screen.getByLabelText('Cover of Alien').props.source).toEqual({ uri: 'https://example.invalid/dvd.jpg' });
+    expect(screen.getByLabelText('Cover of Alien', { includeHiddenElements: true }).props.source).toEqual({ uri: 'https://example.invalid/dvd.jpg' });
   });
 
   it('falls back to the work art when no edition has any', async () => {
@@ -230,13 +230,23 @@ describe('WorkRow', () => {
     r.work.coverUrl = 'https://example.invalid/work.jpg';
     await render(<WorkRow result={r} ownedReleaseIds={new Set()} onPress={jest.fn()} />);
 
-    expect(screen.getByLabelText('Cover of Alien').props.source).toEqual({ uri: 'https://example.invalid/work.jpg' });
+    expect(screen.getByLabelText('Cover of Alien', { includeHiddenElements: true }).props.source).toEqual({ uri: 'https://example.invalid/work.jpg' });
   });
 
   it('falls back to a plain tile, never a text tile, when nothing has art', async () => {
     await render(<WorkRow result={alien()} ownedReleaseIds={new Set()} onPress={jest.fn()} />);
 
     expect(screen.queryByLabelText(/Cover of /)).toBeNull();
+  });
+
+  it('is spoken with its title once, first, even when it has cover art', async () => {
+    const r = alien();
+    r.work.coverUrl = 'https://example.invalid/work.jpg';
+    await render(<WorkRow result={r} ownedReleaseIds={new Set()} onPress={jest.fn()} />);
+
+    // The cover is decorative: the title names the row once, so VoiceOver and the web name never lead with Cover of.
+    expect(screen.queryByLabelText('Cover of Alien')).toBeNull();
+    expect(screen.getByLabelText('Cover of Alien', { includeHiddenElements: true }).parent?.props.accessibilityElementsHidden).toBe(true);
   });
 
   it('badges the row when any edition is owned', async () => {

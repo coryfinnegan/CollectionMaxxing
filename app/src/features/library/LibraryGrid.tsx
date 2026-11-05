@@ -195,7 +195,6 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
         {!fixedStatus ? (
           <Chip
             label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
-            accessibilityLabel="Needs attention"
             selected={attention}
             onPress={() => setAttention((a) => !a)}
           />
@@ -302,7 +301,6 @@ function Grid({ libraryId, title, fixedStatus, hideTitle }: LibraryGridProps & {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
               <Chip
                 label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
-                accessibilityLabel="Needs attention"
                 selected
                 onPress={() => setAttention(false)}
               />
@@ -415,6 +413,7 @@ const styles = StyleSheet.create((theme) => ({
   chipRow: { gap: theme.spacing.sm },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
   snackbarPad: { padding: theme.spacing.lg },
-  tilePressable: { gap: theme.spacing.xs },  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs },
+  tilePressable: { gap: theme.spacing.xs },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs },
   tile: (width: number) => ({ width }),
 }));

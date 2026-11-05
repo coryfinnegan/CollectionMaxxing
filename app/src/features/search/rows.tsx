@@ -169,7 +169,10 @@ export function WorkRow({
         testID={testID}
       >
         {uri ? (
-          <Cover title={work.title} uri={uri} width={COVER_WIDTH} />
+          // Decorative here: the title beside it names the row, so the cover's own label would say it twice.
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden>
+            <Cover title={work.title} uri={uri} width={COVER_WIDTH} />
+          </View>
         ) : (
           // No art anywhere: a plain tile, never a text stand-in for the cover (#440).
           <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.tile} />

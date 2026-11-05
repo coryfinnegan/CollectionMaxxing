@@ -145,11 +145,11 @@ describe('LibraryView grid', () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     expect(await screen.findByText('Nothing needs attention.')).toBeTruthy();
     expect(screen.queryByText('The Matrix')).toBeNull();
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     expect(await screen.findByText('The Matrix')).toBeTruthy();
   });
 
@@ -157,7 +157,7 @@ describe('LibraryView grid', () => {
     await renderWithProviders(<LibraryView title="Library" />);
     await screen.findByText('The Matrix');
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     await screen.findByText('Nothing needs attention.');
 
     expect(screen.getByTestId('needs-attention').props.keyboardShouldPersistTaps).toBe('handled');
@@ -167,7 +167,7 @@ describe('LibraryView grid', () => {
     await renderWithProviders(<LibraryView title="Wishlist" fixedStatus="wishlist" />);
 
     expect(await screen.findByText('Blade Runner')).toBeTruthy();
-    expect(screen.queryByLabelText('Needs attention')).toBeNull();
+    expect(screen.queryByLabelText(/^Needs attention/)).toBeNull();
   });
 
   it('badges unverified editions and filters to just those', async () => {

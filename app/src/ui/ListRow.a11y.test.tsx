@@ -15,7 +15,9 @@ describe('a pressable list row', () => {
   });
 
   it('keeps its chevron out of the spoken name', async () => {
-    await render(<ListRow title="Living room" chevron onPress={() => undefined} />);
-    expect(screen.getByRole('button', { name: 'Living room' })).toBeTruthy();
+    await render(<ListRow title="Living room" subtitle="3 shelves" chevron onPress={() => undefined} />);
+    expect(screen.queryByText('›')).toBeNull();
+    expect(screen.getByText('›', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByRole('button').props.accessibilityLabel).toBeUndefined();
   });
 });

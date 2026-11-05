@@ -65,11 +65,11 @@ describe('LibraryTable', () => {
     await renderWithProviders(<LibraryTable title="Library" />);
     expect(await screen.findByText('Super Mario 64')).toBeTruthy();
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     expect(await screen.findByText('Nothing needs attention.')).toBeTruthy();
     expect(screen.queryByText('Super Mario 64')).toBeNull();
 
-    await fireEvent.press(screen.getByLabelText('Needs attention'));
+    await fireEvent.press(screen.getByLabelText(/^Needs attention/));
     expect(await screen.findByText('Super Mario 64')).toBeTruthy();
   });
 

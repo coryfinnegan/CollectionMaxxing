@@ -297,7 +297,6 @@ function Table({ libraryId, title, fixedStatus }: LibraryTableProps & { libraryI
           {!fixedStatus ? (
             <Chip
               label={attentionItems.length > 0 ? `Needs attention ${attentionItems.length}` : 'Needs attention'}
-              accessibilityLabel="Needs attention"
               selected={attention}
               onPress={() => setAttention((a) => !a)}
             />
