@@ -12,7 +12,7 @@ import type { SseMessage } from '@/lib/sse';
 import { connectSse } from '@/lib/sse';
 import { useCardsStore, type CardEvent } from '../cards/cardsStore';
 import type { FlushDeps } from '../tray/trayStore';
-import { isDiscarded } from './discards';
+import { isDiscarded, pruneDiscarded, withoutDiscarded } from './discards';
 import { useAutoCommitUndoStore } from './autoCommitUndo';
 import { seedFromSnapshot, seedSessionCounters } from './sessionCounters';
 
@@ -106,6 +106,21 @@ export function flushDeps(
 /** The snapshot of a session, used to resume after the app was killed. */
 export async function loadSession(sessionId: string, since?: number): Promise<CandidateDto[]> {
   return (await loadSessionSnapshot(sessionId, since)).candidates;
+}
+
+/**
+ * Puts a loaded session into the cards: the snapshot confirms discarded and rejected candidates, it never brings one back.
+ * A rejected candidate that already has a card (the server skipped it after it was drawn) loses the card.
+ */
+export function mergeSnapshotIntoCards(candidates: readonly CandidateDto[]): void {
+  pruneDiscarded(candidates);
+  const cards = useCardsStore.getState();
+  const kept = withoutDiscarded(candidates);
+  for (const c of kept) if (c.decision === 'rejected') cards.remove(c.id);
+  cards.merge(
+    kept.filter((c) => c.decision !== 'rejected'),
+    { announce: false },
+  );
 }
 
 /** The whole session: its candidates plus the context Review starts from (location, status, media, channel). */

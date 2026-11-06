@@ -13,7 +13,7 @@ import { useActiveLibraryId } from '@/features/locations/useLocations';
 import { radius, spacing, useColors } from '@/theme/tokens';
 import { Button, Card, Cover, EmptyState, FormatBadge, Screen, Text } from '@/ui';
 import { useCardActions } from '../session/useCardActions';
-import { loadSession } from '../session/sessionApi';
+import { loadSession, mergeSnapshotIntoCards } from '../session/sessionApi';
 import { useLibraryRole } from '../session/useScanSession';
 import { getTrayStore, useTrayValue } from '../tray/storage';
 import { uploadCover, useCoverStore } from '../detail/coverPhoto';
@@ -43,7 +43,7 @@ export function ResultDetail({ id }: { id: string }) {
   useEffect(() => {
     if (candidate || !sessionId) return;
     void loadSession(sessionId)
-      .then((all) => useCardsStore.getState().merge(all, { announce: false }))
+      .then(mergeSnapshotIntoCards)
       .catch(() => undefined);
   }, [candidate, sessionId]);
 

@@ -160,10 +160,9 @@ describe('a candidate the server skips', () => {
     expect(Object.keys(useCardsStore.getState().byId)).toEqual([]);
   });
 
-  it('a skipped candidate that arrives by the poll leaves the scanner too', () => {
+  it('a later skip of the same card leaves the scanner whatever its change number', () => {
     const pending = candidate({ changeSeq: 1 });
     send(pending);
-    // the poll hands changed candidates to the same router, as candidate.updated
     send({ ...pending, decision: 'rejected', changeSeq: 3 });
     expect(useCardsStore.getState().byId[pending.id]).toBeUndefined();
   });
