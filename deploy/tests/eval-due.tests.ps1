@@ -141,12 +141,15 @@ function Set-EvalResults {
 
 function New-EvalPhoneRun {
     <# The files of one phone run that was scored: its run.json (Done) and its kept readings, and the score of it. -State Open is a run still going. #>
-    param([string]$Id = 'phone-run-2', [string]$Start = $script:EvalRun2Start, [string]$State = 'Done', [int]$Failing = 3, [string]$Verdict = 'fail', [int]$PhotosRun = 32, [int]$PhotosInSet = 32)
+    param([string]$Id = 'phone-run-2', [string]$Start = $script:EvalRun2Start, [string]$State = 'Done', [int]$Failing = 3, [string]$Verdict = 'fail', [int]$PhotosRun = 32, [int]$PhotosInSet = 32, [string]$BuildNumber = '')
     $measures = @(1..$Failing | ForEach-Object { @{ name = "m$_"; status = 'fail' } }) + @(@{ name = 'ok1'; status = 'pass' }, @{ name = 'ok2'; status = 'pass' })
+    # Phones from before the build number leave it out of the device record.
+    $device = @{ model = 'iPhone18,1'; osVersion = '26.0'; appVersion = '1.2.1' }
+    if ($BuildNumber) { $device.buildNumber = $BuildNumber }
     @{
-        Header = @{ runId = $Id; openedAt = $Start; state = $State; partial = $false; finishedAt = $null; photos = @(@{ id = 'shelf-01'; set = 'shelf' }) }
+        Header = @{ runId = $Id; openedAt = $Start; state = $State; partial = $false; finishedAt = $null; device = $device; photos = @(@{ id = 'shelf-01'; set = 'shelf' }) }
         # readAt is also written inside a photo, where it must not be read.
-        Kept   = @{ runId = $Id; readAt = $Start; partial = $false; photos = @(@{ photoId = 'shelf-01'; results = @(@{ readAt = '1999-01-01T00:00:00Z' }) }) }
+        Kept   = @{ runId = $Id; readAt = $Start; partial = $false; device = $device; photos = @(@{ photoId = 'shelf-01'; results = @(@{ readAt = '1999-01-01T00:00:00Z' }) }) }
         # The PC scores the readings again on every new server build, so the score is of a later run that came from this one.
         Score  = @{ runId = 'regrounded-after'; regroundedFrom = @{ runId = $Id; readAt = $Start }; gate = @{ verdict = $Verdict; measures = $measures }; photosRun = $PhotosRun; photosInSet = $PhotosInSet }
     }
@@ -441,6 +444,62 @@ Test-Case 'eval-due: a finished phone run after build N closes the marked issue,
         Assert-Match $comment 'Report: \S*evals[\\/]results[\\/]report\.md$'
         Assert-False ($comment -match '["\r\n]') 'one plain line'
         Assert-Match $r.Log 'closed issue #190'
+    }
+    finally { Remove-TestRoot $root }
+}
+
+# Builds 148 and 150 are both uploaded and both changed recognition. The phone's run started at 19:40Z, after 150 finished at 19:17Z,
+# so the timing rule alone would say it ran build 150.
+function Get-EvalBuildStory {
+    @((New-EvalBuild 131 '2026-11-01T14:49:46Z'), (New-EvalBuild 148 '2026-11-01T16:49:53Z' -Files @('app/src/features/scan/shelf.ts')), (New-EvalBuild 150 '2026-11-01T19:17:00Z' -Files @('app/src/features/scan/shelf.ts')))
+}
+
+function Invoke-EvalBuildNumberPass {
+    param([string]$Root, [string]$BuildNumber)
+    $run = New-EvalPhoneRun -Id 'phone-run-3' -Start '2026-11-01T19:40:00Z' -BuildNumber $BuildNumber
+    Set-EvalResults -Root $Root -Header $run.Header -Kept $run.Kept -Score $run.Score
+    $issues = [System.Collections.Generic.List[object]]::new(); $issues.Add((New-EvalMarkedIssue -Number 190 -Build 150 -Created '2026-11-01T19:20:00Z'))
+    $m = New-EvalMachine @{ Builds = (Get-EvalBuildStory); Issues = $issues }
+    $null = Invoke-EvalPass -Root $Root
+    $m
+}
+
+Test-Case 'eval-due: a run that reports build 148 while 150 is newest leaves the build-150 issue open' {
+    $root = New-EvalRoot
+    try {
+        $m = Invoke-EvalBuildNumberPass -Root $root -BuildNumber '148.1'
+        Assert-Equal 'open' $m.Issues[0].state 'the run read build 148, not 150, so build 150 is still untested'
+        Assert-Equal 0 @(Get-EvalWrites | Where-Object { $_.Arguments[1] -eq 'close' }).Count
+    }
+    finally { Remove-TestRoot $root }
+}
+
+Test-Case 'eval-due: a run that reports build 150 closes the build-150 issue, and the comment says which build it reported' {
+    $root = New-EvalRoot
+    try {
+        $m = Invoke-EvalBuildNumberPass -Root $root -BuildNumber '150.1'
+        Assert-Equal 'closed' $m.Issues[0].state
+        Assert-Match $m.Issues[0].closeComment 'reported by TestFlight build 150'
+    }
+    finally { Remove-TestRoot $root }
+}
+
+Test-Case 'eval-due: a run without a build number uses the timing rule' {
+    $root = New-EvalRoot
+    try {
+        $m = Invoke-EvalBuildNumberPass -Root $root -BuildNumber ''
+        Assert-Equal 'closed' $m.Issues[0].state 'the run started after build 150 finished'
+        Assert-False ($m.Issues[0].closeComment -match 'reported by') 'it reported nothing, so the comment names no build'
+    }
+    finally { Remove-TestRoot $root }
+}
+
+Test-Case 'eval-due: a reported build that is not among the uploaded builds falls back to the timing rule' {
+    $root = New-EvalRoot
+    try {
+        $m = Invoke-EvalBuildNumberPass -Root $root -BuildNumber '999.1'
+        Assert-Equal 'closed' $m.Issues[0].state
+        Assert-False ($m.Issues[0].closeComment -match 'reported by')
     }
     finally { Remove-TestRoot $root }
 }
