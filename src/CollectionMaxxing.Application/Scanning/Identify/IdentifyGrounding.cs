@@ -244,6 +244,13 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         if (unsure)
         {
+            // An author's name whose best release is titled with that name is asked once more with its creator as the title (a
+            // fragment otherwise: FragmentReads); what that finds is offered, and nothing found leaves the answer as it was.
+            if (spine && facts.Kind is null && NamesItsOwnCreator(facts, answer, local) && CreatorSwap.For(facts) is { } swappedName)
+            {
+                attempts.Add(new Attempt(swappedName, new TraceStep("swapped", $"{swappedName.Title} (creator as read; title read: {facts.Title})", 0)));
+            }
+
             return attempts;
         }
 
@@ -270,6 +277,22 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         return attempts;
+    }
+
+    /// <summary>Whether the read's best release is titled with the read's own title, and that title is one of the release's creators (<see cref="FragmentReads.NamesItsOwnCreator"/>).</summary>
+    private static bool NamesItsOwnCreator(ReadFacts facts, BarcodeResolution answer, LocalPool? local)
+    {
+        if (answer.Options.Count == 0)
+        {
+            return false;
+        }
+
+        var best = answer.Options[0]; // best first
+        var pool = local ?? LocalPool.Empty;
+        var creators = best.LocalReleaseId is { } id
+            ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => item.Scoring.Creators).FirstOrDefault() ?? []
+            : best.Provider?.Creators ?? [];
+        return FragmentReads.NamesItsOwnCreator(facts.SearchText, TitleOf(best, pool), creators);
     }
 
     /// <summary>
