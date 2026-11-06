@@ -459,7 +459,7 @@ describe('config reaching the model', () => {
       engine: { modelTimeoutMs: 1234, maxItemsPerSnap: 5 },
     };
     await s.read(STILL, () => {});
-    expect(vision.readCalls[0].options).toEqual({ prompt: promptOf(S), timeoutMs: S.engine.modelTimeoutMs, maxItems: S.engine.maxItemsPerSnap });
-    expect(vision.readCalls[1].options).toEqual({ prompt: 'Read the shelf.\n\nBe careful.', timeoutMs: 1234, maxItems: 5 });
+    expect(vision.readCalls[0].options).toEqual({ prompt: promptOf(S), timeoutMs: S.engine.modelTimeoutMs, maxItems: S.engine.maxItemsPerSnap, repeatStop: 4 });
+    expect(vision.readCalls[1].options).toEqual({ prompt: 'Read the shelf.\n\nBe careful.', timeoutMs: 1234, maxItems: 5, repeatStop: 4 });
   });
 });

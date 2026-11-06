@@ -48,6 +48,50 @@ describe('AppleModelEngine with lean items', () => {
   });
 });
 
+describe('AppleModelEngine with a cover whose visibleText is its title', () => {
+  it('still boxes the cover from the Vision lines that match its title and keeps its other fields', async () => {
+    const cover = modelItem('Dune', 'Dune', 0, { creator: 'Frank Herbert', platform: 'Nintendo Switch', editionMarks: "Collector's Edition", completeness: 'boxed', confidence: 'medium' });
+    const vision = new RecordingVision({ [STILL.uri]: { text: lines, read: okRead([cover]) } });
+    const reading = await new AppleModelEngine(deps(vision)).read(STILL, () => {}, { shotKind: 'single_cover' });
+    const [item] = reading.items;
+    expect(item.box).toBeDefined();
+    expect(item.text).toBe('Dune');
+    expect(item.creator).toBe('Frank Herbert');
+    expect(item.platform).toBe('Nintendo Switch');
+    expect(item.edition).toBe("Collector's Edition");
+    expect(item.completeness).toBeDefined();
+    expect(item.confidence).toBe('medium');
+  });
+});
+
+describe('AppleModelEngine adding matched lines to a cover title', () => {
+  it('text gains a matched Vision line the title does not already contain', async () => {
+    const cover = modelItem('Dune', 'Dune', 0);
+    const vision = new RecordingVision({ [STILL.uri]: { text: [line('DUNES', 0.1, 0.1, 0.3, 0.1)], read: okRead([cover]) } });
+    const [item] = (await new AppleModelEngine(deps(vision)).read(STILL, () => {}, { shotKind: 'single_cover' })).items;
+    expect(item.box).toBeDefined();
+    expect(item.text).toBe('Dune DUNES');
+  });
+});
+
+describe('AppleModelEngine stopping a looping read', () => {
+  it('sends the repeat-stop tuning on a cover read and on a shelf read, spine or full', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: { text: lines, read: okRead([modelItem('Dune', 'Dune', 0)]) } });
+    const engine = new AppleModelEngine(deps(vision));
+    await engine.read(STILL, () => {}, { shotKind: 'single_cover' });
+    await engine.read(STILL, () => {}, { shotKind: 'shelf_segment' });
+    await engine.read(STILL, () => {}, { shotKind: 'shelf_segment', modelSchema: 'spine' });
+    expect(vision.readCalls.map((c) => c.options.repeatStop)).toEqual([4, 4, 4]);
+  });
+
+  it('sends a changed tuning value', async () => {
+    const vision = new RecordingVision({ [STILL.uri]: { text: lines, read: okRead([modelItem('Dune', 'Dune', 0)]) } });
+    const settings = { ...DEFAULT_RECOGNITION_SETTINGS, local: { ...DEFAULT_RECOGNITION_SETTINGS.local, modelRepeatStop: 6 } };
+    await new AppleModelEngine({ vision, settings: () => settings, newId: testIds }).read(STILL, () => {});
+    expect(vision.readCalls[0].options.repeatStop).toBe(6);
+  });
+});
+
 describe('AppleModelEngine running out of time', () => {
   const dune = [modelItem('Dune', 'Dune', 0)];
 
