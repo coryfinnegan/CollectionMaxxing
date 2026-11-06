@@ -9,12 +9,12 @@ namespace CollectionMaxxing.Application.Evals;
 /// when it moved the wrong way by more than run-to-run noise explains. Three kinds of number, three rules:
 /// <list type="bullet">
 /// <item>A <b>rate</b> (a percentage: recall, precision, top-1, top-3, the accuracies, <c>review_rate</c>, <c>auto_add_precision</c> and the
-/// per-kind slices) may move 2 points. On the rows built on the on-device model (<c>apple_model</c>, <c>fm_text</c>), which answer a little
+/// per-kind slices) may move 2 points. On the row built on the on-device model (<c>apple_model</c>), which answers a little
 /// differently every run, it may move two standard errors of a share of the items it is measured over if that is more:
 /// <c>max(2, 2 x 100 x sqrt(p x (1 - p) / n))</c>, with <c>p</c> the baseline value and <c>n</c> the items in this run (<see cref="Denominators"/>).
 /// A baseline of exactly 0 or 100 has no spread, so <c>p</c> is smoothed there: <c>1 / (n + 2)</c> and <c>(n + 1) / (n + 2)</c>. The deterministic Vision
 /// row (<c>vision_pipeline</c>) and the combined row the app shows (<c>apple_vision</c>) rerun to the same numbers, so they keep the plain 2 points,
-/// as does a rate with no <c>n</c>.</item>
+/// as does a rate with no <c>n</c>. The text tier (<c>fm_text</c>) is not judged at all (<see cref="Unjudged"/>).</item>
 /// <item>A <b>time</b> is a regression only when this run took more than <see cref="MaxTimeRatio"/> times the baseline: a phone's speed moves with its
 /// heat and load. Only the scanner's speed is judged: <c>time_to_first_results_p50</c>, the median over photos of each photo's own capture to its
 /// results, which one cold first read does not move. Its p95 shows that read and is reported, not judged. <c>total_time_to_trustworthy</c> is the
@@ -65,12 +65,22 @@ public static class EvalRegression
 
     /// <summary>
     /// The rows that answer differently on a rerun of the same photos, so a rate on them moves by chance and the sample-size allowance applies. Measured between two
-    /// runs of one build: <c>apple_model</c> and <c>fm_text</c> moved up to 17.8 points on a rate (auto-add precision over 13 auto-adds); <c>vision_pipeline</c> (both sets)
+    /// runs of one build: <c>apple_model</c> moved up to 17.8 points on a rate (auto-add precision over 13 auto-adds); <c>vision_pipeline</c> (both sets)
     /// and <c>apple_vision.single</c> moved 0.00 on every rate, and <c>apple_vision.shelf</c> at most 1.98. On those rows the allowance would only hide a real drop.
     /// </summary>
     private static readonly HashSet<string> NondeterministicEngines =
     [
-        EnumText.ToText(ScanEngine.AppleModel), EnumText.ToText(ScanEngine.FmText),
+        EnumText.ToText(ScanEngine.AppleModel),
+    ];
+
+    /// <summary>
+    /// Rows whose numbers are published and kept in the baseline for reading, but never judged. The text tier (<c>fm_text</c>) is eval-only (the scanner no longer uses it): on identical
+    /// OCR one photo swung from 40 to 2 items, and on build 154 its auto-add precision moved 66.67 to 33.33 with the same 6 right, so no allowance fits it. This is not
+    /// part of the threshold fingerprint (<see cref="EvalThresholds"/>), so the baseline's hash stays valid.
+    /// </summary>
+    private static readonly HashSet<string> Unjudged =
+    [
+        EnumText.ToText(ScanEngine.FmText),
     ];
 
     private static readonly HashSet<string> LowerIsBetter =
@@ -238,13 +248,13 @@ public static class EvalRegression
     }
 
     /// <summary>
-    /// Whether <see cref="Check"/> judges the metric. The raw counts, the reported times (<see cref="Reported"/>) and a retired name (<see cref="Retired"/>)
-    /// are not judged (and not counted as compared).
+    /// Whether <see cref="Check"/> judges the metric. The raw counts, the reported times (<see cref="Reported"/>), a retired name (<see cref="Retired"/>)
+    /// and every number of an unjudged row (<see cref="Unjudged"/>) are not judged (and not counted as compared).
     /// </summary>
     public static bool IsJudged(string metric)
     {
         var leaf = Leaf(metric);
-        return !Counts.Contains(leaf) && !Reported.Contains(leaf) && !Retired.ContainsKey(leaf);
+        return !Counts.Contains(leaf) && !Reported.Contains(leaf) && !Retired.ContainsKey(leaf) && !Unjudged.Contains(Engine(metric));
     }
 
     /// <summary>Whether the metric is a rate: a percentage that is a share of some number of items.</summary>
