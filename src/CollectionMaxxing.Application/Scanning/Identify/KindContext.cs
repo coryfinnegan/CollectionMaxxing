@@ -3,7 +3,8 @@ using CollectionMaxxing.Domain.Catalog;
 namespace CollectionMaxxing.Application.Scanning.Identify;
 
 /// <summary>
-/// The kind a snap is of: what its own print says when no read names that kind, else the kind its reads agree on. The Vision tier
+/// The kind a snap is of: what its own print says when no read names that kind, else the kind its reads agree on, else (when the reads
+/// that name a kind split and one names the print's kind) what the print says. The Vision tier
 /// reads text, not kinds, so its items name none and the server searches every kind; a same-titled book then often sorts above the
 /// film on the shelf. A read that names no kind is shown the snap's kind's releases first when they score level with the others. The
 /// same rule serves <c>/identify</c> and the eval grounder, because both clean a snap's items through <c>IdentifyCleaning.Clean</c>,
@@ -22,10 +23,10 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// The phone's reading of the shelf's own print (<c>shelfKind.ts</c>) speaks only when no read of the snap names a kind in the
 /// print's family. The phone reads the print only when at least two of the shelf's spines print one kind, so one DVD among books
 /// makes no print at all. A read that names the printed kind shows the engines can tell that kind apart on this shelf, so their
-/// kinds stand and the reads decide as they would without a print, except over a split: when the reads that name a kind have no clear
-/// majority and one names the printed kind, the print is still the snap's kind (<see cref="Of"/>), so the reads that name no kind are
-/// shown it first. No read loses a kind for that, because the print has not spoken (<see cref="PrintThatSpeaks"/>). When no read names it (the picture model,
-/// guessing from the picture, called every tape on one shelf a book) the print wins: it is the snap's kind, and it takes the
+/// kinds stand and the reads decide as they would without a print, except over a split: when the reads that name a kind have no
+/// clear majority and one names the printed kind, the print is still the snap's kind (<see cref="Of"/>), so the reads that name no
+/// kind are shown it first. No read loses a kind for that, because the print has not spoken (<see cref="PrintThatSpeaks"/>). When no
+/// read names it (the picture model, guessing from the picture, called every tape on one shelf a book) the print wins: it is the snap's kind, and it takes the
 /// kind off each read that denies it (<see cref="IdentifyCleaning"/>), so the type term no longer counts for that read and every
 /// provider is asked. That changes how the read scores, not only the order of releases that tie. The print is already the one
 /// kind it names: print that names two kinds (a film format beside a bestseller line) reaches here as none.
@@ -65,6 +66,7 @@ public static class KindContext
             return dominant;
         }
 
+        // The family check is implied by a print that did not speak with a real kind; it states the intent.
         return printKind is { } real && real != WorkKind.Other && materialised.Any(kind => kind is { } named && InFamily(named, real))
             ? Family(real)
             : null;

@@ -161,6 +161,7 @@ public class KindContextTests
         KindContext.Of(WorkKind.Film, [WorkKind.Film, WorkKind.Book, WorkKind.Book, WorkKind.Game]).ShouldBe(WorkKind.Film);
         KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBe(WorkKind.Film);
         KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Tv]).ShouldBe(WorkKind.Film);
+        KindContext.Of(WorkKind.Tv, [WorkKind.Book, WorkKind.Tv]).ShouldBe(WorkKind.Film); // a family is reported as film, as when the print speaks
     }
 
     [Fact]

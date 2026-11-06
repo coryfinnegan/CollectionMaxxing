@@ -31,9 +31,9 @@ public readonly record struct ShotKindRead(bool Spine, WorkKind? OwnKind, Resolu
 /// The shot's kind is <see cref="KindContext.Of"/> over what the reads say the shot is of: a read that names a kind says it, and a
 /// Matched spine that names none says the kind of its best release. The print's kind wins when no read says one of its family
 /// (<see cref="KindContext.PrintThatSpeaks"/>), else it is the kind at least <see cref="KindContext.MinReads"/> of them agree on at
-/// <see cref="KindContext.MinShare"/>. When the reads that name a kind split with
-/// no such majority and one names the print's kind, the print's kind is the shot's (<see cref="KindContext.Of"/>). So a photo whose reads name their kinds (the picture model's) gets the kind the cleaning
-/// gave its kind-less reads, and the Vision tier's reads, which name none, speak through what they matched. The signal is Matched
+/// <see cref="KindContext.MinShare"/>. When the reads that name a kind split with no such majority and one names the print's kind,
+/// the print's kind is the shot's (<see cref="KindContext.Of"/>). So a photo whose reads name their kinds (the picture model's) gets
+/// the kind the cleaning gave its kind-less reads, and the Vision tier's reads, which name none, speak through what they matched. The signal is Matched
 /// on purpose: a high score is not it (the Vision reads of a shelf of tapes ground to books at 0.9 and over), while a Matched spine
 /// has cleared the lead the scorer needs for a sure thing. On a shelf of films the Matched spines are none or one, so the rule
 /// never says "book" there.
@@ -175,8 +175,9 @@ public static class ShotKindRule
     }
 
     /// <summary>
-    /// The decision of 2026-11-05: on a shot whose kind is clear (<see cref="KindContext.MinReads"/> reads at
-    /// <see cref="KindContext.MinShare"/>, else no kind and no call here), a kind-less read's best option of another kind gives way to a
+    /// The decision of 2026-11-05: on a shot whose kind is clear (<see cref="KindContext.Of"/>: the print's kind
+    /// when it speaks, else <see cref="KindContext.MinReads"/> reads at <see cref="KindContext.MinShare"/>, else the print over a split;
+    /// with no kind there is no call here), a kind-less read's best option of another kind gives way to a
     /// release of the shot's kind that has the same normalised title (<see cref="TitleNormalizer.Normalize"/>), whatever its score.
     /// It reverses the earlier choice that a same-titled book is not a better answer than the right film of a DVD among books: the
     /// eval's wrong-kind rows (19 of the combined false positives) are the right title in the wrong kind, and the shelf's own kind is

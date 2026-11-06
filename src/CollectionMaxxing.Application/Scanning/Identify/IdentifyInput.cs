@@ -184,7 +184,7 @@ internal static class IdentifyCleaning
     /// <summary>
     /// Cleans the items of one snap, and tells each read that names no kind what kind the snap is of (<see cref="KindContext"/>): what
     /// the shelf's own print said (<paramref name="printKind"/>) when no read of the snap names that kind, else the kind the rest of
-    /// the snap agreed on. When the print speaks, a read whose own kind it denies loses that kind
+    /// the snap agreed on, else the print's kind when the reads that name a kind split and one names it. When the print speaks, a read whose own kind it denies loses that kind
     /// (<see cref="WithoutKindsThePrintDenies"/>), which changes how that read scores. The eval grounder cleans through here too, so the
     /// live path and the eval run treat a shelf's reads by one rule. A print kind belongs to a shelf: on a single cover or an edition
     /// proof the read's own kind already carries what that one item's print said, so this ignores it.
