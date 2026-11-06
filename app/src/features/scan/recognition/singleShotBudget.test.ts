@@ -73,18 +73,18 @@ describe('the model budget of a single cover', () => {
       return { vision, selector: new EngineSelector({ vision, settings: () => S, newId: testIds }) };
     };
 
-    it('falls back to the OCR-text tier as soon as a single cover\'s budget is spent, as a timeout does', async () => {
+    it('falls back to Vision text, without asking the text tier, as soon as a single cover\'s budget is spent, as a timeout does', async () => {
       const { vision, selector: s } = selector();
       let reading: Awaited<ReturnType<typeof s.read>> | undefined;
       void s.read(STILL, () => {}, SINGLE_COVER).then((r) => (reading = r));
       await jest.advanceTimersByTimeAsync(DEFAULT_SINGLE_SHOT_TUNING.modelTimeoutMs - 1);
       expect(reading).toBeUndefined();
       await jest.advanceTimersByTimeAsync(1);
-      expect(reading?.engine).toBe('fm_text');
+      expect(reading?.engine).toBe('vision_pipeline');
       expect(reading?.fellBackFrom).toBe('timeout');
-      expect(reading?.items.map((i) => i.title)).toEqual(['Dune']);
+      expect(reading?.items.length).toBeGreaterThan(0);
       expect(vision.readCalls).toHaveLength(1);
-      expect(vision.extractCalls).toHaveLength(1);
+      expect(vision.extractCalls).toHaveLength(0);
     });
 
     it('lets a shelf shot take the whole server budget', async () => {

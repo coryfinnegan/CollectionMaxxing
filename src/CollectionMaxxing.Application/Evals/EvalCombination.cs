@@ -63,11 +63,11 @@ namespace CollectionMaxxing.Application.Evals;
 /// <para>
 /// A single cover or loose item is read by the model alone (<c>EngineSelector.read</c>), and when the model fails there (a timeout
 /// with nothing read, a refusal, a context overflow or an error: <c>ModelUnusableError</c> and the catch around the picture read) the
-/// scanner tries the text tier (<c>fm_text</c>) and then Vision's own reading. So the combined row of such a photo is the <c>fm_text</c>
-/// row when it answered, else the <c>vision_pipeline</c> row when it answered, either with the model's failure as its
+/// scanner reads with Vision (the text tier, <c>fm_text</c>, is an eval-only row and the scanner never reads with it). So the
+/// combined row of such a photo is the <c>vision_pipeline</c> row when it answered, with the model's failure as its
 /// <c>FellBackFrom</c> and the model row's own time as its time (the phone times <c>selector.read</c>, which runs the fallback inside
-/// that call, so it is already the whole wait); only when neither answered is it the model's failure,
-/// as the model's own row says. A model that answered, even with nothing, is the combined row whole. The gate's
+/// that call, so it is already the whole wait); only when Vision did not answer is it the model's failure,
+/// as the model's own row says. Whatever the <c>fm_text</c> row read is not used. A model that answered, even with nothing, is the combined row whole. The gate's
 /// <c>model_timeouts</c> still reads the model's own row.
 /// </para>
 /// </remarks>
@@ -76,7 +76,6 @@ public static class EvalCombination
     /// <summary>The engine name the combination is reported under, next to the three the phone reads.</summary>
     public const string Engine = "apple_vision";
 
-    private const string TextEngine = "fm_text";
     private const string Ok = "ok";
     private const string Timeout = "timeout";
     private const string Refused = "refused";
@@ -98,18 +97,12 @@ public static class EvalCombination
             visionRows.TryAdd(photo.PhotoId, photo);
         }
 
-        var textRows = new Dictionary<string, GroundedPhoto>(StringComparer.Ordinal);
-        foreach (var photo in photos.Where(p => p.Engine == TextEngine))
-        {
-            textRows.TryAdd(photo.PhotoId, photo);
-        }
-
         var combined = new List<GroundedPhoto>();
         foreach (var apple in photos.Where(p => p.Engine == M3Gate.Engine))
         {
             if (truths.TryGetValue(apple.PhotoId, out var truth) && visionRows.TryGetValue(apple.PhotoId, out var vision))
             {
-                combined.Add(Combine(apple, textRows.GetValueOrDefault(apple.PhotoId), vision, IsShelfShot(truth)) with { TimedOut = null }); // the model row reports its own timeouts; the combined row is not one
+                combined.Add(Combine(apple, vision, IsShelfShot(truth)) with { TimedOut = null }); // the model row reports its own timeouts; the combined row is not one
             }
         }
 
@@ -120,11 +113,11 @@ public static class EvalCombination
     private static bool IsShelfShot(TruthEntry truth) =>
         truth.Set == GoldenSets.Shelf && truth.ShotKind is not ("single_cover" or "loose_item");
 
-    private static GroundedPhoto Combine(GroundedPhoto apple, GroundedPhoto? text, GroundedPhoto vision, bool shelf)
+    private static GroundedPhoto Combine(GroundedPhoto apple, GroundedPhoto vision, bool shelf)
     {
         if (!shelf)
         {
-            return apple.Outcome == Ok ? apple with { Engine = Engine } : AfterTheModelFellThrough(apple, text, vision);
+            return apple.Outcome == Ok ? apple with { Engine = Engine } : AfterTheModelFellThrough(apple, vision);
         }
 
         // The model failed and Vision read: the scanner shows Vision's reading, and the model's failure is the fellBackFrom.
@@ -214,19 +207,19 @@ public static class EvalCombination
         };
 
     /// <summary>
-    /// The scanner's snap when the model failed on a single cover (<c>EngineSelector.read</c>): the text tier reads what Vision's text
-    /// found (<c>fm_text</c>), and when that fails too Vision's own reading stands. A model that answers, even with nothing, is not a
+    /// The scanner's snap when the model failed on a single cover (<c>EngineSelector.read</c>): Vision's own reading stands; the
+    /// text tier (<c>fm_text</c>) is never used, it is eval-only. A model that answers, even with nothing, is not a
     /// failure, and a timeout that kept items is an answer: only a timeout with nothing read, a refusal, a context overflow or an
     /// error falls through (<c>ModelUnusableError</c> and the catch around the picture read). The fallback row is the snap whole, with the
     /// model's failure as its <c>FellBackFrom</c> (the reason the phone sent, else the one its outcome says), and the total is the
     /// model row's own time: the phone times the whole <c>selector.read</c> call, which runs the fallback inside it, so adding the
     /// fallback row's time would count it twice. When items were read the first item is shown by the end of that read (no earlier time
-    /// is known). When neither fallback row answered the combined row is the model's own failure, as it was. The gate's
+    /// is known). When Vision did not answer the combined row is the model's own failure, as it was. The gate's
     /// <c>model_timeouts</c> still reads the model's own row.
     /// </summary>
-    private static GroundedPhoto AfterTheModelFellThrough(GroundedPhoto apple, GroundedPhoto? text, GroundedPhoto vision)
+    private static GroundedPhoto AfterTheModelFellThrough(GroundedPhoto apple, GroundedPhoto vision)
     {
-        var fallback = text is { Outcome: Ok } ? text : vision.Outcome == Ok ? vision : null;
+        var fallback = vision.Outcome == Ok ? vision : null;
         if (fallback is null)
         {
             return apple with { Engine = Engine };

@@ -50,17 +50,15 @@ export function RecognitionSection() {
           <Text>{`Apple Intelligence: ${APPLE_INTELLIGENCE_LABEL[state.appleIntelligence]}`}</Text>
           <Text tone="muted">Apple Intelligence is on. Covers are read on this iPhone, and nothing goes to an AI service.</Text>
         </>
-      ) : state.engine === 'fm_text' ? (
-        <>
-          <Text>Engine: Apple text model</Text>
-          <Text>{`Apple Intelligence: ${APPLE_INTELLIGENCE_LABEL[state.appleIntelligence]}`}</Text>
-          <Text tone="muted">This iPhone reads the text on covers with its on-device model. Nothing goes to an AI service.</Text>
-        </>
       ) : (
         <>
           <Text>Engine: Vision text fallback</Text>
           <Text>{`Apple Intelligence: ${APPLE_INTELLIGENCE_LABEL[state.appleIntelligence]}`}</Text>
-          <Text tone="muted">Apple Intelligence isn&apos;t available, so scans read the text on the cover instead. Turn it on in iOS Settings for better matches.</Text>
+          {state.appleIntelligence === 'on' ? (
+            <Text tone="muted">This iPhone&apos;s model can&apos;t read pictures, so scans read the printed text.</Text>
+          ) : (
+            <Text tone="muted">Apple Intelligence isn&apos;t available, so scans read the text on the cover instead. Turn it on in iOS Settings for better matches.</Text>
+          )}
         </>
       )}
       <EvalsRow />
