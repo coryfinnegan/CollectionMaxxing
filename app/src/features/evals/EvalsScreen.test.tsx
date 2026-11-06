@@ -197,10 +197,11 @@ describe('EvalsScreen', () => {
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 4,
         onRead: async () => {
-          if (kit.downloaded.length === 2 && !stopped) {
+          // photo-003 is a single, read by the model first, so the Vision step after it never starts
+          if (kit.downloaded.length === 3 && !stopped) {
             stopped = true;
             await act(async () => {
-              fireEvent.press(await screen.findByRole('button', { name: 'Stop and score the 1 read so far' }));
+              fireEvent.press(await screen.findByRole('button', { name: 'Stop and score the 2 read so far' }));
             });
           }
         },
@@ -210,7 +211,7 @@ describe('EvalsScreen', () => {
 
       expect(await screen.findByText(/M3 gate: incomplete/)).toBeTruthy();
       expect(evalsMock.finishes).toEqual([{ partial: true }]);
-      expect(screen.getByText('Stopped early. Your PC scored 1 photo.')).toBeTruthy();
+      expect(screen.getByText('Stopped early. Your PC scored 2 photos.')).toBeTruthy();
     });
 
     it('says it is waiting for the PC when a photo does not go up, and that the readings are kept on the phone', async () => {

@@ -120,7 +120,7 @@ export function EvalsScreen({ runner = getEvalRunner(), photos: addPhotosControl
   const [note, setNote] = useState('');
   const working = state.phase === 'starting' || state.phase === 'running' || state.phase === 'paused' || state.phase === 'waiting';
   const busy = working || state.phase === 'finishing';
-  const step = state.step === 'apple' ? 'Apple model' : state.step === 'text' ? 'Apple text model' : 'Vision text';
+  const step = state.step === 'apple' ? 'Apple model' : 'Vision text';
 
   // Asks the PC what it holds when the screen opens, and keeps asking whether it has finished scoring for as long as the screen is open.
   useEffect(() => {
