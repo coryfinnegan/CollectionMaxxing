@@ -475,7 +475,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             return answers;
         }
 
-        var titles = await BestTitlesAsync(reads, localTitles, cancellationToken);
+        var titles = await BestTitlesAsync([.. reads.Select(r => r.Answer)], localTitles, cancellationToken);
         var series = SeriesNeighbour.SeriesFor([.. reads.Select((r, i) => SeriesNeighbour.Of(r.Facts, r.Profile, r.Box, r.Answer, titles[i]))]);
 
         // A read with no time left to make its ask is left as it was.
@@ -514,15 +514,15 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
     /// <summary>The title of the best release of each answer that has one (null for the rest), the catalogue's releases through <paramref name="localTitles"/>.</summary>
     private static async Task<string?[]> BestTitlesAsync(
-        IReadOnlyList<SeriesRetry> reads,
+        IReadOnlyList<BarcodeResolution> answers,
         Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, string>>> localTitles,
         CancellationToken cancellationToken)
     {
-        var titles = new string?[reads.Count];
+        var titles = new string?[answers.Count];
         var inCatalogue = new Dictionary<int, Guid>();
-        for (var i = 0; i < reads.Count; i++)
+        for (var i = 0; i < answers.Count; i++)
         {
-            var answer = reads[i].Answer;
+            var answer = answers[i];
             if (answer.Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous) || answer.Options.Count == 0)
             {
                 continue;
@@ -570,7 +570,10 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// Only a spine that names no kind of its own, is Ambiguous, and whose best release is of a known kind outside the shot's family
     /// is asked (<see cref="ShotKindRule.Asks"/>); a Matched, not-found or pending read, and a read with its own kind, never are. The
     /// ask is the read with <see cref="ReadFacts.Kind"/> set to the shot's kind, so the providers of that kind alone are asked and
-    /// the type term counts. A read is asked at most once, within its <see cref="ShotKindRetry.Budget"/>
+    /// the type term counts. A read is also asked with its best option's own title when that differs from the read's after
+    /// <see cref="TitleNormalizer"/> (<see cref="ShotKindRule.AskTitle"/>; <paramref name="localTitles"/> gives a catalogue release's
+    /// title): the fuzzy catalogue matched the garbled words to a clean title the exact one can find. The finds of both asks are scored
+    /// against the read's own facts and go through the same offer. A read is asked at most twice, both within its <see cref="ShotKindRetry.Budget"/>
     /// (<see cref="ShotKindRule.Budget"/>, the pass's own, the same wherever it runs): the asks are made together (one catalogue call
     /// for all of them, then the providers through each read's <see cref="ShotKindRetry.Ask"/>). The kinds are judged on the answers
     /// the reads had when the pass began. <paramref name="alsoOfTheSnap"/> are the reads another engine sent with the same snap: they count toward the shot's kind and are never asked. <paramref name="localKinds"/> gives the kind of a catalogue release (an answer's option only
@@ -602,7 +605,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         WorkKind? printKind,
         Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, WorkKind>>> localKinds,
         CancellationToken cancellationToken,
-        IReadOnlyList<ShotKindRead>? alsoOfTheSnap = null)
+        IReadOnlyList<ShotKindRead>? alsoOfTheSnap = null,
+        Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, string>>>? localTitles = null)
     {
         ArgumentNullException.ThrowIfNull(reads);
         ArgumentNullException.ThrowIfNull(localKinds);
@@ -628,27 +632,59 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         var asked = open.Select(i => ReadSanitizer.Sanitize(reads[i].Facts with { Kind = kinds[i] })).ToList();
-        var pools = await FindLocalManyAsync(asked, cancellationToken);
-        var scored = await Task.WhenAll(open.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
+
+        // A read is also asked with its best option's own title when that differs from the read's: the fuzzy catalogue matched the
+        // garbled words to a clean title, and the shot's kind's exact catalogue can be queried with it. Same round, same budget.
+        var bestTitles = await BestTitlesAsync(
+            [.. answers.Select((answer, i) => kinds[i] is null ? NoAnswer : answer)], localTitles ?? NoLocalTitles, cancellationToken);
+        var byTitle = new List<(int N, string Title, ReadFacts Facts)>();
+        for (var n = 0; n < open.Count; n++)
+        {
+            if (ShotKindRule.AskTitle(reads[open[n]].Facts.SearchText ?? string.Empty, bestTitles[open[n]]) is { } title)
+            {
+                byTitle.Add((n, title, ReadSanitizer.Sanitize(reads[open[n]].Facts with { Kind = kinds[open[n]], Title = IdentifyCleaning.Text(title, IdentifyCleaning.MaxFieldLength) })));
+            }
+        }
+
+        var pools = await FindLocalManyAsync([.. asked, .. byTitle.Select(b => b.Facts)], cancellationToken);
+
+        // Every ask is scored against what the read itself said (with the shot's kind set, removed again by OnOriginalFooting), never against the title asked.
+        var scoredTasks = open.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))).ToList();
+        var scoredByTitleTasks = byTitle.Select(async (b, k) =>
+            Score(asked[b.N], reads[open[b.N]].Profile, pools[open.Count + k], await reads[open[b.N]].Ask(b.Facts))).ToList();
+        var scored = await Task.WhenAll(scoredTasks);
+        var scoredByTitle = await Task.WhenAll(scoredByTitleTasks);
         for (var n = 0; n < open.Count; n++)
         {
             var i = open[n];
             var shotKind = kinds[i]!.Value;
-            var pool = pools[n];
-            bool OfShotKind(ResolutionOption option) => ShotKindRule.IsOfKind(KindOf(option, pool), shotKind);
             var original = reads[i].Answer;
             var why = new TraceStep(ShotKindRule.StepName, $"{asked[n].Title} (kind: {EnumText.ToText(shotKind)})", 0);
+            var asks = new List<(BarcodeResolution Scored, LocalPool Pool, TraceStep Why)> { (scored[n], pools[n], why) };
+            var viaTitle = byTitle.FindIndex(b => b.N == n);
+            if (viaTitle >= 0)
+            {
+                asks.Add((scoredByTitle[viaTitle], pools[open.Count + viaTitle], new TraceStep(ShotKindRule.StepName, $"{byTitle[viaTitle].Title} (kind: {EnumText.ToText(shotKind)})", 0)));
+            }
 
             // An ask the providers could not answer (they failed, or the budget cancelled the call) is Pending, and found nothing. And
             // the ask must have come out for the shot's kind: if its best release is another kind, the read keeps what it found.
-            if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && OfShotKind(scored[n].Options[0]))
+            var came = asks.Where(a => a.Scored.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous
+                && ShotKindRule.IsOfKind(KindOf(a.Scored.Options[0], [a.Pool]), shotKind)).ToList();
+            if (came.Count > 0)
             {
-                var found = scored[n].Options.Where(OfShotKind).Select(ShotKindRule.OnOriginalFooting).ToList();
-                answers[i] = Offered(original, scored[n] with { Options = ShotKindRule.Offer(found, original.Options) }, why);
+                var found = came
+                    .SelectMany(a => a.Scored.Options.Where(o => ShotKindRule.IsOfKind(KindOf(o, [a.Pool]), shotKind)).Select(ShotKindRule.OnOriginalFooting))
+                    .DistinctBy(OptionKey)
+                    .OrderByDescending(o => o.Score)
+                    .ToList();
+                var lead = came.MaxBy(a => a.Scored.Options[0].Score); // the first of equals: the read's own title
+                answers[i] = Offered(original, lead.Scored with { Options = ShotKindRule.Offer(found, original.Options) }, lead.Why);
             }
 
             // Either way, a release of the shot's kind with the best option's own title comes first, from the offer or the read's own.
-            var ordered = ShotKindRule.SameTitledOfKindFirst(answers[i].Options, option => DescribeOption(option, pool), shotKind);
+            var allPools = asks.Select(a => a.Pool).ToList();
+            var ordered = ShotKindRule.SameTitledOfKindFirst(answers[i].Options, option => DescribeOption(option, allPools), shotKind);
             if (!ReferenceEquals(ordered, answers[i].Options))
             {
                 answers[i] = answers[i] with { Options = ordered, Steps = ReferenceEquals(answers[i], original) ? [.. original.Steps, why] : answers[i].Steps };
@@ -657,6 +693,15 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         return answers;
     }
+
+    private static readonly BarcodeResolution NoAnswer = new(ResolutionVerdict.NotFound, [], null, []);
+
+    private static readonly Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, string>>> NoLocalTitles =
+        (_, _) => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
+
+    /// <summary>What names a release in an offer: its catalogue id, else its provider and the provider's id.</summary>
+    private static string OptionKey(ResolutionOption option) =>
+        option.LocalReleaseId?.ToString() ?? $"{option.Provider?.Provider}/{option.Provider?.ExternalId}";
 
     /// <summary>The kind of the best release of each answer that has one (null for the rest): a provider release's own, a catalogue release's through <paramref name="localKinds"/>.</summary>
     private static async Task<WorkKind?[]> BestKindsAsync(
@@ -698,20 +743,20 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     }
 
     /// <summary>The title and kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
-    private static (string Title, WorkKind Kind)? DescribeOption(ResolutionOption option, LocalPool pool)
+    private static (string Title, WorkKind Kind)? DescribeOption(ResolutionOption option, IReadOnlyList<LocalPool> pools)
     {
         if (option.LocalReleaseId is { } id)
         {
-            return pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => ((string Title, WorkKind Kind)?)(item.Scoring.Title, item.Scoring.Kind)).FirstOrDefault();
+            return pools.SelectMany(pool => pool.Items).Where(item => item.Option.LocalReleaseId == id).Select(item => ((string Title, WorkKind Kind)?)(item.Scoring.Title, item.Scoring.Kind)).FirstOrDefault();
         }
 
         return option.Provider is { } provider ? (provider.Title, provider.Kind) : null;
     }
 
     /// <summary>The kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
-    private static WorkKind? KindOf(ResolutionOption option, LocalPool pool) =>
+    private static WorkKind? KindOf(ResolutionOption option, IReadOnlyList<LocalPool> pools) =>
         option.LocalReleaseId is { } id
-            ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => (WorkKind?)item.Scoring.Kind).FirstOrDefault()
+            ? pools.SelectMany(pool => pool.Items).Where(item => item.Option.LocalReleaseId == id).Select(item => (WorkKind?)item.Scoring.Kind).FirstOrDefault()
             : option.Provider?.Kind;
 
     /// <summary>

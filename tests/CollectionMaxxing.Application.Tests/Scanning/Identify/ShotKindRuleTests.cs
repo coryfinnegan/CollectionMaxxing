@@ -328,6 +328,15 @@ public class ShotKindRuleTests
         ShotKindRule.Asks(new ShotKindRead(Spine: true, OwnKind: WorkKind.Book, ResolutionVerdict.Ambiguous, WorkKind.Film), WorkKind.Book).ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData("cnoi Emergency Contact o", "Emergency Contact", "Emergency Contact")]
+    [InlineData("Emergency Contact", "Emergency Contact", null)]
+    [InlineData("EMERGENCY  CONTACT", "Emergency Contact", null)] // the same title once normalised
+    [InlineData("cnoi Emergency Contact o", null, null)]
+    [InlineData("cnoi Emergency Contact o", "  ", null)]
+    public void The_best_options_title_is_asked_only_when_it_differs_from_the_reads_own_title(string read, string? best, string? expected) =>
+        ShotKindRule.AskTitle(read, best).ShouldBe(expected);
+
     [Fact]
     public void A_mixed_shelf_has_no_shot_kind_so_nothing_is_asked_or_moved()
     {

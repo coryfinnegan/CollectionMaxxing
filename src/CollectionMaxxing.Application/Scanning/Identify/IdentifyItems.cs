@@ -464,7 +464,8 @@ public static class IdentifyItems
                         f.Item.Facts, f.Item.Profile, answers[f.Candidate.Id], facts => AskOneAsync(facts, kindRound, cancellationToken), kindRound.Budget.Token))],
                     printKind,
                     (releaseIds, token) => ShotKindRule.LocalKindsAsync(db, releaseIds, token),
-                    cancellationToken);
+                    cancellationToken,
+                    localTitles: (releaseIds, token) => SeriesNeighbour.LocalTitlesAsync(db, releaseIds, token));
                 for (var i = 0; i < fresh.Count; i++)
                 {
                     answers[fresh[i].Candidate.Id] = withKind[i];

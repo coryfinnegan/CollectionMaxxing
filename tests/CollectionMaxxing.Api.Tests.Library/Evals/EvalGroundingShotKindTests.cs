@@ -127,6 +127,26 @@ public class EvalGroundingShotKindTests(ApiFixture api) : EvalTest(api)
     }
 
     [Fact]
+    public async Task The_eval_asks_a_spine_whose_best_release_is_the_catalogues_with_that_releases_title()
+    {
+        // On a shelf the print says is of films, the misread found the catalogue's book of that name, and no film by its garbled words.
+        // The film provider knows the book's own title, which only the eval's titles lookup of the catalogue's release can give it.
+        await CatalogSeed.AddAsync(Db, $"Emergency Contact {Tag}", WorkKind.Book, 2018, format: ReleaseFormat.Paperback);
+        _films.Know($"Emergency Contact {Tag}", true, Rel("Emergency Contact", WorkKind.Film, "f1", 2019));
+        UseScriptedProviders();
+        EvalReadItemInput Spine(string title) => new(new IdentifyItemInput(null, null, title, title, null, null, null, null, null, null, null, null), null);
+
+        using var scope = Factory.Services.CreateScope();
+        var items = await scope.ServiceProvider.GetRequiredService<EvalGrounder>().GroundAsync(
+            ScanEngine.VisionPipeline,
+            [Spine(Misread), Spine($"ALPHA {Tag}"), Spine($"BETA {Tag}"), Spine($"GAMMA {Tag}")],
+            new EvalGroundingMemo(), WorkKind.Film, CancellationToken.None);
+
+        items[0].Candidates[0].Format.ShouldBe("dvd");
+        items[0].Candidates.Select(c => c.Format).ShouldContain("paperback");
+    }
+
+    [Fact]
     public async Task The_eval_and_identify_leave_a_shelf_as_it_was_when_the_pass_runs_out_of_time()
     {
         ArrangeKindedProviders();
