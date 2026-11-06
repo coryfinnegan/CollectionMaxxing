@@ -574,7 +574,7 @@ public sealed class CombinedEngineTests : IDisposable
     private static GroundedPhoto CoverVision(params GroundedItem[] items) => Photo("c1", Vision, items, latencyMs: 700, firstItemMs: null);
 
     [Fact]
-    public void A_single_cover_the_model_timed_out_on_is_the_text_tiers_reading_because_the_scanner_falls_back_to_it()
+    public void A_single_cover_the_model_failed_on_is_Visions_reading_whatever_the_text_tier_read()
     {
         ArrangeCover();
 
@@ -585,9 +585,9 @@ public sealed class CombinedEngineTests : IDisposable
         built.Engine.ShouldBe(Combined);
         built.Outcome.ShouldBe("ok");
         built.FellBackFrom.ShouldBe("timeout");
-        built.Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
-        built.Items.Single().Provisional.ShouldBeFalse("it is the text tier's own row, not Vision's guess");
-        built.LatencyMs.ShouldBe(12000, "the phone timed the model's read, which ran the text tier inside it, so that time is the whole wait");
+        built.Items.Select(i => i.Best!.Title).ShouldBe(["Zorblax Quest"], "the scanner never reads with the text tier, so its row is not used");
+        built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
+        built.LatencyMs.ShouldBe(12000, "the phone timed the model's read, which ran Vision inside it, so that time is the whole wait");
         built.FirstItemMs.ShouldBe(12000, "an item is shown by the time the read ends, and no earlier is known");
     }
 
@@ -602,42 +602,25 @@ public sealed class CombinedEngineTests : IDisposable
         ArrangeCover();
         var model = Photo("c1", Apple, [], latencyMs: 12000, outcome: outcome, fellBackFrom: sent);
 
-        var built = EvalCombination.Of([model, CoverText(T1(Matched("Star Fox 64"))), CoverVision()], TruthsOf(_golden)).Single();
+        var built = EvalCombination.Of([model, CoverVision(GuessedByVision("Star Fox 64"))], TruthsOf(_golden)).Single();
 
         built.Outcome.ShouldBe("ok");
         built.FellBackFrom.ShouldBe(expected);
     }
 
     [Fact]
-    public void A_single_cover_the_model_timed_out_on_scores_as_the_text_tier_read_it_while_the_models_own_row_still_reports_the_timeout()
+    public void A_single_cover_the_model_timed_out_on_scores_as_Vision_read_it_while_the_models_own_row_still_reports_the_timeout()
     {
         ArrangeCover();
-        GroundedPhoto[] photos = [CoverModelTimedOut(), CoverText(T1(Matched("Star Fox 64"))), CoverVision(GuessedByVision("Zorblax Quest"))];
+        GroundedPhoto[] photos = [CoverModelTimedOut(), CoverText(T1(Matched("Mario Kart 64"))), CoverVision(GuessedByVision("Star Fox 64"))];
 
         var scored = EvalScorer.Score(photos, TruthsOf(_golden));
 
         scored.SoloOf(Combined).Top1Hits.ShouldBe(1);
-        scored.SoloOf(Combined).Timeouts.ShouldBe(0, "the combined row is the text tier's reading, which answered");
+        scored.SoloOf(Combined).Timeouts.ShouldBe(0, "the combined row is Vision's reading, which answered");
         scored.SoloOf(Apple).Timeouts.ShouldBe(1);
         var gate = EvalReport.Evaluate(RunOf(photos), TruthsOf(_golden), null, "abc1234", []).Summary.Gate;
         gate.Measures.Single(m => m.Name == "model_timeouts").Actual.ShouldBe("100%", "the timeouts measure reads the model's own row");
-    }
-
-    [Fact]
-    public void A_single_cover_the_model_timed_out_on_and_the_text_tier_could_not_read_is_Visions_reading()
-    {
-        ArrangeCover();
-        var failedText = Photo("c1", Text, [], latencyMs: 300, outcome: "error");
-
-        var built = EvalCombination.Of(
-            [CoverModelTimedOut(), failedText, CoverVision(GuessedByVision("Star Fox 64"))],
-            TruthsOf(_golden)).Single();
-
-        built.Engine.ShouldBe(Combined);
-        built.Outcome.ShouldBe("ok");
-        built.FellBackFrom.ShouldBe("timeout");
-        built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
-        built.LatencyMs.ShouldBe(12000, "the model row already holds the fallback's time");
     }
 
     [Fact]
@@ -652,13 +635,13 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
-    public void A_single_cover_neither_the_text_tier_nor_Vision_could_read_stays_the_models_failure()
+    public void A_single_cover_Vision_could_not_read_either_stays_the_models_failure_whatever_the_text_tier_read()
     {
         ArrangeCover();
         var model = CoverModelTimedOut();
 
         var built = EvalCombination.Of(
-            [model, Photo("c1", Text, [], outcome: "error"), Photo("c1", Vision, [], outcome: "error")],
+            [model, CoverText(T1(Matched("Star Fox 64"))), Photo("c1", Vision, [], outcome: "error")],
             TruthsOf(_golden)).Single();
 
         built.ShouldBe(model with { Engine = Combined });
@@ -666,7 +649,7 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
-    public void A_single_cover_the_text_tier_answered_with_nothing_on_is_that_empty_reading_because_the_scanner_stops_there()
+    public void A_single_cover_the_text_tier_read_nothing_on_does_not_empty_the_row_because_the_scanner_never_asks_it()
     {
         ArrangeCover();
 
@@ -676,8 +659,7 @@ public sealed class CombinedEngineTests : IDisposable
 
         built.Outcome.ShouldBe("ok");
         built.FellBackFrom.ShouldBe("timeout");
-        built.Items.ShouldBeEmpty();
-        built.FirstItemMs.ShouldBeNull();
+        built.Items.Select(i => i.ResolvedBy).ShouldBe(["vision_text"]);
     }
 
     [Fact]
