@@ -1,0 +1,185 @@
+using CollectionMaxxing.Application.Scanning;
+using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
+using Microsoft.Extensions.Logging.Abstractions;
+using static CollectionMaxxing.Application.Tests.Scanning.Identify.TrimmedRetryHarness;
+
+namespace CollectionMaxxing.Application.Tests.Scanning.Identify;
+
+// A shelf spine about to be skipped (nothing found after every retry, or an author's name that only found a book titled with it) is
+// asked again with up to three other lines of its spine. What a line finds is kept only when a creator of the release it found is
+// printed on the same spine; it is offered (never matched) with a "line" step. Names and titles are neutral.
+public class IdentifyGroundingLineRetryTests
+{
+    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
+
+    private static IdentifyGrounding Grounding(Catalogue catalogue) => new(
+        new TextSearchResolver(null!, catalogue, [new Providers()], new ScanningOptions(), NullLogger<TextSearchResolver>.Instance),
+        new FixedScoring());
+
+    /// <summary>A kindless spine read: the title the phone chose, and every line of the spine's piece.</summary>
+    private static ReadFacts Spine(string title, string[]? lines, string? creator = null, string? creatorAsRead = null) => new(
+        title, string.Join(' ', lines ?? [title]), creator, null, null, null, null, null, null,
+        CreatorAsRead: creatorAsRead, Lines: lines is null ? null : SpineLines.Join(lines));
+
+    private static Task<BarcodeResolution> GroundAsync(
+        IdentifyGrounding grounding, ReadFacts facts, ScoringProfileKind profile = ScoringProfileKind.ShelfSpine) =>
+        grounding.GroundAsync(facts, profile, Budget, CancellationToken.None);
+
+    [Fact]
+    public async Task A_spine_the_catalogue_found_nothing_for_is_asked_again_with_another_line_and_kept_when_its_author_is_printed_there()
+    {
+        var real = BookBy("Copper Lantern", "Tess Harrowgate");
+        var catalogue = new Catalogue(real);
+
+        var answer = await GroundAsync(
+            Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"]));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous); // offered, never matched
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Options[0].LocalReleaseId.ShouldBe(real.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "line" && s.Outcome.StartsWith("COPPER LANTERN", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_author_name_spine_about_to_be_skipped_is_asked_with_its_spines_title_line()
+    {
+        var real = BookBy("Copper Lantern", "Tess Harrowgate");
+        var catalogue = new Catalogue(BookBy("Tess Harrowgate", "Tess Harrowgate"), BookBy("Tess Harrowgate", "Tess Harrowgate"), real);
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("TESS HARROWGATE", ["TESS HARROWGATE", "COPPER LANTERN"]));
+
+        catalogue.Lookups.ShouldBe(["tess harrowgate", "copper lantern"]);
+        answer.Options[0].LocalReleaseId.ShouldBe(real.Release.Id);
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Steps.ShouldContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_lines_find_whose_author_is_not_printed_on_the_spine_is_not_kept()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Mara Quillon"));
+
+        var answer = await GroundAsync(
+            Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"]));
+
+        catalogue.Lookups.ShouldContain("copper lantern"); // it was asked
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_lines_find_with_no_known_author_is_not_kept()
+    {
+        var catalogue = new Catalogue(Book("Copper Lantern"));
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"]));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
+    [Fact]
+    public async Task A_line_that_is_the_authors_own_name_found_as_a_book_titled_with_it_is_not_kept()
+    {
+        var catalogue = new Catalogue(BookBy("Tess Harrowgate", "Tess Harrowgate"));
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "TESS HARROWGATE"]));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
+    [Fact]
+    public async Task Name_banner_and_publisher_lines_and_short_lines_are_never_asked()
+    {
+        var catalogue = new Catalogue();
+        var lines = new[] { "XQZV WRTK", "TESS HARROWGATE", "BESTSELLING AUTHOR", "PENGUIN BOOKS", "WIDESCREEN VHS", "ABC", "1999" };
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", lines, creator: "Tess Harrowgate"));
+
+        catalogue.Lookups.ShouldBe(["xqzv wrtk"]);
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
+    [Fact]
+    public async Task The_title_and_its_trimmed_spans_are_never_asked_as_lines()
+    {
+        var catalogue = new Catalogue();
+
+        await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK PLMN", ["XQZV WRTK PLMN", "WRTK PLMN", "XQZV WRTK"]));
+
+        catalogue.Lookups.ShouldBe(["xqzv wrtk plmn", "wrtk plmn", "xqzv wrtk"]); // the whole read and its two spans, once each
+    }
+
+    [Fact]
+    public async Task A_spine_with_no_other_lines_is_skipped_as_before()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var withoutLines = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", null));
+        var onlyTitle = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK"]));
+
+        withoutLines.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        onlyTitle.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        catalogue.Lookups.ShouldAllBe(l => l == "xqzv wrtk");
+    }
+
+    [Fact]
+    public async Task Other_lines_are_asked_longest_first_and_at_most_three()
+    {
+        var catalogue = new Catalogue();
+        var lines = new[] { "XQZV WRTK", "BRAVO ECHO", "ALPHA", "CHARLIE DELTA", "FOXTROT GOLF HOTEL", "INDIA JULIET" };
+
+        await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", lines));
+
+        catalogue.Lookups.ShouldBe(["xqzv wrtk", "foxtrot golf hotel", "charlie delta", "india juliet"]);
+    }
+
+    [Fact]
+    public async Task A_matched_spine_is_never_asked_by_line()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var matching = Spine("COPPER LANTERN", ["COPPER LANTERN", "TESS HARROWGATE", "ANOTHER LINE HERE"], creator: "Tess Harrowgate") with { Kind = WorkKind.Book };
+
+        var answer = await GroundAsync(Grounding(catalogue), matching);
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Matched);
+        catalogue.Lookups.ShouldBe(["copper lantern"]);
+    }
+
+    [Fact]
+    public async Task An_ambiguous_spine_that_is_not_an_authors_name_is_never_asked_by_line()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"), BookBy("Copper Lantern", "Mara Quillon"));
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("COPPER LANTERN", ["COPPER LANTERN", "ANOTHER LINE HERE"]));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        catalogue.Lookups.ShouldBe(["copper lantern"]);
+    }
+
+    [Fact]
+    public async Task A_cover_read_is_never_asked_by_line()
+    {
+        var catalogue = new Catalogue(BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var answer = await GroundAsync(
+            Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"]), ScoringProfileKind.Cover);
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        catalogue.Lookups.ShouldBe(["xqzv wrtk"]);
+    }
+
+    [Fact]
+    public void Two_reads_with_the_same_lines_are_equal_and_with_other_lines_are_not()
+    {
+        var a = Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN"]);
+        var b = Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN"]);
+        var c = Spine("XQZV WRTK", ["XQZV WRTK", "QUIET HARBOR"]);
+
+        a.ShouldBe(b);
+        a.GetHashCode().ShouldBe(b.GetHashCode());
+        a.ShouldNotBe(c);
+    }
+}

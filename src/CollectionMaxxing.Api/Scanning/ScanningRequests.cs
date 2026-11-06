@@ -53,6 +53,8 @@ public sealed record ItemBox(double? X = null, double? Y = null, double? Width =
 /// <c>Unconfirmed</c> (optional, false when left out) marks a read only the picture model made, at a place the Vision text engine found
 /// nothing on a shelf shot: the catalogue may match it exactly, but nothing else saw it, so the server gives it commit tier T2 at most
 /// (reviewed by the person, never auto-added). The candidates, their order and the verdict are not changed by it.
+/// <c>Lines</c> (optional, an older phone sends none) are the lines of the spine's piece the Vision engine read, the one chosen as <c>Title</c>
+/// among them: when the spine would otherwise be skipped, another line is asked, and what it finds is offered only if the release's author is printed on the same spine. At most 12 are kept, each cut to 500 characters.
 /// </summary>
 public sealed record IdentifyItem(
     string? LocalId = null,
@@ -69,7 +71,8 @@ public sealed record IdentifyItem(
     Guid? LocalMatchReleaseId = null,
     string? ProductCode = null,
     ItemBox? Box = null,
-    bool? Unconfirmed = null);
+    bool? Unconfirmed = null,
+    IReadOnlyList<string>? Lines = null);
 
 /// <summary>
 /// Body of <c>POST …/identify</c>: what the phone read from one photo (at most 120 items, 256 KB). <c>FellBackFrom</c> says why

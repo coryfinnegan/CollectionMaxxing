@@ -34,7 +34,8 @@ public sealed record IdentifyItemInput(
     Guid? LocalMatchReleaseId,
     string? ProductCode = null,
     ReadBoxInput? Box = null,
-    bool Unconfirmed = false);
+    bool Unconfirmed = false,
+    IReadOnlyList<string>? Lines = null);
 
 /// <summary>
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
@@ -179,7 +180,8 @@ internal static class IdentifyCleaning
 
     private static int SizeOf(IdentifyItemInput item) =>
         new[] { item.LocalId, item.SegmentId, item.Text, item.Title, item.Creator, item.Edition, item.Platform, item.ProductCode }
-            .Sum(value => value is null ? 0 : Encoding.UTF8.GetByteCount(value));
+            .Sum(value => value is null ? 0 : Encoding.UTF8.GetByteCount(value))
+        + (item.Lines?.Sum(line => line is null ? 0 : Encoding.UTF8.GetByteCount(line)) ?? 0);
 
     /// <summary>
     /// Cleans the items of one snap, and tells each read that names no kind what kind the snap is of (<see cref="KindContext"/>): what
@@ -263,7 +265,7 @@ internal static class IdentifyCleaning
             // read is asked once more with it as the title (CreatorSwap). Any other read has no use for it, so it is not part of its value.
             if (profile == ScoringProfileKind.ShelfSpine && facts.ProductCode is null)
             {
-                facts = facts with { CreatorAsRead = read.Creator };
+                facts = facts with { CreatorAsRead = read.Creator, Lines = SpineLines.Clean(item.Lines) };
             }
 
             return new CleanItem(
@@ -362,6 +364,12 @@ internal sealed record StoredRead
     /// </summary>
     public string? SnapKind { get; init; }
 
+    /// <summary>
+    /// The lines of a spine's piece, newline-joined (<see cref="ReadFacts.Lines"/>). Kept for the same reason as <see cref="CreatorAsRead"/>: a read the
+    /// providers ran out of time for is asked again by the background job, whose ladder ends with the other lines of the spine. Written only on a spine read that has some.
+    /// </summary>
+    public string? Lines { get; init; }
+
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -384,6 +392,7 @@ internal sealed record StoredRead
             Profile = profile.ToString(),
             Unconfirmed = unconfirmed ? true : null,
             SnapKind = facts.KindContext is { } snapKind ? EnumText.ToText(snapKind) : null,
+            Lines = facts.Lines,
         },
         Options);
 
@@ -405,7 +414,8 @@ internal sealed record StoredRead
             stored?.ProductCode,
             stored?.ReadAs,
             EnumText.ParseOrNull<WorkKind>(stored?.SnapKind),
-            profile == ScoringProfileKind.ShelfSpine ? stored?.CreatorAsRead ?? stored?.Creator : null);
+            profile == ScoringProfileKind.ShelfSpine ? stored?.CreatorAsRead ?? stored?.Creator : null,
+            profile == ScoringProfileKind.ShelfSpine ? stored?.Lines : null);
         return (facts, profile);
     }
 
