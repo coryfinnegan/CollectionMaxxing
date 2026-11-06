@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react-native';
+import { act, screen, waitFor } from '@testing-library/react-native';
 import { HttpResponse, http } from 'msw';
 import type { CandidateDto } from '@/api/generated/models';
 import { MOCK_LIBRARY_ID } from '@/mocks/data';
@@ -8,6 +8,7 @@ import { server } from '@/mocks/server';
 import { renderWithProviders } from '@/test/render';
 import { DEV_CODES } from '../scanner/devCodes';
 import { setTrayStore } from '../tray/storage';
+import { routeSessionMessage } from '../session/sessionApi';
 import { createTrayStore, MemoryKeyValueStore } from '../tray/trayStore';
 import { ResultDetail } from './ResultDetail';
 import { useCardsStore } from './cardsStore';
@@ -169,6 +170,33 @@ describe('result detail', () => {
     const candidate = await seedSession(DEV_CODES.duneOwned);
     await renderWithProviders(<ResultDetail id={candidate.id} />);
     expect(await screen.findByText('You own this: Living room › Shelf 2')).toBeTruthy();
+  });
+
+  it('a card the server skips while its detail is open says so, and brings back no skipped card', async () => {
+    const open = await seedSession(DEV_CODES.duneOwned);
+    const [session] = [...scanMock.sessions.values()];
+    const earlier = { ...open, id: 'b9000000-0000-4000-8000-0000000000ee', decision: 'rejected' as const, changeSeq: 50 };
+    const bystander = { ...open, id: 'b9000000-0000-4000-8000-0000000000ff', decision: 'undecided' as const, changeSeq: 55 };
+    session!.candidates.push(earlier, bystander);
+    useCardsStore.getState().merge([open], { announce: false });
+    await renderWithProviders(<ResultDetail id={open.id} />);
+    expect(await screen.findByText('You own this: Living room › Shelf 2')).toBeTruthy();
+
+    // The job skips the open card: the server now calls it rejected.
+    session!.candidates.find((c) => c.id === open.id)!.decision = 'rejected';
+    await act(async () => {
+      routeSessionMessage(session!.id, {
+        event: 'candidate.updated',
+        id: '60',
+        data: JSON.stringify({ ...open, decision: 'rejected', changeSeq: 60 }),
+      });
+    });
+
+    // The reload lands: the candidate that was not skipped is drawn, and only then do we look at what else came back.
+    await waitFor(() => expect(useCardsStore.getState().byId[bystander.id]).toBeDefined());
+    expect(await screen.findByText("That result isn't here any more")).toBeTruthy();
+    expect(useCardsStore.getState().byId[open.id]).toBeUndefined();
+    expect(useCardsStore.getState().byId[earlier.id]).toBeUndefined();
   });
 
   it('says so when the result is gone', async () => {
