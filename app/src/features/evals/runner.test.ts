@@ -104,6 +104,13 @@ describe('the eval runner', () => {
       expect(opened()[0].device).toEqual({ model: 'iPhone16,1', osVersion: '26.0', appVersion: '1.2.3', buildNumber: '150' });
     });
 
+    it('leaves the build number out of the run when the device reports an empty one', async () => {
+      const kit = makeKit({ photos: 1 });
+      jest.spyOn(kit.vision, 'deviceStatus').mockResolvedValue({ thermalState: 'nominal', osVersion: '26.0', buildNumber: '' });
+      await kit.runner.start();
+      expect(Object.keys(opened()[0].device)).not.toContain('buildNumber');
+    });
+
     it('leaves the build number out of the run when the app has none', async () => {
       const kit = makeKit({ photos: 1 });
       await kit.runner.start();

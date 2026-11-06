@@ -81,12 +81,12 @@ const deviceAppState: AppStateSource = {
   },
 };
 
-function deviceInfo(): EvalRunnerDeps['device'] {
+export function deviceInfo(): EvalRunnerDeps['device'] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Constants = (require('expo-constants') as typeof import('expo-constants')).default;
     const ios = (Constants as unknown as { platform?: { ios?: { model?: string } } }).platform?.ios;
-    return { model: ios?.model ?? 'iPhone', appVersion: Constants.expoConfig?.version ?? 'unknown', };
+    return { model: ios?.model ?? 'iPhone', appVersion: Constants.expoConfig?.version ?? 'unknown' };
   } catch {
     return { model: 'iPhone', appVersion: 'unknown' };
   }
