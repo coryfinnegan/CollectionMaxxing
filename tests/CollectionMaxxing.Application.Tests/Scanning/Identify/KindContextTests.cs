@@ -117,7 +117,6 @@ public class KindContextTests
     {
         // One film read among four books: the engines tell films apart on this shelf, so the print has nothing to add.
         KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBe(WorkKind.Book);
-        KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBeNull();
         KindContext.Of(WorkKind.Film, [WorkKind.Film, WorkKind.Film, WorkKind.Film]).ShouldBe(WorkKind.Film);
     }
 
@@ -138,12 +137,42 @@ public class KindContextTests
     public void The_print_speaks_only_when_no_read_names_its_kind()
     {
         KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, null, WorkKind.Other]).ShouldBe(WorkKind.Film);
-        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Film]).ShouldBeNull();
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBeNull();
         KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Tv]).ShouldBeNull();
         KindContext.PrintThatSpeaks(WorkKind.Tv, [WorkKind.Film]).ShouldBeNull();
         KindContext.PrintThatSpeaks(WorkKind.Film, []).ShouldBe(WorkKind.Film);
         KindContext.PrintThatSpeaks(WorkKind.Other, [WorkKind.Book]).ShouldBeNull();
         KindContext.PrintThatSpeaks(null, [WorkKind.Book]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void The_shelfs_print_speaks_when_the_reads_that_name_a_kind_split_with_no_majority()
+    {
+        // vhs-dvd-shelf-01: film 1, book 2, game 1 gives Dominant no kind, so the print breaks the tie the reads could not.
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Film, WorkKind.Book, WorkKind.Book, WorkKind.Game]).ShouldBe(WorkKind.Film);
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBe(WorkKind.Film);
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Film]).ShouldBe(WorkKind.Film);
+        KindContext.Of(WorkKind.Film, [WorkKind.Film, WorkKind.Book, WorkKind.Book, WorkKind.Game]).ShouldBe(WorkKind.Film);
+    }
+
+    [Fact]
+    public void The_shelfs_print_stays_silent_when_the_reads_agree_on_another_kind()
+    {
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBeNull();
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void The_shelfs_print_stays_silent_when_the_reads_agree_on_its_kind()
+    {
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Film, WorkKind.Film, WorkKind.Film, WorkKind.Book]).ShouldBeNull();
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Film, WorkKind.Tv, WorkKind.Film]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void The_shelfs_print_still_speaks_when_no_read_names_its_kind()
+    {
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Game, null]).ShouldBe(WorkKind.Film);
     }
 
     [Fact]

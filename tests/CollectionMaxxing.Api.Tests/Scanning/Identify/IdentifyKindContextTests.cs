@@ -176,6 +176,21 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_tape_shelf_whose_model_reads_split_between_book_and_film_is_grounded_as_films_when_its_print_says_film()
+    {
+        // Two books and two films: no clear majority, so the reads alone give the title-only read no kind and the book sorts first.
+        // The print of film breaks the tie the reads could not.
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+
+        var candidates = await IdentifyPrintedAsync(
+            client, sessionId, "film", [.. BookReads(2), .. FilmReads(2), Read(title: Title)]);
+
+        AlternativeYears(candidates[4]).ShouldBe([FilmYear, BookYear]);
+        InferredKind(candidates[4]).ShouldBe("film");
+    }
+
+    [Fact]
     public async Task A_read_the_print_agrees_with_keeps_its_own_kind()
     {
         ArrangeTiedBookAndFilm();
