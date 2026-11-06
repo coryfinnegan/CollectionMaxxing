@@ -34,7 +34,7 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${port}`,
     viewport: { width: 1280, height: 800 },
     serviceWorkers: 'allow',
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     launchOptions: { args: ['--font-render-hinting=none'] },
   },
