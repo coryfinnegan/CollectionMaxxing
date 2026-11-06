@@ -1,4 +1,4 @@
-// Owner-only dev screen: run the golden photos through all three engines on this iPhone and see the PC's gate table when it is done.
+// Owner-only dev screen: run the golden photos through both engines on this iPhone and see the PC's gate table when it is done.
 // The run lives on the PC. Each photo goes up as soon as it is read, so the owner can leave the screen or the app and pick up where it stopped.
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -120,7 +120,7 @@ export function EvalsScreen({ runner = getEvalRunner(), photos: addPhotosControl
   const [note, setNote] = useState('');
   const working = state.phase === 'starting' || state.phase === 'running' || state.phase === 'paused' || state.phase === 'waiting';
   const busy = working || state.phase === 'finishing';
-  const step = state.step === 'apple' ? 'Apple model' : state.step === 'text' ? 'Apple text model' : 'Vision text';
+  const step = state.step === 'apple' ? 'Apple model' : 'Vision text';
 
   // Asks the PC what it holds when the screen opens, and keeps asking whether it has finished scoring for as long as the screen is open.
   useEffect(() => {

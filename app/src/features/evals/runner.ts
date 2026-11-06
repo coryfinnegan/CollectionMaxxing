@@ -1,5 +1,5 @@
-// The on-phone eval runner (EVAL-1b). It reads the PC's golden photos one at a time through the Apple model (the scanner's own selector), the
-// OCR-text extraction tier and the Vision text engine, and sends each photo's readings to the PC the moment they are read. It does no scoring and no
+// The on-phone eval runner (EVAL-1b). It reads the PC's golden photos one at a time through the Apple model (the scanner's own selector)
+// and the Vision text engine, and sends each photo's readings to the PC the moment they are read. It does no scoring and no
 // grounding: the PC does, in the background. The run lives on the PC, not here: it is opened there, the PC says which photos it already has, and the
 // phone only ever reads the ones it does not. So a run survives the phone leaving the app, the app being killed, and the PC restarting.
 // It never touches the library: the only requests are the eval routes and the config fetch, and a photo file is deleted the moment it has been read.
@@ -10,7 +10,7 @@ import { discardPicture, trackPicture } from '@/features/scan/pictureFiles';
 import type { RecognitionSettings } from '@/features/scan/recognition/defaults';
 import { toItemBox } from '@/features/scan/recognition/mapping';
 import { modelSchemaFor } from '@/features/scan/recognition/modelSchema';
-import { ModelUnusableError, type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
+import { type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { KeyValueStore } from '@/features/scan/tray/trayStore';
 import type { RecognizeTextOptions, TextLine, ThermalState } from '@/native/cm-vision';
@@ -27,7 +27,7 @@ import { EvalOutbox, type PendingPhoto } from './outbox';
  * - `finishing`: asking the PC to score. `scoring`: it is scoring; the gate summary shows when it is ready. `done`.
  */
 export type EvalPhase = 'checking' | 'idle' | 'resumable' | 'starting' | 'running' | 'paused' | 'waiting' | 'finishing' | 'scoring' | 'done' | 'error';
-export type EvalStep = 'apple' | 'text' | 'vision';
+export type EvalStep = 'apple' | 'vision';
 
 export interface EvalState {
   phase: EvalPhase;
@@ -83,14 +83,12 @@ export interface EvalRunnerDeps {
   resize?: Resizer;
   /** The scanner's own selector: the Apple model, then the tiers below it when the model gives no reading. */
   selector: { read(still: Still, onItem: (item: ReadItem) => void, options?: ReadOptions): Promise<SnapReading> };
-  /** The OCR-text extraction tier on its own, forced. */
-  fmText: RecognitionEngine;
   /** The Vision text engine on its own, forced. */
   pipeline: RecognitionEngine;
   config: { refresh(): Promise<unknown>; current(): RecognitionSettings };
   vision: {
     deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string; buildNumber?: string }>;
-    /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the three rows are read. */
+    /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the rows are read. */
     recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
   };
   device: { model: string; appVersion: string };
@@ -159,7 +157,6 @@ const FELL_BACK = { unavailable: 'unavailable', declined: 'declined', timeout: '
 
 const ENGINES: readonly { engine: EngineName; step: EvalStep }[] = [
   { engine: 'apple_model', step: 'apple' },
-  { engine: 'fm_text', step: 'text' },
   { engine: 'vision_pipeline', step: 'vision' },
 ];
 
@@ -223,7 +220,7 @@ export const MAX_PROBE_MS = 3_600_000;
 type OcrProbe = NonNullable<EvalPhotoResult['ocrProbes']>[number];
 
 /**
- * The extra reads of a shelf picture, none of them the scanner's own. They are read once, after the three timed rows, and only the record reads them:
+ * The extra reads of a shelf picture, none of them the scanner's own. They are read once, after the timed rows, and only the record reads them:
  * the PC keeps them so an OCR setting can be tried on real pictures later without the phone, and never scores them.
  */
 export const OCR_PROBES: readonly { name: string; options: RecognizeTextOptions }[] = [
@@ -622,7 +619,7 @@ export class EvalRunner {
   }
 
   /**
-   * Reads one photo with all three engines and keeps its readings to send. If the app went to the background while it was being read, nothing is
+   * Reads one photo with both engines and keeps its readings to send. If the app went to the background while it was being read, nothing is
    * kept: a read that was cut short must never be recorded as an engine error or a timeout, so the photo is read again from the start.
    */
   private async readPhoto(photo: EvalRunPhoto): Promise<void> {
@@ -731,9 +728,7 @@ export class EvalRunner {
       const reading =
         engine === 'apple_model'
           ? await this.deps.selector.read(still, onItem, { ...options, combine: false }) // the Vision engine is read and scored on its own; the PC builds the combination
-          : engine === 'fm_text'
-            ? await this.deps.fmText.read(still, onItem, options)
-            : await this.deps.pipeline.read(still, onItem, options);
+          : await this.deps.pipeline.read(still, onItem, options);
       onReading?.(reading);
       const modelFailed = engine === 'apple_model' && reading.engine !== 'apple_model';
       const reason = reading.fellBackFrom;
@@ -743,7 +738,7 @@ export class EvalRunner {
             engine,
             outcome: reason === 'declined' ? 'refused' : reason === 'timeout' ? 'timeout' : 'error',
             fellBackFrom: FELL_BACK[reason ?? 'unavailable'],
-            items: [], // what a fallback tier read is the fm_text and Vision rows' to report
+            items: [], // what a fallback tier read is the Vision row's to report
             unreadableCount: 0,
           }
         : {
@@ -761,20 +756,8 @@ export class EvalRunner {
             // The kind the shelf's own print said it is a shelf of: the PC grounds the photo's kindless reads with it, as /identify does.
             ...(reading.printKind ? { printKind: reading.printKind } : {}),
           };
-    } catch (error) {
-      // The forced extraction tier reports why it gave no reading, like the Apple row does.
-      const reason = engine === 'fm_text' && error instanceof ModelUnusableError ? error.reason : undefined;
-      result =
-        reason === undefined
-          ? { photoId, engine, outcome: 'error', items: [], unreadableCount: 0 }
-          : {
-              photoId,
-              engine,
-              outcome: reason === 'declined' ? 'refused' : reason === 'timeout' ? 'timeout' : 'error',
-              fellBackFrom: FELL_BACK[reason],
-              items: [],
-              unreadableCount: 0,
-            };
+    } catch {
+      result = { photoId, engine, outcome: 'error', items: [], unreadableCount: 0 };
     }
     const thermal = (await this.deps.vision.deviceStatus().catch(() => undefined))?.thermalState;
     if (thermal) {

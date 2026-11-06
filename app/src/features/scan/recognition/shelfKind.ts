@@ -24,6 +24,9 @@ import type { Piece } from './splitting';
 /** What a case prints about the shape of its picture. Not a title word, and never on a book. */
 const ASPECT_PHRASES: readonly string[] = ['widescreen', 'wide screen', 'fullscreen', 'full screen', 'letterbox', 'letterboxed', 'anamorphic'];
 
+/** The maker's line a tape's label prints. Read on a shelf only: a single cover is not made a VHS by it (DVDs print it too), so it is not one of the cover's `LOGOS`. */
+const HOME_VIDEO_PHRASES: readonly string[] = ['home video', 'home entertainment'];
+
 /** How many separate spines (pieces) must print a kind before the shelf is a shelf of it. */
 const SHELF_KIND_MIN_SPINES = 2;
 
@@ -40,8 +43,10 @@ const SHELF_KIND_MIN_SPINES = 2;
  * reads as a space) are titles. Hours count with minutes ("1 hr 32 min", "1 hour 45 minutes") or as the short "2 hrs", never as the
  * plain word on its own: "24 Hours" is a title. Read from the normalized line, not the folded one: folding trades digits for letters,
  * which is what a logo needs and a number is not; it also turns "&" into a space, so "Black & White" reads as "black white".
+ *
+ * The case also prints its year and its rating beside the time ("1990/COLOR/135 MIN./PG/STEREO/"). They are case words too: they come with a time and mean nothing without one, so a year or a rating alone is no running time (#726).
  */
-const CASE_WORD = 'color|b w|black (?:and )?white|stereo|mono|hi fi|cc';
+const CASE_WORD = String.raw`color|b w|black (?:and )?white|stereo|mono|hi fi|cc|(?:19|20)\d\d|pg 13|nc 17|pg|g|r|nr|unrated|not rated`;
 const MINUTES = String.raw`\d+ ?(?:min|mins|minutes)`;
 const TIME = String.raw`(?:\d+ ?(?:hr|hrs|hour|hours) ${MINUTES}|\d+ ?(?:hr|hrs)|${MINUTES})`;
 const RUNNING_TIME = new RegExp(`^(?:(?:approx|approximately|running time|runtime|${CASE_WORD}) )*${TIME}(?: (?:${CASE_WORD}))*$`);
@@ -50,7 +55,7 @@ const namesARunningTime = (lines: TextLine[]): boolean => lines.some((l) => RUNN
 
 /** Whether the shelf prints something only a film prints: the format of the disc or tape, the aspect of the picture, a running time. */
 function namesAFilm(lines: TextLine[], tuning: CoverFormatTuning): boolean {
-  return linesPrint(lines, FILM_FORMAT_PHRASES, tuning) || linesPrint(lines, ASPECT_PHRASES, tuning) || namesARunningTime(lines);
+  return linesPrint(lines, FILM_FORMAT_PHRASES, tuning) || linesPrint(lines, ASPECT_PHRASES, tuning) || linesPrint(lines, HOME_VIDEO_PHRASES, tuning) || namesARunningTime(lines);
 }
 
 /** Every kind these lines of print name: a cover's cues, and the words only a film shelf prints. */

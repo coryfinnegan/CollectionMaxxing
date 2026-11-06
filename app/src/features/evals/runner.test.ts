@@ -76,15 +76,13 @@ async function runToEnd(kit: ReturnType<typeof makeKit>, options?: Parameters<Re
 
 describe('the eval runner', () => {
   describe('reading and sending, a photo at a time', () => {
-    it('reads each photo with all three engines, in order, and sends it to the PC with every declared field', async () => {
+    it('reads each photo with the Apple model and the Vision engine, in order, and sends it to the PC with every declared field', async () => {
       const kit = makeKit({ photos: 4 });
       await kit.runner.start();
 
       expect(sentIds()).toEqual(kit.ids);
-      expect(results()).toHaveLength(12);
-      expect(results().map((r) => `${r.photoId}:${r.engine}`)).toEqual(
-        kit.ids.flatMap((id) => [`${id}:apple_model`, `${id}:fm_text`, `${id}:vision_pipeline`]),
-      );
+      expect(results()).toHaveLength(8);
+      expect(results().map((r) => `${r.photoId}:${r.engine}`)).toEqual(kit.ids.flatMap((id) => [`${id}:apple_model`, `${id}:vision_pipeline`]));
       for (const r of results()) {
         expect(r.outcome).toBe('ok');
         expect(r.items.length).toBeGreaterThan(0);
@@ -96,6 +94,13 @@ describe('the eval runner', () => {
       expect(opened()).toHaveLength(1);
       expect(opened()[0].device).toEqual({ model: 'iPhone16,1', osVersion: '26.0', appVersion: '1.2.3' });
       expect(opened()[0].configVersion).toBe('v1');
+    });
+
+    it('does not read with fm_text: the run\'s engine list is the Apple model and the Vision engine', async () => {
+      const kit = makeKit({ photos: 2 });
+      await kit.runner.start();
+      expect([...new Set(results().map((r) => r.engine))]).toEqual(['apple_model', 'vision_pipeline']);
+      expect(results().some((r) => r.engine === 'fm_text')).toBe(false);
     });
 
     it('tells the PC which TestFlight build is reading when the app knows its build number', async () => {
@@ -148,17 +153,17 @@ describe('the eval runner', () => {
     it('records why the model fell back, and does not count the fallback reading as the model\'s', async () => {
       const kit = makeKit({ photos: 2, scenes: { 'photo-001': { read: failedRead('declined') }, 'photo-002': { read: failedRead('contextExceeded') } } });
       await kit.runner.start();
-      const [first, middle, , second] = results();
+      const [first, middle, second] = results();
       expect(first).toMatchObject({ engine: 'apple_model', outcome: 'refused', fellBackFrom: 'declined', items: [] });
       expect(second).toMatchObject({ engine: 'apple_model', outcome: 'error', fellBackFrom: 'context', items: [] });
-      expect(middle).toMatchObject({ engine: 'fm_text', outcome: 'ok' });
-      expect(results()[2]).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
+      expect(middle).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
+      expect(results()[3]).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
     });
 
     it('sends a model timeout as outcome timeout with fellBackFrom timeout, not as an error or an outage', async () => {
       const kit = makeKit({ photos: 1, scenes: { 'photo-001': { read: failedRead('timeout') } } });
       await kit.runner.start();
-      const [model, , vision] = results();
+      const [model, vision] = results();
       expect(model).toMatchObject({ engine: 'apple_model', outcome: 'timeout', fellBackFrom: 'timeout', items: [] });
       expect(model.latencyMs).toBeGreaterThanOrEqual(0);
       expect(vision).toMatchObject({ engine: 'vision_pipeline', outcome: 'ok' });
@@ -166,14 +171,12 @@ describe('the eval runner', () => {
 
     it('a model row that ran out of time with items goes out ok, with its items and timedOut', async () => {
       const dune = [modelItem('Dune', 'Dune', 0)];
-      const kit = makeKit({ photos: 1, scenes: { 'photo-001': { read: failedRead('timeout', dune), extract: failedRead('timeout', dune) } } });
+      const kit = makeKit({ photos: 1, scenes: { 'photo-001': { read: failedRead('timeout', dune) } } });
       await kit.runner.start();
-      const [model, fm, vision] = results();
+      const [model, vision] = results();
       expect(model).toMatchObject({ engine: 'apple_model', outcome: 'ok', timedOut: true });
       expect(model.items.map((i) => i.title)).toEqual(['Dune']);
       expect(model).not.toHaveProperty('fellBackFrom');
-      expect(fm).toMatchObject({ engine: 'fm_text', outcome: 'ok', timedOut: true });
-      expect(fm.items.map((i) => i.title)).toEqual(['Dune']);
       expect(vision).not.toHaveProperty('timedOut');
     });
 
@@ -181,15 +184,6 @@ describe('the eval runner', () => {
       const kit = makeKit({ photos: 1 });
       await kit.runner.start();
       for (const row of results()) expect(row).not.toHaveProperty('timedOut');
-    });
-
-    it('sends an extraction refusal and timeout as their own outcomes, not as errors', async () => {
-      const kit = makeKit({ photos: 2, scenes: { 'photo-001': { extract: failedRead('declined') }, 'photo-002': { extract: failedRead('timeout') } } });
-      await kit.runner.start();
-      const fm = results().filter((r) => r.engine === 'fm_text');
-      expect(fm).toHaveLength(2);
-      expect(fm[0]).toMatchObject({ photoId: 'photo-001', outcome: 'refused', fellBackFrom: 'declined', items: [] });
-      expect(fm[1]).toMatchObject({ photoId: 'photo-002', outcome: 'timeout', fellBackFrom: 'timeout', items: [] });
     });
 
     it('sends the model\'s own reading as its row, not the scanner\'s model-plus-Vision combination', async () => {
@@ -219,7 +213,7 @@ describe('the eval runner', () => {
       const asked = (calls: { options: { maxItems?: number } }[]) => calls.map((c) => c.options.maxItems);
       // A cover is one item to both model tiers (the kit's config allows 17 on a shelf).
       expect(asked(kit.vision.readCalls)).toEqual([17, 17, 1, 1]);
-      expect(asked(kit.vision.extractCalls)).toEqual([17, 17, 1, 1]);
+      expect(kit.vision.extractCalls).toEqual([]);
       // A cover is the whole frame to the Vision engine; a shelf is still split per spine (the kit's two lines are two spines).
       const vision = results().filter((r) => r.engine === 'vision_pipeline');
       expect(vision.map((r) => [r.photoId, r.items.length])).toEqual([
@@ -289,9 +283,9 @@ describe('the eval runner', () => {
         });
         await kit.runner.start();
         const rows = results();
-        expect(rows.map((r) => r.engine)).toEqual(['apple_model', 'fm_text', 'vision_pipeline']);
+        expect(rows.map((r) => r.engine)).toEqual(['apple_model', 'vision_pipeline']);
         expect(rows[0].latencyMs).toBe(100);
-        expect(rows[2].latencyMs).toBe(5000);
+        expect(rows[1].latencyMs).toBe(5000);
       });
     });
 
@@ -308,8 +302,8 @@ describe('the eval runner', () => {
         Object.fromEntries(
           results().filter((r) => r.photoId === photoId).map((r) => [r.engine, (r.items as { kind?: string }[]).map((i) => i.kind)]),
         );
-      expect(kinds('photo-002')).toEqual({ apple_model: ['film'], fm_text: ['film'], vision_pipeline: ['film'] });
-      expect(kinds('photo-001')).toEqual({ apple_model: ['book'], fm_text: ['book'], vision_pipeline: ['other'] });
+      expect(kinds('photo-002')).toEqual({ apple_model: ['film'], vision_pipeline: ['film'] });
+      expect(kinds('photo-001')).toEqual({ apple_model: ['book'], vision_pipeline: ['other'] });
     });
 
     describe('what the shelf printed', () => {
@@ -361,7 +355,7 @@ describe('the eval runner', () => {
         const kit = makeKit({ photos: 2, scenes: { 'photo-002': { rectangles: [blurayCase] } } });
         await kit.runner.start();
         // "late" is the Vision tier, which can finish its read a moment before the cue's own search; both are inside the wait.
-        for (const engine of ['apple_model', 'fm_text', 'vision_pipeline']) {
+        for (const engine of ['apple_model', 'vision_pipeline']) {
           expect([engine, cueOf('photo-002', engine)]).toEqual([engine, expect.stringMatching(/^cue=(ready|late) fmt=shape:bluray r=0\.86 cov=0\.\d\d rects=1 /)]);
         }
       });
@@ -434,20 +428,12 @@ describe('the eval runner', () => {
       expect(kit.runner.getState().phase).toBe('scoring');
     });
 
-    it('marks extraction rows as settled by the model', async () => {
-      const kit = makeKit({ photos: 1 });
-      await kit.runner.start();
-      const fm = results().find((r) => r.engine === 'fm_text');
-      expect(fm?.items.length).toBeGreaterThan(0);
-      for (const item of fm?.items ?? []) expect(item.resolvedBy).toBe('model');
-    });
-
     it('records a serious thermal state, tells the owner to keep the phone cool and keeps going', async () => {
       const kit = makeKit({ photos: 2 });
       jest.spyOn(kit.vision, 'deviceStatus').mockResolvedValue({ thermalState: 'serious', osVersion: '26.0' });
       await kit.runner.start();
       expect(kit.runner.getState().keepCool).toBe(true);
-      expect(results()).toHaveLength(6);
+      expect(results()).toHaveLength(4);
       expect(results().every((r) => r.thermalState === 'serious')).toBe(true);
     });
 
@@ -512,7 +498,7 @@ describe('the eval runner', () => {
 
         expect(asked).toEqual([{ uri: uriOf('photo-001'), width: 5712, height: 4284, orientation: 1, target: { width: 2576, height: 1932 } }]);
         expect(pictureEveryTierRead(kit)).toEqual([scaledUriOf('photo-001')]);
-        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
+        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
         expect(kit.deleted).toEqual([uriOf('photo-001'), scaledUriOf('photo-001')]);
         expect(trackedPictures()).toEqual([]);
       });
@@ -524,7 +510,7 @@ describe('the eval runner', () => {
 
         expect(asked).toEqual([{ uri: uriOf('photo-001'), width: 2048, height: 1536, orientation: 1, target: null }]);
         expect(pictureEveryTierRead(kit)).toEqual([uriOf('photo-001')]);
-        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
+        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
         expect(kit.deleted).toEqual([uriOf('photo-001')]);
         expect(trackedPictures()).toEqual([]);
       });
@@ -596,14 +582,6 @@ describe('the eval runner', () => {
         for (const item of row.items) {
           expect(item).toMatchObject({ provisional: true, isGuess: true });
           expect(item).not.toHaveProperty('tier');
-        }
-      }
-      // the extraction tier is a model read, so its high-confidence rows claim T1 like the Apple's
-      for (const row of results().filter((r) => r.engine === 'fm_text')) {
-        expect(row.items.length).toBeGreaterThan(0);
-        for (const item of row.items) {
-          expect(item).toMatchObject({ tier: 'T1', provisional: false });
-          expect(item).not.toHaveProperty('isGuess');
         }
       }
     });
@@ -779,13 +757,13 @@ describe('the eval runner', () => {
       ]);
     });
 
-    it('reads the probes after all three rows, so no row\'s latency or first item counts one', async () => {
+    it('reads the probes after both rows, so no row\'s latency or first item counts one', async () => {
       const kit = probeKit();
       await kit.runner.start();
 
       const rows = results();
-      expect(rows.map((r) => r.engine)).toEqual(['apple_model', 'fm_text', 'vision_pipeline']);
-      expect(rows.map((r) => r.latencyMs)).toEqual([0, 0, 0]); // the clock moves only inside a probe
+      expect(rows.map((r) => r.engine)).toEqual(['apple_model', 'vision_pipeline']);
+      expect(rows.map((r) => r.latencyMs)).toEqual([0, 0]); // the clock moves only inside a probe
       const calls = kit.vision.textCalls.map((c) => shapeOf(c.options));
       expect(calls.indexOf('production')).toBeGreaterThan(calls.lastIndexOf('scanner'));
       expect(rows.every((r) => r.outcome === 'ok')).toBe(true);
@@ -814,7 +792,6 @@ describe('the eval runner', () => {
       await kit.runner.start();
 
       expect(probesOf('photo-001', 'apple_model')).toBeUndefined();
-      expect(probesOf('photo-001', 'fm_text')).toBeUndefined();
     });
 
     it('sends a single cover with no probes and does not read any', async () => {
@@ -839,8 +816,8 @@ describe('the eval runner', () => {
 
       expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'corrected0', 'tiles0']);
       expect(sentIds()).toEqual(['photo-001']);
-      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
-      expect(results().map((r) => r.items.length)).toEqual([2, 2, 2]);
+      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
+      expect(results().map((r) => r.items.length)).toEqual([2, 2]);
     });
 
     it('sends no probes at all when every one of them fails', async () => {
@@ -853,8 +830,8 @@ describe('the eval runner', () => {
       await kit.runner.start();
 
       expect(sentIds()).toEqual(['photo-001']);
-      expect(results()[2]).not.toHaveProperty('ocrProbes');
-      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok', 'ok']);
+      expect(results()[1]).not.toHaveProperty('ocrProbes');
+      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
     });
 
     it('cuts a probe to what the PC accepts: 1500 lines, text up to 200 characters, boxes and confidence from 0 to 1', async () => {
@@ -1041,7 +1018,7 @@ describe('the eval runner', () => {
       expect(evalsMock.attempts).toEqual(['photo-001', 'photo-001', 'photo-001', 'photo-001', 'photo-002']);
       expect(downloadedAtSend).toEqual([1, 1, 1, 1, 2]); // photo 2 is not even downloaded until photo 1 is on the PC
       expect(sentIds()).toEqual(kit.ids);
-      expect(results().filter((r) => r.photoId === 'photo-001')).toHaveLength(3);
+      expect(results().filter((r) => r.photoId === 'photo-001')).toHaveLength(2);
     });
 
     it('says it is waiting for the PC, with the readings kept on the phone, until it answers', async () => {
@@ -1400,7 +1377,7 @@ describe('the eval runner', () => {
 
       expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002']); // read again from the start
       expect(sentIds()).toEqual(['photo-001', 'photo-002']);
-      expect(results().map((r) => r.outcome)).toEqual(Array(6).fill('ok')); // no engine error or timeout from being cut short
+      expect(results().map((r) => r.outcome)).toEqual(Array(4).fill('ok')); // no engine error or timeout from being cut short
     });
 
     it('records nothing for a read that finished fine but spanned the background, because its timing is not the engine\'s', async () => {
@@ -1413,7 +1390,7 @@ describe('the eval runner', () => {
 
       expect(kit.downloaded).toEqual(['photo-001', 'photo-001']);
       expect(evalsMock.sent).toHaveLength(1);
-      expect(results()).toHaveLength(3);
+      expect(results()).toHaveLength(2);
     });
 
     it('does not pick up while the app is still in the background', async () => {
@@ -1640,11 +1617,12 @@ describe('the eval runner', () => {
       let stopped = false;
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 4,
-        onRead: () => {
+        text: () => {
           if (!stopped && kit.downloaded.length === 2) {
             stopped = true;
             kit.runner.stop();
           }
+          return undefined;
         },
       });
       await kit.runner.start();
@@ -1653,6 +1631,25 @@ describe('the eval runner', () => {
       expect(evalsMock.finishes).toEqual([{ partial: true }]);
       expect(evalsMock.run?.partial).toBe(true);
       expect(kit.runner.getState()).toMatchObject({ phase: 'scoring', partial: true });
+    });
+
+    it('keeps a shelf photo whose model read, the last step, was stopped: both rows, and no probes', async () => {
+      let stopped = false;
+      const kit: ReturnType<typeof makeKit> = makeKit({
+        photos: 1,
+        onRead: () => {
+          if (!stopped) {
+            stopped = true;
+            kit.runner.stop();
+          }
+        },
+      });
+      await kit.runner.start();
+
+      expect(sentIds()).toEqual(['photo-001']);
+      expect(results().map((r) => r.engine)).toEqual(['apple_model', 'vision_pipeline']);
+      expect(results().some((r) => 'ocrProbes' in r)).toBe(false);
+      expect(evalsMock.finishes).toEqual([{ partial: true }]);
     });
 
     it('remembers that the owner stopped it, and that a run that was not stopped was not', async () => {
@@ -1678,11 +1675,12 @@ describe('the eval runner', () => {
       let paused = false;
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 3,
-        onRead: () => {
+        text: () => {
           if (!paused && kit.downloaded.length === 2) {
             paused = true;
             kit.runner.pause();
           }
+          return undefined;
         },
       });
       const finished = kit.runner.start();
@@ -1698,8 +1696,9 @@ describe('the eval runner', () => {
     it('leaves nothing behind on the PC when nothing was read', async () => {
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 2,
-        onRead: () => {
+        text: () => {
           if (kit.runner.getState().phase === 'running') kit.runner.stop();
+          return undefined;
         },
       });
 
@@ -1736,11 +1735,12 @@ describe('the eval runner', () => {
       let paused = false;
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 3,
-        onRead: () => {
+        text: () => {
           if (!paused && kit.downloaded.length === 2) {
             paused = true;
             kit.runner.pause();
           }
+          return undefined;
         },
       });
       const finished = kit.runner.start();
@@ -1750,7 +1750,7 @@ describe('the eval runner', () => {
       kit.runner.resume();
       await finished;
       expect(sentIds()).toEqual(kit.ids);
-      expect(results()).toHaveLength(9);
+      expect(results()).toHaveLength(6);
       expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-003']); // the paused photo was not read twice
     });
   });
@@ -1847,10 +1847,10 @@ describe('the eval runner', () => {
       text: [line('SUPER MARIO WORLD', 0.2, 0.2, 0.5, 0.1), line('SNS-8C-USA', 0.1, 0.85, 0.3, 0.04)],
     };
 
-    it('sends a single cover\'s product code from all three engines, as a game', async () => {
+    it('sends a single cover\'s product code from both engines, as a game', async () => {
       const kit = makeKit({ photos: 2, scenes: { 'photo-002': cartridge } });
       await kit.runner.start();
-      for (const engine of ['apple_model', 'fm_text', 'vision_pipeline']) {
+      for (const engine of ['apple_model', 'vision_pipeline']) {
         const [, single] = rows(engine);
         expect([engine, single.photoId, single.items.map((i) => [i.kind, i.productCode])]).toEqual([engine, 'photo-002', [['game', 'SNS-8C-USA']]]);
       }

@@ -122,6 +122,53 @@ describe('shelfKind: film print makes a film shelf', () => {
     });
   });
 
+  describe('a case line with a year and a rating, and HOME VIDEO (#726)', () => {
+    it.each([
+      ['a year, the color, the time and a rating', '1990/COLOR/135 MIN./PG/STEREO/'],
+      ['a year and a time', '1985 98 Min.'],
+      ['a rating after the time', '98 mins PG-13'],
+      ['a rating before the time', 'R 92 Minutes'],
+      ['an unrated tape', '92 Minutes Unrated'],
+      ['a not-rated tape', '92 Minutes Not Rated'],
+    ])('reads a running-time line that carries %s on two spines as film print', (_why, text) => {
+      expect(onTwoSpines(text)).toBe('film');
+    });
+
+    it.each([
+      ['a year and a rating', '1990 PG'],
+      ['a year alone', '1990'],
+      ['a rating alone', 'PG-13'],
+      ['a rating and the color', 'R Color'],
+    ])('says nothing for %s with no running time on the line', (_why, text) => {
+      expect(onTwoSpines(text)).toBeUndefined();
+    });
+
+    it('says nothing for a title that holds a running time, a year and other words', () => {
+      expect(kindOf(['SOME SPINE'], ['1999 92 Minutes Later'], ['ANOTHER SPINE'], ['PG 90 Minutes in Heaven'])).toBeUndefined();
+    });
+
+    it.each([
+      ['plain', 'HOME VIDEO'],
+      ['lower case', 'Home Video'],
+      ['run together', 'HOMEVIDEO'],
+      ['with one letter wrong', 'HOME VIDE0'],
+      ['the other phrase', 'HOME ENTERTAINMENT'],
+    ])('reads HOME VIDEO (%s) on two spines as film print', (_why, text) => {
+      expect(onTwoSpines(text)).toBe('film');
+    });
+
+    it('reads HOME VIDEO on one spine and a running time on another as a film shelf', () => {
+      expect(kindOf(['SOME SPINE'], ['HOME VIDEO'], ['ANOTHER SPINE'], ['92 Minutes Color'])).toBe('film');
+    });
+
+    it('says nothing for one spine that prints HOME VIDEO among book spines', () => {
+      expect(kindOf(['THE SECRET HISTORY'], ['HOME VIDEO'], ['DUNE'], ['EMMA'])).toBeUndefined();
+    });
+
+    it('says nothing for book spines whose titles only hold one of the words', () => {
+      expect(kindOf(['HOME'], ['VIDEO GAMES'], ['HOME'], ['VIDEO GAMES'])).toBeUndefined();
+    });
+  });
   describe('one spine is read as several lines', () => {
     it('says nothing when one spine is read as WIDESCREEN and again as WIDESCRELN', () => {
       expect(kindOf(['THE SECRET HISTORY'], ['WIDESCREEN', 'WIDESCRELN'], ['DUNE'], ['EMMA'])).toBeUndefined();
@@ -234,11 +281,11 @@ describe('shelfKind: the recorded shelf photos', () => {
     expect(await printKindOf('vhs-dvd-shelf-02')).toBe('film');
   });
 
-  it('leaves vhs-dvd-shelf-01 with no kind: both of its running times are printed on one spine', async () => {
-    expect(await printKindOf('vhs-dvd-shelf-01')).toBeUndefined();
+  it('reads vhs-dvd-shelf-01 as a film shelf: one spine prints its running times and another HOME VIDEO', async () => {
+    expect(await printKindOf('vhs-dvd-shelf-01')).toBe('film');
   });
 
-  it.each([['accept-shelf-01'], ['accept-shelf-02'], ['accept-shelf-04']])('leaves the book shelf %s with no kind', async (id) => {
+  it.each([['accept-shelf-01'], ['accept-shelf-02'], ['accept-shelf-04'], ['shelf-01'], ['shelf-02']])('leaves the book shelf %s with no kind', async (id) => {
     expect(await printKindOf(id)).toBeUndefined();
   });
 });
