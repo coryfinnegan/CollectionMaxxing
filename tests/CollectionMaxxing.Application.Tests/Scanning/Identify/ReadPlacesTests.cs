@@ -23,7 +23,8 @@ public class ReadPlacesTests
         ResolutionVerdict.Ambiguous,
         [new ResolutionOption(null, TrimmedRetryHarness.Known("Iron Fox"), score)],
         null,
-        [new TraceStep(SpineLines.StepName, "IRON FOX (title read: XQZV WRTK)", 0)]) { FoundByTrimmedSpan = true };
+        [new TraceStep(SpineLines.StepName, "IRON FOX (title read: XQZV WRTK)", 0)])
+    { FoundByTrimmedSpan = true };
 
     [Fact]
     public void A_spine_revived_by_a_line_never_takes_the_place_of_a_model_read_at_the_same_place()
