@@ -78,12 +78,14 @@ describe('Settings > Recognition', () => {
     expect(screen.getByText('Apple Intelligence: Off')).toBeTruthy();
   });
 
-  it('shows the Apple text model on a phone whose model cannot see pictures', async () => {
+  it('says a text-only iPhone reads the printed text, with Apple Intelligence on', async () => {
     recognitionWith({ available: true, vision: false, guidedGeneration: true, contextSize: 4096 });
     await renderWithProviders(<SettingsScreen />);
-    expect(await screen.findByText('Engine: Apple text model')).toBeTruthy();
+    expect(await screen.findByText('Engine: Vision text fallback')).toBeTruthy();
     expect(screen.getByText('Apple Intelligence: On')).toBeTruthy();
-    expect(screen.getByText(/reads the text on covers/)).toBeTruthy();
+    expect(screen.getByText("This iPhone's model can't read pictures, so scans read the printed text.")).toBeTruthy();
+    expect(screen.queryByText(/isn't available/)).toBeNull();
+    expect(screen.queryByText(/Turn it on/)).toBeNull();
   });
 
   it('never claims that covers stay on the phone, which a close call does not honor (Apple model)', async () => {
@@ -91,14 +93,6 @@ describe('Settings > Recognition', () => {
     expect(await screen.findByText('Engine: Apple on-device model')).toBeTruthy();
     expect(screen.queryByText(/never leave/i)).toBeNull();
     expect(screen.getByText(/Covers are read on this iPhone, and nothing goes to an AI service/)).toBeTruthy();
-  });
-
-  it('never claims that cover photos stay on the phone (Apple text model)', async () => {
-    recognitionWith({ available: true, vision: false, guidedGeneration: true, contextSize: 4096 });
-    await renderWithProviders(<SettingsScreen />);
-    expect(await screen.findByText('Engine: Apple text model')).toBeTruthy();
-    expect(screen.queryByText(/never leave/i)).toBeNull();
-    expect(screen.getByText(/Nothing goes to an AI service/)).toBeTruthy();
   });
 
   it.each([

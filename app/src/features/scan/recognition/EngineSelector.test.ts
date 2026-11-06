@@ -79,46 +79,39 @@ describe('EngineSelector', () => {
   });
 });
 
-describe('EngineSelector with the OCR-text tier', () => {
+describe('EngineSelector never reads with the OCR-text tier (it is eval-only)', () => {
   const textOnly = { available: true, vision: false, guidedGeneration: true, contextSize: 4096 };
   const extracted: Scene = { ...ok, extract: okRead(books) };
 
-  it('reads with the text tier first on a phone whose model cannot see pictures', async () => {
+  it('reads with Vision text on a phone whose model cannot see pictures, and never asks the text tier', async () => {
     const { vision, selector: s } = selector(extracted, textOnly);
     const reading = await s.read(STILL, () => {});
-    expect(reading.engine).toBe('fm_text');
-    expect(reading.fellBackFrom).toBeUndefined();
-    expect(reading.items.map((i) => i.title)).toEqual(['Dune', 'Emma']);
+    expect(reading.engine).toBe('vision_pipeline');
+    expect(reading.fellBackFrom).toBe('unavailable');
+    expect(reading.items.length).toBeGreaterThan(0);
     expect(vision.readCalls).toHaveLength(0);
-    expect(vision.extractCalls).toHaveLength(1);
+    expect(vision.extractCalls).toHaveLength(0);
   });
 
-  it('falls back to Vision text when extraction fails on a text-only phone, and says why', async () => {
-    const { selector: s } = selector({ ...ok, extract: failedRead('declined') }, textOnly);
+  it('falls back to Vision text when the picture read fails, without asking the text tier, and says why', async () => {
+    const { vision, selector: s } = selector({ ...ok, read: failedRead('declined'), extract: okRead(books) });
     const reading = await s.read(STILL, () => {});
     expect(reading.engine).toBe('vision_pipeline');
     expect(reading.fellBackFrom).toBe('declined');
     expect(reading.items.length).toBeGreaterThan(0);
+    expect(vision.extractCalls).toHaveLength(0);
   });
 
-  it('tries the text tier when the picture read fails, and keeps the picture failure as the reason', async () => {
-    const { selector: s } = selector({ ...ok, read: failedRead('declined'), extract: okRead(books) });
-    const reading = await s.read(STILL, () => {});
-    expect(reading.engine).toBe('fm_text');
-    expect(reading.fellBackFrom).toBe('declined');
-    expect(reading.items.map((i) => i.title)).toEqual(['Dune', 'Emma']);
-  });
-
-  it('falls back to Vision text with the picture failure when extraction fails too', async () => {
-    const { selector: s } = selector({ ...ok, read: failedRead('timeout'), extract: failedRead('declined') });
+  it('keeps the picture failure as the reason whatever the text tier would have done', async () => {
+    const { vision, selector: s } = selector({ ...ok, read: failedRead('timeout'), extract: failedRead('declined') });
     const reading = await s.read(STILL, () => {});
     expect(reading.engine).toBe('vision_pipeline');
     expect(reading.fellBackFrom).toBe('timeout');
-    expect(reading.items.length).toBeGreaterThan(0);
+    expect(vision.extractCalls).toHaveLength(0);
   });
 
-  it('reports the text tier for Settings on a text-only phone', async () => {
-    expect(await selector(ok, textOnly).selector.state()).toEqual({ engine: 'fm_text', appleIntelligence: 'on' });
+  it('reports Vision text with Apple Intelligence on for Settings on a text-only phone', async () => {
+    expect(await selector(ok, textOnly).selector.state()).toEqual({ engine: 'vision_pipeline', appleIntelligence: 'on' });
   });
 });
 
@@ -359,18 +352,18 @@ describe('EngineSelector with a single cover: the case says the format', () => {
       expect(coded((await select(cartridge('vhs')).read(STILL, () => {}, COVER)).items)).toEqual(['film/undefined']);
     });
 
-    it('goes on the OCR-text tier\'s read, and on the Vision-only tier\'s', async () => {
+    it('goes on Vision\'s read on a text-only phone, and on the Vision-only tier\'s', async () => {
       const text = await select(cartridge('other'), textOnly).read(STILL, () => {}, COVER);
-      expect(text.engine).toBe('fm_text');
+      expect(text.engine).toBe('vision_pipeline');
       expect(coded(text.items)).toEqual(['game/SNS-8C-USA']);
       const vision = await select(cartridge('other'), off).read(STILL, () => {}, COVER);
       expect(vision.engine).toBe('vision_pipeline');
       expect(coded(vision.items)).toEqual(['game/SNS-8C-USA']);
     });
 
-    it('goes on the OCR-text tier\'s read when the picture model could not read the cover, and still says why it fell back', async () => {
+    it('goes on Vision\'s read when the picture model could not read the cover, and still says why it fell back', async () => {
       const reading = await select(cartridge('other', { read: failedRead('declined') })).read(STILL, () => {}, COVER);
-      expect(reading.engine).toBe('fm_text');
+      expect(reading.engine).toBe('vision_pipeline');
       expect(reading.fellBackFrom).toBe('declined');
       expect(coded(reading.items)).toEqual(['game/SNS-8C-USA']);
     });
@@ -399,18 +392,20 @@ describe('EngineSelector with a single cover: the case says the format', () => {
     const select = (scene: Scene, capabilities?: object, deps: Partial<SelectorDeps> = {}) =>
       new EngineSelector({ vision: new RecordingVision({ [STILL.uri]: scene }, capabilities ? { capabilities: capabilities as never } : undefined), settings: () => S, newId: testIds, ...deps });
 
-    it('corrects the OCR-text tier on a phone whose model cannot see pictures', async () => {
+    it('corrects Vision\'s read on a phone whose model cannot see pictures', async () => {
+      const scene = cover('dvd', { extract: casablanca('dvd'), text: [line('CASABLANCA', 0.2, 0.2, 0.5, 0.1), line('DVD VIDEO', 0.1, 0.8, 0.3, 0.04)] });
       const streamed: ReadItem[] = [];
-      const reading = await select(cover('dvd', { extract: casablanca('dvd'), rectangles: [slipcase] }), textOnly).read(STILL, (i) => streamed.push(i), COVER);
-      expect(reading.engine).toBe('fm_text');
-      expect(formats(streamed)).toEqual(['film/vhs']);
-      expect(formats(reading.items)).toEqual(['film/vhs']);
+      const reading = await select(scene, textOnly).read(STILL, (i) => streamed.push(i), COVER);
+      expect(reading.engine).toBe('vision_pipeline');
+      expect(reading.fellBackFrom).toBe('unavailable');
+      expect(formats(streamed)).toEqual(['film/dvd']);
+      expect(formats(reading.items)).toEqual(['film/dvd']);
     });
 
-    it('corrects the OCR-text tier when the picture model could not read the cover, and still says why it fell back', async () => {
+    it('corrects Vision\'s read when the picture model could not read the cover, and still says why it fell back', async () => {
       const scene = cover('dvd', { read: failedRead('timeout'), extract: casablanca('book'), text: [line('CASABLANCA', 0.2, 0.2, 0.5, 0.1), line('Blu-ray Disc', 0.1, 0.8, 0.3, 0.04)] });
       const reading = await select(scene).read(STILL, () => {}, COVER);
-      expect(reading.engine).toBe('fm_text');
+      expect(reading.engine).toBe('vision_pipeline');
       expect(reading.fellBackFrom).toBe('timeout');
       expect(formats(reading.items)).toEqual(['film/bluray']);
     });

@@ -1,8 +1,8 @@
-// Picks the engine for each snap. The Apple model when it can see pictures; the OCR-text extraction tier when the
-// model can only read text, or when the picture read declines, runs out of time or room; Vision text for that one snap
-// when neither model tier answers. The next snap tries the model again. A shelf shot is read by the Vision pipeline first, and
+// Picks the engine for each snap. The Apple model when it can see pictures; Vision text for that one snap when the picture read
+// declines, runs out of time or room, or the model cannot see pictures at all. The next snap tries the model again. The OCR-text
+// extraction tier (FmTextEngine) is eval-only: the eval runner measures it, but the scanner never reads with it. A shelf shot is read by the Vision pipeline first, and
 // its items stream at once; the model then adds the items it found where Vision found nothing (combine.ts): Vision finds most of
-// the spines in about a second, and the model finds different ones. A single cover read by any of the three tiers is checked against
+// the spines in about a second, and the model finds different ones. A single cover read by either engine is checked against
 // the case's shape and logos and the cover's printed text (CoverCueEngine.ts), which the engines often get wrong.
 import type { ModelCapabilities, ModelUnavailableReason, Rect, VisionEngine } from '@/native/cm-vision';
 import { discardPicture, trackPicture } from '../pictureFiles';
@@ -42,12 +42,12 @@ export class EngineSelector {
   /** The picture model with nothing around it: the halves of a wide shot are other pictures, so the cover's cue is not theirs. */
   private readonly model: AppleModelEngine;
   private readonly apple: RecognitionEngine;
-  private readonly text: RecognitionEngine;
+  private readonly text: RecognitionEngine; // eval-only, see `tiers`
   private readonly pipeline: RecognitionEngine;
   private readonly now: () => number;
 
   /**
-   * The two lower tiers as this selector reads with them, cover cue and all. The eval runner reads each tier on its own, and reads these, so
+   * The two lower tiers as this selector reads with them. Only the pipeline reads for the scanner; fmText is here so the eval keeps measuring it, cover cue and all. The eval runner reads each tier on its own, and reads these, so
    * what it measures is what the scanner does.
    */
   readonly tiers: { fmText: RecognitionEngine; pipeline: RecognitionEngine };
@@ -78,15 +78,15 @@ export class EngineSelector {
   async state(): Promise<RecognitionState> {
     const caps = await this.capabilities();
     if (caps && seesPictures(caps)) return { engine: 'apple_model', appleIntelligence: 'on' };
-    if (caps && extractsText(caps)) return { engine: 'fm_text', appleIntelligence: 'on' };
+    // A model that reads text but not pictures is on, but the scanner reads with Vision (the text tier is eval-only).
+    if (caps && extractsText(caps)) return { engine: 'vision_pipeline', appleIntelligence: 'on' };
     return { engine: 'vision_pipeline', appleIntelligence: caps ? (caps.reason ?? 'notSupported') : 'unknown' };
   }
 
   async read(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions = {}): Promise<SnapReading> {
     const started = this.now();
     const caps = await this.capabilities();
-    if (!caps || !extractsText(caps)) return this.fallBack(still, onItem, 'unavailable', options);
-    if (!seesPictures(caps)) return this.readText(still, onItem, options);
+    if (!caps || !seesPictures(caps)) return this.fallBack(still, onItem, 'unavailable', options);
     if (options.combine !== false && !isSingleItemShot(options.shotKind)) return this.readShelf(still, onItem, options, started);
     // A single cover is corrected by what its case and its text say (the engines are wrapped); the model alone is read as the model read it.
     const read = await this.readModel(still, onItem, options, started);
@@ -107,9 +107,8 @@ export class EngineSelector {
    * matches it but keeps it for review instead of adding it. A single cover and a model-only read never are.
    *
    * The snap's engine and fellBackFrom say what the model did, not who found most of the items, so the model's health stays readable
-   * in the stats: when a model tier answered, the snap is that tier's, with the reason the picture read failed if the text tier had to
-   * answer; when none did, Vision's reading stands as the snap and the model's failure is the fellBackFrom, as it was when Vision was the
-   * fallback. Vision failing loses nothing of the model's; only both failing fails the snap.
+   * in the stats: when the picture read answered, the snap is the model's; when it did not, Vision's reading stands as the snap and the
+   * model's failure is the fellBackFrom. Vision failing loses nothing of the model's; only both failing fails the snap.
    */
   private async readShelf(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions, started: number): Promise<SnapReading> {
     const local = this.deps.settings().local;
@@ -170,31 +169,15 @@ export class EngineSelector {
   }
 
   /**
-   * The model tiers in order: the picture read (re-read in halves when the shelf is wide), then OCR-text extraction when the picture
-   * read gave nothing. When the picture read failed first, its reason is the snap's fellBackFrom: that says why the preferred engine
-   * wasn't used, and a failed extraction on top changes nothing about it. Resolves with that reason when no tier answered.
+   * The picture read (re-read in halves when the shelf is wide). The text tier is never tried after it: when the picture read fails,
+   * the reason resolves, and the caller keeps Vision's reading with that reason as the snap's fellBackFrom.
    */
   private async readModel(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions, started: number): Promise<SnapReading | FellBackFrom> {
-    let reason: FellBackFrom = 'unavailable';
     try {
       const reading = await this.apple.read(still, onItem, options);
       return await this.maybeHalves(still, reading, started, options);
     } catch (error) {
-      if (error instanceof ModelUnusableError) reason = error.reason;
-    }
-    try {
-      return { ...(await this.text.read(still, onItem, options)), fellBackFrom: reason };
-    } catch {
-      return reason;
-    }
-  }
-
-  /** The middle tier on its own, for a phone whose model can only read text. */
-  private async readText(still: Still, onItem: (item: ReadItem) => void, options: ReadOptions): Promise<SnapReading> {
-    try {
-      return await this.text.read(still, onItem, options);
-    } catch (error) {
-      return this.fallBack(still, onItem, error instanceof ModelUnusableError ? error.reason : 'unavailable', options);
+      return error instanceof ModelUnusableError ? error.reason : 'unavailable';
     }
   }
 

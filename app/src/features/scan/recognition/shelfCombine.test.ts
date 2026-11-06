@@ -544,15 +544,17 @@ describe('a shelf shot where the model gives no reading', () => {
     expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer', 'Ubik']);
   });
 
-  it('adds what the OCR-text tier reads when the picture read fails, as that tier\'s snap with the picture failure as the reason', async () => {
+  it('keeps Vision\'s reading when the picture read fails on a shelf, and never asks the text tier', async () => {
     visionAlsoPrints('Ubik');
     const extract = okRead([modelItem('Dune', 'Dune', 0, { kind: 'other' }), modelItem('Emma', 'Emma', 1, { kind: 'other' }), ubik]);
     const streamed: ReadItem[] = [];
-    const reading = await selectorFor({ ...shelf, read: failedRead('declined'), extract }).selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
-    expect(reading.engine).toBe('fm_text');
+    const { vision, selector } = selectorFor({ ...shelf, read: failedRead('declined'), extract });
+    const reading = await selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
+    expect(reading.engine).toBe('vision_pipeline');
     expect(reading.fellBackFrom).toBe('declined');
-    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer', 'Ubik']);
-    expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Neuromancer', 'Ubik']);
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(vision.extractCalls).toHaveLength(0);
   });
 
   it('fails the snap, as before, when Vision and every model tier fail', async () => {
@@ -638,16 +640,6 @@ describe('a title only the model read is added only when the shelf\'s print has 
     expect(reading.items.map((i) => i.unconfirmed)).toEqual([true, true, true]);
   });
 
-  it('leaves out a model-only read the OCR-text tier made without print, as it does the picture\'s', async () => {
-    const extract = okRead([modelItem('Dune', 'Dune', 0, { kind: 'other' }), modelItem('Emma', 'Emma', 1, { kind: 'other' }), ubik, matrix]);
-    const streamed: ReadItem[] = [];
-    const reading = await selectorFor({ ...shelf, read: failedRead('declined'), extract }).selector.read(STILL, (i) => streamed.push(i), { shotKind: 'shelf_segment' });
-
-    expect(reading.engine).toBe('fm_text');
-    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
-    expect(titles(streamed)).toEqual(['Dune', 'Emma', 'Neuromancer']);
-  });
-
   it('keeps every model read when Vision failed: the model\'s reading stands whole', async () => {
     jest.spyOn(VisionPipelineEngine.prototype, 'read').mockRejectedValue(new Error('vision broke'));
     const streamed: ReadItem[] = [];
@@ -693,14 +685,15 @@ describe('shots and engines the combination leaves alone', () => {
     expect(titles(streamed)).toEqual(['Dune', 'Emma']);
   });
 
-  it('leaves the fm_text tier as it was on a phone whose model cannot see pictures', async () => {
+  it('reads a shelf with Vision alone on a phone whose model cannot see pictures', async () => {
     const textOnly = { available: true, vision: false, guidedGeneration: true, contextSize: 4096 };
     const { vision, selector } = selectorFor(shelf, textOnly);
     const detect = jest.spyOn(vision, 'detectRectangles');
     const reading = await selector.read(STILL, () => {}, { shotKind: 'shelf_segment' });
-    expect(reading.engine).toBe('fm_text');
-    expect(titles(reading.items)).toEqual(['Dune', 'Emma']);
-    expect(detect).not.toHaveBeenCalled();
+    expect(reading.engine).toBe('vision_pipeline');
+    expect(reading.fellBackFrom).toBe('unavailable');
+    expect(titles(reading.items)).toEqual(['Dune', 'Emma', 'Neuromancer']);
+    expect(detect).toHaveBeenCalledTimes(2); // one Vision read, as when the model is off
   });
 
   it('leaves the Vision fallback as it was when the model is off: Vision items only, once', async () => {
