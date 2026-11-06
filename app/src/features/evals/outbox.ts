@@ -6,7 +6,7 @@ import type { KeyValueStore } from '@/features/scan/tray/trayStore';
 
 const KEY = 'eval-outbox-v1';
 
-/** One photo's readings, all three engines, waiting to be sent. */
+/** One photo's readings, both engines, waiting to be sent. */
 export interface PendingPhoto {
   photoId: string;
   results: EvalPhotoResult[];
