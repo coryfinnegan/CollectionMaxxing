@@ -331,12 +331,53 @@ public sealed class CombinedEngineTests : IDisposable
     public void A_Vision_row_whose_only_read_was_skipped_as_a_fragment_reports_no_invented_gap()
     {
         var truths = ArrangeShelf("Star Fox 64");
-        var vision = VisionSegment() with { FragmentSegments = 1 }; // the one segment it captured was read, and the read was a fragment
+        var vision = VisionSegment() with { SkippedSegments = 1 }; // the one segment it captured was read, and the read was a fragment
 
         var scored = Score(truths, vision);
 
         scored.ShelfOf(Vision).UnreconciledPhotos.ShouldBe(0);
         scored.Misses.ShouldNotContain(m => m.Kind == "unreconciled");
+    }
+
+    [Fact]
+    public void A_snap_where_every_read_was_an_unfound_spine_reports_no_invented_gap_on_either_row()
+    {
+        var truths = ArrangeShelf("Star Fox 64");
+        var model = ModelSegment(1) with { SkippedSegments = 1 }; // its one segment was read, and the read found nothing
+        var vision = VisionSegment() with { SkippedSegments = 1 };
+
+        var built = EvalCombination.Of([model, vision], truths).Single();
+        var scored = Score(truths, model, vision);
+
+        built.Items.ShouldBeEmpty();
+        scored.ShelfOf(Vision).UnreconciledPhotos.ShouldBe(0);
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+        scored.Misses.ShouldNotContain(m => m.Kind == "unreconciled");
+    }
+
+    [Fact]
+    public void A_combined_row_where_Vision_stands_and_the_models_only_segment_was_skipped_reports_no_invented_gap()
+    {
+        var truths = ArrangeShelf("Star Fox 64");
+        var model = ModelSegment(1) with { SkippedSegments = 1 };
+        var vision = Printing(VisionSegment(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64");
+
+        var scored = Score(truths, model, vision);
+
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_combined_row_that_uses_the_lent_grounding_carries_that_groundings_skip_count_not_the_model_rows_own()
+    {
+        var truths = ArrangeShelf("Star Fox 64", "Midnight Reel");
+        var lent = InSegment(T1(Matched("Midnight Reel")).At(0.6), "m");
+        var model = ModelSegment(1) with { SkippedSegments = 1, ItemsLentPrint = [lent] }; // its own grounding skipped every read; the lent grounding has one standing
+        var vision = Printing(VisionSegment(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64", "MIDNIGHT REEL") with { PrintKind = "film" };
+
+        var scored = Score(truths, model, vision);
+
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
     }
 
     [Fact]
