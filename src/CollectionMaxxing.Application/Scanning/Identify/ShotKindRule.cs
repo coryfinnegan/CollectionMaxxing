@@ -130,6 +130,24 @@ public static class ShotKindRule
         && best != WorkKind.Other
         && !KindContext.InFamily(best, shotKind);
 
+    /// <summary>
+    /// The title a read that is asked again is also asked with: its best option's own title (the clean title the fuzzy catalogue
+    /// matched the garbled words to), so the shot's kind's exact catalogue is queried with it. Null when the best option has no title,
+    /// or it is the read's own title once normalised (<see cref="TitleNormalizer.Normalize"/>), since that ask is already made. Pure.
+    /// </summary>
+    public static string? AskTitle(string readTitle, string? bestOptionTitle)
+    {
+        ArgumentNullException.ThrowIfNull(readTitle);
+
+        if (string.IsNullOrWhiteSpace(bestOptionTitle))
+        {
+            return null;
+        }
+
+        var best = TitleNormalizer.Normalize(bestOptionTitle);
+        return best.Length == 0 || best == TitleNormalizer.Normalize(readTitle) ? null : bestOptionTitle.Trim();
+    }
+
     /// <summary>Whether a release of <paramref name="kind"/> (null when unknown) is of the shot's kind: the same family.</summary>
     public static bool IsOfKind(WorkKind? kind, WorkKind shotKind) => kind is { } known && KindContext.InFamily(known, shotKind);
 

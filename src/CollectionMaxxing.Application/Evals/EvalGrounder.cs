@@ -294,7 +294,8 @@ public sealed class EvalGrounder(
             printKind,
             (releaseIds, token) => ShotKindRule.LocalKindsAsync(db, releaseIds, token),
             cancellationToken,
-            [.. (kindsOfTheSnap ?? []).Select(kind => new ShotKindRead(Spine: true, kind, ResolutionVerdict.Pending, null))]);
+            [.. (kindsOfTheSnap ?? []).Select(kind => new ShotKindRead(Spine: true, kind, ResolutionVerdict.Pending, null))],
+            (releaseIds, token) => SeriesNeighbour.LocalTitlesAsync(db, releaseIds, token));
     }
 
     /// <summary>

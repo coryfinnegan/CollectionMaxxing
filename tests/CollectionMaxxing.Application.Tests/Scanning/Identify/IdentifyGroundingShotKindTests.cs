@@ -149,7 +149,7 @@ public class IdentifyGroundingShotKindTests
 
         await RetryAsync(grounding, null, Shelf(grounding, asks, Retry(grounding, asks, read, ThreeFilms())));
 
-        var asked = asks.Facts.Single();
+        var asked = asks.Facts.Single(f => f.Title == "cnoi Emergency Contact o"); // the best release's title is asked besides, tested below
         asked.Title.ShouldBe("cnoi Emergency Contact o");
         asked.Kind.ShouldBe(WorkKind.Book);
         asked.Year.ShouldBe(2019);
@@ -185,7 +185,7 @@ public class IdentifyGroundingShotKindTests
         answers[0].ShouldBeSameAs(shelf[0].Answer);
         answers[1].ShouldBeSameAs(shelf[1].Answer);
         answers[2].ShouldBeSameAs(shelf[2].Answer);
-        asks.Facts.Count.ShouldBe(1);
+        asks.Facts.Count(f => f.Title == "cnoi Emergency Contact o").ShouldBe(1);
     }
 
     // ---- the order of the offer ----------------------------------------------------------------------------------------------------
@@ -243,7 +243,7 @@ public class IdentifyGroundingShotKindTests
         var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, congo));
 
         filmAnswer.Options[0].Score.ShouldBeLessThan(1.0);
-        asks.Facts.Single().Kind.ShouldBe(WorkKind.Book); // the ask did name the kind, and the book was scored with the type term there
+        asks.Facts.Single(f => f.Title == "CONGOO").Kind.ShouldBe(WorkKind.Book); // the ask did name the kind, and the book was scored with the type term there
         answers[3].Options[0].Score.ShouldBe(filmAnswer.Options[0].Score); // but it is kept with the score it has without it, level with the film's
         Kinds(answers[3]).ShouldBe(["Book", "Film"]); // and it comes first for its title and the shelf's kind
     }
@@ -396,7 +396,7 @@ public class IdentifyGroundingShotKindTests
         var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, film));
 
         answers[3].ShouldBeSameAs(film.Answer);
-        asks.Facts.Count.ShouldBe(1); // it did ask; nothing came back
+        asks.Facts.Count(f => f.Title == "cnoi Emergency Contact o").ShouldBe(1); // it did ask; nothing came back
     }
 
     [Fact]
@@ -461,7 +461,7 @@ public class IdentifyGroundingShotKindTests
 
         answers[3].ShouldBeSameAs(film.Answer);
         answers[3].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
-        asks.Facts.Count.ShouldBe(1);
+        asks.Facts.Count(f => f.Title == "cnoi Emergency Contact o").ShouldBe(1);
     }
 
     [Fact]
@@ -634,6 +634,122 @@ public class IdentifyGroundingShotKindTests
 
         answers[3].ShouldBeSameAs(film);
         asks.Facts.ShouldBeEmpty();
+    }
+
+    // ---- the best option's own title ----------------------------------------------------------------------------------------------
+    // On a shelf of tapes a garbled spine matches a book fuzzily, and the film catalogue cannot match the garbled words. The book's own
+    // title is clean, so the read is also asked as a film with it; what that finds is scored against what the spine read.
+
+    private static BarcodeResolution MatchedFilm(string title, int n) =>
+        Answer(ResolutionVerdict.Matched, Option(Release(title, WorkKind.Film, $"m{n}"), 0.97));
+
+    private static ShotKindRetry[] TapeShelf(IdentifyGrounding grounding, Asks asks, ShotKindRetry read) =>
+    [
+        Retry(grounding, asks, Vision("THE QUIET HARBOR"), MatchedFilm("The Quiet Harbor", 1)),
+        Retry(grounding, asks, Vision("NIGHT OF THE LANTERN"), MatchedFilm("Night of the Lantern", 2)),
+        Retry(grounding, asks, Vision("SILVER ROAD"), MatchedFilm("Silver Road", 3)),
+        read,
+    ];
+
+    private static BarcodeResolution GarbledAsBook(double score = 0.6) => Answer(
+        ResolutionVerdict.Ambiguous, Option(Release("Emergency Contact", WorkKind.Book, "b1"), score));
+
+    [Fact]
+    public async Task A_garbled_spine_on_a_shelf_of_tapes_whose_best_release_is_a_book_is_asked_as_a_film_with_that_books_title_and_the_same_titled_film_comes_first()
+    {
+        var films = new OfKind(WorkKind.Film).Know("Emergency Contact", Release("Emergency Contact", WorkKind.Film, "f1"));
+        var grounding = Grounding([films, new OfKind(WorkKind.Book)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), GarbledAsBook());
+
+        var answers = await RetryAsync(grounding, null, TapeShelf(grounding, asks, read));
+
+        asks.Facts.Select(f => f.Title).ShouldBe(["cnoi Emergency Contact o", "Emergency Contact"], ignoreOrder: true);
+        asks.Facts.ShouldAllBe(f => f.Kind == WorkKind.Film);
+        Kinds(answers[3]).ShouldBe(["Film", "Book"]);
+        answers[3].Options[0].Provider!.ExternalId.ShouldBe("f1");
+        answers[3].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answers[3].FoundByTrimmedSpan.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_finds_of_a_best_title_ask_are_scored_against_what_the_spine_read_not_against_the_title_asked()
+    {
+        var film = Release("Emergency Contact", WorkKind.Film, "f1");
+        var grounding = Grounding([new OfKind(WorkKind.Film).Know("Emergency Contact", film), new OfKind(WorkKind.Book)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), GarbledAsBook());
+
+        var answers = await RetryAsync(grounding, null, TapeShelf(grounding, asks, read));
+
+        var againstTheRead = grounding.Score(
+            Vision("cnoi Emergency Contact o") with { Kind = WorkKind.Film }, ScoringProfileKind.ShelfSpine, LocalPool.Empty, new ProviderAnswers([film], [], false));
+        var againstTheAsk = grounding.Score(
+            Vision("Emergency Contact") with { Kind = WorkKind.Film }, ScoringProfileKind.ShelfSpine, LocalPool.Empty, new ProviderAnswers([film], [], false));
+        var expected = ShotKindRule.OnOriginalFooting(againstTheRead.Options[0]).Score;
+        againstTheAsk.Options[0].Score.ShouldBeGreaterThan(expected);
+        answers[3].Options[0].Provider!.ExternalId.ShouldBe("f1");
+        answers[3].Options[0].Score.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task A_spine_whose_read_title_is_already_its_best_releases_title_is_asked_once_as_before()
+    {
+        var grounding = Grounding([new OfKind(WorkKind.Film), new OfKind(WorkKind.Book)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("Emergency Contact"), GarbledAsBook());
+
+        await RetryAsync(grounding, null, TapeShelf(grounding, asks, read));
+
+        asks.Facts.Select(f => f.Title).ShouldBe(["Emergency Contact"]);
+    }
+
+    [Fact]
+    public async Task A_differently_titled_film_found_by_the_best_title_ask_stays_behind_the_reads_best_option()
+    {
+        var films = new OfKind(WorkKind.Film).Know("Emergency Contact", Release("Emergency Contact Live", WorkKind.Film, "f9"));
+        var grounding = Grounding([films, new OfKind(WorkKind.Book)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), GarbledAsBook(score: 0.9));
+
+        var answers = await RetryAsync(grounding, null, TapeShelf(grounding, asks, read));
+
+        Kinds(answers[3]).ShouldBe(["Book", "Film"]);
+        answers[3].Options[0].Provider!.ExternalId.ShouldBe("b1");
+    }
+
+    [Fact]
+    public async Task A_read_that_names_its_own_kind_is_never_asked_with_its_best_releases_title()
+    {
+        var films = new OfKind(WorkKind.Film).Know("Emergency Contact", Release("Emergency Contact", WorkKind.Film, "f1"));
+        var grounding = Grounding([films, new OfKind(WorkKind.Book)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o") with { Kind = WorkKind.Book }, GarbledAsBook());
+
+        var answers = await RetryAsync(grounding, null, TapeShelf(grounding, asks, read));
+
+        answers[3].ShouldBeSameAs(read.Answer);
+        asks.Facts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_best_release_in_the_catalogue_gives_its_title_to_the_ask_through_the_titles_lookup()
+    {
+        var films = new OfKind(WorkKind.Film).Know("Emergency Contact", Release("Emergency Contact", WorkKind.Film, "f1"));
+        var grounding = Grounding([films]);
+        var asks = new Asks();
+        var local = Guid.NewGuid();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), Answer(ResolutionVerdict.Ambiguous, new ResolutionOption(local, null, 0.6)));
+
+        var answers = await grounding.RetryShotKindAsync(
+            TapeShelf(grounding, asks, read),
+            null,
+            (_, _) => Task.FromResult<IReadOnlyDictionary<Guid, WorkKind>>(new Dictionary<Guid, WorkKind> { [local] = WorkKind.Book }),
+            CancellationToken.None,
+            localTitles: (_, _) => Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string> { [local] = "Emergency Contact" }));
+
+        asks.Facts.Select(f => f.Title).ShouldBe(["cnoi Emergency Contact o", "Emergency Contact"], ignoreOrder: true);
+        answers[3].Options[0].Provider!.ExternalId.ShouldBe("f1");
     }
 
     private static LocalHit LocalFilm(string title)

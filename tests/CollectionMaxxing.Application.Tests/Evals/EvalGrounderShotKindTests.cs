@@ -144,6 +144,27 @@ public class EvalGrounderShotKindTests
         books.Asked.ShouldContain(("cnoi Emergency Contact o", WorkKind.Book)); // and it was the ask as a book that found it
     }
 
+    [Fact]
+    public async Task The_evals_kind_pass_asks_with_the_best_releases_title_as_identify_does()
+    {
+        // A shelf of films; the garbled spine matched a book fuzzily and no film by its garbled words. The book's own title finds the film.
+        var books = new OfKind(WorkKind.Book).Know("cnoi Emergency Contact o", false, Release("Emergency Contact", WorkKind.Book, "b1"));
+        var films = new OfKind(WorkKind.Film)
+            .Know("THE QUIET HARBOR", false, Release("The Quiet Harbor", WorkKind.Film, "m1", "Ada Brook"))
+            .Know("NIGHT OF THE LANTERN", false, Release("Night of the Lantern", WorkKind.Film, "m2", "Ada Brook"))
+            .Know("SILVER ROAD", false, Release("Silver Road", WorkKind.Film, "m3", "Ada Brook"))
+            .Know("Emergency Contact", true, Release("Emergency Contact", WorkKind.Film, "f1"));
+        EvalReadItemInput[] reads =
+            [Spine("THE QUIET HARBOR", "Ada Brook"), Spine("NIGHT OF THE LANTERN", "Ada Brook"), Spine("SILVER ROAD", "Ada Brook"), Spine("cnoi Emergency Contact o")];
+
+        var items = await GroundAsync(Grounder(books, films), new EvalGroundingMemo(), WorkKind.Film, reads);
+
+        items[3].Candidates[0].Kind.ShouldBe("film");
+        items[3].Candidates[0].Title.ShouldBe("Emergency Contact");
+        items[3].Candidates.Select(c => c.Kind).ShouldContain("book");
+        films.Asked.ShouldContain(("Emergency Contact", WorkKind.Film));
+    }
+
     // A spine read that only found itself (a format banner) is left out of the score, as a repeat is.
 
     [Fact]
