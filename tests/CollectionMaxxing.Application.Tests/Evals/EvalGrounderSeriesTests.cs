@@ -165,7 +165,7 @@ public class EvalGrounderSeriesTests
     // asks get: the eval measures what a person scanning could be given. A round that runs out leaves every answer as it was.
 
     [Fact]
-    public async Task A_series_round_that_ran_out_of_time_leaves_a_read_that_found_nothing_not_found_after_the_live_budget_not_the_jobs()
+    public async Task A_series_round_that_ran_out_of_time_leaves_a_read_that_found_nothing_unscored_after_the_live_budget_not_the_jobs()
     {
         var providers = new Scripted()
             .Know("STAR TREK FIRST CONTACT", Release("Star Trek: First Contact", "f1", 1996));
@@ -174,8 +174,7 @@ public class EvalGrounderSeriesTests
 
         var items = await GroundAsync(Grounder(providers), new EvalGroundingMemo(), Shelf(Spine("STAR TREK FIRST CONTACT", 0.30), Spine("nEMESIS", 0.36)));
 
-        items[0].Verdict.ShouldBe("matched");
-        items[1].Verdict.ShouldBe("not_found"); // and not pending: nothing could finish it later
+        items.ShouldHaveSingleItem().Verdict.ShouldBe("matched"); // the other read is not_found, so skipped (a pending one would still show: nothing could finish it later)
         providers.Titles.ShouldContain("Star Trek nEMESIS");
         clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(10)); // the job budget of the grounder is 30 s; the series round took its own
     }

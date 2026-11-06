@@ -54,11 +54,11 @@ public class EvalGrounderTrimmedRetryTests
         var items = await GroundAsync(grounder, new EvalGroundingMemo(), Shelf());
 
         catalogue.Batches.Count.ShouldBeGreaterThan(1); // the whole read found nothing; a span was looked for
-        items[2].ReadTitle.ShouldBe(Stray);
-        items[2].Verdict.ShouldBe("ambiguous");
-        items[2].Candidates.Select(c => c.Title).ShouldBe(["Quiet Harbor"]);
-        items[2].Read!.Profile.ShouldBe("shelf_spine");
-        items.Where((_, i) => i != 2).Select(i => i.Verdict).ShouldAllBe(v => v == "not_found");
+        var found = items.ShouldHaveSingleItem("the three reads that found nothing are skipped, so not scored");
+        found.ReadTitle.ShouldBe(Stray);
+        found.Verdict.ShouldBe("ambiguous");
+        found.Candidates.Select(c => c.Title).ShouldBe(["Quiet Harbor"]);
+        found.Read!.Profile.ShouldBe("shelf_spine");
     }
 
     [Fact]
@@ -80,20 +80,19 @@ public class EvalGrounderTrimmedRetryTests
 
         var items = await GroundAsync(grounder, new EvalGroundingMemo(), Shelf());
 
-        items[2].Verdict.ShouldBe("pending");
+        items.Single(i => i.ReadTitle == Stray).Verdict.ShouldBe("pending");
         catalogue.Batches.Count.ShouldBe(1); // the photo's one catalogue call; no span was looked for
     }
 
     [Fact]
-    public async Task A_read_none_of_whose_spans_finds_a_release_stays_not_found()
+    public async Task A_read_none_of_whose_spans_finds_a_release_is_not_found_and_so_is_not_scored()
     {
         var catalogue = new Catalogue();
         var grounder = Grounder(catalogue, new Providers());
 
         var items = await GroundAsync(grounder, new EvalGroundingMemo(), Shelf());
 
-        items[2].Verdict.ShouldBe("not_found");
-        items[2].Candidates.ShouldBeEmpty();
+        items.ShouldBeEmpty("a spine the catalogue found nothing for, after every retry, is skipped");
         catalogue.Lookups.Count.ShouldBe(4 + TrimmedSpans.MaxSpans); // the photo's four reads, then at most four spans of the one retried
     }
 
@@ -122,7 +121,7 @@ public class EvalGrounderTrimmedRetryTests
         var second = await GroundAsync(grounder, memo, Shelf());
 
         second.Select(i => i.Verdict).ShouldBe(first.Select(i => i.Verdict));
-        second[2].Verdict.ShouldBe("ambiguous");
+        second.Single().Verdict.ShouldBe("ambiguous");
         catalogue.Batches.Count.ShouldBe(calls); // the second photo asked nothing: every read, the retried one too, was remembered
         memo.Reused.ShouldBe(4);
     }
@@ -143,12 +142,12 @@ public class EvalGrounderTrimmedRetryTests
 
         var items = await GroundAsync(grounder, new EvalGroundingMemo(), ShelfOf(SpineBy("TESS HARROWGATE", "THE COPPER LANTERN")));
 
-        items[2].ReadTitle.ShouldBe("TESS HARROWGATE");
-        items[2].Read!.Creator.ShouldBeNull("cleaning dropped it: the sanitiser keeps no author line with \"the\" in it");
-        items[2].Read!.CreatorAsRead.ShouldBe("THE COPPER LANTERN");
-        items[2].Verdict.ShouldBe("ambiguous");
-        items[2].Candidates.Select(c => c.Title).ShouldBe(["The Copper Lantern"]);
-        items.Where((_, i) => i != 2).Select(i => i.Verdict).ShouldAllBe(v => v == "not_found");
+        var found = items.ShouldHaveSingleItem("the three reads that found nothing are skipped, so not scored");
+        found.ReadTitle.ShouldBe("TESS HARROWGATE");
+        found.Read!.Creator.ShouldBeNull("cleaning dropped it: the sanitiser keeps no author line with \"the\" in it");
+        found.Read!.CreatorAsRead.ShouldBe("THE COPPER LANTERN");
+        found.Verdict.ShouldBe("ambiguous");
+        found.Candidates.Select(c => c.Title).ShouldBe(["The Copper Lantern"]);
     }
 
     [Fact]
@@ -160,12 +159,12 @@ public class EvalGrounderTrimmedRetryTests
         var first = await GroundAsync(grounder, memo, ShelfOf(SpineBy("TESS HARROWGATE", "THE COPPER LANTERN")));
         var second = await GroundAsync(grounder, memo, ShelfOf(SpineBy("TESS HARROWGATE", "THE IRON FOX")));
 
-        first[2].Verdict.ShouldBe("ambiguous");
-        second[2].Verdict.ShouldBe("not_found"); // cleaned the same, but it was not asked about the same creator
+        first.Single().Verdict.ShouldBe("ambiguous");
+        second.ShouldBeEmpty(); // cleaned the same, but it was not asked about the same creator
     }
 
     [Fact]
-    public async Task A_swap_that_found_nothing_is_a_not_found_the_run_remembers()
+    public async Task A_swap_that_found_nothing_is_a_not_found_the_run_remembers_and_does_not_score()
     {
         var catalogue = new Catalogue();
         var grounder = Grounder(catalogue, new Providers());
@@ -175,8 +174,8 @@ public class EvalGrounderTrimmedRetryTests
         var calls = catalogue.Batches.Count;
         var second = await GroundAsync(grounder, memo, ShelfOf(SpineBy("TESS HARROWGATE", "THE COPPER LANTERN")));
 
-        first[2].Verdict.ShouldBe("not_found");
-        second[2].Verdict.ShouldBe("not_found");
+        first.ShouldBeEmpty();
+        second.ShouldBeEmpty();
         catalogue.Batches.Count.ShouldBe(calls);
     }
 

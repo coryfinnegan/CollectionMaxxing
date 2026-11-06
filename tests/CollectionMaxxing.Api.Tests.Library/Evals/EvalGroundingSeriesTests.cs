@@ -66,8 +66,9 @@ public class EvalGroundingSeriesTests(ApiFixture api) : EvalTest(api)
         var eval = await GroundedByTheEvalAsync(StarTrekShelf); // a dry run: it leaves nothing in the catalogue for the live request to find
         var live = await IdentifiedAsync(client, sessionId, StarTrekShelf);
 
-        eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
-        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
+        var shown = live.Where(c => Decision(c) != "rejected").ToList(); // /identify skips the unfound spines; the eval does not score them
+        eval.Select(i => i.Verdict).ShouldBe(shown.Select(Resolution));
+        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(shown.Select(AlternativeTitles));
         Resolution(live[1]).ShouldBe("ambiguous"); // and it was the series ask that found the film
         eval[1].Candidates.Select(c => c.Title).ShouldBe(["Star Trek: Nemesis", "Nemesis", "Nemesis"]);
     }
@@ -92,8 +93,9 @@ public class EvalGroundingSeriesTests(ApiFixture api) : EvalTest(api)
         var eval = await GroundedByTheEvalAsync(StarTrekShelf);
         var live = await IdentifiedAsync(client, sessionId, StarTrekShelf);
 
-        eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
-        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
+        var shown = live.Where(c => Decision(c) != "rejected").ToList(); // /identify skips the unfound spines; the eval does not score them
+        eval.Select(i => i.Verdict).ShouldBe(shown.Select(Resolution));
+        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(shown.Select(AlternativeTitles));
         AlternativeTitles(live[1]).ShouldBe(["Nemesis", "Nemesis"]);
         (await SeriesStepsOfAsync(live[1])).ShouldBeEmpty();
     }
@@ -114,8 +116,9 @@ public class EvalGroundingSeriesTests(ApiFixture api) : EvalTest(api)
         var eval = await GroundedByTheEvalAsync(StarTrekShelf); // a dry run: it leaves nothing in the catalogue for the live request to find
         var live = await IdentifiedAsync(client, sessionId, StarTrekShelf);
 
-        eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
-        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
+        var shown = live.Where(c => Decision(c) != "rejected").ToList(); // /identify skips the unfound spines; the eval does not score them
+        eval.Select(i => i.Verdict).ShouldBe(shown.Select(Resolution));
+        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(shown.Select(AlternativeTitles));
         AlternativeTitles(live[1]).ShouldBe(["Star Trek: Nemesis", "Nemesis", "Nemesis"]);
         (await SeriesStepsOfAsync(live[1])).ShouldBe(["Star Trek nEMESIS (series: Star Trek)"]); // and it was the series ask that found it
     }

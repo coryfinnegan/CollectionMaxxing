@@ -141,6 +141,8 @@ public sealed record GroundedRead(
 /// predates boxes; the combined engine uses it to tell one spine read by both engines from two spines that read alike.
 /// <c>Unconfirmed</c> marks a shelf read only the picture model made, at a place Vision found nothing. The scanner keeps such a read for
 /// review (T2 at most), so the scorer counts it as review, never an auto-add, whatever <c>Tier</c> the phone claimed.
+/// <c>Skipped</c> marks a read <c>/identify</c> skips rather than shows (a fragment, or a shelf spine the catalogue found nothing
+/// for): it is kept on <see cref="GroundedPhoto.SkippedItems"/>, never in <see cref="GroundedPhoto.Items"/>, and nothing scores it.
 /// </summary>
 public sealed record GroundedItem(
     string? ReadTitle,
@@ -154,7 +156,8 @@ public sealed record GroundedItem(
     string? SegmentId = null,
     GroundedRead? Read = null,
     ReadBox? Box = null,
-    bool Unconfirmed = false)
+    bool Unconfirmed = false,
+    bool Skipped = false)
 {
     /// <summary>The best release, or null when there is none.</summary>
     [JsonIgnore]
@@ -189,7 +192,10 @@ public sealed record GroundedOcrProbe(string Name, long Ms, IReadOnlyList<Ground
 /// </param>
 /// <param name="OcrProbes">Only the <c>vision_pipeline</c> photo of a shelf, and only from a phone that sends them: extra reads of the same picture, kept for a replay of an OCR setting. Nothing scores them.</param>
 /// <param name="TimedOut">An <c>ok</c> model row (<c>apple_model</c> or <c>fm_text</c>) that ran out of time and kept the items it had finished. <see cref="EvalScorer"/> counts it as a timeout and still scores the items. Null on a row from an older build and on every combined row.</param>
-/// <param name="FragmentSegments">How many captured segments of this row lost every read to the fragment rule (<see cref="FragmentReads"/>). The scorer counts them as accounted for, so a row whose only reads were fragments reports no invented gap. Null when none.</param>
+/// <param name="SkippedSegments">How many captured segments of this row lost every read to a skip rule (<see cref="FragmentReads"/> or <see cref="UnfoundSpines"/>). The scorer counts them as accounted for, so a row whose only reads were skipped reports no invented gap. Null when none. The old name of this field was <c>fragmentSegments</c>.</param>
+/// <param name="SkippedItems">The reads of this row that <c>/identify</c> skips (<see cref="GroundedItem.Skipped"/>). Nothing scores them; <see cref="EvalCombination"/> settles its places over them and drops them afterwards, as <c>/identify</c> does. Null when none.</param>
+/// <param name="SkippedItemsLentPrint">As <see cref="SkippedItems"/>, for the grounding with the shelf's printed kind lent (<see cref="ItemsLentPrint"/>).</param>
+/// <param name="SkippedSegmentsLentPrint">As <see cref="SkippedSegments"/>, for the grounding with the shelf's printed kind lent: the combined row uses it whenever it uses <see cref="ItemsLentPrint"/>.</param>
 public sealed record GroundedPhoto(
     string PhotoId,
     string Engine,
@@ -210,7 +216,10 @@ public sealed record GroundedPhoto(
     IReadOnlyList<GroundedItem>? ItemsLentPrint = null,
     IReadOnlyList<GroundedOcrProbe>? OcrProbes = null,
     bool? TimedOut = null,
-    int? FragmentSegments = null);
+    int? SkippedSegments = null,
+    IReadOnlyList<GroundedItem>? SkippedItems = null,
+    IReadOnlyList<GroundedItem>? SkippedItemsLentPrint = null,
+    int? SkippedSegmentsLentPrint = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>
 public sealed record GroundedRun(

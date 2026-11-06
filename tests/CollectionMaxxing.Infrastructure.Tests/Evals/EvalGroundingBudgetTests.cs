@@ -218,15 +218,18 @@ public class EvalGroundingBudgetTests
         var provider = new OneSecondProvider(time);
         var verdicts = await VerdictsOfAsync(
             time, Grounder(time, provider, parallelism: 1, budget), [Book("Amber Birch Cedar"), Book("Dune Elm"), Book("Fir Gale"), Book("Haze Iris")]);
-        return (provider.Searches, verdicts[0]);
+        return (provider.Searches, verdicts.Length == 0 ? Skipped : verdicts[0]);
     }
+
+    /// <summary>What a shelf's verdicts are reduced to when every read ended not_found: the unfound spines are skipped, so none is left to report.</summary>
+    private const string Skipped = "skipped";
 
     [Fact]
     public async Task A_spine_that_found_nothing_is_asked_again_without_its_ends_while_its_budget_lasts()
     {
         var (searches, spine) = await ShelfAsync(TimeSpan.FromHours(1));
 
-        spine.ShouldBe("not_found");
+        spine.ShouldBe(Skipped); // not_found after every retry: skipped, so not scored
         searches.ShouldBe(3 + 2 + 3); // the spine's ladder, its two spans, and one search for each of the other reads
     }
 
