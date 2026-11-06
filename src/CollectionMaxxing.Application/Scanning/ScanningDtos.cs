@@ -29,6 +29,7 @@ public sealed record BoxDto(double X, double Y, double W, double H);
 /// Beside it, <c>WishlistItemId</c> is the item on this library's wishlist for the matched release and <c>SoldItemId</c> its most
 /// recently added sold copy; each is null when there is none. A release on the wishlist (and not owned) is not added by the scan on its own:
 /// its card says "On your wishlist" and offers Got it.
+/// <c>SkipReason</c> is why the server skipped this row on its own (#709): null when a person skipped it, or when it is not skipped.
 /// </summary>
 public sealed record CandidateDto(
     Guid Id,
@@ -65,7 +66,8 @@ public sealed record CandidateDto(
     string? CropUrl,
     CoverPickDto? CoverPick = null,
     Guid? WishlistItemId = null,
-    Guid? SoldItemId = null);
+    Guid? SoldItemId = null,
+    SkipReason? SkipReason = null);
 
 /// <summary>
 /// The cover verification's preselected alternative (#438 stage 2): the release Review shows checked, and why.
