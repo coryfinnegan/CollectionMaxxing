@@ -60,12 +60,19 @@ public class ShotKindRuleTests
     }
 
     [Fact]
-    public void A_matched_spine_of_the_prints_own_family_silences_it_and_the_matched_spines_decide()
+    public void A_matched_spine_of_the_prints_own_family_leaves_the_print_silent_and_agreeing_matched_spines_decide()
     {
         // One matched show shows the engines can tell the print's kind apart on this shelf: the print is left out, and three of
         // the four matched spines (75%) are books.
         ShotKind(WorkKind.Film, [.. Matches(WorkKind.Book, 3), Matched(WorkKind.Tv)]).ShouldBe(WorkKind.Book);
-        ShotKind(WorkKind.Film, [.. Matches(WorkKind.Book, 2), Matched(WorkKind.Film)]).ShouldBeNull(); // two books are no shelf
+    }
+
+    [Fact]
+    public void Matched_spines_that_split_with_no_majority_take_the_prints_kind_when_one_is_of_its_family()
+    {
+        // Two books and a film is 2/3, under the 70% share: the matched spines split, and the print breaks the tie they could not.
+        ShotKind(WorkKind.Film, [.. Matches(WorkKind.Book, 2), Matched(WorkKind.Film)]).ShouldBe(WorkKind.Film);
+        ShotKind(null, [.. Matches(WorkKind.Book, 2), Matched(WorkKind.Film)]).ShouldBeNull(); // with no print there is no tie-break
     }
 
     [Fact]

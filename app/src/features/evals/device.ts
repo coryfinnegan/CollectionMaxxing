@@ -108,8 +108,7 @@ export function getEvalRunner(): EvalRunner {
       // The scanner's own: the eval reads the 2576 px picture the camera path reads, not the golden original.
       resize: manipulatorResizer,
       selector,
-      // The two lower tiers are the selector's own, cover cue and all: the eval measures what the scanner does.
-      fmText: selector.tiers.fmText,
+      // The pipeline is the selector's own, cover cue and all: the eval measures what the scanner does.
       pipeline: selector.tiers.pipeline,
       config: store,
       vision: visionEngine,
