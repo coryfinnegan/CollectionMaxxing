@@ -182,8 +182,7 @@ export function makeKit(options: KitOptions = {}) {
             },
           }
         : realSelector,
-      // as on the phone (device.ts): the two lower tiers are the selector's own
-      fmText: realSelector.tiers.fmText,
+      // as on the phone (device.ts): the pipeline is the selector's own
       pipeline: options.pipeline ? options.pipeline(realSelector.tiers.pipeline) : realSelector.tiers.pipeline,
       config: store,
       vision,
