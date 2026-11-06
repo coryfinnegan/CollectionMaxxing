@@ -407,7 +407,7 @@ over if that is more (a baseline of exactly 0 or 100 uses a smoothed boundary,
 `1/(n+2)` or `(n+1)/(n+2)`); the Vision row and the combined row rerun to the same
 numbers and keep 2 points; a time is a regression only past 2 x the baseline; raw
 counts (tier counts, provisionals, unreconciled, excess unreadable) are not judged;
-`duplicate_clean` keeps the 2 points; the text tier's row (`fm_text`) is eval-only since #714, so it is reported and never judged (#716). Two clean runs of the same build had differed by
+`duplicate_clean` keeps the 2 points; the text tier's row (`fm_text`) is eval-only since #714, so it is reported and never judged (#716), and since #727 the phone eval run no longer reads with it, so newer runs have no `fm_text` row at all. Two clean runs of the same build had differed by
 more than a flat 2 points on 23 of 255 metrics, all noise. Before the baseline it was `"metrics": {}`
 and every run reported `no_baseline`. **Still open from the original gap:** no review-burden metric exists. The
 real-golden rescore test (`RescoreLatestRunTests`, `RUN_EVALS=1`) never runs in CI,
