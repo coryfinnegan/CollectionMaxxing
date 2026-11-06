@@ -94,6 +94,67 @@ public class SkipReasonTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_server_skipped_row_put_back_and_skipped_again_by_the_person_has_no_reason()
+    {
+        var library = await CreateLibraryAsync();
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
+        var first = (await IdentifyShelfAsync(editor, sessionId, ShelfOfFour()))[0];
+        SkipReason(first).ShouldBe("unfound_spine");
+        (await DecideAsync(editor, sessionId, Id(first), new { decision = "undecided" })).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+
+        var again = await ReadJsonAsync(await DecideAsync(editor, sessionId, Id(first), new { decision = "rejected" }));
+
+        Decision(again).ShouldBe("rejected");
+        SkipReason(again).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_release_the_library_already_owns_is_rejected_by_the_server_with_the_owned_reason()
+    {
+        var library = await CreateLibraryAsync();
+        var code = ScanData.Upc(9410);
+        await OwnAsync(library, "Harbour Almanac", code);
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+
+        var candidate = (await ScanAsync(editor, sessionId, code)).Single();
+
+        Decision(candidate).ShouldBe("rejected");
+        SkipReason(candidate).ShouldBe("owned");
+    }
+
+    [Fact]
+    public async Task A_release_on_the_wishlist_is_rejected_by_the_server_with_the_wishlist_reason()
+    {
+        var library = await CreateLibraryAsync();
+        var code = ScanData.Upc(9411);
+        await OwnAsync(library, "Harbour Almanac", code, status: CollectionMaxxing.Domain.Items.ItemStatus.Wishlist);
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+
+        var candidate = (await ScanAsync(editor, sessionId, code)).Single();
+
+        Decision(candidate).ShouldBe("rejected");
+        SkipReason(candidate).ShouldBe("wishlist");
+    }
+
+    [Fact]
+    public async Task An_owned_row_the_person_skips_after_taking_it_back_has_no_reason()
+    {
+        var library = await CreateLibraryAsync();
+        var code = ScanData.Upc(9412);
+        await OwnAsync(library, "Harbour Almanac", code);
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+        var candidate = (await ScanAsync(editor, sessionId, code)).Single();
+
+        var skipped = await ReadJsonAsync(await DecideAsync(editor, sessionId, Id(candidate), new { decision = "rejected" }));
+
+        SkipReason(skipped).ShouldBeNull();
+    }
+
+    [Fact]
     public async Task A_skipped_row_put_back_has_no_reason_and_is_reviewable_in_the_session()
     {
         var library = await CreateLibraryAsync();

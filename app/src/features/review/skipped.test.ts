@@ -27,11 +27,13 @@ describe('skipped rows', () => {
     expect(SKIP_REASON_COPY.place).toBe("Couldn't tell where it sat");
     expect(SKIP_REASON_COPY.fragment).toBe('Only part of a title');
     expect(SKIP_REASON_COPY.unfound_spine).toBe('Nothing in the catalog matched');
+    expect(SKIP_REASON_COPY.owned).toBe('Already in your library');
+    expect(SKIP_REASON_COPY.wishlist).toBe('On your wishlist');
     expect(SKIP_REASON_COPY.person).toBe('You skipped it');
   });
 
   it('names a row by what was read: its release, then its read text, then its code', () => {
-    expect(skippedTitleOf(candidate({ release: release(1, 'Dune'), visibleText: 'DUNE' }))).toBe('Dune');
+    expect(skippedTitleOf(candidate({ release: release(1, 'Orchard Songs'), visibleText: 'ORCHARD SONGS' }))).toBe('Orchard Songs');
     expect(skippedTitleOf(candidate({ visibleText: ' Marlow Atlas ' }))).toBe('Marlow Atlas');
     expect(skippedTitleOf(candidate({ rawCode: '123' }))).toBe('Code 123');
     expect(skippedTitleOf(candidate({ rawCode: null }))).toBe('Unknown item');

@@ -210,12 +210,13 @@ test.describe('visual', () => {
 
     test('review skipped', async ({ page, open }) => {
       await open('/review?seed=review-skipped');
-      await expect(page.getByText('Skipped · 3')).toBeVisible();
-      await page.getByRole('button', { name: '3 items skipped. Show them' }).click();
+      await expect(page.getByText('Skipped · 4')).toBeVisible();
+      await page.getByRole('button', { name: '4 items skipped. Show them' }).click();
       await expect(page.getByText('Nothing in the catalog matched')).toBeVisible();
       await expect(page.getByText('Read twice')).toBeVisible();
+      await expect(page.getByText('Already in your library')).toBeVisible();
       await expect(page.getByText('You skipped it')).toBeVisible();
-      await page.getByText('Skipped · 3').scrollIntoViewIfNeeded();
+      await page.getByText('Skipped · 4').scrollIntoViewIfNeeded();
       await expectShot(page, 'review-skipped');
     });
   });

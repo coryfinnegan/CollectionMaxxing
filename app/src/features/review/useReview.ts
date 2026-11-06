@@ -77,6 +77,7 @@ export function useReview({
 
   useEffect(() => {
     if (!sessionId) {
+      setSkipped([]);
       setLoading(false);
       return;
     }
@@ -227,6 +228,7 @@ export function useReview({
       // The session is closed. Its rows go (the ones not added would otherwise return, ticked, in the next Review and fail
       // there), and so do the tray lines the server has in full. Scans still waiting on the phone stay and start the next session.
       useCardsStore.getState().endSession();
+      setSkipped([]); // the session is closed: its skipped rows can no longer be put back
       store.getState().closeSession();
       setDraft(emptyDraft());
       const message = `Added ${result.created} ${result.created === 1 ? 'item' : 'items'}`;

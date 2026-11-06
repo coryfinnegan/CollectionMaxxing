@@ -11674,6 +11674,8 @@
           "place",
           "fragment",
           "unfound_spine",
+          "owned",
+          "wishlist",
           null
         ]
       },

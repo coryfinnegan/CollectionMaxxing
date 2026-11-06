@@ -1,6 +1,6 @@
 // A scan's skipped rows (#709), as pure functions: Review hides them, but the person can open them, see why each was skipped
 // and put one back. The server skips a read on its own (a repeat, a lost place, a fragment, a spine the catalog has nothing for)
-// and says which in `skipReason`; a row the person skipped has none.
+// and says which in `skipReason`, as it does for a release the library owns or has on its wishlist; a row the person skipped has none.
 import type { CandidateDto, SkipReason } from '@/api/generated/models';
 import { UNKNOWN_ITEM, unresolvedTitleOf } from './grouping';
 
@@ -12,6 +12,8 @@ export const SKIP_REASON_COPY: Record<NonNullable<SkipReason> | 'person', string
   place: "Couldn't tell where it sat",
   fragment: 'Only part of a title',
   unfound_spine: 'Nothing in the catalog matched',
+  owned: 'Already in your library',
+  wishlist: 'On your wishlist',
   person: 'You skipped it',
 };
 

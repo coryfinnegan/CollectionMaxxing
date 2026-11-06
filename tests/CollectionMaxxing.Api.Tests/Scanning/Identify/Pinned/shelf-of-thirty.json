@@ -103,7 +103,7 @@
       "coverPick": null,
       "wishlistItemId": null,
       "soldItemId": null,
-      "skipReason": null
+      "skipReason": "owned"
     },
     {
       "id": "\u003Cid 7\u003E",
@@ -418,7 +418,7 @@
       "coverPick": null,
       "wishlistItemId": null,
       "soldItemId": null,
-      "skipReason": null
+      "skipReason": "owned"
     },
     {
       "id": "\u003Cid 17\u003E",
@@ -940,7 +940,7 @@
       "coverPick": null,
       "wishlistItemId": null,
       "soldItemId": null,
-      "skipReason": null
+      "skipReason": "owned"
     },
     {
       "id": "\u003Cid 35\u003E",
@@ -1246,7 +1246,7 @@
       "coverPick": null,
       "wishlistItemId": null,
       "soldItemId": null,
-      "skipReason": null
+      "skipReason": "owned"
     },
     {
       "id": "\u003Cid 46\u003E",
@@ -1752,7 +1752,7 @@
       "coverPick": null,
       "wishlistItemId": null,
       "soldItemId": null,
-      "skipReason": null
+      "skipReason": "owned"
     },
     {
       "id": "\u003Cid 65\u003E",

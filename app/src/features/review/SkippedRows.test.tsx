@@ -80,6 +80,27 @@ describe('Review: skipped rows', () => {
     expect(screen.getByText('Orchard Songs')).toBeTruthy();
   });
 
+  it('says an owned or wishlisted release was already in the library or on the wishlist, not that you skipped it', async () => {
+    seed([
+      candidate({ decision: 'rejected', release: release(8, 'Lantern Hollow', { format: 'paperback' }), skipReason: 'owned', alreadyOwnedCount: 1 }),
+      candidate({ decision: 'rejected', release: release(9, 'Cedar Row', { format: 'paperback' }), skipReason: 'wishlist' }),
+    ]);
+    await open();
+    await press('2 items skipped. Show them');
+    expect(screen.getByText('Already in your library')).toBeTruthy();
+    expect(screen.getByText('On your wishlist')).toBeTruthy();
+    expect(screen.queryByText('You skipped it')).toBeNull();
+  });
+
+  it('empties the Skipped section once Add closes the session', async () => {
+    seed([candidate({ decision: 'accepted', release: release(2, 'Orchard Songs', { format: 'paperback' }) }), unfound()]);
+    await open();
+    await screen.findByText('Skipped · 1');
+    await press('Add 1 item');
+    await screen.findByText('Added 1 item');
+    expect(screen.queryByText(/Skipped ·/)).toBeNull();
+  });
+
   it('shows no Skipped section when nothing was skipped', async () => {
     seed([candidate({ release: release(2, 'Orchard Songs', { format: 'paperback' }) })]);
     await open();
