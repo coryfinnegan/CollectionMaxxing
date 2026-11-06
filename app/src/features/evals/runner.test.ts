@@ -45,7 +45,7 @@ interface Result {
   printKind?: string;
 }
 interface Opened {
-  device: { model: string; osVersion: string; appVersion: string };
+  device: { model: string; osVersion: string; appVersion: string; buildNumber?: string };
   configVersion: string;
   baselineNote?: string;
 }
@@ -96,6 +96,18 @@ describe('the eval runner', () => {
       expect(opened()).toHaveLength(1);
       expect(opened()[0].device).toEqual({ model: 'iPhone16,1', osVersion: '26.0', appVersion: '1.2.3' });
       expect(opened()[0].configVersion).toBe('v1');
+    });
+
+    it('tells the PC which TestFlight build is reading when the app knows its build number', async () => {
+      const kit = makeKit({ photos: 1, buildNumber: '150' });
+      await kit.runner.start();
+      expect(opened()[0].device).toEqual({ model: 'iPhone16,1', osVersion: '26.0', appVersion: '1.2.3', buildNumber: '150' });
+    });
+
+    it('leaves the build number out of the run when the app has none', async () => {
+      const kit = makeKit({ photos: 1 });
+      await kit.runner.start();
+      expect(Object.keys(opened()[0].device)).not.toContain('buildNumber');
     });
 
     it('sends a photo before it reads the next one, so nothing waits to go up at the end', async () => {

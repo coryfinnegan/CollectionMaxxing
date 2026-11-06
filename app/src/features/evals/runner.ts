@@ -93,7 +93,7 @@ export interface EvalRunnerDeps {
     /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the three rows are read. */
     recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
   };
-  device: { model: string; appVersion: string };
+  device: { model: string; appVersion: string; buildNumber?: string };
   /** Holds the screen awake. The runner holds it only while it is reading in the foreground: never paused, waiting for the PC or while the PC scores. */
   keepAwake: { on(): Promise<void>; off(): Promise<void> };
   /** Where the readings the PC has not taken yet are kept, so an app that is killed loses none of them (MMKV on the phone). */
@@ -526,7 +526,13 @@ export class EvalRunner {
     try {
       await this.config();
       status = await this.deps.api.startRun({
-        device: { model: this.deps.device.model, osVersion: this.osVersion, appVersion: this.deps.device.appVersion },
+        device: {
+          model: this.deps.device.model,
+          osVersion: this.osVersion,
+          appVersion: this.deps.device.appVersion,
+          // Which TestFlight build is reading: the PC keeps it so a run is credited to the build that ran it.
+          ...(this.deps.device.buildNumber ? { buildNumber: this.deps.device.buildNumber } : {}),
+        },
         configVersion: this.deps.config.current().version,
         ...(baselineNote ? { baselineNote } : {}),
       });

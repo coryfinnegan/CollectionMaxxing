@@ -27,6 +27,8 @@ export const sceneFor = (id: string, overrides: Partial<Scene> = {}): Scene => (
 
 export interface KitOptions {
   photos?: number;
+  /** The app's TestFlight build number; none for web and dev builds. */
+  buildNumber?: string;
   /** Per photo id: replace parts of its scene. */
   scenes?: Record<string, Partial<Scene>>;
   /** Server config versions: the n-th refresh gets the n-th version (the last one repeats). */
@@ -183,7 +185,7 @@ export function makeKit(options: KitOptions = {}) {
       pipeline: options.pipeline ? options.pipeline(realSelector.tiers.pipeline) : realSelector.tiers.pipeline,
       config: store,
       vision,
-      device: { model: 'iPhone16,1', appVersion: '1.2.3' },
+      device: { model: 'iPhone16,1', appVersion: '1.2.3', ...(options.buildNumber ? { buildNumber: options.buildNumber } : {}) },
       keepAwake: {
         on: async () => {
           awake.on += 1;

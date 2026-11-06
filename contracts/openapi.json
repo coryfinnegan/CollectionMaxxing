@@ -8065,6 +8065,12 @@
           },
           "appVersion": {
             "type": "string"
+          },
+          "buildNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -8084,6 +8090,12 @@
             ]
           },
           "appVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "buildNumber": {
             "type": [
               "null",
               "string"
