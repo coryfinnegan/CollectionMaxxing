@@ -7275,6 +7275,16 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "skipReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SkipReason"
+              }
+            ]
           }
         }
       },
@@ -11657,6 +11667,17 @@
             "type": "boolean"
           }
         }
+      },
+      "SkipReason": {
+        "enum": [
+          "repeat",
+          "place",
+          "fragment",
+          "unfound_spine",
+          "owned",
+          "wishlist",
+          null
+        ]
       },
       "SkippedPhoto": {
         "required": [

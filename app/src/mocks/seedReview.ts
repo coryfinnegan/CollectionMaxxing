@@ -148,3 +148,69 @@ export function seedReviewRows(): void {
   getTrayStore(MOCK_LIBRARY_ID).getState().setSessionId(REVIEW_ROWS_SESSION);
   seedSnaps();
 }
+
+export const REVIEW_SKIPPED_SESSION = 'e2e00000-0000-4000-8000-000000000002';
+
+/** A scan with one ready row and three skipped ones: the server skipped two (a repeat, a spine the catalog has nothing for) and the person one (#709). */
+export function seedReviewSkipped(): void {
+  scanMock.sessions.set(REVIEW_SKIPPED_SESSION, {
+    id: REVIEW_SKIPPED_SESSION,
+    libraryId: MOCK_LIBRARY_ID,
+    seq: 100,
+    candidates: [
+      candidate({
+        id: 'e2e00000-0000-4000-8000-000000000031',
+        seq: 1,
+        changeSeq: 1,
+        source: 'barcode',
+        shotKind: 'barcode',
+        rawCode: '000000000017',
+        resolution: 'matched',
+        decision: 'accepted',
+        release: release(2, 'Lantern Hollow', { format: 'game_cartridge' }),
+      }),
+      candidate({
+        id: 'e2e00000-0000-4000-8000-000000000032',
+        seq: 2,
+        changeSeq: 2,
+        source: 'picture_text',
+        visibleText: 'Quiet Harbour Almanac',
+        resolution: 'ambiguous',
+        decision: 'rejected',
+        skipReason: 'repeat',
+      }),
+      candidate({
+        id: 'e2e00000-0000-4000-8000-000000000033',
+        seq: 3,
+        changeSeq: 3,
+        source: 'picture_text',
+        visibleText: 'Marlow Wickersham',
+        resolution: 'not_found',
+        decision: 'rejected',
+        skipReason: 'unfound_spine',
+      }),
+      candidate({
+        id: 'e2e00000-0000-4000-8000-000000000035',
+        seq: 5,
+        changeSeq: 5,
+        resolution: 'matched',
+        decision: 'rejected',
+        alreadyOwnedCount: 1,
+        release: release(8, 'Cedar Row', { format: 'paperback', year: 1998 }),
+        skipReason: 'owned',
+      }),
+      candidate({
+        id: 'e2e00000-0000-4000-8000-000000000034',
+        seq: 4,
+        changeSeq: 4,
+        resolution: 'matched',
+        decision: 'rejected',
+        release: release(7, 'Orchard Songs', { format: 'paperback', year: 2004 }),
+      }),
+    ],
+    answers: new Map(),
+    status: 'open',
+    provisionals: [],
+  });
+  getTrayStore(MOCK_LIBRARY_ID).getState().setSessionId(REVIEW_SKIPPED_SESSION);
+}

@@ -19,13 +19,14 @@ import {
 import type { StoreApi } from 'zustand/vanilla';
 import { newIdempotencyKey } from '@/features/item/etag';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
-import { dropCandidateLocally, dropPictureItemLocally, flushDiscardOutbox, getDiscardOutbox, pruneDiscarded } from '@/features/scan/session/discards';
+import { dropCandidateLocally, dropPictureItemLocally, flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from '@/features/scan/session/discards';
 import { loadSessionSnapshot, mergeSnapshotIntoCards } from '@/features/scan/session/sessionApi';
 import { seedFromSnapshot } from '@/features/scan/session/sessionCounters';
 import type { TrayStore } from '@/features/scan/tray/trayStore';
 import { localDateString } from '@/lib/dates';
 import { ApiError } from '@/lib/http';
 import { commitBody, committable, type Draft } from './plan';
+import { skippedCandidates } from './skipped';
 
 const keep = (candidate: CandidateDto) => useCardsStore.getState().merge([candidate], { announce: false });
 
@@ -129,13 +130,21 @@ export async function submitBoundBarcode(
 }
 
 /** What Review starts from: the session's own location, status and channel. */
-export type SessionReviewContext = Pick<ScanSessionDto, 'defaultLocationId' | 'defaultStatus' | 'channel'>;
+export type SessionReviewContext = Pick<ScanSessionDto, 'defaultLocationId' | 'defaultStatus' | 'channel'> & {
+  /** The session's skipped rows (#709): not in the cards, but Review lists them so one can be put back. */
+  skipped: CandidateDto[];
+};
 
 /** Loads the whole session into the cards store (a resumed scan, or Review opened first) and returns its context. */
 export async function loadIntoCards(sessionId: string): Promise<SessionReviewContext> {
   const session = await loadSessionSnapshot(sessionId);
   mergeSnapshotIntoCards(session.candidates);
-  return { defaultLocationId: session.defaultLocationId, defaultStatus: session.defaultStatus, channel: session.channel };
+  return {
+    defaultLocationId: session.defaultLocationId,
+    defaultStatus: session.defaultStatus,
+    channel: session.channel,
+    skipped: skippedCandidates(withoutDiscarded(session.candidates)),
+  };
 }
 
 /**

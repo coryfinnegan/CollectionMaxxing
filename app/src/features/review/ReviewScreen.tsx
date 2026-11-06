@@ -20,6 +20,7 @@ import { PickOptions, PickOverflow } from './PickRows';
 import { addLabel, effective, leftOutLine, type ReviewStatus } from './plan';
 import { keepable, pairCropUri, thumbForLocalId } from './provisionals';
 import { quotaPausedLine, quotaPending } from './quotaLine';
+import { SkippedRows } from './SkippedRows';
 import { useReview } from './useReview';
 
 type Review = ReturnType<typeof useReview>;
@@ -165,6 +166,8 @@ export function ReviewScreen({
           </View>
         );
       })}
+
+      <SkippedRows rows={review.skipped} canPutBack={review.canAdd} busy={review.rowBusy} errors={review.rowErrors} onPutBack={(c) => void review.putBack(c)} />
 
       {review.commitError ? (
         <Text tone="danger" accessibilityRole="alert">

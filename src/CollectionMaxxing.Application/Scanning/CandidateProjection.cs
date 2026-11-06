@@ -206,7 +206,8 @@ internal static class CandidateProjection
         cropUrl,
         coverPick,
         trace.WishlistItemId,
-        trace.SoldItemId);
+        trace.SoldItemId,
+        SkipReasons.Of(c.Decision, c.AlreadyOwnedCount, trace));
 
     /// <summary>
     /// The releases the caller may see, by id. One that is hidden (another library's private release) is simply absent. Their

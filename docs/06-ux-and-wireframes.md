@@ -383,3 +383,4 @@ Scan → point at a case → "You own this: VHS, Shelf B" (two short haptic taps
 - Buttons name the outcome with a count: **Add 11 items**, not "Submit" or "Done".
 - Errors say what happened and what to do next: "Couldn't reach the catalog. Your scans are saved and will finish when you're back online."
 - No exclamation marks, no apologies, no "Oops".
+- A skipped row says why in plain words and offers **Put back**: Read twice, Couldn't tell where it sat, Only part of a title, Nothing in the catalog matched, Already in your library, On your wishlist, and You skipped it only for a row the person skipped (Review, #709). Skipped rows stay collapsed at the end of Review: `3 items skipped. Show them`.
