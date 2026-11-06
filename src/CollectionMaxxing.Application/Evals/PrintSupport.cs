@@ -72,6 +72,17 @@ public static partial class PrintSupport
     }
 
     /// <summary>
+    /// Whether every word of a person's name is on the print (the same matching as <see cref="Supports"/>, but all of them): the author check of
+    /// the line retry (<see cref="Scanning.Identify.SpineLines"/>). A name must have at least two words that can be matched (stop words and
+    /// single letters do not count), so a lone common word never vouches for a title.
+    /// </summary>
+    public static bool PrintsAll(string? name, IReadOnlySet<string> printed)
+    {
+        var words = TitleWords(name);
+        return words.Count >= 2 && words.All(word => IsPrinted(word, printed));
+    }
+
+    /// <summary>
     /// Whether <paramref name="word"/> is on the shelf: a print word is it, is it with one trailing "s" more or less, or (when both
     /// are long enough that one wrong letter is a misread and not another word) is one edit away from it.
     /// </summary>

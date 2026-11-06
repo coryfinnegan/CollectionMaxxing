@@ -182,6 +182,22 @@ public static partial class FragmentReads
         return rows.ToDictionary(r => r.Id, r => (r.Title, ItemProjection.Creators(r.CreatorsJson)));
     }
 
+    /// <summary>
+    /// Whether a line of a spine's piece is print that is never a title: a banner or format phrase, a publisher's or studio's mark (on
+    /// its own, or with a suffix such as "Books"), or digits only. The line retry (<see cref="SpineLines"/>) never asks such a line.
+    /// </summary>
+    public static bool IsNeverATitle(string? line)
+    {
+        var words = PlainWords(line);
+        if (words.Length == 0)
+        {
+            return true;
+        }
+
+        var plain = string.Join(' ', words);
+        return words.All(word => word.All(char.IsDigit)) || IsBanner(plain) || PublisherMarks.Any(mark => IsMark(plain, mark));
+    }
+
     // ---- case 1: print that is never a title ----------------------------------------------------------------------------------------
 
     private static bool NeverATitle(FragmentRead read)

@@ -136,7 +136,8 @@ public sealed class EvalGrounder(
                 ReadOf(cleaned[i].Facts, cleaned[i].Profile, items[i].Read.Creator),
                 cleaned[i].Box,
                 cleaned[i].Unconfirmed,
-                isSkipped));
+                isSkipped,
+                SpineLines.FoundBy(answer)));
         }
 
         return new GroundedShot(grounded, emptied.Count(segment => !standing.Contains(segment)), skipped);

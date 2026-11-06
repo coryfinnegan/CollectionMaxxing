@@ -893,6 +893,28 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_spine_revived_by_a_line_never_takes_the_place_of_a_model_read_at_the_same_place()
+    {
+        var revived = Ambiguous(Release("Star Fox 64", score: 1.0)).At(0.30) with { ResolvedBy = "vision_text", FoundByLine = true };
+        var model = Ambiguous(Release("Mario Kart 64", score: 0.90)).At(0.31);
+
+        var built = EvalCombination.Of([ModelRead(model), VisionRead(revived)], ArrangeShelf("Mario Kart 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Mario Kart 64"]);
+    }
+
+    [Fact]
+    public void A_Vision_read_found_by_a_trimmed_span_still_takes_the_place_by_its_score()
+    {
+        var offered = Ambiguous(Release("Star Fox 64", score: 1.0)).At(0.30) with { ResolvedBy = "vision_text" };
+        var model = Ambiguous(Release("Mario Kart 64", score: 0.90)).At(0.31);
+
+        var built = EvalCombination.Of([ModelRead(model), VisionRead(offered)], ArrangeShelf("Star Fox 64"));
+
+        built.Single().Items.Select(i => i.Best!.Title).ShouldBe(["Star Fox 64"]);
+    }
+
+    [Fact]
     public void A_Vision_read_that_found_nothing_loses_its_place_to_the_models_match()
     {
         var built = EvalCombination.Of(
