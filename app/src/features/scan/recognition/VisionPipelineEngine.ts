@@ -56,7 +56,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
     // A cover shot is one item: the whole frame, never segmented (#504), and its title is its biggest text. Anything else may be a shelf row.
     if (single) {
       const whole = wholeFrame(lines);
-      return this.reading(whole, lines, settings, started, onItem, new Map(whole.pieces.map((p) => [p, { title: coverTitleOf(p.lines, still, settings.local) }])));
+      return this.reading(whole, lines, settings, started, onItem, new Map(whole.pieces.map((p) => [p, { title: coverTitleOf(p.lines, still, settings.local) }])), false);
     }
     // The splitter gets the default search's rectangles, as it always did; the covers are found in the wide search's, which it never sees.
     const [rectangles, wide] = (await looking) ?? [[], []];
@@ -85,6 +85,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
       started,
       onItem,
       new Map(covers.map((c) => [c.piece, c.read])),
+      true,
     );
     return { ...reading, ...(printKind ? { printKind } : {}), ...(covers.length > 0 ? { coverCount: covers.length } : {}) };
   }
@@ -116,7 +117,7 @@ export class VisionPipelineEngine implements RecognitionEngine {
   }
 
   /** The pieces in `covers` are single covers: each takes its biggest text as the title, and the kind its own text names. Any other piece is a stretch of shelf, whose title is its longest, surest line. */
-  private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void, covers: ReadonlyMap<Piece, CoverRead>): SnapReading {
+  private reading(split: Split, lines: TextLine[], settings: RecognitionSettings, started: number, onItem: (item: ReadItem) => void, covers: ReadonlyMap<Piece, CoverRead>, shelfShot: boolean): SnapReading {
     const { pieces, unreadableCount } = split;
     // The title each shelf piece reads on its own; a title a neighboring piece reads too is a series title, which no stack replaces.
     const alone = pieces.map((p) => (covers.has(p) ? undefined : shelfTitleOf(p.lines, settings.local)?.text));
@@ -137,8 +138,9 @@ export class VisionPipelineEngine implements RecognitionEngine {
       // A shelf piece is one spine, and a PlayStation spine prints its disc's code; the server settles which game the code names. A cover's code
       // is the cover cue's (coverCue.ts), which keeps it off a book or a film that the cover's own text shows the item to be.
       const productCode = cover ? undefined : productCodeOf(p.lines);
-      // A shelf spine's lines go to the server too (its line retry asks another one); a cover's leftover lines are noise, so it sends none.
-      const spineLines = cover ? [] : [...new Set(p.lines.map((l) => l.text))].slice(0, MAX_SPINE_LINES);
+      // Every piece of a shelf shot sends its lines (a cover among the spines too, as the PC's eval rebuild does), so the server's line retry can
+      // ask another one; a single-cover shot sends none, its leftover lines being noise.
+      const spineLines = !shelfShot ? [] : [...new Set(p.lines.map((l) => l.text))].slice(0, MAX_SPINE_LINES);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),

@@ -12,8 +12,8 @@ const pipelineOf = (scene: Scene) => new VisionPipelineEngine({ vision: new Reco
 const shelf: Scene = {
   text: [
     line('GRAN TURISMO 3', 0.1, 0.1, 0.05, 0.4),
-    line('Polyphony Digital', 0.11, 0.55, 0.04, 0.2),
-    line('GRAN TURISMO 3', 0.12, 0.1, 0.05, 0.4),
+    line('GRAN TURISMO 3', 0.1, 0.52, 0.05, 0.03),
+    line('Polyphony Digital', 0.11, 0.56, 0.04, 0.18),
     line('EMMA', 0.5, 0.1, 0.05, 0.6),
   ],
   rectangles: [
@@ -36,10 +36,10 @@ describe('a read sends its spine\'s lines', () => {
     };
     const reading = await pipelineOf(many).read(STILL, () => {}, { shotKind: 'shelf_segment' });
     expect(reading.items).toHaveLength(1);
-    expect(reading.items[0].lines).toHaveLength(12);
+    expect(reading.items[0].lines).toEqual(Array.from({ length: 12 }, (_, i) => `Line ${i}`));
   });
 
-  it('gives a cover read none', async () => {
+  it('gives a single-cover shot\'s read none', async () => {
     const reading = await pipelineOf(shelf).read(STILL, () => {}, { shotKind: 'single_cover' });
     expect(reading.items).toHaveLength(1);
     expect(reading.items[0]).not.toHaveProperty('lines');
