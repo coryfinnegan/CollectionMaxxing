@@ -232,13 +232,14 @@ cm_backup_steps() {
 
 # cm_seconds_until "M H * * *": seconds until the next HH:MM (today if still ahead, else tomorrow). Only daily schedules are supported.
 cm_seconds_until() {
-  local schedule="$1" m h rest now target
+  local schedule="$1" m h rest now day target
   read -r m h rest <<<"$schedule"
   [[ "$m" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ && "$rest" == "* * *" ]] || return 1
   ((m < 60 && h < 24)) || return 1
-  now="$(date +%s)"
-  target="$(date -d "today $(printf '%02d:%02d' "$h" "$m")" +%s)"
-  ((target <= now)) && target="$(date -d "tomorrow $(printf '%02d:%02d' "$h" "$m")" +%s)"
+  now="$(cm_now)"
+  day="$(date -d "@$now" +%Y-%m-%d)"
+  target="$(date -d "$day $(printf '%02d:%02d' "$h" "$m")" +%s)"
+  ((target <= now)) && target="$(date -d "$day +1 day $(printf '%02d:%02d' "$h" "$m")" +%s)"
   echo $((target - now))
 }
 
