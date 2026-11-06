@@ -5,6 +5,7 @@ using CollectionMaxxing.Application.GameSerials;
 using CollectionMaxxing.Application.Items;
 using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
@@ -488,6 +489,10 @@ public static class IdentifyItems
             var lostPlace = ReadPlaces.Weaker(
                 [.. fresh.Select((f, i) => ReadPlaces.Of(answers[f.Candidate.Id], repeats.Contains(i) ? null : f.Item.Box, f.Item.Unconfirmed))]).ToHashSet();
 
+            // And a spine read that only found itself (a number, a banner, a publisher's mark another spine prints, or an author's
+            // name answered by a release titled with it) is skipped too (FragmentReads).
+            var fragments = await FragmentsOfAsync(fresh, freshAnswers, cancellationToken);
+
             // The answers land under the session's lock: the session is reloaded inside it (another request may
             // have auto-added while the providers were being asked), and two auto-adds landing together both append
             // instead of one overwriting the other.
@@ -511,9 +516,9 @@ public static class IdentifyItems
                     }
 
                     await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken, lookups: lookups);
-                    if (repeats.Contains(i) || lostPlace.Contains(i))
+                    if (repeats.Contains(i) || lostPlace.Contains(i) || fragments.Contains(i))
                     {
-                        Skip(candidate, repeats.Contains(i) ? RepeatReads.StepName : ReadPlaces.StepName);
+                        Skip(candidate, repeats.Contains(i) ? RepeatReads.StepName : lostPlace.Contains(i) ? ReadPlaces.StepName : FragmentReads.StepName);
                         continue; // never auto-added
                     }
 
@@ -532,6 +537,22 @@ public static class IdentifyItems
             }
 
             await EnqueueResolveJobsAsync(session, fresh.Select(f => f.Candidate), userId, null, null, cancellationToken);
+        }
+
+        /// <summary>The positions of the reads that are fragments (<see cref="FragmentReads"/>); the catalogue is asked only when a kindless spine read is Ambiguous.</summary>
+        private async Task<HashSet<int>> FragmentsOfAsync(
+            List<(ScanCandidate Candidate, CleanItem Item)> fresh, List<BarcodeResolution> answers, CancellationToken cancellationToken)
+        {
+            var judged = fresh.Where((f, i) => answers[i].Verdict == ResolutionVerdict.Ambiguous
+                && f.Item.Profile == ScoringProfileKind.ShelfSpine && f.Item.Facts.Kind is null).Any();
+            if (!judged)
+            {
+                return [];
+            }
+
+            var releases = await FragmentReads.LocalReleasesAsync(db, FragmentReads.ReleaseIdsOf(answers), cancellationToken);
+            return FragmentReads.Of(
+                [.. fresh.Select((f, i) => FragmentReads.ReadOf(f.Item.Facts, f.Item.Profile, answers[i], id => releases.TryGetValue(id, out var r) ? r : null))]).ToHashSet();
         }
 
         /// <summary>
