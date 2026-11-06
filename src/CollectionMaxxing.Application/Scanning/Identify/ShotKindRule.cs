@@ -139,8 +139,8 @@ public static class ShotKindRule
     /// when the best of them scores strictly better than the read's best option does the find come first and the read's own
     /// options follow (<see cref="SeriesNeighbour.WithOriginals"/>: at most <see cref="MaxOptions"/>, and the read keeps at least
     /// its best one, so the film stays pickable on a shelf of books). On a tie or worse the read's best option stays first and the
-    /// finds come after it: a same-titled book is not a better answer than the right film of a DVD among books. A release is never
-    /// offered twice. Pure.
+    /// finds come after it, except for a release of the shot's kind that is the same work by title (<see cref="SameTitledOfKindFirst"/>).
+    /// A release is never offered twice. Pure.
     /// </summary>
     public static IReadOnlyList<ResolutionOption> Offer(IReadOnlyList<ResolutionOption> found, IReadOnlyList<ResolutionOption> original)
     {
@@ -156,9 +156,47 @@ public static class ShotKindRule
     }
 
     /// <summary>
+    /// The decision of 2026-11-05: on a shot whose kind is clear (<see cref="KindContext.MinReads"/> reads at
+    /// <see cref="KindContext.MinShare"/>, else no kind and no call here), a kind-less read's best option of another kind gives way to a
+    /// release of the shot's kind that has the same normalised title (<see cref="TitleNormalizer.Normalize"/>), whatever its score.
+    /// It reverses the earlier choice that a same-titled book is not a better answer than the right film of a DVD among books: the
+    /// eval's wrong-kind rows (19 of the combined false positives) are the right title in the wrong kind, and the shelf's own kind is
+    /// the better evidence. The other release stays in the offer, only the order changes, the verdict is untouched, and a read that
+    /// names its own kind is never passed here (<see cref="Asks"/>). <paramref name="describe"/> gives an option's title and kind
+    /// (null when unknown, and the option then does not move). Pure.
+    /// </summary>
+    public static IReadOnlyList<ResolutionOption> SameTitledOfKindFirst(
+        IReadOnlyList<ResolutionOption> options, Func<ResolutionOption, (string Title, WorkKind Kind)?> describe, WorkKind shotKind)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(describe);
+
+        if (options.Count < 2 || describe(options[0]) is not { } best || IsOfKind(best.Kind, shotKind))
+        {
+            return options;
+        }
+
+        var title = TitleNormalizer.Normalize(best.Title);
+        if (title.Length == 0)
+        {
+            return options;
+        }
+
+        for (var i = 1; i < options.Count; i++)
+        {
+            if (describe(options[i]) is { } other && IsOfKind(other.Kind, shotKind) && TitleNormalizer.Normalize(other.Title) == title)
+            {
+                return [options[i], .. options.Take(i), .. options.Skip(i + 1)];
+            }
+        }
+
+        return options;
+    }
+
+    /// <summary>
     /// An option the ask found, scored the way the read's own answer was: as if the ask had named no kind. The ask names the shot's
-    /// kind, so what it finds earns the type term that the read's own answer never had, and a same-titled book would beat the right
-    /// film of a DVD among books by that term alone. The option's score is the scorer's own terms without the type term, weighed the
+    /// kind, so what it finds earns the type term that the read's own answer never had, and a differently titled release of the shot's kind
+    /// would beat the read's best option by that term alone (a same-titled one goes first on purpose, <see cref="SameTitledOfKindFirst"/>). The option's score is the scorer's own terms without the type term, weighed the
     /// way it weighs them, and its terms are those. The cap the scorer put on the option for a known conflict (a platform or a
     /// title-year mismatch) is not in the terms, but it is in the option's score, so the rescored score never exceeds that score:
     /// a capped option stays capped. That is the score everything after this sees, the order of the offer included. An option

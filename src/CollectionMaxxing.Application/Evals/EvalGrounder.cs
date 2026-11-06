@@ -12,6 +12,9 @@ using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Application.Evals;
 
+/// <summary>The items one photo and engine row shows, and how many captured segments lost every read to the fragment rule.</summary>
+public sealed record GroundedShot(IReadOnlyList<GroundedItem> Items, int FragmentSegments);
+
 /// <summary>
 /// Grounds what the phone read in a golden photo with the very code <c>/identify</c> uses (<see cref="IdentifyGrounding"/> and the
 /// same cleaning and profile choice), but as a dry run: there is no scan session, and no snap, candidate or release row is
@@ -42,11 +45,25 @@ public sealed class EvalGrounder(
         IReadOnlyList<EvalReadItemInput> items,
         EvalGroundingMemo memo,
         WorkKind? printKind,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null) =>
+        (await GroundWithSkipsAsync(engine, items, memo, printKind, cancellationToken, kindsOfTheSnap)).Items;
+
+    /// <summary>
+    /// As <see cref="GroundAsync"/>, and also reports how many captured segments were left with no read at all because every read of
+    /// them was skipped as a fragment (<see cref="FragmentReads"/>): the scorer counts those as accounted for, as the combined row does.
+    /// </summary>
+    public async Task<GroundedShot> GroundWithSkipsAsync(
+        ScanEngine engine,
+        IReadOnlyList<EvalReadItemInput> items,
+        EvalGroundingMemo memo,
+        WorkKind? printKind,
+        CancellationToken cancellationToken,
+        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null)
     {
         if (items.Count == 0)
         {
-            return [];
+            return new GroundedShot([], 0);
         }
 
         // Cleaning also tells each kindless read what kind the photo is of (KindContext): what the shelf's own print said when no read
@@ -60,19 +77,35 @@ public sealed class EvalGrounder(
         // series its neighbour carries, and a spine that found another kind than the photo's is asked again as the photo's kind.
         // They need the neighbours' answers, so they follow the memo and are never remembered by it.
         var withSeries = await RetrySeriesAsync(cleaned, remembered, cancellationToken);
-        var answers = await RetryShotKindAsync(cleaned, withSeries, printKind, cancellationToken);
+        var answers = await RetryShotKindAsync(cleaned, withSeries, printKind, kindsOfTheSnap, cancellationToken);
 
         // One book in one place, one item per photo and engine: a read that repeats a stronger read of the same release in the same
         // place is not scored, the same rule /identify applies, so the scorer sees what a person scanning this photo would have been
         // shown. The same release read in another place is another item, and each is kept.
         var repeats = RepeatReads.Of(answers, [.. cleaned.Select(c => c.Box)]).ToHashSet();
         var local = await LoadLocalAsync(answers, cancellationToken);
+
+        // And a spine read that only found itself (FragmentReads) is not scored either: /identify skips it the same way.
+        var fragments = FragmentReads.Of(
+            [.. cleaned.Select((c, i) => FragmentReads.ReadOf(c.Facts, c.Profile, answers[i], id => ReleaseOf(local, id)))]).ToHashSet();
         var grounded = new List<GroundedItem>(items.Count - repeats.Count);
+        var standing = new HashSet<string>(StringComparer.Ordinal);
+        var emptied = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < items.Count; i++)
         {
-            if (repeats.Contains(i))
+            if (repeats.Contains(i) || fragments.Contains(i))
             {
+                if (fragments.Contains(i))
+                {
+                    emptied.Add(cleaned[i].SegmentId ?? $"\0read{i}");
+                }
+
                 continue;
+            }
+
+            if (cleaned[i].SegmentId is { } segment)
+            {
+                standing.Add(segment);
             }
 
             var answer = answers[i];
@@ -96,7 +129,7 @@ public sealed class EvalGrounder(
                 cleaned[i].Unconfirmed));
         }
 
-        return grounded;
+        return new GroundedShot(grounded, emptied.Count(segment => !standing.Contains(segment)));
     }
 
     /// <summary>
@@ -233,12 +266,15 @@ public sealed class EvalGrounder(
     /// a spine on a shelf that found another kind than the shelf's is asked again as the shelf's kind, offered and never matched. The
     /// photo's kind is what its Matched spines agree on, or the shelf's own print. The pass has the budget <c>/identify</c> gives it
     /// (<see cref="ShotKindRule.Budget"/>, counted from when the pass starts, on the injected clock) and the places it has
-    /// (<see cref="ScanningOptions.Parallelism"/>), as the series round does. A pass that runs out leaves the answers as they were. The
+    /// (<see cref="ScanningOptions.Parallelism"/>), as the series round does. <paramref name="kindsOfTheSnap"/> are the kinds the other
+    /// engine's reads of the same snap name (the picture model's standing reads, beside Vision's): the app sends one identify per snap
+    /// holding both engines' reads, so they vote on the shot's kind and are never asked. A pass that runs out leaves the answers as they were. The
     /// catalogue is asked after the series round is done, so it needs no gate. The answers are the photo's own and are not remembered
     /// by the run: they depend on the other spines.
     /// </summary>
     private async Task<IReadOnlyList<BarcodeResolution>> RetryShotKindAsync(
-        List<CleanItem> cleaned, IReadOnlyList<BarcodeResolution> answers, WorkKind? printKind, CancellationToken cancellationToken)
+        List<CleanItem> cleaned, IReadOnlyList<BarcodeResolution> answers, WorkKind? printKind, IReadOnlyList<WorkKind?>? kindsOfTheSnap,
+        CancellationToken cancellationToken)
     {
         using var gate = new SemaphoreSlim(Math.Max(1, options.Parallelism));
         using var expiry = new CancellationTokenSource(ShotKindRule.Budget, time);
@@ -247,7 +283,8 @@ public sealed class EvalGrounder(
             [.. cleaned.Select((c, i) => new ShotKindRetry(c.Facts, c.Profile, answers[i], facts => AskWithinRoundAsync(facts, gate, round.Token, cancellationToken), round.Token))],
             printKind,
             (releaseIds, token) => ShotKindRule.LocalKindsAsync(db, releaseIds, token),
-            cancellationToken);
+            cancellationToken,
+            [.. (kindsOfTheSnap ?? []).Select(kind => new ShotKindRead(Spine: true, kind, ResolutionVerdict.Pending, null))]);
     }
 
     /// <summary>
@@ -307,6 +344,9 @@ public sealed class EvalGrounder(
                 provider.Creators,
                 option.Terms);
     }
+
+    private static (string Title, IReadOnlyList<string> Creators)? ReleaseOf(Dictionary<Guid, GroundedCandidate> local, Guid id) =>
+        local.TryGetValue(id, out var release) ? (release.Title, release.Creators ?? []) : null;
 
     private async Task<Dictionary<Guid, GroundedCandidate>> LoadLocalAsync(IReadOnlyList<BarcodeResolution> answers, CancellationToken cancellationToken)
     {

@@ -144,16 +144,49 @@ public class EvalGrounderShotKindTests
         books.Asked.ShouldContain(("cnoi Emergency Contact o", WorkKind.Book)); // and it was the ask as a book that found it
     }
 
+    // A spine read that only found itself (a format banner) is left out of the score, as a repeat is.
+
     [Fact]
-    public async Task A_book_that_is_only_as_good_a_title_match_as_the_films_the_read_found_is_offered_after_the_first_film()
+    public async Task A_spine_read_of_a_format_banner_that_found_only_other_titles_is_not_scored()
+    {
+        var (books, films) = Providers();
+        books.Know("HOME VIDEO", false, Release("Home Video Nights", WorkKind.Book, "n1"), Release("Home Video Stories", WorkKind.Book, "n2"));
+        var reads = BookShelf()[..3].Append(Spine("HOME VIDEO")).ToArray();
+
+        var shot = await Grounder(books, films).GroundWithSkipsAsync(
+            ScanEngine.VisionPipeline, reads, new EvalGroundingMemo(), null, CancellationToken.None).WaitAsync(Patience);
+
+        shot.Items.Count.ShouldBe(3);
+        shot.Items.ShouldNotContain(i => i.ReadTitle == "HOME VIDEO");
+        shot.FragmentSegments.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_book_that_is_only_as_good_a_title_match_as_the_films_the_read_found_is_offered_first_on_a_shelf_of_books()
     {
         var (books, films) = Providers();
 
         var items = await GroundAsync(Grounder(books, films), new EvalGroundingMemo(), null, BookShelf());
 
         items[3].Verdict.ShouldBe("ambiguous");
-        items[3].Candidates.Select(c => c.Kind).ShouldBe(["film", "book", "film"]);
+        items[3].Candidates.Select(c => c.Kind).ShouldBe(["book", "film", "film"]);
         books.Asked.ShouldContain(("cnoi Emergency Contact o", WorkKind.Book));
+    }
+
+    [Fact]
+    public async Task The_kinds_the_models_reads_of_the_same_snap_name_decide_the_shot_the_vision_reads_are_asked_as()
+    {
+        var (books, films) = Providers();
+        var grounder = Grounder(books, films);
+        EvalReadItemInput[] visionReads = [Spine("cnoi Emergency Contact o"), Spine("GAMMA QUEST"), Spine("DELTA QUEST"), Spine("EPSILON QUEST")];
+
+        var alone = await grounder.GroundAsync(ScanEngine.VisionPipeline, visionReads, new EvalGroundingMemo(), null, CancellationToken.None).WaitAsync(Patience);
+        var withTheModel = await grounder.GroundAsync(
+            ScanEngine.VisionPipeline, visionReads, new EvalGroundingMemo(), null, CancellationToken.None,
+            [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book]).WaitAsync(Patience);
+
+        alone[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "film", "film"]); // no kind for the snap: nothing asked
+        withTheModel[0].Candidates.Select(c => c.Kind).ShouldBe(["book", "film", "film"]);
     }
 
     [Fact]
@@ -163,7 +196,7 @@ public class EvalGrounderShotKindTests
 
         var items = await GroundAsync(Grounder(books, films), new EvalGroundingMemo(), WorkKind.Book, Spine("cnoi Emergency Contact o"), Spine("GAMMA QUEST"), Spine("DELTA QUEST"), Spine("EPSILON QUEST"));
 
-        items[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "book", "film"]);
+        items[0].Candidates.Select(c => c.Kind).ShouldBe(["book", "film", "film"]);
     }
 
     [Fact]
@@ -187,7 +220,7 @@ public class EvalGrounderShotKindTests
         var onTheShelf = await GroundAsync(grounder, memo, null, BookShelf());
         var alone = await GroundAsync(grounder, memo, null, Spine("cnoi Emergency Contact o"), Spine("GAMMA QUEST"), Spine("DELTA QUEST"), Spine("EPSILON QUEST"));
 
-        onTheShelf[3].Candidates.Select(c => c.Kind).ShouldBe(["film", "book", "film"]);
+        onTheShelf[3].Candidates.Select(c => c.Kind).ShouldBe(["book", "film", "film"]);
         alone[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "film", "film"]); // the read as it stands alone, from the memo
         memo.Reused.ShouldBeGreaterThan(0);
     }

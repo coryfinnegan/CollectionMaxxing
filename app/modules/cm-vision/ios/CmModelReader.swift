@@ -93,7 +93,7 @@ enum CmModelReader {
   ) async -> [String: Any] {
     let clock = ContinuousClock()
     let started = clock.now
-    let run = CmReadRun(maxItems: request.maxItems, emit: emit)
+    let run = CmReadRun(maxItems: request.maxItems, repeatStop: request.repeatStop, emit: emit)
     let warmUse = CmWarmUse()
 
     func finish(_ outcome: CmOutcome) -> [String: Any] {
@@ -191,11 +191,11 @@ enum CmModelReader {
   private static func streamFull(
     session: LanguageModelSession, image: CmLoadedImage, run: CmReadRun
   ) async throws -> CmOutcome {
-    let stream = session.streamResponse(generating: CmGenRead.self) {
+    let stream = session.streamResponse(generating: CmGenCoverRead.self) {
       "Picture:"
       Attachment(image.cgImage, orientation: image.orientation)
     }
-    var latest: [CmGenItem.PartiallyGenerated] = []
+    var latest: [CmGenCover.PartiallyGenerated] = []
     var next = 0
     for try await snapshot in stream {
       try Task.checkCancellation()

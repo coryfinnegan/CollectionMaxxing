@@ -191,7 +191,7 @@ public class IdentifyGroundingShotKindTests
     // ---- the order of the offer ----------------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_find_that_scores_worse_than_the_reads_best_option_is_offered_after_it()
+    public async Task A_same_titled_find_that_scores_worse_than_the_reads_best_option_still_comes_first_on_a_shelf_of_books()
     {
         var grounding = Grounding([EmergencyContactBooks()]);
         var asks = new Asks();
@@ -199,21 +199,22 @@ public class IdentifyGroundingShotKindTests
 
         var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, film));
 
-        Kinds(answers[3]).ShouldBe(["Film", "Book", "Film"]);
+        Kinds(answers[3]).ShouldBe(["Book", "Film", "Film"]);
         answers[3].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
         answers[3].FoundByTrimmedSpan.ShouldBeTrue();
     }
 
     // The ask is scored as a book, so a book earns the type term that the film, found with no kind, never had. The find is compared
     // with the read's best option on the footing the read's own answer had (the score without the type term), and goes first only
-    // when it is strictly better there: a tie keeps the film the read found first, and the book second.
+    // when it is strictly better there. A same-titled book then goes first anyway on a shelf of books (the 2026-11-05 decision,
+    // ShotKindRule.SameTitledOfKindFirst), so what these tests keep is the footing: the film stays offered and the scores are level.
 
     /// <summary>The answer a kind-less read got for a film of its title: the real scorer's, so the options carry the score and the terms the read earned.</summary>
     private static BarcodeResolution FoundAsFilm(IdentifyGrounding grounding, string read, string filmTitle) => grounding.Score(
         Vision(read), ScoringProfileKind.ShelfSpine, LocalPool.Empty, new ProviderAnswers([Release(filmTitle, WorkKind.Film, "f7")], [], false));
 
     [Fact]
-    public async Task A_book_of_the_same_title_does_not_go_ahead_of_the_film_the_read_found()
+    public async Task A_book_of_the_same_title_goes_ahead_of_the_film_the_read_found_on_a_shelf_of_books()
     {
         var books = new OfKind(WorkKind.Book).Know("CONGO", Release("Congo", WorkKind.Book, "b7"));
         var grounding = Grounding([books]);
@@ -222,14 +223,14 @@ public class IdentifyGroundingShotKindTests
 
         var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, congo));
 
-        Kinds(answers[3]).ShouldBe(["Film", "Book"]);
+        Kinds(answers[3]).ShouldBe(["Book", "Film"]);
         answers[3].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
         answers[3].FoundByTrimmedSpan.ShouldBeTrue();
         asks.Facts.Single().Kind.ShouldBe(WorkKind.Book);
     }
 
     [Fact]
-    public async Task A_misread_title_gives_the_book_no_lead_over_the_film_for_the_type_term_it_earns()
+    public async Task A_misread_title_gives_the_book_no_score_lead_over_the_film_for_the_type_term_it_earns()
     {
         // The film scores a little under 1 on a misread title, and the book scores more in the ask only because the type term
         // agrees; on the footing the film had, the two are level.
@@ -243,8 +244,8 @@ public class IdentifyGroundingShotKindTests
 
         filmAnswer.Options[0].Score.ShouldBeLessThan(1.0);
         asks.Facts.Single().Kind.ShouldBe(WorkKind.Book); // the ask did name the kind, and the book was scored with the type term there
-        answers[3].Options[1].Score.ShouldBe(filmAnswer.Options[0].Score); // but it is kept with the score it has without it, level with the film's
-        Kinds(answers[3]).ShouldBe(["Film", "Book"]);
+        answers[3].Options[0].Score.ShouldBe(filmAnswer.Options[0].Score); // but it is kept with the score it has without it, level with the film's
+        Kinds(answers[3]).ShouldBe(["Book", "Film"]); // and it comes first for its title and the shelf's kind
     }
 
     [Fact]
@@ -563,6 +564,76 @@ public class IdentifyGroundingShotKindTests
             CancellationToken.None);
 
         calls.ShouldBe(0); // two matched spines, no print: no shelf, whatever the kinds would have been
+    }
+
+    /// <summary>A kind-less read whose own options already hold both the film (better scored) and the same-titled book.</summary>
+    private static BarcodeResolution FilmAndBook() => Answer(
+        ResolutionVerdict.Ambiguous,
+        Option(Release("Emergency Contact", WorkKind.Film, "f1"), 0.9),
+        Option(Release("Emergency Contact", WorkKind.Book, "b9"), 0.6));
+
+    [Fact]
+    public async Task A_same_titled_book_already_among_the_reads_options_comes_first_on_a_shelf_of_books_when_the_ask_finds_nothing()
+    {
+        var grounding = Grounding([new OfKind(WorkKind.Book), new OfKind(WorkKind.Film)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), FilmAndBook());
+
+        var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, read));
+
+        answers[3].Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answers[3].Options.Select(o => o.Provider!.ExternalId).ShouldBe(["b9", "f1"]);
+    }
+
+    [Fact]
+    public async Task A_same_titled_book_the_ask_finds_comes_before_a_better_scored_film()
+    {
+        var grounding = Grounding([new OfKind(WorkKind.Book).Know("cnoi Emergency Contact o", Release("Emergency Contact", WorkKind.Book, "b1")), new OfKind(WorkKind.Film)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), FilmAndBook());
+
+        var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, read));
+
+        answers[3].Options[0].Provider!.Kind.ShouldBe(WorkKind.Book);
+        answers[3].Options.Select(o => o.Provider!.Kind).ShouldContain(WorkKind.Film);
+    }
+
+    [Fact]
+    public async Task A_mixed_shelf_leaves_a_reads_options_in_their_order()
+    {
+        var grounding = Grounding([new OfKind(WorkKind.Book), new OfKind(WorkKind.Film)]);
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), FilmAndBook());
+        var original = read.Answer;
+        ShotKindRetry[] shelf =
+        [
+            Retry(grounding, asks, Vision("ONE"), MatchedBook("One", 1)),
+            Retry(grounding, asks, Vision("TWO"), MatchedBook("Two", 2)),
+            Retry(grounding, asks, Vision("THREE"), Answer(ResolutionVerdict.Matched, Option(Release("Three", WorkKind.Film, "m3"), 0.97))),
+            Retry(grounding, asks, Vision("FOUR"), Answer(ResolutionVerdict.Matched, Option(Release("Four", WorkKind.Film, "m4"), 0.97))),
+            read,
+        ];
+
+        var answers = await RetryAsync(grounding, null, shelf);
+
+        answers[4].ShouldBeSameAs(original);
+    }
+
+    [Fact]
+    public async Task A_read_that_names_its_own_kind_keeps_its_options_in_their_order_on_a_shelf_of_books()
+    {
+        var grounding = Grounding([EmergencyContactBooks(), new OfKind(WorkKind.Film)]);
+        var asks = new Asks();
+        var film = Answer(
+            ResolutionVerdict.Ambiguous,
+            Option(Release("Emergency Contact", WorkKind.Film, "f1"), 0.9),
+            Option(Release("Emergency Contact", WorkKind.Book, "b1"), 0.6));
+        var read = Retry(grounding, asks, Vision("Emergency Contact") with { Kind = WorkKind.Film }, film);
+
+        var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, read));
+
+        answers[3].ShouldBeSameAs(film);
+        asks.Facts.ShouldBeEmpty();
     }
 
     private static LocalHit LocalFilm(string title)

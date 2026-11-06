@@ -244,6 +244,13 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         if (unsure)
         {
+            // An author's name whose best release is titled with that name is asked once more with its creator as the title (a
+            // fragment otherwise: FragmentReads); what that finds is offered, and nothing found leaves the answer as it was.
+            if (spine && facts.Kind is null && NamesItsOwnCreator(facts, answer, local) && CreatorSwap.For(facts) is { } swappedName)
+            {
+                attempts.Add(new Attempt(swappedName, new TraceStep("swapped", $"{swappedName.Title} (creator as read; title read: {facts.Title})", 0)));
+            }
+
             return attempts;
         }
 
@@ -270,6 +277,22 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         return attempts;
+    }
+
+    /// <summary>Whether the read's best release is titled with the read's own title, and that title is one of the release's creators (<see cref="FragmentReads.NamesItsOwnCreator"/>).</summary>
+    private static bool NamesItsOwnCreator(ReadFacts facts, BarcodeResolution answer, LocalPool? local)
+    {
+        if (answer.Options.Count == 0)
+        {
+            return false;
+        }
+
+        var best = answer.Options[0]; // best first
+        var pool = local ?? LocalPool.Empty;
+        var creators = best.LocalReleaseId is { } id
+            ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => item.Scoring.Creators).FirstOrDefault() ?? []
+            : best.Provider?.Creators ?? [];
+        return FragmentReads.NamesItsOwnCreator(facts.SearchText, TitleOf(best, pool), creators);
     }
 
     /// <summary>
@@ -550,7 +573,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// the type term counts. A read is asked at most once, within its <see cref="ShotKindRetry.Budget"/>
     /// (<see cref="ShotKindRule.Budget"/>, the pass's own, the same wherever it runs): the asks are made together (one catalogue call
     /// for all of them, then the providers through each read's <see cref="ShotKindRetry.Ask"/>). The kinds are judged on the answers
-    /// the reads had when the pass began. <paramref name="localKinds"/> gives the kind of a catalogue release (an answer's option only
+    /// the reads had when the pass began. <paramref name="alsoOfTheSnap"/> are the reads another engine sent with the same snap: they count toward the shot's kind and are never asked. <paramref name="localKinds"/> gives the kind of a catalogue release (an answer's option only
     /// holds its id); it is called only when the shot could ask at all and an answer's best release is in the catalogue.
     /// </para>
     /// <para>
@@ -560,12 +583,16 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// keeps its own options (<see cref="ShotKindRule.Offer"/>): the find first only when it scores strictly better than the read's
     /// best option, else after it, and always with at least one of the read's own, so a film on a shelf of books can still be picked.
     /// The ask names the shot's kind, so what it finds earns a type term that the read's own answer never had; the finds are kept
-    /// with the score they have without it (<see cref="ShotKindRule.OnOriginalFooting"/>), so a same-titled book does not go ahead
-    /// of the right film of a DVD among books on the strength of its kind alone.
-    /// An ask that finds nothing of the shot's kind leaves the read's answer as it was (the same object).
+    /// with the score they have without it (<see cref="ShotKindRule.OnOriginalFooting"/>), so a different title does not go ahead
+    /// of the read's best option on the strength of its kind alone. Once the find and the read's own options are ordered, a
+    /// release of the shot's kind with the same normalised title as the best option comes first whatever its score
+    /// (<see cref="ShotKindRule.SameTitledOfKindFirst"/>, the 2026-11-05 decision), the other release staying in the offer.
+    /// That reorder also runs when the ask finds nothing of the shot's kind, or the providers could not answer it: a kindless
+    /// read on a shot with a clear kind gets its same-titled release of that kind first from the options it already has.
+    /// A read that names its own kind is never reordered.
     /// </para>
     /// <para>
-    /// A pass that runs out of time, or whose ask the providers could not answer, leaves the read's answer exactly as it was, and
+    /// A pass that runs out of time leaves the read's answer exactly as it was (a failed ask still allows the reorder above), and
     /// never makes a read Pending: <see cref="ResolvePendingIdentify"/> grounds one read on its own, with no neighbours, so it could
     /// only come back as the same answer after a job and a spinner.
     /// </para>
@@ -574,19 +601,24 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         IReadOnlyList<ShotKindRetry> reads,
         WorkKind? printKind,
         Func<IReadOnlyCollection<Guid>, CancellationToken, Task<IReadOnlyDictionary<Guid, WorkKind>>> localKinds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<ShotKindRead>? alsoOfTheSnap = null)
     {
         ArgumentNullException.ThrowIfNull(reads);
         ArgumentNullException.ThrowIfNull(localKinds);
 
+        // The reads of the same snap that another engine sent (the picture model's, beside Vision's) say what the shot is of but are
+        // not asked again here: they join the vote only.
+        var aside = alsoOfTheSnap ?? [];
         var answers = reads.Select(r => r.Answer).ToArray();
-        if (!ShotKindRule.CouldAsk([.. reads.Select(r => ShotKindRule.Of(r.Facts, r.Profile, r.Answer, null))], printKind))
+        if (!ShotKindRule.CouldAsk([.. reads.Select(r => ShotKindRule.Of(r.Facts, r.Profile, r.Answer, null)), .. aside], printKind))
         {
             return answers;
         }
 
         var bestKinds = await BestKindsAsync(reads, localKinds, cancellationToken);
-        var kinds = ShotKindRule.AskKinds(printKind, [.. reads.Select((r, i) => ShotKindRule.Of(r.Facts, r.Profile, r.Answer, bestKinds[i]))]);
+        var kinds = ShotKindRule.AskKinds(
+            printKind, [.. reads.Select((r, i) => ShotKindRule.Of(r.Facts, r.Profile, r.Answer, bestKinds[i])), .. aside]);
 
         // A read with no time left to make its ask is left as it was.
         var open = Enumerable.Range(0, reads.Count).Where(i => kinds[i] is not null && !reads[i].Budget.IsCancellationRequested).ToList();
@@ -600,26 +632,27 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         var scored = await Task.WhenAll(open.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
         for (var n = 0; n < open.Count; n++)
         {
-            // An ask the providers could not answer (they failed, or the budget cancelled the call) is Pending, and found nothing.
-            if (scored[n].Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous))
-            {
-                continue;
-            }
-
             var i = open[n];
             var shotKind = kinds[i]!.Value;
             var pool = pools[n];
             bool OfShotKind(ResolutionOption option) => ShotKindRule.IsOfKind(KindOf(option, pool), shotKind);
+            var original = reads[i].Answer;
+            var why = new TraceStep(ShotKindRule.StepName, $"{asked[n].Title} (kind: {EnumText.ToText(shotKind)})", 0);
 
-            // The ask must have come out for the shot's kind: if its best release is another kind, the read keeps what it found.
-            if (!OfShotKind(scored[n].Options[0]))
+            // An ask the providers could not answer (they failed, or the budget cancelled the call) is Pending, and found nothing. And
+            // the ask must have come out for the shot's kind: if its best release is another kind, the read keeps what it found.
+            if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && OfShotKind(scored[n].Options[0]))
             {
-                continue;
+                var found = scored[n].Options.Where(OfShotKind).Select(ShotKindRule.OnOriginalFooting).ToList();
+                answers[i] = Offered(original, scored[n] with { Options = ShotKindRule.Offer(found, original.Options) }, why);
             }
 
-            var why = new TraceStep(ShotKindRule.StepName, $"{asked[n].Title} (kind: {EnumText.ToText(shotKind)})", 0);
-            var found = scored[n].Options.Where(OfShotKind).Select(ShotKindRule.OnOriginalFooting).ToList();
-            answers[i] = Offered(reads[i].Answer, scored[n] with { Options = ShotKindRule.Offer(found, reads[i].Answer.Options) }, why);
+            // Either way, a release of the shot's kind with the best option's own title comes first, from the offer or the read's own.
+            var ordered = ShotKindRule.SameTitledOfKindFirst(answers[i].Options, option => DescribeOption(option, pool), shotKind);
+            if (!ReferenceEquals(ordered, answers[i].Options))
+            {
+                answers[i] = answers[i] with { Options = ordered, Steps = ReferenceEquals(answers[i], original) ? [.. original.Steps, why] : answers[i].Steps };
+            }
         }
 
         return answers;
@@ -662,6 +695,17 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         return kinds;
+    }
+
+    /// <summary>The title and kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
+    private static (string Title, WorkKind Kind)? DescribeOption(ResolutionOption option, LocalPool pool)
+    {
+        if (option.LocalReleaseId is { } id)
+        {
+            return pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => ((string Title, WorkKind Kind)?)(item.Scoring.Title, item.Scoring.Kind)).FirstOrDefault();
+        }
+
+        return option.Provider is { } provider ? (provider.Title, provider.Kind) : null;
     }
 
     /// <summary>The kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>

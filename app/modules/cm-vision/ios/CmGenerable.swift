@@ -14,6 +14,8 @@ struct CmReadRequest {
   let prompt: String
   let timeoutMs: Double
   let maxItems: Int?
+  /// The read stops once this many finished items in a row share one title, creator and kind (a looping model). Never below 3.
+  let repeatStop: Int?
   /// True when TypeScript asked for the lean spine shape; anything else is the full item.
   let spine: Bool
 
@@ -27,6 +29,11 @@ struct CmReadRequest {
       self.maxItems = max
     } else {
       self.maxItems = nil
+    }
+    if let repeats = (options["repeatStop"] as? NSNumber)?.intValue {
+      self.repeatStop = max(repeats, CmReadRun.minRepeatStop)
+    } else {
+      self.repeatStop = nil
     }
   }
 }
@@ -62,28 +69,43 @@ final class CmOutcomeGate: @unchecked Sendable {
 /// The items read so far. Once closed (the read has resolved) nothing more is recorded or emitted.
 final class CmReadRun: @unchecked Sendable {
   private let lock = NSLock()
+  /// A shelf can legitimately repeat one tape twice or three times in a row, so a loop is never called on fewer.
+  static let minRepeatStop = 3
   private let maxItems: Int?
+  private let repeatStop: Int?
   private let emit: ([String: Any]) -> Void
   private var items: [[String: Any]] = []
   private var unreadable = 0
   private var closed = false
 
-  init(maxItems: Int?, emit: @escaping ([String: Any]) -> Void) {
+  init(maxItems: Int?, repeatStop: Int? = nil, emit: @escaping ([String: Any]) -> Void) {
     self.maxItems = maxItems
+    self.repeatStop = repeatStop.map { max($0, CmReadRun.minRepeatStop) }
     self.emit = emit
   }
 
   var isFull: Bool {
     lock.lock()
     defer { lock.unlock() }
-    guard let maxItems = maxItems else { return false }
-    return items.count >= maxItems
+    return fullLocked
+  }
+
+  /// Full when maxItems is reached, or when the last `repeatStop` finished items all have the same title, creator and kind.
+  private var fullLocked: Bool {
+    if let maxItems = maxItems, items.count >= maxItems { return true }
+    guard let n = repeatStop, items.count >= n else { return false }
+    func key(_ item: [String: Any]) -> String {
+      ["title", "creator", "kind"]
+        .map { ((item[$0] as? String) ?? "").lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
+        .joined(separator: "|")
+    }
+    return Set(items.suffix(n).map(key)).count == 1
   }
 
   /// Records a finished item (or counts it as unreadable when a required field is missing) and streams it.
   func add(_ build: (_ order: Int) -> [String: Any]?) {
     lock.lock()
-    if closed || (maxItems.map { items.count >= $0 } ?? false) {
+    if closed || fullLocked {
       lock.unlock()
       return
     }
@@ -172,6 +194,27 @@ struct CmGenRead {
   var items: [CmGenItem]
 }
 
+/// What the picture reader generates for one item on a cover: the full item without the free-text visibleText, which cost about
+/// 4.4 ms per character and is the field most likely to run a cover to its timeout. TypeScript matches the title to Vision lines
+/// instead. The OCR-text extractor keeps CmGenItem.
+@available(iOS 26.0, *)
+@Generable
+struct CmGenCover {
+  var title: String
+  var creator: String?
+  var kind: CmGenKind
+  var platform: String?
+  var editionMarks: String?
+  var completeness: CmGenCompleteness?
+  var confidence: CmGenConfidence
+}
+
+@available(iOS 26.0, *)
+@Generable
+struct CmGenCoverRead {
+  var items: [CmGenCover]
+}
+
 /// What the picture reader generates for each spine of a shelf: the four fields that decide a match, in
 /// the order they stream. Platform, edition and completeness were junk on shelves and cost generation time.
 @available(iOS 26.0, *)
@@ -199,6 +242,25 @@ enum CmGeneration {
             let kind = partial.kind, let confidence = partial.confidence else { return nil }
       return CmContract.modelItem(
         visibleText: partial.visibleText ?? "",
+        title: title,
+        creator: partial.creator,
+        kind: kind.contractName,
+        platform: partial.platform,
+        editionMarks: partial.editionMarks,
+        completeness: partial.completeness?.contractName,
+        order: order,
+        confidence: confidence.contractName
+      )
+    }
+  }
+
+  /// A cover item: like a spine, its title doubles as the text TypeScript matches to Vision lines.
+  static func add(_ partial: CmGenCover.PartiallyGenerated, to run: CmReadRun) {
+    run.add { order in
+      guard let title = partial.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+            let kind = partial.kind, let confidence = partial.confidence else { return nil }
+      return CmContract.modelItem(
+        visibleText: title,
         title: title,
         creator: partial.creator,
         kind: kind.contractName,

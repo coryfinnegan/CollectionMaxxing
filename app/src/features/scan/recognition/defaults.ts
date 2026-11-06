@@ -24,6 +24,12 @@ export interface RecognitionConfig {
 
 /** Values the server does not own (yet): matching and splitting details. */
 export interface LocalTuning {
+  /**
+   * The on-device model sometimes loops and writes one item again and again (one recorded shelf got the same title 23 times, and the read
+   * ran 26 to 31 seconds). A read ends, keeping its items, once this many finished items in a row share a title, creator and kind. Native
+   * clamps it to at least 3: a recorded shelf holds one tape legitimately at three positions in a row before the next title.
+   */
+  modelRepeatStop: number;
   /** Vision lines under this confidence are noise (mostly from the sideways reads). */
   minTextConfidence: number;
   /** A Vision line belongs to an item when this share of the line's words appear in the item's text. */
@@ -285,6 +291,7 @@ export const DEFAULT_RECOGNITION_CONFIG: RecognitionConfig = {
 };
 
 export const DEFAULT_LOCAL_TUNING: LocalTuning = {
+  modelRepeatStop: 4,
   minTextConfidence: 0.3,
   minLineScore: 0.8,
   minItemCoverage: 0.6,

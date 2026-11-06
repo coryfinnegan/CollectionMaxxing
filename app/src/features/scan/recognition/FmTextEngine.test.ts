@@ -47,6 +47,7 @@ describe('FmTextEngine reading', () => {
       prompt: extractionPromptOf(DEFAULT_RECOGNITION_SETTINGS),
       timeoutMs: DEFAULT_RECOGNITION_SETTINGS.engine.modelTimeoutMs,
       maxItems: DEFAULT_RECOGNITION_SETTINGS.engine.maxItemsPerSnap,
+      repeatStop: DEFAULT_RECOGNITION_SETTINGS.local.modelRepeatStop,
     });
   });
 

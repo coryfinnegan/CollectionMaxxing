@@ -75,8 +75,9 @@ public static class EvalScorer
     };
 
     /// <summary>
-    /// The model's time budget in milliseconds (the default of <c>engine.modelTimeoutMs</c>). A timed-out photo counts in the latency
-    /// percentiles at its measured time, or at this budget if that is larger: the phone gave up at the budget, so it waited at least that long.
+    /// The least latency, in milliseconds, a timed-out photo is charged in the latency percentiles. It is a scoring constant of the eval, not the
+    /// phone's live budget (that is <c>engine.modelTimeoutMs</c>, configured separately). A timed-out photo counts at its measured time, or at
+    /// this value if that is larger: the phone gave up at its budget, so it waited at least that long.
     /// </summary>
     public const long ModelTimeoutBudgetMs = 8000;
 
@@ -342,6 +343,7 @@ public static class EvalScorer
         {
             // Reported unreadable + resolved + provisional must equal what was captured; reads sharing a segment count once.
             var segments = photo.UnreadableCount
+                + (photo.FragmentSegments ?? 0) // read, then skipped as a fragment: accounted for, as the combined row's CapturedOf does
                 + items.Count(i => i.SegmentId is null)
                 + items.Where(i => i.SegmentId is not null).Select(i => i.SegmentId!).Distinct(StringComparer.Ordinal).Count();
             var gap = Math.Abs(photo.CapturedCount - segments);
