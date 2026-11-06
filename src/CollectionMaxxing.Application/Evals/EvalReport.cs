@@ -73,6 +73,7 @@ public static class EvalReport
         text.Append("# Eval report ").Append(summary.Date).Append(" (").Append(summary.BuildSha).AppendLine(")").AppendLine();
         text.Append("Run ").Append(summary.RunId).Append(", config ").Append(summary.ConfigVersion).Append(", ")
             .Append(summary.Device.Model).Append(" / ").Append(summary.Device.OsVersion).Append(" / app ").Append(summary.Device.AppVersion)
+            .Append(summary.Device.BuildNumber is { } build ? " build " + build : string.Empty)
             .AppendLine().AppendLine();
         text.Append("Scored ").Append(summary.ScoredPhotos).Append(" photos; skipped ").Append(summary.Skipped.Count).AppendLine(".").AppendLine();
         foreach (var skip in summary.Skipped.Take(MaxSkippedListed))

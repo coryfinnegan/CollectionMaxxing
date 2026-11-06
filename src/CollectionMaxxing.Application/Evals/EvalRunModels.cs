@@ -40,11 +40,16 @@ public enum ResolvedStep
     FixIt,
 }
 
-public sealed record EvalDevice(string Model, string OsVersion, string AppVersion);
+/// <summary>The phone that read a run. <paramref name="BuildNumber"/> is the TestFlight build, when the phone reported a valid one (<see cref="EvalBuildNumber"/>).</summary>
+public sealed record EvalDevice(
+    string Model,
+    string OsVersion,
+    string AppVersion,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BuildNumber = null);
 
 // ---- What the phone uploads (the API maps its request to these) -----------------------------------------------------------
 
-public sealed record EvalDeviceInput(string? Model, string? OsVersion, string? AppVersion);
+public sealed record EvalDeviceInput(string? Model, string? OsVersion, string? AppVersion, string? BuildNumber = null);
 
 /// <summary>One item as the phone read it (the same fields as an <c>/identify</c> item) and the step that settled it.</summary>
 public sealed record EvalReadItemInput(

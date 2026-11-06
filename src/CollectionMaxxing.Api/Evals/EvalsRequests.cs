@@ -10,7 +10,7 @@ using CollectionMaxxing.Domain.Scanning;
 namespace CollectionMaxxing.Api.Evals;
 
 /// <summary>The phone that ran the evals.</summary>
-public sealed record EvalDeviceRequest(string? Model = null, string? OsVersion = null, string? AppVersion = null);
+public sealed record EvalDeviceRequest(string? Model = null, string? OsVersion = null, string? AppVersion = null, string? BuildNumber = null);
 
 /// <summary>
 /// One item the phone read in a golden photo: the fields of an <c>/identify</c> item (every one a claim to check, never a verdict),

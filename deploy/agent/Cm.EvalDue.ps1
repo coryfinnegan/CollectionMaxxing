@@ -12,7 +12,8 @@
 #     [skip ios-build] skips that job, so it uploaded nothing). The build number is the run number. A scheduled run rebuilds
 #     the latest release, not main, so its head commit says nothing about the code in it and it is left out.
 #   * Newest build: the newest uploaded build. Phone-tested build: the newest uploaded build whose run finished before the last
-#     finished phone run started. Due: files under the recognition paths changed between the two (or the phone-tested build
+#     finished phone run started, unless that run reported its own build (device.buildNumber, see below): then the phone-tested
+#     build is the one it names, when that is among the uploaded builds. Due: files under the recognition paths changed between the two (or the phone-tested build
 #     is unknown, or the file list is cut off at 300 files).
 #   * At most one open needs:eval-run issue. Due and none open: open one. Due and the open one names an older build: retitle it
 #     to the newest build. A finished phone run that tested the issue's build closes it with the score in a comment. An issue
@@ -26,6 +27,8 @@
 #   * latest-run.json and latest.json are rewritten by every score, including the PC re-scoring old readings, and the time in
 #     latest-run.json is when it was SCORED. They cannot tell a phone run from a re-score, so only latest.json is used, for the
 #     verdict in the closing comment (its runId, or regroundedFrom.runId, is the phone run).
+#   * device.buildNumber in run.json and latest-inputs.json is the TestFlight build the phone reported (the ios-build.yml run
+#     number, then a dot and the attempt: 150.1). Phones from before that field leave it out, and then the timing rule decides.
 #   * Times are read as DateTimeOffset from the raw JSON text: ConvertFrom-Json would turn them into local time.
 #
 # COST AND SAFETY MODEL
@@ -90,10 +93,33 @@ function Read-CmEvalDueFields {
     catch { [pscustomobject]@{ Status = 'bad'; Values = @{} } }
 }
 
+function Read-CmEvalDueBuildNumber {
+    <# The run number of the TestFlight build a run file's device.buildNumber names (150.1 -> 150), or $null when it has none or is not one. #>
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    try {
+        $doc = [Text.Json.JsonDocument]::Parse((Get-Content -LiteralPath $Path -Raw))
+        try {
+            if ($doc.RootElement.ValueKind -eq 'Object') {
+                foreach ($property in $doc.RootElement.EnumerateObject()) {
+                    if ($property.Name -cne 'device' -or $property.Value.ValueKind -ne 'Object') { continue }
+                    foreach ($inner in $property.Value.EnumerateObject()) {
+                        if ($inner.Name -ceq 'buildNumber' -and $inner.Value.ValueKind -eq 'String' -and $inner.Value.GetString() -match '^(\d{1,9})(\.\d+){0,2}$') { return [int]$Matches[1] }
+                    }
+                }
+            }
+        }
+        finally { $doc.Dispose() }
+    }
+    catch { }
+    $null
+}
+
 function Get-CmEvalDuePhoneRun {
     <#
       The phone's run as @{ InProgress; Finished; RunId; StartedUtc }. InProgress: the PC's open run is Open or
-      Finishing. Finished: some run was scored; RunId, StartedUtc (UTC DateTime) are the latest one's, taken from
+      Finishing. Finished: some run was scored; RunId, StartedUtc (UTC DateTime) and BuildNumber (the
+      run number of the build it reported, or $null) are the latest one's, taken from
       run.json (when its state is Done) and latest-inputs.json, whichever started later. No run at all is not an error. A file
       that is there but is not JSON throws, so the caller warns and tries later instead of acting on half a picture.
     #>
@@ -105,11 +131,11 @@ function Get-CmEvalDuePhoneRun {
         if ($file[1].Status -eq 'bad') { throw "$($file[0]) in the evals results folder is not valid JSON (half written?)" }
     }
     $candidates = @()
-    if ($header.Status -eq 'ok' -and "$($header.Values.state)" -eq 'Done') { $candidates += [pscustomobject]@{ RunId = "$($header.Values.runId)"; Started = $header.Values.openedAt } }
-    if ($kept.Status -eq 'ok') { $candidates += [pscustomobject]@{ RunId = "$($kept.Values.runId)"; Started = $kept.Values.readAt } }
+    if ($header.Status -eq 'ok' -and "$($header.Values.state)" -eq 'Done') { $candidates += [pscustomobject]@{ RunId = "$($header.Values.runId)"; Started = $header.Values.openedAt; Build = (Read-CmEvalDueBuildNumber -Path ([IO.Path]::Combine($results, 'open-run', 'run.json'))) } }
+    if ($kept.Status -eq 'ok') { $candidates += [pscustomobject]@{ RunId = "$($kept.Values.runId)"; Started = $kept.Values.readAt; Build = (Read-CmEvalDueBuildNumber -Path ([IO.Path]::Combine($results, 'latest-inputs.json'))) } }
     $runs = foreach ($c in $candidates) {
         $started = ConvertTo-CmUtc $c.Started
-        if ($started) { [pscustomobject]@{ RunId = $c.RunId; StartedUtc = $started } }
+        if ($started) { [pscustomobject]@{ RunId = $c.RunId; StartedUtc = $started; BuildNumber = $c.Build } }
     }
     $latest = @($runs | Sort-Object StartedUtc -Descending | Select-Object -First 1)
     [pscustomobject]@{
@@ -117,6 +143,7 @@ function Get-CmEvalDuePhoneRun {
         Finished   = ($latest.Count -gt 0)
         RunId      = $(if ($latest.Count -gt 0) { $latest[0].RunId } else { '' })
         StartedUtc = $(if ($latest.Count -gt 0) { $latest[0].StartedUtc } else { $null })
+        BuildNumber = $(if ($latest.Count -gt 0) { $latest[0].BuildNumber } else { $null })
     }
 }
 
@@ -301,8 +328,9 @@ function Get-CmEvalDueVerb {
 
 function Format-CmEvalDueDoneComment {
     <# One line (it goes on the command line): the run, the score when it is known, and the report. No photos, no other paths. #>
-    param($Run, $Score, [string]$ReportPath)
+    param($Run, $Score, [string]$ReportPath, $Reported = $null)
     $text = "The phone's eval run finished, so this is done. Run $($Run.RunId) started $($Run.StartedUtc.ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)) UTC"
+    if ($Reported) { $text += ", reported by TestFlight build $($Reported.Number)" }
     if ($Score) {
         if ($Score.PhotosInSet -gt 0) { $text += ": $($Score.PhotosRun) of $($Score.PhotosInSet) photos run" } else { $text += ':' }
         $text += ", gate verdict $($Score.Verdict), $($Score.Failing) failing measure$(if ($Score.Failing -ne 1) { 's' })"
@@ -337,7 +365,13 @@ function Invoke-CmEvalDue {
     $builds = Get-CmEvalDueBuilds -Ctx $Ctx
     $newest = Find-CmEvalDueBuild -Ctx $Ctx -Builds $builds
     if (-not $newest) { return }   # no upload among the recent runs: nothing to ask the owner to install
-    $tested = if ($run.Finished) { Find-CmEvalDueBuild -Ctx $Ctx -Builds $builds -Before $run.StartedUtc } else { $null }
+    # The build the run reported, when it did and that build is an upload we know; otherwise the newest upload that finished before the run started.
+    $reported = $null
+    if ($run.Finished -and $run.BuildNumber) {
+        $named = @($builds | Where-Object { $_.Number -eq $run.BuildNumber })
+        if ($named.Count -gt 0 -and (Test-CmEvalDueUploaded -Ctx $Ctx -Build $named[0])) { $reported = $named[0] }
+    }
+    $tested = if ($reported) { $reported } elseif ($run.Finished) { Find-CmEvalDueBuild -Ctx $Ctx -Builds $builds -Before $run.StartedUtc } else { $null }
 
     # Close what a finished run answered. A run still in progress answers nothing yet.
     $open = [System.Collections.Generic.List[object]]::new()
@@ -349,7 +383,7 @@ function Invoke-CmEvalDue {
         if ($answered) {
             $score = Get-CmEvalDueScore -Dir $dir -RunId $run.RunId
             $report = [IO.Path]::Combine($dir, 'results', 'report.md')
-            $comment = Hide-CmAgentText (Format-CmEvalDueDoneComment -Run $run -Score $score -ReportPath $report)
+            $comment = Hide-CmAgentText (Format-CmEvalDueDoneComment -Run $run -Score $score -ReportPath $report -Reported $reported)
             if (Write-CmEvalDueGh -Arguments @('issue', 'close', "$($issue.Number)", '--repo', $Ctx.Repo, '--comment', $comment) -Doing "close issue #$($issue.Number)") {
                 Write-CmLog "eval-due: $(Get-CmEvalDueVerb 'closed' 'would close') issue #$($issue.Number), the phone's run $($run.RunId) answered it"
                 continue

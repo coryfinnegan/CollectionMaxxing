@@ -243,6 +243,9 @@
         },
         "osVersion": {
           "type": "string"
+        },
+        "buildNumber": {
+          "type": "string"
         }
       }
     },
