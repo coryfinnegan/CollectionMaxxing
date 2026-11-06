@@ -187,23 +187,27 @@ internal static class IdentifyCleaning
     /// the snap agreed on, else the print's kind when the reads that name a kind split and one names it. When the print speaks, a read whose own kind it denies loses that kind
     /// (<see cref="WithoutKindsThePrintDenies"/>), which changes how that read scores. The eval grounder cleans through here too, so the
     /// live path and the eval run treat a shelf's reads by one rule. A print kind belongs to a shelf: on a single cover or an edition
-    /// proof the read's own kind already carries what that one item's print said, so this ignores it.
+    /// proof the read's own kind already carries what that one item's print said, so this ignores it. <paramref name="snapKinds"/> are the
+    /// kinds of the snap's other reads, which are not cleaned here (the eval cleans Vision's reads alone, and the picture model's reads of the
+    /// same snap are beside them on /identify): they count where the print speaks and the snap's kind is decided, and add no read and take
+    /// no kind off any read.
     /// </summary>
     public static List<CleanItem> Clean(
         IReadOnlyList<IdentifyItemInput> items,
         IdentifyKind kind = IdentifyKind.Shelf,
         IGameSerialLookup? serials = null,
-        WorkKind? printKind = null) =>
-        WithSnapKind(CleanEach(items, kind, serials), kind is IdentifyKind.Shelf ? printKind : null);
+        WorkKind? printKind = null,
+        IReadOnlyList<WorkKind?>? snapKinds = null) =>
+        WithSnapKind(CleanEach(items, kind, serials), kind is IdentifyKind.Shelf ? printKind : null, snapKinds ?? []);
 
-    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned, WorkKind? printKind)
+    private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned, WorkKind? printKind, IReadOnlyList<WorkKind?> snapKinds)
     {
         // Whether the print speaks is settled on the kinds the reads came with, before any is taken off a read.
-        var speaking = KindContext.PrintThatSpeaks(printKind, cleaned.Select(c => c.Facts.Kind));
+        var speaking = KindContext.PrintThatSpeaks(printKind, cleaned.Select(c => c.Facts.Kind).Concat(snapKinds));
         var reads = WithoutKindsThePrintDenies(cleaned, speaking);
         // The snap's kind is settled on the raw print: the print when it speaks, else the reads' majority, else (over a split that
         // names the print's kind) the print. Only a print that speaks takes a kind off a read.
-        return KindContext.Of(printKind, reads.Select(c => c.Facts.Kind)) is { } snapKind
+        return KindContext.Of(printKind, reads.Select(c => c.Facts.Kind).Concat(snapKinds)) is { } snapKind
             ? [.. reads.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
             : reads;
     }
