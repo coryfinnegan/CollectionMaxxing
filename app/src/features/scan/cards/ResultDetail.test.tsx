@@ -176,7 +176,8 @@ describe('result detail', () => {
     const open = await seedSession(DEV_CODES.duneOwned);
     const [session] = [...scanMock.sessions.values()];
     const earlier = { ...open, id: 'b9000000-0000-4000-8000-0000000000ee', decision: 'rejected' as const, changeSeq: 50 };
-    session!.candidates.push(earlier);
+    const bystander = { ...open, id: 'b9000000-0000-4000-8000-0000000000ff', decision: 'undecided' as const, changeSeq: 55 };
+    session!.candidates.push(earlier, bystander);
     useCardsStore.getState().merge([open], { announce: false });
     await renderWithProviders(<ResultDetail id={open.id} />);
     expect(await screen.findByText('You own this: Living room › Shelf 2')).toBeTruthy();
@@ -191,8 +192,11 @@ describe('result detail', () => {
       });
     });
 
+    // The reload lands: the candidate that was not skipped is drawn, and only then do we look at what else came back.
+    await waitFor(() => expect(useCardsStore.getState().byId[bystander.id]).toBeDefined());
     expect(await screen.findByText("That result isn't here any more")).toBeTruthy();
-    await waitFor(() => expect(Object.keys(useCardsStore.getState().byId)).toEqual([]));
+    expect(useCardsStore.getState().byId[open.id]).toBeUndefined();
+    expect(useCardsStore.getState().byId[earlier.id]).toBeUndefined();
   });
 
   it('says so when the result is gone', async () => {
