@@ -7,7 +7,7 @@ import { UNKNOWN_ITEM, unresolvedTitleOf } from './grouping';
 export type SkippedRow = { candidate: CandidateDto; reason: SkipReason | null };
 
 /** The reason in plain words. `person` is a row the person skipped themselves. */
-export const SKIP_REASON_COPY: Record<SkipReason | 'person', string> = {
+export const SKIP_REASON_COPY: Record<NonNullable<SkipReason> | 'person', string> = {
   repeat: 'Read twice',
   place: "Couldn't tell where it sat",
   fragment: 'Only part of a title',
