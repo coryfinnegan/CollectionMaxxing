@@ -86,8 +86,7 @@ function deviceInfo(): EvalRunnerDeps['device'] {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Constants = (require('expo-constants') as typeof import('expo-constants')).default;
     const ios = (Constants as unknown as { platform?: { ios?: { model?: string } } }).platform?.ios;
-    const buildNumber = Constants.expoConfig?.ios?.buildNumber;
-    return { model: ios?.model ?? 'iPhone', appVersion: Constants.expoConfig?.version ?? 'unknown', ...(buildNumber ? { buildNumber } : {}) };
+    return { model: ios?.model ?? 'iPhone', appVersion: Constants.expoConfig?.version ?? 'unknown', };
   } catch {
     return { model: 'iPhone', appVersion: 'unknown' };
   }

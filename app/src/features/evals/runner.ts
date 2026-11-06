@@ -89,11 +89,11 @@ export interface EvalRunnerDeps {
   pipeline: RecognitionEngine;
   config: { refresh(): Promise<unknown>; current(): RecognitionSettings };
   vision: {
-    deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string }>;
+    deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string; buildNumber?: string }>;
     /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the three rows are read. */
     recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
   };
-  device: { model: string; appVersion: string; buildNumber?: string };
+  device: { model: string; appVersion: string };
   /** Holds the screen awake. The runner holds it only while it is reading in the foreground: never paused, waiting for the PC or while the PC scores. */
   keepAwake: { on(): Promise<void>; off(): Promise<void> };
   /** Where the readings the PC has not taken yet are kept, so an app that is killed loses none of them (MMKV on the phone). */
@@ -321,6 +321,7 @@ export class EvalRunner {
   /** Readings read but not yet taken by the PC, in the order they were read. */
   private pending: PendingPhoto[] = [];
   private osVersion = '';
+  private buildNumber: string | undefined;
   private watchers = 0;
   private polling = false;
 
@@ -516,7 +517,9 @@ export class EvalRunner {
   /** Refreshes the settings. Never throws; the version used is the one this leaves in the store. */
   private async config() {
     await this.deps.config.refresh();
-    this.osVersion = (await this.deps.vision.deviceStatus().catch(() => undefined))?.osVersion ?? this.osVersion;
+    const status = await this.deps.vision.deviceStatus().catch(() => undefined);
+    this.osVersion = status?.osVersion ?? this.osVersion;
+    this.buildNumber = status?.buildNumber || undefined;
   }
 
   private async open(baselineNote: string | undefined): Promise<void> {
@@ -531,7 +534,7 @@ export class EvalRunner {
           osVersion: this.osVersion,
           appVersion: this.deps.device.appVersion,
           // Which TestFlight build is reading: the PC keeps it so a run is credited to the build that ran it.
-          ...(this.deps.device.buildNumber ? { buildNumber: this.deps.device.buildNumber } : {}),
+          ...(this.buildNumber ? { buildNumber: this.buildNumber } : {}),
         },
         configVersion: this.deps.config.current().version,
         ...(baselineNote ? { baselineNote } : {}),

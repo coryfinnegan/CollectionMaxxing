@@ -12,12 +12,13 @@ export const MODEL_ITEM_KEYS = [
 ] as const;
 export const MODEL_CAPABILITIES_KEYS = ['available', 'vision', 'guidedGeneration', 'contextSize', 'reason'] as const;
 export const READ_ITEMS_RESULT_KEYS = ['items', 'unreadableCount', 'outcome', 'elapsedMs'] as const;
-export const DEVICE_STATUS_KEYS = ['thermalState', 'osVersion'] as const;
+export const DEVICE_STATUS_KEYS = ['thermalState', 'osVersion', 'buildNumber'] as const;
 
 /** Keys that may be absent (the schema's `required` list leaves them out). */
 export const OPTIONAL_KEYS: Record<string, readonly string[]> = {
   ModelItem: ['creator', 'platform', 'editionMarks', 'completeness'],
   ModelCapabilities: ['reason'],
+  DeviceStatus: ['buildNumber'],
   // `pass` is always sent by Swift but a hand-written line in a test may leave it out; `region` is sent only for a read of regions.
   TextLine: ['pass', 'region'],
 };

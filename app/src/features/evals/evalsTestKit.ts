@@ -27,7 +27,7 @@ export const sceneFor = (id: string, overrides: Partial<Scene> = {}): Scene => (
 
 export interface KitOptions {
   photos?: number;
-  /** The app's TestFlight build number; none for web and dev builds. */
+  /** The app's TestFlight build number; none for web. */
   buildNumber?: string;
   /** Per photo id: replace parts of its scene. */
   scenes?: Record<string, Partial<Scene>>;
@@ -92,6 +92,8 @@ export function makeKit(options: KitOptions = {}) {
     }
   }
   const vision = new Vision(scenes);
+  // The phone's app bundle says the build number through the native device status.
+  if (options.buildNumber) vision.setDeviceStatus({ thermalState: 'nominal', osVersion: '26.0', buildNumber: options.buildNumber });
 
   const deleted: string[] = [];
   const downloaded: string[] = [];
@@ -185,7 +187,7 @@ export function makeKit(options: KitOptions = {}) {
       pipeline: options.pipeline ? options.pipeline(realSelector.tiers.pipeline) : realSelector.tiers.pipeline,
       config: store,
       vision,
-      device: { model: 'iPhone16,1', appVersion: '1.2.3', ...(options.buildNumber ? { buildNumber: options.buildNumber } : {}) },
+      device: { model: 'iPhone16,1', appVersion: '1.2.3' },
       keepAwake: {
         on: async () => {
           awake.on += 1;
