@@ -27,6 +27,8 @@ export const sceneFor = (id: string, overrides: Partial<Scene> = {}): Scene => (
 
 export interface KitOptions {
   photos?: number;
+  /** The app's TestFlight build number; none for web. */
+  buildNumber?: string;
   /** Per photo id: replace parts of its scene. */
   scenes?: Record<string, Partial<Scene>>;
   /** Server config versions: the n-th refresh gets the n-th version (the last one repeats). */
@@ -90,6 +92,8 @@ export function makeKit(options: KitOptions = {}) {
     }
   }
   const vision = new Vision(scenes);
+  // The phone's app bundle says the build number through the native device status.
+  if (options.buildNumber) vision.setDeviceStatus({ thermalState: 'nominal', osVersion: '26.0', buildNumber: options.buildNumber });
 
   const deleted: string[] = [];
   const downloaded: string[] = [];

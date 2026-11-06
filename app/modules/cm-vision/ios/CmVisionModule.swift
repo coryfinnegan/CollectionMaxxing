@@ -84,7 +84,8 @@ public class CmVisionModule: Module {
     AsyncFunction("deviceStatus") { () -> [String: Any] in
       return CmContract.deviceStatus(
         thermalState: CmDevice.thermalName(ProcessInfo.processInfo.thermalState),
-        osVersion: CmDevice.osVersion())
+        osVersion: CmDevice.osVersion(),
+        buildNumber: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
     }
 
     // With no options the request is exactly the shelf splitter's: Vision's own limit on how wide a shape may be (0.5, short side over

@@ -93,7 +93,7 @@ public static class OpenEvalRun
             var header = new OpenRunHeader(
                 ids.NewId().ToString("N"),
                 clock.GetUtcNow(),
-                new EvalDevice(input.Device!.Model!.Trim(), input.Device.OsVersion!.Trim(), input.Device.AppVersion!.Trim()),
+                new EvalDevice(input.Device!.Model!.Trim(), input.Device.OsVersion!.Trim(), input.Device.AppVersion!.Trim(), EvalBuildNumber.FromInput(input.Device, logger)),
                 input.ConfigVersion!.Trim(),
                 note,
                 photos,

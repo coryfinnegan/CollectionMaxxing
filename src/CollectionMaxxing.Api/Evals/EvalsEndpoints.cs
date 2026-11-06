@@ -158,7 +158,7 @@ public static class EvalsEndpoints
         }
 
         var input = new EvalRunInput(
-            parsed!.Device is null ? null : new EvalDeviceInput(parsed.Device.Model, parsed.Device.OsVersion, parsed.Device.AppVersion),
+            parsed!.Device is null ? null : new EvalDeviceInput(parsed.Device.Model, parsed.Device.OsVersion, parsed.Device.AppVersion, parsed.Device.BuildNumber),
             parsed.ConfigVersion,
             parsed.Results?.Select(ToInput).ToList(),
             parsed.Partial == true,
@@ -295,7 +295,7 @@ public static class EvalsEndpoints
         }
 
         var input = new EvalOpenRunInput(
-            parsed!.Device is null ? null : new EvalDeviceInput(parsed.Device.Model, parsed.Device.OsVersion, parsed.Device.AppVersion),
+            parsed!.Device is null ? null : new EvalDeviceInput(parsed.Device.Model, parsed.Device.OsVersion, parsed.Device.AppVersion, parsed.Device.BuildNumber),
             parsed.ConfigVersion,
             parsed.BaselineNote);
         var result = await handler.HandleAsync(input, cancellationToken);

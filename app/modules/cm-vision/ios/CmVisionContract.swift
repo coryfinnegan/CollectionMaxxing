@@ -115,10 +115,12 @@ enum CmContract {
   }
 
   // contract: DeviceStatus
-  static func deviceStatus(thermalState: String, osVersion: String) -> [String: Any] {
-    return [
+  static func deviceStatus(thermalState: String, osVersion: String, buildNumber: String?) -> [String: Any] {
+    var status: [String: Any] = [
       "thermalState": thermalState,
       "osVersion": osVersion,
     ]
+    if let buildNumber = buildNumber, !buildNumber.isEmpty { status["buildNumber"] = buildNumber }
+    return status
   }
 }

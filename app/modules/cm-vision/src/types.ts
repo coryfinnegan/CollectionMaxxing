@@ -175,6 +175,8 @@ export type ThermalState = 'nominal' | 'fair' | 'serious' | 'critical';
 export interface DeviceStatus {
   thermalState: ThermalState;
   osVersion: string;
+  /** The app bundle's CFBundleVersion (the TestFlight build number). None on web. */
+  buildNumber?: string;
 }
 
 /** Live camera codes. The real one is `useBarcodeFrameProcessor`; tests use `FakeBarcodeSource`. */

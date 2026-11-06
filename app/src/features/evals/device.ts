@@ -81,7 +81,7 @@ const deviceAppState: AppStateSource = {
   },
 };
 
-function deviceInfo(): EvalRunnerDeps['device'] {
+export function deviceInfo(): EvalRunnerDeps['device'] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Constants = (require('expo-constants') as typeof import('expo-constants')).default;

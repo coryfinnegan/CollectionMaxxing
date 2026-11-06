@@ -226,8 +226,9 @@ check "catch-up: a schedule that is not daily is refused (never due)" "1" "$(cm_
 catch_dir="$tmp/catch-run"
 cdump_count() { ls -1 "$catch_dir/db" 2>/dev/null | grep -c '\.dump$' || true; }
 rm -rf "$catch_dir"; mkdir -p "$catch_dir/src"; echo cover >"$catch_dir/src/a.jpg"
-FAKE_NOW="$(date +%s)"
-mkbackup "$catch_dir" "$(date -u -d '3 days ago' '+%Y-%m-%d %H:%M:%S')"
+FAKE_NOW="$(at '2026-10-13 10:00:00')"   # never the wall clock: a CI run near the 03:00 schedule must not change the answers
+ago() { date -u -d "@$((FAKE_NOW - $1))" '+%Y-%m-%d %H:%M:%S'; }   # ago <seconds>: that long before FAKE_NOW
+mkbackup "$catch_dir" "$(ago $((3 * 86400)))"
 : >"$curl_calls"
 BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" CM_HEARTBEAT_URL="https://hc.example/abc" cm_catch_up '0 3 * * *' >"$tmp/catch.out" 2>&1
 check "catch-up: a stale newest backup is made up for at start" "2" "$(cdump_count)"
@@ -235,7 +236,7 @@ check "catch-up: ...and the new one is a whole backup (manifest too)" "2" "$(ls 
 check "catch-up: ...and says why" "true" "$(grep -q 'backing up now to catch up' "$tmp/catch.out" && echo true || echo false)"
 check "catch-up: ...and pings the heartbeat" "-fsS -m 10 --retry 3 -o /dev/null https://hc.example/abc" "$(cat "$curl_calls")"
 rm -rf "$catch_dir"; mkdir -p "$catch_dir/src"; echo cover >"$catch_dir/src/a.jpg"
-mkbackup "$catch_dir" "$(date -u -d '10 minutes ago' '+%Y-%m-%d %H:%M:%S')"
+mkbackup "$catch_dir" "$(ago 600)"
 : >"$curl_calls"
 BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" CM_HEARTBEAT_URL="https://hc.example/abc" cm_catch_up '0 3 * * *' >"$tmp/catch.out" 2>&1
 check "catch-up: a fresh newest backup means no backup at start" "1" "$(cdump_count)"
@@ -328,6 +329,12 @@ cat >"$bin/sleep" <<'FAKE'
 echo "sleep $*" >>"$FAKE_SLEEP_LOG"
 kill "$PPID"
 FAKE
+# The child bash cannot see this shell's cm_now, so a fake date answers "what time is it" (date +%s) with FAKE_NOW.
+cat >"$bin/date" <<'FAKE'
+#!/usr/bin/env bash
+if [[ "$*" == "+%s" ]]; then echo "$FAKE_NOW"; else exec "$FAKE_REAL_DATE" "$@"; fi
+FAKE
+export FAKE_NOW FAKE_REAL_DATE="$(command -v date)"
 chmod +x "$bin"/*
 
 ddir="$tmp/daemon"
@@ -339,14 +346,14 @@ daemon() { # runs backup.sh daemon against $ddir; output in $out
 ddumps() { ls -1 "$ddir/db" 2>/dev/null | grep -c '\.dump$' || true; }
 
 rm -rf "$ddir"; mkdir -p "$ddir/src"; echo cover >"$ddir/src/a.jpg"
-mkbackup "$ddir" "$(date -u -d '3 days ago' '+%Y-%m-%d %H:%M:%S')"
+mkbackup "$ddir" "$(ago $((3 * 86400)))"
 daemon
 check "daemon: a stale newest backup is backed up at start" "2" "$(ddumps)"
 check "daemon: ...before it goes to wait for the next night" "true" "$([[ "$out" == *"catch up"*"next backup in"* ]] && echo true || echo "false($out)")"
 check "daemon: ...and then waits once for the schedule (one sleep, not a run per loop)" "1" "$(grep -c '^sleep ' "$tmp/sleep.log")"
 
 rm -rf "$ddir"; mkdir -p "$ddir/src"; echo cover >"$ddir/src/a.jpg"
-mkbackup "$ddir" "$(date -u -d '10 minutes ago' '+%Y-%m-%d %H:%M:%S')"
+mkbackup "$ddir" "$(ago 600)"
 daemon
 check "daemon: a fresh newest backup means no backup at start" "1" "$(ddumps)"
 check "daemon: ...it just waits for the next night" "true" "$([[ "$out" == *"up to date"*"next backup in"* ]] && echo true || echo "false($out)")"
@@ -356,14 +363,14 @@ daemon
 check "daemon: a first start with no backup at all backs up at once" "1" "$(ddumps)"
 
 health_mode() { PATH="$bin:$PATH" BACKUP_DIR="$ddir" CM_RUN_MARKER="$tmp/daemon-running" bash "$here/../backup/backup.sh" health; }
-rm -rf "$ddir"; mkbackup "$ddir" "$(date -u -d '2 hours ago' '+%Y-%m-%d %H:%M:%S')"
+rm -rf "$ddir"; mkbackup "$ddir" "$(ago 7200)"
 out="$(health_mode)"; rc=$?
 check "health mode: a recent backup exits 0" "0" "$rc"
-rm -rf "$ddir"; mkbackup "$ddir" "$(date -u -d '31 hours ago' '+%Y-%m-%d %H:%M:%S')"
+rm -rf "$ddir"; mkbackup "$ddir" "$(ago $((31 * 3600)))"
 out="$(health_mode)"; rc=$?
 check "health mode: a backup 31 hours old exits 1" "1" "$rc"
 check "health mode: ...and prints the reason" "true" "$([[ "$out" == *unhealthy*"31 h old"* ]] && echo true || echo "false($out)")"
-rm -rf "$ddir"; mkbackup "$ddir" "$(date -u -d '2 hours ago' '+%Y-%m-%d %H:%M:%S')"
+rm -rf "$ddir"; mkbackup "$ddir" "$(ago 7200)"
 out="$(FAKE_PG_READY=0 health_mode)"; rc=$?
 check "health mode: Postgres unreachable exits 1" "1" "$rc"
 check "health mode: an unknown mode is refused" "2" "$(PATH="$bin:$PATH" bash "$here/../backup/backup.sh" bogus >/dev/null 2>&1; echo $?)"
