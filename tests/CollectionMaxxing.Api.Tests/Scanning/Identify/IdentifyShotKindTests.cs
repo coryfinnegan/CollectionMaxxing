@@ -115,16 +115,17 @@ public class IdentifyShotKindTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
-    public async Task A_book_that_is_only_as_good_a_title_match_as_the_films_the_read_found_is_offered_after_the_first_film()
+    public async Task A_book_that_is_only_as_good_a_title_match_as_the_films_the_read_found_is_offered_before_them_on_a_shelf_of_books()
     {
-        // The book earns the type term in the ask and the films never had it: on the footing the films had, the book is level with them.
+        // The book earns the type term in the ask and the films never had it: on the footing the films had, the book is level with them,
+        // and it is the same title on a shelf of books, so it comes first (the 2026-11-05 decision).
         ArrangeBooksAndFilms(bookAuthor: null);
         var (client, sessionId, _) = await StartAsync(autoAdd: false);
 
         var shelf = await IdentifyOkAsync(client, sessionId, BookShelf(Lone(Misread)));
 
         Resolution(shelf[3]).ShouldBe("ambiguous");
-        AlternativeFormats(shelf[3]).ShouldBe(["dvd", "paperback", "dvd"]);
+        AlternativeFormats(shelf[3]).ShouldBe(["paperback", "dvd", "dvd"]);
         (await KindStepsOfAsync(shelf[3])).ShouldBe([$"{Misread} (kind: book)"]);
     }
 

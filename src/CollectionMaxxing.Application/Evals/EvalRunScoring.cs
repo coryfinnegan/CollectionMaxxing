@@ -45,10 +45,11 @@ public sealed class EvalRunScoring(
     ILogger<EvalRunScoring> logger)
 {
     /// <summary>Grounds the items one engine read in one photo, as a dry run (nothing is persisted), and keeps what the PC knows of the reading.</summary>
-    private async Task<GroundedPhoto> GroundAsync(EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken)
+    private async Task<GroundedPhoto> GroundAsync(
+        EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken, IReadOnlyList<WorkKind?>? kindsOfTheSnap = null)
     {
         var shot = result.Outcome == EvalOutcome.Ok
-            ? await grounder.GroundWithSkipsAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken)
+            ? await grounder.GroundWithSkipsAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken, kindsOfTheSnap)
             : new GroundedShot([], 0);
         var items = shot.Items;
         return new GroundedPhoto(
@@ -90,11 +91,15 @@ public sealed class EvalRunScoring(
     /// apple_model row's own <see cref="GroundedPhoto.Items"/> gets no second grounding, so it stays whatever its own upload asked
     /// for — the phone never sends a print on that photo, so today it always measures the model alone. The memo already answers a
     /// read whose cleaning the lent kind does not change, so only a read the print denies is asked again.
+    /// The vision_pipeline row's kind pass is also told the kinds of the model's standing reads (<see cref="EvalCombination.StandingModelKinds"/>:
+    /// those the app would send, the shelf's print backs or sitting on a Vision read), as <c>/identify</c> is on the phone when the model runs;
+    /// that row's shot kind is no longer Vision's alone, and a model read the app would not send does not vote.
     /// </summary>
     public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
         var grounded = new List<GroundedPhoto>(results.Count);
         var appleIndex = -1;
+        var visionIndex = -1;
         for (var i = 0; i < results.Count; i++)
         {
             grounded.Add(await GroundAsync(results[i], memo, cancellationToken));
@@ -102,6 +107,20 @@ public sealed class EvalRunScoring(
             {
                 appleIndex = i;
             }
+            else if (results[i].Engine == ScanEngine.VisionPipeline)
+            {
+                visionIndex = i;
+            }
+        }
+
+        // The app sends one identify per snap holding both engines' reads, so the shot's kind is taken from Vision's reads and the model's
+        // together. Only the model reads the app would send vote (EvalCombination.StandingModelKinds: the print backs them, or they sit on
+        // a Vision read), so the Vision row's kind pass is told the kinds those name and the row is grounded again with them; the memo
+        // answers every read the kinds do not change.
+        if (appleIndex >= 0 && visionIndex >= 0 && results[appleIndex].Outcome == EvalOutcome.Ok && results[visionIndex].Outcome == EvalOutcome.Ok
+            && EvalCombination.StandingModelKinds(grounded[visionIndex], grounded[appleIndex]) is { Count: > 0 } modelKinds)
+        {
+            grounded[visionIndex] = await GroundAsync(results[visionIndex], memo, cancellationToken, modelKinds);
         }
 
         var apple = appleIndex >= 0 ? results[appleIndex] : null;

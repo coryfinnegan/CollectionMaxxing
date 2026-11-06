@@ -75,8 +75,9 @@ public static class EvalScorer
     };
 
     /// <summary>
-    /// The model's time budget in milliseconds (the default of <c>engine.modelTimeoutMs</c>). A timed-out photo counts in the latency
-    /// percentiles at its measured time, or at this budget if that is larger: the phone gave up at the budget, so it waited at least that long.
+    /// The least latency, in milliseconds, a timed-out photo is charged in the latency percentiles. It is a scoring constant of the eval, not the
+    /// phone's live budget (that is <c>engine.modelTimeoutMs</c>, configured separately). A timed-out photo counts at its measured time, or at
+    /// this value if that is larger: the phone gave up at its budget, so it waited at least that long.
     /// </summary>
     public const long ModelTimeoutBudgetMs = 8000;
 
