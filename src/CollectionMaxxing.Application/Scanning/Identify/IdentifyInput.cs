@@ -317,7 +317,7 @@ internal static class IdentifyCleaning
 /// What is kept of a read in the candidate's <c>inferred</c> column, so the card can show chips and the background job can ask
 /// again without the phone. Camel-cased, enums as their API text, empty fields left out.
 /// </summary>
-internal sealed record StoredRead
+public sealed record StoredRead
 {
     public string? Title { get; init; }
 

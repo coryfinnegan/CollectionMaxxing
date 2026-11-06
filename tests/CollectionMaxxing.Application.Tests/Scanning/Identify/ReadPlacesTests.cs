@@ -1,4 +1,6 @@
+using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Tests.Scanning.Identify;
 
@@ -15,6 +17,30 @@ public class ReadPlacesTests
     /// <summary>A read only the picture model made, at the same kind of place.</summary>
     private static PlacedRead Model(double x, ReadGrounding grounding = ReadGrounding.Matched, double score = 0.9, double width = 0.05) =>
         Vision(x, grounding, score, width) with { Unconfirmed = true };
+
+    /// <summary>The answer a line of the spine found: offered (Ambiguous, flagged), its release scoring <paramref name="score"/>, with the "line" step.</summary>
+    private static BarcodeResolution FoundByLine(double score) => new(
+        ResolutionVerdict.Ambiguous,
+        [new ResolutionOption(null, TrimmedRetryHarness.Known("Iron Fox"), score)],
+        null,
+        [new TraceStep(SpineLines.StepName, "IRON FOX (title read: XQZV WRTK)", 0)]) { FoundByTrimmedSpan = true };
+
+    [Fact]
+    public void A_spine_revived_by_a_line_never_takes_the_place_of_a_model_read_at_the_same_place()
+    {
+        var revived = ReadPlaces.Of(FoundByLine(1.0), new ReadBox(0.30, 0.1, 0.05, 0.8), unconfirmed: false);
+        var model = Model(0.31, ReadGrounding.Ambiguous, 0.90);
+
+        ReadPlaces.Weaker([revived, model]).ShouldBe([0]); // the model's read stands, though the revival scored higher
+    }
+
+    [Fact]
+    public void A_spine_found_by_a_trimmed_span_still_contends_with_what_it_found()
+    {
+        var offered = FoundByLine(1.0) with { Steps = [new TraceStep("trimmed", "IRON FOX (dropped: XQZV)", 0)] };
+
+        ReadPlaces.Weaker([ReadPlaces.Of(offered, new ReadBox(0.30, 0.1, 0.05, 0.8), unconfirmed: false), Model(0.31, ReadGrounding.Ambiguous, 0.90)]).ShouldBe([1]);
+    }
 
     [Fact]
     public void The_read_that_matched_takes_the_place_from_one_that_only_narrowed_it_down()

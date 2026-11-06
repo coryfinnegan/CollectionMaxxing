@@ -128,6 +128,28 @@ public class IdentifyGroundingSeriesRetryTests
         asks.Facts.Select(f => f.Title).ShouldBe(["Star Trek nEMESIS"]);
     }
 
+    // ---- a read another line of its spine found changes no other read ----------------------------------------------------------------
+
+    [Fact]
+    public async Task A_spine_revived_by_a_line_lends_no_series_to_its_neighbours()
+    {
+        var grounding = Grounding(new Scripted(false, Franchise));
+        var asks = new Asks();
+        var revived = Found(ResolutionVerdict.Ambiguous, "Star Trek: First Contact", 12, 0.9) with
+        {
+            FoundByTrimmedSpan = true,
+            Steps = [new TraceStep(SpineLines.StepName, "FIRST CONTACT (title read: XQZV WRTK)", 0)],
+        };
+
+        var answers = await RetryAsync(
+            grounding,
+            Retry(grounding, asks, "XQZV WRTK", At(0.30), revived),
+            Retry(grounding, asks, "nEMESIS", At(0.36), Ambiguous("Nemesis", 14)));
+
+        asks.Facts.ShouldBeEmpty();
+        Titles(answers[1]).ShouldBe(["Nemesis"]);
+    }
+
     // ---- an ambiguous read keeps its own options ------------------------------------------------------------------------------------
 
     [Fact]

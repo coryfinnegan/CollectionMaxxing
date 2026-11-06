@@ -66,7 +66,9 @@ public static class ReadPlaces
     /// such a read keeps its place and takes none.
     /// </summary>
     public static PlacedRead Of(BarcodeResolution answer, ReadBox? box, bool unconfirmed) =>
-        new(box, GroundingOf(answer.Verdict), answer.Options.Count > 0 ? answer.Options[0].Score : 0, unconfirmed);
+        SpineLines.FoundBy(answer)
+            ? new(box, ReadGrounding.Nothing, 0, unconfirmed) // a find of the line retry changes no other read: it contends as the read that found nothing
+            : new(box, GroundingOf(answer.Verdict), answer.Options.Count > 0 ? answer.Options[0].Score : 0, unconfirmed);
 
     /// <summary>The positions (ascending) of the reads that lose their place to a read that grounds better. Pure.</summary>
     public static IReadOnlyList<int> Weaker(IReadOnlyList<PlacedRead> reads)
