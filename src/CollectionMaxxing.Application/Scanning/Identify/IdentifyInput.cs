@@ -184,7 +184,7 @@ internal static class IdentifyCleaning
     /// <summary>
     /// Cleans the items of one snap, and tells each read that names no kind what kind the snap is of (<see cref="KindContext"/>): what
     /// the shelf's own print said (<paramref name="printKind"/>) when no read of the snap names that kind, else the kind the rest of
-    /// the snap agreed on. When the print speaks, a read whose own kind it denies loses that kind
+    /// the snap agreed on, else the print's kind when the reads that name a kind split and one names it. When the print speaks, a read whose own kind it denies loses that kind
     /// (<see cref="WithoutKindsThePrintDenies"/>), which changes how that read scores. The eval grounder cleans through here too, so the
     /// live path and the eval run treat a shelf's reads by one rule. A print kind belongs to a shelf: on a single cover or an edition
     /// proof the read's own kind already carries what that one item's print said, so this ignores it.
@@ -201,7 +201,9 @@ internal static class IdentifyCleaning
         // Whether the print speaks is settled on the kinds the reads came with, before any is taken off a read.
         var speaking = KindContext.PrintThatSpeaks(printKind, cleaned.Select(c => c.Facts.Kind));
         var reads = WithoutKindsThePrintDenies(cleaned, speaking);
-        return KindContext.Of(speaking, reads.Select(c => c.Facts.Kind)) is { } snapKind
+        // The snap's kind is settled on the raw print: the print when it speaks, else the reads' majority, else (over a split that
+        // names the print's kind) the print. Only a print that speaks takes a kind off a read.
+        return KindContext.Of(printKind, reads.Select(c => c.Facts.Kind)) is { } snapKind
             ? [.. reads.Select(c => c.Facts.Kind is null ? c with { Facts = c.Facts with { KindContext = snapKind } } : c)]
             : reads;
     }
@@ -214,7 +216,8 @@ internal static class IdentifyCleaning
     /// reach the read it is about. Such a read loses its kind, so the type term no longer counts for it and every provider is asked. A
     /// title-only read that its own kind used to put first can now tie with a release of another kind, and the snap's printed kind
     /// decides between them. That changes how the read scores, which is why the phone names the print only when two spines of the
-    /// shelf print it, and why a single read of the printed kind keeps every read as it is. A book on a shelf of tapes is still found
+    /// shelf print it, and why a single read of the printed kind keeps every read as it is, even over a split (the print then only
+    /// names the snap's kind, in <see cref="KindContext.Of"/>). A book on a shelf of tapes is still found
     /// as a book. A read a product code identified is left alone: that kind came from the serial table, not from a guess.
     /// </summary>
     private static List<CleanItem> WithoutKindsThePrintDenies(List<CleanItem> cleaned, WorkKind? speakingKind)
