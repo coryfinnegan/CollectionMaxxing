@@ -144,6 +144,23 @@ public class EvalGrounderShotKindTests
         books.Asked.ShouldContain(("cnoi Emergency Contact o", WorkKind.Book)); // and it was the ask as a book that found it
     }
 
+    // A spine read that only found itself (a format banner) is left out of the score, as a repeat is.
+
+    [Fact]
+    public async Task A_spine_read_of_a_format_banner_that_found_only_other_titles_is_not_scored()
+    {
+        var (books, films) = Providers();
+        books.Know("HOME VIDEO", false, Release("Home Video Nights", WorkKind.Book, "n1"), Release("Home Video Stories", WorkKind.Book, "n2"));
+        var reads = BookShelf()[..3].Append(Spine("HOME VIDEO")).ToArray();
+
+        var shot = await Grounder(books, films).GroundWithSkipsAsync(
+            ScanEngine.VisionPipeline, reads, new EvalGroundingMemo(), null, CancellationToken.None).WaitAsync(Patience);
+
+        shot.Items.Count.ShouldBe(3);
+        shot.Items.ShouldNotContain(i => i.ReadTitle == "HOME VIDEO");
+        shot.FragmentSegments.ShouldBe(1);
+    }
+
     [Fact]
     public async Task A_book_that_is_only_as_good_a_title_match_as_the_films_the_read_found_is_offered_after_the_first_film()
     {

@@ -328,6 +328,30 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_Vision_row_whose_only_read_was_skipped_as_a_fragment_reports_no_invented_gap()
+    {
+        var truths = ArrangeShelf("Star Fox 64");
+        var vision = VisionSegment() with { FragmentSegments = 1 }; // the one segment it captured was read, and the read was a fragment
+
+        var scored = Score(truths, vision);
+
+        scored.ShelfOf(Vision).UnreconciledPhotos.ShouldBe(0);
+        scored.Misses.ShouldNotContain(m => m.Kind == "unreconciled");
+    }
+
+    [Fact]
+    public void A_Vision_row_that_captured_a_segment_with_no_read_at_all_is_still_reported_as_a_gap()
+    {
+        var truths = ArrangeShelf("Star Fox 64");
+        var vision = VisionSegment();
+
+        var scored = Score(truths, vision);
+
+        scored.ShelfOf(Vision).UnreconciledPhotos.ShouldBe(1);
+        scored.Misses.Single(m => m.Kind == "unreconciled").Read.ShouldBe("1 of 1 captured segments unaccounted for");
+    }
+
+    [Fact]
     public void A_photo_without_both_rows_gets_no_combined_row()
     {
         var truths = ArrangeShelf("Star Fox 64");

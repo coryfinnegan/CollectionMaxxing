@@ -342,6 +342,7 @@ public static class EvalScorer
         {
             // Reported unreadable + resolved + provisional must equal what was captured; reads sharing a segment count once.
             var segments = photo.UnreadableCount
+                + (photo.FragmentSegments ?? 0) // read, then skipped as a fragment: accounted for, as the combined row's CapturedOf does
                 + items.Count(i => i.SegmentId is null)
                 + items.Where(i => i.SegmentId is not null).Select(i => i.SegmentId!).Distinct(StringComparer.Ordinal).Count();
             var gap = Math.Abs(photo.CapturedCount - segments);

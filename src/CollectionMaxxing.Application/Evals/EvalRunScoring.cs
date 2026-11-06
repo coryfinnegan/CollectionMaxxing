@@ -47,9 +47,10 @@ public sealed class EvalRunScoring(
     /// <summary>Grounds the items one engine read in one photo, as a dry run (nothing is persisted), and keeps what the PC knows of the reading.</summary>
     private async Task<GroundedPhoto> GroundAsync(EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
-        var items = result.Outcome == EvalOutcome.Ok
-            ? await grounder.GroundAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken)
-            : [];
+        var shot = result.Outcome == EvalOutcome.Ok
+            ? await grounder.GroundWithSkipsAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken)
+            : new GroundedShot([], 0);
+        var items = shot.Items;
         return new GroundedPhoto(
             result.PhotoId!,
             EnumText.ToText(result.Engine!.Value),
@@ -70,7 +71,8 @@ public sealed class EvalRunScoring(
             EvalCoverCue.Clean(result.CoverCue),
             result.Engine == ScanEngine.VisionPipeline && result.PrintKind is { } printKind ? EnumText.ToText(printKind) : null,
             OcrProbes: result.Engine == ScanEngine.VisionPipeline ? GroundedProbes(result.OcrProbes) : null,
-            TimedOut: result.TimedOut == true ? true : null);
+            TimedOut: result.TimedOut == true ? true : null,
+            FragmentSegments: shot.FragmentSegments > 0 ? shot.FragmentSegments : null);
     }
 
     /// <summary>The probes as the PC keeps them. The checks at the door have already made every field present and within range; nothing here scores them.</summary>

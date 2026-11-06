@@ -14,8 +14,9 @@ public class FragmentReadsTests
         ResolutionVerdict verdict = ResolutionVerdict.Ambiguous,
         string? bestTitle = "Some Other Book",
         string[]? bestCreators = null,
-        bool kindless = true) =>
-        new(title, printed ?? title, kindless, verdict, bestTitle, bestCreators ?? []);
+        bool kindless = true,
+        string[]? optionTitles = null) =>
+        new(title, printed ?? title, kindless, verdict, bestTitle, bestCreators ?? [], optionTitles);
 
     [Fact]
     public void A_read_of_a_publishers_mark_printed_on_several_spines_is_skipped()
@@ -68,6 +69,19 @@ public class FragmentReadsTests
     public void A_read_of_digits_only_is_skipped()
     {
         FragmentReads.Of([Spine("0451")]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_spine_read_titled_with_digits_that_a_release_of_its_options_is_titled_with_is_kept()
+    {
+        // The best release is another book; a lower option is titled with the digits, so the read is a real title.
+        FragmentReads.Of([Spine("4321", bestTitle: "Some Other Book", optionTitles: ["Some Other Book", "4321"])]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_spine_read_of_digits_no_release_is_titled_with_is_skipped()
+    {
+        FragmentReads.Of([Spine("4321", bestTitle: "Some Other Book", optionTitles: ["Some Other Book", "Quiet Harbor 4321"])]).ShouldBe([0]);
     }
 
     [Fact]

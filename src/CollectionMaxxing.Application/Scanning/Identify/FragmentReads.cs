@@ -9,10 +9,11 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <summary>
 /// One spine read as the fragment rule judges it: the title it was asked as, everything legible on its piece (what other pieces'
 /// publisher marks are looked for in), whether it is a spine that names no kind of its own, how it grounded, and the title and
-/// creators of its best release (null and empty when it has none).
+/// creators of its best release (null and empty when it has none), and the titles of every option it was answered with.
 /// </summary>
 public readonly record struct FragmentRead(
-    string? Title, string? Printed, bool KindlessSpine, ResolutionVerdict Verdict, string? BestTitle, IReadOnlyList<string> BestCreators);
+    string? Title, string? Printed, bool KindlessSpine, ResolutionVerdict Verdict, string? BestTitle, IReadOnlyList<string> BestCreators,
+    IReadOnlyList<string>? OptionTitles = null);
 
 /// <summary>
 /// A spine read that only found itself. The Vision pipeline reads a piece of a shelf photo, and sometimes the piece holds no
@@ -86,7 +87,7 @@ public static partial class FragmentReads
                 continue;
             }
 
-            if (NeverATitle(read.Title) || IsMarkOfOtherPiece(reads, i) || IsPersonsName(reads, i))
+            if (NeverATitle(read) || IsMarkOfOtherPiece(reads, i) || IsPersonsName(reads, i))
             {
                 fragments.Add(i);
             }
@@ -116,6 +117,7 @@ public static partial class FragmentReads
 
         string? bestTitle = null;
         IReadOnlyList<string> bestCreators = [];
+        var optionTitles = new List<string>();
         if (answer.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && answer.Options.Count > 0)
         {
             var best = answer.Options[0]; // best first
@@ -130,17 +132,34 @@ public static partial class FragmentReads
             {
                 (bestTitle, bestCreators) = (provider.Title, provider.Creators);
             }
+
+            foreach (var option in answer.Options)
+            {
+                if (option.LocalReleaseId is { } optionId)
+                {
+                    if (releaseOf(optionId) is { } known)
+                    {
+                        optionTitles.Add(known.Title);
+                    }
+                }
+                else if (option.Provider is { } optionProvider)
+                {
+                    optionTitles.Add(optionProvider.Title);
+                }
+            }
         }
 
-        return new FragmentRead(facts.SearchText, facts.Text ?? facts.Title, profile == ScoringProfileKind.ShelfSpine && facts.Kind is null, answer.Verdict, bestTitle, bestCreators);
+        return new FragmentRead(
+            facts.SearchText, facts.Text ?? facts.Title, profile == ScoringProfileKind.ShelfSpine && facts.Kind is null, answer.Verdict, bestTitle, bestCreators, optionTitles);
     }
 
-    /// <summary>The catalogue release ids the rule needs the title and creators of: each answer's best release, when it is in the catalogue.</summary>
+    /// <summary>The catalogue release ids the rule needs the title and creators of: every option of each answer, when it is in the catalogue.</summary>
     public static IReadOnlyCollection<Guid> ReleaseIdsOf(IEnumerable<BarcodeResolution> answers) =>
     [
         .. answers
             .Where(a => a.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && a.Options.Count > 0)
-            .Select(a => a.Options[0].LocalReleaseId)
+            .SelectMany(a => a.Options)
+            .Select(o => o.LocalReleaseId)
             .OfType<Guid>()
             .Distinct(),
     ];
@@ -165,10 +184,17 @@ public static partial class FragmentReads
 
     // ---- case 1: print that is never a title ----------------------------------------------------------------------------------------
 
-    private static bool NeverATitle(string title)
+    private static bool NeverATitle(FragmentRead read)
     {
-        var words = PlainWords(title);
-        return words.Length > 0 && (words.All(word => word.All(char.IsDigit)) || IsBanner(string.Join(' ', words)));
+        var words = PlainWords(read.Title);
+        if (words.Length == 0)
+        {
+            return false;
+        }
+
+        // Digits are a fragment only when no release among the read's options is titled with them: a real numeric title is kept.
+        var digitsOnly = words.All(word => word.All(char.IsDigit)) && !(read.OptionTitles ?? []).Any(title => SameWords(title, read.Title));
+        return digitsOnly || IsBanner(string.Join(' ', words));
     }
 
     private static bool IsBanner(string plain)
