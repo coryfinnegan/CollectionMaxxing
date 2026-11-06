@@ -73,7 +73,7 @@ public sealed class EvalRunScoring(
             result.Engine == ScanEngine.VisionPipeline && result.PrintKind is { } printKind ? EnumText.ToText(printKind) : null,
             OcrProbes: result.Engine == ScanEngine.VisionPipeline ? GroundedProbes(result.OcrProbes) : null,
             TimedOut: result.TimedOut == true ? true : null,
-            FragmentSegments: shot.FragmentSegments > 0 ? shot.FragmentSegments : null);
+            SkippedSegments: shot.SkippedSegments > 0 ? shot.SkippedSegments : null);
     }
 
     /// <summary>The probes as the PC keeps them. The checks at the door have already made every field present and within range; nothing here scores them.</summary>

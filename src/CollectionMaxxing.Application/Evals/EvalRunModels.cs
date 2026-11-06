@@ -184,7 +184,7 @@ public sealed record GroundedOcrProbe(string Name, long Ms, IReadOnlyList<Ground
 /// </param>
 /// <param name="OcrProbes">Only the <c>vision_pipeline</c> photo of a shelf, and only from a phone that sends them: extra reads of the same picture, kept for a replay of an OCR setting. Nothing scores them.</param>
 /// <param name="TimedOut">An <c>ok</c> model row (<c>apple_model</c> or <c>fm_text</c>) that ran out of time and kept the items it had finished. <see cref="EvalScorer"/> counts it as a timeout and still scores the items. Null on a row from an older build and on every combined row.</param>
-/// <param name="FragmentSegments">How many captured segments of this row lost every read to the fragment rule (<see cref="FragmentReads"/>). The scorer counts them as accounted for, so a row whose only reads were fragments reports no invented gap. Null when none.</param>
+/// <param name="SkippedSegments">How many captured segments of this row lost every read to a skip rule (<see cref="FragmentReads"/> or <see cref="UnfoundSpines"/>). The scorer counts them as accounted for, so a row whose only reads were fragments reports no invented gap. Null when none.</param>
 public sealed record GroundedPhoto(
     string PhotoId,
     string Engine,
@@ -205,7 +205,7 @@ public sealed record GroundedPhoto(
     IReadOnlyList<GroundedItem>? ItemsLentPrint = null,
     IReadOnlyList<GroundedOcrProbe>? OcrProbes = null,
     bool? TimedOut = null,
-    int? FragmentSegments = null);
+    int? SkippedSegments = null);
 
 /// <summary>A whole run after grounding. Kept on the PC (it has titles): re-scoring it needs no phone and no provider.</summary>
 public sealed record GroundedRun(

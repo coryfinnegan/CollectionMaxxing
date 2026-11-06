@@ -12,8 +12,8 @@ using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Application.Evals;
 
-/// <summary>The items one photo and engine row shows, and how many captured segments lost every read to the fragment rule.</summary>
-public sealed record GroundedShot(IReadOnlyList<GroundedItem> Items, int FragmentSegments);
+/// <summary>The items one photo and engine row shows, and how many captured segments lost every read to a skip rule (a fragment or an unfound spine).</summary>
+public sealed record GroundedShot(IReadOnlyList<GroundedItem> Items, int SkippedSegments);
 
 /// <summary>
 /// Grounds what the phone read in a golden photo with the very code <c>/identify</c> uses (<see cref="IdentifyGrounding"/> and the
@@ -88,14 +88,17 @@ public sealed class EvalGrounder(
         // And a spine read that only found itself (FragmentReads) is not scored either: /identify skips it the same way.
         var fragments = FragmentReads.Of(
             [.. cleaned.Select((c, i) => FragmentReads.ReadOf(c.Facts, c.Profile, answers[i], id => ReleaseOf(local, id)))]).ToHashSet();
+
+        // And so is a shelf spine the catalogue found nothing for after every retry (UnfoundSpines): /identify skips it the same way.
+        var unfound = UnfoundSpines.Of([.. cleaned.Select((c, i) => new UnfoundRead(c.Profile, answers[i].Verdict))]).ToHashSet();
         var grounded = new List<GroundedItem>(items.Count - repeats.Count);
         var standing = new HashSet<string>(StringComparer.Ordinal);
         var emptied = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < items.Count; i++)
         {
-            if (repeats.Contains(i) || fragments.Contains(i))
+            if (repeats.Contains(i) || fragments.Contains(i) || unfound.Contains(i))
             {
-                if (fragments.Contains(i))
+                if (fragments.Contains(i) || unfound.Contains(i))
                 {
                     emptied.Add(cleaned[i].SegmentId ?? $"\0read{i}");
                 }

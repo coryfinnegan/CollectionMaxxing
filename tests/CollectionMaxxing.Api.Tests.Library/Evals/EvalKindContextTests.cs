@@ -39,6 +39,9 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
         return JsonDocument.Parse(text).RootElement.GetProperty("photos")[0].GetProperty("items").Clone();
     }
 
+    /// <summary>The kindless read, always the last one sent: the shelf's filler reads find nothing and are not scored (UnfoundSpines).</summary>
+    private static JsonElement Kindless(JsonElement items) => items[items.GetArrayLength() - 1];
+
     private static List<int> Years(JsonElement item) =>
         [.. item.GetProperty("candidates").EnumerateArray().Select(c => c.GetProperty("year").GetInt32())];
 
@@ -50,7 +53,7 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
 
         var items = await RunAsync([.. shelf.Select(t => ReadOf(t, "film")), ReadOf(Title, null)]);
 
-        var kindless = items[4];
+        var kindless = Kindless(items);
         kindless.GetProperty("verdict").GetString().ShouldBe("ambiguous");
         Years(kindless).ShouldBe([FilmYear, BookYear]);
         kindless.GetProperty("candidates").EnumerateArray().Select(c => c.GetProperty("score").GetDouble()).ShouldBe([1.0, 1.0]);
@@ -65,7 +68,7 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
         var items = await RunAsync(
             [.. shelf.Select(t => ReadOf(t, "film")), ReadOf("Orchard Gate Volume 1", "book"), ReadOf("Orchard Gate Volume 2", "book"), ReadOf(Title, null)]);
 
-        Years(items[4]).ShouldBe([BookYear, FilmYear]);
+        Years(Kindless(items)).ShouldBe([BookYear, FilmYear]);
     }
 
     [Fact]
@@ -76,7 +79,7 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
 
         var items = await RunAsync([.. shelf.Select(t => ReadOf(t, "film")), ReadOf(Title, "book")]);
 
-        Years(items[4])[0].ShouldBe(BookYear);
+        Years(Kindless(items))[0].ShouldBe(BookYear);
     }
 
     // ---- the shelf's own print ---------------------------------------------------------------------------------------
@@ -89,7 +92,7 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
 
         var items = await RunAsync("film", [.. shelf.Select(t => ReadOf(t, null)), ReadOf(Title, null)]);
 
-        Years(items[4]).ShouldBe([FilmYear, BookYear]);
+        Years(Kindless(items)).ShouldBe([FilmYear, BookYear]);
     }
 
     [Fact]
@@ -100,7 +103,7 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
 
         var items = await RunAsync("film", [.. shelf.Select(t => ReadOf(t, "book")), ReadOf(Title, null)]);
 
-        Years(items[4]).ShouldBe([FilmYear, BookYear]);
+        Years(Kindless(items)).ShouldBe([FilmYear, BookYear]);
     }
 
     [Fact]
@@ -112,7 +115,7 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
 
         var items = await RunAsync("film", [.. shelf.Take(4).Select(t => ReadOf(t, "book")), ReadOf(shelf[4], "film"), ReadOf(Title, null)]);
 
-        Years(items[5]).ShouldBe([BookYear, FilmYear]);
+        Years(Kindless(items)).ShouldBe([BookYear, FilmYear]);
     }
 
     [Fact]
@@ -123,6 +126,6 @@ public class EvalKindContextTests(ApiFixture api) : EvalTest(api)
 
         var items = await RunAsync([.. shelf.Select(t => ReadOf(t, null)), ReadOf(Title, null)]);
 
-        Years(items[4]).ShouldBe([BookYear, FilmYear]);
+        Years(Kindless(items)).ShouldBe([BookYear, FilmYear]);
     }
 }

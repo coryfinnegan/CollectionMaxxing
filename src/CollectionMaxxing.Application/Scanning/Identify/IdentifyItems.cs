@@ -493,6 +493,10 @@ public static class IdentifyItems
             // name answered by a release titled with it) is skipped too (FragmentReads).
             var fragments = await FragmentsOfAsync(fresh, freshAnswers, cancellationToken);
 
+            // And a spine the catalogue found nothing for, after every retry, has nothing to review (UnfoundSpines). It never wins a
+            // place, so this runs after the place settle.
+            var unfound = UnfoundSpines.Of([.. fresh.Select((f, i) => new UnfoundRead(f.Item.Profile, freshAnswers[i].Verdict))]).ToHashSet();
+
             // The answers land under the session's lock: the session is reloaded inside it (another request may
             // have auto-added while the providers were being asked), and two auto-adds landing together both append
             // instead of one overwriting the other.
@@ -516,9 +520,14 @@ public static class IdentifyItems
                     }
 
                     await resolver.ApplyAsync(session.LibraryId, candidate, answers[candidate.Id], cancellationToken, lookups: lookups);
-                    if (repeats.Contains(i) || lostPlace.Contains(i) || fragments.Contains(i))
+                    if (repeats.Contains(i) || lostPlace.Contains(i) || fragments.Contains(i) || unfound.Contains(i))
                     {
-                        Skip(candidate, repeats.Contains(i) ? RepeatReads.StepName : lostPlace.Contains(i) ? ReadPlaces.StepName : FragmentReads.StepName);
+                        Skip(
+                            candidate,
+                            repeats.Contains(i) ? RepeatReads.StepName
+                            : lostPlace.Contains(i) ? ReadPlaces.StepName
+                            : fragments.Contains(i) ? FragmentReads.StepName
+                            : UnfoundSpines.StepName);
                         continue; // never auto-added
                     }
 

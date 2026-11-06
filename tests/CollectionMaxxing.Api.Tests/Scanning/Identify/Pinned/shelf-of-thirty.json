@@ -2569,7 +2569,7 @@
         "profile": "ShelfSpine"
       },
       "alternatives": null,
-      "decision": "undecided",
+      "decision": "rejected",
       "copies": 1,
       "alreadyOwnedCount": 0,
       "ownedAt": [],
@@ -2609,7 +2609,7 @@
         "profile": "ShelfSpine"
       },
       "alternatives": null,
-      "decision": "undecided",
+      "decision": "rejected",
       "copies": 1,
       "alreadyOwnedCount": 0,
       "ownedAt": [],
@@ -2649,7 +2649,7 @@
         "profile": "ShelfSpine"
       },
       "alternatives": null,
-      "decision": "undecided",
+      "decision": "rejected",
       "copies": 1,
       "alreadyOwnedCount": 0,
       "ownedAt": [],

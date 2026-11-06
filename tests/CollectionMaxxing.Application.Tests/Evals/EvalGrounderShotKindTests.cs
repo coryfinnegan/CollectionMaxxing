@@ -158,7 +158,21 @@ public class EvalGrounderShotKindTests
 
         shot.Items.Count.ShouldBe(3);
         shot.Items.ShouldNotContain(i => i.ReadTitle == "HOME VIDEO");
-        shot.FragmentSegments.ShouldBe(1);
+        shot.SkippedSegments.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task The_eval_does_not_score_a_skipped_unfound_spine()
+    {
+        var (books, films) = Providers();
+        var reads = BookShelf()[..3].Append(Spine("ZORBLAX QUILLWORTH NOTHING")).ToArray();
+
+        var shot = await Grounder(books, films).GroundWithSkipsAsync(
+            ScanEngine.VisionPipeline, reads, new EvalGroundingMemo(), null, CancellationToken.None).WaitAsync(Patience);
+
+        shot.Items.Count.ShouldBe(3);
+        shot.Items.ShouldNotContain(i => i.ReadTitle == "ZORBLAX QUILLWORTH NOTHING");
+        shot.SkippedSegments.ShouldBe(1);
     }
 
     [Fact]

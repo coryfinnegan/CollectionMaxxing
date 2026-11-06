@@ -42,9 +42,9 @@ public class EvalGroundingTrimmedRetryTests(ApiFixture api) : EvalTest(api)
         var items = await GroundedByTheEvalAsync();
 
         items.Select(i => i.Read!.Profile).ShouldAllBe(profile => profile == "shelf_spine");
-        items[3].Verdict.ShouldBe("ambiguous");
-        items[3].Candidates.Select(c => c.Title).ShouldBe(["Iron Fox"]);
-        items.Take(3).Select(i => i.Verdict).ShouldAllBe(v => v == "not_found");
+        var found = items.ShouldHaveSingleItem("the three spines the catalogue found nothing for are skipped, so not scored");
+        found.Verdict.ShouldBe("ambiguous");
+        found.Candidates.Select(c => c.Title).ShouldBe(["Iron Fox"]);
     }
 
     [Fact]
@@ -58,8 +58,9 @@ public class EvalGroundingTrimmedRetryTests(ApiFixture api) : EvalTest(api)
         var live = await IdentifyOkAsync(client, sessionId, [.. Titles.Select(title => (object)Read(title: title, kind: "book"))]);
         var eval = await GroundedByTheEvalAsync();
 
-        eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
-        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
+        var shown = live.Where(c => Decision(c) != "rejected").ToList(); // /identify skips the unfound spines; the eval does not score them
+        eval.Select(i => i.Verdict).ShouldBe(shown.Select(Resolution));
+        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(shown.Select(AlternativeTitles));
         Resolution(live[3]).ShouldBe("ambiguous"); // and it was the retry that found the book
     }
 
@@ -81,11 +82,12 @@ public class EvalGroundingTrimmedRetryTests(ApiFixture api) : EvalTest(api)
                 new IdentifyItemInput(null, null, r.Title, r.Title, r.Creator, null, null, WorkKind.Book, null, null, null, null), null))],
             new EvalGroundingMemo(), printKind: null, CancellationToken.None);
 
-        eval.Select(i => i.Verdict).ShouldBe(live.Select(Resolution));
-        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(live.Select(AlternativeTitles));
+        var shown = live.Where(c => Decision(c) != "rejected").ToList(); // /identify skips the unfound spines; the eval does not score them
+        eval.Select(i => i.Verdict).ShouldBe(shown.Select(Resolution));
+        eval.Select(i => i.Candidates.Select(c => c.Title).ToList()).ShouldBe(shown.Select(AlternativeTitles));
         Resolution(live[3]).ShouldBe("ambiguous"); // it was the swap that found the book
-        eval[3].Candidates.Select(c => c.Title).ShouldBe(["The Copper Lantern"]);
-        eval[3].Read!.CreatorAsRead.ShouldBe("THE COPPER LANTERN");
+        eval[^1].Candidates.Select(c => c.Title).ShouldBe(["The Copper Lantern"]);
+        eval[^1].Read!.CreatorAsRead.ShouldBe("THE COPPER LANTERN");
     }
 
     [Fact]

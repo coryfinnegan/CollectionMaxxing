@@ -164,6 +164,10 @@ public static class EvalCombination
             // a Vision read stands. Either engine failing, the items are the model's own and so is the count.
             CapturedCount = shown is null ? apple.CapturedCount : CapturedOf(apple, shown),
 
+            // A model segment whose every read was skipped (a fragment, an unfound spine) is accounted for only while the model's
+            // segments are counted at all (CapturedOf): once no model read stands, those segments have left the shelf with it.
+            SkippedSegments = shown is null || shown.ModelStands ? apple.SkippedSegments : null,
+
             // The lent regrounding is already folded into Items above; the combined row carries neither it nor a print of its own.
             ItemsLentPrint = null,
         };
