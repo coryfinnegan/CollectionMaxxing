@@ -147,7 +147,10 @@ export function routeSessionMessage(sessionId: string, message: SseMessage, isCu
     const candidate = JSON.parse(message.data) as Partial<CandidateDto>;
     // A discarded candidate never comes back: not while its reject is queued, not after it landed (a rejected
     // candidate has no card — Review filters it, and the scanner never drew one for it).
-    if ((candidate.id && isDiscarded(candidate.id)) || candidate.decision === 'rejected') {
+    if (candidate.id && isDiscarded(candidate.id)) return;
+    if (candidate.decision === 'rejected') {
+      // The server skipped a candidate that already has a card (a pending read it could not resolve): the card leaves.
+      if (candidate.id) useCardsStore.getState().remove(candidate.id);
       return;
     }
     announce(useCardsStore.getState().merge([candidate]), sessionId);

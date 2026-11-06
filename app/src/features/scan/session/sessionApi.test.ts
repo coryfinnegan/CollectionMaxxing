@@ -140,6 +140,35 @@ describe('per-library session creation', () => {
   });
 });
 
+describe('a candidate the server skips', () => {
+  beforeEach(() => useCardsStore.getState().reset());
+  const send = (c: ReturnType<typeof candidate>) =>
+    routeSessionMessage(SESSION, { event: 'candidate.updated', id: String(c.changeSeq), data: JSON.stringify(c) });
+
+  it('a pending card the server later skips leaves the scanner', () => {
+    const pending = candidate({ changeSeq: 1 });
+    send(pending);
+    expect(useCardsStore.getState().byId[pending.id]).toBeTruthy();
+
+    send({ ...pending, decision: 'rejected', changeSeq: 2 });
+
+    expect(useCardsStore.getState().byId[pending.id]).toBeUndefined();
+  });
+
+  it('a skipped candidate with no card still draws none', () => {
+    send(candidate({ decision: 'rejected', changeSeq: 2 }));
+    expect(Object.keys(useCardsStore.getState().byId)).toEqual([]);
+  });
+
+  it('a skipped candidate that arrives by the poll leaves the scanner too', () => {
+    const pending = candidate({ changeSeq: 1 });
+    send(pending);
+    // the poll hands changed candidates to the same router, as candidate.updated
+    send({ ...pending, decision: 'rejected', changeSeq: 3 });
+    expect(useCardsStore.getState().byId[pending.id]).toBeUndefined();
+  });
+});
+
 describe('auto-add announcements', () => {
   const hapticCalls: string[] = [];
   const fakeDriver: HapticDriver = {

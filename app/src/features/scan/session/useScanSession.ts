@@ -174,7 +174,10 @@ export function useScanSession({
         pruneDiscarded(snapshot.candidates);
         // Discarded and rejected candidates have no card: the snapshot confirms them, it never brings them back.
         const kept = withoutDiscarded(snapshot.candidates);
-        useCardsStore.getState().merge(
+        const cards = useCardsStore.getState();
+        // A rejected candidate that already has a card (the server skipped it after it was drawn) loses the card.
+        for (const c of kept) if (c.decision === 'rejected') cards.remove(c.id);
+        cards.merge(
           kept.filter((c) => c.decision !== 'rejected'),
           { announce: false },
         );
