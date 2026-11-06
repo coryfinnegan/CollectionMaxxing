@@ -56,11 +56,21 @@ test.describe('members and join', () => {
   test('removing a member asks first and then removes them', async ({ page, open }) => {
     await open('/library');
     await page.getByRole('link', { name: 'Members' }).click();
-    await page.getByRole('button', { name: 'Remove Sam' }).click();
-    await expect(page.getByText('Remove Sam?')).toBeVisible();
-    await page.getByRole('button', { name: 'Remove Sam and sign them out' }).click();
+    // The list has to be on screen (and owner-only controls with it) before anything is pressed.
+    await expect(page).toHaveURL(/\/members$/);
+    await expect(page.getByRole('button', { name: 'Role for Sam: Editor' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Role for Robin: Editor' })).toBeVisible();
+    await page.getByRole('button', { name: 'Remove Sam', exact: true }).click();
+    await expect(page.getByText('Remove Sam?', { exact: true })).toBeVisible();
+    const confirm = page.getByRole('button', { name: 'Remove Sam and sign them out' });
+    await expect(confirm).toBeEnabled();
+    // Start listening before the press so the DELETE cannot be missed; a failed DELETE shows a different alert, so say so here.
+    const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && /\/members\//.test(r.url()));
+    await confirm.click();
+    expect((await deleted).ok()).toBe(true);
     await expect(page.getByText('Sam was removed and signed out everywhere.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Role for Sam: Editor' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remove Sam', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Role for Robin: Editor' })).toBeVisible();
   });
 
