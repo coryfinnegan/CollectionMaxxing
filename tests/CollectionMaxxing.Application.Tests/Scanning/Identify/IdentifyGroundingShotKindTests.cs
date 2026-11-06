@@ -185,7 +185,8 @@ public class IdentifyGroundingShotKindTests
         answers[0].ShouldBeSameAs(shelf[0].Answer);
         answers[1].ShouldBeSameAs(shelf[1].Answer);
         answers[2].ShouldBeSameAs(shelf[2].Answer);
-        asks.Facts.Count(f => f.Title == "cnoi Emergency Contact o").ShouldBe(1);
+        // The read is asked twice: its own words and its best release's title. No matched spine is asked.
+        asks.Facts.Select(f => f.Title).ShouldBe(["cnoi Emergency Contact o", "Emergency Contact"], ignoreOrder: true);
     }
 
     // ---- the order of the offer ----------------------------------------------------------------------------------------------------
@@ -750,6 +751,19 @@ public class IdentifyGroundingShotKindTests
 
         asks.Facts.Select(f => f.Title).ShouldBe(["cnoi Emergency Contact o", "Emergency Contact"], ignoreOrder: true);
         answers[3].Options[0].Provider!.ExternalId.ShouldBe("f1");
+    }
+
+    [Fact]
+    public async Task A_film_the_catalogue_holds_under_the_best_releases_title_is_found_by_the_best_title_ask()
+    {
+        var film = LocalFilm("Emergency Contact");
+        var grounding = Grounding([new OfKind(WorkKind.Film), new OfKind(WorkKind.Book)], new Catalogue(film));
+        var asks = new Asks();
+        var read = Retry(grounding, asks, Vision("cnoi Emergency Contact o"), GarbledAsBook());
+
+        var answers = await RetryAsync(grounding, null, TapeShelf(grounding, asks, read));
+
+        answers[3].Options[0].LocalReleaseId.ShouldBe(film.Release.Id);
     }
 
     private static LocalHit LocalFilm(string title)
