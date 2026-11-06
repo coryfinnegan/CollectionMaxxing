@@ -22,6 +22,11 @@ async function installTestHooks(worker: ReturnType<typeof setupWorker>): Promise
     const { seedReviewRows } = await import('./seedReview');
     seedReviewRows();
   }
+  // `?seed=review-skipped` opens a review session whose scan skipped three rows, one for each kind of reason (#709).
+  if (new URLSearchParams(window.location.search).get('seed') === 'review-skipped') {
+    const { seedReviewSkipped } = await import('./seedReview');
+    seedReviewSkipped();
+  }
   (window as unknown as { __cm: unknown }).__cm = {
     /** Makes every API call answer 401, like a session that was revoked or timed out. */
     expireSession: () =>

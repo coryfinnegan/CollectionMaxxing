@@ -204,6 +204,22 @@ test.describe('visual', () => {
     });
   });
 
+  // A scan's skipped rows (#709): collapsed at the end of Review, then open with what was read, why it was skipped, and Put back.
+  test.describe('review skipped seeded', () => {
+    test.use({ viewport: { width: 1280, height: 1100 } });
+
+    test('review skipped', async ({ page, open }) => {
+      await open('/review?seed=review-skipped');
+      await expect(page.getByText('Skipped · 3')).toBeVisible();
+      await page.getByRole('button', { name: '3 items skipped. Show them' }).click();
+      await expect(page.getByText('Nothing in the catalog matched')).toBeVisible();
+      await expect(page.getByText('Read twice')).toBeVisible();
+      await expect(page.getByText('You skipped it')).toBeVisible();
+      await page.getByText('Skipped · 3').scrollIntoViewIfNeeded();
+      await expectShot(page, 'review-skipped');
+    });
+  });
+
   // The shared work and edition rows (#457): an owned multi-edition work, an
   // unowned single, an unowned multi with no art, then the owned work's editions.
   test.describe('search rows seeded', () => {
