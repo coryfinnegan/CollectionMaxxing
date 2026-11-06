@@ -66,7 +66,7 @@ public sealed class NoiseAwareRegressionTests : IDisposable
 
         check.Regressions.Select(r => r.Metric).ShouldBeEmpty();
         check.Status.ShouldBe(EvalRegression.Ok);
-        check.Compared.ShouldBe(12); // the 23 less the three raw counts (provisional twice, t1_auto once) and the eight run totals (the owner's pace is in them), which are not judged
+        check.Compared.ShouldBe(7); // the 23 less the three raw counts (provisional twice, t1_auto once), the eight run totals (the owner's pace is in them) and the five fm_text rates (eval-only since #714), which are not judged
     }
 
     [Fact]
@@ -78,7 +78,8 @@ public sealed class NoiseAwareRegressionTests : IDisposable
         var check = EvalRegression.Check(baseline, actual);
 
         check.Regressions.Select(r => r.Metric).ShouldContain("apple_model.shelf.auto_add_precision");
-        check.Regressions.Select(r => r.Metric).ShouldContain("fm_text.shelf.kind.book.top1");
+        check.Regressions.Select(r => r.Metric).ShouldContain("apple_model.shelf.kind.film.top1");
+        check.Regressions.Select(r => r.Metric).ShouldNotContain("fm_text.shelf.kind.book.top1"); // the text tier is eval-only, so never judged
         check.Regressions.Select(r => r.Metric).ShouldNotContain("apple_model.shelf.t1_auto"); // counts and times are never judged by points
     }
 
@@ -158,17 +159,17 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     {
         // 100 over a few auto-adds says little: 100 -> 66.67 over three is chance, 100 -> 50 over four is not, and over 400 even 90 is not.
         var three = EvalRegression.Check(
-            Of("fm_text.single.auto_add_precision", 100),
-            Of("fm_text.single.auto_add_precision", 66.67),
-            denominators: Items("fm_text.single.auto_add_precision", 3));
+            Of("apple_model.single.auto_add_precision", 100),
+            Of("apple_model.single.auto_add_precision", 66.67),
+            denominators: Items("apple_model.single.auto_add_precision", 3));
         var four = EvalRegression.Check(
             Of("apple_model.single.auto_add_precision", 100),
             Of("apple_model.single.auto_add_precision", 50),
             denominators: Items("apple_model.single.auto_add_precision", 4));
         var large = EvalRegression.Check(
-            Of("fm_text.single.auto_add_precision", 100),
-            Of("fm_text.single.auto_add_precision", 90),
-            denominators: Items("fm_text.single.auto_add_precision", 400));
+            Of("apple_model.single.auto_add_precision", 100),
+            Of("apple_model.single.auto_add_precision", 90),
+            denominators: Items("apple_model.single.auto_add_precision", 400));
 
         three.Regressions.ShouldBeEmpty(); // allowed 46.19: 2 x 100 x sqrt(0.8 x 0.2 / 3), with p = (n + 1) / (n + 2)
         four.Regressions.Single().Allowed.ShouldBe(37.27, 0.005); // 2 x 100 x sqrt((5/6) x (1/6) / 4)
@@ -212,8 +213,7 @@ public sealed class NoiseAwareRegressionTests : IDisposable
 
     [Theory]
     [InlineData("apple_model")]
-    [InlineData("fm_text")]
-    public void The_rows_built_on_the_on_device_model_keep_the_sample_size_allowance(string engine)
+    public void The_row_built_on_the_on_device_model_keeps_the_sample_size_allowance(string engine)
     {
         var check = EvalRegression.Check(
             Of($"{engine}.shelf.top1", 60),
@@ -221,6 +221,48 @@ public sealed class NoiseAwareRegressionTests : IDisposable
             denominators: Items($"{engine}.shelf.top1", 12));
 
         check.Regressions.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void An_fm_text_rate_that_falls_far_past_its_noise_is_not_a_regression_and_is_not_counted_as_compared()
+    {
+        // The text tier is eval-only since #714: on identical OCR one photo swung 40 -> 2 items, and on build 154 auto-add precision moved 66.67 -> 33.33 with the same 6 right.
+        var check = EvalRegression.Check(
+            Of("fm_text.single.auto_add_precision", 66.67),
+            Of("fm_text.single.auto_add_precision", 33.33),
+            denominators: Items("fm_text.single.auto_add_precision", 18));
+        var plain = EvalRegression.Check(Of("fm_text.shelf.top1", 60), Of("fm_text.shelf.top1", 10));
+
+        check.Regressions.ShouldBeEmpty();
+        check.Compared.ShouldBe(0);
+        check.Status.ShouldBe(EvalRegression.NoOverlap);
+        plain.Regressions.ShouldBeEmpty();
+        EvalRegression.IsJudged("fm_text.shelf.top1").ShouldBeFalse();
+        EvalRegression.IsJudged("apple_model.shelf.top1").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void An_apple_model_rate_past_its_sample_size_allowance_is_still_a_regression_while_fm_text_beside_it_is_not()
+    {
+        var check = EvalRegression.Check(
+            new Dictionary<string, double> { ["apple_model.shelf.top1"] = 60, ["fm_text.shelf.top1"] = 60 },
+            new Dictionary<string, double> { ["apple_model.shelf.top1"] = 40, ["fm_text.shelf.top1"] = 40 },
+            denominators: new Dictionary<string, int> { ["apple_model.shelf.top1"] = 358, ["fm_text.shelf.top1"] = 358 });
+
+        check.Regressions.Select(r => r.Metric).ShouldBe(["apple_model.shelf.top1"]);
+        check.Compared.ShouldBe(1);
+    }
+
+    [Fact]
+    public void An_apple_vision_rate_dropping_more_than_2_points_is_still_a_regression()
+    {
+        var check = EvalRegression.Check(
+            Of("apple_vision.shelf.recall", 50),
+            Of("apple_vision.shelf.recall", 47.5),
+            denominators: Items("apple_vision.shelf.recall", 12));
+
+        check.Regressions.Single().Allowed.ShouldBe(2.0);
+        check.Compared.ShouldBe(1);
     }
 
     [Theory]
@@ -352,10 +394,10 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     [Fact]
     public void The_slowest_the_same_build_ran_between_the_two_real_runs_is_not_a_regression()
     {
-        // fm_text, shelf: 238.041 s on 2026-10-31 and 399.449 s on 2026-11-01, the same build: 1.68 x.
+        // Shelf, 238.041 s on 2026-10-31 and 399.449 s on 2026-11-01, the same build: 1.68 x.
         var check = EvalRegression.Check(
-            Of("fm_text.shelf.total_time_to_trustworthy", 238.041),
-            Of("fm_text.shelf.total_time_to_trustworthy", 399.449));
+            Of("apple_model.shelf.time_to_first_results_p50", 238.041),
+            Of("apple_model.shelf.time_to_first_results_p50", 399.449));
 
         check.Regressions.ShouldBeEmpty();
     }
