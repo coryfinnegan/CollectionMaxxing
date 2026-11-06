@@ -368,6 +368,19 @@ public sealed class CombinedEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_combined_row_that_uses_the_lent_grounding_carries_that_groundings_skip_count_not_the_model_rows_own()
+    {
+        var truths = ArrangeShelf("Star Fox 64", "Midnight Reel");
+        var lent = InSegment(T1(Matched("Midnight Reel")).At(0.6), "m");
+        var model = ModelSegment(1) with { SkippedSegments = 1, ItemsLentPrint = [lent] }; // its own grounding skipped every read; the lent grounding has one standing
+        var vision = Printing(VisionSegment(GuessedByVision("Star Fox 64").At(0.10)), "STAR FOX 64", "MIDNIGHT REEL") with { PrintKind = "film" };
+
+        var scored = Score(truths, model, vision);
+
+        scored.ShelfOf(Combined).UnreconciledPhotos.ShouldBe(0);
+    }
+
+    [Fact]
     public void A_Vision_row_that_captured_a_segment_with_no_read_at_all_is_still_reported_as_a_gap()
     {
         var truths = ArrangeShelf("Star Fox 64");

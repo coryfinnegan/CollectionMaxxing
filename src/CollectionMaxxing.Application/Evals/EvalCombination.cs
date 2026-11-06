@@ -141,10 +141,21 @@ public static class EvalCombination
         // one snap with Vision.
         var modelItems = apple.ItemsLentPrint ?? apple.Items;
 
+        // The reads /identify skips (a fragment, a spine the catalogue found nothing for) still hold a place while the places are
+        // settled; they drop only afterwards. They and the skipped-segment count come from the same grounding as the items above.
+        var lentPrint = apple.ItemsLentPrint is not null;
+        var modelSkipped = (lentPrint ? apple.SkippedItemsLentPrint : apple.SkippedItems) ?? [];
+        var modelSkippedSegments = lentPrint ? apple.SkippedSegmentsLentPrint : apple.SkippedSegments;
+
         // The shelf's own print: every word of every line Vision read on the shot. A run from before the phone sent its lines, or a shelf
         // Vision read no text on, has no print to check against, so every model read stands, as it did before.
         var printed = both ? PrintedOf(vision) : null;
-        var shown = both ? Settled(WithKindsLent(vision.Items, modelItems, EnumText.ParseOrNull<WorkKind>(vision.PrintKind)), modelItems, printed) : null;
+        var shown = both
+            ? Settled(
+                WithKindsLent([.. vision.Items, .. vision.SkippedItems ?? []], [.. modelItems, .. modelSkipped], EnumText.ParseOrNull<WorkKind>(vision.PrintKind)),
+                [.. modelItems, .. modelSkipped],
+                printed)
+            : null;
         return apple with
         {
             Engine = Engine,
@@ -166,7 +177,10 @@ public static class EvalCombination
 
             // A model segment whose every read was skipped (a fragment, an unfound spine) is accounted for only while the model's
             // segments are counted at all (CapturedOf): once no model read stands, those segments have left the shelf with it.
-            SkippedSegments = shown is null || shown.ModelStands ? apple.SkippedSegments : null,
+            SkippedSegments = shown is null || shown.ModelStands ? modelSkippedSegments : null,
+            SkippedItems = null,
+            SkippedItemsLentPrint = null,
+            SkippedSegmentsLentPrint = null,
 
             // The lent regrounding is already folded into Items above; the combined row carries neither it nor a print of its own.
             ItemsLentPrint = null,
@@ -272,7 +286,7 @@ public static class EvalCombination
     /// back, or one that repeats a Vision read, is never sent and so never votes. Reads that name no kind are left out.
     /// </summary>
     public static IReadOnlyList<WorkKind?> StandingModelKinds(GroundedPhoto vision, GroundedPhoto apple) =>
-        [.. StandingModelReads([.. vision.Items], apple.Items, PrintedOf(vision))
+        [.. StandingModelReads([.. vision.Items, .. vision.SkippedItems ?? []], [.. apple.Items, .. apple.SkippedItems ?? []], PrintedOf(vision))
             .Select(read => EnumText.ParseOrNull<WorkKind>(read.Read?.Kind))
             .Where(kind => kind is not null)];
 
@@ -314,6 +328,12 @@ public static class EvalCombination
             }
 
             // The reads are Vision's first, then the model's: which engine a standing read is from is where it sat in that list.
+            // A skipped read held its place while the places were settled and is dropped now: it is no row, and no segment stands on it.
+            if (reads[i].Skipped)
+            {
+                continue;
+            }
+
             visionStands |= i < vision.Count;
             modelStands |= i >= vision.Count;
             kept.Add(confirmed.Contains(i) ? reads[i] with { Unconfirmed = false } : reads[i]);

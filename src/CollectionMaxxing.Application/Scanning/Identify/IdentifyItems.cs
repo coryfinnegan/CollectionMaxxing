@@ -565,24 +565,14 @@ public static class IdentifyItems
         }
 
         /// <summary>
-        /// The server's own skip for a read that stands behind a stronger one: a repeat of the same book in the same picture
-        /// (<see cref="RepeatReads"/>), or a read that lost its place to the other engine's better-grounded read of it
-        /// (<see cref="ReadPlaces"/>), which <paramref name="step"/> says. The row stays, with its answer, so the phone's line
-        /// for the read has a card and the person can still un-skip it (a second copy, or the read the server passed over);
-        /// but it defaults to skipped, in review and at commit, and is never T0 or T1, so nothing adds it by itself. Saves
-        /// nothing; the caller saves.
+        /// The server's own skip for a read that stands behind a stronger one or that has nothing to show: a repeat of the same book
+        /// in the same picture (<see cref="RepeatReads"/>), a read that lost its place to the other engine's better-grounded read of it
+        /// (<see cref="ReadPlaces"/>), a spine that only found itself (<see cref="FragmentReads"/>), or a shelf spine the catalogue
+        /// found nothing for (<see cref="UnfoundSpines"/>), which <paramref name="step"/> says. The row stays, with its answer, so the
+        /// phone's line for the read has a card and the person can still un-skip it; see <see cref="CandidateSkip"/>. Saves nothing;
+        /// the caller saves.
         /// </summary>
-        private static void Skip(ScanCandidate candidate, string step)
-        {
-            candidate.Decision = CandidateDecision.Rejected;
-            candidate.Tier = ScanTier.T2;
-            var trace = CandidateJson.ReadTrace(candidate.TraceJson);
-            candidate.TraceJson = CandidateJson.Serialize(trace with
-            {
-                Steps = [.. trace.Steps, new TraceStep(step, "skipped", 0)],
-                AutoDecision = CandidateDecision.Rejected,
-            });
-        }
+        private static void Skip(ScanCandidate candidate, string step) => CandidateSkip.Apply(candidate, step);
 
         /// <summary>
         /// Queues the resolve job for each candidate still Pending. Safe to repeat: one job per candidate and key.

@@ -60,7 +60,7 @@ public class UnfoundSpineReadTests(ApiFixture api) : IdentifyTest(api)
         {
             Resolution(candidate).ShouldBe("not_found");
             Decision(candidate).ShouldBe("rejected");
-            (await TraceOfAsync(candidate)).ShouldContain("unfound-spine");
+            (await TraceOfAsync(candidate)).ShouldContain("unfound_spine");
         }
     }
 
@@ -75,7 +75,7 @@ public class UnfoundSpineReadTests(ApiFixture api) : IdentifyTest(api)
 
         Resolution(candidate).ShouldBe("not_found");
         Decision(candidate).ShouldNotBe("rejected");
-        (await TraceOfAsync(candidate)).ShouldNotContain("unfound-spine");
+        (await TraceOfAsync(candidate)).ShouldNotContain("unfound_spine");
     }
 
     [Fact]
@@ -87,6 +87,7 @@ public class UnfoundSpineReadTests(ApiFixture api) : IdentifyTest(api)
         var candidates = await IdentifyBodyAsync(body);
 
         candidates.Count.ShouldBe(4);
+        candidates.ShouldAllBe(c => Resolution(c) == "not_found");
         candidates.ShouldAllBe(c => Decision(c) != "rejected");
     }
 
@@ -103,6 +104,41 @@ public class UnfoundSpineReadTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_pending_spine_read_that_the_job_finds_nothing_for_is_skipped()
+    {
+        Options.ResolveBudget = TimeSpan.FromMilliseconds(300);
+        var slow = true;
+        Books.Behaviour = async ct =>
+        {
+            if (slow)
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+        };
+        var library = await CreateLibraryAsync();
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionWithoutAutoCommitAsync(editor, library.Id);
+        var response = await editor.PostAsync(IdentifyUrl(sessionId), Json(ShelfBody()));
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await ReadJsonAsync(response)).GetProperty("candidates").EnumerateArray().ShouldAllBe(c => Resolution(c) == "pending");
+
+        slow = false;
+        for (var i = 0; i < 4; i++)
+        {
+            await RunNextJobAsync();
+        }
+
+        var resolved = (await GetSessionAsync(editor, sessionId)).GetProperty("candidates").EnumerateArray().ToList();
+        resolved.Count.ShouldBe(4);
+        foreach (var candidate in resolved)
+        {
+            Resolution(candidate).ShouldBe("not_found");
+            Decision(candidate).ShouldBe("rejected");
+            (await TraceOfAsync(candidate)).ShouldContain("unfound_spine");
+        }
+    }
+
+    [Fact]
     public async Task An_ambiguous_spine_read_is_not_skipped()
     {
         foreach (var id in new[] { "u1", "u2" })
@@ -115,6 +151,6 @@ public class UnfoundSpineReadTests(ApiFixture api) : IdentifyTest(api)
         var first = candidates[0];
         Resolution(first).ShouldBe("ambiguous");
         Decision(first).ShouldNotBe("rejected");
-        (await TraceOfAsync(first)).ShouldNotContain("unfound-spine");
+        (await TraceOfAsync(first)).ShouldNotContain("unfound_spine");
     }
 }

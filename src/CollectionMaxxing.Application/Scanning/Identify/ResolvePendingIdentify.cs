@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Jobs;
+using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Scanning;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -89,7 +90,13 @@ public sealed class ResolvePendingIdentify(
                 }
             }
             var coverFiles = new List<string>();
-            if (job.ProofItemId is null)
+            if (job.ProofItemId is null && profile == ScoringProfileKind.ShelfSpine && row.Resolution == CandidateResolution.NotFound)
+            {
+                // The job's answer is final: a shelf spine the catalogue found nothing for is skipped, as /identify skips one it answered
+                // itself (UnfoundSpines), so a row the job settles ends where the request would have left it.
+                CandidateSkip.Apply(row, UnfoundSpines.StepName);
+            }
+            else if (job.ProofItemId is null)
             {
                 await autoCommit.TryAddAsync(session, row, job.UserId, currentUser.RoleIn(job.LibraryId), cancellationToken, coverFiles);
             }

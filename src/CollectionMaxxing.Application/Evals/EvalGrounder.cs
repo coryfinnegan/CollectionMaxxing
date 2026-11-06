@@ -12,8 +12,12 @@ using Microsoft.Extensions.Options;
 
 namespace CollectionMaxxing.Application.Evals;
 
-/// <summary>The items one photo and engine row shows, and how many captured segments lost every read to a skip rule (a fragment or an unfound spine).</summary>
-public sealed record GroundedShot(IReadOnlyList<GroundedItem> Items, int SkippedSegments);
+/// <summary>
+/// The items one photo and engine row shows, how many captured segments lost every read to a skip rule (a fragment or an unfound
+/// spine), and the reads skipped that way (<see cref="GroundedItem.Skipped"/>): never scored, kept so the combined row can settle
+/// its places over every read, as <c>/identify</c> does, and drop them afterwards.
+/// </summary>
+public sealed record GroundedShot(IReadOnlyList<GroundedItem> Items, int SkippedSegments, IReadOnlyList<GroundedItem>? Skipped = null);
 
 /// <summary>
 /// Grounds what the phone read in a golden photo with the very code <c>/identify</c> uses (<see cref="IdentifyGrounding"/> and the
@@ -50,8 +54,9 @@ public sealed class EvalGrounder(
         (await GroundWithSkipsAsync(engine, items, memo, printKind, cancellationToken, kindsOfTheSnap)).Items;
 
     /// <summary>
-    /// As <see cref="GroundAsync"/>, and also reports how many captured segments were left with no read at all because every read of
-    /// them was skipped as a fragment (<see cref="FragmentReads"/>): the scorer counts those as accounted for, as the combined row does.
+    /// As <see cref="GroundAsync"/>, and also reports the reads that are skipped rather than scored (a fragment, <see cref="FragmentReads"/>,
+    /// or a shelf spine the catalogue found nothing for, <see cref="UnfoundSpines"/>), and how many captured segments were left with no
+    /// read at all because every read of them was skipped: the scorer counts those as accounted for, as the combined row does.
     /// </summary>
     public async Task<GroundedShot> GroundWithSkipsAsync(
         ScanEngine engine,
@@ -92,23 +97,14 @@ public sealed class EvalGrounder(
         // And so is a shelf spine the catalogue found nothing for after every retry (UnfoundSpines): /identify skips it the same way.
         var unfound = UnfoundSpines.Of([.. cleaned.Select((c, i) => new UnfoundRead(c.Profile, answers[i].Verdict))]).ToHashSet();
         var grounded = new List<GroundedItem>(items.Count - repeats.Count);
+        var skipped = new List<GroundedItem>();
         var standing = new HashSet<string>(StringComparer.Ordinal);
         var emptied = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < items.Count; i++)
         {
-            if (repeats.Contains(i) || fragments.Contains(i) || unfound.Contains(i))
+            if (repeats.Contains(i))
             {
-                if (fragments.Contains(i) || unfound.Contains(i))
-                {
-                    emptied.Add(cleaned[i].SegmentId ?? $"\0read{i}");
-                }
-
                 continue;
-            }
-
-            if (cleaned[i].SegmentId is { } segment)
-            {
-                standing.Add(segment);
             }
 
             var answer = answers[i];
@@ -117,7 +113,17 @@ public sealed class EvalGrounder(
                 .Select(o => Candidate(o, local))
                 .OfType<GroundedCandidate>()
                 .ToList();
-            grounded.Add(new GroundedItem(
+            var isSkipped = fragments.Contains(i) || unfound.Contains(i);
+            if (isSkipped)
+            {
+                emptied.Add(cleaned[i].SegmentId ?? $"\0read{i}");
+            }
+            else if (cleaned[i].SegmentId is { } segment)
+            {
+                standing.Add(segment);
+            }
+
+            (isSkipped ? skipped : grounded).Add(new GroundedItem(
                 cleaned[i].Facts.SearchText,
                 items[i].Read.Completeness is { } completeness ? EnumText.ToText(completeness) : null,
                 ResolvedByText.For(engine, items[i].ResolvedBy),
@@ -129,10 +135,11 @@ public sealed class EvalGrounder(
                 cleaned[i].SegmentId,
                 ReadOf(cleaned[i].Facts, cleaned[i].Profile, items[i].Read.Creator),
                 cleaned[i].Box,
-                cleaned[i].Unconfirmed));
+                cleaned[i].Unconfirmed,
+                isSkipped));
         }
 
-        return new GroundedShot(grounded, emptied.Count(segment => !standing.Contains(segment)));
+        return new GroundedShot(grounded, emptied.Count(segment => !standing.Contains(segment)), skipped);
     }
 
     /// <summary>

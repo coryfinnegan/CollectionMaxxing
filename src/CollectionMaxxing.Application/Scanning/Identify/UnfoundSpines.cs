@@ -17,7 +17,7 @@ public readonly record struct UnfoundRead(ScoringProfileKind Profile, Resolution
 public static class UnfoundSpines
 {
     /// <summary>The trace step a skipped unfound spine carries, so its row says why it was skipped.</summary>
-    public const string StepName = "unfound-spine";
+    public const string StepName = "unfound_spine";
 
     /// <summary>The positions (ascending) of the reads that are spine reads with a final verdict of NotFound.</summary>
     public static IReadOnlyList<int> Of(IReadOnlyList<UnfoundRead> reads)
