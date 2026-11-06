@@ -19,6 +19,7 @@ import { commitDraft, discardCandidates, loadIntoCards, patchCandidate, searchCa
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
 import { flushProvisionalOutbox, keepAsUnverified } from './provisionals';
 import { contextWorkIdsFor } from './searchContext';
+import { skippedRows } from './skipped';
 import { addCount, commitBody, committable, emptyDraft, isChecked, picked, selectedPick, type Draft, type LineOverride, type ReviewStatus } from './plan';
 
 /** How long the "Added 11 items" toast offers Undo (docs/06 M5). */
@@ -60,6 +61,8 @@ export function useReview({
   const [toast, setToast] = useState<Toast | null>(null);
   const [celebration, setCelebration] = useState<{ key: number; message: string } | null>(null);
   const [inStore, setInStore] = useState(false);
+  /** The session's skipped rows (#709). They are not cards, so Review keeps its own copy: loaded with the session, added to by Skip, left by Put back. */
+  const [skipped, setSkipped] = useState<CandidateDto[]>([]);
   const pristine = useRef(true); // a choice made before the session answers wins over its defaults
   const inFlight = useRef(false);
   const undoing = useRef(false);
@@ -87,6 +90,7 @@ export function useReview({
       .then((session) => {
         if (!alive) return;
         setInStore(session.channel === 'in_store');
+        setSkipped(session.skipped);
         if (!pristine.current) return;
         const defaults = resolveReviewDefaults(session, loadSessionMemory(libraryId));
         setDraft((d) => ({ ...d, addTo: defaults.addTo, status: defaults.status }));
@@ -302,7 +306,18 @@ export function useReview({
     setAddTo: (locationId: string | null) => update({ addTo: locationId }),
     setStatus: (status: ReviewStatus) => update({ status }),
     override,
-    skip: (c: CandidateDto) => onRow(c.id, () => skipCandidate(requireSession(), c.id)),
+    skipped: useMemo(() => skippedRows(skipped), [skipped]),
+    skip: (c: CandidateDto) =>
+      onRow(c.id, async () => {
+        await skipCandidate(requireSession(), c.id);
+        setSkipped((rows) => [...rows.filter((r) => r.id !== c.id), { ...c, decision: 'rejected', skipReason: null }]);
+      }),
+    /** Puts a skipped row back into review: it is undecided again and shows in its normal group. */
+    putBack: (c: CandidateDto) =>
+      onRow(c.id, async () => {
+        await patchCandidate(requireSession(), c.id, { decision: 'undecided' });
+        setSkipped((rows) => rows.filter((r) => r.id !== c.id));
+      }),
     discard: (c: CandidateDto) => onRow(c.id, () => discardCandidates({ libraryId, sessionId: requireSession(), candidates: [c], tray: store })),
     setCopies: (c: CandidateDto, copies: number) => onRow(c.id, () => patchCandidate(requireSession(), c.id, { copies: Math.max(1, copies) })),
     edit: (c: CandidateDto, edits: Pick<DecideCandidateRequest, 'format' | 'platform' | 'edition'>) => onRow(c.id, () => patchCandidate(requireSession(), c.id, edits)),
