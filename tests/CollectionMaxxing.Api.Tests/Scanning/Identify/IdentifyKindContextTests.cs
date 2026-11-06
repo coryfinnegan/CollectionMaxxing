@@ -186,8 +186,9 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
         var candidates = await IdentifyPrintedAsync(
             client, sessionId, "film", [.. BookReads(2), .. FilmReads(2), Read(title: Title)]);
 
-        AlternativeYears(candidates[4]).ShouldBe([FilmYear, BookYear]);
-        InferredKind(candidates[4]).ShouldBe("film");
+        candidates.Take(2).Select(InferredKind).ShouldAllBe(kind => kind == "book", "a read that names its own kind keeps it over a split");
+        AlternativeYears(candidates[4]).ShouldBe([FilmYear, BookYear], "the kindless read is shown the print's kind first");
+        InferredKind(candidates[4]).ShouldBeNull("the kindless read names no kind of its own");
     }
 
     [Fact]
