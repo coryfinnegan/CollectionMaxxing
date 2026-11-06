@@ -228,9 +228,9 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     {
         // The text tier is eval-only since #714: on identical OCR one photo swung 40 -> 2 items, and on build 154 auto-add precision moved 66.67 -> 33.33 with the same 6 right.
         var check = EvalRegression.Check(
-            Of("fm_text.single.auto_add_precision", 66.67),
-            Of("fm_text.single.auto_add_precision", 33.33),
-            denominators: Items("fm_text.single.auto_add_precision", 18));
+            Of("fm_text.shelf.auto_add_precision", 66.67),
+            Of("fm_text.shelf.auto_add_precision", 33.33),
+            denominators: Items("fm_text.shelf.auto_add_precision", 18));
         var plain = EvalRegression.Check(Of("fm_text.shelf.top1", 60), Of("fm_text.shelf.top1", 10));
 
         check.Regressions.ShouldBeEmpty();
@@ -394,7 +394,8 @@ public sealed class NoiseAwareRegressionTests : IDisposable
     [Fact]
     public void The_slowest_the_same_build_ran_between_the_two_real_runs_is_not_a_regression()
     {
-        // Shelf, 238.041 s on 2026-10-31 and 399.449 s on 2026-11-01, the same build: 1.68 x.
+        // The widest the same build moved between the two real runs: the text tier's shelf total time, 238.041 s on 2026-10-31 and 399.449 s on
+        // 2026-11-01 (1.68 x). That total is reported, not judged, so the ratio is set here on the judged time.
         var check = EvalRegression.Check(
             Of("apple_model.shelf.time_to_first_results_p50", 238.041),
             Of("apple_model.shelf.time_to_first_results_p50", 399.449));
