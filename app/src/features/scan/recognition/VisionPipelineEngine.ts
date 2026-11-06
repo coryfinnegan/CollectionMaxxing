@@ -5,7 +5,7 @@ import { isSingleItemShot } from '../shotkind/shotKind';
 import type { CueKind } from './coverKind';
 import { coverTitleOf, type CoverTitle } from './coverTitle';
 import { creatorOf } from './creators';
-import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING, DEFAULT_MULTI_COVER_TUNING, type RecognitionSettings } from './defaults';
+import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING, DEFAULT_MULTI_COVER_TUNING, MAX_SPINE_LINES, type RecognitionSettings } from './defaults';
 import { readLines, readTiles, tilesTouching, withTiles } from './lines';
 import { multipleCovers } from './multiCover';
 import { productCodeOf } from './productCode';
@@ -137,9 +137,12 @@ export class VisionPipelineEngine implements RecognitionEngine {
       // A shelf piece is one spine, and a PlayStation spine prints its disc's code; the server settles which game the code names. A cover's code
       // is the cover cue's (coverCue.ts), which keeps it off a book or a film that the cover's own text shows the item to be.
       const productCode = cover ? undefined : productCodeOf(p.lines);
+      // A shelf spine's lines go to the server too (its line retry asks another one); a cover's leftover lines are noise, so it sends none.
+      const spineLines = cover ? [] : [...new Set(p.lines.map((l) => l.text))].slice(0, MAX_SPINE_LINES);
       return {
         localId: this.newId(),
         text: p.lines.map((l) => l.text).join(' '),
+        ...(spineLines.length > 0 ? { lines: spineLines } : {}),
         title: p.title ?? shelf?.text ?? titleLine.text,
         ...(creator ? { creator } : {}),
         ...(productCode ? { productCode } : {}),

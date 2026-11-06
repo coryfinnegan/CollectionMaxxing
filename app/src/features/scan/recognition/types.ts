@@ -25,6 +25,8 @@ export interface ReadItem {
   completeness?: ItemCompleteness;
   /** A game's product code printed on its label (`SNS-8C-USA`, `SLUS-00594`), as read from Vision's text. The server names the game from it. */
   productCode?: string;
+  /** A shelf spine's distinct lines in the spine's order (at most 12, the server's cap), so the server can ask another line of it. A cover or a model-only read has none. */
+  lines?: string[];
   /** Normalized 0..1 on the still, origin top-left. Absent when no Vision text matched. */
   box?: Rect;
   order: number;
