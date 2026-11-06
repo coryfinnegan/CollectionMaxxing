@@ -102,7 +102,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 7\u003E",
@@ -206,7 +207,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 10\u003E",
@@ -310,7 +312,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 14\u003E",
@@ -414,7 +417,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 17\u003E",
@@ -518,7 +522,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 21\u003E",
@@ -622,7 +627,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 25\u003E",
@@ -726,7 +732,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 28\u003E",
@@ -830,7 +837,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 32\u003E",
@@ -931,7 +939,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 35\u003E",
@@ -1032,7 +1041,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 39\u003E",
@@ -1133,7 +1143,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 43\u003E",
@@ -1234,7 +1245,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 46\u003E",
@@ -1335,7 +1347,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 50\u003E",
@@ -1436,7 +1449,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 54\u003E",
@@ -1537,7 +1551,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 58\u003E",
@@ -1638,7 +1653,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 62\u003E",
@@ -1735,7 +1751,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 65\u003E",
@@ -1832,7 +1849,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 69\u003E",
@@ -1929,7 +1947,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 73\u003E",
@@ -2007,7 +2026,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 76\u003E",
@@ -2104,7 +2124,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 78\u003E",
@@ -2180,7 +2201,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 82\u003E",
@@ -2256,7 +2278,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 86\u003E",
@@ -2351,7 +2374,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 90\u003E",
@@ -2442,7 +2466,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 93\u003E",
@@ -2545,7 +2570,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": null
     },
     {
       "id": "\u003Cid 95\u003E",
@@ -2585,7 +2611,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": "unfound_spine"
     },
     {
       "id": "\u003Cid 96\u003E",
@@ -2625,7 +2652,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": "unfound_spine"
     },
     {
       "id": "\u003Cid 97\u003E",
@@ -2665,7 +2693,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": "unfound_spine"
     },
     {
       "id": "\u003Cid 98\u003E",
@@ -2769,7 +2798,8 @@
       "cropUrl": null,
       "coverPick": null,
       "wishlistItemId": null,
-      "soldItemId": null
+      "soldItemId": null,
+      "skipReason": "repeat"
     }
   ]
 }
