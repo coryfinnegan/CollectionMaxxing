@@ -18,8 +18,8 @@ import { getTrayStore } from '../tray/storage';
 import { flushTray, type TrayStore } from '../tray/trayStore';
 import { lineStatus } from '../tray/tray';
 import { useAutoCommitUndoStore } from './autoCommitUndo';
-import { enterScanner, flushDeps, followSession, isScannerOpen, loadSessionSnapshot, resumeCursor } from './sessionApi';
-import { flushDiscardOutbox, getDiscardOutbox, pruneDiscarded, withoutDiscarded } from './discards';
+import { enterScanner, flushDeps, followSession, isScannerOpen, loadSessionSnapshot, mergeSnapshotIntoCards, resumeCursor } from './sessionApi';
+import { flushDiscardOutbox, getDiscardOutbox } from './discards';
 import { seedFromSnapshot } from './sessionCounters';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -171,13 +171,7 @@ export function useScanSession({
       try {
         const snapshot = await loadSessionSnapshot(sessionId);
         if (cancelled) return; // another library's scanner is open now: its cards are not this session's
-        pruneDiscarded(snapshot.candidates);
-        // Discarded and rejected candidates have no card: the snapshot confirms them, it never brings them back.
-        const kept = withoutDiscarded(snapshot.candidates);
-        useCardsStore.getState().merge(
-          kept.filter((c) => c.decision !== 'rejected'),
-          { announce: false },
-        );
+        mergeSnapshotIntoCards(snapshot.candidates);
         seedFromSnapshot(sessionId, snapshot);
         cursor = resumeCursor(snapshot.candidates);
       } catch {

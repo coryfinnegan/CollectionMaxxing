@@ -55,6 +55,19 @@ describe('scanner resume after a discard', () => {
     expect(useCardsStore.getState().byId[rejected.id]).toBeUndefined();
   });
 
+  it('takes away the card of a candidate the server skipped after it was drawn', async () => {
+    const skipped = candidate({ decision: 'rejected' });
+    const kept = candidate();
+    seed([skipped, kept]);
+    useCardsStore.getState().merge([{ ...skipped, decision: 'undecided' }], { announce: false });
+    expect(useCardsStore.getState().byId[skipped.id]).toBeDefined();
+
+    await renderWithProviders(<Harness store={resumedTray()} />);
+
+    await waitFor(() => expect(useCardsStore.getState().byId[kept.id]).toBeDefined());
+    expect(useCardsStore.getState().byId[skipped.id]).toBeUndefined();
+  });
+
   it('flushes a queued discard on start, so Review is not needed to land it', async () => {
     const tossed = candidate();
     const kept = candidate();
