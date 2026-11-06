@@ -233,8 +233,10 @@ public sealed class EvalGrounder(
     /// The kind pass of <c>/identify</c> over the photo's reads, once the series round is done (<see cref="IdentifyGrounding.RetryShotKindAsync"/>):
     /// a spine on a shelf that found another kind than the shelf's is asked again as the shelf's kind, offered and never matched. The
     /// photo's kind is what its Matched spines agree on, or the shelf's own print. The pass has the budget <c>/identify</c> gives it
-    /// (<see cref="ShotKindRule.Budget"/>, counted from when the pass starts, on the injected clock). <paramref name="kindsOfTheSnap"/> are the kinds the other engine's reads of the same snap name (the picture model's, beside Vision's): the app sends one identify per snap holding both engines' reads, so they vote on the shot's kind and are not asked and the places it has
-    /// (<see cref="ScanningOptions.Parallelism"/>), as the series round does. A pass that runs out leaves the answers as they were. The
+    /// (<see cref="ShotKindRule.Budget"/>, counted from when the pass starts, on the injected clock) and the places it has
+    /// (<see cref="ScanningOptions.Parallelism"/>), as the series round does. <paramref name="kindsOfTheSnap"/> are the kinds the other
+    /// engine's reads of the same snap name (the picture model's standing reads, beside Vision's): the app sends one identify per snap
+    /// holding both engines' reads, so they vote on the shot's kind and are never asked. A pass that runs out leaves the answers as they were. The
     /// catalogue is asked after the series round is done, so it needs no gate. The answers are the photo's own and are not remembered
     /// by the run: they depend on the other spines.
     /// </summary>

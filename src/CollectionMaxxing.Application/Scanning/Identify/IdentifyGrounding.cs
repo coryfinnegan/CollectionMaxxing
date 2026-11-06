@@ -564,10 +564,12 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// of the read's best option on the strength of its kind alone. Once the find and the read's own options are ordered, a
     /// release of the shot's kind with the same normalised title as the best option comes first whatever its score
     /// (<see cref="ShotKindRule.SameTitledOfKindFirst"/>, the 2026-11-05 decision), the other release staying in the offer.
-    /// An ask that finds nothing of the shot's kind leaves the read's answer as it was (the same object).
+    /// That reorder also runs when the ask finds nothing of the shot's kind, or the providers could not answer it: a kindless
+    /// read on a shot with a clear kind gets its same-titled release of that kind first from the options it already has.
+    /// A read that names its own kind is never reordered.
     /// </para>
     /// <para>
-    /// A pass that runs out of time, or whose ask the providers could not answer, leaves the read's answer exactly as it was, and
+    /// A pass that runs out of time leaves the read's answer exactly as it was (a failed ask still allows the reorder above), and
     /// never makes a read Pending: <see cref="ResolvePendingIdentify"/> grounds one read on its own, with no neighbours, so it could
     /// only come back as the same answer after a job and a spinner.
     /// </para>
@@ -672,7 +674,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         return kinds;
     }
 
-    /// <summary>The kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
+    /// <summary>The title and kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
     private static (string Title, WorkKind Kind)? DescribeOption(ResolutionOption option, LocalPool pool)
     {
         if (option.LocalReleaseId is { } id)
@@ -683,6 +685,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         return option.Provider is { } provider ? (provider.Title, provider.Kind) : null;
     }
 
+    /// <summary>The kind of an option an ask found: the provider's own, or the catalogue's from the pool the ask was scored against.</summary>
     private static WorkKind? KindOf(ResolutionOption option, LocalPool pool) =>
         option.LocalReleaseId is { } id
             ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => (WorkKind?)item.Scoring.Kind).FirstOrDefault()

@@ -619,6 +619,23 @@ public class IdentifyGroundingShotKindTests
         answers[4].ShouldBeSameAs(original);
     }
 
+    [Fact]
+    public async Task A_read_that_names_its_own_kind_keeps_its_options_in_their_order_on_a_shelf_of_books()
+    {
+        var grounding = Grounding([EmergencyContactBooks(), new OfKind(WorkKind.Film)]);
+        var asks = new Asks();
+        var film = Answer(
+            ResolutionVerdict.Ambiguous,
+            Option(Release("Emergency Contact", WorkKind.Film, "f1"), 0.9),
+            Option(Release("Emergency Contact", WorkKind.Book, "b1"), 0.6));
+        var read = Retry(grounding, asks, Vision("Emergency Contact") with { Kind = WorkKind.Film }, film);
+
+        var answers = await RetryAsync(grounding, null, Shelf(grounding, asks, read));
+
+        answers[3].ShouldBeSameAs(film);
+        asks.Facts.ShouldBeEmpty();
+    }
+
     private static LocalHit LocalFilm(string title)
     {
         var work = new Work { Id = Guid.NewGuid(), Kind = WorkKind.Film, Title = title, NormalizedTitle = TitleNormalizer.Normalize(title), CreatorsJson = "[]" };

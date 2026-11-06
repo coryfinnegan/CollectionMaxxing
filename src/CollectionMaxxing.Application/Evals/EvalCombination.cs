@@ -143,7 +143,7 @@ public static class EvalCombination
 
         // The shelf's own print: every word of every line Vision read on the shot. A run from before the phone sent its lines, or a shelf
         // Vision read no text on, has no print to check against, so every model read stands, as it did before.
-        var printed = both && vision.OcrLines is { Count: > 0 } lines ? PrintSupport.PrintedWords(lines.Select(line => line.Text)) : null;
+        var printed = both ? PrintedOf(vision) : null;
         var shown = both ? Settled(WithKindsLent(vision.Items, modelItems, EnumText.ParseOrNull<WorkKind>(vision.PrintKind)), modelItems, printed) : null;
         return apple with
         {
@@ -248,6 +248,30 @@ public static class EvalCombination
         : apple.FirstItemMs is { } modelFirst ? vision.LatencyMs + modelFirst
         : null;
 
+    /// <summary>The shelf's own print: every word of every line Vision read on the shot; null when it sent no lines, so there is none to check against.</summary>
+    private static IReadOnlySet<string>? PrintedOf(GroundedPhoto vision) =>
+        vision.OcrLines is { Count: > 0 } lines ? PrintSupport.PrintedWords(lines.Select(line => line.Text)) : null;
+
+    /// <summary>
+    /// The model's reads that stand beside Vision's: the ones the app would send. A read that is the same release as a Vision read
+    /// with no place to tell them apart is dropped; a model-only read stands only when the shelf's print backs its title
+    /// (<see cref="PrintSupport.Supports"/>), as the app adds it only then. With no <paramref name="printed"/>, every other read stands.
+    /// </summary>
+    private static List<GroundedItem> StandingModelReads(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model, IReadOnlySet<string>? printed) => model
+        .Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem)))
+        .Where(read => printed is null || vision.Any(visionItem => SameItem(read, visionItem)) || PrintSupport.Supports(read.ReadTitle, printed))
+        .ToList();
+
+    /// <summary>
+    /// The kinds the model reads that stand beside Vision's name (<see cref="StandingModelReads"/>): the only model reads the app
+    /// sends to <c>/identify</c> with the snap, so the only ones that vote on the shot's kind. A read the shelf's print does not
+    /// back, or one that repeats a Vision read, is never sent and so never votes. Reads that name no kind are left out.
+    /// </summary>
+    public static IReadOnlyList<WorkKind?> StandingModelKinds(GroundedPhoto vision, GroundedPhoto apple) =>
+        [.. StandingModelReads([.. vision.Items], apple.Items, PrintedOf(vision))
+            .Select(read => EnumText.ParseOrNull<WorkKind>(read.Read?.Kind))
+            .Where(kind => kind is not null)];
+
     /// <summary>
     /// The shelf's items: every read of the picture, one per place. A model read with no box to be told apart by is the Vision
     /// read it names the same release as, read again, so it is dropped as it was before boxes; every other model read is a read
@@ -264,10 +288,7 @@ public static class EvalCombination
     /// </summary>
     private static Shown Settled(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model, IReadOnlySet<string>? printed)
     {
-        var modelReads = model
-            .Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem)))
-            .Where(read => printed is null || vision.Any(visionItem => SameItem(read, visionItem)) || PrintSupport.Supports(read.ReadTitle, printed))
-            .ToList();
+        var modelReads = StandingModelReads(vision, model, printed);
         var reads = new List<GroundedItem>(vision.Count + modelReads.Count);
         reads.AddRange(vision);
         reads.AddRange(modelReads.Select(read => read with { Unconfirmed = true }));
