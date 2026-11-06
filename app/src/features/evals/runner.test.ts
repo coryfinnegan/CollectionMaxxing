@@ -1633,6 +1633,25 @@ describe('the eval runner', () => {
       expect(kit.runner.getState()).toMatchObject({ phase: 'scoring', partial: true });
     });
 
+    it('keeps a shelf photo whose model read, the last step, was stopped: both rows, and no probes', async () => {
+      let stopped = false;
+      const kit: ReturnType<typeof makeKit> = makeKit({
+        photos: 1,
+        onRead: () => {
+          if (!stopped) {
+            stopped = true;
+            kit.runner.stop();
+          }
+        },
+      });
+      await kit.runner.start();
+
+      expect(sentIds()).toEqual(['photo-001']);
+      expect(results().map((r) => r.engine)).toEqual(['apple_model', 'vision_pipeline']);
+      expect(results().some((r) => 'ocrProbes' in r)).toBe(false);
+      expect(evalsMock.finishes).toEqual([{ partial: true }]);
+    });
+
     it('remembers that the owner stopped it, and that a run that was not stopped was not', async () => {
       let stopped = false;
       const kit: ReturnType<typeof makeKit> = makeKit({

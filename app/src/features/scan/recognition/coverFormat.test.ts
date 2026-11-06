@@ -87,6 +87,17 @@ describe('coverFormat: the logo on the case', () => {
   });
 });
 
+describe('coverFormat: HOME VIDEO is no format logo (#726)', () => {
+  // A shelf reads these phrases as film print, but a single cover that prints one is not a VHS: DVDs print Home Video too.
+  it.each([['HOME VIDEO'], ['Home Video'], ['HOMEVIDEO'], ['HOME ENTERTAINMENT'], ['HOME ENTERTAINMENT PRESENTS']])('gives a cover that prints only %s no format', (text) => {
+    expect(cueOf([], [text])).toBeUndefined();
+  });
+
+  it('still gives the format of a logo printed beside HOME VIDEO', () => {
+    expect(cueOf([], ['HOME VIDEO', 'VHS'])?.format).toBe('vhs');
+  });
+});
+
 describe('coverFormat: the shape of the case', () => {
   it.each([
     [0.55, 'vhs'], // slipcase

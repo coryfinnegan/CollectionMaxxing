@@ -88,7 +88,7 @@ export interface EvalRunnerDeps {
   config: { refresh(): Promise<unknown>; current(): RecognitionSettings };
   vision: {
     deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string; buildNumber?: string }>;
-    /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the three rows are read. */
+    /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the rows are read. */
     recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
   };
   device: { model: string; appVersion: string };
@@ -220,7 +220,7 @@ export const MAX_PROBE_MS = 3_600_000;
 type OcrProbe = NonNullable<EvalPhotoResult['ocrProbes']>[number];
 
 /**
- * The extra reads of a shelf picture, none of them the scanner's own. They are read once, after the three timed rows, and only the record reads them:
+ * The extra reads of a shelf picture, none of them the scanner's own. They are read once, after the timed rows, and only the record reads them:
  * the PC keeps them so an OCR setting can be tried on real pictures later without the phone, and never scores them.
  */
 export const OCR_PROBES: readonly { name: string; options: RecognizeTextOptions }[] = [
@@ -619,7 +619,7 @@ export class EvalRunner {
   }
 
   /**
-   * Reads one photo with all three engines and keeps its readings to send. If the app went to the background while it was being read, nothing is
+   * Reads one photo with both engines and keeps its readings to send. If the app went to the background while it was being read, nothing is
    * kept: a read that was cut short must never be recorded as an engine error or a timeout, so the photo is read again from the start.
    */
   private async readPhoto(photo: EvalRunPhoto): Promise<void> {

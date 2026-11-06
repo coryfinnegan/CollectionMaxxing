@@ -1,4 +1,4 @@
-// Owner-only dev screen: run the golden photos through all three engines on this iPhone and see the PC's gate table when it is done.
+// Owner-only dev screen: run the golden photos through both engines on this iPhone and see the PC's gate table when it is done.
 // The run lives on the PC. Each photo goes up as soon as it is read, so the owner can leave the screen or the app and pick up where it stopped.
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
