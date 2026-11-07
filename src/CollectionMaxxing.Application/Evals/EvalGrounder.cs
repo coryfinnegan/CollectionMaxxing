@@ -74,7 +74,7 @@ public sealed class EvalGrounder(
         // Cleaning also tells each kindless read what kind the photo is of (KindContext): what the shelf's own print said when no read
         // names that kind, else what the rest of the photo's reads agreed on, else the print over a split, the one rule /identify applies. The memo below keys on
         // the read with it, so a lookup made under another photo's kind is never reused.
-        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials, printKind: printKind);
+        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials, printKind: printKind, snapKinds: kindsOfTheSnap);
         var remembered = await memo.GroundManyAsync(
             [.. cleaned.Select(c => (c.Facts, c.Profile))], claims => GroundClaimsAsync(claims, cancellationToken), cancellationToken);
 

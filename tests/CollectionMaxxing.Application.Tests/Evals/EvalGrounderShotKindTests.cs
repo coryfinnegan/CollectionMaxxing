@@ -296,4 +296,88 @@ public class EvalGrounderShotKindTests
 
         await Should.ThrowAsync<OperationCanceledException>(() => grounding.WaitAsync(Patience));
     }
+
+    // ---- the model's reads of the same snap decide the snap's kind in the Vision row, as on /identify ----------------------
+
+    private static WorkKind?[] Kinds(WorkKind kind, int count) => [.. Enumerable.Repeat<WorkKind?>(kind, count)];
+
+    private static EvalReadItemInput KindedSpine(string title, WorkKind kind) => new(
+        new IdentifyItemInput(null, null, title, title, null, null, null, kind, null, null, null, null), null);
+
+    private static Task<GroundedShot> GroundWithSnapKindsAsync(
+        EvalGrounder grounder, WorkKind? printKind, WorkKind?[]? kindsOfTheSnap, params EvalReadItemInput[] reads) =>
+        grounder.GroundWithSkipsAsync(ScanEngine.VisionPipeline, reads, new EvalGroundingMemo(), printKind, CancellationToken.None, kindsOfTheSnap).WaitAsync(Patience);
+
+    [Fact]
+    public async Task The_eval_Vision_row_is_cleaned_with_the_model_kinds_of_the_snap_as_identify_cleans_it()
+    {
+        var (books, films) = TiedProviders();
+        var withModel = await GroundWithSnapKindsAsync(Grounder(books, films), null, Kinds(WorkKind.Film, 4), Spine("Quiet Harbor Atlas"));
+        var (booksAlone, filmsAlone) = TiedProviders();
+        var alone = await GroundWithSnapKindsAsync(Grounder(booksAlone, filmsAlone), null, null, Spine("Quiet Harbor Atlas"));
+
+        withModel.Items[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "book"]); // the snap is of films, so the film comes first
+        alone.Items[0].Candidates.Select(c => c.Kind).ShouldBe(["book", "film"]); // without the model kinds the snap has none
+    }
+
+    /// <summary>The same title as a book and as a film, tied: only the snap kind tells which comes first.</summary>
+    private static (OfKind Books, OfKind Films) TiedProviders() => (
+        new OfKind(WorkKind.Book).Know("Quiet Harbor Atlas", false, Release("Quiet Harbor Atlas", WorkKind.Book, "tb1") with { Year = 2001 }),
+        new OfKind(WorkKind.Film).Know("Quiet Harbor Atlas", false, Release("Quiet Harbor Atlas", WorkKind.Film, "tf1") with { Year = 2002 }));
+
+    [Fact]
+    public async Task A_model_kind_of_the_snap_silences_a_print_of_its_family_in_the_eval_Vision_row_as_on_identify()
+    {
+        string[] titles = ["A COURT OF MIST AND FURY", "A COURT OF WINGS AND RUIN", "ASSASSINS APPRENTICE"];
+        var reads = titles.Select(t => KindedSpine(t, WorkKind.Book)).ToArray();
+
+        var (books, films) = Providers();
+        await GroundWithSnapKindsAsync(Grounder(books, films), WorkKind.Film, [WorkKind.Film, WorkKind.Book, WorkKind.Book], reads);
+        var (booksPrinted, filmsPrinted) = Providers();
+        await GroundWithSnapKindsAsync(Grounder(booksPrinted, filmsPrinted), WorkKind.Film, null, reads);
+
+        // The model named film, so the print has nothing to add and the books keep their kind.
+        books.Asked.ShouldContain(ask => ask.Kind == WorkKind.Book);
+        films.Asked.ShouldBeEmpty();
+        // With no model reads the print of film speaks and takes the kind off the books (the unchanged behaviour).
+        filmsPrinted.Asked.ShouldNotBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_model_majority_of_another_kind_takes_no_kind_off_a_Vision_read()
+    {
+        string[] titles = ["A COURT OF MIST AND FURY", "A COURT OF WINGS AND RUIN", "ASSASSINS APPRENTICE"];
+        var reads = titles.Select(t => KindedSpine(t, WorkKind.Book)).ToArray();
+
+        var (books, films) = Providers();
+        await GroundWithSnapKindsAsync(Grounder(books, films), WorkKind.Film, [WorkKind.Film, WorkKind.Film, WorkKind.Film, WorkKind.Book], reads);
+
+        books.Asked.ShouldContain(ask => ask.Kind == WorkKind.Book);
+        films.Asked.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_model_read_of_the_prints_family_lets_the_models_majority_name_a_kindless_Vision_reads_snap_kind()
+    {
+        var (books, films) = TiedProviders();
+        var withModel = await GroundWithSnapKindsAsync(
+            Grounder(books, films), WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film], Spine("Quiet Harbor Atlas"));
+        var (booksAlone, filmsAlone) = TiedProviders();
+        var printAlone = await GroundWithSnapKindsAsync(Grounder(booksAlone, filmsAlone), WorkKind.Film, null, Spine("Quiet Harbor Atlas"));
+
+        withModel.Items[0].Candidates.Select(c => c.Kind).ShouldBe(["book", "film"]); // the model named film, so the print is silent
+        printAlone.Items[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "book"]); // with no model reads the print speaks
+    }
+
+    [Fact]
+    public async Task Clean_with_no_snap_kinds_behaves_as_before()
+    {
+        var (books, films) = Providers();
+        await GroundWithSnapKindsAsync(Grounder(books, films), null, [], Spine("cnoi Emergency Contact o"));
+        var (booksNull, filmsNull) = Providers();
+        await GroundWithSnapKindsAsync(Grounder(booksNull, filmsNull), null, null, Spine("cnoi Emergency Contact o"));
+
+        films.Asked.ShouldBe(filmsNull.Asked);
+        books.Asked.ShouldBe(booksNull.Asked);
+    }
 }
