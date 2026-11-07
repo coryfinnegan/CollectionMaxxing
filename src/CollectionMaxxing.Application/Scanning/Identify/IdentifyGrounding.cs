@@ -345,7 +345,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
     }
 
-    /// <summary>Whether a release a line found is kept: a creator of its best release is printed on the spine (<see cref="SpineLines.KeepsFind"/>).</summary>
+    /// <summary>Whether a release a line found is kept: a creator of its best release is printed on the spine, or it has none and the line holds its title (<see cref="SpineLines.KeepsFind"/>).</summary>
     private static bool KeepsLine(ReadFacts facts, string line, BarcodeResolution found, LocalPool pool)
     {
         if (found.Options.Count == 0)
@@ -354,7 +354,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         var best = found.Options[0]; // best first
-        return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), CreatorsOf(best, pool));
+        var titleTerm = best.Terms.FirstOrDefault(term => term.Name == "title")?.Value ?? 0;
+        return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), CreatorsOf(best, pool), titleTerm);
     }
 
     /// <summary>The creators of an answer's best release, when it has one; none otherwise.</summary>

@@ -74,9 +74,12 @@ public class IdentifyGroundingLineRetryTests
     }
 
     [Fact]
-    public async Task A_lines_find_with_no_known_author_is_not_kept()
+    public async Task A_lines_find_with_no_known_author_is_not_kept_unless_the_line_holds_its_title()
     {
-        var catalogue = new Catalogue(Book("Copper Lantern"));
+        var catalogue = new Catalogue(Book("Copper Lantern Tales From The Far Harbor Lights"))
+        {
+            Finds = (_, search) => search.NormalizedTitle == "copper lantern",
+        };
 
         var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"]));
 
@@ -257,11 +260,11 @@ public class IdentifyGroundingLineRetryTests
     private static readonly string[] CopperLines = ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"];
 
     [Fact]
-    public async Task A_spines_line_is_judged_by_the_release_whose_author_the_spine_prints_not_by_a_same_titled_release_with_no_author()
+    public async Task A_spines_line_is_judged_by_the_release_whose_author_the_spine_prints_not_by_a_same_titled_release_of_another_author()
     {
         var other = BookBy("Copper Lantern", "Mara Quillon");
         var real = BookBy("Copper Lantern", "Tess Harrowgate");
-        var catalogue = new Catalogue(Film("Copper Lantern"), other, real);
+        var catalogue = new Catalogue(other, real);
 
         var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", CopperLines, creator: "Iron Fox"));
 
@@ -309,6 +312,63 @@ public class IdentifyGroundingLineRetryTests
         SpineLines.PrintedCreator(named, "TESS HARROWGATE", found[2..3]).ShouldBeNull();
     }
 
+    // ---- a release with no creators (a film, a show) is vouched for by the line holding its title ----------------------------------
+
+    private static readonly string[] FilmLines = ["XQZV WRTK", "COPPER LANTERN", "IRON FOX"];
+
+    [Fact]
+    public async Task A_spine_line_that_finds_a_film_with_no_creators_is_kept_when_the_line_holds_the_films_title()
+    {
+        var film = Film("Copper Lantern");
+        var catalogue = new Catalogue(film);
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", FilmLines));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous); // offered, never matched
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Options[0].LocalReleaseId.ShouldBe(film.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "line" && s.Outcome.StartsWith("COPPER LANTERN", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_one_word_line_that_finds_a_creatorless_release_is_still_not_kept()
+    {
+        var catalogue = new Catalogue(Film("Lantern"));
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "LANTERN", "IRON FOX"]));
+
+        catalogue.Lookups.ShouldContain("lantern"); // it was asked
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_creatorless_release_that_the_line_matches_only_loosely_is_not_kept()
+    {
+        var catalogue = new Catalogue(Film("Copper Lantern Tales From The Far Harbor Lights"))
+        {
+            Finds = (_, search) => search.NormalizedTitle == "copper lantern",
+        };
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", FilmLines));
+
+        catalogue.Lookups.ShouldContain("copper lantern");
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public void A_creatorless_find_is_kept_only_for_two_or_more_title_words_and_a_title_term_of_at_least_three_quarters()
+    {
+        var facts = Spine("XQZV WRTK", FilmLines);
+
+        SpineLines.KeepsFind(facts, "COPPER LANTERN", "Copper Lantern", [], bestTitleTerm: 0.75).ShouldBeTrue();
+        SpineLines.KeepsFind(facts, "COPPER LANTERN", "Copper Lantern", [], bestTitleTerm: 0.74).ShouldBeFalse();
+        SpineLines.KeepsFind(facts, "COPPER LANTERN", "Copper Lantern", []).ShouldBeFalse("no title term given");
+        SpineLines.KeepsFind(facts, "LANTERN", "Lantern", [], bestTitleTerm: 1.0).ShouldBeFalse("one word");
+        SpineLines.KeepsFind(facts, "THE LANTERN", "The Lantern", [], bestTitleTerm: 1.0).ShouldBeFalse("a stop word is not a title word");
+    }
+
     // ---- C runs after every line has been asked ----------------------------------------------------------------------------------
 
     private static readonly string[] SagaLines = ["XQZV WRTK", "COPPER LANTERN SAGA", "TESS HARROWGATE", "IRON FOX"];
@@ -318,7 +378,7 @@ public class IdentifyGroundingLineRetryTests
     {
         var series = BookBy("Copper Lantern Saga", "Tess Harrowgate");
         var title = BookBy("Iron Fox", "Tess Harrowgate");
-        var catalogue = new Catalogue(Film("Copper Lantern Saga"), series, title);
+        var catalogue = new Catalogue(BookBy("Copper Lantern Saga", "Mara Quillon"), series, title);
 
         var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", SagaLines, creator: "Mara Quillon"));
 
@@ -332,7 +392,7 @@ public class IdentifyGroundingLineRetryTests
     {
         var weaker = BookBy("Copper Lantern Sagas", "Tess Harrowgate");
         var stronger = BookBy("Iron Fox Gate", "Tess Harrowgate");
-        var catalogue = new Catalogue(Film("Copper Lantern Saga"), Film("Iron Fox Gate"), weaker, stronger)
+        var catalogue = new Catalogue(BookBy("Copper Lantern Saga", "Mara Quillon"), BookBy("Iron Fox Gate", "Mara Quillon"), weaker, stronger)
         {
             Finds = (book, search) => search.NormalizedTitle switch
             {
@@ -352,7 +412,7 @@ public class IdentifyGroundingLineRetryTests
     [Fact]
     public async Task A_spine_whose_budget_runs_out_before_every_line_is_asked_is_pending_not_judged_by_the_lines_it_did_ask()
     {
-        var catalogue = new Catalogue(Film("Copper Lantern Saga"), BookBy("Copper Lantern Saga", "Tess Harrowgate"));
+        var catalogue = new Catalogue(BookBy("Copper Lantern Saga", "Mara Quillon"), BookBy("Copper Lantern Saga", "Tess Harrowgate"));
         var grounding = Grounding(catalogue);
         var facts = Spine("XQZV WRTK", SagaLines, creator: "Mara Quillon");
         var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
@@ -380,14 +440,14 @@ public class IdentifyGroundingLineRetryTests
         var answers = await grounding.RetryTrimmedAsync(
             [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, ask =>
             {
-                // The author's name line is asked first and its provider fails; the title line is answered, by a creatorless release among others.
+                // The author's name line is asked first and its provider fails; the title line is answered, by releases of other authors.
                 if (ask.Title != "COPPER LANTERN")
                 {
                     return Task.FromResult(new ProviderAnswers([], [], true));
                 }
 
                 return Task.FromResult(new ProviderAnswers(
-                    [Known("Copper Lantern", "b1"), Known("Copper Lantern", "b2") with { Creators = ["Mara Quillon"] }, Known("Copper Lantern", "b3") with { Creators = ["Tess Harrowgate"] }],
+                    [Known("Copper Lantern", "b2") with { Creators = ["Mara Quillon"] }, Known("Copper Lantern", "b3") with { Creators = ["Tess Harrowgate"] }],
                     [],
                     false));
             }, budget.Token)],
@@ -397,18 +457,20 @@ public class IdentifyGroundingLineRetryTests
     }
 
     [Fact]
-    public async Task A_creatorless_release_titled_exactly_like_the_line_is_not_kept_by_the_printed_author_re_score()
+    public async Task A_creatorless_release_titled_exactly_like_the_line_stays_on_top_of_the_printed_authors_other_book()
     {
-        // Scored with the printed author the film still tops the answer (its title is the line's); the author's other book does not take its place.
-        var catalogue = new Catalogue(Film("Copper Lantern"), BookBy("Copper Harbor Lantern Light", "Tess Harrowgate"))
+        // The film is kept as the line's own find (its title is the line's); the printed author's other book does not take its place.
+        var film = Film("Copper Lantern");
+        var catalogue = new Catalogue(film, BookBy("Copper Harbor Lantern Light", "Tess Harrowgate"))
         {
             Finds = (_, search) => search.NormalizedTitle == "copper lantern",
         };
 
         var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", CopperLines, creator: "Iron Fox"));
 
-        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
-        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answer.Options[0].LocalReleaseId.ShouldBe(film.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "line");
     }
 
     // ---- the same, from the providers' answers (the shape of a real shelf: no catalogue hit) ---------------------------------------
@@ -417,7 +479,6 @@ public class IdentifyGroundingLineRetryTests
     public async Task A_line_is_judged_by_the_author_its_spine_prints_among_the_providers_answers_too()
     {
         var providers = new Providers(false,
-            Known("Copper Lantern", "b1"),
             Known("Copper Lantern", "b2") with { Creators = ["Mara Quillon"] },
             Known("Copper Lantern", "b3") with { Creators = ["Tess Harrowgate"] });
 
