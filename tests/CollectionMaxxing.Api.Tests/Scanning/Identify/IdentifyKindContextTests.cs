@@ -176,6 +176,23 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_tape_shelf_whose_model_reads_split_between_book_and_film_is_grounded_as_films_when_its_print_says_film()
+    {
+        // Two books and two films: no clear majority, so the reads alone give the title-only read no kind and the book sorts first.
+        // The print of film breaks the tie the reads could not.
+        ArrangeTiedBookAndFilm();
+        var (client, sessionId) = await StartAsync();
+
+        var candidates = await IdentifyPrintedAsync(
+            client, sessionId, "film", [.. BookReads(2), .. FilmReads(2), Read(title: Title)]);
+
+        candidates.Take(2).Select(InferredKind).ShouldAllBe(kind => kind == "book", "a read that names its own kind keeps it over a split");
+        AlternativeYears(candidates[4]).ShouldBe([FilmYear, BookYear], "the kindless read is shown the print's kind first");
+        InferredKind(candidates[4]).ShouldBeNull("the kindless read names no kind of its own");
+        candidates[4].GetProperty("inferred").GetProperty("snapKind").GetString().ShouldBe("film", "the print names the snap's kind over the split");
+    }
+
+    [Fact]
     public async Task A_read_the_print_agrees_with_keeps_its_own_kind()
     {
         ArrangeTiedBookAndFilm();
@@ -271,6 +288,35 @@ public class IdentifyKindContextTests(ApiFixture api) : IdentifyTest(api)
         var resolved = (await GetSessionAsync(client, sessionId)).GetProperty("candidates");
         Resolution(resolved[0]).ShouldBe("ambiguous");
         AlternativeYears(resolved[0]).ShouldBe([FilmYear, BookYear]);
+    }
+
+    [Fact]
+    public async Task A_read_the_job_resolves_later_on_a_split_shelf_sees_the_kind_the_shelf_printed()
+    {
+        // The pending job cannot make the kind pass, so only the kind stamped on the read at request time can put the film first.
+        Options.ResolveBudget = TimeSpan.FromMilliseconds(300);
+        ArrangeTiedBookAndFilm();
+        var slow = true;
+        Games.Behaviour = async ct =>
+        {
+            if (slow)
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+        };
+        var (client, sessionId) = await StartAsync();
+        var pending = await IdentifyPrintedAsync(client, sessionId, "film", [.. BookReads(2), .. FilmReads(2), Read(title: Title)]);
+        pending.ShouldAllBe(c => Resolution(c) == "pending");
+
+        slow = false;
+        for (var i = 0; i < pending.Count; i++)
+        {
+            await RunNextJobAsync();
+        }
+
+        var resolved = (await GetSessionAsync(client, sessionId)).GetProperty("candidates");
+        Resolution(resolved[4]).ShouldBe("ambiguous");
+        AlternativeYears(resolved[4]).ShouldBe([FilmYear, BookYear]);
     }
 
     [Fact]

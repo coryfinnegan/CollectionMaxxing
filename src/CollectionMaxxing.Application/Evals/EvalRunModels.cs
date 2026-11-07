@@ -143,6 +143,8 @@ public sealed record GroundedRead(
 /// review (T2 at most), so the scorer counts it as review, never an auto-add, whatever <c>Tier</c> the phone claimed.
 /// <c>Skipped</c> marks a read <c>/identify</c> skips rather than shows (a fragment, or a shelf spine the catalogue found nothing
 /// for): it is kept on <see cref="GroundedPhoto.SkippedItems"/>, never in <see cref="GroundedPhoto.Items"/>, and nothing scores it.
+/// <c>FoundByLine</c> marks a read whose answer another line of its spine found (<see cref="SpineLines"/>): it is offered for review and changes no other read, so
+/// it contends for its place as a read that found nothing and confirms no other engine's read of it. Written only when true.
 /// </summary>
 public sealed record GroundedItem(
     string? ReadTitle,
@@ -157,7 +159,8 @@ public sealed record GroundedItem(
     GroundedRead? Read = null,
     ReadBox? Box = null,
     bool Unconfirmed = false,
-    bool Skipped = false)
+    bool Skipped = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool FoundByLine = false)
 {
     /// <summary>The best release, or null when there is none.</summary>
     [JsonIgnore]

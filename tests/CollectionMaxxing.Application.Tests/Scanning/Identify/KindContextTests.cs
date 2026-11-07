@@ -117,7 +117,6 @@ public class KindContextTests
     {
         // One film read among four books: the engines tell films apart on this shelf, so the print has nothing to add.
         KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBe(WorkKind.Book);
-        KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBeNull();
         KindContext.Of(WorkKind.Film, [WorkKind.Film, WorkKind.Film, WorkKind.Film]).ShouldBe(WorkKind.Film);
     }
 
@@ -144,6 +143,39 @@ public class KindContextTests
         KindContext.PrintThatSpeaks(WorkKind.Film, []).ShouldBe(WorkKind.Film);
         KindContext.PrintThatSpeaks(WorkKind.Other, [WorkKind.Book]).ShouldBeNull();
         KindContext.PrintThatSpeaks(null, [WorkKind.Book]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void The_print_never_speaks_while_a_read_names_its_kind_even_over_a_split()
+    {
+        // The print speaks only when no read names its kind, because speaking also takes the denied kind off the other reads.
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Film, WorkKind.Book, WorkKind.Book, WorkKind.Game]).ShouldBeNull();
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBeNull();
+        KindContext.PrintThatSpeaks(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Game, null]).ShouldBe(WorkKind.Film);
+    }
+
+    [Fact]
+    public void The_snaps_kind_is_the_print_when_the_reads_that_name_a_kind_split_with_no_majority_and_one_names_it()
+    {
+        // vhs-dvd-shelf-01: film 1, book 2, game 1 gives Dominant no kind, so the print breaks the tie the reads could not.
+        KindContext.Of(WorkKind.Film, [WorkKind.Film, WorkKind.Book, WorkKind.Book, WorkKind.Game]).ShouldBe(WorkKind.Film);
+        KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBe(WorkKind.Film);
+        KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Tv]).ShouldBe(WorkKind.Film);
+        KindContext.Of(WorkKind.Tv, [WorkKind.Book, WorkKind.Tv]).ShouldBe(WorkKind.Film); // a family is reported as film, as when the print speaks
+    }
+
+    [Fact]
+    public void The_snaps_kind_is_the_majority_when_the_reads_agree_on_another_kind_or_on_the_prints()
+    {
+        KindContext.Of(WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film]).ShouldBe(WorkKind.Book);
+        KindContext.Of(WorkKind.Film, [WorkKind.Film, WorkKind.Film, WorkKind.Film, WorkKind.Book]).ShouldBe(WorkKind.Film);
+    }
+
+    [Fact]
+    public void A_split_with_no_real_print_stays_without_a_kind()
+    {
+        KindContext.Of(WorkKind.Other, [WorkKind.Book, WorkKind.Book, WorkKind.Film, WorkKind.Film]).ShouldBeNull();
+        KindContext.Of(null, [WorkKind.Book, WorkKind.Book, WorkKind.Film, WorkKind.Film]).ShouldBeNull();
     }
 
     [Fact]

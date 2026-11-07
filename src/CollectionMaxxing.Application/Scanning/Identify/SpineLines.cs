@@ -103,7 +103,7 @@ public static class SpineLines
     }
 
     /// <summary>
-    /// Whether what a line found is kept: the best release has a creator whose every word is printed on the spine's piece
+    /// Whether what a line found is kept: the best release has a creator whose every word is printed on the spine's other lines
     /// (<see cref="PrintSupport.PrintsAll"/>), and the line is not that creator's name (a book titled with its author's name,
     /// <see cref="FragmentReads.NamesItsOwnCreator"/>, is the fragment this retry exists to get past).
     /// </summary>
@@ -116,7 +116,19 @@ public static class SpineLines
             return false;
         }
 
-        var printed = PrintSupport.PrintedWords(facts.LineList);
+        // The witness is the rest of the spine: the line that was asked is the find's own words, and a name line vouches for nothing.
+        var printed = PrintSupport.PrintedWords(facts.LineList.Where(other => !string.Equals(other, line, StringComparison.OrdinalIgnoreCase)));
         return bestCreators.Any(creator => PrintSupport.PrintsAll(creator, printed));
+    }
+
+    /// <summary>
+    /// Whether an answer is a find of the line retry. Such an answer is offered for review and changes nothing but its own read: it
+    /// contends for its place as a read that found nothing (<see cref="ReadPlaces.Of"/>) and lends no series to its neighbours
+    /// (<see cref="SeriesNeighbour.Of"/>), so a right row of another engine, or a neighbour that was not going to be skipped, is never touched by it.
+    /// </summary>
+    public static bool FoundBy(BarcodeResolution answer)
+    {
+        ArgumentNullException.ThrowIfNull(answer);
+        return answer.FoundByTrimmedSpan && answer.Steps.Any(step => step.Provider == StepName);
     }
 }

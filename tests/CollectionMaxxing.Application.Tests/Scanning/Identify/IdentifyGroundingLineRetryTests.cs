@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Domain.Catalog;
@@ -181,5 +182,65 @@ public class IdentifyGroundingLineRetryTests
         a.ShouldBe(b);
         a.GetHashCode().ShouldBe(b.GetHashCode());
         a.ShouldNotBe(c);
+    }
+
+    [Fact]
+    public async Task A_name_line_the_phone_did_not_send_as_the_creator_is_not_its_own_authors_witness()
+    {
+        // No creator was sent, so the name line is asked; it finds a book by that name, and the only print of the name is the line itself.
+        var catalogue = new Catalogue(BookBy("Tess Harrowgate Stories", "Tess Harrowgate"))
+        {
+            Finds = (book, search) => book.Work.NormalizedTitle.StartsWith(search.NormalizedTitle, StringComparison.Ordinal),
+        };
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", ["XQZV WRTK", "TESS HARROWGATE"]));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    // ---- the line asks share the read's budget: the Pending rules of the spans ------------------------------------------------
+
+    private static readonly string[] BudgetLines = ["XQZV WRTK", "FOXTROT GOLF HOTEL", "CHARLIE DELTA", "INDIA JULIET"];
+
+    private static async Task<(BarcodeResolution Retried, Catalogue Catalogue)> RetryAsync(
+        Func<CancellationTokenSource, Task<ProviderAnswers>> ask, bool budgetSpentAlready)
+    {
+        var catalogue = new Catalogue();
+        var grounding = Grounding(catalogue);
+        var facts = Spine("XQZV WRTK", BudgetLines);
+        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
+        using var budget = new CancellationTokenSource();
+        if (budgetSpentAlready)
+        {
+            await budget.CancelAsync();
+        }
+
+        var answers = await grounding.RetryTrimmedAsync(
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, _ => ask(budget), budget.Token)], CancellationToken.None);
+        return (answers.Single(), catalogue);
+    }
+
+    [Fact]
+    public async Task A_spine_whose_budget_was_spent_before_any_line_was_asked_goes_pending()
+    {
+        var (retried, catalogue) = await RetryAsync(_ => Task.FromResult(ProviderAnswers.None), budgetSpentAlready: true);
+
+        retried.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        retried.Steps.ShouldContain(new TraceStep("trimmed", "cut_short", 0));
+        catalogue.Lookups.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_budget_that_runs_out_after_the_first_line_leaves_the_other_lines_unasked_and_the_spine_pending()
+    {
+        var (retried, catalogue) = await RetryAsync(async budget =>
+        {
+            await budget.CancelAsync(); // the first line's ask finished, but the time is gone before the next can be asked
+            return ProviderAnswers.None;
+        }, budgetSpentAlready: false);
+
+        retried.Verdict.ShouldBe(ResolutionVerdict.Pending);
+        catalogue.Lookups.ShouldBe(["foxtrot golf hotel"]);
     }
 }
