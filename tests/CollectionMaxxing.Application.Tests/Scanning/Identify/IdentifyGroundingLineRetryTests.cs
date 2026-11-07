@@ -302,6 +302,11 @@ public class IdentifyGroundingLineRetryTests
         SpineLines.PrintedCreator(facts, "COPPER LANTERN", found).ShouldBe("Tess Harrowgate");
         SpineLines.PrintedCreator(facts, "TESS HARROWGATE", found).ShouldBeNull("the line is the only print of that name");
         SpineLines.PrintedCreator(facts, "COPPER LANTERN", found[..2]).ShouldBeNull();
+
+
+        // The name is printed on another line too, but a release titled with the author's own name is the fragment this retry gets past.
+        var named = Spine("XQZV WRTK", ["XQZV WRTK", "TESS HARROWGATE", "TESS HARROWGATE STORIES"]);
+        SpineLines.PrintedCreator(named, "TESS HARROWGATE", found[2..3]).ShouldBeNull();
     }
 
     // ---- C runs after every line has been asked ----------------------------------------------------------------------------------
