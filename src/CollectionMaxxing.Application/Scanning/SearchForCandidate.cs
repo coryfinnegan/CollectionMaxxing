@@ -212,10 +212,13 @@ public sealed class TextSearchResolver(
         var query = asRead with { Title = TitleNormalizer.StripAccents(asRead.Title) };
         var asked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Key(query) };
         yield return query;
-        var unsigned = TrademarkSigns.Replace(query.Title, string.Empty).Replace("  ", " ").Trim();
-        if (unsigned.Length != query.Title.Length && unsigned.Length > 0 && asked.Add(Key(query with { Title = unsigned })))
+        if (TrademarkSigns.IsMatch(query.Title))
         {
-            yield return query with { Title = unsigned };
+            var unsigned = TrademarkSigns.Replace(query.Title, string.Empty).Replace("  ", " ").Trim();
+            if (unsigned.Length > 0 && asked.Add(Key(query with { Title = unsigned })))
+            {
+                yield return query with { Title = unsigned };
+            }
         }
 
         var titleOnly = query with { Creator = null };

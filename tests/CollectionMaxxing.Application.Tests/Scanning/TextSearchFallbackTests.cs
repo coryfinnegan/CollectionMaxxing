@@ -290,6 +290,53 @@ public class TextSearchFallbackTests
         answers.Found.ShouldBe([film]);
     }
 
+    [Theory]
+    [InlineData("Iron  Man")]
+    [InlineData("Iron Man ")]
+    public async Task A_title_with_no_sign_and_odd_spacing_is_asked_as_before(string read)
+    {
+        var titles = await TitlesAskedAsync(read);
+
+        titles.ShouldBe([read]);
+    }
+
+    [Fact]
+    public async Task A_read_of_only_a_sign_asks_no_empty_rung()
+    {
+        var titles = await TitlesAskedAsync("®");
+
+        titles.ShouldBe(["®"]);
+    }
+
+    [Theory]
+    [InlineData("Iron ® Man")]
+    [InlineData("Iron Man ®")]
+    public async Task A_sign_apart_from_the_words_leaves_a_clean_title_in_the_extra_rung(string read)
+    {
+        var titles = await TitlesAskedAsync(read);
+
+        titles[1].ShouldBe("Iron Man");
+    }
+
+    [Fact]
+    public async Task The_extra_rung_is_asked_with_the_accents_stripped()
+    {
+        var titles = await TitlesAskedAsync("Café Man®");
+
+        titles.ShouldBe(["Cafe Man®", "Cafe Man"]);
+    }
+
+    [Fact]
+    public async Task The_extra_rung_comes_before_the_title_only_rung_and_keeps_the_creator()
+    {
+        var provider = new RecordingProvider(_ => [], "tmdb", WorkKind.Film);
+        await Resolver(provider).AskProvidersAsync(
+            new CatalogQuery { Title = "Iron Man®", Creator = "Jon Favreau", Kind = WorkKind.Film }, CancellationToken.None, CancellationToken.None);
+
+        provider.Queries.Select(q => (q.Title, q.Creator)).ShouldBe(
+            [("Iron Man®", "Jon Favreau"), ("Iron Man", "Jon Favreau"), ("Iron Man®", null)]);
+    }
+
     [Fact]
     public async Task A_title_with_no_sign_is_asked_exactly_as_before()
     {
