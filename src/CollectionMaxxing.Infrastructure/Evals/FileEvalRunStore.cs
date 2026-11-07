@@ -114,7 +114,7 @@ public sealed class FileEvalRunStore(IOptions<EvalsOptions> options) : IEvalRunS
         try
         {
             var info = new FileInfo(path);
-            return info.Exists && info.Length <= MaxFileBytes ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), Json) : null;
+            return info.Exists && info.Length <= MaxFileBytes ? JsonSerializer.Deserialize<T>(EvalFileIo.ReadAllText(path), Json) : null;
         }
         catch (IOException)
         {
@@ -137,7 +137,7 @@ public sealed class FileEvalRunStore(IOptions<EvalsOptions> options) : IEvalRunS
         try
         {
             File.WriteAllText(temp, JsonSerializer.Serialize(content, Json));
-            File.Move(temp, path, overwrite: true);
+            EvalFileIo.MoveReplace(temp, path);
         }
         finally
         {
