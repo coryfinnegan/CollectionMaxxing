@@ -431,6 +431,28 @@ public class IdentifyGroundingLineRetryTests
         answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
     }
 
+    [Fact]
+    public async Task A_creatorless_find_never_replaces_what_the_printed_author_re_score_kept()
+    {
+        var title = BookBy("Iron Fox", "Tess Harrowgate");
+        var catalogue = new Catalogue(Film("Copper Lantern Saga"), Film("Iron Fox"), title);
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", SagaLines, creator: "Mara Quillon"));
+        answer.Options[0].LocalReleaseId.ShouldBe(title.Release.Id);
+    }
+
+    [Fact]
+    public async Task A_printed_author_among_the_providers_answers_past_the_options_blocks_a_creatorless_find()
+    {
+        var providers = new Providers(false,
+            Known("Copper Lantern", "b1"), Known("Copper Lantern", "b2") with { Year = 1999 }, Known("Copper Lantern", "b4") with { Year = 2005 },
+            Known("Copper Harbor Lantern Light", "b3") with { Creators = ["Tess Harrowgate"] })
+        {
+            Finds = (title, _) => string.Equals(title, "COPPER LANTERN", StringComparison.OrdinalIgnoreCase),
+        };
+        var answer = await GroundAsync(Grounding(new Catalogue(), providers), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"], creator: "Iron Fox"));
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
     // ---- C runs after every line has been asked ----------------------------------------------------------------------------------
 
     private static readonly string[] SagaLines = ["XQZV WRTK", "COPPER LANTERN SAGA", "TESS HARROWGATE", "IRON FOX"];
