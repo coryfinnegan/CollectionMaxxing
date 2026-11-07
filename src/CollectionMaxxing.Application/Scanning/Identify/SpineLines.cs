@@ -122,6 +122,31 @@ public static class SpineLines
     }
 
     /// <summary>
+    /// The creator the spine prints, among the releases a line's ask found: the first creator of a release (title, creators) whose every word
+    /// is printed on the spine's other lines (<see cref="PrintSupport.PrintsAll"/>), unless the line is that creator's own name
+    /// (<see cref="FragmentReads.NamesItsOwnCreator"/>). Null when no release has one. Pure.
+    /// </summary>
+    public static string? PrintedCreator(ReadFacts facts, string line, IEnumerable<(string? Title, IReadOnlyList<string> Creators)> found)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(found);
+
+        var printed = PrintSupport.PrintedWords(facts.LineList.Where(other => !string.Equals(other, line, StringComparison.OrdinalIgnoreCase)));
+        foreach (var (title, creators) in found)
+        {
+            foreach (var creator in creators)
+            {
+                if (PrintSupport.PrintsAll(creator, printed) && !FragmentReads.NamesItsOwnCreator(line, title, [creator]))
+                {
+                    return creator;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Whether an answer is a find of the line retry. Such an answer is offered for review and changes nothing but its own read: it
     /// contends for its place as a read that found nothing (<see cref="ReadPlaces.Of"/>) and lends no series to its neighbours
     /// (<see cref="SeriesNeighbour.Of"/>), so a right row of another engine, or a neighbour that was not going to be skipped, is never touched by it.
