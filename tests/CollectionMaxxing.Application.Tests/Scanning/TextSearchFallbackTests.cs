@@ -64,6 +64,27 @@ public class TextSearchFallbackTests
         provider.Queries[1].Creator.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("ROBOCOP\u00AE", "ROBOCOP")]
+    [InlineData("Hand in Hand\u2122", "Hand in Hand")]
+    public async Task A_title_read_with_a_sign_adds_no_rung_and_reaches_the_provider_as_read(string withSign, string bare)
+    {
+        // Guards against the trademark rung of #747 coming back: the sign is TMDB's concern, not the ladder's.
+        var signedProvider = new RecordingProvider(_ => []);
+        var bareProvider = new RecordingProvider(_ => []);
+
+        await Resolver(signedProvider).AskProvidersAsync(
+            new CatalogQuery { Title = withSign, Creator = Author, Kind = WorkKind.Book }, CancellationToken.None, CancellationToken.None);
+        await Resolver(bareProvider).AskProvidersAsync(
+            new CatalogQuery { Title = bare, Creator = Author, Kind = WorkKind.Book }, CancellationToken.None, CancellationToken.None);
+
+        signedProvider.Queries.Count.ShouldBe(bareProvider.Queries.Count);
+        // Same asks, same windows of the title, the sign left on whichever piece carried it.
+        signedProvider.Queries.Select(q => q.Title.Replace("\u00AE", string.Empty, StringComparison.Ordinal).Replace("\u2122", string.Empty, StringComparison.Ordinal))
+            .ShouldBe(bareProvider.Queries.Select(q => q.Title));
+        signedProvider.Queries.Any(q => q.Title.Contains(withSign[^1], StringComparison.Ordinal)).ShouldBeTrue();
+    }
+
     [Fact]
     public async Task An_author_qualified_search_that_hits_is_never_asked_twice()
     {
