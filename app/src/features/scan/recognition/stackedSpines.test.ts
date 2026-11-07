@@ -654,3 +654,21 @@ describe('upside-down text on a shelf of piled tapes', () => {
     expect(passes).toEqual([[0, 90, 270]]);
   });
 });
+
+describe('a pile band keeps a line a little smaller than its biggest in its title', () => {
+  /** vhs-dvd-shelf-01 p22 as recorded: a band of two lines, the small one 0.58 of the big one's height, between two tapes of the same pile. */
+  const above = line('GREMLINS', 0.7845, 0.3, 0.1405, 0.0286);
+  const below = line('THE ROAD WARRIOR', 0.7852, 0.3745, 0.1498, 0.0286);
+  const small = line('BEYOND THUNDERDOME', 0.7864, 0.3318, 0.1481, 0.0166);
+  const big = line('MAD MAX', 0.7839, 0.3432, 0.1512, 0.0286);
+  const titlesOf = (lines: TextLine[]) => splitIntoPieces(lines, [], C.splitting, T).pieces.map((p) => p.title);
+
+  it('titles the band with both of its lines when the smaller is 0.58 of the bigger (BEYOND THUNDERDOME over MAD MAX)', () => {
+    expect(titlesOf([above, small, big, below])).toEqual(['GREMLINS', 'BEYOND THUNDERDOME MAD MAX', 'THE ROAD WARRIOR']);
+  });
+
+  it('leaves out a line under the share: one at 0.5 of the biggest is no part of the title', () => {
+    const tiny = line('SMALL PRINT', 0.7864, 0.3318, 0.1481, 0.0143);
+    expect(titlesOf([above, tiny, big, below])).toEqual(['GREMLINS', 'MAD MAX', 'THE ROAD WARRIOR']);
+  });
+});
