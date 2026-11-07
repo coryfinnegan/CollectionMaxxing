@@ -1,5 +1,5 @@
 // A shelf read sends its spine's lines (#725), so the server can ask another line of a spine when the first finds nothing (#724).
-// A cover read and a model-only read send none: a cover's leftover lines are noise, and the model has no lines.
+// A single-cover shot's read and a model-only read send none: a lone cover's leftover lines are noise, and the model has no lines. A cover among a shelf shot's spines sends its lines, as the PC's eval rebuild gives them.
 import { AppleModelEngine } from './AppleModelEngine';
 import { DEFAULT_RECOGNITION_SETTINGS as S } from './defaults';
 import { line, modelItem, okRead, RecordingVision, STILL, testIds, type Scene } from './fakes';
