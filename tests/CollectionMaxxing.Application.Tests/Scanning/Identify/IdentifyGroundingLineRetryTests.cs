@@ -369,6 +369,48 @@ public class IdentifyGroundingLineRetryTests
         answers.Single().Verdict.ShouldBe(ResolutionVerdict.Pending);
     }
 
+    [Fact]
+    public async Task A_spine_whose_line_asks_were_all_made_but_one_provider_failed_stays_pending_not_revived_by_its_printed_author()
+    {
+        var grounding = Grounding(new Catalogue());
+        var facts = Spine("XQZV WRTK", ["XQZV WRTK", "TESS HARROWGATE", "COPPER LANTERN"], creator: "Iron Fox");
+        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
+        using var budget = new CancellationTokenSource();
+
+        var answers = await grounding.RetryTrimmedAsync(
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, ask =>
+            {
+                // The author's name line is asked first and its provider fails; the title line is answered, by a creatorless release among others.
+                if (ask.Title != "COPPER LANTERN")
+                {
+                    return Task.FromResult(new ProviderAnswers([], [], true));
+                }
+
+                return Task.FromResult(new ProviderAnswers(
+                    [Known("Copper Lantern", "b1"), Known("Copper Lantern", "b2") with { Creators = ["Mara Quillon"] }, Known("Copper Lantern", "b3") with { Creators = ["Tess Harrowgate"] }],
+                    [],
+                    false));
+            }, budget.Token)],
+            CancellationToken.None);
+
+        answers.Single().Verdict.ShouldBe(ResolutionVerdict.Pending);
+    }
+
+    [Fact]
+    public async Task A_creatorless_release_titled_exactly_like_the_line_is_not_kept_by_the_printed_author_re_score()
+    {
+        // Scored with the printed author the film still tops the answer (its title is the line's); the author's other book does not take its place.
+        var catalogue = new Catalogue(Film("Copper Lantern"), BookBy("Copper Harbor Lantern Light", "Tess Harrowgate"))
+        {
+            Finds = (_, search) => search.NormalizedTitle == "copper lantern",
+        };
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", CopperLines, creator: "Iron Fox"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
     // ---- the same, from the providers' answers (the shape of a real shelf: no catalogue hit) ---------------------------------------
 
     [Fact]
