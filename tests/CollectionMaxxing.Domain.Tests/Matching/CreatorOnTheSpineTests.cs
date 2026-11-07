@@ -75,6 +75,89 @@ public class CreatorOnTheSpineTests
         scored.Score.ShouldBeLessThan(1.0); // and the extra words of the title still cost it
     }
 
+    [Theory]
+    [InlineData("LOVE STORY MARA PESTON", "Mara Poston")]
+    [InlineData("LOVE STORY MARA WHITNCY", "Mara Whitney")]
+    [InlineData("LOVE STORY MARA POSTON", "Mara Poston")]
+    public void A_spine_that_runs_its_authors_name_into_the_title_with_one_letter_misread_finds_the_authors_book(
+        string spine, string author)
+    {
+        var read = new ReadItem { Title = spine };
+
+        var scored = MatchScorer.Evaluate(read, [Book("k", "Love Story", author)], Spine).Ranked[0];
+
+        CreatorTerm(scored).Value.ShouldBe(1.0);
+        scored.Score.ShouldBe(1.0);
+    }
+
+    [Theory]
+    [InlineData("LOVE STORY MARA ODEL", "Mara Odel", true)]
+    [InlineData("LOVE STORY MARA OXEL", "Mara Odel", false)]
+    [InlineData("LOVE STORY MARA ODEL", "Mara Odell", true)]
+    public void A_surname_shorter_than_five_letters_must_still_match_exactly(string spine, string author, bool found)
+    {
+        var read = new ReadItem { Title = spine, Creator = "Someone Else" };
+
+        var scored = MatchScorer.Evaluate(read, [Book("k", "Love Story", author)], Spine).Ranked[0];
+
+        (scored.Score == 1.0).ShouldBe(found);
+    }
+
+    [Fact]
+    public void A_title_word_one_letter_from_the_authors_surname_is_not_taken_for_the_author()
+    {
+        var read = new ReadItem { Title = "STONE COLD", Creator = "Someone Else" };
+
+        var scored = MatchScorer.Evaluate(read, [Book("k", "Stone Cold", "Jane Stine")], Spine).Ranked[0];
+
+        scored.Score.ShouldBeLessThan(1.0);
+    }
+
+    [Fact]
+    public void A_name_run_into_the_title_with_the_first_name_before_the_title_scores_fully()
+    {
+        var read = new ReadItem { Title = "MARA GRANT GIANT DAYS" };
+
+        MatchScorer.Evaluate(read, [Book("k", "Giant Days", "Mara Grant")], Spine).Ranked[0].Score.ShouldBe(1.0);
+    }
+
+    [Fact]
+    public void A_misread_first_name_and_surname_are_both_taken_out_of_the_title()
+    {
+        var read = new ReadItem { Title = "LOVE STORY MARTKA PESTON" };
+
+        MatchScorer.Evaluate(read, [Book("k", "Love Story", "Martha Poston")], Spine).Ranked[0].Score.ShouldBe(1.0);
+    }
+
+    [Fact]
+    public void A_misread_surname_one_letter_off_still_comes_out_of_the_title_beside_a_title_word_the_guard_keeps()
+    {
+        var read = new ReadItem { Title = "MARA GRUNT GIANT DAYS" };
+
+        MatchScorer.Evaluate(read, [Book("k", "Giant Days", "Mara Grant")], Spine).Ranked[0].Score.ShouldBe(1.0);
+    }
+
+    [Fact]
+    public void A_releases_own_title_words_are_guarded_per_release_not_per_creator()
+    {
+        var read = new ReadItem { Title = "STONE COLD", Creator = "Someone Else" };
+
+        var ranked = MatchScorer.Evaluate(
+            read, [Book("cold", "Cold", "Jane Stine"), Book("stone", "Stone Cold", "Jane Stine")], Spine).Ranked;
+
+        ranked.Single(r => r.Release.Key == "stone").Score.ShouldBeLessThan(1.0);
+    }
+
+    [Fact]
+    public void A_surname_two_letters_off_does_not_count_as_the_author()
+    {
+        var read = new ReadItem { Title = "LOVE STORY MARA PXSTXN", Creator = "Someone Else" };
+
+        var scored = MatchScorer.Evaluate(read, [Book("k", "Love Story", "Mara Poston")], Spine).Ranked[0];
+
+        scored.Score.ShouldBeLessThan(1.0);
+    }
+
     [Fact]
     public void A_read_with_no_author_finds_the_one_in_the_title_as_before()
     {
