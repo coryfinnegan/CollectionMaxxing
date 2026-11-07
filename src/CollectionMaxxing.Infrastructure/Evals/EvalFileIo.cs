@@ -1,10 +1,12 @@
 namespace CollectionMaxxing.Infrastructure.Evals;
 
 /// <summary>
-/// File access for the eval stores that tolerates other handles on the same file. On Windows a move over a file fails while any other handle has it
-/// open without <see cref="FileShare.Delete"/> (the default for <see cref="File.ReadAllText(string)"/>, which the stores' own readers, the worker's
-/// re-ground and antivirus scanners all use), and a read fails for the instant a move is replacing the file; Linux allows both. So reads open with full
-/// sharing and both reads and replaces retry briefly (bounded) before giving up.
+/// File access for the eval stores that tolerates other handles on the same file on Windows (Linux allows all of this).
+/// Replacing: a move over a file fails (<see cref="UnauthorizedAccessException"/>) while ANY other handle is open on it, whatever sharing that handle
+/// asked for, so only the bounded retry fixes a save that lands on a file being read; delete sharing does not help there.
+/// Reading: a reader that does not share <see cref="FileShare.Delete"/> fails for the instant a replace holds the file (the "no open eval run"
+/// misread) and blocks deleting the folder, so reads open with <c>ReadWrite | Delete</c>, and also retry briefly.
+/// The backoff is real time on purpose, not <see cref="TimeProvider"/>: the API tests run on a fake clock that never advances, so a contended retry would hang.
 /// </summary>
 internal static class EvalFileIo
 {
