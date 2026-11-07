@@ -378,6 +378,59 @@ public class IdentifyGroundingLineRetryTests
         answer.Options[0].LocalReleaseId.ShouldBe(real.Release.Id);
     }
 
+    [Fact]
+    public async Task An_earlier_lines_creatorless_find_does_not_stop_a_later_line_kept_by_its_printed_author()
+    {
+        var title = BookBy("Iron Fox", "Tess Harrowgate");
+        var catalogue = new Catalogue(Film("Copper Lantern Saga"), title);
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", SagaLines, creator: "Mara Quillon"));
+
+        catalogue.Lookups.ShouldContain("iron fox");
+        answer.Options[0].LocalReleaseId.ShouldBe(title.Release.Id);
+    }
+
+    [Fact]
+    public async Task A_printed_authors_release_among_many_the_providers_found_still_comes_first()
+    {
+        var providers = new Providers(false,
+            Known("Copper Lantern", "b1"),
+            Known("Copper Lantern", "b2") with { Creators = ["Mara Quillon"] },
+            Known("Copper Lantern", "b4") with { Creators = ["Ivy Stone"] },
+            Known("Copper Lantern", "b5") with { Creators = ["Ann Field"] },
+            Known("Copper Lantern", "b3") with { Creators = ["Tess Harrowgate"] });
+
+        var answer = await GroundAsync(
+            Grounding(new Catalogue(), providers), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"], creator: "Iron Fox"));
+
+        answer.Options[0].Provider!.ExternalId.ShouldBe("b3");
+    }
+
+    [Fact]
+    public async Task A_printed_authors_book_in_the_catalogue_past_the_top_three_options_still_comes_first()
+    {
+        var real = BookBy("Copper Lantern", "Tess Harrowgate");
+        var catalogue = new Catalogue(
+            Film("Copper Lantern"), Book("Copper Lantern"), BookBy("Copper Lantern", "Mara Quillon"), BookBy("Copper Lantern", "Ivy Stone"), real);
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", CopperLines, creator: "Iron Fox"));
+
+        answer.Options[0].LocalReleaseId.ShouldBe(real.Release.Id);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_creatorless_film_the_line_holds_only_among_other_words_is_not_kept(bool vhs)
+    {
+        var catalogue = new Catalogue(Film("Copper Lantern")) { Finds = (_, search) => search.NormalizedTitle == "copper lantern tales" };
+        var facts = Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN TALES", "IRON FOX"]);
+
+        var answer = await GroundAsync(Grounding(catalogue), vhs ? facts with { Format = ReleaseFormat.Vhs } : facts);
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
     // ---- C runs after every line has been asked ----------------------------------------------------------------------------------
 
     private static readonly string[] SagaLines = ["XQZV WRTK", "COPPER LANTERN SAGA", "TESS HARROWGATE", "IRON FOX"];

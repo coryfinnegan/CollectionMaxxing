@@ -345,7 +345,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
     }
 
-    /// <summary>Whether a release a line found is kept: a creator of its best release is printed on the spine, or it has none and the line holds its title (<see cref="SpineLines.KeepsFind"/>).</summary>
+    /// <summary>Whether a release a line found is kept: a creator of its best release is printed on the spine (<see cref="SpineLines.KeepsFind"/>).</summary>
     private static bool KeepsLine(ReadFacts facts, string line, BarcodeResolution found, LocalPool pool)
     {
         if (found.Options.Count == 0)
@@ -354,20 +354,34 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         var best = found.Options[0]; // best first
-        var bestCreators = CreatorsOf(best, pool);
-        if (bestCreators.Count == 0 && PrintsACreatorOfAnyFind(facts, line, found, pool))
-        {
-            return false; // the printed author comes first: ScoredByPrintedAuthor judges the line with it
-        }
-
-        var titleTerm = best.Terms.FirstOrDefault(term => term.Name == "title")?.Value ?? 0;
-        return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), bestCreators, titleTerm);
+        return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), CreatorsOf(best, pool));
     }
 
-    /// <summary>Whether any release a line found has a creator the spine prints on its other lines (<see cref="SpineLines.PrintedCreator"/>).</summary>
-    private static bool PrintsACreatorOfAnyFind(ReadFacts facts, string line, BarcodeResolution found, LocalPool pool) =>
-        SpineLines.PrintedCreator(facts, line, found.Options.Select(option => (TitleOf(option, pool), CreatorsOf(option, pool)))) is not null
-        || SpineLines.PrintedCreator(facts, line, pool.Items.Select(item => ((string?)item.Scoring.Title, item.Scoring.Creators))) is not null;
+    /// <summary>
+    /// The line find of a creatorless best release, the last resort of the line retry (after every line was asked and
+    /// <see cref="ScoredByPrintedAuthor"/> kept none): the line's answers scored again (no new ask) when their best release is Matched or
+    /// Ambiguous, has no creators and is kept by the line's own words (<see cref="SpineLines.KeepsFind"/>), and no release the answers hold has
+    /// a creator the spine prints (the printed author comes first). Null otherwise.
+    /// </summary>
+    private BarcodeResolution? ScoredByCreatorlessTitle(LineMiss miss)
+    {
+        var again = Score(miss.Asked, miss.Profile, miss.Pool, miss.Provided);
+        if (again.Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous) || again.Options.Count == 0)
+        {
+            return null;
+        }
+
+        var best = again.Options[0];
+        var titleTerm = best.Terms.FirstOrDefault(term => term.Name == "title")?.Value ?? 0;
+        var line = miss.Asked.Title ?? string.Empty;
+        var releases = miss.Pool.Items.Select(item => ((string?)item.Scoring.Title, item.Scoring.Creators))
+            .Concat(miss.Provided.Found.Select(release => ((string?)release.Title, release.Creators)));
+        return CreatorsOf(best, miss.Pool).Count == 0
+            && SpineLines.PrintedCreator(miss.Asked, line, releases) is null
+            && SpineLines.KeepsFind(miss.Asked, line, TitleOf(best, miss.Pool), [], titleTerm)
+                ? again
+                : null;
+    }
 
     /// <summary>The creators of an answer's best release, when it has one; none otherwise.</summary>
     private static IReadOnlyList<string> BestCreators(BarcodeResolution answer, LocalPool? local) =>
@@ -550,6 +564,18 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 if (best.Again is { } again)
                 {
                     answers[i] = Offered(reads[i].Answer, again with { Options = SeriesNeighbour.WithOriginals(again.Options, reads[i].Answer.Options) }, best.Miss.Attempt.Step);
+                }
+                else
+                {
+                    // No printed author backs any line's find: a line that holds the title of a creatorless release is its own witness.
+                    foreach (var miss in misses)
+                    {
+                        if (ScoredByCreatorlessTitle(miss) is { } held)
+                        {
+                            answers[i] = Offered(reads[i].Answer, held with { Options = SeriesNeighbour.WithOriginals(held.Options, reads[i].Answer.Options) }, miss.Attempt.Step);
+                            break;
+                        }
+                    }
                 }
             }
 
