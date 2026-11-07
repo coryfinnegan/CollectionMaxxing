@@ -10,6 +10,8 @@ public class BookTitleTests
     [InlineData("Harbor Light (Maple Hollow, Book 1)", "Harbor Light")]
     [InlineData("Harbor Light (Maple Hollow #3)", "Harbor Light")]
     [InlineData("Harbor Light (Maple Hollow, #3)", "Harbor Light")]
+    [InlineData("Harbor Light (Maple Hollow #12)", "Harbor Light")]
+    [InlineData("Harbor Light (Maple Hollow,Book 1)", "Harbor Light")]
     [InlineData("Harbor Light (Maple Hollow, book 12)", "Harbor Light")]
     public void A_trailing_series_marker_is_dropped_from_the_title(string title, string expected)
     {
@@ -22,7 +24,7 @@ public class BookTitleTests
     [InlineData("Les Misérables (Vol. 2)")]
     [InlineData("Harbor Light (#2)")]
     [InlineData("Harbor Light (Some Series, Vol. 2)")]
-    [InlineData("Harbor Light (Book 2) Special Edition")]
+    [InlineData("Harbor Light (Maple Hollow, Book 1) Special Edition")]
     public void A_marker_that_names_no_series_or_is_not_last_stays(string title)
     {
         BookTitle.Clean(title, null).ShouldBe(title);
@@ -47,6 +49,7 @@ public class BookTitleTests
     [InlineData("Keepers » The Coast")]
     [InlineData("The long wait...")]
     [InlineData("The long wait…")]
+    [InlineData("The long wait… ")]
     public void A_subtitle_that_is_a_tagline_is_not_part_of_the_title(string subtitle)
     {
         BookTitle.Clean("Harbor Light", subtitle).ShouldBe("Harbor Light");
