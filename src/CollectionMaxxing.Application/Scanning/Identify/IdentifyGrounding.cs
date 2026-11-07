@@ -303,6 +303,35 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         return attempts;
     }
 
+    /// <summary>
+    /// A line's answer scored again with the author its spine prints as the read's creator, when the answers hold a release by an author
+    /// printed on the spine's other lines (<see cref="SpineLines.PrintedCreator"/>). Kept only when the new best is then kept like any line's find and
+    /// its title is close to the line (at least <see cref="TextSearchResolver.CloseTitle"/>): an author's other book is no find of this line. Null otherwise.
+    /// </summary>
+    private BarcodeResolution? ScoredByPrintedAuthor(
+        ReadFacts asked, ScoringProfileKind profile, LocalPool pool, ProviderAnswers provided, BarcodeResolution first,
+        Func<BarcodeResolution, LocalPool, bool> keeps)
+    {
+        var releases = pool.Items.Select(item => ((string?)item.Scoring.Title, item.Scoring.Creators))
+            .Concat(provided.Found.Select(release => ((string?)release.Title, release.Creators)));
+        if (SpineLines.PrintedCreator(asked, asked.Title ?? string.Empty, releases) is not { } creator)
+        {
+            return null;
+        }
+
+        var again = Score(asked with { Creator = creator }, profile, pool, provided);
+        return again.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous
+            && again.Options.Count > 0
+            && again.Options[0].Terms.FirstOrDefault(term => term.Name == "title") is { } title && title.Value >= TextSearchResolver.CloseTitle
+            && keeps(again, pool)
+                ? again
+                : null;
+    }
+
+    /// <summary>Whether the find scores below the read's own best release, which <see cref="OfferedByAttempt"/> then leaves on top.</summary>
+    private static bool LeavesOriginalOnTop(BarcodeResolution original, BarcodeResolution found) =>
+        original.Options.Count > 0 && found.Options.Count > 0 && found.Options[0].Score < original.Options[0].Score;
+
     /// <summary>The line attempts of <see cref="SpineLines"/>, after the attempts already listed (whose titles are not asked again).</summary>
     private static void AddLineAttempts(List<Attempt> attempts, ReadFacts facts, IReadOnlyList<string> creators)
     {
@@ -451,24 +480,40 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
             var asked = looking.Select(i => attempts[i][round].Facts).ToList();
             var pools = await FindLocalGatedAsync(asked, databaseGate, cancellationToken);
-            var scored = await Task.WhenAll(looking.Select(async (i, n) => Score(asked[n], reads[i].Profile, pools[n], await reads[i].Ask(asked[n]))));
+            var provided = await Task.WhenAll(looking.Select((i, n) => reads[i].Ask(asked[n])));
+            var scored = looking.Select((i, n) => Score(asked[n], reads[i].Profile, pools[n], provided[n])).ToArray();
 
             var next = new List<int>(looking.Count);
             for (var n = 0; n < looking.Count; n++)
             {
                 var i = looking[n];
                 var attempt = attempts[i][round];
-                if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && (attempt.Keeps?.Invoke(scored[n], pools[n]) ?? true))
+                var found = scored[n];
+                if (attempt.Keeps is { } keeps && found.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && !keeps(found, pools[n]))
+                {
+                    // A line scored with the creator the read carries can lose to a release that names no creator: scored again with the
+                    // author the spine prints (the same answers, no new ask), the line may find the book that author wrote.
+                    found = ScoredByPrintedAuthor(asked[n], reads[i].Profile, pools[n], provided[n], found, keeps) ?? found;
+                }
+
+                if (found.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && (attempt.Keeps?.Invoke(found, pools[n]) ?? true))
                 {
                     // A line of the spine is the find itself (the read was about to be skipped), its own release among the read's at most.
                     answers[i] = attempt.Keeps is null
-                        ? OfferedByAttempt(reads[i].Answer, scored[n], attempt.Step)
-                        : Offered(reads[i].Answer, scored[n] with { Options = SeriesNeighbour.WithOriginals(scored[n].Options, reads[i].Answer.Options) }, attempt.Step);
+                        ? OfferedByAttempt(reads[i].Answer, found, attempt.Step)
+                        : Offered(reads[i].Answer, found with { Options = SeriesNeighbour.WithOriginals(found.Options, reads[i].Answer.Options) }, attempt.Step);
+
+                    // A find that leaves the read's own best on top has not answered it (an author's name found something weaker
+                    // than itself): the attempts still left, the spine's lines, are asked too, and this answer stays the fallback.
+                    if (attempt.Keeps is null && round + 1 < attempts[i].Count && LeavesOriginalOnTop(reads[i].Answer, found))
+                    {
+                        next.Add(i);
+                    }
                 }
                 else
                 {
                     // An attempt the providers could not answer (they failed, or the budget cancelled the call) was not really tried.
-                    cutShort[i] |= scored[n].Verdict == ResolutionVerdict.Pending;
+                    cutShort[i] |= found.Verdict == ResolutionVerdict.Pending;
                     next.Add(i);
                 }
             }
@@ -854,7 +899,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// </summary>
     private static BarcodeResolution OfferedByAttempt(BarcodeResolution original, BarcodeResolution found, TraceStep why)
     {
-        if (original.Options.Count == 0 || found.Options.Count == 0 || found.Options[0].Score >= original.Options[0].Score)
+        if (original.Options.Count == 0 || found.Options.Count == 0 || !LeavesOriginalOnTop(original, found))
         {
             return Offered(original, found with { Options = SeriesNeighbour.WithOriginals(found.Options, original.Options) }, why);
         }

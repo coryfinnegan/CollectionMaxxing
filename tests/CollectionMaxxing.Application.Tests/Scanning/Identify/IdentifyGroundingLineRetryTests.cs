@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.Catalog;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Application.Scanning;
 using CollectionMaxxing.Application.Scanning.Identify;
@@ -197,6 +198,108 @@ public class IdentifyGroundingLineRetryTests
 
         answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
         answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    // ---- an author's name read: the creator swap, then the lines -----------------------------------------------------------
+
+    /// <summary>An author-name spine: the title read is the author, the creator as read is another book's title, and the spine prints a third line.</summary>
+    private static ReadFacts NameSpine() =>
+        Spine("TESS HARROWGATE", ["TESS HARROWGATE", "COPPER LANTERN"], creator: "Quiet Harbor", creatorAsRead: "Quiet Harbor");
+
+    private static Catalogue NameCatalogue(params LocalHit[] more) =>
+        new([BookBy("Tess Harrowgate", "Tess Harrowgate"), BookBy("Tess Harrowgate", "Tess Harrowgate"), .. more]);
+
+    [Fact]
+    public async Task An_author_name_spine_whose_creator_swap_finds_a_weaker_release_is_still_asked_with_its_spines_title_line()
+    {
+        var real = BookBy("Copper Lantern", "Tess Harrowgate");
+        var catalogue = NameCatalogue(BookBy("Quiet Harbor", "Mara Quillon"), real);
+
+        var answer = await GroundAsync(Grounding(catalogue), NameSpine());
+
+        catalogue.Lookups.ShouldBe(["tess harrowgate", "quiet harbor", "copper lantern"]);
+        answer.Options[0].LocalReleaseId.ShouldBe(real.Release.Id);
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Steps.ShouldContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_swap_that_finds_a_release_scoring_above_the_name_reads_own_still_ends_the_retries()
+    {
+        var swapped = BookBy("Quiet Harbor", "Tess Harrowgate");
+        var catalogue = NameCatalogue(swapped, BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var answer = await GroundAsync(Grounding(catalogue), NameSpine());
+
+        catalogue.Lookups.ShouldBe(["tess harrowgate", "quiet harbor"]);
+        answer.Options[0].LocalReleaseId.ShouldBe(swapped.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "swapped");
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_name_spine_whose_swap_and_lines_find_nothing_keeps_the_answer_it_had()
+    {
+        var catalogue = NameCatalogue(BookBy("Quiet Harbor", "Mara Quillon"));
+
+        var answer = await GroundAsync(Grounding(catalogue), NameSpine());
+
+        catalogue.Lookups.ShouldBe(["tess harrowgate", "quiet harbor", "copper lantern"]);
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answer.Options[0].Provider.ShouldBeNull();
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    // ---- a line is judged by the author its spine prints -----------------------------------------------------------------------
+
+    private static readonly string[] CopperLines = ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"];
+
+    [Fact]
+    public async Task A_spines_line_is_judged_by_the_release_whose_author_the_spine_prints_not_by_a_same_titled_release_with_no_author()
+    {
+        var other = BookBy("Copper Lantern", "Mara Quillon");
+        var real = BookBy("Copper Lantern", "Tess Harrowgate");
+        var catalogue = new Catalogue(Film("Copper Lantern"), other, real);
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", CopperLines, creator: "Iron Fox"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Options[0].LocalReleaseId.ShouldBe(real.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_printed_author_does_not_lift_a_release_whose_title_is_not_the_lines()
+    {
+        // The line finds a creatorless film and the printed author's other book; scored with that author the other book gains on the film,
+        // but its title is not the line's.
+        var catalogue = new Catalogue(Film("Copper Lantern"), BookBy("Silver Anchor Stories", "Tess Harrowgate"))
+        {
+            Finds = (_, search) => search.NormalizedTitle == "copper lantern",
+        };
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", CopperLines, creator: "Iron Fox"));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public void The_creator_a_spine_prints_is_the_first_found_one_whose_every_word_is_on_its_other_lines_and_is_not_the_line_itself()
+    {
+        var facts = Spine("XQZV WRTK", CopperLines);
+        (string? Title, IReadOnlyList<string> Creators)[] found =
+        [
+            ("Copper Lantern", []),
+            ("Copper Lantern", ["Mara Quillon"]),
+            ("Tess Harrowgate", ["Tess Harrowgate"]),
+            ("Copper Lantern", ["Tess Harrowgate"]),
+        ];
+
+        SpineLines.PrintedCreator(facts, "COPPER LANTERN", found).ShouldBe("Tess Harrowgate");
+        SpineLines.PrintedCreator(facts, "TESS HARROWGATE", found).ShouldBeNull("the line is the only print of that name");
+        SpineLines.PrintedCreator(facts, "COPPER LANTERN", found[..2]).ShouldBeNull();
     }
 
     // ---- the line asks share the read's budget: the Pending rules of the spans ------------------------------------------------
