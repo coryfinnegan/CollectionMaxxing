@@ -668,7 +668,7 @@ describe('a pile band keeps a line a little smaller than its biggest in its titl
   });
 
   it('leaves out a line under the share: one at 0.5 of the biggest is no part of the title', () => {
-    const tiny = line('XYW OVW', 0.7864, 0.3318, 0.1481, 0.0143);
+    const tiny = line('SMALL PRINT', 0.7864, 0.3318, 0.1481, 0.0143);
     expect(titlesOf([above, tiny, big, below])).toEqual(['GREMLINS', 'MAD MAX', 'THE ROAD WARRIOR']);
   });
 });
