@@ -96,13 +96,22 @@ public sealed class FileEvalRunStore(IOptions<EvalsOptions> options) : IEvalRunS
             return ids;
         }
 
-        foreach (var file in Directory.EnumerateFiles(folder))
+        try
         {
-            // A file being written has a temp name that does not end in .json, so it is not counted until it is moved into place.
-            if (string.Equals(Path.GetExtension(file), ".json", StringComparison.Ordinal) && Path.GetFileNameWithoutExtension(file) is { } id && EvalIds.IsValid(id))
+            foreach (var file in Directory.EnumerateFiles(folder))
             {
-                ids.Add(id);
+                // A file being written has a temp name that does not end in .json, so it is not counted until it is moved into place.
+                if (string.Equals(Path.GetExtension(file), ".json", StringComparison.Ordinal) && Path.GetFileNameWithoutExtension(file) is { } id && EvalIds.IsValid(id))
+                {
+                    ids.Add(id);
+                }
             }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The status call lists with no lock while a discard or the clearing of a scored run's photos removes the folder: the folder
+            // that was there a moment ago is gone (DirectoryNotFoundException; on Windows a folder being deleted answers "access denied"),
+            // and a photo in it is no longer stored. What was listed before it went still counts.
         }
 
         return ids;
