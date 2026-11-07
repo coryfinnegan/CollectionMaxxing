@@ -192,15 +192,46 @@ internal static class IdentifyCleaning
     /// proof the read's own kind already carries what that one item's print said, so this ignores it. <paramref name="snapKinds"/> are the
     /// kinds of the snap's other reads, which are not cleaned here (the eval cleans Vision's reads alone, and the picture model's reads of the
     /// same snap are beside them on /identify): they count where the print speaks and the snap's kind is decided, and add no read and take
-    /// no kind off any read.
+    /// no kind off any read. Every read that names no platform is also told the platforms the snap's shot prints on a line of its own
+    /// (<see cref="PrintedPlatforms"/>, with <paramref name="snapPlatforms"/> from the other reads the same way).
     /// </summary>
     public static List<CleanItem> Clean(
         IReadOnlyList<IdentifyItemInput> items,
         IdentifyKind kind = IdentifyKind.Shelf,
         IGameSerialLookup? serials = null,
         WorkKind? printKind = null,
-        IReadOnlyList<WorkKind?>? snapKinds = null) =>
-        WithSnapKind(CleanEach(items, kind, serials), kind is IdentifyKind.Shelf ? printKind : null, snapKinds ?? []);
+        IReadOnlyList<WorkKind?>? snapKinds = null,
+        IReadOnlyCollection<string>? snapPlatforms = null) =>
+        WithSnapPlatforms(
+            WithSnapKind(CleanEach(items, kind, serials), kind is IdentifyKind.Shelf ? printKind : null, snapKinds ?? []), items, snapPlatforms ?? []);
+
+    /// <summary>
+    /// The platforms a shot prints: the canonical name of every line, of every item, that as a whole line is a platform's name
+    /// ("PlayStation.2" is PS2), sorted. It reads the raw lines the phone sent, which a cover read has as well as a spine read, and never a
+    /// read's own platform field (the picture model's guess) nor a platform named inside a longer line ("PlayStation 2 Secret Codes").
+    /// </summary>
+    public static IReadOnlyList<string> PrintedPlatforms(IEnumerable<IdentifyItemInput> items) =>
+    [
+        .. items
+            .SelectMany(item => item.Lines ?? [])
+            .Select(line => PlatformNames.TryGetCanonical(line, out var canonical) ? canonical : null)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal),
+    ];
+
+    /// <summary>
+    /// Tells every read that names no platform which platforms the snap's shot prints (<see cref="ReadFacts.PlatformContext"/>): those its
+    /// own items print and <paramref name="snapPlatforms"/>, the ones the snap's other reads print that are not cleaned here (the eval cleans
+    /// each engine's reads alone). A read that names its platform is told nothing.
+    /// </summary>
+    private static List<CleanItem> WithSnapPlatforms(List<CleanItem> cleaned, IReadOnlyList<IdentifyItemInput> items, IReadOnlyCollection<string> snapPlatforms)
+    {
+        var printed = string.Join('|', PrintedPlatforms(items).Concat(snapPlatforms).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+        return printed.Length == 0
+            ? cleaned
+            : [.. cleaned.Select(c => string.IsNullOrWhiteSpace(c.Facts.Platform) ? c with { Facts = c.Facts with { PlatformContext = printed } } : c)];
+    }
 
     private static List<CleanItem> WithSnapKind(List<CleanItem> cleaned, WorkKind? printKind, IReadOnlyList<WorkKind?> snapKinds)
     {
@@ -372,6 +403,12 @@ public sealed record StoredRead
     public string? SnapKind { get; init; }
 
     /// <summary>
+    /// The platforms the snap's shot printed (<see cref="ReadFacts.PlatformContext"/>), on a read that named no platform. Kept in the read, the
+    /// same jsonb column, for the same reason as <see cref="SnapKind"/>: the background job asks a pending read again as the request would have.
+    /// </summary>
+    public string? SnapPlatforms { get; init; }
+
+    /// <summary>
     /// The lines of a spine's piece, newline-joined (<see cref="ReadFacts.Lines"/>). Kept for the same reason as <see cref="CreatorAsRead"/>: a read the
     /// providers ran out of time for is asked again by the background job, whose ladder ends with the other lines of the spine. Written only on a spine read that has some.
     /// </summary>
@@ -399,6 +436,7 @@ public sealed record StoredRead
             Profile = profile.ToString(),
             Unconfirmed = unconfirmed ? true : null,
             SnapKind = facts.KindContext is { } snapKind ? EnumText.ToText(snapKind) : null,
+            SnapPlatforms = facts.PlatformContext,
             Lines = facts.Lines,
         },
         Options);
@@ -422,7 +460,8 @@ public sealed record StoredRead
             stored?.ReadAs,
             EnumText.ParseOrNull<WorkKind>(stored?.SnapKind),
             profile == ScoringProfileKind.ShelfSpine ? stored?.CreatorAsRead ?? stored?.Creator : null,
-            profile == ScoringProfileKind.ShelfSpine ? stored?.Lines : null);
+            profile == ScoringProfileKind.ShelfSpine ? stored?.Lines : null,
+            stored?.SnapPlatforms);
         return (facts, profile);
     }
 
