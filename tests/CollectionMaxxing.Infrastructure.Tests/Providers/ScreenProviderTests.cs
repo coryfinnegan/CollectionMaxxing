@@ -137,6 +137,91 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task A_title_read_with_a_registered_sign_is_searched_without_it()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/3/search/movie", "tmdb-movie-search.json");
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "ROBOCOP\u00AE", Kind = WorkKind.Film }, default);
+
+        SearchedTexts(host, "/3/search/movie").ShouldBe(["ROBOCOP"]);
+        SearchedTexts(host, "/3/search/tv").ShouldBe(["ROBOCOP"]);
+    }
+
+    [Theory]
+    [InlineData("ROBOCOP\u00AE", "ROBOCOP")]
+    [InlineData("Hand in Hand\u2122", "Hand in Hand")]
+    [InlineData("\u00A9 Casablanca", "Casablanca")]
+    [InlineData("Casablanca\u2120", "Casablanca")]
+    [InlineData("Hand \u2122 in Hand", "Hand in Hand")]
+    [InlineData("Hand\u2122in Hand", "Hand in Hand")]
+    public async Task Each_sign_is_dropped_from_the_search(string read, string sent)
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/3/search/movie", "tmdb-movie-search.json");
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = read, Kind = WorkKind.Film }, default);
+
+        SearchedTexts(host, "/3/search/movie").ShouldBe([sent]);
+    }
+
+    [Fact]
+    public async Task A_year_retry_of_a_signed_title_is_asked_without_the_sign_too()
+    {
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath("/3/search/movie").WithParam("year", "2008").UsingGet()).AtPriority(1)
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody("""{"page":1,"results":[]}"""));
+        host.Server.Given(Request.Create().WithPath("/3/search/movie").UsingGet()).AtPriority(2)
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(ProviderHost.Fixture("tmdb-movie-search.json")));
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Casablanca\u00AE", Year = 2008, Kind = WorkKind.Film }, default);
+
+        SearchedTexts(host, "/3/search/movie").ShouldBe(["Casablanca", "Casablanca"]);
+    }
+    [Fact]
+    public async Task A_title_that_is_only_a_sign_makes_no_call()
+    {
+        using var host = ProviderHost.Create(Db);
+
+        (await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "\u00AE", Kind = WorkKind.Film }, default)).ShouldBeEmpty();
+
+        host.Server.LogEntries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_signed_title_and_its_bare_form_share_one_cached_answer()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/3/search/movie", "tmdb-movie-search.json");
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+        var provider = host.Get<TmdbProvider>();
+
+        await provider.SearchAsync(new CatalogQuery { Title = "ROBOCOP\u00AE", Kind = WorkKind.Film }, default);
+        await provider.SearchAsync(new CatalogQuery { Title = "ROBOCOP", Kind = WorkKind.Film }, default);
+
+        SearchedTexts(host, "/3/search/movie").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_title_with_no_sign_is_sent_exactly_as_read()
+    {
+        using var host = ProviderHost.Create(Db);
+        Stub(host, "/3/search/movie", "tmdb-movie-search.json");
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "  The  Thing ", Kind = WorkKind.Film }, default);
+
+        SearchedTexts(host, "/3/search/movie").ShouldBe(["  The  Thing "]);
+    }
+
+    private static List<string> SearchedTexts(ProviderHost host, string path) =>
+        host.Server.LogEntries.Where(e => e.RequestMessage!.Path == path)
+            .Select(e => e.RequestMessage!.Query!["query"].ToString()).ToList();
+
+    [Fact]
     public async Task Is_switched_off_without_a_key_and_makes_no_calls()
     {
         using var host = ProviderHost.Create(Db, settings: new() { ["Providers:Tmdb:ApiKey"] = null });
