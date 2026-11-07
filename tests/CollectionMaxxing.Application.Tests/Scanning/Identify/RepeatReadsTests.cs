@@ -362,4 +362,59 @@ public class RepeatReadsTests
 
         RepeatReads.ConfirmedByOtherEngine(answers, [false, true, true], boxes).ShouldBeEmpty();
     }
+
+    // ---- a find of the line retry (SpineLines.FoundBy) is never the stronger read ----------------------------------------------------
+
+    /// <summary>The answer a line of the spine found: offered (Ambiguous, flagged), with the "line" step.</summary>
+    private static BarcodeResolution FoundByLine(Guid release, double score) =>
+        Local(ResolutionVerdict.Ambiguous, release, score) with
+        {
+            FoundByTrimmedSpan = true,
+            Steps = [new TraceStep(SpineLines.StepName, "IRON FOX (title read: XQZV WRTK)", 0)],
+        };
+
+    [Fact]
+    public void A_line_find_never_makes_another_read_of_the_same_release_a_repeat()
+    {
+        RepeatReads.Of([Local(ResolutionVerdict.Ambiguous, BookA, 0.86), FoundByLine(BookA, 1.0)]).ShouldBe([1]);
+        RepeatReads.Of([FoundByLine(BookA, 1.0), Local(ResolutionVerdict.Ambiguous, BookA, 0.86)]).ShouldBe([0]);
+        RepeatReads.Of([FoundByLine(BookA, 1.0), Local(ResolutionVerdict.Matched, BookA, 0.80)]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void Of_two_line_finds_of_one_release_the_higher_score_still_stands()
+    {
+        RepeatReads.Of([FoundByLine(BookA, 0.7), FoundByLine(BookA, 0.9)]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_line_find_is_not_a_repeat_of_a_read_of_another_place_and_a_trimmed_span_find_is_still_read_by_its_score()
+    {
+        var span = FoundByLine(BookA, 1.0) with { Steps = [new TraceStep("trimmed", "IRON FOX (dropped: XQZV)", 0)] };
+
+        RepeatReads.Of([Local(ResolutionVerdict.Ambiguous, BookA, 0.86), span]).ShouldBe([0]);
+        RepeatReads.Of([Local(ResolutionVerdict.Ambiguous, BookA, 0.86), FoundByLine(BookA, 1.0)], [new ReadBox(0.0, 0.1, 0.05, 0.8), new ReadBox(0.5, 0.1, 0.05, 0.8)]).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void The_piece_keeps_its_place_and_its_read_when_a_line_find_names_the_same_release()
+    {
+        // One Vision piece over three spines found a release by a line; the picture model read the first of those spines itself and found the same one.
+        var answers = new[]
+        {
+            FoundByLine(BookA, 1.0),
+            Local(ResolutionVerdict.Ambiguous, BookA, 0.86),
+            Local(ResolutionVerdict.Matched, BookB, 0.95),
+            Local(ResolutionVerdict.Matched, Guid.Parse("00000000-0000-0000-0000-00000000000c"), 0.95),
+        };
+        ReadBox?[] boxes = [new ReadBox(0.30, 0.1, 0.15, 0.8), new ReadBox(0.30, 0.1, 0.05, 0.8), new ReadBox(0.35, 0.1, 0.05, 0.8), new ReadBox(0.40, 0.1, 0.05, 0.8)];
+        bool[] unconfirmed = [false, true, true, true];
+
+        // The live order (IdentifyItems.ResolveAsync): repeats first, then the places, a repeat having none left to contest.
+        var repeats = RepeatReads.Of(answers, boxes).ToHashSet();
+        var lostPlace = ReadPlaces.Weaker([.. answers.Select((a, i) => ReadPlaces.Of(a, repeats.Contains(i) ? null : boxes[i], unconfirmed[i]))]).ToHashSet();
+
+        repeats.ShouldBe([0], "the line find is the one dropped");
+        lostPlace.ShouldBeEmpty("the model's reads of the three spines stand");
+    }
 }

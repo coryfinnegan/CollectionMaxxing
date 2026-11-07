@@ -304,29 +304,30 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     }
 
     /// <summary>
-    /// A line's answer scored again with the author its spine prints as the read's creator, when the answers hold a release by an author
+    /// A line's answer scored again (after every line has been asked and none kept) with the author its spine prints as the read's creator, when the answers hold a release by an author
     /// printed on the spine's other lines (<see cref="SpineLines.PrintedCreator"/>). Kept only when the new best is then kept like any line's find and
     /// its title is close to the line (at least <see cref="TextSearchResolver.CloseTitle"/>): an author's other book is no find of this line. Null otherwise.
     /// </summary>
-    private BarcodeResolution? ScoredByPrintedAuthor(
-        ReadFacts asked, ScoringProfileKind profile, LocalPool pool, ProviderAnswers provided, BarcodeResolution first,
-        Func<BarcodeResolution, LocalPool, bool> keeps)
+    private BarcodeResolution? ScoredByPrintedAuthor(LineMiss miss)
     {
-        var releases = pool.Items.Select(item => ((string?)item.Scoring.Title, item.Scoring.Creators))
-            .Concat(provided.Found.Select(release => ((string?)release.Title, release.Creators)));
-        if (SpineLines.PrintedCreator(asked, asked.Title ?? string.Empty, releases) is not { } creator)
+        var releases = miss.Pool.Items.Select(item => ((string?)item.Scoring.Title, item.Scoring.Creators))
+            .Concat(miss.Provided.Found.Select(release => ((string?)release.Title, release.Creators)));
+        if (SpineLines.PrintedCreator(miss.Asked, miss.Asked.Title ?? string.Empty, releases) is not { } creator)
         {
             return null;
         }
 
-        var again = Score(asked with { Creator = creator }, profile, pool, provided);
+        var again = Score(miss.Asked with { Creator = creator }, miss.Profile, miss.Pool, miss.Provided);
         return again.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous
             && again.Options.Count > 0
             && again.Options[0].Terms.FirstOrDefault(term => term.Name == "title") is { } title && title.Value >= TextSearchResolver.CloseTitle
-            && keeps(again, pool)
+            && miss.Attempt.Keeps!(again, miss.Pool)
                 ? again
                 : null;
     }
+
+    /// <summary>A line attempt that was answered and not kept as scored: what it was asked with and what came back, to be scored again once every line has been asked.</summary>
+    private sealed record LineMiss(Attempt Attempt, ReadFacts Asked, LocalPool Pool, ProviderAnswers Provided, ScoringProfileKind Profile);
 
     /// <summary>Whether the find scores below the read's own best release, which <see cref="OfferedByAttempt"/> then leaves on top.</summary>
     private static bool LeavesOriginalOnTop(BarcodeResolution original, BarcodeResolution found) =>
@@ -454,6 +455,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         var answers = reads.Select(r => r.Answer).ToArray();
         var attempts = reads.Select(r => AttemptsFor(r.Facts, r.Profile, r.Answer, r.Local)).ToArray();
         var cutShort = new bool[reads.Count];
+        var lineKept = new bool[reads.Count];
+        var lineMisses = new List<LineMiss>?[reads.Count];
         var looking = Enumerable.Range(0, reads.Count).Where(i => attempts[i].Count > 0).ToList();
         var rounds = attempts.Select(a => a.Count).DefaultIfEmpty(0).Max();
         for (var round = 0; round < rounds && looking.Count > 0; round++)
@@ -489,19 +492,13 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 var i = looking[n];
                 var attempt = attempts[i][round];
                 var found = scored[n];
-                if (attempt.Keeps is { } keeps && found.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && !keeps(found, pools[n]))
-                {
-                    // A line scored with the creator the read carries can lose to a release that names no creator: scored again with the
-                    // author the spine prints (the same answers, no new ask), the line may find the book that author wrote.
-                    found = ScoredByPrintedAuthor(asked[n], reads[i].Profile, pools[n], provided[n], found, keeps) ?? found;
-                }
-
                 if (found.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && (attempt.Keeps?.Invoke(found, pools[n]) ?? true))
                 {
                     // A line of the spine is the find itself (the read was about to be skipped), its own release among the read's at most.
                     answers[i] = attempt.Keeps is null
                         ? OfferedByAttempt(reads[i].Answer, found, attempt.Step)
                         : Offered(reads[i].Answer, found with { Options = SeriesNeighbour.WithOriginals(found.Options, reads[i].Answer.Options) }, attempt.Step);
+                    lineKept[i] |= attempt.Keeps is not null;
 
                     // A find that leaves the read's own best on top has not answered it (an author's name found something weaker
                     // than itself): the attempts still left, the spine's lines, are asked too, and this answer stays the fallback.
@@ -514,6 +511,11 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 {
                     // An attempt the providers could not answer (they failed, or the budget cancelled the call) was not really tried.
                     cutShort[i] |= found.Verdict == ResolutionVerdict.Pending;
+                    if (attempt.Keeps is not null)
+                    {
+                        (lineMisses[i] ??= []).Add(new LineMiss(attempt, asked[n], pools[n], provided[n], reads[i].Profile));
+                    }
+
                     next.Add(i);
                 }
             }
@@ -523,6 +525,22 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         for (var i = 0; i < answers.Length; i++)
         {
+            // Every line of the spine was asked and none was kept as scored: the one that is kept once scored with the author the spine
+            // prints is the find (the same answers, no new ask), the strongest if several are. Never for a read the budget cut short:
+            // the background job asks it again with every line.
+            if (!lineKept[i] && !cutShort[i] && lineMisses[i] is { } misses && misses.Count == attempts[i].Count(a => a.Keeps is not null))
+            {
+                var best = misses
+                    .Select(miss => (Miss: miss, Again: ScoredByPrintedAuthor(miss)))
+                    .Where(m => m.Again is not null)
+                    .OrderByDescending(m => m.Again!.Options[0].Score)
+                    .FirstOrDefault();
+                if (best.Again is { } again)
+                {
+                    answers[i] = Offered(reads[i].Answer, again with { Options = SeriesNeighbour.WithOriginals(again.Options, reads[i].Answer.Options) }, best.Miss.Attempt.Step);
+                }
+            }
+
             // Only a read that found nothing goes Pending: one that found a release to pick from keeps it.
             if (cutShort[i] && reads[i].Answer.Verdict == ResolutionVerdict.NotFound && ReferenceEquals(answers[i], reads[i].Answer))
             {

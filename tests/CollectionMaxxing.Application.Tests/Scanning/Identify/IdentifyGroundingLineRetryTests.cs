@@ -16,8 +16,10 @@ public class IdentifyGroundingLineRetryTests
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
 
-    private static IdentifyGrounding Grounding(Catalogue catalogue) => new(
-        new TextSearchResolver(null!, catalogue, [new Providers()], new ScanningOptions(), NullLogger<TextSearchResolver>.Instance),
+    private static IdentifyGrounding Grounding(Catalogue catalogue) => Grounding(catalogue, new Providers());
+
+    private static IdentifyGrounding Grounding(Catalogue catalogue, Providers providers) => new(
+        new TextSearchResolver(null!, catalogue, [providers], new ScanningOptions(), NullLogger<TextSearchResolver>.Instance),
         new FixedScoring());
 
     /// <summary>A kindless spine read: the title the phone chose, and every line of the spine's piece.</summary>
@@ -300,6 +302,99 @@ public class IdentifyGroundingLineRetryTests
         SpineLines.PrintedCreator(facts, "COPPER LANTERN", found).ShouldBe("Tess Harrowgate");
         SpineLines.PrintedCreator(facts, "TESS HARROWGATE", found).ShouldBeNull("the line is the only print of that name");
         SpineLines.PrintedCreator(facts, "COPPER LANTERN", found[..2]).ShouldBeNull();
+    }
+
+    // ---- C runs after every line has been asked ----------------------------------------------------------------------------------
+
+    private static readonly string[] SagaLines = ["XQZV WRTK", "COPPER LANTERN SAGA", "TESS HARROWGATE", "IRON FOX"];
+
+    [Fact]
+    public async Task A_later_line_that_is_kept_as_asked_wins_over_an_earlier_line_kept_only_through_its_printed_author()
+    {
+        var series = BookBy("Copper Lantern Saga", "Tess Harrowgate");
+        var title = BookBy("Iron Fox", "Tess Harrowgate");
+        var catalogue = new Catalogue(Film("Copper Lantern Saga"), series, title);
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", SagaLines, creator: "Mara Quillon"));
+
+        catalogue.Lookups.ShouldContain("iron fox"); // the retry did not stop at the saga line
+        answer.Options[0].LocalReleaseId.ShouldBe(title.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "line" && s.Outcome.StartsWith("IRON FOX", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Of_several_lines_kept_only_through_their_printed_author_the_strongest_is_the_find()
+    {
+        var weaker = BookBy("Copper Lantern Sagas", "Tess Harrowgate");
+        var stronger = BookBy("Iron Fox Gate", "Tess Harrowgate");
+        var catalogue = new Catalogue(Film("Copper Lantern Saga"), Film("Iron Fox Gate"), weaker, stronger)
+        {
+            Finds = (book, search) => search.NormalizedTitle switch
+            {
+                "copper lantern saga" => book.Work.NormalizedTitle.StartsWith("copper lantern saga", StringComparison.Ordinal),
+                "iron fox gate" => book.Work.NormalizedTitle.StartsWith("iron fox gate", StringComparison.Ordinal),
+                _ => false,
+            },
+        };
+        var lines = new[] { "XQZV WRTK", "COPPER LANTERN SAGA", "IRON FOX GATE", "TESS HARROWGATE" };
+
+        var answer = await GroundAsync(Grounding(catalogue), Spine("XQZV WRTK", lines, creator: "Mara Quillon"));
+
+        answer.Options[0].LocalReleaseId.ShouldBe(stronger.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "line" && s.Outcome.StartsWith("IRON FOX GATE", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_spine_whose_budget_runs_out_before_every_line_is_asked_is_pending_not_judged_by_the_lines_it_did_ask()
+    {
+        var catalogue = new Catalogue(Film("Copper Lantern Saga"), BookBy("Copper Lantern Saga", "Tess Harrowgate"));
+        var grounding = Grounding(catalogue);
+        var facts = Spine("XQZV WRTK", SagaLines, creator: "Mara Quillon");
+        var notFound = grounding.Score(facts, ScoringProfileKind.ShelfSpine, LocalPool.Empty, ProviderAnswers.None);
+        using var budget = new CancellationTokenSource();
+
+        var answers = await grounding.RetryTrimmedAsync(
+            [new TrimmedRetry(facts, ScoringProfileKind.ShelfSpine, notFound, async _ =>
+            {
+                await budget.CancelAsync(); // the first line's ask finished, the time is gone before the next
+                return ProviderAnswers.None;
+            }, budget.Token)],
+            CancellationToken.None);
+
+        answers.Single().Verdict.ShouldBe(ResolutionVerdict.Pending);
+    }
+
+    // ---- the same, from the providers' answers (the shape of a real shelf: no catalogue hit) ---------------------------------------
+
+    [Fact]
+    public async Task A_line_is_judged_by_the_author_its_spine_prints_among_the_providers_answers_too()
+    {
+        var providers = new Providers(false,
+            Known("Copper Lantern", "b1"),
+            Known("Copper Lantern", "b2") with { Creators = ["Mara Quillon"] },
+            Known("Copper Lantern", "b3") with { Creators = ["Tess Harrowgate"] });
+
+        var answer = await GroundAsync(
+            Grounding(new Catalogue(), providers), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "TESS HARROWGATE"], creator: "Iron Fox"));
+
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Options[0].Provider!.ExternalId.ShouldBe("b3");
+        answer.Steps.ShouldContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_swap_that_ties_the_name_reads_own_best_ends_the_retries_and_goes_first()
+    {
+        // The swap's find scores exactly what the name read's own best does: it goes first, and the lines are not asked.
+        var swapped = BookBy("Quiet Harbor", "Quiet Harbor");
+        var catalogue = NameCatalogue(swapped, BookBy("Copper Lantern", "Tess Harrowgate"));
+
+        var answer = await GroundAsync(Grounding(catalogue), NameSpine());
+
+        catalogue.Lookups.ShouldBe(["tess harrowgate", "quiet harbor"]);
+        answer.Options[0].LocalReleaseId.ShouldBe(swapped.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "swapped");
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
     }
 
     // ---- the line asks share the read's budget: the Pending rules of the spans ------------------------------------------------
