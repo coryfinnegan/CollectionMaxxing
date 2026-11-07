@@ -338,7 +338,7 @@ describe('real shelf photos', () => {
     // title gained is "Rose in Chains" instead, which no longer shares a leftover piece with them; neither path loses a title.) The items of shelf-02 (44 to 42) and
     // accept-shelf-04 (40 to 39) fell as the small "A COURT OF" of 2 and 1 hardcovers of A Court of Silver Flames joined their subtitles.
     // The leftover cut (splitting.ts leftoverPieces, #759) then adds 5 titles over the three photos and loses none: shelf-01 14 to 16 (items 38 to 41:
-    // "Rose in Chains" and Babel stand as spines of their own), shelf-02 24 to 26 (items 42 to 44) and accept-shelf-04 25 to 26 (items 39 to 42).
+    // Broken Rival and "Rose in Chains" stand as spines of their own), shelf-02 24 to 26 (items 42 to 44) and accept-shelf-04 25 to 26 (items 39 to 42).
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
       'shelf-01': { without: { items: 32, found: 11 }, with: { items: 41, found: 16 } },
       'shelf-02': { without: { items: 26, found: 17 }, with: { items: 44, found: 26 } },

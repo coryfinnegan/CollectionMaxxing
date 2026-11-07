@@ -847,6 +847,23 @@ describe('a spine too narrow to be a column is cut out of the leftover lines', (
     expect(texts([...lines, ...other], { ...T, leftoverBesideWords: Infinity })).toHaveLength(1);
   });
 
+  it('gives a name printed on other spines to the nearer of two cut-out spines', () => {
+    const lines = [line('KRAKEN TIDE RISING', 0.3, 0.2, 0.012, 0.15), line('SARAH J.', 0.47, 0.4, 0.012, 0.06), line('ORCHARD OF BONES', 0.5, 0.2, 0.012, 0.15)];
+    const own = splitIntoPieces(row(lines, 'SARAH J. MAAS'), [], C.splitting, T).pieces.filter((p) => p.lines.some((l) => lines.includes(l)));
+    expect(own.map((p) => p.lines.map((l) => l.text).sort())).toEqual([['KRAKEN TIDE RISING'], ['ORCHARD OF BONES', 'SARAH J.']]);
+  });
+
+  it('keeps a leftover of only names printed on other spines as one piece when no spine is cut out of it', () => {
+    const lines = [line('SARAH J.', 0.3, 0.4, 0.012, 0.06), line('MAAS', 0.3, 0.47, 0.012, 0.04)];
+    const own = splitIntoPieces(row(lines, 'SARAH J. MAAS'), [], C.splitting, T).pieces.filter((p) => p.lines.some((l) => lines.includes(l)));
+    expect(own.map((p) => p.lines.map((l) => l.text).sort())).toEqual([['MAAS', 'SARAH J.']]);
+  });
+
+  it('cuts out a lone title of exactly three words', () => {
+    const lines = [line('KRAKEN TIDE RISING', 0.3, 0.2, 0.012, 0.15), line('Flat stack words', 0.6, 0.5, 0.15, 0.03)];
+    expect(texts(lines)).toEqual([['KRAKEN TIDE RISING'], ['Flat stack words']]);
+  });
+
   describe('what stays as it was', () => {
     it('makes no read of a leftover that holds only a name printed on other spines: it stays with the spine beside it (accept-shelf-04 TOWER OF DAWN)', () => {
       const lines = splitIntoPieces(row(TOWER, 'SARAH J. MAAS'), [], C.splitting, T).pieces.filter((p) => p.lines.some((l) => TOWER.includes(l)));
