@@ -125,6 +125,22 @@ public class ContestedPlaceTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_merged_Vision_piece_whose_release_no_model_read_inside_it_found_stands_beside_them()
+    {
+        var (client, sessionId) = await StartAsync(Provided(OnTheShelf, "OL1W"));
+
+        var candidates = await IdentifyOnePictureAsync(
+            client,
+            sessionId,
+            ReadAt(OnTheShelf, WidePiece),
+            ReadAt(NoBook, Box(0.12), onlyTheModel: true),
+            ReadAt(NoBook, Box(0.50), onlyTheModel: true));
+
+        Decision(candidates[0]).ShouldBe("accepted", "the piece names a release none of the reads inside it found, so it is kept");
+        candidates.Skip(1).ShouldAllBe(c => Decision(c) == "undecided");
+    }
+
+    [Fact]
     public async Task A_Vision_piece_covering_several_spines_loses_its_place_and_every_model_read_inside_it_stands()
     {
         var (client, sessionId) = await StartAsync(Provided(OnTheShelf, "OL1W"), Provided(NotOnTheShelf, "OL2W"));
@@ -141,18 +157,18 @@ public class ContestedPlaceTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
-    public async Task A_Vision_piece_covering_several_spines_loses_its_place_even_when_it_is_the_read_that_matched()
+    public async Task A_Vision_piece_covering_several_spines_that_matched_a_release_of_its_own_stands_beside_the_reads_inside_it_that_found_other_books()
     {
-        var (client, sessionId) = await StartAsync(Provided(OnTheShelf, "OL1W"), Provided(NotOnTheShelf, "OL2W"));
+        var (client, sessionId) = await StartAsync(Provided(OnTheShelf, "OL1W"), Provided(NotOnTheShelf, "OL2W"), Provided("Salt Lamp Almanac", "OL3W"));
 
         var candidates = await IdentifyOnePictureAsync(
             client,
             sessionId,
             ReadAt(OnTheShelf, WidePiece),
             ReadAt(NotOnTheShelf, Box(0.12), onlyTheModel: true),
-            ReadAt(NoBook, Box(0.50), onlyTheModel: true));
+            ReadAt("Salt Lamp Almanac", Box(0.50), onlyTheModel: true));
 
-        Decision(candidates[0]).ShouldBe("rejected", "one piece over several spines is no place of its own");
+        Decision(candidates[0]).ShouldBe("accepted", "the piece's release is none of the reads inside it, so it is a book of its own");
         candidates.Skip(1).ShouldAllBe(c => Decision(c) == "undecided");
     }
 

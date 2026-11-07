@@ -487,8 +487,16 @@ public static class IdentifyItems
             // pipeline's name different releases, the read that grounds better is the row and the other is skipped, so the model's
             // right answer is no longer lost to a Vision read of the author's name or a sticker (ReadPlaces). A read
             // already a repeat has no place left to contest.
+            // A place is also settled by the words each read was made of and the title of its best release (one read holding the
+            // other's words), so those go with it.
+            var placeReleases = await FragmentReads.LocalReleasesAsync(db, FragmentReads.ReleaseIdsOf(freshAnswers), cancellationToken);
             var lostPlace = ReadPlaces.Weaker(
-                [.. fresh.Select((f, i) => ReadPlaces.Of(answers[f.Candidate.Id], repeats.Contains(i) ? null : f.Item.Box, f.Item.Unconfirmed))]).ToHashSet();
+                [.. fresh.Select((f, i) => ReadPlaces.Of(
+                    answers[f.Candidate.Id],
+                    repeats.Contains(i) ? null : f.Item.Box,
+                    f.Item.Unconfirmed,
+                    f.Item.Facts.SearchText,
+                    BestTitleOf(freshAnswers[i], placeReleases)))]).ToHashSet();
 
             // And a spine read that only found itself (a number, a banner, a publisher's mark another spine prints, or an author's
             // name answered by a release titled with it) is skipped too (FragmentReads).
@@ -574,6 +582,18 @@ public static class IdentifyItems
         /// the caller saves.
         /// </summary>
         private static void Skip(ScanCandidate candidate, string step) => CandidateSkip.Apply(candidate, step);
+
+        /// <summary>The title of an answer's best release (a provider's own, or the catalogue's by id); null when it has none.</summary>
+        private static string? BestTitleOf(BarcodeResolution answer, IReadOnlyDictionary<Guid, (string Title, IReadOnlyList<string> Creators)> local)
+        {
+            if (answer.Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous) || answer.Options.Count == 0)
+            {
+                return null;
+            }
+
+            var best = answer.Options[0];
+            return best.LocalReleaseId is { } id ? (local.TryGetValue(id, out var known) ? known.Title : null) : best.Provider?.Title;
+        }
 
         /// <summary>
         /// Queues the resolve job for each candidate still Pending. Safe to repeat: one job per candidate and key.
