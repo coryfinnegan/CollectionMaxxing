@@ -46,10 +46,14 @@ public sealed class EvalRunScoring(
 {
     /// <summary>Grounds the items one engine read in one photo, as a dry run (nothing is persisted), and keeps what the PC knows of the reading.</summary>
     private async Task<GroundedPhoto> GroundAsync(
-        EvalPhotoInput result, EvalGroundingMemo memo, CancellationToken cancellationToken, IReadOnlyList<WorkKind?>? kindsOfTheSnap = null)
+        EvalPhotoInput result,
+        EvalGroundingMemo memo,
+        CancellationToken cancellationToken,
+        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null,
+        IReadOnlyCollection<string>? platformsOfTheSnap = null)
     {
         var shot = result.Outcome == EvalOutcome.Ok
-            ? await grounder.GroundWithSkipsAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken, kindsOfTheSnap)
+            ? await grounder.GroundWithSkipsAsync(result.Engine!.Value, result.Items ?? [], memo, result.PrintKind, cancellationToken, kindsOfTheSnap, platformsOfTheSnap)
             : new GroundedShot([], 0);
         var items = shot.Items;
         return new GroundedPhoto(
@@ -99,12 +103,16 @@ public sealed class EvalRunScoring(
     public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
         results = [.. results.Select(EvalSpineLines.Rebuild)]; // a run from before the phone sent each spine's lines gets them from its pieces
+        // The app sends one identify per snap holding both engines' reads, so a platform printed on any line of the shot is printed for every
+        // read of it: each row is told the platforms of all the rows' lines (IdentifyCleaning.PrintedPlatforms).
+        var printedPlatforms = IdentifyCleaning.PrintedPlatforms(
+            results.Where(r => r.Outcome == EvalOutcome.Ok).SelectMany(r => r.Items ?? []).Select(i => i.Read));
         var grounded = new List<GroundedPhoto>(results.Count);
         var appleIndex = -1;
         var visionIndex = -1;
         for (var i = 0; i < results.Count; i++)
         {
-            grounded.Add(await GroundAsync(results[i], memo, cancellationToken));
+            grounded.Add(await GroundAsync(results[i], memo, cancellationToken, platformsOfTheSnap: printedPlatforms));
             if (results[i].Engine == ScanEngine.AppleModel)
             {
                 appleIndex = i;
@@ -122,14 +130,14 @@ public sealed class EvalRunScoring(
         if (appleIndex >= 0 && visionIndex >= 0 && results[appleIndex].Outcome == EvalOutcome.Ok && results[visionIndex].Outcome == EvalOutcome.Ok
             && EvalCombination.StandingModelKinds(grounded[visionIndex], grounded[appleIndex]) is { Count: > 0 } modelKinds)
         {
-            grounded[visionIndex] = await GroundAsync(results[visionIndex], memo, cancellationToken, modelKinds);
+            grounded[visionIndex] = await GroundAsync(results[visionIndex], memo, cancellationToken, modelKinds, printedPlatforms);
         }
 
         var apple = appleIndex >= 0 ? results[appleIndex] : null;
         var printKind = results.FirstOrDefault(r => r.Engine == ScanEngine.VisionPipeline && r.Outcome == EvalOutcome.Ok)?.PrintKind;
         if (apple is { Outcome: EvalOutcome.Ok } && printKind is { } kind)
         {
-            var lent = await grounder.GroundWithSkipsAsync(ScanEngine.AppleModel, apple.Items ?? [], memo, kind, cancellationToken);
+            var lent = await grounder.GroundWithSkipsAsync(ScanEngine.AppleModel, apple.Items ?? [], memo, kind, cancellationToken, platformsOfTheSnap: printedPlatforms);
             grounded[appleIndex] = grounded[appleIndex] with
             {
                 ItemsLentPrint = lent.Items,

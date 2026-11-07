@@ -50,8 +50,9 @@ public sealed class EvalGrounder(
         EvalGroundingMemo memo,
         WorkKind? printKind,
         CancellationToken cancellationToken,
-        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null) =>
-        (await GroundWithSkipsAsync(engine, items, memo, printKind, cancellationToken, kindsOfTheSnap)).Items;
+        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null,
+        IReadOnlyCollection<string>? platformsOfTheSnap = null) =>
+        (await GroundWithSkipsAsync(engine, items, memo, printKind, cancellationToken, kindsOfTheSnap, platformsOfTheSnap)).Items;
 
     /// <summary>
     /// As <see cref="GroundAsync"/>, and also reports the reads that are skipped rather than scored (a fragment, <see cref="FragmentReads"/>,
@@ -64,7 +65,8 @@ public sealed class EvalGrounder(
         EvalGroundingMemo memo,
         WorkKind? printKind,
         CancellationToken cancellationToken,
-        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null)
+        IReadOnlyList<WorkKind?>? kindsOfTheSnap = null,
+        IReadOnlyCollection<string>? platformsOfTheSnap = null)
     {
         if (items.Count == 0)
         {
@@ -73,8 +75,9 @@ public sealed class EvalGrounder(
 
         // Cleaning also tells each kindless read what kind the photo is of (KindContext): what the shelf's own print said when no read
         // names that kind, else what the rest of the photo's reads agreed on, else the print over a split, the one rule /identify applies. The memo below keys on
-        // the read with it, so a lookup made under another photo's kind is never reused.
-        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials, printKind: printKind, snapKinds: kindsOfTheSnap);
+        // the read with it, so a lookup made under another photo's kind is never reused. The same goes for the platforms the photo's lines
+        // print (PlatformContext), which the photo's other engines' reads are told through platformsOfTheSnap, as /identify cleans them all at once.
+        var cleaned = IdentifyCleaning.Clean([.. items.Select(i => i.Read)], serials: serials, printKind: printKind, snapKinds: kindsOfTheSnap, snapPlatforms: platformsOfTheSnap);
         var remembered = await memo.GroundManyAsync(
             [.. cleaned.Select(c => (c.Facts, c.Profile))], claims => GroundClaimsAsync(claims, cancellationToken), cancellationToken);
 

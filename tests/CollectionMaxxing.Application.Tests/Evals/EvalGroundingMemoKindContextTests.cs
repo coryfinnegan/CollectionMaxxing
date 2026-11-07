@@ -49,4 +49,23 @@ public class EvalGroundingMemoKindContextTests
 
         calls.ShouldBe(1);
     }
+
+    [Fact]
+    public async Task Two_reads_alike_but_for_their_shots_printed_platforms_are_grounded_apart()
+    {
+        var memo = new EvalGroundingMemo();
+        var calls = 0;
+        Task<BarcodeResolution> Ask()
+        {
+            calls++;
+            return Task.FromResult(new BarcodeResolution(ResolutionVerdict.Ambiguous, [], null, []));
+        }
+
+        await memo.GroundAsync(Words(null) with { PlatformContext = "PS2" }, ScoringProfileKind.ShelfSpine, Ask);
+        await memo.GroundAsync(Words(null) with { PlatformContext = "PS2|Switch" }, ScoringProfileKind.ShelfSpine, Ask);
+        await memo.GroundAsync(Words(null), ScoringProfileKind.ShelfSpine, Ask);
+        await memo.GroundAsync(Words(null) with { PlatformContext = "PS2" }, ScoringProfileKind.ShelfSpine, Ask);
+
+        calls.ShouldBe(3);
+    }
 }

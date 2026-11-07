@@ -286,7 +286,8 @@ public sealed class TextSearchResolver(
         bool pendingWhenProvidersFailed,
         IReadOnlyCollection<Guid>? contextWorkIds = null,
         IReadOnlyDictionary<string, Guid>? workIdsByKey = null,
-        WorkKind? kindContext = null)
+        WorkKind? kindContext = null,
+        IReadOnlyCollection<string>? printedPlatforms = null)
     {
         var steps = new List<TraceStep>();
         if (found.Step is { } localStep)
@@ -325,7 +326,11 @@ public sealed class TextSearchResolver(
         // The snap's kind speaks only for a read that named none, and only in a close call: a Matched top has a lead far beyond
         // the bias (KindBias is under MatchedLead by default), but a profile may be tuned, and the verdict is about the top.
         var kindFamily = (read.Kind is null or WorkKind.Other) && result.Outcome == MatchOutcome.Ambiguous ? kindContext : null;
-        var ranked = BiasRanking(result.Ranked, contextWorkIds, workIdsByKey, kindFamily, out var boosted, out var kindMoved);
+        // The shot's printed platforms speak, in the same close call, only for a read that named no platform.
+        var printed = result.Outcome == MatchOutcome.Ambiguous && string.IsNullOrWhiteSpace(read.Platform) && printedPlatforms is { Count: > 0 }
+            ? printedPlatforms.Select(PlatformNames.Canonicalize).OfType<string>().ToHashSet(StringComparer.Ordinal)
+            : null;
+        var ranked = BiasRanking(result.Ranked, contextWorkIds, workIdsByKey, kindFamily, printed, out var boosted, out var kindMoved, out var platformMoved);
         if (boosted > 0)
         {
             steps.Add(new TraceStep("context", "biased", 0));
@@ -334,6 +339,11 @@ public sealed class TextSearchResolver(
         if (kindMoved)
         {
             steps.Add(new TraceStep("kind", "biased", 0));
+        }
+
+        if (platformMoved)
+        {
+            steps.Add(new TraceStep("platform", "biased", 0));
         }
 
         // Which kind the offer prefers when it has to make room: the read's own, else the snap's. With neither, any other kind will do.
@@ -360,27 +370,39 @@ public sealed class TextSearchResolver(
     public const double KindBias = 0.02;
 
     /// <summary>
+    /// How much higher a release on a platform the read's shot prints sorts for a read that named no platform, in score units: the
+    /// kind bonus, for the same reason (it settles a tie or a gap of a hair, and nothing more).
+    /// </summary>
+    public const double PlatformBias = KindBias;
+
+    /// <summary>
     /// Reorders a scored ranking toward the neighbours' works and, for a read that names no kind, toward the snap's kind
     /// (<paramref name="kindContext"/>, null for none). The scores are untouched — only the order changes — and the unbiased best
     /// is pinned into the top three, so the bias reorders but can never hide the globally-best match. A release's sort key is
     /// its score plus its bonuses, rounded to the scorer's nine decimals so that a gap a bonus exactly closes is a tie (the
     /// scorer's order stands). <paramref name="boosted"/> counts the ranked releases that got the neighbour bonus;
-    /// <paramref name="kindMoved"/> says the kind bonus changed which releases are offered, or in which order. Pure.
+    /// <paramref name="kindMoved"/> says the kind bonus changed which releases are offered, or in which order. A read that named no
+    /// platform also sees first the releases on a platform its shot prints (<paramref name="printedPlatforms"/>, canonical names, null for
+    /// none) by <see cref="PlatformBias"/>, and among releases still level after every bonus the printed one goes first, so a print beats
+    /// the providers' order; <paramref name="platformMoved"/> says that changed the offer. Pure.
     /// </summary>
     private static List<ScoredRelease> BiasRanking(
         IReadOnlyList<ScoredRelease> ranked,
         IReadOnlyCollection<Guid>? contextWorkIds,
         IReadOnlyDictionary<string, Guid>? workIdsByKey,
         WorkKind? kindContext,
+        HashSet<string>? printedPlatforms,
         out int boosted,
-        out bool kindMoved)
+        out bool kindMoved,
+        out bool platformMoved)
     {
         boosted = 0;
         kindMoved = false;
+        platformMoved = false;
         var neighbours = contextWorkIds is { Count: > 0 } && workIdsByKey is not null
             ? contextWorkIds as IReadOnlySet<Guid> ?? contextWorkIds.ToHashSet()
             : null;
-        if (ranked.Count == 0 || (neighbours is null && kindContext is null))
+        if (ranked.Count == 0 || (neighbours is null && kindContext is null && printedPlatforms is null))
         {
             return ranked.ToList();
         }
@@ -390,15 +412,28 @@ public sealed class TextSearchResolver(
 
         boosted = ranked.Count(entry => NeighbourBonus(entry) > 0);
         var neighbourOrder = Ordered(ranked, NeighbourBonus);
-        if (kindContext is not { } kind)
+        double KindBonus(ScoredRelease entry) => kindContext is { } kind && Identify.KindContext.InFamily(entry.Release.Kind, kind) ? KindBias : 0;
+
+        var kindOrder = neighbourOrder;
+        if (kindContext is not null)
         {
-            return neighbourOrder;
+            kindOrder = Ordered(ranked, entry => NeighbourBonus(entry) + KindBonus(entry));
+            kindMoved = !SameOffer(kindOrder, neighbourOrder);
         }
 
-        var order = Ordered(ranked, entry => NeighbourBonus(entry) + (Identify.KindContext.InFamily(entry.Release.Kind, kind) ? KindBias : 0));
-        kindMoved = !order.Take(Alternatives).Select(entry => entry.Release.Key).SequenceEqual(neighbourOrder.Take(Alternatives).Select(entry => entry.Release.Key));
+        if (printedPlatforms is null)
+        {
+            return kindOrder;
+        }
+
+        bool OnPrinted(ScoredRelease entry) => PlatformNames.Canonicalize(entry.Release.Platform) is { } platform && printedPlatforms.Contains(platform);
+        var order = Ordered(ranked, entry => NeighbourBonus(entry) + KindBonus(entry) + (OnPrinted(entry) ? PlatformBias : 0), OnPrinted);
+        platformMoved = !SameOffer(order, kindOrder);
         return order;
     }
+
+    private static bool SameOffer(List<ScoredRelease> one, List<ScoredRelease> other) =>
+        one.Take(Alternatives).Select(entry => entry.Release.Key).SequenceEqual(other.Take(Alternatives).Select(entry => entry.Release.Key));
 
     /// <summary>
     /// How far below the third release of one work a release of another kind may score and still take its place, in score units:
@@ -463,9 +498,10 @@ public sealed class TextSearchResolver(
     private static bool SameTitle(CandidateRelease one, CandidateRelease other) =>
         string.Equals(TitleNormalizer.Normalize(one.Title), TitleNormalizer.Normalize(other.Title), StringComparison.Ordinal);
 
-    private static List<ScoredRelease> Ordered(IReadOnlyList<ScoredRelease> ranked, Func<ScoredRelease, double> bonus)
+    private static List<ScoredRelease> Ordered(IReadOnlyList<ScoredRelease> ranked, Func<ScoredRelease, double> bonus, Func<ScoredRelease, bool>? first = null)
     {
-        var order = ranked.OrderByDescending(entry => Math.Round(entry.Score + bonus(entry), 9)).ToList();
+        // The sort is stable, so releases level after the bonuses keep the scorer's order, except that those `first` names go before the rest.
+        var order = ranked.OrderByDescending(entry => Math.Round(entry.Score + bonus(entry), 9)).ThenByDescending(entry => first?.Invoke(entry) == true).ToList();
 
         // The unbiased best stays selectable whatever the bonuses say: at worst it slides to third.
         var best = ranked[0].Release.Key;

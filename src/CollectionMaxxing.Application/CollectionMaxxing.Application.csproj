@@ -10,6 +10,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The cleaning rules (IdentifyCleaning) are internal; their tests read them directly. -->
+    <InternalsVisibleTo Include="CollectionMaxxing.Application.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- IAppDbContext exposes DbSet<T>; Application never references a database driver. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
   </ItemGroup>

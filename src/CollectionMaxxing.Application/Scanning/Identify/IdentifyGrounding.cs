@@ -23,6 +23,9 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <see cref="Lines"/> are the lines of the spine's piece, newline-joined into one value so that two reads with the same lines are equal
 /// (the eval run's memo keys on the read; a list would break that). It is kept on a spine read only, for the line retry
 /// (<see cref="SpineLines"/>); null on every other read and on one from a phone that sent none.
+/// <see cref="PlatformContext"/> is the same kind of snap-wide field as <see cref="KindContext"/>: the canonical names of the platforms the
+/// shot prints on a line of its own (<see cref="IdentifyCleaning.PrintedPlatforms"/>), sorted and joined by '|' into one value-equal string,
+/// set only on a read that names no platform. It only orders level-scoring releases, and is part of the read's value for the same reason.
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -38,8 +41,12 @@ public sealed record ReadFacts(
     string? ReadAs = null,
     WorkKind? KindContext = null,
     string? CreatorAsRead = null,
-    string? Lines = null)
+    string? Lines = null,
+    string? PlatformContext = null)
 {
+    /// <summary>The canonical platform names the shot prints, split from <see cref="PlatformContext"/>; none when it printed none.</summary>
+    public IReadOnlyList<string> PrintedPlatforms => PlatformContext is { Length: > 0 } ? PlatformContext.Split('|') : [];
+
     /// <summary>The lines of the spine's piece, one at a time (<see cref="Lines"/> is them joined by newlines); none when the phone sent none.</summary>
     public IReadOnlyList<string> LineList => SpineLines.Split(Lines);
 
@@ -150,7 +157,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         var resolution = TextSearchResolver.Score(
-            facts.ToReadItem(), ProfileFor(profile), local, providers, pendingWhenProvidersFailed: true, kindContext: facts.KindContext);
+            facts.ToReadItem(), ProfileFor(profile), local, providers, pendingWhenProvidersFailed: true, kindContext: facts.KindContext,
+            printedPlatforms: facts.PrintedPlatforms);
         return resolution with
         {
             // A provider film or game names no format: the one the cover was read as is the release's (a DVD, a VHS tape).
