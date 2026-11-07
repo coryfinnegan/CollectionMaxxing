@@ -65,18 +65,19 @@ public class TextSearchFallbackTests
     }
 
     [Theory]
-    [InlineData("ROBOCOP\u00AE", "ROBOCOP")]
-    [InlineData("Hand in Hand\u2122", "Hand in Hand")]
-    public async Task A_title_read_with_a_sign_adds_no_rung_and_reaches_the_provider_as_read(string withSign, string bare)
+    [InlineData("ROBOCOP\u00AE", "ROBOCOP", WorkKind.Book)]
+    [InlineData("Hand in Hand\u2122", "Hand in Hand", WorkKind.Book)]
+    [InlineData("ROBOCOP\u00AE", "ROBOCOP", WorkKind.Film)]
+    public async Task A_title_read_with_a_sign_adds_no_rung_and_reaches_the_provider_as_read(string withSign, string bare, WorkKind kind)
     {
         // Guards against the trademark rung of #747 coming back: the sign is TMDB's concern, not the ladder's.
-        var signedProvider = new RecordingProvider(_ => []);
-        var bareProvider = new RecordingProvider(_ => []);
+        var signedProvider = new RecordingProvider(_ => [], "fake", kind);
+        var bareProvider = new RecordingProvider(_ => [], "fake", kind);
 
         await Resolver(signedProvider).AskProvidersAsync(
-            new CatalogQuery { Title = withSign, Creator = Author, Kind = WorkKind.Book }, CancellationToken.None, CancellationToken.None);
+            new CatalogQuery { Title = withSign, Creator = Author, Kind = kind }, CancellationToken.None, CancellationToken.None);
         await Resolver(bareProvider).AskProvidersAsync(
-            new CatalogQuery { Title = bare, Creator = Author, Kind = WorkKind.Book }, CancellationToken.None, CancellationToken.None);
+            new CatalogQuery { Title = bare, Creator = Author, Kind = kind }, CancellationToken.None, CancellationToken.None);
 
         signedProvider.Queries.Count.ShouldBe(bareProvider.Queries.Count);
         // Same asks, same windows of the title, the sign left on whichever piece carried it.

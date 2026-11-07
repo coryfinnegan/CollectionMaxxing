@@ -155,6 +155,7 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
     [InlineData("\u00A9 Casablanca", "Casablanca")]
     [InlineData("Casablanca\u2120", "Casablanca")]
     [InlineData("Hand \u2122 in Hand", "Hand in Hand")]
+    [InlineData("Hand\u2122in Hand", "Hand in Hand")]
     public async Task Each_sign_is_dropped_from_the_search(string read, string sent)
     {
         using var host = ProviderHost.Create(Db);
@@ -166,6 +167,20 @@ public class TmdbProviderTests(PostgresFixture db) : DatabaseTest(db)
         SearchedTexts(host, "/3/search/movie").ShouldBe([sent]);
     }
 
+    [Fact]
+    public async Task A_year_retry_of_a_signed_title_is_asked_without_the_sign_too()
+    {
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath("/3/search/movie").WithParam("year", "2008").UsingGet()).AtPriority(1)
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody("""{"page":1,"results":[]}"""));
+        host.Server.Given(Request.Create().WithPath("/3/search/movie").UsingGet()).AtPriority(2)
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithBody(ProviderHost.Fixture("tmdb-movie-search.json")));
+        Stub(host, "/3/search/tv", "tmdb-tv-search.json");
+
+        await host.Get<TmdbProvider>().SearchAsync(new CatalogQuery { Title = "Casablanca\u00AE", Year = 2008, Kind = WorkKind.Film }, default);
+
+        SearchedTexts(host, "/3/search/movie").ShouldBe(["Casablanca", "Casablanca"]);
+    }
     [Fact]
     public async Task A_title_that_is_only_a_sign_makes_no_call()
     {
