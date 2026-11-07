@@ -20,6 +20,9 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// whether it reads as a name (<see cref="ReadSanitizer"/> drops a line with "the" or "for" in it, which is how a real title
 /// ends up in the author field and is lost). It is kept on a spine read only, for <see cref="IdentifyGrounding.RetryTrimmedAsync"/>
 /// to ask again with the two swapped; null on every other read.
+/// <see cref="Lines"/> are the lines of the spine's piece, newline-joined into one value so that two reads with the same lines are equal
+/// (the eval run's memo keys on the read; a list would break that). It is kept on a spine read only, for the line retry
+/// (<see cref="SpineLines"/>); null on every other read and on one from a phone that sent none.
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -34,8 +37,12 @@ public sealed record ReadFacts(
     string? ProductCode = null,
     string? ReadAs = null,
     WorkKind? KindContext = null,
-    string? CreatorAsRead = null)
+    string? CreatorAsRead = null,
+    string? Lines = null)
 {
+    /// <summary>The lines of the spine's piece, one at a time (<see cref="Lines"/> is them joined by newlines); none when the phone sent none.</summary>
+    public IReadOnlyList<string> LineList => SpineLines.Split(Lines);
+
     /// <summary>The words to look for: the model's title when it gave one, else everything that was legible. Null when there is nothing to search.</summary>
     public string? SearchText => !string.IsNullOrWhiteSpace(Title) ? Title : !string.IsNullOrWhiteSpace(Text) ? Text : null;
 
@@ -214,7 +221,12 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         AttemptsFor(facts, profile, answer, local).Count > 0;
 
     /// <summary>One more way to ask about a read: the facts to ask with, and the trace step that says what they are.</summary>
-    private sealed record Attempt(ReadFacts Facts, TraceStep Step);
+    /// <summary>
+    /// One more way to ask about a read: the facts to ask with, and the trace step that says what they are. <paramref name="Keeps"/> is set for
+    /// a line of the spine (<see cref="SpineLines"/>) only: what such an ask finds is kept just when it says yes to the answer and the catalogue
+    /// pool it was scored against (an author of the best release is printed on the spine); otherwise the ask counts as having found nothing.
+    /// </summary>
+    private sealed record Attempt(ReadFacts Facts, TraceStep Step, Func<BarcodeResolution, LocalPool, bool>? Keeps = null);
 
     /// <summary>
     /// The ways to ask again about a read, in the order they are tried. A read that found nothing: its title without its possessive
@@ -246,9 +258,15 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         {
             // An author's name whose best release is titled with that name is asked once more with its creator as the title (a
             // fragment otherwise: FragmentReads); what that finds is offered, and nothing found leaves the answer as it was.
-            if (spine && facts.Kind is null && NamesItsOwnCreator(facts, answer, local) && CreatorSwap.For(facts) is { } swappedName)
+            if (spine && facts.Kind is null && NamesItsOwnCreator(facts, answer, local))
             {
-                attempts.Add(new Attempt(swappedName, new TraceStep("swapped", $"{swappedName.Title} (creator as read; title read: {facts.Title})", 0)));
+                if (CreatorSwap.For(facts) is { } swappedName)
+                {
+                    attempts.Add(new Attempt(swappedName, new TraceStep("swapped", $"{swappedName.Title} (creator as read; title read: {facts.Title})", 0)));
+                }
+
+                // The read would be skipped as an author's name: another line of its spine may be the title, if the author is printed there.
+                AddLineAttempts(attempts, facts, BestCreators(answer, local));
             }
 
             return attempts;
@@ -276,8 +294,47 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             attempts.Add(new Attempt(swapped, new TraceStep("swapped", $"{swapped.Title} (creator as read; title read: {facts.Title})", 0)));
         }
 
+        // Last, a spine that found nothing after all of that is asked with other lines of its spine (UnfoundSpines would skip it).
+        if (spine)
+        {
+            AddLineAttempts(attempts, facts, []);
+        }
+
         return attempts;
     }
+
+    /// <summary>The line attempts of <see cref="SpineLines"/>, after the attempts already listed (whose titles are not asked again).</summary>
+    private static void AddLineAttempts(List<Attempt> attempts, ReadFacts facts, IReadOnlyList<string> creators)
+    {
+        foreach (var line in SpineLines.ToAsk(facts, attempts.Select(a => a.Facts.SearchText ?? string.Empty), creators))
+        {
+            attempts.Add(new Attempt(
+                facts with { Title = line },
+                new TraceStep(SpineLines.StepName, $"{line} (title read: {facts.SearchText})", 0),
+                (found, pool) => KeepsLine(facts, line, found, pool)));
+        }
+    }
+
+    /// <summary>Whether a release a line found is kept: a creator of its best release is printed on the spine (<see cref="SpineLines.KeepsFind"/>).</summary>
+    private static bool KeepsLine(ReadFacts facts, string line, BarcodeResolution found, LocalPool pool)
+    {
+        if (found.Options.Count == 0)
+        {
+            return false;
+        }
+
+        var best = found.Options[0]; // best first
+        return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), CreatorsOf(best, pool));
+    }
+
+    /// <summary>The creators of an answer's best release, when it has one; none otherwise.</summary>
+    private static IReadOnlyList<string> BestCreators(BarcodeResolution answer, LocalPool? local) =>
+        answer.Options.Count == 0 ? [] : CreatorsOf(answer.Options[0], local ?? LocalPool.Empty);
+
+    private static IReadOnlyList<string> CreatorsOf(ResolutionOption option, LocalPool pool) =>
+        option.LocalReleaseId is { } id
+            ? pool.Items.Where(item => item.Option.LocalReleaseId == id).Select(item => item.Scoring.Creators).FirstOrDefault() ?? []
+            : option.Provider?.Creators ?? [];
 
     /// <summary>Whether the read's best release is titled with the read's own title, and that title is one of the release's creators (<see cref="FragmentReads.NamesItsOwnCreator"/>).</summary>
     private static bool NamesItsOwnCreator(ReadFacts facts, BarcodeResolution answer, LocalPool? local)
@@ -400,9 +457,13 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             for (var n = 0; n < looking.Count; n++)
             {
                 var i = looking[n];
-                if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous)
+                var attempt = attempts[i][round];
+                if (scored[n].Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && (attempt.Keeps?.Invoke(scored[n], pools[n]) ?? true))
                 {
-                    answers[i] = OfferedByAttempt(reads[i].Answer, scored[n], attempts[i][round].Step);
+                    // A line of the spine is the find itself (the read was about to be skipped), its own release among the read's at most.
+                    answers[i] = attempt.Keeps is null
+                        ? OfferedByAttempt(reads[i].Answer, scored[n], attempt.Step)
+                        : Offered(reads[i].Answer, scored[n] with { Options = SeriesNeighbour.WithOriginals(scored[n].Options, reads[i].Answer.Options) }, attempt.Step);
                 }
                 else
                 {

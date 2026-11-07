@@ -98,6 +98,7 @@ public sealed class EvalRunScoring(
     /// </summary>
     public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken)
     {
+        results = [.. results.Select(EvalSpineLines.Rebuild)]; // a run from before the phone sent each spine's lines gets them from its pieces
         var grounded = new List<GroundedPhoto>(results.Count);
         var appleIndex = -1;
         var visionIndex = -1;

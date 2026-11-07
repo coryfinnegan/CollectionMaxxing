@@ -362,8 +362,9 @@ public static class EvalCombination
     /// A read as the place rule settles it: where it sat, how well it grounds, the score of its best release (its normalised
     /// title and year, for <see cref="ReadPlaces.Confirmed"/>), and which engine read it.
     /// </summary>
-    private static PlacedRead Placed(GroundedItem item, bool onlyTheModelRead) =>
-        new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead, BookOf(item));
+    private static PlacedRead Placed(GroundedItem item, bool onlyTheModelRead) => item.FoundByLine
+        ? new(item.Box, ReadGrounding.Nothing, 0, onlyTheModelRead) // a find of the line retry changes no other read: it contends as the read that found nothing
+        : new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead, BookOf(item));
 
     /// <summary>The release a read's best option names, its normalised title and year, as a single key; null when it has none.</summary>
     private static string? BookOf(GroundedItem item) => KeyOf(item) is { } key ? $"{key.Title}\0{key.Year}" : null;

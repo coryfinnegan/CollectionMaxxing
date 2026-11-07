@@ -8710,6 +8710,15 @@
               "null",
               "boolean"
             ]
+          },
+          "lines": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -9224,6 +9233,15 @@
               "null",
               "boolean"
             ]
+          },
+          "lines": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

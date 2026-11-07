@@ -10,7 +10,7 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// release (null when it names none) and that release's score.
 /// </summary>
 public readonly record struct SeriesRead(
-    ReadBox? Box, bool Spine, ResolutionVerdict Verdict, string? ReadTitle, string? BestTitle, double Score = 0);
+    ReadBox? Box, bool Spine, ResolutionVerdict Verdict, string? ReadTitle, string? BestTitle, double Score = 0, bool FoundByLine = false);
 
 /// <summary>
 /// A series word read on a neighbour. A spine that prints only a series' subtitle ("NEMESIS", "GENERATIONS", "ILVER FLAMES") finds
@@ -27,7 +27,7 @@ public readonly record struct SeriesRead(
 /// or only an ambiguous answer whose best release carries no series (and does not already name the series without a colon). A
 /// Matched read is never asked again, and neither is a read whose place another read already holds with a Matched answer. The neighbours are the nearest read on each side by the centre of its box, on the same row
 /// (the boxes overlap vertically by at least half the shorter one), and not in the read's own place (the other engine's read of the
-/// same spine is not a neighbour). Where several reads share the neighbour's place, the one that grounds best speaks for it.
+/// same spine is not a neighbour). Where several reads share the neighbour's place, the one that grounds best speaks for it. A read another line of its spine found (<see cref="SpineLines.FoundBy"/>) speaks for nobody: it changes no other read.
 /// Only the adjacent spines count: a series two spines away is no evidence about this one. A read with no box has no neighbours, so
 /// it never asks, and a neighbour with no box is nobody's neighbour.
 /// </para>
@@ -80,7 +80,8 @@ public static class SeriesNeighbour
         answer.Verdict,
         facts.SearchText,
         answer.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous ? bestTitle : null,
-        answer.Options.Count > 0 ? answer.Options[0].Score : 0);
+        answer.Options.Count > 0 ? answer.Options[0].Score : 0,
+        SpineLines.FoundBy(answer));
 
     /// <summary>
     /// Whether the read may ask at all, whatever its neighbours say: a spine with a box and enough words that found nothing or
@@ -253,7 +254,7 @@ public static class SeriesNeighbour
         var speaking = -1;
         for (var j = 0; j < reads.Count; j++)
         {
-            if (j != index && reads[j].BestTitle is not null && reads[j].Box is { } other && place.SamePlaceAs(other) && !box.SamePlaceAs(other)
+            if (j != index && reads[j].BestTitle is not null && !reads[j].FoundByLine && reads[j].Box is { } other && place.SamePlaceAs(other) && !box.SamePlaceAs(other)
                 && (speaking < 0 || Strength(reads[j]) > Strength(reads[speaking])))
             {
                 speaking = j;
