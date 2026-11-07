@@ -283,6 +283,20 @@ public class GoogleBooksProviderTests(PostgresFixture db) : DatabaseTest(db)
     }
 
     [Fact]
+    public async Task Lists_a_volume_under_its_own_title_without_its_series_marker_or_a_tagline_subtitle()
+    {
+        using var host = ProviderHost.Create(Db);
+        host.Server.Given(Request.Create().WithPath("/books/v1/volumes").UsingGet())
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json")
+                .WithBody("{\"items\": [{\"id\": \"v1\", \"volumeInfo\": {\"title\": \"Harbor Light (Maple Hollow, Book 1)\"}},"
+                    + " {\"id\": \"v2\", \"volumeInfo\": {\"title\": \"Harbor Light\", \"subtitle\": \"Hoe sterker de band, hoe groter het gevaar voor de kleine gemeenschap\"}}]}"));
+
+        var found = await host.Get<GoogleBooksProvider>().SearchAsync(new CatalogQuery { Title = "Harbor Light" }, default);
+
+        found.Select(r => r.Title).ShouldBe(["Harbor Light", "Harbor Light"]);
+    }
+
+    [Fact]
     public async Task Leaves_the_format_unset_because_google_books_carries_no_binding()
     {
         using var host = ProviderHost.Create(Db);
