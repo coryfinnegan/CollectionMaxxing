@@ -279,7 +279,7 @@ public static class ReadPlaces
         }
 
         // Any read of the other engine in the shot that names the piece's release: standing aside would show that release twice.
-        return !reads.Where((other, j) => j != index && OtherEngine(piece, other))
+        return !reads.Where((other, j) => j != index && Contends(other) && OtherEngine(piece, other))
             .Any(other => ReleaseOf(other) == release);
     }
 

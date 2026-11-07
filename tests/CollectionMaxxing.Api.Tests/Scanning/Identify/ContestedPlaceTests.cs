@@ -143,6 +143,25 @@ public class ContestedPlaceTests(ApiFixture api) : IdentifyTest(api)
     }
 
     [Fact]
+    public async Task A_merged_Vision_piece_the_model_also_read_inside_it_shows_its_release_once()
+    {
+        var (client, sessionId) = await StartAsync(Provided(OnTheShelf, "OL1W"), Provided(NotOnTheShelf, "OL2W"), Provided("Salt Lamp Almanac", "OL3W"));
+
+        var candidates = await IdentifyOnePictureAsync(
+            client,
+            sessionId,
+            ReadAt(OnTheShelf, WidePiece),
+            ReadAt(OnTheShelf, Box(0.12), onlyTheModel: true),
+            ReadAt(NotOnTheShelf, Box(0.30), onlyTheModel: true),
+            ReadAt("Salt Lamp Almanac", Box(0.50), onlyTheModel: true));
+
+        // The model's repeat of the piece's release is skipped as a repeat, so the piece stands: the release is shown once.
+        candidates.Count(c => Decision(c) != "rejected" && Resolution(c) == "matched").ShouldBe(3);
+        Decision(candidates[0]).ShouldBe("accepted");
+        Decision(candidates[1]).ShouldBe("rejected");
+    }
+
+    [Fact]
     public async Task At_one_place_the_model_read_whose_words_and_release_hold_the_cut_short_Vision_reads_words_is_shown()
     {
         var (client, sessionId) = await StartAsync(Provided("Quiet Harbor", "OL4W"), Provided(OnTheShelf, "OL1W"));
