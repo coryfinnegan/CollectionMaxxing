@@ -106,7 +106,7 @@ public sealed class GoogleBooksProvider(HttpClient http, IOptions<GoogleBooksOpt
         {
             Provider = ProviderName,
             ExternalId = id,
-            Title = GenreSubtitle.Join(title, subtitle),
+            Title = BookTitle.Clean(title, subtitle),
             Kind = WorkKind.Book,
             Year = ProviderJson.Year(details.Str("publishedDate")),
             Creators = details.Strings("authors").ToList(),
