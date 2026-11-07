@@ -49,12 +49,34 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
             return [];
         }
 
+        // TMDB answers nothing to a title that carries a registered or trademark sign ("ROBOCOP®"), while the book providers find it (#746).
+        var bare = WithoutSigns(query.Title);
+        if (bare.Length == 0)
+        {
+            return [];
+        }
+
+        query = query with { Title = bare };
+
         // A DVD or a tape holds a film or a show, and the reader can't tell which from the case: both are searched, the
         // kind it named first. Round-robin before the limit cuts: appending a full page of one would starve the other (#292).
         var films = await SearchKindAsync(WorkKind.Film, query, ct);
         var shows = await SearchKindAsync(WorkKind.Tv, query, ct);
         return (query.Kind == WorkKind.Tv ? Interleave(shows, films) : Interleave(films, shows)).Take(query.Limit).ToList();
     }
+
+    /// <summary>The title with ®, ™, © and ℠ each turned into a space, the spaces collapsed and the ends trimmed; a title with none is returned as read.</summary>
+    private static string WithoutSigns(string title)
+    {
+        if (title.IndexOfAny(Signs) < 0)
+        {
+            return title;
+        }
+
+        return string.Join(' ', title.Split(Signs.Concat([' ']).ToArray(), StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static readonly char[] Signs = ['®', '™', '©', '℠'];
 
     private static IEnumerable<ProviderRelease> Interleave(IReadOnlyList<ProviderRelease> first, IReadOnlyList<ProviderRelease> second)
     {
