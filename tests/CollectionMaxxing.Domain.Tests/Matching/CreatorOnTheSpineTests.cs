@@ -104,6 +104,32 @@ public class CreatorOnTheSpineTests
     }
 
     [Fact]
+    public void A_title_word_one_letter_from_the_authors_surname_is_not_taken_for_the_author()
+    {
+        var read = new ReadItem { Title = "STONE COLD", Creator = "Someone Else" };
+
+        var scored = MatchScorer.Evaluate(read, [Book("k", "Stone Cold", "Jane Stine")], Spine).Ranked[0];
+
+        scored.Score.ShouldBeLessThan(1.0);
+    }
+
+    [Fact]
+    public void A_name_run_into_the_title_with_the_first_name_before_the_title_scores_fully()
+    {
+        var read = new ReadItem { Title = "MARA GRANT GIANT DAYS" };
+
+        MatchScorer.Evaluate(read, [Book("k", "Giant Days", "Mara Grant")], Spine).Ranked[0].Score.ShouldBe(1.0);
+    }
+
+    [Fact]
+    public void A_misread_first_name_and_surname_are_both_taken_out_of_the_title()
+    {
+        var read = new ReadItem { Title = "LOVE STORY MARTKA PESTON" };
+
+        MatchScorer.Evaluate(read, [Book("k", "Love Story", "Martha Poston")], Spine).Ranked[0].Score.ShouldBe(1.0);
+    }
+
+    [Fact]
     public void A_surname_two_letters_off_does_not_count_as_the_author()
     {
         var read = new ReadItem { Title = "LOVE STORY MARA PXSTXN", Creator = "Someone Else" };

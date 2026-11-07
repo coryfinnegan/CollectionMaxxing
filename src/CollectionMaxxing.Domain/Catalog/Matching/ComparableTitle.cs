@@ -97,19 +97,19 @@ public sealed class ComparableTitle
     /// surname isn't in the read, or when nothing of the title would be left (a book titled after its author keeps its
     /// words).
     /// </summary>
-    internal ComparableTitle? WithoutCreator(ComparableTitle creator)
+    internal ComparableTitle? WithoutCreator(ComparableTitle creator, ComparableTitle? ownTitle = null)
     {
         var read = new List<string>(Key.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         var name = creator.Key.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (read.Count < 2 || name.Length == 0 || name[^1] is not { Length: >= MinSurnameLength } surname
-            || surname.All(char.IsAsciiDigit) || LastIndexOfName(read, surname) < 0)
+            || surname.All(char.IsAsciiDigit) || LastIndexOfName(read, surname, ownTitle) < 0)
         {
             return null;
         }
 
         foreach (var word in name.Distinct(StringComparer.Ordinal))
         {
-            var at = LastIndexOfName(read, word);
+            var at = LastIndexOfName(read, word, ownTitle);
             if (at >= 0)
             {
                 read.RemoveAt(at);
@@ -120,13 +120,14 @@ public sealed class ComparableTitle
     }
 
     // The last place the word stands in the read: exactly, or for a word of FuzzyNameLength letters or more one edit
-    // away ("Peston" for "Poston"). A shorter word has to match exactly.
-    private static int LastIndexOfName(List<string> read, string word)
+    // away ("Peston" for "Poston"). A shorter word has to match exactly, and so does a word that is one of the release's
+    // own title words ("Stone" is not the author "Stine" in "Stone Cold").
+    private static int LastIndexOfName(List<string> read, string word, ComparableTitle? ownTitle)
     {
         var exact = read.LastIndexOf(word);
         return exact >= 0 || word.Length < FuzzyNameLength
             ? exact
-            : read.FindLastIndex(w => EditDistance(w, word) == 1);
+            : read.FindLastIndex(w => EditDistance(w, word) == 1 && ownTitle?.Tokens.Contains(w) != true);
     }
 
     private double Alike(ComparableTitle other, double wordOrderCredit, bool withContainment)
