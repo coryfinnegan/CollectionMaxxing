@@ -130,6 +130,25 @@ public class CreatorOnTheSpineTests
     }
 
     [Fact]
+    public void A_misread_surname_one_letter_off_still_comes_out_of_the_title_beside_a_title_word_the_guard_keeps()
+    {
+        var read = new ReadItem { Title = "MARA GRUNT GIANT DAYS" };
+
+        MatchScorer.Evaluate(read, [Book("k", "Giant Days", "Mara Grant")], Spine).Ranked[0].Score.ShouldBe(1.0);
+    }
+
+    [Fact]
+    public void A_releases_own_title_words_are_guarded_per_release_not_per_creator()
+    {
+        var read = new ReadItem { Title = "STONE COLD", Creator = "Someone Else" };
+
+        var ranked = MatchScorer.Evaluate(
+            read, [Book("cold", "Cold", "Jane Stine"), Book("stone", "Stone Cold", "Jane Stine")], Spine).Ranked;
+
+        ranked.Single(r => r.Release.Key == "stone").Score.ShouldBeLessThan(1.0);
+    }
+
+    [Fact]
     public void A_surname_two_letters_off_does_not_count_as_the_author()
     {
         var read = new ReadItem { Title = "LOVE STORY MARA PXSTXN", Creator = "Someone Else" };
