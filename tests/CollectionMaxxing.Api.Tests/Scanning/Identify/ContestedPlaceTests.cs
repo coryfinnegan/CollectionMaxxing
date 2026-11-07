@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using CollectionMaxxing.Api.Tests.Items;
 using CollectionMaxxing.Api.Tests.Support;
 using CollectionMaxxing.Application.Catalog.Providers;
 using CollectionMaxxing.Domain.Catalog;
@@ -122,6 +123,35 @@ public class ContestedPlaceTests(ApiFixture api) : IdentifyTest(api)
             client, sessionId, ReadAt(OnTheShelf, Box(0.30)), ReadAt(NoBook, Box(0.31)));
 
         candidates.Select(Decision).ShouldBe(["accepted", "undecided"], "neither is skipped: one engine reading a place twice is not two engines disagreeing");
+    }
+
+    [Fact]
+    public async Task A_merged_Vision_piece_whose_best_release_is_in_the_catalogue_stands_beside_the_reads_inside_it_that_found_nothing()
+    {
+        var (client, sessionId) = await StartAsync();
+        await ItemSeed.AddReleaseAsync(Db, OnTheShelf, WorkKind.Book, ReleaseFormat.Paperback, 2015);
+
+        var candidates = await IdentifyOnePictureAsync(
+            client,
+            sessionId,
+            ReadAt(OnTheShelf, WidePiece),
+            ReadAt(NoBook, Box(0.12), onlyTheModel: true),
+            ReadAt(NoBook, Box(0.50), onlyTheModel: true));
+
+        Resolution(candidates[0]).ShouldNotBe("not_found", "the catalogue holds the piece's release");
+        Decision(candidates[0]).ShouldNotBe("rejected", "the piece's release is its own, though the catalogue (not a provider) named it");
+    }
+
+    [Fact]
+    public async Task At_one_place_the_model_read_whose_words_and_release_hold_the_cut_short_Vision_reads_words_is_shown()
+    {
+        var (client, sessionId) = await StartAsync(Provided("Quiet Harbor", "OL4W"), Provided(OnTheShelf, "OL1W"));
+
+        var candidates = await IdentifyOnePictureAsync(
+            client, sessionId, ReadAt("Quiet Harbor", Box(0.30)), ReadAt(OnTheShelf, Box(0.31), onlyTheModel: true));
+
+        Decision(candidates[0]).ShouldBe("rejected", "the model's read holds the cut-short read's words and its release holds the extra word");
+        Decision(candidates[1]).ShouldBe("undecided");
     }
 
     [Fact]

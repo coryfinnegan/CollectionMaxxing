@@ -586,7 +586,7 @@ public static class IdentifyItems
         /// <summary>The title of an answer's best release (a provider's own, or the catalogue's by id); null when it has none.</summary>
         private static string? BestTitleOf(BarcodeResolution answer, IReadOnlyDictionary<Guid, (string Title, IReadOnlyList<string> Creators)> local)
         {
-            if (answer.Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous) || answer.Options.Count == 0)
+            if (answer.Options.Count == 0) // a pending or not-found answer carries no options
             {
                 return null;
             }

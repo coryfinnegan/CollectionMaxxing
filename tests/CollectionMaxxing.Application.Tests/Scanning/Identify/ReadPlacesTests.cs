@@ -190,12 +190,12 @@ public class ReadPlacesTests
     }
 
     [Fact]
-    public void A_piece_covering_several_spines_loses_its_place_even_when_it_is_the_read_that_matched()
+    public void A_piece_covering_several_spines_loses_its_place_even_when_it_is_the_read_that_matched_and_a_read_inside_it_found_the_same_release()
     {
         var reads = new[]
         {
-            Vision(0.10, ReadGrounding.Matched, 0.99, width: 0.50),
-            Model(0.12, ReadGrounding.Nothing, 0),
+            Vision(0.10, ReadGrounding.Matched, 0.99, width: 0.50) with { Book = "piece" },
+            Model(0.12, ReadGrounding.Matched, 0.9) with { Book = "piece" },
             Model(0.50, ReadGrounding.Nothing, 0),
         };
 
@@ -357,6 +357,98 @@ public class ReadPlacesTests
         var second = Model(0.31, score: 0.95) with { ReadText = "Quiet Harbor", BestTitle = "Quiet Harbor" };
 
         ReadPlaces.Weaker([first, second]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_merged_piece_that_found_nothing_still_gives_way_though_it_carries_a_release_key()
+    {
+        var reads = new[] { Vision(0.10, ReadGrounding.Nothing, 0, width: 0.50) with { Book = "piece" }, Model(0.12), Model(0.40) };
+
+        ReadPlaces.Weaker(reads).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_merged_piece_whose_release_a_read_of_the_other_engine_found_elsewhere_gives_way_so_the_release_is_not_shown_twice()
+    {
+        var reads = new[]
+        {
+            Vision(0.10, ReadGrounding.Ambiguous, 0.8, width: 0.50) with { Book = "piece" },
+            Model(0.12, ReadGrounding.Nothing, 0),
+            Model(0.40, ReadGrounding.Nothing, 0),
+            Model(0.80, ReadGrounding.Matched, 0.9) with { Book = "piece" },
+        };
+
+        ReadPlaces.Weaker(reads).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_read_of_the_pieces_own_engine_naming_its_release_does_not_make_the_piece_give_way()
+    {
+        var reads = new[]
+        {
+            Vision(0.10, ReadGrounding.Ambiguous, 0.8, width: 0.50) with { Book = "piece" },
+            Model(0.12, ReadGrounding.Nothing, 0),
+            Model(0.40, ReadGrounding.Nothing, 0),
+            Vision(0.80, ReadGrounding.Matched, 0.9) with { Book = "piece" },
+        };
+
+        ReadPlaces.Weaker(reads).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_read_with_a_neighbours_words_bled_in_does_not_beat_the_right_shorter_read()
+    {
+        var right = Model(0.30, score: 1.0) with { ReadText = "Iron Fox", BestTitle = "Iron Fox" };
+        var bled = Vision(0.31, score: 0.70) with { ReadText = "Iron Fox Quiet Harbor", BestTitle = "Quiet Harbor" };
+
+        ReadPlaces.Weaker([bled, right]).ShouldBe([0]);
+        ReadPlaces.Weaker([right with { Unconfirmed = false }, bled with { Unconfirmed = true }]).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void A_longer_read_of_a_lower_grade_does_not_beat_the_matched_shorter_one()
+    {
+        var shorter = Vision(0.30, ReadGrounding.Matched, 1.0) with { ReadText = "Iron Fox", BestTitle = "Iron Fox" };
+        var longer = Model(0.31, ReadGrounding.Ambiguous, 0.67) with { ReadText = "Iron Fox Rising", BestTitle = "Iron Fox Rising" };
+
+        ReadPlaces.Weaker([shorter, longer]).ShouldBe([1]);
+        ReadPlaces.Weaker([longer with { Unconfirmed = false }, shorter with { Unconfirmed = true }]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_read_whose_words_do_not_hold_the_others_is_settled_by_score_though_its_release_holds_them()
+    {
+        var first = Vision(0.30, score: 0.80) with { ReadText = "Iron Fox", BestTitle = "Fox Tales" };
+        var second = Model(0.31, score: 0.60) with { ReadText = "Quiet Harbor", BestTitle = "Quiet Harbor" };
+
+        ReadPlaces.Weaker([first, second]).ShouldBe([1]);
+    }
+
+    [Fact]
+    public void Two_reads_of_the_same_words_are_settled_by_score_whichever_has_a_best_title()
+    {
+        var first = Vision(0.30, score: 0.80) with { ReadText = "Iron Fox", BestTitle = "Iron Fox" };
+        var second = Model(0.31, score: 0.95) with { ReadText = "Fox Iron", BestTitle = null };
+
+        ReadPlaces.Weaker([first, second]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_read_of_stop_words_only_is_settled_by_score_against_a_read_with_words()
+    {
+        var first = Vision(0.30, score: 0.80) with { ReadText = "Iron Fox", BestTitle = "Iron Fox" };
+        var second = Model(0.31, score: 0.95) with { ReadText = "The", BestTitle = "The Thing" };
+
+        ReadPlaces.Weaker([first, second]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_longer_read_whose_release_misses_one_of_the_extra_words_does_not_beat_the_shorter_read()
+    {
+        var shorter = Vision(0.30, score: 1.0) with { ReadText = "Iron Fox", BestTitle = "Iron Fox" };
+        var longer = Model(0.31, score: 0.67) with { ReadText = "Iron Fox Rising Again", BestTitle = "Iron Fox Rising" };
+
+        ReadPlaces.Weaker([shorter, longer]).ShouldBe([1]);
     }
 
     [Fact]

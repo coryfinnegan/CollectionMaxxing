@@ -260,8 +260,10 @@ public static class ReadPlaces
             return false;
         }
 
+        // The release must hold every word of the read, not only the extra ones: a neighbour's words bled into a read can match a
+        // neighbour's release, which holds the extra words but not the read's own.
         var title = PrintSupport.TitleWords(read.BestTitle).ToHashSet();
-        return extra.All(title.Contains);
+        return words.All(title.Contains);
     }
 
     /// <summary>
@@ -276,7 +278,8 @@ public static class ReadPlaces
             return false;
         }
 
-        return !reads.Where((other, j) => j != index && OtherEngine(piece, other) && SamePlace(piece, other))
+        // Any read of the other engine in the shot that names the piece's release: standing aside would show that release twice.
+        return !reads.Where((other, j) => j != index && OtherEngine(piece, other))
             .Any(other => ReleaseOf(other) == release);
     }
 
