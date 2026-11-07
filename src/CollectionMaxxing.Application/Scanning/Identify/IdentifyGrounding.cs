@@ -26,6 +26,9 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <see cref="PlatformContext"/> is the same kind of snap-wide field as <see cref="KindContext"/>: the canonical names of the platforms the
 /// shot prints on a line of its own (<see cref="IdentifyCleaning.PrintedPlatforms"/>), sorted and joined by '|' into one value-equal string,
 /// set only on a read that names no platform. It only orders level-scoring releases, and is part of the read's value for the same reason.
+/// <see cref="CreatorIsAGuess"/> is set by <see cref="CreatorSwap"/> alone, on a book read or a read in a snap of books: the creator is the line the
+/// phone sent as the title, asked as the author. It reaches the scorer (<see cref="ToReadItem"/>) but not the providers (<see cref="ToQuery"/>),
+/// so ask text and cache keys are the same with or without it.
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -42,7 +45,8 @@ public sealed record ReadFacts(
     WorkKind? KindContext = null,
     string? CreatorAsRead = null,
     string? Lines = null,
-    string? PlatformContext = null)
+    string? PlatformContext = null,
+    bool CreatorIsAGuess = false)
 {
     /// <summary>The canonical platform names the shot prints, split from <see cref="PlatformContext"/>; none when it printed none.</summary>
     public IReadOnlyList<string> PrintedPlatforms => PlatformContext is { Length: > 0 } ? PlatformContext.Split('|') : [];
@@ -65,6 +69,7 @@ public sealed record ReadFacts(
         Year = Year,
         Creator = Creator,
         Edition = Edition,
+        CreatorIsAGuess = CreatorIsAGuess,
     };
 
     public CatalogQuery? ToQuery() => SearchText is { } text

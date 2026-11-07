@@ -30,6 +30,13 @@ public sealed record ReadItem
     /// <summary>An edition mark that was read: "Player's Choice", "Criterion".</summary>
     public string? Edition { get; init; }
 
+    /// <summary>
+    /// The creator is the line the phone sent as the title, asked as the author by the creator swap. It is a guess, not an author
+    /// anyone printed, so a release with no creators takes no better a creator term than the best release that has creators gets
+    /// (see <see cref="MatchScorer"/>). False on every other read.
+    /// </summary>
+    public bool CreatorIsAGuess { get; init; }
+
     /// <summary>Barcodes and catalogue numbers that were read. One that equals a release's identifier is an exact match.</summary>
     public IReadOnlyList<Identifier> Identifiers { get; init; } = [];
 
