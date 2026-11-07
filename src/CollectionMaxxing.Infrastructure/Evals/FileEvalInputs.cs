@@ -39,7 +39,7 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
         try
         {
             await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(inputs, Json), cancellationToken);
-            File.Move(temp, path, overwrite: true);
+            await EvalFileIo.MoveReplaceAsync(temp, path, cancellationToken);
         }
         finally
         {
@@ -61,7 +61,7 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
         {
             var path = Path.Combine(folder, InputsFile);
             var info = new FileInfo(path);
-            return info.Exists && info.Length <= MaxFileBytes ? JsonSerializer.Deserialize<KeptRunInputs>(File.ReadAllText(path), Json) : null;
+            return info.Exists && info.Length <= MaxFileBytes ? JsonSerializer.Deserialize<KeptRunInputs>(EvalFileIo.ReadAllText(path), Json) : null;
         }
         catch (IOException)
         {

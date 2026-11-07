@@ -158,6 +158,38 @@ public sealed class FileEvalRunStoreTests : IDisposable
         store.LoadPhoto("s1").ShouldBeNull();
     }
 
+    private string HeaderPath() => Directory.EnumerateFiles(_golden.Results, "run.json", SearchOption.AllDirectories).Single();
+
+    [Fact]
+    public async Task Saving_the_header_waits_out_a_handle_that_holds_run_json_for_a_moment_and_then_replaces_it()
+    {
+        var store = Store();
+        store.Create(Header());
+        using var held = new ManualResetEventSlim();
+        var holder = Task.Run(async () =>
+        {
+            using var stream = new FileStream(HeaderPath(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            held.Set();
+            await Task.Delay(400);
+        });
+        held.Wait(TimeSpan.FromSeconds(5)).ShouldBeTrue();
+
+        store.Save(Header() with { State = OpenRunState.Finishing });
+        await holder;
+
+        store.Load()!.State.ShouldBe(OpenRunState.Finishing);
+    }
+
+    [Fact]
+    public void Loading_the_header_works_while_another_handle_holds_run_json_with_delete_access()
+    {
+        var store = Store();
+        store.Create(Header());
+        using var replacing = new FileStream(HeaderPath(), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.DeleteOnClose);
+
+        store.Load()!.RunId.ShouldBe("run1");
+    }
+
     [Fact]
     public void A_write_leaves_no_temp_file_behind()
     {

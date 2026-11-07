@@ -64,7 +64,7 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
                 return null;
             }
 
-            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            using var document = JsonDocument.Parse(EvalFileIo.ReadAllText(path));
             if (document.RootElement.ValueKind == JsonValueKind.Object
                 && document.RootElement.EnumerateObject().Any(p => string.Equals(p.Name, "partial", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.True))
             {
@@ -150,7 +150,7 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
         {
             var path = Path.Combine(folder, name);
             var info = new FileInfo(path);
-            return info.Exists && info.Length <= MaxFileBytes ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), Json) : null;
+            return info.Exists && info.Length <= MaxFileBytes ? JsonSerializer.Deserialize<T>(EvalFileIo.ReadAllText(path), Json) : null;
         }
         catch (IOException)
         {
@@ -186,7 +186,7 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
     {
         try
         {
-            return JsonSerializer.Deserialize<EvalSummary>(File.ReadAllText(path), Json)?.RunId == runId;
+            return JsonSerializer.Deserialize<EvalSummary>(EvalFileIo.ReadAllText(path), Json)?.RunId == runId;
         }
         catch (IOException)
         {
@@ -204,7 +204,7 @@ public sealed class FileEvalResults(IOptions<EvalsOptions> options) : IEvalResul
         try
         {
             await File.WriteAllTextAsync(temp, content, cancellationToken);
-            File.Move(temp, path, overwrite: true);
+            await EvalFileIo.MoveReplaceAsync(temp, path, cancellationToken);
         }
         finally
         {
