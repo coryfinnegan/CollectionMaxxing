@@ -102,16 +102,26 @@ public static class SpineLines
         ];
     }
 
+    /// <summary>The title term a creatorless best release must reach for its line to vouch for it.</summary>
+    public const double CreatorlessTitleTerm = 0.75;
+
     /// <summary>
     /// Whether what a line found is kept: the best release has a creator whose every word is printed on the spine's other lines
     /// (<see cref="PrintSupport.PrintsAll"/>), and the line is not that creator's name (a book titled with its author's name,
     /// <see cref="FragmentReads.NamesItsOwnCreator"/>, is the fragment this retry exists to get past).
+    /// A best release with no creators at all (a film or show, or a bare book edition) has no author to vouch for it, so the line must:
+    /// it is kept when it holds two or more title words and the best's title term is at least <see cref="CreatorlessTitleTerm"/>.
     /// </summary>
-    public static bool KeepsFind(ReadFacts facts, string line, string? bestTitle, IReadOnlyList<string> bestCreators)
+    public static bool KeepsFind(ReadFacts facts, string line, string? bestTitle, IReadOnlyList<string> bestCreators, double bestTitleTerm = 0)
     {
         ArgumentNullException.ThrowIfNull(facts);
 
-        if (bestCreators.Count == 0 || FragmentReads.NamesItsOwnCreator(line, bestTitle, bestCreators))
+        if (bestCreators.Count == 0)
+        {
+            return bestTitleTerm >= CreatorlessTitleTerm && PrintSupport.TitleWords(line).Count >= 2;
+        }
+
+        if (FragmentReads.NamesItsOwnCreator(line, bestTitle, bestCreators))
         {
             return false;
         }
