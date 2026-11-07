@@ -277,6 +277,15 @@ describe('the Vision engine on a shelf shot', () => {
     expect(reading.items.map((i) => i.kind)).toEqual(['other', 'other']);
   });
 
+  it('sends a cover\'s lines like any piece of a shelf shot (the PC\'s eval rebuild does), and a single-cover shot sends none', async () => {
+    const shelf = await readShelf({ text: two, rectangles: [LEFT, RIGHT] });
+    expect(shelf.items).toHaveLength(2);
+    expect(shelf.items[0].lines).toEqual(expect.arrayContaining(['DUNE', 'Revised edition']));
+    expect(shelf.items[1].lines).toEqual(expect.arrayContaining(['EMMA', 'Revised edition']));
+    const single = await engineFor({ text: two, rectangles: [LEFT, RIGHT] }).read(STILL, () => {}, { shotKind: 'single_cover' });
+    for (const item of single.items) expect(item).not.toHaveProperty('lines');
+  });
+
   it('streams each cover as it is read', async () => {
     const streamed: ReadItem[] = [];
     const reading = await readShelf({ text: two, rectangles: [LEFT, RIGHT] }, (i) => streamed.push(i));

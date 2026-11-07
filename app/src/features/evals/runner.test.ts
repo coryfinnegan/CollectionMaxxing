@@ -30,6 +30,7 @@ interface Result {
     kind?: string;
     box?: { x: number; y: number; width: number; height: number };
     productCode?: string;
+    lines?: string[];
     unconfirmed?: boolean;
   }[];
   unreadableCount: number;
@@ -1873,6 +1874,25 @@ describe('the eval runner', () => {
       const [shelf] = rows('vision_pipeline');
       expect(shelf.photoId).toBe('photo-001');
       expect(shelf.items.map((i) => i.productCode)).toEqual(['SLUS-20034', undefined]);
+    });
+
+    it('sends a shelf spine\'s lines from the Vision engine, and none from the picture model', async () => {
+      const kit = makeKit({
+        photos: 2,
+        scenes: {
+          'photo-001': {
+            text: [line('GRAN TURISMO 3', 0.1, 0.1, 0.05, 0.4), line('Polyphony Digital', 0.11, 0.55, 0.04, 0.2), line('EMMA', 0.5, 0.1, 0.05, 0.6)],
+            rectangles: [
+              { x: 0.08, y: 0.05, width: 0.09, height: 0.7 },
+              { x: 0.48, y: 0.05, width: 0.09, height: 0.7 },
+            ],
+          },
+        },
+      });
+      await kit.runner.start();
+      const [shelf] = rows('vision_pipeline');
+      expect(shelf.items.map((i) => i.lines)).toEqual([['GRAN TURISMO 3', 'Polyphony Digital'], ['EMMA']]);
+      for (const item of rows('apple_model').flatMap((r) => r.items)) expect(item).not.toHaveProperty('lines');
     });
 
     it('leaves the product code out of every read that printed none', async () => {

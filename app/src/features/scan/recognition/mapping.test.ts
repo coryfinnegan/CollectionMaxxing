@@ -68,6 +68,12 @@ describe('mapping the model words to the server words', () => {
     expect(toIdentifyItem(game)).not.toHaveProperty('productCode');
   });
 
+  it('sends a read\'s spine lines when it has some, and nothing when it has none', () => {
+    const book: ReadItem = { localId: 'a', text: 'Ubik Philip K. Dick', title: 'Ubik', kind: 'book', order: 0, confidence: 'low' };
+    expect(toIdentifyItem({ ...book, lines: ['Ubik', 'Philip K. Dick'] }).lines).toEqual(['Ubik', 'Philip K. Dick']);
+    expect(toIdentifyItem(book)).not.toHaveProperty('lines');
+  });
+
   it('sends the unconfirmed mark of a read only the picture model made, and nothing for a read without it', () => {
     const book: ReadItem = { localId: 'a', text: 'Ubik', title: 'Ubik', kind: 'book', order: 0, confidence: 'high' };
     expect(toIdentifyItem({ ...book, unconfirmed: true })).toEqual({ localId: 'a', text: 'Ubik', title: 'Ubik', kind: 'book', unconfirmed: true });
