@@ -183,7 +183,7 @@ public sealed class TextSearchResolver(
     }
 
     /// <summary>A found title at least this similar to the query's is close: the Ambiguous line of the default thresholds.</summary>
-    private const double CloseTitle = 0.6;
+    internal const double CloseTitle = 0.6;
 
     /// <summary>The most trailing words a retry drops, and the fewest it leaves.</summary>
     private const int MaxDroppedWords = 2;

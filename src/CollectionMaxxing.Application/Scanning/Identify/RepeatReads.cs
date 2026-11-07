@@ -4,7 +4,7 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// One book in one place, one candidate per photo. An engine sometimes reads the same spine twice in one picture (once clean,
 /// once with OCR junk on the end) and both reads end at the same release; left alone that is two candidates for one book, a
 /// duplicate add waiting to happen. When two reads' best option is the same release <b>and they sit in the same place</b>, the
-/// strongest read stands (Matched beats Ambiguous, then the higher best score, then the earlier read) and the other is a repeat.
+/// strongest read stands (Matched beats Ambiguous, then the higher best score, then the earlier read) and the other is a repeat. A read another line of its spine found (<see cref="SpineLines.FoundBy"/>) is never the strongest: it changes no other read, so it is the repeat.
 /// Same place means the reads' boxes overlap substantially (<see cref="ReadBox.SamePlaceAs"/>); a read with no box (an older
 /// phone, or a read the phone gave no position) could be anywhere, so it is compared with every other read of the release, as
 /// every read once was. Reads of one release in different places are different items (five tapes whose spines all read the same
@@ -128,6 +128,14 @@ public static class RepeatReads
     /// <summary>Whether <paramref name="later"/> beats <paramref name="held"/>, which came first: only a clearly stronger read takes the place.</summary>
     private static bool Stronger(BarcodeResolution later, BarcodeResolution held)
     {
+        // A find of the line retry changes no other read (SpineLines.FoundBy): it is never the stronger of two reads of a release, so a
+        // right read of another engine is never made a repeat by it, and it is the one dropped when it names the same release.
+        var laterFound = SpineLines.FoundBy(later);
+        if (laterFound != SpineLines.FoundBy(held))
+        {
+            return SpineLines.FoundBy(held);
+        }
+
         var laterMatched = later.Verdict == ResolutionVerdict.Matched;
         var heldMatched = held.Verdict == ResolutionVerdict.Matched;
         return laterMatched != heldMatched ? laterMatched : later.Options[0].Score > held.Options[0].Score;
