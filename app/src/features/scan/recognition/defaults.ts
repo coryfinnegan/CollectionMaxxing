@@ -141,6 +141,18 @@ export interface LocalTuning {
    */
   lyingNameMinPlaces: number;
   /**
+   * The lines that sit across no spine column are one leftover piece, and a spine whose lettering is narrower than `minSpineColumnWidth`
+   * sits there among the flat print of its neighbors (a "Babel" between a stacked series and a lying hardcover). A column of those lines
+   * is a piece of its own when it holds a title: a tall line that is no author's slot, no sticker and no name printed on other spines, and
+   * is at least this many words long or stands beside a line in another place (its author). On the recorded shelves the titles cut out
+   * this way run to 3 to 5 words alone ("SARAH J. CROWN OF MIDNIGHT") and the lone lines left behind to 1 or 2 ("SenlinYu", "DIANA
+   * KENNEDY", "Southern Living."); at 2 the last two are cut out as reads of their own. Infinity, with `leftoverBesideWords`, switches
+   * the cut off.
+   */
+  leftoverTitleWords: number;
+  /** A leftover title line beside a line in another place (its author: "BABEL" over "R.F. KUANG") needs this many words. */
+  leftoverBesideWords: number;
+  /**
    * Items lying flat in piles (tapes, hardcovers) are one item per band of text. The numbers below come from the recorded shelf photos
    * (shelfReads.json) and the 12 recorded covers (coverReads.json): a line of a flat spine is mostly 3 to 13 times as wide as it is tall
    * and an upright spine's is under 1; a pile is 0.13 (hardcovers) to 0.41 (tapes) of the picture wide and its bands sit 0.3 to 0.5 letter
@@ -328,6 +340,8 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   lyingLineLetters: 0.5,
   lyingLineWidth: 2,
   lyingNameMinPlaces: 2,
+  leftoverTitleWords: 3,
+  leftoverBesideWords: 1,
   lyingLineReach: 0.5,
   flatLineAspect: 2.5,
   stackMinBands: 3,

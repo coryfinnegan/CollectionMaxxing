@@ -4,7 +4,9 @@
 import type { Rect, TextLine } from '@/native/cm-vision';
 import type { LocalTuning, RecognitionConfig } from './defaults';
 import { bottom, centerX, centerY, contains, overlapShare, right, union, yOverlapShare } from './geometry';
+import { readsAsRole } from './creators';
 import { wordsOf } from './lines';
+import { readsAsSticker } from './shelfTitle';
 
 export interface Piece {
   lines: TextLine[];
@@ -368,8 +370,34 @@ function bySpineColumns(lines: TextLine[], tuning: LocalTuning, minWidth: number
     pieces.push(piece([...c.lines, ...inside]));
     for (const l of inside) rest.splice(rest.indexOf(l), 1);
   }
-  if (rest.length > 0) pieces.push(piece(rest));
+  pieces.push(...leftoverPieces(rest, shot, tuning));
   return { pieces, unreadableCount: 0 };
+}
+
+/**
+ * The lines in no spine column, as pieces. A column of them (`columnsOf`) that holds a title of its own is one spine: a tall line that is
+ * no author's slot, no sticker and no name printed on other spines (`namedOnOtherSpines`), at least `leftoverTitleWords` words long, or
+ * `leftoverBesideWords` beside a line in another place (its author). What is left stays one piece, as it always was. When nothing in it
+ * is such a line (a lone "SARAH J."), no read is made of it: each of its lines goes to the spine cut out nearest it.
+ */
+function leftoverPieces(rest: TextLine[], shot: TextLine[], tuning: LocalTuning): Piece[] {
+  const titled = (l: TextLine) => !readsAsRole(l.text) && !readsAsSticker(l.text, tuning) && !namedOnOtherSpines(l, shot, tuning);
+  const spines: TextLine[][] = [];
+  const left: TextLine[] = [];
+  for (const c of columnsOf(rest, tuning)) {
+    const title = (l: TextLine) =>
+      isTall(l) &&
+      titled(l) &&
+      (wordsOf(l.text).length >= tuning.leftoverTitleWords ||
+        (wordsOf(l.text).length >= tuning.leftoverBesideWords && c.lines.some((k) => !samePlace(k.box, l.box, tuning.sameBoxOverlap))));
+    if (c.lines.some(title)) spines.push(c.lines);
+    else left.push(...c.lines);
+  }
+  if (spines.length > 0 && left.length > 0 && !left.some(titled)) {
+    const across = (lines: TextLine[], l: TextLine) => Math.abs(centerX(union(lines.map((k) => k.box))) - centerX(l.box));
+    for (const l of left.splice(0)) spines.reduce((a, b) => (across(b, l) < across(a, l) ? b : a)).push(l);
+  }
+  return [...spines, ...(left.length > 0 ? [left] : [])].map((lines) => piece(lines));
 }
 
 /** One item for the whole frame: the cover path, never segmented. Empty when there is no text. */

@@ -256,7 +256,7 @@ describe('real shelf photos', () => {
 
   /** The choice shelfTitle.ts replaced: the piece's surest, longest single line, whatever that line said (on the split before shelf rows were cut apart). */
   function before(id: string): string[] {
-    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity, stackSureMaxGap: 1, stackFourLetters: 0.5, lyingLineWidth: Infinity, twoRowLetters: Infinity, bandJoinGap: -Infinity });
+    const { pieces } = splitIntoPieces(linesOf(photos[id]), [], C.splitting, { ...T, shelfRowGap: Infinity, stackSureMaxGap: 1, stackFourLetters: 0.5, lyingLineWidth: Infinity, twoRowLetters: Infinity, bandJoinGap: -Infinity, leftoverTitleWords: Infinity, leftoverBesideWords: Infinity });
     return pieces.map((p) => p.title ?? p.lines.reduce((b, l) => (l.confidence * l.text.length > b.confidence * b.text.length ? l : b)).text);
   }
 
@@ -282,7 +282,7 @@ describe('real shelf photos', () => {
     // of Fire, Empire of Storms, Kingdom of Ash). Cut apart, "AND NOW," no longer joined "BACK TO YOU" in a column and went in with
     // the next spine's "TARAH DEWITT", so "And Now, Back to You" was lost (held 24, exact 11) until a shorter line beside a taller one
     // joined its column (#655; stackedSpines.test.ts pins it). The before is the old choice on the old split, so it stays at 20 and 7.
-    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 25, exact: 12 } },
+    'accept-shelf-04': { before: { held: 20, exact: 7 }, after: { held: 26, exact: 13 } },
     // The two rows of "Indian FOR Everyone" were two columns, each read alone, and are one spine now (held 14 to 15, exact 7 to 8).
     'accept-shelf-01': { before: { held: 14, exact: 6 }, after: { held: 15, exact: 8 } },
     'accept-shelf-02': { before: { held: 15, exact: 10 }, after: { held: 15, exact: 12 } },
