@@ -354,9 +354,20 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         }
 
         var best = found.Options[0]; // best first
+        var bestCreators = CreatorsOf(best, pool);
+        if (bestCreators.Count == 0 && PrintsACreatorOfAnyFind(facts, line, found, pool))
+        {
+            return false; // the printed author comes first: ScoredByPrintedAuthor judges the line with it
+        }
+
         var titleTerm = best.Terms.FirstOrDefault(term => term.Name == "title")?.Value ?? 0;
-        return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), CreatorsOf(best, pool), titleTerm);
+        return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), bestCreators, titleTerm);
     }
+
+    /// <summary>Whether any release a line found has a creator the spine prints on its other lines (<see cref="SpineLines.PrintedCreator"/>).</summary>
+    private static bool PrintsACreatorOfAnyFind(ReadFacts facts, string line, BarcodeResolution found, LocalPool pool) =>
+        SpineLines.PrintedCreator(facts, line, found.Options.Select(option => (TitleOf(option, pool), CreatorsOf(option, pool)))) is not null
+        || SpineLines.PrintedCreator(facts, line, pool.Items.Select(item => ((string?)item.Scoring.Title, item.Scoring.Creators))) is not null;
 
     /// <summary>The creators of an answer's best release, when it has one; none otherwise.</summary>
     private static IReadOnlyList<string> BestCreators(BarcodeResolution answer, LocalPool? local) =>
