@@ -269,6 +269,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 AddLineAttempts(attempts, facts, BestCreators(answer, local));
             }
 
+            AddAnyKindAttempt(attempts, facts, spine);
             return attempts;
         }
 
@@ -300,7 +301,24 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             AddLineAttempts(attempts, facts, []);
         }
 
+        AddAnyKindAttempt(attempts, facts, spine);
         return attempts;
+    }
+
+    /// <summary>The trace step of the any-kind ask (<see cref="AddAnyKindAttempt"/>).</summary>
+    private const string AnyKindStep = "anykind";
+
+    /// <summary>
+    /// Last, a spine read as a game is asked once more as any kind, with no platform or format: on a shelf of films the picture model
+    /// can call a film a game, and a read that names a kind asks only that kind's providers. What it finds goes through
+    /// <see cref="OfferedByAttempt"/>, so the read's own best release stays on top unless the find scores strictly higher (a tie leaves it on top).
+    /// </summary>
+    private static void AddAnyKindAttempt(List<Attempt> attempts, ReadFacts facts, bool spine)
+    {
+        if (spine && facts.Kind == WorkKind.Game)
+        {
+            attempts.Add(new Attempt(facts with { Kind = null, Platform = null, Format = null }, new TraceStep(AnyKindStep, $"{facts.SearchText} (kind read: game)", 0)));
+        }
     }
 
     /// <summary>
@@ -329,9 +347,10 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>A line attempt that was answered and not kept as scored: what it was asked with and what came back, to be scored again once every line has been asked.</summary>
     private sealed record LineMiss(Attempt Attempt, ReadFacts Asked, LocalPool Pool, ProviderAnswers Provided, ScoringProfileKind Profile);
 
-    /// <summary>Whether the find scores below the read's own best release, which <see cref="OfferedByAttempt"/> then leaves on top.</summary>
-    private static bool LeavesOriginalOnTop(BarcodeResolution original, BarcodeResolution found) =>
-        original.Options.Count > 0 && found.Options.Count > 0 && found.Options[0].Score < original.Options[0].Score;
+    /// <summary>Whether the find scores below the read's own best release (or no higher, when <paramref name="tieKeepsOriginal"/>), which <see cref="OfferedByAttempt"/> then leaves on top.</summary>
+    private static bool LeavesOriginalOnTop(BarcodeResolution original, BarcodeResolution found, bool tieKeepsOriginal = false) =>
+        original.Options.Count > 0 && found.Options.Count > 0
+        && (tieKeepsOriginal ? found.Options[0].Score <= original.Options[0].Score : found.Options[0].Score < original.Options[0].Score);
 
     /// <summary>The line attempts of <see cref="SpineLines"/>, after the attempts already listed (whose titles are not asked again).</summary>
     private static void AddLineAttempts(List<Attempt> attempts, ReadFacts facts, IReadOnlyList<string> creators)
@@ -522,7 +541,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 {
                     // A line of the spine is the find itself (the read was about to be skipped), its own release among the read's at most.
                     answers[i] = attempt.Keeps is null
-                        ? OfferedByAttempt(reads[i].Answer, found, attempt.Step)
+                        ? OfferedByAttempt(reads[i].Answer, found, attempt.Step, tieKeepsOriginal: attempt.Step.Provider == AnyKindStep)
                         : Offered(reads[i].Answer, found with { Options = SeriesNeighbour.WithOriginals(found.Options, reads[i].Answer.Options) }, attempt.Step);
                     lineKept[i] |= attempt.Keeps is not null;
 
@@ -953,9 +972,9 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// is still the read's own: not flagged, so it can still be a repeat of, and confirm, another engine's read of the same release.
     /// A possessive can be the real title ("Ocean's Eleven"), and then the title without it is a different, shorter work.
     /// </summary>
-    private static BarcodeResolution OfferedByAttempt(BarcodeResolution original, BarcodeResolution found, TraceStep why)
+    private static BarcodeResolution OfferedByAttempt(BarcodeResolution original, BarcodeResolution found, TraceStep why, bool tieKeepsOriginal = false)
     {
-        if (original.Options.Count == 0 || found.Options.Count == 0 || !LeavesOriginalOnTop(original, found))
+        if (original.Options.Count == 0 || found.Options.Count == 0 || !LeavesOriginalOnTop(original, found, tieKeepsOriginal))
         {
             return Offered(original, found with { Options = SeriesNeighbour.WithOriginals(found.Options, original.Options) }, why);
         }
