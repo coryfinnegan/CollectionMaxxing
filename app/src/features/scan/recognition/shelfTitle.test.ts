@@ -411,3 +411,71 @@ describe('flat words stacked on a spine read as its title (batch 7, brief B part
     expect(read?.rest).not.toContain(blurb);
   });
 });
+
+describe('a title is read from its whole stack, the clean line of a sweep, and the row that continues it (#754)', () => {
+  // accept-shelf-04 piece 42 (build 158): two Crescent City spines in one piece; the series name CITY is the biggest print.
+  const skyAndBreath: TextLine[] = [
+    line('SARAH J.', 0.1395, 0.6588, 0.0407, 0.0137, 1), line('SARAH J', 0.0799, 0.6608, 0.0407, 0.0117, 1),
+    line('MAAS', 0.0827, 0.6735, 0.0396, 0.0154, 1), line('MAAS', 0.1395, 0.6744, 0.0422, 0.0174, 1),
+    line('SPLINTERED HARMONY', 0.496, 0.7344, 0.0113, 0.1418, 1), line('A COURT OF', 0.5073, 0.7345, 0.0087, 0.0678, 1),
+    line('CRESCENT', 0.0872, 0.7422, 0.0407, 0.0116, 1), line('CRESCENT', 0.1453, 0.7422, 0.0407, 0.0116, 1),
+    line('CITY', 0.0887, 0.7558, 0.0392, 0.0194, 1), line('CITY', 0.1468, 0.7558, 0.0378, 0.0194, 1),
+    line('HOUSE', 0.154, 0.7826, 0.0292, 0.0103, 1), line('of', 0.1642, 0.8004, 0.0116, 0.0097, 1),
+    line('SKY', 0.1628, 0.8178, 0.0174, 0.0097, 1), line('and', 0.1634, 0.832, 0.0176, 0.014, 1),
+    line('BREATH', 0.1584, 0.8508, 0.0305, 0.0097, 1), line('Ro', 0.8445, 0.9729, 0.0131, 0.0252, 1),
+  ];
+  // Another Crescent City spine on the shelf prints the series name too.
+  const otherSpine = [line('CRESCENT', 0.2062, 0.736, 0.0397, 0.0155, 1), line('CITY', 0.2078, 0.75, 0.0378, 0.0174, 1)];
+  // shelf-02 piece 23: AND NOW, / BACK TO YOU down the spine, the author read once clean and once fat with junk.
+  const backToYou = [
+    line('BACK TO YOU', 0.6377, 0.1209, 0.0212, 0.1338, 1), line('BACK', 0.641, 0.1211, 0.0166, 0.0564, 1),
+    line('AND NOW,', 0.649, 0.1382, 0.0204, 0.0958, 1), line('YOU', 0.6381, 0.2132, 0.0131, 0.0388, 1),
+    line('III B.K. BORISON [[', 0.6358, 0.2834, 0.023, 0.1287, 1), line('B.K. BORISON', 0.6371, 0.3016, 0.0144, 0.0906, 1),
+  ];
+  // shelf-01 piece 15: one sweep read the author's surname into the title's first row.
+  const witchcraft = [
+    line('HENDPIy Witchcraft for', 0.3769, 0.1673, 0.0348, 0.2057, 1), line('HENDRIX', 0.3794, 0.1686, 0.016, 0.093, 1),
+    line('GRADY', 0.3924, 0.1744, 0.0189, 0.0659, 1), line('Witchcraft for', 0.3823, 0.2558, 0.0247, 0.1182, 1),
+    line('Witcherait for', 0.3885, 0.257, 0.0162, 0.1119, 1), line('Wayward Girls', 0.3726, 0.292, 0.0188, 0.1156, 1),
+  ];
+
+  it('a stack of one-word rows headed by the series name is the title', () => {
+    expect(shelfTitleOf(skyAndBreath, T, otherSpine, [])?.text).toBe('CRESCENT CITY HOUSE of SKY and BREATH');
+  });
+
+  it('a stack of one-word rows headed by the series name is the title even when a neighbouring spine reads the series name as its title', () => {
+    expect(shelfTitleOf(skyAndBreath, T, otherSpine, ['CITY'])?.text).toBe('CRESCENT CITY HOUSE of SKY and BREATH');
+  });
+
+  it('the clean reading of the author inside a fat damaged one sets its lettering, so the title keeps its second row', () => {
+    const read = shelfTitleOf(backToYou, T);
+    expect(read?.text).toBe('AND NOW, BACK TO YOU');
+    expect(creatorOf(read?.rest ?? [], read!.line, T)).toBe('B.K. BORISON');
+  });
+
+  it('a title ending on a joining word takes the row that continues it', () => {
+    expect(shelfTitleOf(witchcraft, T)?.text).toBe('Witchcraft for Wayward Girls');
+  });
+
+  it('a flat series title over a two-word row stays as it is (HIGHLANDER / THE DATH)', () => {
+    const lines = [line('HIGHLANDER', 0.4179, 0.859, 0.1544, 0.0276, 1), line('THE DATH', 0.4492, 0.8826, 0.057, 0.0093, 1), line('THE 9A', 0.4477, 0.8837, 0.0446, 0.0073, 1)];
+    expect(shelfTitleOf(lines, T, [line('HIGHLANDER', 0.4383, 0.8095, 0.1759, 0.0359, 1)], ['HIGHLANDER'])?.text).toBe('HIGHLANDER');
+  });
+
+  it('a reading whose extra word another line of its place reads stays (HIGHLANDER COUNTERFEIT)', () => {
+    const lines = [line('HIGHLANDER COUNTERFEIT', 0.2607, 0.6545, 0.0366, 0.1282, 1), line('НННПDЕК', 0.2611, 0.655, 0.0266, 0.0607, 0.3), line('HIGHLANDER', 0.2651, 0.6564, 0.0241, 0.0562, 1), line('COUNTERFEIT', 0.2694, 0.7166, 0.0213, 0.064, 1)];
+    expect(shelfTitleOf(lines, T)?.text).toBe('HIGHLANDER COUNTERFEIT');
+  });
+
+  it('a title and author read in one sweep stays when the clean name is only half of it (Out on a Limb)', () => {
+    const lines = [line('OutonaLinb =', 0.3201, 0.196, 0.0283, 0.1366, 1), line('Out ona Linb Hannah Bonam-Young', 0.3223, 0.1965, 0.0305, 0.2502, 1), line('Dut onaLimo :', 0.3261, 0.1973, 0.0141, 0.119, 1), line('Hannah Bonam-Young', 0.3334, 0.3348, 0.0123, 0.1093, 1)];
+    expect(shelfTitleOf(lines, T)?.text).toBe('Out ona Linb Hannah Bonam-Young');
+  });
+
+  it('a flat label keeps its reading and its leftover lines (the clean-reading rule is for lines down a spine)', () => {
+    const lines = [line('Stock No. 038', 0.2422, 0.4301, 0.0368, 0.0074, 1), line("Darby O'Gill", 0.1254, 0.4332, 0.1074, 0.0223, 1), line('100 Aалвa', 0.1298, 0.436, 0.1027, 0.0116, 0.3), line('90 Minutes/Color', 0.2382, 0.4373, 0.0411, 0.0058, 1), line('ILT DISNEY S', 0.0504, 0.439, 0.064, 0.0189, 1), line('VALT DISNEYỊẠ', 0.0504, 0.4418, 0.0581, 0.0117, 1), line('Little People memeRses', 0.1246, 0.446, 0.1621, 0.0298, 1), line('Little People', 0.1254, 0.4523, 0.1096, 0.0185, 1), line('HOMEVIDES', 0.2318, 0.4581, 0.0558, 0.0146, 1)];
+    const read = shelfTitleOf(lines, T);
+    expect(read?.text).toBe('Little People memeRses');
+    expect(read?.rest.map((l) => l.text)).toContain("Darby O'Gill");
+  });
+});

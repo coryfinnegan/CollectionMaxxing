@@ -336,7 +336,7 @@ describe('real shelf photos', () => {
     // accept-shelf-04 (40 to 39) fell as the small "A COURT OF" of 2 and 1 hardcovers of A Court of Silver Flames joined their subtitles.
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
       'shelf-01': { without: { items: 32, found: 11 }, with: { items: 38, found: 14 } },
-      'shelf-02': { without: { items: 26, found: 16 }, with: { items: 42, found: 24 } },
+      'shelf-02': { without: { items: 26, found: 17 }, with: { items: 42, found: 24 } },
       'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 39, found: 25 } },
     };
 
