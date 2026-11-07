@@ -269,6 +269,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 AddLineAttempts(attempts, facts, BestCreators(answer, local));
             }
 
+            AddAnyKindAttempt(attempts, facts, spine);
             return attempts;
         }
 
@@ -300,7 +301,21 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             AddLineAttempts(attempts, facts, []);
         }
 
+        AddAnyKindAttempt(attempts, facts, spine);
         return attempts;
+    }
+
+    /// <summary>
+    /// Last, a spine read as a game is asked once more as any kind, with no platform or format: on a shelf of films the picture model
+    /// can call a film a game, and a read that names a kind asks only that kind's providers. What it finds goes through
+    /// <see cref="OfferedByAttempt"/>, so the read's own best release stays on top unless the find scores higher.
+    /// </summary>
+    private static void AddAnyKindAttempt(List<Attempt> attempts, ReadFacts facts, bool spine)
+    {
+        if (spine && facts.Kind == WorkKind.Game)
+        {
+            attempts.Add(new Attempt(facts with { Kind = null, Platform = null, Format = null }, new TraceStep("anykind", $"{facts.SearchText} (kind read: game)", 0)));
+        }
     }
 
     /// <summary>
