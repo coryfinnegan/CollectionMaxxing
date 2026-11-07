@@ -12,7 +12,7 @@ public static partial class BookTitle
 {
     private const int TaglineWords = 8;
 
-    [GeneratedRegex(@"\s*\((?:[^()]*?[,\s]\s*)?(?:Book|Volume|Vol\.?|#)\s*\d+\)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
+    [GeneratedRegex(@"\s*\(\s*[^()\s][^()]*?(?:,\s*|\s+)(?:Book\s*\d+|#\s*\d+)\)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
     private static partial Regex SeriesMarker();
 
     /// <summary>The title without a trailing series marker and without a tagline subtitle, then joined as <see cref="GenreSubtitle.Join"/> does.</summary>
