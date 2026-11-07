@@ -229,6 +229,14 @@ export interface LocalTuning {
   onePlaceOverlap: number;
   /** A second row of a title runs beside the chosen row for at least this share of the longer of the two. */
   titleRowOverlap: number;
+  /** A title whose chosen row ends on one of these words is not finished: the row that continues it needs only `titleRowJoinOverlap` (shelfTitle.ts). */
+  titleRowJoinWords: string[];
+  /** The along-share a second row needs when the chosen row ends on a joining word, in place of `titleRowOverlap`. */
+  titleRowJoinOverlap: number;
+  /** A stack of flat words that repeats the title's rows is the title when it has at least this many rows (shelfTitle.ts). */
+  stackTitleMinRows: number;
+  /** Of two readings of one place that nobody agrees with, a clean one is taken when it holds more than this share of the other's words (shelfTitle.ts). */
+  cleanReadingShare: number;
   /** A second row joins the title only when its letters are at least this share of the chosen row's. */
   titleRowLetters: number;
   /**
@@ -347,6 +355,10 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   sameReadingWords: 0.5,
   onePlaceOverlap: 0.5,
   titleRowOverlap: 0.7,
+  titleRowJoinWords: ['of', 'the', 'and', 'a', 'an', 'to', 'for', 'in', 'with'],
+  titleRowJoinOverlap: 0.5,
+  stackTitleMinRows: 3,
+  cleanReadingShare: 0.5,
   titleRowLetters: 0.5,
   titleRowTouch: 0.1,
   stackRowGap: 1.5,
