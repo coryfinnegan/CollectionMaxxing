@@ -274,7 +274,7 @@ public class IdentifyGroundingLineRetryTests
     {
         // The line finds a creatorless film and the printed author's other book; scored with that author the other book gains on the film,
         // but its title is not the line's.
-        var catalogue = new Catalogue(Film("Copper Lantern"), BookBy("Silver Anchor Stories", "Tess Harrowgate"))
+        var catalogue = new Catalogue(Film("Copper Lantern Tales"), BookBy("Copper Harbor Lantern Light", "Tess Harrowgate"))
         {
             Finds = (_, search) => search.NormalizedTitle == "copper lantern",
         };
