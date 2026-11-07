@@ -14,6 +14,9 @@ public sealed class ComparableTitle
 
     private const int MinSurnameLength = 3;
 
+    /// <summary>A name word of this many letters or more still counts one edit away (an OCR slip); a shorter one must match exactly.</summary>
+    private const int FuzzyNameLength = 5;
+
     /// <summary>The fewest letters a title found inside a longer read must carry for the find to count.</summary>
     private const int MinContainedLetters = 4;
 
@@ -99,14 +102,14 @@ public sealed class ComparableTitle
         var read = new List<string>(Key.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         var name = creator.Key.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (read.Count < 2 || name.Length == 0 || name[^1] is not { Length: >= MinSurnameLength } surname
-            || surname.All(char.IsAsciiDigit) || !read.Contains(surname))
+            || surname.All(char.IsAsciiDigit) || LastIndexOfName(read, surname) < 0)
         {
             return null;
         }
 
         foreach (var word in name.Distinct(StringComparer.Ordinal))
         {
-            var at = read.LastIndexOf(word);
+            var at = LastIndexOfName(read, word);
             if (at >= 0)
             {
                 read.RemoveAt(at);
@@ -114,6 +117,16 @@ public sealed class ComparableTitle
         }
 
         return read.Count == 0 ? null : new ComparableTitle(string.Join(' ', read));
+    }
+
+    // The last place the word stands in the read: exactly, or for a word of FuzzyNameLength letters or more one edit
+    // away ("Peston" for "Poston"). A shorter word has to match exactly.
+    private static int LastIndexOfName(List<string> read, string word)
+    {
+        var exact = read.LastIndexOf(word);
+        return exact >= 0 || word.Length < FuzzyNameLength
+            ? exact
+            : read.FindLastIndex(w => EditDistance(w, word) == 1);
     }
 
     private double Alike(ComparableTitle other, double wordOrderCredit, bool withContainment)
