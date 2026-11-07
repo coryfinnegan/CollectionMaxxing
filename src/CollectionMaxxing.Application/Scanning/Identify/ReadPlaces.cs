@@ -1,3 +1,5 @@
+using CollectionMaxxing.Application.Evals;
+
 namespace CollectionMaxxing.Application.Scanning.Identify;
 
 /// <summary>How well a read grounds: the ladder a place is settled by.</summary>
@@ -23,9 +25,13 @@ public enum ReadGrounding
 /// read the other engine made: one engine's own two reads of a place are not two engines disagreeing about a spine, and a copy
 /// an engine read twice is <see cref="RepeatReads"/>'s business. Nothing of the read's title or release is needed to settle a
 /// place, so <c>Book</c> (the release its best option points at, in whatever form the caller already has it; null when the
-/// caller has none or does not ask) is only ever used by <see cref="ReadPlaces.Confirmed"/>, never by <see cref="ReadPlaces.Weaker"/>.
+/// caller has none or does not ask) is used by <see cref="ReadPlaces.Confirmed"/>, and by <see cref="ReadPlaces.Weaker"/> only to tell
+/// whether a merged piece's release is one of the reads inside it. <c>ReadText</c> (the words the read was made of) and
+/// <c>BestTitle</c> (the title of its best release) let a place be settled by one read holding the other's words; null when the
+/// caller has none, and such a read is settled by grade and score alone.
 /// </summary>
-public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, double Score, bool Unconfirmed = false, string? Book = null);
+public readonly record struct PlacedRead(
+    ReadBox? Box, ReadGrounding Grounding, double Score, bool Unconfirmed = false, string? Book = null, string? ReadText = null, string? BestTitle = null);
 
 /// <summary>
 /// One item per place. Two engines read one shelf shot and both read many of the same spines: a place on the shelf holds one
@@ -43,7 +49,14 @@ public readonly record struct PlacedRead(ReadBox? Box, ReadGrounding Grounding, 
 /// <para>
 /// A read whose box holds two or more of the other engine's reads that are not one place themselves is several spines merged
 /// into one piece (the Vision pipeline sometimes makes one piece of a run of spines). It is no place of its own: the reads
-/// inside it are the spines, so the piece loses its place and each of them keeps its own.
+/// inside it are the spines, so the piece loses its place and each of them keeps its own. Unless the piece grounds (Ambiguous or
+/// better) on a release none of the other engine's reads there names: then it is a book of its own, and it stands aside, kept and
+/// contesting nothing.
+/// </para>
+/// <para>
+/// At one place, between two reads of the same grade, the one whose words hold all the other's and more, and whose best release
+/// holds those extra words, is the stronger even when it scores lower: a cut-short read and its exact-titled release must not beat
+/// the whole title's read of the same spine.
 /// </para>
 /// <para>
 /// A read with no box has no place, so it neither takes one nor loses one; two reads of one place that both found nothing are
@@ -65,20 +78,28 @@ public static class ReadPlaces
     /// One read as a place settles it, from the answer the live scorer gave it: a verdict still pending grounds nothing yet, so
     /// such a read keeps its place and takes none.
     /// </summary>
-    public static PlacedRead Of(BarcodeResolution answer, ReadBox? box, bool unconfirmed) =>
+    public static PlacedRead Of(BarcodeResolution answer, ReadBox? box, bool unconfirmed, string? readText = null, string? bestTitle = null) =>
         SpineLines.FoundBy(answer)
             ? new(box, ReadGrounding.Nothing, 0, unconfirmed) // a find of the line retry changes no other read: it contends as the read that found nothing
-            : new(box, GroundingOf(answer.Verdict), answer.Options.Count > 0 ? answer.Options[0].Score : 0, unconfirmed);
+            : new(box, GroundingOf(answer.Verdict), answer.Options.Count > 0 ? answer.Options[0].Score : 0, unconfirmed, null, readText, bestTitle);
 
     /// <summary>The positions (ascending) of the reads that lose their place to a read that grounds better. Pure.</summary>
     public static IReadOnlyList<int> Weaker(IReadOnlyList<PlacedRead> reads)
     {
         var skipped = new SortedSet<int>();
+        var aside = new HashSet<int>();
         for (var i = 0; i < reads.Count; i++)
         {
             if (Contends(reads[i]) && IsMergedPiece(reads, i))
             {
-                skipped.Add(i);
+                if (HasReleaseOfItsOwn(reads, i))
+                {
+                    aside.Add(i);
+                }
+                else
+                {
+                    skipped.Add(i);
+                }
             }
         }
 
@@ -86,7 +107,7 @@ public static class ReadPlaces
         var standing = new List<int>();
         for (var i = 0; i < reads.Count; i++)
         {
-            if (!Contends(reads[i]) || skipped.Contains(i))
+            if (!Contends(reads[i]) || skipped.Contains(i) || aside.Contains(i))
             {
                 continue;
             }
@@ -206,6 +227,71 @@ public static class ReadPlaces
         && (candidate.Grounding > ReadGrounding.Nothing || held.Grounding > ReadGrounding.Nothing);
 
     /// <summary>Whether <paramref name="later"/> beats <paramref name="held"/>, which came first: only a clearly better read takes the place.</summary>
-    private static bool Stronger(PlacedRead later, PlacedRead held) =>
-        later.Grounding != held.Grounding ? later.Grounding > held.Grounding : later.Score > held.Score;
+    private static bool Stronger(PlacedRead later, PlacedRead held)
+    {
+        if (later.Grounding == held.Grounding && later.Grounding >= ReadGrounding.Ambiguous)
+        {
+            var laterHolds = HoldsWordsOf(later, held);
+            if (laterHolds != HoldsWordsOf(held, later))
+            {
+                return laterHolds;
+            }
+        }
+
+        return later.Grounding != held.Grounding ? later.Grounding > held.Grounding : later.Score > held.Score;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="read"/>'s words hold all of <paramref name="other"/>'s and more, and its best release's title holds
+    /// those extra words. False when either read has no words, or the read has no best title.
+    /// </summary>
+    private static bool HoldsWordsOf(PlacedRead read, PlacedRead other)
+    {
+        if (read.ReadText is null || other.ReadText is null || read.BestTitle is null)
+        {
+            return false;
+        }
+
+        var words = PrintSupport.TitleWords(read.ReadText).ToHashSet();
+        var otherWords = PrintSupport.TitleWords(other.ReadText).ToHashSet();
+        var extra = words.Except(otherWords).ToList();
+        if (otherWords.Count == 0 || !otherWords.IsSubsetOf(words) || extra.Count == 0)
+        {
+            return false;
+        }
+
+        // The release must hold every word of the read, not only the extra ones: a neighbour's words bled into a read can match a
+        // neighbour's release, which holds the extra words but not the read's own.
+        var title = PrintSupport.TitleWords(read.BestTitle).ToHashSet();
+        return words.All(title.Contains);
+    }
+
+    /// <summary>
+    /// Whether a merged piece grounds (Ambiguous or better) on a release none of the other engine's reads in its place names: its
+    /// release is a book of its own, not the same spine read twice.
+    /// </summary>
+    private static bool HasReleaseOfItsOwn(IReadOnlyList<PlacedRead> reads, int index)
+    {
+        var piece = reads[index];
+        if (piece.Grounding < ReadGrounding.Ambiguous || ReleaseOf(piece) is not { } release)
+        {
+            return false;
+        }
+
+        // Any read of the other engine in the shot that names the piece's release: standing aside would show that release twice.
+        return !reads.Where((other, j) => j != index && Contends(other) && OtherEngine(piece, other))
+            .Any(other => ReleaseOf(other) == release);
+    }
+
+    /// <summary>The release a read names, as a key: its <see cref="PlacedRead.Book"/>, else the words of its best title; null when it names none.</summary>
+    private static string? ReleaseOf(PlacedRead read)
+    {
+        if (!string.IsNullOrEmpty(read.Book))
+        {
+            return read.Book;
+        }
+
+        var words = PrintSupport.TitleWords(read.BestTitle);
+        return words.Count > 0 ? string.Join(' ', words) : null;
+    }
 }
