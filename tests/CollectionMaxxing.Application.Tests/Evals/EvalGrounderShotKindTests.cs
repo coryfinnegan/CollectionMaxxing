@@ -344,6 +344,32 @@ public class EvalGrounderShotKindTests
     }
 
     [Fact]
+    public async Task A_model_majority_of_another_kind_takes_no_kind_off_a_Vision_read()
+    {
+        string[] titles = ["A COURT OF MIST AND FURY", "A COURT OF WINGS AND RUIN", "ASSASSINS APPRENTICE"];
+        var reads = titles.Select(t => KindedSpine(t, WorkKind.Book)).ToArray();
+
+        var (books, films) = Providers();
+        await GroundWithSnapKindsAsync(Grounder(books, films), WorkKind.Film, [WorkKind.Film, WorkKind.Film, WorkKind.Film, WorkKind.Book], reads);
+
+        books.Asked.ShouldContain(ask => ask.Kind == WorkKind.Book);
+        films.Asked.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_model_read_of_the_prints_family_lets_the_models_majority_name_a_kindless_Vision_reads_snap_kind()
+    {
+        var (books, films) = TiedProviders();
+        var withModel = await GroundWithSnapKindsAsync(
+            Grounder(books, films), WorkKind.Film, [WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Book, WorkKind.Film], Spine("Quiet Harbor Atlas"));
+        var (booksAlone, filmsAlone) = TiedProviders();
+        var printAlone = await GroundWithSnapKindsAsync(Grounder(booksAlone, filmsAlone), WorkKind.Film, null, Spine("Quiet Harbor Atlas"));
+
+        withModel.Items[0].Candidates.Select(c => c.Kind).ShouldBe(["book", "film"]); // the model named film, so the print is silent
+        printAlone.Items[0].Candidates.Select(c => c.Kind).ShouldBe(["film", "book"]); // with no model reads the print speaks
+    }
+
+    [Fact]
     public async Task Clean_with_no_snap_kinds_behaves_as_before()
     {
         var (books, films) = Providers();
