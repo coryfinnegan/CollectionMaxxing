@@ -356,7 +356,7 @@ export const DEFAULT_LOCAL_TUNING: LocalTuning = {
   bandMaxGap: 0.05,
   bandSameLetters: 0.6,
   bandMinLetters: 0.3,
-  bandTitleLetters: 0.6,
+  bandTitleLetters: 0.55,
   bandJoinGap: 0.5,
   halfOverlap: 0.05,
   cutSearchRadius: 0.15,
