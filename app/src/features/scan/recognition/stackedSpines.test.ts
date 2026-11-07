@@ -20,11 +20,14 @@ const BEFORE_LYING = { lyingLineWidth: Infinity };
 /** The two-row rules off: the two rows of one spine title are two columns, and a pile's band that ends on a joining word ("A COURT OF") stands alone. */
 const BEFORE_TWO_ROWS = { twoRowLetters: Infinity, bandJoinGap: -Infinity };
 
+/** The leftover lines of a spine row are one piece again: no spine is cut out of them (splitting.ts `leftoverPieces`). */
+const BEFORE_LEFTOVER = { leftoverTitleWords: Infinity, leftoverBesideWords: Infinity };
+
 /** The split with piles switched off: what the splitter did before items lying flat were cut one per spine (nor was the frame cut into shelf rows). */
-const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS };
+const WITHOUT_PILES = { ...T, stackMinBands: Infinity, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS, ...BEFORE_LEFTOVER };
 
 /** The values before #618: a pile needed 5 bands in a column no wider than half the frame, and a row 60% of its neighbors in one band. */
-const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS };
+const BEFORE_618 = { ...T, stackMinBands: 5, stackMaxWidth: 0.5, spineRowShare: 0.6, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS, ...BEFORE_LEFTOVER };
 
 /** A tape lying flat: a title line 0.35 wide and 0.05 tall, 0.08 below the last, so the gap is a little over half a letter. */
 const tape = (i: number, text = `Tape ${i}`, x = 0.3, top = 0.1) => line(text, x, top + i * 0.08, 0.35, 0.05);
@@ -280,7 +283,7 @@ describe('real shelf photos', () => {
     // lost "And Now, Back to You" until a shorter line beside a taller one joined its column (#655, 24 to 25). The shelf rows describe
     // below owns that. The items then fell from 40 to 39: the small "A COURT OF" above the subtitle of A Court of Silver Flames is read
     // with it now, not as an item of its own (the #637 describe below owns that).
-    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 39, found: 25 } },
+    'accept-shelf-04': { before: { items: 24, found: 16 }, after: { items: 42, found: 26 } },
     // Upright rows with no pile. The two rows of "Indian FOR Everyone" were two items, each read alone, and are one spine now (items 19 to
     // 18, found 14 to 15); splitting.test.ts owns the rule.
     'accept-shelf-01': { before: { items: 19, found: 14 }, after: { items: 18, found: 15 } },
@@ -314,7 +317,7 @@ describe('real shelf photos', () => {
 
   describe('a bookcase shot with two shelves in the frame is cut into its two shelf rows', () => {
     /** The split before the frame was cut into rows: a spine on the lower shelf joined the spine above it, whose x it shares. */
-    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS };
+    const WITHOUT_ROWS = { ...T, shelfRowGap: Infinity, ...BEFORE_637, ...BEFORE_LYING, ...BEFORE_TWO_ROWS, ...BEFORE_LEFTOVER };
 
     // The stretch of y that no tall line covers, from one row's last tall line to the next row's first: 10.0, 5.4 and 4.5 letters (the
     // median tall line's width). The single-row photos show 2.3 to 3.6 letters at their edges, or too few lines beyond to count as a row.
@@ -334,10 +337,12 @@ describe('real shelf photos', () => {
     // Torment of Loving Your Enemy" and "The Irresistible Urge to Fall for Your Enemy"; none lost. (With Vision's rectangles, the second
     // title gained is "Rose in Chains" instead, which no longer shares a leftover piece with them; neither path loses a title.) The items of shelf-02 (44 to 42) and
     // accept-shelf-04 (40 to 39) fell as the small "A COURT OF" of 2 and 1 hardcovers of A Court of Silver Flames joined their subtitles.
+    // The leftover cut (splitting.ts leftoverPieces, #759) then adds 5 titles over the three photos and loses none: shelf-01 14 to 16 (items 38 to 41:
+    // "Rose in Chains" and Babel stand as spines of their own), shelf-02 24 to 26 (items 42 to 44) and accept-shelf-04 25 to 26 (items 39 to 42).
     const ROW_COUNTS: Record<string, { without: { items: number; found: number }; with: { items: number; found: number } }> = {
-      'shelf-01': { without: { items: 32, found: 11 }, with: { items: 38, found: 14 } },
-      'shelf-02': { without: { items: 26, found: 17 }, with: { items: 42, found: 24 } },
-      'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 39, found: 25 } },
+      'shelf-01': { without: { items: 32, found: 11 }, with: { items: 41, found: 16 } },
+      'shelf-02': { without: { items: 26, found: 17 }, with: { items: 44, found: 26 } },
+      'accept-shelf-04': { without: { items: 32, found: 19 }, with: { items: 42, found: 26 } },
     };
 
     const linesOf = (id: string) => photos[id].lines.map((l) => line(l.text, l.x, l.y, l.width, l.height, confidence(l.text)));

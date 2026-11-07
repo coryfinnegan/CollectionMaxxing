@@ -407,7 +407,8 @@ describe('splitting Vision text into items', () => {
       ];
       expect(texts(piecesOf(lines))).toEqual([['Neighbor 0.7'], ['OF LOVING YOUR ENEMY', 'THE EXQUISITE TORMENT'], ['Neighbor 0.95']]);
       expect(titleOf(lines, 'THE EXQUISITE TORMENT')).toBe('THE EXQUISITE TORMENT OF LOVING YOUR ENEMY');
-      expect(texts(piecesOf(lines, { ...T, twoRowLetters: Infinity }))).toEqual([
+      // With the two-row rule off, each row alone has three words and would be cut out of the leftover as a spine of its own (leftoverPieces).
+      expect(texts(piecesOf(lines, { ...T, twoRowLetters: Infinity, leftoverTitleWords: Infinity, leftoverBesideWords: Infinity }))).toEqual([
         ['Neighbor 0.7'],
         ['Neighbor 0.95'],
         ['OF LOVING YOUR ENEMY', 'THE EXQUISITE TORMENT'],
@@ -685,5 +686,181 @@ describe('splitting Vision text into items', () => {
 
   it('returns nothing for no text', () => {
     expect(splitIntoPieces([], [], C.splitting, T)).toEqual({ pieces: [], unreadableCount: 0 });
+  });
+});
+
+/** shelf-01: the leftover piece 18 of the build-159 eval read (its lines as recorded). */
+const BABEL = [
+  line("H CROWNS", 0.3110, 0.2209, 0.0087, 0.0872),
+  line("CROWNS", 0.3110, 0.2306, 0.0087, 0.0775),
+  line("GILLIG", 0.3140, 0.3256, 0.0044, 0.0484),
+  line("OTWISTEDRACHEI", 0.3166, 0.2204, 0.0164, 0.1562),
+  line("TWISTEDRACHEL", 0.3169, 0.2229, 0.0160, 0.1550),
+  line("STWISTEDRACHEL", 0.3183, 0.2209, 0.0145, 0.1589),
+  line("R.F. KUANG", 0.3428, 0.3213, 0.0112, 0.0648),
+  line("BABEL", 0.3440, 0.1835, 0.0155, 0.0690),
+  line("VLIIN", 0.6410, 0.4128, 0.0073, 0.0310, 0.3),
+  line("HEKATE THE WITCH", 0.6904, 0.4109, 0.1570, 0.0312),
+];
+
+/** shelf-01: the leftover piece 33 of the build-159 eval read (its lines as recorded). */
+const ROSE = [
+  line("SenlinYu", 0.5741, 0.7345, 0.0160, 0.0872),
+  line("MANACLED", 0.6261, 0.7038, 0.1128, 0.0311),
+  line("IANACLED", 0.6407, 0.7045, 0.0980, 0.0295),
+  line("ANACLED", 0.6480, 0.7061, 0.0919, 0.0262),
+  line("SENLINYU", 0.6541, 0.7984, 0.0625, 0.0155),
+  line("ROSE IN CHAINS", 0.8904, 0.6487, 0.0183, 0.1368),
+  line("JULIE SOTO", 0.8961, 0.8234, 0.0107, 0.0916),
+  line("USA TODAY BESTSELLING AUTHOR", 0.9056, 0.8214, 0.0106, 0.0976),
+];
+
+/** shelf-02: the leftover piece 5 of the build-159 eval read (its lines as recorded). */
+const CROWN = [
+  line("MAAS", 0.2019, 0.6217, 0.0394, 0.0182),
+  line("SARAH J.", 0.2020, 0.6082, 0.0394, 0.0143),
+  line("CITY", 0.2078, 0.7054, 0.0378, 0.0194),
+  line("CRESCENT", 0.2078, 0.6938, 0.0378, 0.0097),
+  line("C", 0.2137, 0.6512, 0.0189, 0.0271),
+  line("SHADOW", 0.2164, 0.8025, 0.0339, 0.0113),
+  line("HOUSE", 0.2164, 0.7333, 0.0265, 0.0108),
+  line("FLAME", 0.2180, 0.7694, 0.0262, 0.0097),
+  line("and", 0.2238, 0.7868, 0.0174, 0.0097),
+  line("of", 0.2253, 0.7519, 0.0116, 0.0097),
+  line("J. MAAS", 0.2716, 0.6827, 0.0557, 0.0179),
+  line("J. MAAS", 0.2747, 0.6105, 0.0349, 0.0116),
+  line("SARAH", 0.2762, 0.6609, 0.0480, 0.0174),
+  line("J. MAAS", 0.2774, 0.7507, 0.0542, 0.0180),
+  line("SARAH", 0.2776, 0.6008, 0.0291, 0.0078),
+  line("J. MAAS", 0.2791, 0.8120, 0.0523, 0.0177),
+  line("SARAH", 0.2805, 0.7322, 0.0452, 0.0161),
+  line("SARAH", 0.2819, 0.7943, 0.0466, 0.0160),
+  line("J. MAAS", 0.2847, 0.8554, 0.0498, 0.0178),
+  line("SARAH", 0.2863, 0.8391, 0.0451, 0.0174),
+  line("CHR", 0.3285, 0.5678, 0.0218, 0.0136),
+  line("lames", 0.3852, 0.5698, 0.0378, 0.0155),
+  line("VWW", 0.4592, 0.5455, 0.0125, 0.0352, 0.5),
+  line("SVVW", 0.4608, 0.5388, 0.0087, 0.0407),
+  line("MAAS", 0.6105, 0.5756, 0.0116, 0.0426),
+  line("SARAH J. CROWN OF MIDNIGHT", 0.6163, 0.5640, 0.0174, 0.2829),
+];
+
+/** accept-shelf-04: the leftover piece 25 of the build-159 eval read (its lines as recorded). */
+const BIGFAN = [
+  line("ILEXANDRA ROMANOFF BIG FAN", 0.2062, 0.1837, 0.0112, 0.0938),
+  line("THE LUCKIEST LADY IN LONDON", 0.4311, 0.1781, 0.0108, 0.1594),
+  line("THE LUCKIEST LADY IN", 0.4311, 0.1781, 0.0097, 0.1128),
+  line("+T-", 0.4317, 0.3391, 0.0131, 0.0329, 0.3),
+  line("SHERRY THOMAS M", 0.4346, 0.3779, 0.0102, 0.1027),
+  line("SHERRY THOMAS", 0.4346, 0.3798, 0.0087, 0.0775),
+  line("ELSIE SILVER", 0.4884, 0.2539, 0.0131, 0.0872),
+  { ...line("THE RACES", 0.5206, 0.2331, 0.0276, 0.0127), region: 0 },
+  line("ELSIE SILVER", 0.5245, 0.2593, 0.0184, 0.1113),
+  { ...line("OFF TO", 0.5246, 0.2236, 0.0195, 0.0117), region: 0 },
+];
+
+/** shelf-02: the leftover piece 37 of the build-159 eval read (its lines as recorded). */
+const HEIR = [
+  line("SARAH J.", 0.0828, 0.6123, 0.0407, 0.0118),
+  line("MAAS", 0.0843, 0.6260, 0.0392, 0.0174),
+  line("CRESCENT", 0.0901, 0.6977, 0.0392, 0.0097),
+  line("CITY", 0.0901, 0.7112, 0.0392, 0.0174),
+  line("IOUSE", 0.1032, 0.7384, 0.0218, 0.0097),
+  line("BLOOD", 0.1061, 0.8081, 0.0262, 0.0097),
+  line("ARTH", 0.1076, 0.7733, 0.0203, 0.0097),
+  line("and", 0.1090, 0.7907, 0.0160, 0.0097),
+  line("BREATH", 0.1599, 0.8101, 0.0291, 0.0078),
+  line("and", 0.1642, 0.7926, 0.0174, 0.0097),
+  line("MAAS", 0.6497, 0.5717, 0.0116, 0.0426),
+  line("HEIR OF FIRE", 0.6541, 0.6744, 0.0160, 0.1357),
+  line("SARAH J.", 0.6599, 0.5601, 0.0131, 0.0659),
+];
+
+/** accept-shelf-04: the leftover piece 37 of the build-159 eval read (its lines as recorded). */
+const TOWER = [
+  line("TOWER OF DAWN", 0.7756, 0.6914, 0.0176, 0.1482),
+  line("MAAS", 0.7756, 0.6097, 0.0143, 0.0426),
+  line("SARAH J.", 0.7859, 0.6001, 0.0153, 0.0595),
+];
+
+/** accept-shelf-01: the leftover piece 21 of the build-159 eval read (its lines as recorded). */
+const MARTHA = [
+  line("STEWART", 0.1320, 0.9764, 0.0587, 0.0162),
+  line("MARTHA", 0.1332, 0.9565, 0.0534, 0.0188),
+  line("THE", 0.1497, 0.9419, 0.0174, 0.0116),
+  line("BRANDON", 0.2834, 0.9457, 0.0073, 0.0349),
+  line("Southern Living.", 0.3677, 0.9341, 0.0116, 0.0620),
+  line("Southemn Living", 0.3692, 0.9322, 0.0131, 0.0620),
+  line("Atheneum", 0.5959, 0.0097, 0.0480, 0.0155),
+  line("Ton", 0.6948, 0.9787, 0.0102, 0.0213),
+  line("Tor", 0.6948, 0.9787, 0.0087, 0.0194),
+  line("DIANA KENNEDY", 0.7922, 0.3001, 0.0165, 0.1595),
+];
+
+/** Two spines of one-letter columns, as tall as the lines' stretch of shelf, standing beside them, so the lines are a shelf row's leftover: they sit across no column. */
+const row = (lines: TextLine[], name = 'Neighbor') => {
+  const top = Math.min(...lines.map((l) => l.box.y)) - 0.02;
+  const height = Math.max(...lines.map((l) => l.box.y + l.box.height)) + 0.02 - top;
+  return [line(`${name} one`, 0.001, top, 0.025, height), line(`${name} two`, 0.03, top, 0.025, height), ...lines];
+};
+const piecesOf = (lines: TextLine[], local: typeof T = T) => splitIntoPieces(row(lines), [], C.splitting, local).pieces;
+const texts = (lines: TextLine[], local: typeof T = T) =>
+  piecesOf(lines, local)
+    .map((p) => p.lines.map((l) => l.text).sort())
+    .filter((t) => !t.some((x) => x.startsWith('Neighbor')));
+const holding = (lines: TextLine[], text: string) => texts(lines).find((p) => p.includes(text));
+const OFF = { ...T, leftoverTitleWords: Infinity, leftoverBesideWords: Infinity };
+
+describe('a spine too narrow to be a column is cut out of the leftover lines', () => {
+  it('cuts out a title that stands beside its author (shelf-01: BABEL over R.F. KUANG, among a flat HEKATE THE WITCH)', () => {
+    expect(holding(BABEL, 'BABEL')).toEqual(['BABEL', 'R.F. KUANG']);
+    expect(holding(BABEL, 'HEKATE THE WITCH')).not.toContain('BABEL');
+    const babel = piecesOf(BABEL).find((p) => p.lines.some((l) => l.text === 'BABEL'))!;
+    expect(shelfTitleOf(babel.lines, T)?.text).toBe('BABEL');
+  });
+
+  it('cuts out ROSE IN CHAINS with JULIE SOTO, and leaves the role line and the lone name with MANACLED (shelf-01)', () => {
+    expect(holding(ROSE, 'ROSE IN CHAINS')).toEqual(['JULIE SOTO', 'ROSE IN CHAINS']);
+    expect(holding(ROSE, 'MANACLED')).toEqual(expect.arrayContaining(['SenlinYu', 'USA TODAY BESTSELLING AUTHOR']));
+  });
+
+  it('cuts out a title of three words or more that stands alone (shelf-02: SARAH J. CROWN OF MIDNIGHT), and keeps a stacked title whole', () => {
+    expect(holding(CROWN, 'SARAH J. CROWN OF MIDNIGHT')).toEqual(['SARAH J. CROWN OF MIDNIGHT']);
+    expect(holding(CROWN, 'CRESCENT')).toEqual(expect.arrayContaining(['CITY', 'HOUSE', 'FLAME', 'SHADOW']));
+  });
+
+  it('cuts out two narrow spines and leaves the tile-read title with its author (accept-shelf-04: BIG FAN, THE LUCKIEST LADY IN LONDON)', () => {
+    expect(holding(BIGFAN, 'ILEXANDRA ROMANOFF BIG FAN')).toEqual(['ILEXANDRA ROMANOFF BIG FAN']);
+    expect(holding(BIGFAN, 'THE LUCKIEST LADY IN LONDON')).toEqual(['+T-', 'SHERRY THOMAS', 'SHERRY THOMAS M', 'THE LUCKIEST LADY IN', 'THE LUCKIEST LADY IN LONDON']);
+    expect(holding(BIGFAN, 'OFF TO')).toEqual(expect.arrayContaining(['THE RACES', 'ELSIE SILVER']));
+  });
+
+  it('cuts out HEIR OF FIRE with the SARAH J. beside it from a leftover of stacked series words (shelf-02)', () => {
+    expect(holding(HEIR, 'HEIR OF FIRE')).toEqual(['HEIR OF FIRE', 'SARAH J.']);
+  });
+
+  it('cuts out a one-word title beside a one-word surname, and only by the beside rule', () => {
+    const lines = [line('KRAKEN', 0.3, 0.2, 0.012, 0.1), line('SMITH', 0.3, 0.33, 0.012, 0.06)];
+    expect(texts(lines)).toEqual([['KRAKEN', 'SMITH']]);
+    const other = [line('Other', 0.5, 0.2, 0.012, 0.1), line('Words', 0.5, 0.33, 0.012, 0.06)];
+    expect(texts([...lines, ...other])).toEqual([['KRAKEN', 'SMITH'], ['Other', 'Words']]);
+    expect(texts([...lines, ...other], { ...T, leftoverBesideWords: Infinity })).toHaveLength(1);
+  });
+
+  describe('what stays as it was', () => {
+    it('makes no read of a leftover that holds only a name printed on other spines: it stays with the spine beside it (accept-shelf-04 TOWER OF DAWN)', () => {
+      const lines = splitIntoPieces(row(TOWER, 'SARAH J. MAAS'), [], C.splitting, T).pieces.filter((p) => p.lines.some((l) => TOWER.includes(l)));
+      expect(lines.map((p) => p.lines.map((l) => l.text).sort())).toEqual([['MAAS', 'SARAH J.', 'TOWER OF DAWN']]);
+    });
+
+    it('cuts out no lone line of one or two words: a name, a magazine, a publisher (accept-shelf-01)', () => {
+      expect(texts(MARTHA)).toHaveLength(1);
+      expect(texts(MARTHA)[0]).toHaveLength(MARTHA.length);
+    });
+
+    it('is one leftover piece again with the cut switched off', () => {
+      expect(texts(BABEL, OFF)).toHaveLength(1);
+      expect(texts(ROSE, OFF)).toHaveLength(1);
+    });
   });
 });
