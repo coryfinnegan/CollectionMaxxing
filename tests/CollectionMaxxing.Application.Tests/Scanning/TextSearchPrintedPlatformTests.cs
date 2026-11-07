@@ -92,19 +92,27 @@ public class TextSearchPrintedPlatformTests
     [Fact]
     public void A_read_that_names_its_platform_is_not_reordered_by_the_shots_print()
     {
-        var pool = IcoPool();
-        var read = new ReadItem { Title = Title, Platform = "PS3" };
+        // The read names the printed platform itself: the scorer cannot tell the book from the game, and the print must not speak for it.
+        var pool = Pool(new(WorkKind.Book, null, null), new(WorkKind.Game, "PS2", null));
+        var read = new ReadItem { Title = Title, Platform = "PS2" };
 
-        Names(Score(read, pool, Ps2), pool).ShouldBe(Names(Score(read, pool, null), pool));
+        var result = Score(read, pool, Ps2);
+
+        result.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
+        Names(result, pool).ShouldBe(["Book::", "Game:PS2:"]);
+        result.Steps.Any(s => s.Provider == "platform").ShouldBeFalse();
     }
 
     [Fact]
     public void A_matched_read_is_not_reordered_by_the_shots_print()
     {
-        var pool = Pool(new(WorkKind.Book, null, 2001), new(WorkKind.Game, "PS2", 2002, "Another Tale Entirely"));
+        // A profile may be tuned so that a lead of a hair is a Matched top (the bias is 0.02): the verdict is about the top.
+        var tuned = Profile with { Thresholds = new ScoringThresholds { MatchedLead = 0.005 } };
+        var pool = Pool(new(WorkKind.Book, null, 2001), new(WorkKind.Game, "PS2", 2002)); // 1.00 against 0.99
         var read = new ReadItem { Title = Title, Year = 2001 };
 
-        var result = Score(read, pool, Ps2);
+        var result = TextSearchResolver.Score(
+            read, tuned, pool, ProviderAnswers.None, pendingWhenProvidersFailed: false, printedPlatforms: Ps2);
 
         result.Verdict.ShouldBe(ResolutionVerdict.Matched);
         Names(result, pool).First().ShouldBe("Book::2001");
