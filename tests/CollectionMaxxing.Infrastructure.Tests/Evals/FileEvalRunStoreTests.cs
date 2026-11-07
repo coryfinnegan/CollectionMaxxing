@@ -277,4 +277,55 @@ public sealed class FileEvalRunStoreTests : IDisposable
         off.Discard();
         Should.Throw<InvalidOperationException>(() => off.Create(Header()));
     }
+
+    [Fact]
+    public async Task Counting_the_stored_and_grounded_photos_never_fails_while_the_run_is_cleared_or_discarded_under_it()
+    {
+        // The status call counts photos with no lock while a re-ground discards the run, or a scored run clears its photos: the folder it was
+        // about to list can be gone by then, and that is "nothing stored", not a 500.
+        var store = Store();
+        store.Create(Header());
+        var failures = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var stop = new CancellationTokenSource();
+
+        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                try
+                {
+                    store.StoredIds();
+                    store.GroundedIds();
+                }
+                catch (Exception exception)
+                {
+                    failures.Enqueue(exception.GetType().Name + ": " + exception.Message);
+                }
+            }
+        })).ToList();
+
+        for (var round = 0; round < 100 && failures.IsEmpty; round++)
+        {
+            store.Create(Header());
+            for (var i = 0; i < 20; i++)
+            {
+                store.SavePhoto($"p{i}", Photo());
+                store.SaveGrounded($"p{i}", new GroundedPhotoFile([], []));
+            }
+
+            if (round % 2 == 0)
+            {
+                store.ClearPhotos();
+            }
+            else
+            {
+                store.Discard();
+            }
+        }
+
+        await stop.CancelAsync();
+        await Task.WhenAll(readers);
+
+        failures.ShouldBeEmpty();
+    }
 }
