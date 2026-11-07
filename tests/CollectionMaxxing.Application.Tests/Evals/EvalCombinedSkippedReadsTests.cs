@@ -72,7 +72,46 @@ public class EvalCombinedSkippedReadsTests
     }
 
     [Fact]
-    public async Task A_Vision_piece_over_two_model_reads_that_found_nothing_loses_its_place()
+    public async Task A_Vision_piece_over_two_model_reads_that_found_nothing_loses_its_place_when_it_found_nothing_either()
+    {
+        var providers = Knowing("Alpha Quest", "Beta Quest", "Gamma Quest");
+        var vision = Row(ScanEngine.VisionPipeline, [.. Fillers("v"), Spine("Wide Piece", "v", 0.6, width: 0.35)]);
+        var model = Row(ScanEngine.AppleModel, [.. Fillers("m"), Spine("ZXQV WRLKM", "m", 0.62), Spine("QPLN TRVX", "m", 0.85)]);
+
+        var combined = await CombinedAsync(providers, model, vision);
+
+        combined.Items.ShouldNotContain(i => i.ReadTitle == "Wide Piece", "a piece that holds two spines and names no release loses its place, as it does in /identify");
+        combined.Items.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task A_Vision_piece_over_two_spines_gives_way_when_a_model_read_inside_it_found_the_pieces_release()
+    {
+        var providers = Knowing("Alpha Quest", "Beta Quest", "Gamma Quest", "Wide Piece");
+        var vision = Row(ScanEngine.VisionPipeline, [.. Fillers("v"), Spine("Wide Piece Edition", "v", 0.6, width: 0.35)]);
+        var model = Row(ScanEngine.AppleModel, [.. Fillers("m"), Spine("Wide Piece", "m", 0.62), Spine("QPLN TRVX", "m", 0.85)]);
+
+        var combined = await CombinedAsync(providers, model, vision);
+
+        combined.Items.ShouldNotContain(i => i.ReadTitle == "Wide Piece Edition", "the model read inside the piece found the piece's release, so the piece is no place of its own");
+        combined.Items.ShouldContain(i => i.ReadTitle == "Wide Piece");
+    }
+
+    [Fact]
+    public async Task At_one_place_the_model_read_whose_words_and_release_hold_the_cut_short_Vision_reads_words_is_shown()
+    {
+        var providers = Knowing("Alpha Quest", "Beta Quest", "Gamma Quest", "Iron Fox", "Iron Fox Rising");
+        var vision = Row(ScanEngine.VisionPipeline, [.. Fillers("v"), Spine("Iron Fox", "v", 0.6)]);
+        var model = Row(ScanEngine.AppleModel, [.. Fillers("m"), Spine("Iron Fox Rising", "m", 0.61)]);
+
+        var combined = await CombinedAsync(providers, model, vision);
+
+        combined.Items.ShouldContain(i => i.ReadTitle == "Iron Fox Rising");
+        combined.Items.ShouldNotContain(i => i.ReadTitle == "Iron Fox");
+    }
+
+    [Fact]
+    public async Task A_Vision_piece_over_two_model_reads_that_found_nothing_stands_beside_them_when_its_release_is_its_own()
     {
         var providers = Knowing("Alpha Quest", "Beta Quest", "Gamma Quest", "Wide Piece");
         var vision = Row(ScanEngine.VisionPipeline, [.. Fillers("v"), Spine("Wide Piece", "v", 0.6, width: 0.35)]);
@@ -80,8 +119,7 @@ public class EvalCombinedSkippedReadsTests
 
         var combined = await CombinedAsync(providers, model, vision);
 
-        combined.Items.ShouldNotContain(i => i.ReadTitle == "Wide Piece", "a piece that holds two spines loses its place, as it does in /identify");
-        combined.Items.Count.ShouldBe(3);
+        combined.Items.ShouldContain(i => i.ReadTitle == "Wide Piece", "the piece grounds on a release none of the reads inside it found, so it is kept");
     }
 
     [Fact]

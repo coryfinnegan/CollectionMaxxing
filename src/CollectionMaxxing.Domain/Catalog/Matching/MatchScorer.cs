@@ -90,12 +90,13 @@ public static class MatchScorer
         }
 
         /// <summary>The read's title with this creator's name taken out, or null when the read does not carry it.</summary>
-        public ComparableTitle? ReadWithout(string creator)
+        public ComparableTitle? ReadWithout(string creator, string ownTitle)
         {
-            if (!_readWithoutCreator.TryGetValue(creator, out var bare))
+            var key = ownTitle + "\0" + creator;
+            if (!_readWithoutCreator.TryGetValue(key, out var bare))
             {
-                bare = Read.WithoutCreator(Of(creator));
-                _readWithoutCreator[creator] = bare;
+                bare = Read.WithoutCreator(Of(creator), Of(ownTitle));
+                _readWithoutCreator[key] = bare;
             }
 
             return bare;
@@ -171,7 +172,7 @@ public static class MatchScorer
                 var similarity = titles.Read.TitleSimilarity(releaseTitle);
                 foreach (var creator in release.Creators)
                 {
-                    if (titles.ReadWithout(creator) is { } bare)
+                    if (titles.ReadWithout(creator, release.Title) is { } bare)
                     {
                         creatorInTitle = true;
                         similarity = Math.Max(similarity, bare.TitleSimilarity(releaseTitle));

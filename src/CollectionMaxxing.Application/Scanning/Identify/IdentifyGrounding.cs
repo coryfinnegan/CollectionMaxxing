@@ -269,6 +269,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 AddLineAttempts(attempts, facts, BestCreators(answer, local));
             }
 
+            AddAnyKindAttempt(attempts, facts, spine);
             return attempts;
         }
 
@@ -300,7 +301,24 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             AddLineAttempts(attempts, facts, []);
         }
 
+        AddAnyKindAttempt(attempts, facts, spine);
         return attempts;
+    }
+
+    /// <summary>The trace step of the any-kind ask (<see cref="AddAnyKindAttempt"/>).</summary>
+    private const string AnyKindStep = "anykind";
+
+    /// <summary>
+    /// Last, a spine read as a game is asked once more as any kind, with no platform or format: on a shelf of films the picture model
+    /// can call a film a game, and a read that names a kind asks only that kind's providers. What it finds goes through
+    /// <see cref="OfferedByAttempt"/>, so the read's own best release stays on top unless the find scores strictly higher (a tie leaves it on top).
+    /// </summary>
+    private static void AddAnyKindAttempt(List<Attempt> attempts, ReadFacts facts, bool spine)
+    {
+        if (spine && facts.Kind == WorkKind.Game)
+        {
+            attempts.Add(new Attempt(facts with { Kind = null, Platform = null, Format = null }, new TraceStep(AnyKindStep, $"{facts.SearchText} (kind read: game)", 0)));
+        }
     }
 
     /// <summary>
@@ -329,9 +347,10 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>A line attempt that was answered and not kept as scored: what it was asked with and what came back, to be scored again once every line has been asked.</summary>
     private sealed record LineMiss(Attempt Attempt, ReadFacts Asked, LocalPool Pool, ProviderAnswers Provided, ScoringProfileKind Profile);
 
-    /// <summary>Whether the find scores below the read's own best release, which <see cref="OfferedByAttempt"/> then leaves on top.</summary>
-    private static bool LeavesOriginalOnTop(BarcodeResolution original, BarcodeResolution found) =>
-        original.Options.Count > 0 && found.Options.Count > 0 && found.Options[0].Score < original.Options[0].Score;
+    /// <summary>Whether the find scores below the read's own best release (or no higher, when <paramref name="tieKeepsOriginal"/>), which <see cref="OfferedByAttempt"/> then leaves on top.</summary>
+    private static bool LeavesOriginalOnTop(BarcodeResolution original, BarcodeResolution found, bool tieKeepsOriginal = false) =>
+        original.Options.Count > 0 && found.Options.Count > 0
+        && (tieKeepsOriginal ? found.Options[0].Score <= original.Options[0].Score : found.Options[0].Score < original.Options[0].Score);
 
     /// <summary>The line attempts of <see cref="SpineLines"/>, after the attempts already listed (whose titles are not asked again).</summary>
     private static void AddLineAttempts(List<Attempt> attempts, ReadFacts facts, IReadOnlyList<string> creators)
@@ -355,6 +374,32 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         var best = found.Options[0]; // best first
         return SpineLines.KeepsFind(facts, line, TitleOf(best, pool), CreatorsOf(best, pool));
+    }
+
+    /// <summary>
+    /// The line find of a creatorless best release, the last resort of the line retry (after every line was asked and
+    /// <see cref="ScoredByPrintedAuthor"/> kept none): the line's answers scored again (no new ask) when their best release is Matched or
+    /// Ambiguous, has no creators and is kept by the line's own words (<see cref="SpineLines.KeepsFind"/>), and no release the answers hold has
+    /// a creator the spine prints (the printed author comes first). Null otherwise.
+    /// </summary>
+    private BarcodeResolution? ScoredByCreatorlessTitle(LineMiss miss)
+    {
+        var again = Score(miss.Asked, miss.Profile, miss.Pool, miss.Provided);
+        if (again.Verdict is not (ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous) || again.Options.Count == 0)
+        {
+            return null;
+        }
+
+        var best = again.Options[0];
+        var titleTerm = best.Terms.FirstOrDefault(term => term.Name == "title")?.Value ?? 0;
+        var line = miss.Asked.Title ?? string.Empty;
+        var releases = miss.Pool.Items.Select(item => ((string?)item.Scoring.Title, item.Scoring.Creators))
+            .Concat(miss.Provided.Found.Select(release => ((string?)release.Title, release.Creators)));
+        return CreatorsOf(best, miss.Pool).Count == 0
+            && SpineLines.PrintedCreator(miss.Asked, line, releases) is null
+            && SpineLines.KeepsFind(miss.Asked, line, TitleOf(best, miss.Pool), [], titleTerm)
+                ? again
+                : null;
     }
 
     /// <summary>The creators of an answer's best release, when it has one; none otherwise.</summary>
@@ -496,7 +541,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 {
                     // A line of the spine is the find itself (the read was about to be skipped), its own release among the read's at most.
                     answers[i] = attempt.Keeps is null
-                        ? OfferedByAttempt(reads[i].Answer, found, attempt.Step)
+                        ? OfferedByAttempt(reads[i].Answer, found, attempt.Step, tieKeepsOriginal: attempt.Step.Provider == AnyKindStep)
                         : Offered(reads[i].Answer, found with { Options = SeriesNeighbour.WithOriginals(found.Options, reads[i].Answer.Options) }, attempt.Step);
                     lineKept[i] |= attempt.Keeps is not null;
 
@@ -538,6 +583,18 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 if (best.Again is { } again)
                 {
                     answers[i] = Offered(reads[i].Answer, again with { Options = SeriesNeighbour.WithOriginals(again.Options, reads[i].Answer.Options) }, best.Miss.Attempt.Step);
+                }
+                else
+                {
+                    // No printed author backs any line's find: a line that holds the title of a creatorless release is its own witness.
+                    foreach (var miss in misses)
+                    {
+                        if (ScoredByCreatorlessTitle(miss) is { } held)
+                        {
+                            answers[i] = Offered(reads[i].Answer, held with { Options = SeriesNeighbour.WithOriginals(held.Options, reads[i].Answer.Options) }, miss.Attempt.Step);
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -915,9 +972,9 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// is still the read's own: not flagged, so it can still be a repeat of, and confirm, another engine's read of the same release.
     /// A possessive can be the real title ("Ocean's Eleven"), and then the title without it is a different, shorter work.
     /// </summary>
-    private static BarcodeResolution OfferedByAttempt(BarcodeResolution original, BarcodeResolution found, TraceStep why)
+    private static BarcodeResolution OfferedByAttempt(BarcodeResolution original, BarcodeResolution found, TraceStep why, bool tieKeepsOriginal = false)
     {
-        if (original.Options.Count == 0 || found.Options.Count == 0 || !LeavesOriginalOnTop(original, found))
+        if (original.Options.Count == 0 || found.Options.Count == 0 || !LeavesOriginalOnTop(original, found, tieKeepsOriginal))
         {
             return Offered(original, found with { Options = SeriesNeighbour.WithOriginals(found.Options, original.Options) }, why);
         }

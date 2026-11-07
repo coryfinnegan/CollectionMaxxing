@@ -364,7 +364,7 @@ public static class EvalCombination
     /// </summary>
     private static PlacedRead Placed(GroundedItem item, bool onlyTheModelRead) => item.FoundByLine
         ? new(item.Box, ReadGrounding.Nothing, 0, onlyTheModelRead) // a find of the line retry changes no other read: it contends as the read that found nothing
-        : new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead, BookOf(item));
+        : new(item.Box, GroundingOf(item.Verdict), item.Best?.Score ?? 0, onlyTheModelRead, BookOf(item), item.ReadTitle, item.Best?.Title);
 
     /// <summary>The release a read's best option names, its normalised title and year, as a single key; null when it has none.</summary>
     private static string? BookOf(GroundedItem item) => KeyOf(item) is { } key ? $"{key.Title}\0{key.Year}" : null;

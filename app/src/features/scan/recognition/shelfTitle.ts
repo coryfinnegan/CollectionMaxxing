@@ -150,9 +150,28 @@ class Readings {
    * The clearer of two readings of one place: the one the other readings of that place agree with, else the surer and
    * longer, which is all the choice went by before (#617). Their boxes say nothing here: see the head of this file.
    */
-  clearest(a: TextLine, b: TextLine, pool: TextLine[]): TextLine {
+  clearest(a: TextLine, b: TextLine, pool: TextLine[], place: TextLine[] = []): TextLine {
     const [mine, theirs] = [this.agreement(a, pool), this.agreement(b, pool)];
+    if (theirs === mine) {
+      const clean = this.inside(a, b, place) ?? this.inside(b, a, place);
+      if (clean) return clean;
+    }
     return theirs > mine || (theirs === mine && weight(b) > weight(a)) ? b : a;
+  }
+
+  /**
+   * `small` when it is the clean reading inside `big`, a fat reading of the same place that caught more: down a spine, its words
+   * are some of `big`'s and more than `cleanReadingShare` of them, and no other line of the place reads a word only `big` read.
+   * The junk in `big` then does not set the place's lettering.
+   */
+  private inside(small: TextLine, big: TextLine, place: TextLine[]): TextLine | undefined {
+    const [s, b] = [this.said(small), this.said(big)];
+    if (!isSideways(small) || !isSideways(big)) return undefined;
+    if (s.size === 0 || s.size >= b.size || ![...s].every((w) => b.has(w))) return undefined;
+    if (s.size <= b.size * this.tuning.cleanReadingShare) return undefined;
+    const extra = [...b].filter((w) => !s.has(w));
+    const readElsewhere = place.filter((k) => k !== big && k !== small).some((k) => extra.some((w) => this.said(k).has(w)));
+    return readElsewhere ? undefined : small;
   }
 
   /**
@@ -179,10 +198,13 @@ class Readings {
   /**
    * The second row of a title printed over two rows of one spine: the same lettering, running beside the chosen row for
    * most of it and set tight against it, in another place, saying other words. Another reading of the chosen row is none
-   * of those.
+   * of those. A title that ends on a joining word ("Witchcraft for") is not finished, so the row that continues it needs to run
+   * beside it for less.
    */
   secondRow(chosen: TextLine, pool: TextLine[]): TextLine | undefined {
     const sideways = isSideways(chosen);
+    const unfinished = this.tuning.titleRowJoinWords.includes(wordsOf(chosen.text).pop() ?? '');
+    const along = unfinished ? this.tuning.titleRowJoinOverlap : this.tuning.titleRowOverlap;
     const size = letters(chosen);
     const beside = (k: TextLine) => {
       if (isSideways(k) !== sideways || this.samePlace(chosen, k) || this.sameText(chosen, k)) return false;
@@ -193,7 +215,7 @@ class Readings {
       const over = sideways
         ? Math.min(right(chosen.box), right(k.box)) - Math.max(chosen.box.x, k.box.x)
         : Math.min(bottom(chosen.box), bottom(k.box)) - Math.max(chosen.box.y, k.box.y);
-      return alongShare(chosen.box, k.box, sideways) >= this.tuning.titleRowOverlap && over >= size * this.tuning.titleRowTouch;
+      return alongShare(chosen.box, k.box, sideways) >= along && over >= size * this.tuning.titleRowTouch;
     };
     // Of two rows beside the chosen one, the surer, longer reading is the real second row.
     const rows = pool.filter((k) => k !== chosen && beside(k));
@@ -269,16 +291,34 @@ function stackOf(lines: TextLine[], tuning: LocalTuning): TextLine[] | undefined
 }
 
 /**
+ * Whether the stack repeats the title: each row of today's title has a row of the stack with the same text, the stack has more rows
+ * than the title and at least `stackTitleMinRows`, and every row of it is one word, as a series name heading a title stacked a
+ * word a row is ("CRESCENT / CITY / HOUSE / of / SKY"). Such a stack is the whole title, series words and all.
+ */
+function repeatsTitle(stack: TextLine[], rows: TextLine[], tuning: LocalTuning): boolean {
+  return (
+    stack.length >= tuning.stackTitleMinRows &&
+    stack.length > rows.length &&
+    stack.every((s) => wordsOf(s.text).length === 1) &&
+    rows.every((r) => stack.some((s) => normalize(s.text) === normalize(r.text)))
+  );
+}
+
+/**
  * The stack that is the title in place of `today`'s, when all three hold: it shares no word with today's title; today's title is a name
  * printed on another piece (the series author, sideways and big); and the stack is no publisher's imprint nor a stacked author name
- * (every word of it printed on other pieces too).
+ * (every word of it printed on other pieces too). A stack that repeats today's title (`repeatsTitle`) is the title whole, so it may
+ * share words with it and stands even where a neighboring spine reads today's title as its own; every other check stays.
  */
-function stackTitle(lines: TextLine[], today: string, others: TextLine[], tuning: LocalTuning): TextLine[] | undefined {
+function stackTitle(lines: TextLine[], rows: TextLine[], sibling: boolean, others: TextLine[], tuning: LocalTuning): TextLine[] | undefined {
   const stack = stackOf(lines, tuning);
   if (!stack) return undefined;
+  const holds = repeatsTitle(stack, rows, tuning);
+  if (sibling && !holds) return undefined;
+  const today = rows.map((l) => l.text.trim()).join(' ');
   const text = stack.map((l) => l.text).join(' ');
   const mine = new Set(wordsOf(today));
-  if (wordsOf(text).some((w) => mine.has(w))) return undefined;
+  if (!holds && wordsOf(text).some((w) => mine.has(w))) return undefined;
   if (!namedElsewhere(today, others)) return undefined;
   if (wordsOf(text).some((w) => tuning.stackPublisherWords.includes(w) || tuning.stackStudioWords.includes(w))) return undefined;
   if (readsAsSticker(text, tuning) || readsAsRole(text)) return undefined;
@@ -301,13 +341,13 @@ export function shelfTitleOf(lines: TextLine[], tuning: LocalTuning, others: Tex
   const own = lines.filter((l) => l.region === undefined);
   const said = titleCandidates(own.length > 0 ? own : lines, tuning);
   // One reading per place, then the place printed in the biggest lettering.
-  const clearest = readings.places(said).map((place) => place.reduce((a, b) => readings.clearest(a, b, lines)));
+  const clearest = readings.places(said).map((place) => place.reduce((a, b) => readings.clearest(a, b, lines, place)));
   const chosen = clearest.reduce((a, b) => (letters(b) > letters(a) || (letters(b) === letters(a) && weight(b) > weight(a)) ? b : a));
   const second = readings.secondRow(chosen, said);
   const rows = second ? inRowOrder(chosen, second) : [chosen];
   const text = rows.map((l) => l.text.trim()).join(' ');
   const same = (t: string) => normalize(t) === normalize(text);
-  const stack = siblings.some(same) ? undefined : stackTitle(lines, text, others, tuning);
+  const stack = stackTitle(lines, rows, siblings.some(same), others, tuning);
   if (stack) {
     // Today's title line goes to `rest`, so the name it printed is the creator.
     const rest = lines.filter((l) => !stack.includes(l) && l.region === undefined && !readsAsSticker(l.text, tuning));
