@@ -177,6 +177,8 @@ const toItem = (item: ReadItem, engine: EngineName, segmentId: string): EvalRead
     // Where the read sits and the game code it printed, as the scanner sends them: the PC groups reads by place and looks the code up.
     ...(box ? { box } : {}),
     ...(item.productCode ? { productCode: item.productCode } : {}),
+    // A shelf spine's lines, as the scanner sends them, so the PC can ask another line of the spine.
+    ...(item.lines?.length ? { lines: item.lines } : {}),
     // A read only the picture model made, where Vision found nothing: the PC scores it as review, never an auto-add.
     ...(item.unconfirmed ? { unconfirmed: true } : {}),
     // The phone cannot ground a read, so it claims the commit from confidence: a high-confidence read would

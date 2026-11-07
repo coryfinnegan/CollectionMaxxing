@@ -263,6 +263,9 @@ export interface RecognitionSettings extends RecognitionConfig {
   local: LocalTuning;
 }
 
+/** The most lines of one spine sent to the server, which caps them at the same number (#724). */
+export const MAX_SPINE_LINES = 12;
+
 export const DEFAULT_RECOGNITION_CONFIG: RecognitionConfig = {
   version: 'built-in',
   prompt: {

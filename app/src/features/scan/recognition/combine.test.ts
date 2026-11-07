@@ -154,6 +154,13 @@ describe('enrichedItems: the same item read by the model fills in what Vision la
     expect(enrichedItems(items, [modelFilm({ kind: 'other', format: undefined })], T)[0]).toBe(items[0]);
   });
 
+  it('keeps the Vision item\'s spine lines when the model fills it, and takes none from the model item', () => {
+    const [out] = enrichedItems([visionItem({ lines: ['SPACE MUTINY', 'Gold'] })], [modelFilm()], T);
+    expect(out).toMatchObject({ kind: 'film', lines: ['SPACE MUTINY', 'Gold'] });
+    const [bare] = enrichedItems([visionItem()], [modelFilm({ lines: ['x'] })], T);
+    expect(bare).not.toHaveProperty('lines');
+  });
+
   describe('a game\'s product code (ADR-031)', () => {
     const modelGame = (extra: Partial<ReadItem> = {}) => modelFilm({ kind: 'game', format: undefined, platform: 'PlayStation', ...extra });
 
