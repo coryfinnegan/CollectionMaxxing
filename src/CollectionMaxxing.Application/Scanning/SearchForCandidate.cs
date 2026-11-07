@@ -199,7 +199,7 @@ public sealed class TextSearchResolver(
 
     /// <summary>
     /// The queries to try, plainest last, none twice, and every one with the title's accents stripped (an accent an OCR read
-    /// puts on an English word, "TÉENAGE", is noise): as read; with the title alone, when the read named a creator (#438
+    /// puts on an English word, "TÉENAGE", is noise): as read; with its registered, trademark, copyright and service-mark signs removed, when it has any; with the title alone, when the read named a creator (#438
     /// stage 1: the fallback, never the default); without the title's last word, and its last two, while two words are left (a
     /// spine read by OCR often runs other print into the title, "... NIGHT QXRTVZ", and a title search finds nothing with it);
     /// with its numbers written the other way, 3 as III and III as 3 (the catalogue may spell a sequel the other way than the
@@ -212,6 +212,12 @@ public sealed class TextSearchResolver(
         var query = asRead with { Title = TitleNormalizer.StripAccents(asRead.Title) };
         var asked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Key(query) };
         yield return query;
+        var unsigned = TrademarkSigns.Replace(query.Title, string.Empty).Replace("  ", " ").Trim();
+        if (unsigned.Length != query.Title.Length && unsigned.Length > 0 && asked.Add(Key(query with { Title = unsigned })))
+        {
+            yield return query with { Title = unsigned };
+        }
+
         var titleOnly = query with { Creator = null };
         if (!string.IsNullOrWhiteSpace(query.Creator) && asked.Add(Key(titleOnly)))
         {
@@ -241,6 +247,9 @@ public sealed class TextSearchResolver(
             }
         }
     }
+
+    /// <summary>A registered, trademark, copyright or service-mark sign: print noise a catalogue's title does not carry.</summary>
+    private static readonly System.Text.RegularExpressions.Regex TrademarkSigns = new("[®™©℠]", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>Two rungs are the same when they have the same title (whatever its case) and creator.</summary>
     private static string Key(CatalogQuery rung) => $"{rung.Title}\n{rung.Creator}";

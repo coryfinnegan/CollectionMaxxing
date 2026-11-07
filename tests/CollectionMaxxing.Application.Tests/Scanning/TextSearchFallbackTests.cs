@@ -248,6 +248,57 @@ public class TextSearchFallbackTests
     }
 
     [Fact]
+    public async Task A_title_read_with_a_registered_sign_is_asked_again_without_it_right_after_the_as_read_query()
+    {
+        var titles = await TitlesAskedAsync("Iron Man® Trailer Park");
+
+        titles.ShouldBe(["Iron Man® Trailer Park", "Iron Man Trailer Park", "Iron Man® Trailer", "Iron Man®", "Man® Trailer Park", "Trailer Park"]);
+    }
+
+    [Theory]
+    [InlineData("Iron Man™", "Iron Man")]
+    [InlineData("Iron Man©", "Iron Man")]
+    [InlineData("Iron Man℠", "Iron Man")]
+    public async Task Each_of_the_four_signs_is_removed_from_the_extra_rung(string read, string expected)
+    {
+        var titles = await TitlesAskedAsync(read);
+
+        titles.ShouldBe([read, expected]);
+    }
+
+    [Fact]
+    public async Task A_provider_that_answers_close_to_the_as_read_title_with_a_sign_is_not_asked_without_it()
+    {
+        var film = SleepawayCampIii() with { Title = "Iron Man" };
+        var provider = new RecordingProvider(_ => [film], "tmdb", WorkKind.Film);
+
+        await Resolver(provider).AskProvidersAsync(
+            new CatalogQuery { Title = "Iron Man®", Kind = WorkKind.Film }, CancellationToken.None, CancellationToken.None);
+
+        provider.Queries.Select(q => q.Title).ShouldBe(["Iron Man®"]);
+    }
+
+    [Fact]
+    public async Task A_provider_that_finds_nothing_for_the_signed_title_is_found_by_the_one_without_it()
+    {
+        var film = SleepawayCampIii() with { Title = "Iron Man" };
+        var provider = new RecordingProvider(query => query.Title == "Iron Man" ? [film] : [], "tmdb", WorkKind.Film);
+
+        var answers = await Resolver(provider).AskProvidersAsync(
+            new CatalogQuery { Title = "Iron Man®", Kind = WorkKind.Film }, CancellationToken.None, CancellationToken.None);
+
+        answers.Found.ShouldBe([film]);
+    }
+
+    [Fact]
+    public async Task A_title_with_no_sign_is_asked_exactly_as_before()
+    {
+        var titles = await TitlesAskedAsync("Iron Man Trailer Park");
+
+        titles.ShouldBe(["Iron Man Trailer Park", "Iron Man Trailer", "Iron Man", "Man Trailer Park", "Trailer Park"]);
+    }
+
+    [Fact]
     public async Task A_read_with_a_numeral_and_a_misread_first_word_is_tried_with_the_numeral_written_the_other_way_then_without_its_leading_words()
     {
         var titles = await TitlesAskedAsync(SleepawayRead);
