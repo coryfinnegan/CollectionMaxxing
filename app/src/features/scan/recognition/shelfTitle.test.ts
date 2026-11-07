@@ -478,4 +478,79 @@ describe('a title is read from its whole stack, the clean line of a sweep, and t
     expect(read?.text).toBe('Little People memeRses');
     expect(read?.rest.map((l) => l.text)).toContain("Darby O'Gill");
   });
+
+  /** Flat one-word rows stacked down a spine, set tight; the row at `big` is printed biggest, so it is today's title. */
+  const stacked = (words: string[], big: number): TextLine[] => {
+    let y = 0.7;
+    return words.map((w, i) => {
+      const h = i === big ? 0.02 : 0.012;
+      const width = Math.max(0.012, 0.008 * w.length);
+      const l = line(w, 0.22 - width / 2, y, width, h, 1);
+      y += h + 0.002;
+      return l;
+    });
+  };
+  const cityElsewhere = [line('CITY', 0.5, 0.71, 0.03, 0.02, 1)];
+
+  it('a three-row stack that repeats the title is the title (CRESCENT / CITY / HOUSE)', () => {
+    expect(shelfTitleOf(stacked(['CRESCENT', 'CITY', 'HOUSE'], 1), T, cityElsewhere)?.text).toBe('CRESCENT CITY HOUSE');
+  });
+
+  it('a two-row stack that repeats the title changes nothing (CRESCENT / CITY)', () => {
+    expect(shelfTitleOf(stacked(['CRESCENT', 'CITY'], 1), T, cityElsewhere)?.text).toBe('CITY');
+  });
+
+  it('a stack with a row of more than one word changes nothing (vhs-dvd-shelf-01 piece 2, HIGHLANDER)', () => {
+    const lines = [
+      line('T6BEТHDEВ', 0.4676, 0.6921, 0.1287, 0.0375, 0.3), line('HIGHLANDÉR E', 0.4097, 0.7189, 0.2576, 0.0472, 1),
+      line('NDER 2', 0.5411, 0.7211, 0.1235, 0.0304, 1), line('TGHL', 0.4326, 0.7359, 0.0884, 0.0248, 1),
+      line('SLHL', 0.5782, 0.7491, 0.0473, 0.0159, 0.3), line('KENING', 0.5528, 0.7503, 0.0728, 0.0187, 1),
+      line('THE DUCKEI', 0.4578, 0.7527, 0.1274, 0.0274, 1), line('THE UL', 0.4537, 0.7575, 0.075, 0.0199, 1),
+    ];
+    expect(shelfTitleOf(lines, T, [line('HIGHLANDER', 0.1, 0.72, 0.2, 0.04, 1)])?.text).toBe('HIGHLANDÉR E');
+  });
+
+  it('a stack of one-word rows that does not repeat the title never replaces a title a neighboring spine reads', () => {
+    const highlander = line('HIGHLANDER', 0.5, 0.2, 0.02, 0.3, 1);
+    const stack = ['OFF', 'TO', 'RACES'].map((w, i) => line(w, 0.5, 0.7 + i * 0.02, 0.05, 0.015, 1));
+    expect(shelfTitleOf([highlander, ...stack], T, [line('HIGHLANDER', 0.3, 0.2, 0.02, 0.3, 1)], ['HIGHLANDER'])?.text).toBe('HIGHLANDER');
+  });
+
+  it("a repeating stack with a publisher's word changes nothing (HARPER / CITY / COLLINS)", () => {
+    expect(shelfTitleOf(stacked(['HARPER', 'CITY', 'COLLINS'], 1), T, cityElsewhere)?.text).toBe('CITY');
+  });
+
+  it('a repeating stack that reads as a sticker changes nothing (DIRECTOR / CUT / EDITION)', () => {
+    expect(shelfTitleOf(stacked(['DIRECTOR', 'CUT', 'EDITION'], 1), T, [line('CUT', 0.5, 0.71, 0.03, 0.02, 1)])?.text).toBe('CUT');
+  });
+
+  it('a repeating stack whose every word is printed on other pieces changes nothing (SARAH / CITY / MAAS)', () => {
+    expect(shelfTitleOf(stacked(['SARAH', 'CITY', 'MAAS'], 1), T, [...cityElsewhere, line('SARAH J. MAAS', 0.6, 0.2, 0.02, 0.3, 1)])?.text).toBe('CITY');
+  });
+
+  const witchcraftWith = (join: string, waywardY = 0.292) => [
+    line(`HENDPIy Witchcraft ${join}`, 0.3769, 0.1673, 0.0348, 0.2057, 1), line('HENDRIX', 0.3794, 0.1686, 0.016, 0.093, 1),
+    line('GRADY', 0.3924, 0.1744, 0.0189, 0.0659, 1), line(`Witchcraft ${join}`, 0.3823, 0.2558, 0.0247, 0.1182, 1),
+    line(`Witcherait ${join}`, 0.3885, 0.257, 0.0162, 0.1119, 1), line('Wayward Girls', 0.3726, waywardY, 0.0188, 0.1156, 1),
+  ];
+
+  it.each(['of', 'and'])('a title ending on "%s" takes the row that continues it', (join) => {
+    expect(shelfTitleOf(witchcraftWith(join), T)?.text).toBe(`Witchcraft ${join} Wayward Girls`);
+  });
+
+  it('a title ending on a joining word still leaves a row that runs beside it for less than half of it', () => {
+    expect(shelfTitleOf(witchcraftWith('for', 0.3215), T)?.text).toBe('Witchcraft for');
+  });
+
+  it('the reading its place agrees with still beats a cleaner reading inside it (shelf-05 piece 5)', () => {
+    const tile = (l: TextLine) => ({ ...l, region: 0 });
+    const lines = [
+      line('V.E. SCHWAB -HE&', 0.4337, 0.1595, 0.0617, 0.5924, 1), line('V.E. SCHWAB -HIES', 0.4324, 0.1819, 0.0587, 0.5694, 1),
+      line('V. E. SCHWAB', 0.4336, 0.1876, 0.0456, 0.3581, 1), line('DARKER', 0.4433, 0.5601, 0.0436, 0.0407, 1),
+      tile(line('DARKER', 0.4451, 0.5818, 0.0404, 0.0156, 1)), tile(line('SHADE', 0.4484, 0.6, 0.0345, 0.0154, 1)),
+      tile(line('MAGIC', 0.4501, 0.6376, 0.0328, 0.0171, 1)), tile(line('BOOK 1', 0.4511, 0.6663, 0.033, 0.0159, 1)),
+      tile(line('TOR', 0.4565, 0.7293, 0.0256, 0.0139, 1)),
+    ];
+    expect(shelfTitleOf(lines, T)?.text).toBe('V.E. SCHWAB -HIES');
+  });
 });
