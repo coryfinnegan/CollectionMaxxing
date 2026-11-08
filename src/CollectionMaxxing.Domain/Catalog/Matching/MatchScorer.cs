@@ -22,6 +22,12 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// nothing well.
 /// </para>
 /// <para>
+/// The creator term follows the art one when the read's creator is a guess (<see cref="ReadItem.CreatorIsAGuess"/>: the creator swap asks the
+/// line the phone sent as the title as the author). A guess is no evidence against a release that has creators, so a release with none
+/// scores no better on it than the best release that has creators does (and never above neutral); otherwise a same-titled film would
+/// beat the right book only because nobody's author matches the guess. When some release's creator matches well, nothing changes.
+/// </para>
+/// <para>
 /// A format read agrees with a release that has no format on file through the release's kind: a DVD with a film or a
 /// show, a cartridge with a game, a paperback with a book (providers answer films and games with no format at all).
 /// A read kind of Other says nothing, and a platform name the console table does not know can agree with the same name
@@ -56,9 +62,10 @@ public static class MatchScorer
 
     /// <summary>
     /// Which terms some candidate of the run can answer (so a candidate that can not is neutral on them rather than left
-    /// out), and what the art term gives a candidate the phone did not compare (null leaves the term out for it).
+    /// out), and what the art term gives a candidate the phone did not compare (null leaves the term out for it), and what the creator term gives a
+    /// release with no creators when the read's creator is a guess (null leaves it neutral).
     /// </summary>
-    private sealed record Answerable(bool Type, bool Platform, bool Year, bool Creator, bool Edition, double? ArtStandIn)
+    private sealed record Answerable(bool Type, bool Platform, bool Year, bool Creator, bool Edition, double? ArtStandIn, double? CreatorStandIn = null)
     {
         /// <summary>A release scored on its own: every unanswered term is neutral; art needs a distance of its own.</summary>
         public static Answerable Alone { get; } = new(true, true, true, true, true, null);
@@ -220,7 +227,7 @@ public static class MatchScorer
                 similarity = Math.Max(similarity ?? 0.0, 1.0);
             }
 
-            Add("creator", weights.Creator, similarity, answerable.Creator);
+            Add("creator", weights.Creator, similarity, answerable.Creator, answerable.CreatorStandIn ?? Neutral);
         }
         else if (creatorInTitle)
         {
@@ -281,8 +288,8 @@ public static class MatchScorer
         ArgumentNullException.ThrowIfNull(releases);
         ArgumentNullException.ThrowIfNull(profile);
 
-        var answerable = AnswerableIn(read, releases);
         var titles = new TitleCache(read.Title);
+        var answerable = AnswerableIn(read, releases, titles);
         var ranked = releases
             .Select(release => ScoreCore(read, release, profile, answerable, titles))
             .OrderByDescending(scored => scored.Score)
@@ -372,7 +379,7 @@ public static class MatchScorer
     /// Which terms at least one candidate can answer, and the art term's value for a candidate the phone did not compare:
     /// the weakest compared picture, never above neutral (null when no candidate was compared).
     /// </summary>
-    private static Answerable AnswerableIn(ReadItem read, IReadOnlyList<CandidateRelease> releases)
+    private static Answerable AnswerableIn(ReadItem read, IReadOnlyList<CandidateRelease> releases, TitleCache titles)
     {
         var visuals = releases.Select(release => VisualSimilarity(read, release)).OfType<double>().ToList();
         return new Answerable(
@@ -381,7 +388,33 @@ public static class MatchScorer
             Year: releases.Any(release => release.Year is not null),
             Creator: releases.Any(release => release.Creators.Count > 0),
             Edition: releases.Any(release => !string.IsNullOrWhiteSpace(release.Edition)),
-            ArtStandIn: visuals.Count > 0 ? Math.Min(Neutral, visuals.Min()) : null);
+            ArtStandIn: visuals.Count > 0 ? Math.Min(Neutral, visuals.Min()) : null,
+            CreatorStandIn: CreatorStandIn(read, releases, titles));
+    }
+
+    /// <summary>
+    /// What the creator term gives a release with no creators when the read's creator is a guess: the best creator term any release
+    /// with creators gets in this run (its likeness to the guess, or 1.0 when its own creator is printed in the read's title), never
+    /// above neutral. Null when the creator is no guess, there is none, or no release has creators (the term then drops out for all).
+    /// </summary>
+    private static double? CreatorStandIn(ReadItem read, IReadOnlyList<CandidateRelease> releases, TitleCache titles)
+    {
+        if (!read.CreatorIsAGuess || string.IsNullOrWhiteSpace(read.Creator))
+        {
+            return null;
+        }
+
+        double? best = null;
+        foreach (var release in releases.Where(release => release.Creators.Count > 0))
+        {
+            var inTitle = !string.IsNullOrWhiteSpace(read.Title)
+                && !string.IsNullOrWhiteSpace(release.Title)
+                && release.Creators.Any(creator => titles.ReadWithout(creator, release.Title) is not null);
+            var term = inTitle ? 1.0 : CreatorSimilarity(read.Creator, release.Creators, titles);
+            best = Math.Max(best ?? term, term);
+        }
+
+        return best is { } value ? Math.Min(Neutral, value) : null;
     }
 
     // The type term, or null when it can not set two real values against each other: a format against the release's

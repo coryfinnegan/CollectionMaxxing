@@ -1,3 +1,4 @@
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Scanning.Identify;
@@ -18,7 +19,8 @@ public static class CreatorSwap
     /// minimum a trimmed span has: <see cref="TrimmedSpans.MinWordsKept"/> words, or one word of <see cref="TrimmedSpans.MinLettersOfOneWord"/>
     /// letters). Otherwise the read with the creator as read for its title and its title for the creator, cleaned as a read is: the old
     /// title is a claim about an author now, and counts only if it reads as a name. Everything else about the read is unchanged
-    /// (<see cref="ReadFacts.Text"/> stays what was read); it has no creator as read left, so it cannot be swapped again.
+    /// (<see cref="ReadFacts.Text"/> stays what was read); it has no creator as read left, so it cannot be swapped again. On a book read,
+    /// or a read that names no kind in a snap of books, the facts also carry <see cref="ReadFacts.CreatorIsAGuess"/>.
     /// </summary>
     public static ReadFacts? For(ReadFacts facts)
     {
@@ -42,8 +44,15 @@ public static class CreatorSwap
             return null;
         }
 
-        return ReadSanitizer.Sanitize(facts with { Title = creator, Creator = facts.Title.Trim(), CreatorAsRead = null });
+        var swapped = ReadSanitizer.Sanitize(facts with { Title = creator, Creator = facts.Title.Trim(), CreatorAsRead = null });
+        return IsABookRead(swapped) ? swapped with { CreatorIsAGuess = true } : swapped;
     }
+
+    // A book read, or a read that names no kind in a snap of books. The swapped creator is then the line the phone sent as the title, an
+    // author nobody printed, and the scorer must not rank a release with no creators above a book on it (ReadItem.CreatorIsAGuess).
+    // A film or TV read, and a snap with no kind, keep the neutral creator term a film with no director relies on.
+    private static bool IsABookRead(ReadFacts facts) =>
+        facts.Kind == WorkKind.Book || (facts.Kind is null && facts.KindContext == WorkKind.Book);
 
     private static string[] WordsOf(string text) =>
         TitleNormalizer.Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
