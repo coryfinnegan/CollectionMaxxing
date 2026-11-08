@@ -187,16 +187,41 @@ public class IdentifyGroundingSwapLineTests
     public async Task A_spans_creatorless_film_stays_the_find_when_the_line_finds_the_same_film()
     {
         var facts = new ReadFacts(
-            "LUGOSI White ZOMBIE", "LUGOSI White ZOMBIE", null, null, null, null, null, null, null,
-            Lines: SpineLines.Join(["LUGOSI White ZOMBIE", "White ZOMBIE"]));
-        var (answer, _) = await RetryAsync(facts, new()
+            "With BELA LUGOSI White ZOMBIE", "With BELA LUGOSI White ZOMBIE", null, null, null, null, null, null, null,
+            CreatorAsRead: "PISWON AIEM", Lines: SpineLines.Join(["With BELA LUGOSI", "PISWON AIEM", "White ZOMBIE"]));
+        var (answer, asked) = await RetryAsync(facts, new()
         {
-            ["White ZOMBIE"] = [FilmOf("White Zombie")],
-            ["LUGOSI White"] = [FilmOf("White Zombie")],
             ["LUGOSI White ZOMBIE"] = [FilmOf("White Zombie")],
+            ["White ZOMBIE"] = [FilmOf("White Zombie")],
         });
 
+        asked.Count(text => text == "White ZOMBIE").ShouldBe(1);
         answer.Options[0].Provider!.Title.ShouldBe("White Zombie");
+        answer.Steps.ShouldContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_possessives_creatorless_find_asks_no_line()
+    {
+        var facts = new ReadFacts(
+            "WALT DISNEY'S VOLCANO", "WALT DISNEY'S VOLCANO", null, null, null, null, null, null, null,
+            Lines: SpineLines.Join(["WALT DISNEY'S VOLCANO", "JOE VERSUS THE"]));
+        var (_, asked) = await RetryAsync(facts, new() { ["VOLCANO"] = [FilmOf("Volcano")] });
+
+        asked.ShouldContain("VOLCANO");
+        asked.ShouldNotContain("JOE VERSUS THE");
+    }
+
+    [Fact]
+    public async Task A_numberless_titles_creatorless_find_asks_no_line()
+    {
+        var facts = new ReadFacts(
+            "VOLCANO II HEAT", "VOLCANO II HEAT", null, null, null, null, null, null, null,
+            Lines: SpineLines.Join(["VOLCANO II HEAT", "JOE VERSUS THE"]));
+        var (_, asked) = await RetryAsync(facts, new() { ["VOLCANO HEAT"] = [FilmOf("Volcano Heat")] });
+
+        asked.ShouldContain("VOLCANO HEAT");
+        asked.ShouldNotContain("JOE VERSUS THE");
     }
 
     [Fact]
