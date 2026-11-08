@@ -339,12 +339,14 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// Last, a spine read as a game is asked once more as any kind, with no platform or format: on a shelf of films the picture model
     /// can call a film a game, and a read that names a kind asks only that kind's providers. What it finds goes through
     /// <see cref="OfferedByAttempt"/>, so the read's own best release stays on top unless the find scores strictly higher (a tie leaves it on top).
+    /// The ask is made on the snap's kind context, or on a film's when the snap has none: the read is likely a film, so films and shows go first
+    /// among the releases it finds within <see cref="TextSearchResolver.KindBias"/> of each other. The context is no part of the query.
     /// </summary>
     private static void AddAnyKindAttempt(List<Attempt> attempts, ReadFacts facts, bool spine)
     {
         if (spine && facts.Kind == WorkKind.Game)
         {
-            attempts.Add(new Attempt(facts with { Kind = null, Platform = null, Format = null }, new TraceStep(AnyKindStep, $"{facts.SearchText} (kind read: game)", 0)));
+            attempts.Add(new Attempt(facts with { Kind = null, Platform = null, Format = null, KindContext = facts.KindContext ?? WorkKind.Film }, new TraceStep(AnyKindStep, $"{facts.SearchText} (kind read: game)", 0)));
         }
     }
 

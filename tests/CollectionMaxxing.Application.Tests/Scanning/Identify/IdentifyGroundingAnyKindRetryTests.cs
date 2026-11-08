@@ -31,7 +31,7 @@ public class IdentifyGroundingAnyKindRetryTests
         /// <summary>Finds nothing for a query that names no kind (as a provider that is only searched by its own kind).</summary>
         public bool NeedsKind { get; init; }
 
-        public string Name => kind == WorkKind.Film ? "tmdb" : "igdb";
+        public string Name => kind switch { WorkKind.Film => "tmdb", WorkKind.Book => "openlibrary", _ => "igdb" };
 
         public bool Supports(WorkKind asked) => asked == kind;
 
@@ -192,5 +192,55 @@ public class IdentifyGroundingAnyKindRetryTests
         Asked(answer).ShouldBeFalse(Trace(answer));
         films.Asked.ShouldBeEmpty();
         games.Asked.Count.ShouldBe(1);
+    }
+
+    /// <summary>Books of the titles asked, a year later than a film of the same title (so the two are not one work).</summary>
+    private static MediaProvider Books(params string[] titles) => new(WorkKind.Book, string.Empty, false, [.. titles.Prepend("A different book")]);
+
+    private static ReadFacts GameReadOnASnapOf(WorkKind? snapKind) => SpineRead(WorkKind.Game) with { KindContext = snapKind };
+
+    [Fact]
+    public async Task A_game_read_asked_as_any_kind_on_a_snap_with_no_kind_puts_the_film_first_among_releases_of_the_same_score()
+    {
+        var answer = await GroundAsync(GameReadOnASnapOf(null), ScoringProfileKind.ShelfSpine, Books(Title), Films(Title), Games("PlayStation"));
+
+        Asked(answer).ShouldBeTrue(Trace(answer));
+        answer.Options.Select(o => o.Provider!.Kind).ShouldContain(WorkKind.Book);
+        answer.Options[0].Provider!.Kind.ShouldBe(WorkKind.Film);
+    }
+
+    [Fact]
+    public async Task A_game_read_asked_as_any_kind_on_a_snap_of_books_keeps_the_snaps_kind()
+    {
+        var answer = await GroundAsync(GameReadOnASnapOf(WorkKind.Book), ScoringProfileKind.ShelfSpine, Books(Title), Films(Title), Games("PlayStation"));
+
+        Asked(answer).ShouldBeTrue(Trace(answer));
+        answer.Options.Select(o => o.Provider!.Kind).ShouldContain(WorkKind.Film);
+        answer.Options[0].Provider!.Kind.ShouldBe(WorkKind.Book);
+    }
+
+    [Theory]
+    [InlineData(null, WorkKind.Film)]
+    [InlineData(WorkKind.Film, WorkKind.Film)]
+    [InlineData(WorkKind.Book, WorkKind.Book)]
+    public async Task The_any_kind_ask_of_a_game_read_carries_the_film_context_only_when_the_snap_has_none(WorkKind? snapKind, WorkKind first)
+    {
+        var answer = await GroundAsync(GameReadOnASnapOf(snapKind), ScoringProfileKind.ShelfSpine, Books(Title), Films(Title), Games("PlayStation"));
+
+        answer.Options[0].Provider!.Kind.ShouldBe(first, Trace(answer));
+    }
+
+    [Fact]
+    public async Task The_film_context_of_the_any_kind_ask_is_not_part_of_the_ask()
+    {
+        var films = Films(Title);
+
+        await GroundAsync(GameReadOnASnapOf(null), ScoringProfileKind.ShelfSpine, films, Games("PlayStation"));
+
+        var anyKind = films.Asked.ShouldHaveSingleItem();
+        anyKind.Title.ShouldBe(Title);
+        anyKind.Kind.ShouldBeNull();
+        anyKind.Platform.ShouldBeNull();
+        anyKind.Format.ShouldBeNull();
     }
 }
