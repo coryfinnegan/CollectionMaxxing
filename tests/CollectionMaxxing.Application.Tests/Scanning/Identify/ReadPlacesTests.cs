@@ -452,6 +452,40 @@ public class ReadPlacesTests
     }
 
     [Fact]
+    public void A_longer_read_with_misread_words_wins_its_place_when_its_release_holds_the_shorter_reads_words_and_two_of_its_own()
+    {
+        var longer = Vision(0.30, ReadGrounding.Ambiguous, 0.784)
+            with
+        { ReadText = "Darby O'Gill Alf Wiskeys Little People", BestTitle = "Darby O'Gill and the Little People" };
+        var shorter = Model(0.31, ReadGrounding.Ambiguous, 1.0) with { ReadText = "Little People", BestTitle = "The Little People" };
+
+        ReadPlaces.Weaker([longer, shorter]).ShouldBe([1]);
+        ReadPlaces.Weaker([shorter with { Unconfirmed = false }, longer with { Unconfirmed = true }]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_longer_read_whose_release_holds_only_one_of_its_extra_words_does_not_win_on_misread_words()
+    {
+        var longer = Vision(0.30, ReadGrounding.Ambiguous, 0.784)
+            with
+        { ReadText = "Darby O'Gill Alf Wiskeys Little People", BestTitle = "Darby and the Little People" };
+        var shorter = Model(0.31, ReadGrounding.Ambiguous, 1.0) with { ReadText = "Little People", BestTitle = "The Little People" };
+
+        ReadPlaces.Weaker([longer, shorter]).ShouldBe([0]);
+    }
+
+    [Fact]
+    public void A_longer_read_whose_release_lacks_one_of_the_shorter_reads_words_does_not_win_however_many_extra_words_it_holds()
+    {
+        var longer = Vision(0.30, ReadGrounding.Ambiguous, 0.784)
+            with
+        { ReadText = "Darby O'Gill Alf Wiskeys Little People", BestTitle = "Darby O'Gill and the People" };
+        var shorter = Model(0.31, ReadGrounding.Ambiguous, 1.0) with { ReadText = "Little People", BestTitle = "The Little People" };
+
+        ReadPlaces.Weaker([longer, shorter]).ShouldBe([0]);
+    }
+
+    [Fact]
     public void ReadPlaces_Of_carries_the_reads_words_and_its_best_title()
     {
         var answer = new BarcodeResolution(
