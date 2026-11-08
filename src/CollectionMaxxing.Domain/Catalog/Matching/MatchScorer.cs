@@ -53,19 +53,6 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// </remarks>
 public static class MatchScorer
 {
-    private static readonly System.Text.RegularExpressions.Regex NotLetterOrDigit =
-        new(@"[^\p{L}\p{N}]+", System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(250));
-
-    private static readonly HashSet<string> StopWords = new(StringComparer.Ordinal)
-    {
-        "the", "a", "an", "of", "and", "to", "in", "on", "for", "at", "by", "with", "from", "or", "is",
-    };
-
-    /// <summary>The words of a title that tell one title from another: lowercased, split on anything that is not a letter or a digit, with the one-letter and stop words left out.</summary>
-    private static HashSet<string> TitleWords(string? text) => string.IsNullOrEmpty(text)
-        ? []
-        : [.. NotLetterOrDigit.Split(text.ToLowerInvariant()).Where(word => word.Length >= 2 && !StopWords.Contains(word))];
-
     private const double Neutral = 0.5;
     private const int Decimals = 9;
 
@@ -206,9 +193,9 @@ public static class MatchScorer
 
                 if (read.CreatorLine is { Length: > 0 } line)
                 {
-                    var lineWords = TitleWords(line);
-                    var readWords = TitleWords(read.Title);
-                    if (lineWords.Count > 0 && !lineWords.IsSubsetOf(readWords) && lineWords.IsSubsetOf(TitleWords(release.Title)))
+                    var lineWords = TitleWordSet.Of(line);
+                    var readWords = TitleWordSet.Of(read.Title);
+                    if (lineWords.Count > 0 && !lineWords.IsSubsetOf(readWords) && lineWords.IsSubsetOf(TitleWordSet.Of(release.Title)))
                     {
                         similarity = Math.Max(similarity, titles.Of(read.Title + " " + line).TitleSimilarity(releaseTitle));
                         similarity = Math.Max(similarity, titles.Of(line + " " + read.Title).TitleSimilarity(releaseTitle));
