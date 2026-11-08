@@ -339,9 +339,10 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// Last, a spine read as a game is asked once more as any kind, with no platform or format: on a shelf of films the picture model
     /// can call a film a game, and a read that names a kind asks only that kind's providers. What it finds goes through
     /// <see cref="OfferedByAttempt"/>, so the read's own best release stays on top unless the find scores strictly higher (a tie leaves it on top).
-    /// The ask is ordered as a film snap's: a read that names a kind carries no snap kind in /identify and the eval (<c>IdentifyInput.WithSnapKind</c>
-    /// stamps only kindless reads), so films and shows go first among the releases it finds within <see cref="TextSearchResolver.KindBias"/> of each other.
-    /// Only the pending job's stored reads can carry a snap kind, and that kind is kept. The context is no part of the query.
+    /// The ask is ordered as a film snap's: no caller gives a read that names a kind a snap kind (<c>IdentifyInput.WithSnapKind</c> in /identify and the eval,
+    /// and the pending job's <c>ResolvePendingIdentify.WithSnapKindAsync</c>, stamp only kindless reads, so a game read is stored with none).
+    /// So films and shows go first among the releases it finds within <see cref="TextSearchResolver.KindBias"/> of each other.
+    /// A snap kind on the read would be kept. The context is no part of the query.
     /// </summary>
     private static void AddAnyKindAttempt(List<Attempt> attempts, ReadFacts facts, bool spine)
     {
