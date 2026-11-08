@@ -293,7 +293,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             {
                 if (asked.Add(span.Text))
                 {
-                    attempts.Add(new Attempt(facts with { Title = span.Text }, new TraceStep("trimmed", $"{span.Text} (dropped: {span.Dropped})", 0)));
+                    attempts.Add(new Attempt(facts with { Title = span.Text }, new TraceStep(TrimmedStep, $"{span.Text} (dropped: {span.Dropped})", 0)));
                 }
             }
         }
@@ -322,8 +322,11 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>The trace step of the creator swap.</summary>
     private const string SwappedStep = "swapped";
 
+    /// <summary>The trace step of a trimmed span (<see cref="AttemptsFor"/>).</summary>
+    private const string TrimmedStep = "trimmed";
+
     /// <summary>
-    /// The one line a creator swap's creatorless find asks, among the attempts still to come after the one at <paramref name="round"/>: the
+    /// The one line a creatorless swap or trimmed span find asks, among the attempts still to come after the one at <paramref name="round"/>: the
     /// first line that reads as a title (<see cref="SpineLines.TitleLike"/>) and is no text the read was asked as. Null when none is.
     /// </summary>
     private static Attempt? TitleLine(ReadFacts facts, List<Attempt> attempts, int round)
@@ -534,7 +537,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         var cutShort = new bool[reads.Count];
         var lineKept = new bool[reads.Count];
         var lineMisses = new List<LineMiss>?[reads.Count];
-        var swapTitle = new string?[reads.Count]; // the title of a creatorless swap find: a line's find replaces it only by holding it
+        var creatorlessTitle = new string?[reads.Count]; // the title of a creatorless swap or span find: a line's find replaces it only by holding it
         var looking = Enumerable.Range(0, reads.Count).Where(i => attempts[i].Count > 0).ToList();
         var rounds = attempts.Select(a => a.Count).DefaultIfEmpty(0).Max();
         for (var round = 0; round < rounds && looking.Count > 0; round++)
@@ -585,11 +588,11 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                     {
                         next.Add(i);
                     }
-                    else if (!leavesOriginal && attempt.Step.Provider == SwappedStep && CreatorsOf(found.Options[0], pools[n]).Count == 0
+                    else if (!leavesOriginal && attempt.Step.Provider is SwappedStep or TrimmedStep && CreatorsOf(found.Options[0], pools[n]).Count == 0
                         && TitleLine(reads[i].Facts, attempts[i], round) is { } titleLine)
                     {
-                        // A swap that found only a release with no creators: the spine's own title line is asked, once, and the swap's find stands meanwhile.
-                        swapTitle[i] = TitleOf(found.Options[0], pools[n]) ?? string.Empty;
+                        // A swap or a trimmed span that found only a release with no creators: the spine's own title line is asked, once, and that find stands meanwhile.
+                        creatorlessTitle[i] = TitleOf(found.Options[0], pools[n]) ?? string.Empty;
                         attempts[i] = [.. attempts[i].Take(round + 1), titleLine];
                         next.Add(i);
                     }
@@ -632,7 +635,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                     foreach (var miss in misses)
                     {
                         if (ScoredByCreatorlessTitle(miss) is { } held
-                            && (swapTitle[i] is not { } swapped || SpineLines.HoldsTitle(swapped, TitleOf(held.Options[0], miss.Pool))))
+                            && (creatorlessTitle[i] is not { } creatorless || SpineLines.HoldsTitle(creatorless, TitleOf(held.Options[0], miss.Pool))))
                         {
                             answers[i] = Offered(reads[i].Answer, held with { Options = SeriesNeighbour.WithOriginals(held.Options, reads[i].Answer.Options) }, miss.Attempt.Step);
                             break;

@@ -110,7 +110,7 @@ public static partial class SpineLines
     private static partial Regex RoleLine();
 
     /// <summary>
-    /// Whether a line can be a spine's title, for the one line a creator swap's creatorless find asks: not a role line ("authors", "bestseller"),
+    /// Whether a line can be a spine's title, for the one line a creator swap's or trimmed span's creatorless find asks: not a role line ("authors", "bestseller"),
     /// at least two words of two or more letters, not the creator as read, and not like a text the read was already asked as
     /// (<paramref name="alreadyAsked"/>, or its own title) at <see cref="AskedAlike"/> or more. Pure.
     /// </summary>
@@ -136,7 +136,7 @@ public static partial class SpineLines
     }
 
     /// <summary>
-    /// Whether the title a line found holds the title a creator swap found: every title word (<see cref="PrintSupport.TitleWords"/>) of
+    /// Whether the title a line found holds the title a creator swap or trimmed span found: every title word (<see cref="PrintSupport.TitleWords"/>) of
     /// <paramref name="first"/> is a title word of <paramref name="found"/>. False when <paramref name="first"/> has none. Pure.
     /// </summary>
     public static bool HoldsTitle(string? first, string? found)
