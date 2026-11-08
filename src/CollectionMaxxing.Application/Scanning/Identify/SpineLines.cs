@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using CollectionMaxxing.Application.Evals;
 using CollectionMaxxing.Domain.Catalog.Matching;
 
@@ -13,7 +14,7 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <see cref="IdentifyGrounding.RetryTrimmedAsync"/>, where these lines are asked after every other attempt (one rung more of the
 /// ladder that <see cref="TrimmedSpans"/> and <see cref="CreatorSwap"/> make).
 /// </summary>
-public static class SpineLines
+public static partial class SpineLines
 {
     /// <summary>The trace step a line's find carries.</summary>
     public const string StepName = "line";
@@ -100,6 +101,49 @@ public static class SpineLines
                 .Take(MaxAsks)
                 .Select(l => l.Line),
         ];
+    }
+
+    /// <summary>The closeness to a text the read was already asked as (<see cref="TitleNormalizer.Similarity"/>) from which a line is no new text.</summary>
+    public const double AskedAlike = 0.75;
+
+    [GeneratedRegex(@"\b(authors?|bestsell\w*)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RoleLine();
+
+    /// <summary>
+    /// Whether a line can be a spine's title, for the one line a creator swap's creatorless find asks: not a role line ("authors", "bestseller"),
+    /// at least two words of two or more letters, not the creator as read, and not like a text the read was already asked as
+    /// (<paramref name="alreadyAsked"/>, or its own title) at <see cref="AskedAlike"/> or more. Pure.
+    /// </summary>
+    public static bool TitleLike(ReadFacts facts, string line, IEnumerable<string> alreadyAsked)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(alreadyAsked);
+
+        if (RoleLine().IsMatch(line))
+        {
+            return false;
+        }
+
+        var normal = TitleNormalizer.Normalize(line);
+        var words = normal.Split(' ', StringSplitOptions.RemoveEmptyEntries).Count(word => word.Count(char.IsLetter) >= 2);
+        if (words < 2 || normal == TitleNormalizer.Normalize(facts.CreatorAsRead))
+        {
+            return false;
+        }
+
+        return !alreadyAsked.Append(facts.Title).Append(facts.SearchText)
+            .Any(text => !string.IsNullOrWhiteSpace(text) && TitleNormalizer.Similarity(line, text) >= AskedAlike);
+    }
+
+    /// <summary>
+    /// Whether the title a line found holds the title a creator swap found: every title word (<see cref="PrintSupport.TitleWords"/>) of
+    /// <paramref name="first"/> is a title word of <paramref name="found"/>. False when <paramref name="first"/> has none. Pure.
+    /// </summary>
+    public static bool HoldsTitle(string? first, string? found)
+    {
+        var firstWords = PrintSupport.TitleWords(first);
+        var foundWords = PrintSupport.TitleWords(found).ToHashSet(StringComparer.Ordinal);
+        return firstWords.Count > 0 && firstWords.All(foundWords.Contains);
     }
 
     /// <summary>The title term a creatorless best release must reach for its line to vouch for it.</summary>
