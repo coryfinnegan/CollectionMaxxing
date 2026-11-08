@@ -98,4 +98,54 @@ public sealed class PrintSupportTests
     {
         PrintSupport.Supports("Dune", PrintOf()).ShouldBeFalse();
     }
+
+    [Fact]
+    public void A_surname_printed_with_its_initials_is_a_printed_name()
+    {
+        PrintSupport.PrintsAll("V. E. Schwab", PrintOf("V.E. SCHWAB")).ShouldBeTrue();
+        PrintSupport.PrintsAll("V. E. Schwab", PrintOf("OF ADDIE LARUE", "V E SCHWAB")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Initials_printed_together_are_printed_initials()
+    {
+        PrintSupport.PrintsAll("C. M. McGuire", PrintOf("CM.MCQUIRE")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_surname_printed_without_all_its_initials_is_no_printed_name()
+    {
+        PrintSupport.PrintsAll("V. E. Schwab", PrintOf("SCHWAB")).ShouldBeFalse();
+        PrintSupport.PrintsAll("V. E. Schwab", PrintOf("V SCHWAB")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Initials_printed_without_the_surname_are_no_printed_name()
+    {
+        PrintSupport.PrintsAll("V. E. Schwab", PrintOf("V.E. SMITH")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Initials_joined_in_another_order_are_no_printed_initials()
+    {
+        PrintSupport.PrintsAll("C. M. McGuire", PrintOf("MC MCGUIRE")).ShouldBeFalse();
+        PrintSupport.PrintsAll("C. M. McGuire", PrintOf("MC.CM MCGUIRE")).ShouldBeTrue();
+        PrintSupport.PrintsAll("C. M. McGuire", PrintOf("MC.MC MCGUIRE")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_lone_word_with_no_initials_is_still_no_printed_name()
+    {
+        PrintSupport.PrintsAll("Schwab", PrintOf("SCHWAB")).ShouldBeFalse();
+        PrintSupport.PrintsAll("Madonna", PrintOf("MADONNA")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_two_word_name_needs_both_words_and_not_its_initials_as_before()
+    {
+        PrintSupport.PrintsAll("Amber V. Nicole", PrintOf("AMBER NICOLE")).ShouldBeTrue();
+        PrintSupport.PrintsAll("Amber V. Nicole", PrintOf("AMBER")).ShouldBeFalse();
+        PrintSupport.PrintsAll("Rachel Gillig", PrintOf("RACHEL GILLIG")).ShouldBeTrue();
+        PrintSupport.PrintsAll("Rachel Gillig", PrintOf("GILLIG")).ShouldBeFalse();
+    }
 }

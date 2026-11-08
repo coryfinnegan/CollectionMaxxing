@@ -74,12 +74,25 @@ public static partial class PrintSupport
     /// <summary>
     /// Whether every word of a person's name is on the print (the same matching as <see cref="Supports"/>, but all of them): the author check of
     /// the line retry (<see cref="Scanning.Identify.SpineLines"/>). A name must have at least two words that can be matched (stop words and
-    /// single letters do not count), so a lone common word never vouches for a title.
+    /// single letters do not count), so a lone common word never vouches for a title. A name written with initials ("V. E. Schwab") has one
+    /// such word, so it counts when that word is printed and so are its initials: each as a one-letter print word, or all of them, in the
+    /// name's order, as one print word ("CM.MCQUIRE" prints "C. M."). A name with two or more such words never needs its initials.
     /// </summary>
     public static bool PrintsAll(string? name, IReadOnlySet<string> printed)
     {
         var words = TitleWords(name);
-        return words.Count >= 2 && words.All(word => IsPrinted(word, printed));
+        if (words.Count >= 2)
+        {
+            return words.All(word => IsPrinted(word, printed));
+        }
+
+        if (words.Count != 1 || !IsPrinted(words[0], printed))
+        {
+            return false;
+        }
+
+        var initials = Split(name).Where(word => word.Length == 1).ToList();
+        return initials.Count > 0 && (initials.All(printed.Contains) || printed.Contains(string.Concat(initials)));
     }
 
     /// <summary>
