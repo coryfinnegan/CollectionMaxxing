@@ -28,6 +28,11 @@ namespace CollectionMaxxing.Domain.Catalog.Matching;
 /// beat the right book only because nobody's author matches the guess. When some release's creator matches well, nothing changes.
 /// </para>
 /// <para>
+/// A line the phone sent as the creator that reads as no name (<see cref="ReadItem.CreatorLine"/>: "THE RESCUE" under "FREE WILLY 3") is often the
+/// rest of the title. When every word of it is a word of the release's title and at least one is missing from the read's title, the title term
+/// is the highest of its own value and that of the title and the line joined in either order; it is never lowered.
+/// </para>
+/// <para>
 /// A format read agrees with a release that has no format on file through the release's kind: a DVD with a film or a
 /// show, a cartridge with a game, a paperback with a book (providers answer films and games with no format at all).
 /// A read kind of Other says nothing, and a platform name the console table does not know can agree with the same name
@@ -183,6 +188,17 @@ public static class MatchScorer
                     {
                         creatorInTitle = true;
                         similarity = Math.Max(similarity, bare.TitleSimilarity(releaseTitle));
+                    }
+                }
+
+                if (read.CreatorLine is { Length: > 0 } line)
+                {
+                    var lineWords = TitleWordSet.Of(line);
+                    var readWords = TitleWordSet.Of(read.Title);
+                    if (lineWords.Count > 0 && !lineWords.IsSubsetOf(readWords) && lineWords.IsSubsetOf(TitleWordSet.Of(release.Title)))
+                    {
+                        similarity = Math.Max(similarity, titles.Of(read.Title + " " + line).TitleSimilarity(releaseTitle));
+                        similarity = Math.Max(similarity, titles.Of(line + " " + read.Title).TitleSimilarity(releaseTitle));
                     }
                 }
 

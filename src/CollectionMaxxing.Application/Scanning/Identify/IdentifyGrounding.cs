@@ -68,6 +68,7 @@ public sealed record ReadFacts(
         Platform = Platform,
         Year = Year,
         Creator = Creator,
+        CreatorLine = Creator is null ? CreatorAsRead : null,
         Edition = Edition,
         CreatorIsAGuess = CreatorIsAGuess,
     };
