@@ -133,15 +133,95 @@ public class IdentifyGroundingSwapLineTests
     }
 
     [Fact]
-    public async Task A_trimmed_spans_creatorless_find_still_ends_the_retry()
+    public async Task A_trimmed_span_whose_find_has_no_creators_asks_one_title_line_too()
     {
         var facts = new ReadFacts(
             "MIDNIGHT SOIL V.E. SCHWAB", "MIDNIGHT SOIL V.E. SCHWAB", null, null, null, null, null, null, null,
             Lines: SpineLines.Join(["MIDNIGHT SOIL V.E. SCHWAB", "JOE VERSUS THE", "TOM HANKS"]));
         var (answer, asked) = await RetryAsync(facts, new() { ["MIDNIGHT SOIL"] = [FilmOf("The Soil")], ["MIDNIGHT SOIL V.E."] = [FilmOf("The Soil")] });
 
-        asked.ShouldNotContain("JOE VERSUS THE");
+        asked.Count(text => text == "JOE VERSUS THE").ShouldBe(1);
+        asked.ShouldNotContain("TOM HANKS");
+        answer.Options[0].Provider!.Title.ShouldBe("The Soil");
+    }
+
+    private static readonly string[] SoilLines = ["MIDNIGHT SOIL V.E. SCHWAB", "BURY OUR BONES V.E. SCHWAB", "V.E. SCHWAB E8"];
+
+    private static ReadFacts SoilFacts(params string[] lines) => new(
+        "MIDNIGHT SOIL V.E. SCHWAB", "MIDNIGHT SOIL V.E. SCHWAB", null, null, null, null, null, null, null,
+        Lines: SpineLines.Join(lines));
+
+    [Fact]
+    public async Task A_spans_creatorless_find_gives_way_to_the_book_the_line_finds_when_the_lines_author_is_printed()
+    {
+        var (answer, _) = await RetryAsync(SoilFacts(SoilLines), new()
+        {
+            ["MIDNIGHT SOIL"] = [FilmOf("The Soil")],
+            ["MIDNIGHT SOIL V.E."] = [FilmOf("The Soil")],
+            ["BURY OUR BONES V.E. SCHWAB"] = [Release("Bury Our Bones in the Midnight Soil", "b1", WorkKind.Book, "V. E. Schwab")],
+        });
+
+        answer.Options[0].Provider!.Title.ShouldBe("Bury Our Bones in the Midnight Soil");
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Steps.ShouldContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_spans_creatorless_find_stays_when_the_line_finds_a_creatorless_title_that_does_not_hold_it()
+    {
+        var facts = new ReadFacts(
+            "MIDNIGHT SOIL V.E. SCHWAB", "MIDNIGHT SOIL V.E. SCHWAB", null, null, null, null, null, null, null,
+            Lines: SpineLines.Join(["MIDNIGHT SOIL V.E. SCHWAB", "JOE VERSUS THE", "TOM HANKS"]));
+        var (answer, _) = await RetryAsync(facts, new()
+        {
+            ["MIDNIGHT SOIL"] = [FilmOf("The Soil")],
+            ["MIDNIGHT SOIL V.E."] = [FilmOf("The Soil")],
+            ["JOE VERSUS THE"] = [FilmOf("Joe Versus the Volcano", "f2")],
+        });
+
+        answer.Options[0].Provider!.Title.ShouldBe("The Soil");
         answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_spans_creatorless_film_stays_the_find_when_the_line_finds_the_same_film()
+    {
+        var facts = new ReadFacts(
+            "LUGOSI White ZOMBIE", "LUGOSI White ZOMBIE", null, null, null, null, null, null, null,
+            Lines: SpineLines.Join(["LUGOSI White ZOMBIE", "White ZOMBIE"]));
+        var (answer, _) = await RetryAsync(facts, new()
+        {
+            ["White ZOMBIE"] = [FilmOf("White Zombie")],
+            ["LUGOSI White"] = [FilmOf("White Zombie")],
+            ["LUGOSI White ZOMBIE"] = [FilmOf("White Zombie")],
+        });
+
+        answer.Options[0].Provider!.Title.ShouldBe("White Zombie");
+    }
+
+    [Fact]
+    public async Task A_span_whose_find_has_creators_asks_no_line()
+    {
+        var (answer, asked) = await RetryAsync(SoilFacts(SoilLines), new()
+        {
+            ["MIDNIGHT SOIL"] = [Release("Midnight Soil", "b1", WorkKind.Book, "Someone Else")],
+            ["MIDNIGHT SOIL V.E."] = [Release("Midnight Soil", "b1", WorkKind.Book, "Someone Else")],
+        });
+
+        asked.ShouldNotContain("BURY OUR BONES V.E. SCHWAB");
+        answer.Steps.ShouldNotContain(s => s.Provider == "line");
+    }
+
+    [Fact]
+    public async Task A_line_the_providers_cannot_answer_leaves_the_spans_find_not_pending()
+    {
+        var (answer, _) = await RetryAsync(
+            SoilFacts(SoilLines),
+            new() { ["MIDNIGHT SOIL"] = [FilmOf("The Soil")], ["MIDNIGHT SOIL V.E."] = [FilmOf("The Soil")] },
+            failOn: true, failingText: "BURY OUR BONES V.E. SCHWAB");
+
+        answer.Verdict.ShouldNotBe(ResolutionVerdict.Pending);
+        answer.Options[0].Provider!.Title.ShouldBe("The Soil");
     }
 
     [Fact]
