@@ -56,7 +56,8 @@ public readonly record struct PlacedRead(
 /// <para>
 /// At one place, between two reads of the same grade, the one whose words hold all the other's and more, and whose best release
 /// holds those extra words, is the stronger even when it scores lower: a cut-short read and its exact-titled release must not beat
-/// the whole title's read of the same spine.
+/// the whole title's read of the same spine. So is a longer read with misread words (in no release) when its best release holds
+/// every word of the shorter read and at least two of the longer read's extra words.
 /// </para>
 /// <para>
 /// A read with no box has no place, so it neither takes one nor loses one; two reads of one place that both found nothing are
@@ -243,7 +244,8 @@ public static class ReadPlaces
 
     /// <summary>
     /// Whether <paramref name="read"/>'s words hold all of <paramref name="other"/>'s and more, and its best release's title holds
-    /// those extra words. False when either read has no words, or the read has no best title.
+    /// those extra words. The best title holds every word of the read, or (when some words are misread and in no release) every
+    /// word of the other read and at least two of the extra words. False when either read has no words, or the read has no best title.
     /// </summary>
     private static bool HoldsWordsOf(PlacedRead read, PlacedRead other)
     {
@@ -263,7 +265,14 @@ public static class ReadPlaces
         // The release must hold every word of the read, not only the extra ones: a neighbour's words bled into a read can match a
         // neighbour's release, which holds the extra words but not the read's own.
         var title = PrintSupport.TitleWords(read.BestTitle).ToHashSet();
-        return words.All(title.Contains);
+        if (words.All(title.Contains))
+        {
+            return true;
+        }
+
+        // Misread words (a studio's name read as junk) are in no release, so the rule above cannot hold. A release that holds every
+        // word of the other read and at least two of the extra words is the longer title's, not a neighbour's.
+        return otherWords.All(title.Contains) && extra.Count(title.Contains) >= 2;
     }
 
     /// <summary>
