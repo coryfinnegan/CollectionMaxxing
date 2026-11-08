@@ -309,6 +309,45 @@ public class IdentifyGroundingLineRetryTests
         SpineLines.PrintedCreator(named, "TESS HARROWGATE", found[2..3]).ShouldBeNull();
     }
 
+    // ---- an author printed with initials ------------------------------------------------------------------------------------------
+
+    private static readonly string[] InitialsLines = ["XQZV WRTK", "COPPER LANTERN", "T.R. HARROWGATE"];
+
+    [Fact]
+    public void The_author_printed_with_initials_is_the_printed_creator()
+    {
+        var facts = Spine("XQZV WRTK", InitialsLines);
+        (string? Title, IReadOnlyList<string> Creators)[] found = [("Copper Lantern", ["T. R. Harrowgate"])];
+
+        SpineLines.PrintedCreator(facts, "COPPER LANTERN", found).ShouldBe("T. R. Harrowgate");
+        SpineLines.PrintedCreator(Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "HARROWGATE"]), "COPPER LANTERN", found).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_lines_find_is_kept_when_its_author_is_printed_with_initials()
+    {
+        var facts = Spine("XQZV WRTK", InitialsLines);
+
+        SpineLines.KeepsFind(facts, "COPPER LANTERN", "Copper Lantern", ["T. R. Harrowgate"], bestTitleTerm: 0.6).ShouldBeTrue();
+        SpineLines.KeepsFind(Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN"]), "COPPER LANTERN", "Copper Lantern", ["T. R. Harrowgate"], bestTitleTerm: 0.6)
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_spine_whose_line_found_its_book_only_with_the_author_printed_in_initials_offers_that_book()
+    {
+        var real = BookBy("Copper Lantern", "T. R. Harrowgate");
+
+        var answer = await GroundAsync(Grounding(new Catalogue(real)), Spine("XQZV WRTK", InitialsLines));
+
+        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous); // offered, never matched
+        answer.FoundByTrimmedSpan.ShouldBeTrue();
+        answer.Options[0].LocalReleaseId.ShouldBe(real.Release.Id);
+
+        var without = await GroundAsync(Grounding(new Catalogue(real)), Spine("XQZV WRTK", ["XQZV WRTK", "COPPER LANTERN", "HARROWGATE"]));
+        without.Verdict.ShouldBe(ResolutionVerdict.NotFound);
+    }
+
     // ---- a release with no creators (a film, a show) is vouched for by the line holding its title ----------------------------------
 
     private static readonly string[] FilmLines = ["XQZV WRTK", "COPPER LANTERN", "IRON FOX"];
