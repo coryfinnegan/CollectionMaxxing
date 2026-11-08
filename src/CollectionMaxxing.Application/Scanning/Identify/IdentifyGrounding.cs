@@ -275,7 +275,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             {
                 if (CreatorSwap.For(facts) is { } swappedName)
                 {
-                    attempts.Add(new Attempt(swappedName, new TraceStep("swapped", $"{swappedName.Title} (creator as read; title read: {facts.Title})", 0)));
+                    attempts.Add(new Attempt(swappedName, new TraceStep(SwappedStep, $"{swappedName.Title} (creator as read; title read: {facts.Title})", 0)));
                 }
 
                 // The read would be skipped as an author's name: another line of its spine may be the title, if the author is printed there.
@@ -305,7 +305,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         if (spine && CreatorSwap.For(facts) is { } swapped)
         {
-            attempts.Add(new Attempt(swapped, new TraceStep("swapped", $"{swapped.Title} (creator as read; title read: {facts.Title})", 0)));
+            attempts.Add(new Attempt(swapped, new TraceStep(SwappedStep, $"{swapped.Title} (creator as read; title read: {facts.Title})", 0)));
         }
 
         // Last, a spine that found nothing after all of that is asked with other lines of its spine (UnfoundSpines would skip it).
@@ -316,6 +316,20 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
         AddAnyKindAttempt(attempts, facts, spine);
         return attempts;
+    }
+
+    /// <summary>The trace step of the creator swap.</summary>
+    private const string SwappedStep = "swapped";
+
+    /// <summary>
+    /// The one line a creator swap's creatorless find asks, among the attempts still to come after the one at <paramref name="round"/>: the
+    /// first line that reads as a title (<see cref="SpineLines.TitleLike"/>) and is no text the read was asked as. Null when none is.
+    /// </summary>
+    private static Attempt? TitleLine(ReadFacts facts, List<Attempt> attempts, int round)
+    {
+        var asked = attempts.Take(round + 1).Select(a => a.Facts.SearchText ?? string.Empty).ToList();
+        return attempts.Skip(round + 1).Where(a => a.Keeps is not null)
+            .FirstOrDefault(a => a.Facts.Title is { } line && SpineLines.TitleLike(facts, line, asked));
     }
 
     /// <summary>The trace step of the any-kind ask (<see cref="AddAnyKindAttempt"/>).</summary>
@@ -515,6 +529,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         var cutShort = new bool[reads.Count];
         var lineKept = new bool[reads.Count];
         var lineMisses = new List<LineMiss>?[reads.Count];
+        var swapTitle = new string?[reads.Count]; // the title of a creatorless swap find: a line's find replaces it only by holding it
         var looking = Enumerable.Range(0, reads.Count).Where(i => attempts[i].Count > 0).ToList();
         var rounds = attempts.Select(a => a.Count).DefaultIfEmpty(0).Max();
         for (var round = 0; round < rounds && looking.Count > 0; round++)
@@ -560,8 +575,17 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
 
                     // A find that leaves the read's own best on top has not answered it (an author's name found something weaker
                     // than itself): the attempts still left, the spine's lines, are asked too, and this answer stays the fallback.
-                    if (attempt.Keeps is null && round + 1 < attempts[i].Count && LeavesOriginalOnTop(reads[i].Answer, found))
+                    var leavesOriginal = attempt.Keeps is null && LeavesOriginalOnTop(reads[i].Answer, found);
+                    if (leavesOriginal && round + 1 < attempts[i].Count)
                     {
+                        next.Add(i);
+                    }
+                    else if (!leavesOriginal && attempt.Step.Provider == SwappedStep && CreatorsOf(found.Options[0], pools[n]).Count == 0
+                        && TitleLine(reads[i].Facts, attempts[i], round) is { } titleLine)
+                    {
+                        // A swap that found only a release with no creators: the spine's own title line is asked, once, and the swap's find stands meanwhile.
+                        swapTitle[i] = TitleOf(found.Options[0], pools[n]) ?? string.Empty;
+                        attempts[i] = [.. attempts[i].Take(round + 1), titleLine];
                         next.Add(i);
                     }
                 }
@@ -602,7 +626,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                     // No printed author backs any line's find: a line that holds the title of a creatorless release is its own witness.
                     foreach (var miss in misses)
                     {
-                        if (ScoredByCreatorlessTitle(miss) is { } held)
+                        if (ScoredByCreatorlessTitle(miss) is { } held
+                            && (swapTitle[i] is not { } swapped || SpineLines.HoldsTitle(swapped, TitleOf(held.Options[0], miss.Pool))))
                         {
                             answers[i] = Offered(reads[i].Answer, held with { Options = SeriesNeighbour.WithOriginals(held.Options, reads[i].Answer.Options) }, miss.Attempt.Step);
                             break;
