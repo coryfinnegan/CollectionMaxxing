@@ -27,6 +27,12 @@ public sealed record ReadItem
     /// <summary>The author, director or developer that was read.</summary>
     public string? Creator { get; init; }
 
+    /// <summary>
+    /// A line the phone sent as the creator that reads as no name: often the rest of the title ("THE RESCUE" under "FREE WILLY 3").
+    /// It counts toward the title of a release whose title holds every word of it (see <see cref="MatchScorer"/>).
+    /// </summary>
+    public string? CreatorLine { get; init; }
+
     /// <summary>An edition mark that was read: "Player's Choice", "Criterion".</summary>
     public string? Edition { get; init; }
 
