@@ -339,6 +339,33 @@ describe('the cue beside the read', () => {
       expect(reading.coverCue).toContain('rects=0');
     });
 
+    it('looks again for a rectangle just under the case coverage, and reports it as too small', async () => {
+      const s = setup(() => [{ x: 0.2, y: 0.2, width: 0.5, height: 0.58 }]);
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(2);
+      expect(reading.coverCue).toContain('(1 too small)');
+    });
+
+    it('does not look again for a rectangle exactly at the case coverage', async () => {
+      const s = setup(() => [{ x: 0.2, y: 0.2, width: 0.5, height: 0.6 }]);
+      await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not look again for a case whose proportions are in no band', async () => {
+      const s = setup((_call, still) => [caseOn(still, 0.78)]);
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(1);
+      expect(reading.coverCue).toContain('out of band');
+    });
+
+    it('looks again when the first search finds only a rectangle that hugs the frame, and takes the case the second finds', async () => {
+      const s = setup((call, still) => (call === 0 ? [hugging] : [caseOn(still, 0.86)]));
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(2);
+      expect(reading.coverCue).toContain('fmt=shape:bluray');
+    });
+
     it('does not take a rectangle that hugs the frame in the second search for the case', async () => {
       const s = setup((call) => (call === 0 ? [letter] : [hugging]));
       const { reading } = await readWith(s.text, s.still);
