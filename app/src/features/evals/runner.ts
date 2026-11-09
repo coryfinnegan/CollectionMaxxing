@@ -749,6 +749,7 @@ export class EvalRunner {
             originalFailed = true; // nothing but the record reads it: the other probes and the photo's rows stand
             continue;
           }
+          if (this.stopRequested || this.epoch !== epoch) break; // a stop or the app leaving during a download that succeeded
         }
         const options = spines ? { ...base, regions: crops } : base;
         const started = this.now();

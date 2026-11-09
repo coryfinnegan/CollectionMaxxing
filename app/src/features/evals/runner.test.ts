@@ -776,7 +776,7 @@ describe('the eval runner', () => {
       expect(rows.every((r) => r.outcome === 'ok')).toBe(true);
     });
 
-    it('reads the probes from the same picture the engines read, at the scanner\'s size', async () => {
+    it('reads production and the engines from the same scaled picture, and the full probes from the original, at the scanner\'s size', async () => {
       const kit = probeKit({
         size: { width: 5712, height: 4284 },
         resize: async (photo, target) => ({ uri: photo.uri.replace('.jpg', '-scaled.jpg'), ...target! }),
@@ -1069,6 +1069,64 @@ describe('the eval runner', () => {
         expect(sentIds()).toEqual(['photo-001']);
         expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production']);
         expect(kit.vision.textCalls.some((c) => shapeOf(c.options, c.imageUri).startsWith('full'))).toBe(false);
+      });
+
+      it('ends the list when the owner stops during a download that succeeds, and reads nothing more', async () => {
+        const kit: ReturnType<typeof makeKit> = probeKit();
+        const push = kit.downloaded.push.bind(kit.downloaded);
+        kit.downloaded.push = (...ids: string[]) => {
+          const length = push(...ids);
+          if (length === 2) kit.runner.stop(); // the second download of the photo
+          return length;
+        };
+        await kit.runner.start();
+
+        expect(sentIds()).toEqual(['photo-001']);
+        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production']);
+        expect(kit.vision.textCalls.some((c) => shapeOf(c.options, c.imageUri).startsWith('full'))).toBe(false);
+        expect(kit.deleted.filter((uri) => uri === uriOf('photo-001'))).toHaveLength(2);
+        expect(trackedPictures()).toEqual([]);
+      });
+
+      it('waits out a PC that is not answering, then reads all four probes', async () => {
+        const kit = probeKit({ downloadFailures: [0, 'network'] });
+        await kit.runner.start();
+
+        expect(kit.sleeps).toEqual([1000]);
+        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
+      });
+
+      it('keeps the original until the last full probe has read it', async () => {
+        const originalsDeletedAt: number[] = [];
+        const kit: ReturnType<typeof makeKit> = probeKit({
+          text: (uri, options) => {
+            if (uri === uriOf('photo-001') && shapeOf(options, uri) !== 'scanner') originalsDeletedAt.push(kit.deleted.filter((u) => u === uriOf('photo-001')).length);
+            return undefined;
+          },
+        });
+        await kit.runner.start();
+
+        expect(originalsDeletedAt).toEqual([1, 1, 1]); // only the first download (after scaling) is gone while full, fullSpines0 and fullTiles0 read
+      });
+
+      it('does not count the download in the time of the full probe', async () => {
+        let clock = 1_700_000_000_000;
+        const kit: ReturnType<typeof makeKit> = probeKit({
+          now: () => clock,
+          text: (uri, options) => {
+            if (shapeOf(options, uri) === 'full') clock += 530;
+            return undefined;
+          },
+        });
+        const push = kit.downloaded.push.bind(kit.downloaded);
+        kit.downloaded.push = (...ids: string[]) => {
+          const length = push(...ids);
+          if (length === 2) clock += 7000; // the second download takes long
+          return length;
+        };
+        await kit.runner.start();
+
+        expect(probesOf('photo-001')!.find((p) => p.name === 'full')!.ms).toBe(530);
       });
 
       it('is not made for a single cover', async () => {
