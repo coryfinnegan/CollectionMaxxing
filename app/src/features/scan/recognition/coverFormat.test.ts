@@ -328,3 +328,25 @@ describe('measureShape: what the shape search saw', () => {
     }
   });
 });
+
+describe('coverFormat: a slim VHS sleeve', () => {
+  const limit = DEFAULT_COVER_FORMAT_TUNING.vhsSleeveMaxRatio;
+
+  it('is slim at the limit and not just above it', () => {
+    expect(cueOf([caseWith(limit)])).toEqual({ format: 'vhs', source: 'shape', slim: true });
+    expect(cueOf([caseWith(limit + 0.01)])).toEqual({ format: 'vhs', source: 'shape' });
+  });
+
+  it('is slim for a sleeve at the usual 0.55', () => {
+    expect(cueOf([caseWith(0.55)])?.slim).toBe(true);
+  });
+
+  it.each([0.71, 0.86])('is never slim for a %s DVD or Blu-ray shape', (ratio) => {
+    expect(cueOf([caseWith(ratio)])?.slim).toBeUndefined();
+  });
+
+  it('is never slim when a logo names the format', () => {
+    expect(cueOf([caseWith(0.55)], ['VHS'])).toEqual({ format: 'vhs', source: 'logo' });
+    expect(cueOf([], ['VHS'])?.slim).toBeUndefined();
+  });
+});

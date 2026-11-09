@@ -16,6 +16,8 @@ export interface FormatCue {
   format: FilmFormat;
   /** A logo names the format; a shape only suggests it. */
   source: 'logo' | 'shape';
+  /** Set only on a shape cue for a VHS case slim enough to be a sleeve (`CoverFormatTuning.vhsSleeveMaxRatio`). A logo never has it. */
+  slim?: true;
 }
 
 export interface CoverFormatInput {
@@ -89,9 +91,6 @@ export function measureShape(still: CoverFormatInput['still'], rectangles: Rect[
   const format = bands.find(([, band]) => ratio >= band.min && ratio <= band.max)?.[0];
   return format ? { ...measure, format } : { ...measure, outOfBand: 1 };
 }
-
-const formatFromShape = (still: CoverFormatInput['still'], rectangles: Rect[], tuning: CoverFormatTuning): FilmFormat | undefined =>
-  measureShape(still, rectangles, tuning).format;
 
 // ---- Logos --------------------------------------------------------------------------------------------------------
 
@@ -169,13 +168,16 @@ const family = (format: FilmFormat) => (format === 'uhdBluray' ? 'bluray' : form
  * it agrees with one of them; otherwise the first in `LOGOS` stands.
  */
 export function coverFormat({ still, rectangles, lines, tuning = DEFAULT_COVER_FORMAT_TUNING }: CoverFormatInput): FormatCue | undefined {
-  const shape = formatFromShape(still, rectangles, tuning);
+  const measure = measureShape(still, rectangles, tuning);
+  const shape = measure.format;
   const logos = formatsFromLogos(lines, tuning);
   if (logos.length > 0) {
     const agreeing = shape === undefined ? undefined : logos.find((logo) => family(logo) === family(shape));
     return { format: agreeing ?? logos[0], source: 'logo' };
   }
-  return shape === undefined ? undefined : { format: shape, source: 'shape' };
+  if (shape === undefined) return undefined;
+  const slim = shape === 'vhs' && measure.largest !== undefined && measure.largest.ratio <= tuning.vhsSleeveMaxRatio;
+  return { format: shape, source: 'shape', ...(slim ? { slim: true as const } : {}) };
 }
 
 // ---- Correcting a read --------------------------------------------------------------------------------------------

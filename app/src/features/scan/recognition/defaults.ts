@@ -470,6 +470,8 @@ export interface CoverFormatTuning {
   consoleLineMaxWords: number;
   /** A bestseller line ("A novel", "National bestseller") is matched whole, with one wrong character allowed for every this many characters of the phrase. */
   bookLineCharsPerEdit: number;
+  /** A VHS shape at or under this short-over-long ratio is a slim sleeve (about 0.55); a mass-market paperback is about 0.62, a trade paperback 0.65. */
+  vhsSleeveMaxRatio: number;
 }
 
 export const DEFAULT_COVER_FORMAT_TUNING: CoverFormatTuning = {
@@ -484,6 +486,7 @@ export const DEFAULT_COVER_FORMAT_TUNING: CoverFormatTuning = {
   maxCaseAspectRatio: 1,
   consoleLineMaxWords: 5,
   bookLineCharsPerEdit: 8,
+  vhsSleeveMaxRatio: 0.59,
 };
 
 /**
