@@ -350,3 +350,18 @@ describe('coverFormat: a slim VHS sleeve', () => {
     expect(cueOf([], ['VHS'])?.slim).toBeUndefined();
   });
 });
+
+describe('coverFormat: the slim limit itself', () => {
+  it('is slim at 0.59 and not at 0.595', () => {
+    expect(cueOf([caseWith(0.59)])?.slim).toBe(true);
+    expect(cueOf([caseWith(0.595)])?.slim).toBeUndefined();
+  });
+
+  it('takes the limit from the tuning, and is slim only for a VHS shape', () => {
+    const tuning = { ...DEFAULT_COVER_FORMAT_TUNING, vhsSleeveMaxRatio: 0.95 };
+    const at = (ratio: number) => coverFormat({ still: STILL, rectangles: [caseWith(ratio)], lines: [], tuning });
+    expect(at(0.62)).toEqual({ format: 'vhs', source: 'shape', slim: true });
+    expect(at(0.71)).toEqual({ format: 'dvd', source: 'shape' });
+    expect(at(0.86)).toEqual({ format: 'bluray', source: 'shape' });
+  });
+});
