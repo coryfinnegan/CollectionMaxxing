@@ -110,7 +110,7 @@ describe('coverFormat: the shape of the case', () => {
     [0.86, 'bluray'], // Blu-ray and UHD keepcase
     [0.9, 'bluray'],
   ])('reads a case with a %s short-to-long ratio as %s', (ratio, format) => {
-    expect(cueOf([caseWith(ratio)])).toEqual({ format, source: 'shape' });
+    expect(cueOf([caseWith(ratio)])).toEqual({ format, source: 'shape', ...(ratio === 0.55 ? { slim: true } : {}) });
   });
 
   it.each([
@@ -195,7 +195,7 @@ describe('coverFormat: a rectangle that hugs the frame is the crop, not the case
   });
 
   it('measures a smaller real case when the frame-hugging rectangle is ignored', () => {
-    expect(cueOf([hugging, caseWith(0.55, 0.8)])).toEqual({ format: 'vhs', source: 'shape' });
+    expect(cueOf([hugging, caseWith(0.55, 0.8)])).toEqual({ format: 'vhs', source: 'shape', slim: true });
   });
 
   it('takes the margin and the number of edges from the tuning', () => {
