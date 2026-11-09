@@ -948,7 +948,29 @@ describe('the eval runner', () => {
         expect(kit.vision.textCalls.some((c) => c.options?.regions?.length === 0)).toBe(false);
         expect(cropsOf(kit, 'spines0')).toEqual([]);
         expect(cropsOf(kit, 'spinesCorrected0')).toEqual([]);
+        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'tiles0']);
         expect(probesOf('photo-001')?.some((p) => p.name === 'spines0' || p.name === 'spinesCorrected0') ?? false).toBe(false);
+      });
+
+      it('leaves out the items that have no box, and keeps the photo and its rows', async () => {
+        const kit = probeKit({
+          pipeline: (real) => ({
+            ...real,
+            read: async (...args) => {
+              const reading = await real.read(...args);
+              // the first item keeps its box, the rest lose theirs
+              return { ...reading, items: reading.items.map((item, i) => (i === 0 ? item : { ...item, box: undefined })) };
+            },
+          }),
+        });
+        await kit.runner.start();
+
+        expect(sentIds()).toEqual(['photo-001']);
+        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
+        const regions = cropsOf(kit, 'spines0');
+        expect(regions).toHaveLength(1);
+        expect(regions[0]).toHaveLength(1);
+        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
       });
 
       it('leaves the crop probes out when the Vision read failed', async () => {
@@ -1009,6 +1031,29 @@ describe('the eval runner', () => {
     it('takes the pad from the short side of a wide box', () => {
       const [r] = spineRegions([{ x: 0.2, y: 0.4, width: 0.6, height: 0.04 }]);
       near(r, { x: 0.19, y: 0.39, width: 0.62, height: 0.06 });
+    });
+
+    it('keeps a crop just above 0.002 across and drops one just below, whatever its height', () => {
+      expect(spineRegions([{ x: 0.5, y: 0.2, width: 0.0014, height: 0.5 }])).toHaveLength(1);
+      expect(spineRegions([{ x: 0.5, y: 0.2, width: 0.0013, height: 0.5 }])).toHaveLength(0);
+    });
+
+    it('keeps a crop just above 0.002 tall and drops one just below, whatever its width', () => {
+      expect(spineRegions([{ x: 0.2, y: 0.5, width: 0.5, height: 0.0014 }])).toHaveLength(1);
+      expect(spineRegions([{ x: 0.2, y: 0.5, width: 0.5, height: 0.0013 }])).toHaveLength(0);
+    });
+
+    it('measures the smallest side after the clamp, so an edge box that shrinks under 0.002 is dropped', () => {
+      expect(spineRegions([{ x: 0.9995, y: 0.2, width: 0.004, height: 0.5 }])).toHaveLength(0);
+      expect(spineRegions([{ x: 0.2, y: 0.9995, width: 0.5, height: 0.004 }])).toHaveLength(0);
+    });
+
+    it('keeps two regions that share a corner but differ in size', () => {
+      const out = spineRegions([
+        { x: 0, y: 0, width: 0.1, height: 0.1 },
+        { x: 0, y: 0, width: 0.2, height: 0.2 },
+      ]);
+      expect(out).toHaveLength(2);
     });
 
     it('clamps to the picture, drops a region under 0.002 on a side, folds equal regions into one and keeps order', () => {
