@@ -213,6 +213,42 @@ describe('correctRead', () => {
     });
   });
 
+  describe('a slim VHS sleeve that nothing printed calls a book (#785)', () => {
+    const slim = (format: FilmFormat = 'vhs', kind?: CoverCue['kind']): CoverCue => ({ format: { format, source: 'shape', slim: true }, ...(kind ? { kind } : {}) });
+    const book = read('book', undefined, { creator: 'SEAN CONNERY' });
+
+    it('takes the kind from a book read and keeps its title and creator', () => {
+      const out = correctRead(book, slim());
+      expect(as(out)).toBe('other/undefined');
+      expect(out.title).toBe('Rushmore');
+      expect(out.creator).toBe('SEAN CONNERY');
+    });
+
+    it('stays a book when the text on the cover names a book', () => {
+      expect(correctRead(book, slim('vhs', 'book'))).toBe(book);
+    });
+
+    it('leaves a book alone when the VHS shape is not slim', () => {
+      expect(correctRead(book, shape('vhs'))).toBe(book);
+    });
+
+    it('leaves a book alone for a DVD or a Blu-ray shape', () => {
+      expect(correctRead(book, shape('dvd'))).toBe(book);
+      expect(correctRead(book, shape('bluray'))).toBe(book);
+    });
+
+    it('leaves a film, a game and an "other" as they are', () => {
+      for (const item of [read('film', 'vhs'), read('game'), read('other')]) {
+        expect(correctRead(item, slim())).toBe(item);
+      }
+    });
+
+    it('never comes from a logo', () => {
+      const fromLogo: CoverCue = { format: { format: 'vhs', source: 'logo', slim: true } as CoverCue['format'] & object };
+      expect(correctRead(book, fromLogo).kind).not.toBe('other');
+    });
+  });
+
   describe('a product code', () => {
     const code: CoverCue = { productCode: 'SNS-8C-USA' };
 

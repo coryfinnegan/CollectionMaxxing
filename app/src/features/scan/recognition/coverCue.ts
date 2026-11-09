@@ -129,6 +129,8 @@ function correctKindAndFormat(item: ReadItem, cue: CoverCue): ReadItem {
   const { format, kind } = cue;
   if (format?.source === 'logo') return correctFormat(item, format);
   const byKind = kind ? correctKind(item, kind) : item;
+  // A slim VHS sleeve that nothing printed calls a book is not asked as a book (#785): the shape never makes a film, it only stops "book" deciding the catalogs.
+  if (format?.source === 'shape' && format.slim && !kind && byKind.kind === 'book') return asKind(byKind, 'other');
   if (format?.source !== 'shape' || byKind.kind === 'game') return byKind;
   const filmNamedByText = kind === 'film' && byKind.kind === 'film';
   return hasFilmFormat(byKind) || filmNamedByText ? asFilmIn(byKind, format.format) : byKind;
