@@ -5,6 +5,7 @@
 import type { Rect, VisionEngine } from '@/native/cm-vision';
 import { isSingleItemShot } from '../shotkind/shotKind';
 import { type CoverLook, type CueArrival, correctRead, coverCue, describeCue } from './coverCue';
+import { measureShape } from './coverFormat';
 import { type CoverFormatTuning, DEFAULT_COVER_FORMAT_TUNING, type RecognitionSettings } from './defaults';
 import { readLines } from './lines';
 import type { ReadItem, ReadOptions, RecognitionEngine, SnapReading, Still } from './types';
@@ -84,6 +85,12 @@ class PendingCue {
   }
 }
 
+/** Whether the search found a rectangle big enough to be the case and not the crop of the photo (`measureShape` decides both). */
+const foundCase = (still: Still, rectangles: Rect[], tuning: CoverFormatTuning): boolean => {
+  const largest = measureShape(still, rectangles, tuning).largest;
+  return largest !== undefined && largest.coverage >= tuning.minCaseCoverage;
+};
+
 class CoverCuedEngine implements RecognitionEngine {
   constructor(
     private readonly engine: RecognitionEngine,
@@ -120,10 +127,23 @@ class CoverCuedEngine implements RecognitionEngine {
 
   /** The search is asked for shapes as wide as a case: Vision's default would never return a DVD or a Blu-ray one. */
   private async rectanglesOf(still: Still, tuning: CoverFormatTuning): Promise<Rect[]> {
+    let first: Rect[];
     try {
-      return await this.deps.vision.detectRectangles(still.uri, { maximumAspectRatio: tuning.maxCaseAspectRatio });
+      first = await this.deps.vision.detectRectangles(still.uri, { maximumAspectRatio: tuning.maxCaseAspectRatio });
     } catch {
       return [];
+    }
+    if (foundCase(still, first, tuning)) return first;
+    // Nothing big enough to be the case: look once more, looser. It counts only if it holds the case; a failed look changes nothing.
+    try {
+      const second = await this.deps.vision.detectRectangles(still.uri, {
+        maximumAspectRatio: tuning.maxCaseAspectRatio,
+        minimumConfidence: tuning.looseCaseConfidence,
+        quadratureTolerance: tuning.looseCaseQuadrature,
+      });
+      return foundCase(still, second, tuning) ? second : first;
+    } catch {
+      return first;
     }
   }
 }

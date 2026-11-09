@@ -671,7 +671,7 @@ describe('a title only the model read is added only when the shelf\'s print has 
 
 describe('shots and engines the combination leaves alone', () => {
   it.each(['single_cover', 'loose_item'] as const)('does not run the Vision pipeline on a %s shot', async (shotKind) => {
-    const { vision, selector } = selectorFor(shelf);
+    const { vision, selector } = selectorFor({ ...shelf, rectangles: [{ x: 0.2, y: 0.1, width: 0.6, height: 0.6 }] }); // a DVD-shaped case, so one look is enough
     const detect = jest.spyOn(vision, 'detectRectangles');
     const reading = await selector.read(STILL, () => {}, { shotKind });
     expect(detect).toHaveBeenCalledTimes(1); // the look at the case's shape (coverFormat); the pipeline would ask again

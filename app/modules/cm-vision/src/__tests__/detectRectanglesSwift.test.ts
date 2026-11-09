@@ -38,4 +38,12 @@ describe('ios/CmVisionModule.swift detectRectangles', () => {
   it('changes the minimum size only when the caller names one', () => {
     expect(detectRectanglesBody()).toMatch(/if let minimumSize = options\?\["minimumSize"\] \{ request\.minimumSize = Float\(minimumSize\) \}/);
   });
+
+  it('changes the minimum confidence only when the caller names one', () => {
+    expect(detectRectanglesBody()).toMatch(/if let minimumConfidence = options\?\["minimumConfidence"\] \{ request\.minimumConfidence = Float\(minimumConfidence\) \}/);
+  });
+
+  it('changes the quadrature tolerance only when the caller names one', () => {
+    expect(detectRectanglesBody()).toMatch(/if let quadratureTolerance = options\?\["quadratureTolerance"\] \{ request\.quadratureTolerance = Float\(quadratureTolerance\) \}/);
+  });
 });

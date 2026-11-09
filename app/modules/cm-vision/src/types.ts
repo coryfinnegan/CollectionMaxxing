@@ -72,6 +72,10 @@ export interface DetectRectanglesOptions {
   maximumAspectRatio?: number;
   /** The least size of a rectangle as a share of the picture's shorter side, 0..1. */
   minimumSize?: number;
+  /** The least confidence Vision must have in a rectangle to return it, 0..1. Left out, 0.5. A lower value returns more, and rougher, shapes. */
+  minimumConfidence?: number;
+  /** How far from a right angle a corner may be, in degrees, 0..45. Left out, 30. A higher value accepts a tilted case. */
+  quadratureTolerance?: number;
 }
 
 /**

@@ -99,6 +99,8 @@ public class CmVisionModule: Module {
       request.quadratureTolerance = 30
       if let minimumSize = options?["minimumSize"] { request.minimumSize = Float(minimumSize) }
       if let maximumAspectRatio = options?["maximumAspectRatio"] { request.maximumAspectRatio = Float(maximumAspectRatio) }
+      if let minimumConfidence = options?["minimumConfidence"] { request.minimumConfidence = Float(minimumConfidence) }
+      if let quadratureTolerance = options?["quadratureTolerance"] { request.quadratureTolerance = Float(quadratureTolerance) }
       try CmVisionRunner.perform(request, imageUri: imageUri)
       let observations: [VNRectangleObservation] = request.results ?? []
       return observations.map { CmContract.rect($0.boundingBox) }
