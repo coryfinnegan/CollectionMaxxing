@@ -8,11 +8,11 @@ import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import type { Resizer } from '@/features/scan/autosnap/snapPhoto';
 import { failedRead, makeKit, scaledUriOf, uriOf, type KitOptions } from './evalsTestKit';
 import { gridRegions } from '../../../modules/cm-vision/src/regions'; // the native entry cannot load in tests
-import type { RecognizeTextOptions, TextLine } from '@/native/cm-vision';
+import type { RecognizeTextOptions, Rect, TextLine } from '@/native/cm-vision';
 import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import type { ReadItem } from '@/features/scan/recognition/types';
-import { MAX_OCR_PROBES, OCR_PROBES, PC_NOT_DOWNLOADING, SCORING_POLL_MS, sendWaitMs } from './runner';
+import { MAX_OCR_PROBES, OCR_PROBES, PC_NOT_DOWNLOADING, SCORING_POLL_MS, sendWaitMs, spineRegions } from './runner';
 
 interface Result {
   photoId: string;
@@ -692,18 +692,23 @@ describe('the eval runner', () => {
 
     /** Which request a text read is: the scanner's own, or one of the four probes. */
     const shapeOf = (options?: RecognizeTextOptions) =>
-      options?.level === 'fast'
-        ? 'fast0'
-        : options?.languageCorrection
-          ? 'corrected0'
-          : options?.regions
-            ? 'tiles0'
-            : options?.orientations?.length === 4
-              ? 'production'
-              : 'scanner';
-    const PROBES = ['production', 'fast0', 'corrected0', 'tiles0'];
+      options?.regions
+        ? JSON.stringify(options.regions) === JSON.stringify(gridRegions(2, 2, 0.1))
+          ? 'tiles0'
+          : options.languageCorrection
+            ? 'spinesCorrected0'
+            : 'spines0'
+        : options?.orientations?.length === 4
+          ? 'production'
+          : 'scanner';
+    const PROBES = ['production', 'spines0', 'spinesCorrected0', 'tiles0'];
     /** What each probe takes on the fake clock. The clock moves only while a probe reads, so any time a row counts for itself is a probe read inside it. */
-    const TOOK: Record<string, number> = { production: 410, fast0: 61, corrected0: 122, tiles0: 305 };
+    const TOOK: Record<string, number> = { production: 410, spines0: 61, spinesCorrected0: 122, tiles0: 305 };
+    /** The default scene's two Vision items sit on these boxes; their crops are each box grown by a quarter of its short side. */
+    const SCENE_CROPS = spineRegions([
+      { x: 0.1, y: 0.1, width: 0.1, height: 0.5 },
+      { x: 0.5, y: 0.1, width: 0.1, height: 0.5 },
+    ]);
     const FAST: TextLine = { text: 'TITLE OF PHOTO-001', confidence: 0.45, box: { x: 0.12, y: 0.1, width: 0.08, height: 0.4 }, pass: 0 };
     const TILE: TextLine = { text: 'Other of', confidence: 0.8, box: { x: 0.5, y: 0.1, width: 0.1, height: 0.3 }, pass: 0, region: 1 };
 
@@ -719,8 +724,8 @@ describe('the eval runner', () => {
           clock += TOOK[shape];
           const own = ownText?.(uri, options); // may throw, to fail the read, or stop the run
           if (own) return own;
-          if (shape === 'fast0') return [FAST];
-          if (shape === 'corrected0') return [{ ...FAST, text: 'Title of photo-001', confidence: 0.99 }];
+          if (shape === 'spines0') return [FAST];
+          if (shape === 'spinesCorrected0') return [{ ...FAST, text: 'Title of photo-001', confidence: 0.99 }];
           if (shape === 'tiles0') return [TILE];
           return undefined; // production: the scene's own lines, each saying its pass
         },
@@ -752,8 +757,8 @@ describe('the eval runner', () => {
       expect(asked.map((c) => shapeOf(c.options))).toEqual(PROBES);
       expect(asked.map((c) => c.options)).toEqual([
         { orientations: [0, 90, 270, 180] },
-        { orientations: [0], level: 'fast' },
-        { orientations: [0], languageCorrection: true },
+        { orientations: [0], regions: SCENE_CROPS },
+        { orientations: [0], languageCorrection: true, regions: SCENE_CROPS },
         { orientations: [0], regions: gridRegions(2, 2, 0.1) },
       ]);
     });
@@ -809,13 +814,13 @@ describe('the eval runner', () => {
     it('leaves a probe that fails out and sends the photo and its rows as they were', async () => {
       const kit = probeKit({
         text: (_uri, options) => {
-          if (shapeOf(options) === 'fast0') throw new Error('Vision gave up');
+          if (shapeOf(options) === 'spines0') throw new Error('Vision gave up');
           return undefined;
         },
       });
       await kit.runner.start();
 
-      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'corrected0', 'tiles0']);
+      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'spinesCorrected0', 'tiles0']);
       expect(sentIds()).toEqual(['photo-001']);
       expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
       expect(results().map((r) => r.items.length)).toEqual([2, 2]);
@@ -837,10 +842,10 @@ describe('the eval runner', () => {
 
     it('cuts a probe to what the PC accepts: 1500 lines, text up to 200 characters, boxes and confidence from 0 to 1', async () => {
       const long: TextLine = { text: 'x'.repeat(300), confidence: 1.0000001, box: { x: -0.000001, y: 1.002, width: 1.01, height: 0.5 }, pass: 180 };
-      const kit = probeKit({ text: (_uri, options) => (shapeOf(options) === 'fast0' ? Array.from({ length: 1600 }, () => long) : undefined) });
+      const kit = probeKit({ text: (_uri, options) => (shapeOf(options) === 'spines0' ? Array.from({ length: 1600 }, () => long) : undefined) });
       await kit.runner.start();
 
-      const fast = probesOf('photo-001')!.find((p) => p.name === 'fast0')!;
+      const fast = probesOf('photo-001')!.find((p) => p.name === 'spines0')!;
       expect(fast.lines).toHaveLength(1500);
       expect(fast.lines[0]).toEqual({ text: 'x'.repeat(200), confidence: 1, pass: 180, x: 0, y: 1, width: 1, height: 0.5 });
     });
@@ -848,21 +853,21 @@ describe('the eval runner', () => {
     it('keeps the photo, with the probes read so far, when the owner stops during them', async () => {
       const kit: ReturnType<typeof makeKit> = probeKit({
         text: (_uri, options) => {
-          if (shapeOf(options) === 'fast0') kit.runner.stop();
+          if (shapeOf(options) === 'spines0') kit.runner.stop();
           return undefined;
         },
       });
       await kit.runner.start();
 
       expect(sentIds()).toEqual(['photo-001']);
-      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'fast0']);
+      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'spines0']);
     });
 
     it('reads a photo again, probes and all, when the app went to the background during a probe, and records the first read nowhere', async () => {
       let left = false;
       const kit: ReturnType<typeof makeKit> = probeKit({
         text: (_uri, options) => {
-          if (shapeOf(options) === 'fast0' && !left) {
+          if (shapeOf(options) === 'spines0' && !left) {
             left = true;
             kit.app.go('background');
           }
@@ -881,12 +886,186 @@ describe('the eval runner', () => {
       expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
     });
 
+    describe('the crop probes', () => {
+      const cropsOf = (kit: ReturnType<typeof makeKit>, shape: string) => kit.vision.textCalls.filter((c) => shapeOf(c.options) === shape).map((c) => c.options?.regions);
+      const closeTo = (actual: readonly Rect[] | undefined, expected: readonly Rect[]) => {
+        expect(actual).toHaveLength(expected.length);
+        expected.forEach((box, i) => (['x', 'y', 'width', 'height'] as const).forEach((k) => expect(actual![i][k]).toBeCloseTo(box[k], 9)));
+      };
+
+      it('sends one region per item of the Vision read, each grown by a quarter of its short side', async () => {
+        const kit = probeKit();
+        await kit.runner.start();
+
+        const expected = [
+          { x: 0.075, y: 0.075, width: 0.15, height: 0.55 },
+          { x: 0.475, y: 0.075, width: 0.15, height: 0.55 },
+        ];
+        for (const shape of ['spines0', 'spinesCorrected0']) {
+          const calls = cropsOf(kit, shape);
+          expect(calls).toHaveLength(1);
+          closeTo(calls[0], expected);
+        }
+      });
+
+      it('keeps a crop at the picture\'s edge inside the picture', async () => {
+        const edge = { text: [line('Edge of photo-001', 0.01, 0.02, 0.1, 0.97), line('Far of photo-001', 0.9, 0.1, 0.1, 0.5)] };
+        const kit = probeKit({ scenes: { 'photo-001': edge } });
+        await kit.runner.start();
+
+        const regions = cropsOf(kit, 'spines0')[0]!;
+        expect(regions.length).toBeGreaterThan(0);
+        for (const r of regions) {
+          expect(r.x).toBeGreaterThanOrEqual(0);
+          expect(r.y).toBeGreaterThanOrEqual(0);
+          expect(r.x + r.width).toBeLessThanOrEqual(1 + 1e-9);
+          expect(r.y + r.height).toBeLessThanOrEqual(1 + 1e-9);
+        }
+        expect(regions[0].x).toBe(0);
+        expect(regions[0].y).toBe(0);
+      });
+
+      it('drops a box too small to read and counts two items on one box once', async () => {
+        const scene = {
+          text: [
+            line('Tiny of photo-001', 0.3, 0.3, 0.0005, 0.0005),
+            line('Same of photo-001', 0.5, 0.1, 0.1, 0.5),
+            line('Same again of photo-001', 0.5, 0.1, 0.1, 0.5),
+          ],
+        };
+        const kit = probeKit({ scenes: { 'photo-001': scene } });
+        await kit.runner.start();
+
+        const regions = cropsOf(kit, 'spines0')[0]!;
+        expect(regions.every((r) => r.width >= 0.002 && r.height >= 0.002)).toBe(true);
+        expect(new Set(regions.map((r) => JSON.stringify(r))).size).toBe(regions.length);
+      });
+
+      it('leaves both crop probes out, asking for no text read with regions: [], when the Vision read has no item with a box', async () => {
+        const kit = probeKit({ scenes: { 'photo-001': { text: [] } } });
+        await kit.runner.start();
+
+        expect(kit.vision.textCalls.some((c) => c.options?.regions?.length === 0)).toBe(false);
+        expect(cropsOf(kit, 'spines0')).toEqual([]);
+        expect(cropsOf(kit, 'spinesCorrected0')).toEqual([]);
+        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'tiles0']);
+        expect(probesOf('photo-001')?.some((p) => p.name === 'spines0' || p.name === 'spinesCorrected0') ?? false).toBe(false);
+      });
+
+      it('leaves out the items that have no box, and keeps the photo and its rows', async () => {
+        const kit = probeKit({
+          pipeline: (real) => ({
+            ...real,
+            read: async (...args) => {
+              const reading = await real.read(...args);
+              // the first item keeps its box, the rest lose theirs
+              return { ...reading, items: reading.items.map((item, i) => (i === 0 ? item : { ...item, box: undefined })) };
+            },
+          }),
+        });
+        await kit.runner.start();
+
+        expect(sentIds()).toEqual(['photo-001']);
+        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
+        const regions = cropsOf(kit, 'spines0');
+        expect(regions).toHaveLength(1);
+        expect(regions[0]).toHaveLength(1);
+        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
+      });
+
+      it('leaves the crop probes out when the Vision read failed', async () => {
+        const kit = probeKit({
+          pipeline: (real) => ({
+            ...real,
+            read: async () => {
+              throw new Error('vision broke');
+            },
+          }),
+        });
+        await kit.runner.start();
+
+        expect(kit.vision.textCalls.some((c) => c.options?.regions?.length === 0)).toBe(false);
+        expect(cropsOf(kit, 'spines0')).toEqual([]);
+        expect(cropsOf(kit, 'spinesCorrected0')).toEqual([]);
+      });
+
+      it('asks for language correction on spinesCorrected0 and not on spines0', async () => {
+        const kit = probeKit();
+        await kit.runner.start();
+
+        const grid = JSON.stringify(gridRegions(2, 2, 0.1));
+        const crops = kit.vision.textCalls.map((c) => c.options).filter((o) => o?.regions && JSON.stringify(o.regions) !== grid);
+        expect(crops.map((o) => o?.languageCorrection === true)).toEqual([false, true]);
+      });
+
+      it('leaves a crop probe that throws out and keeps the others', async () => {
+        const kit = probeKit({
+          text: (_uri, options) => {
+            if (shapeOf(options) === 'spinesCorrected0') throw new Error('Vision gave up');
+            return undefined;
+          },
+        });
+        await kit.runner.start();
+
+        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'spines0', 'tiles0']);
+      });
+    });
+
     it('deletes the photo\'s files once its probes are read', async () => {
       const kit = probeKit();
       await kit.runner.start();
 
       expect(kit.deleted).toEqual([uriOf('photo-001')]);
       expect(trackedPictures()).toEqual([]);
+    });
+  });
+
+  describe('spineRegions', () => {
+    const near = (a: Rect, b: Rect) => (['x', 'y', 'width', 'height'] as const).forEach((k) => expect(a[k]).toBeCloseTo(b[k], 9));
+
+    it('takes the pad from the short side of a tall box', () => {
+      const [r] = spineRegions([{ x: 0.4, y: 0.2, width: 0.04, height: 0.6 }]);
+      near(r, { x: 0.39, y: 0.19, width: 0.06, height: 0.62 });
+    });
+
+    it('takes the pad from the short side of a wide box', () => {
+      const [r] = spineRegions([{ x: 0.2, y: 0.4, width: 0.6, height: 0.04 }]);
+      near(r, { x: 0.19, y: 0.39, width: 0.62, height: 0.06 });
+    });
+
+    it('keeps a crop just above 0.002 across and drops one just below, whatever its height', () => {
+      expect(spineRegions([{ x: 0.5, y: 0.2, width: 0.0014, height: 0.5 }])).toHaveLength(1);
+      expect(spineRegions([{ x: 0.5, y: 0.2, width: 0.0013, height: 0.5 }])).toHaveLength(0);
+    });
+
+    it('keeps a crop just above 0.002 tall and drops one just below, whatever its width', () => {
+      expect(spineRegions([{ x: 0.2, y: 0.5, width: 0.5, height: 0.0014 }])).toHaveLength(1);
+      expect(spineRegions([{ x: 0.2, y: 0.5, width: 0.5, height: 0.0013 }])).toHaveLength(0);
+    });
+
+    it('measures the smallest side after the clamp, so an edge box that shrinks under 0.002 is dropped', () => {
+      expect(spineRegions([{ x: 0.9995, y: 0.2, width: 0.004, height: 0.5 }])).toHaveLength(0);
+      expect(spineRegions([{ x: 0.2, y: 0.9995, width: 0.5, height: 0.004 }])).toHaveLength(0);
+    });
+
+    it('keeps two regions that share a corner but differ in size', () => {
+      const out = spineRegions([
+        { x: 0, y: 0, width: 0.1, height: 0.1 },
+        { x: 0, y: 0, width: 0.2, height: 0.2 },
+      ]);
+      expect(out).toHaveLength(2);
+    });
+
+    it('clamps to the picture, drops a region under 0.002 on a side, folds equal regions into one and keeps order', () => {
+      const out = spineRegions([
+        { x: 0.5, y: 0.5, width: 0.1, height: 0.1 },
+        { x: 0.95, y: 0.9, width: 0.1, height: 0.1 },
+        { x: 0.3, y: 0.3, width: 0.0001, height: 0.0001 },
+        { x: 0.5, y: 0.5, width: 0.1, height: 0.1 },
+      ]);
+      expect(out).toHaveLength(2);
+      near(out[0], { x: 0.475, y: 0.475, width: 0.15, height: 0.15 });
+      near(out[1], { x: 0.925, y: 0.875, width: 0.075, height: 0.125 });
     });
   });
 
