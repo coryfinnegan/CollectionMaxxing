@@ -466,6 +466,12 @@ export interface CoverFormatTuning {
    * as wide), which a DVD case (0.71) and a Blu-ray case (0.86) are both over, so without this the shape cue never sees a case. 1 is a square.
    */
   maxCaseAspectRatio: number;
+  /**
+   * The second, looser rectangle search, made only when the first found nothing big enough to be the case (a pale case on a dark background,
+   * tilted, its cover printed with straight stripes). Vision's own floor is a confidence of 0.5 and a corner tolerance of 30 degrees.
+   */
+  looseCaseConfidence: number;
+  looseCaseQuadrature: number;
   /** A line of text with more words than this is a blurb, never a console's name ("Licensed by Nintendo of America" is five). */
   consoleLineMaxWords: number;
   /** A bestseller line ("A novel", "National bestseller") is matched whole, with one wrong character allowed for every this many characters of the phrase. */
@@ -482,6 +488,8 @@ export const DEFAULT_COVER_FORMAT_TUNING: CoverFormatTuning = {
   fuzzyLogoMinLength: 7,
   cueWaitMs: 1500,
   maxCaseAspectRatio: 1,
+  looseCaseConfidence: 0.3,
+  looseCaseQuadrature: 45,
   consoleLineMaxWords: 5,
   bookLineCharsPerEdit: 8,
 };

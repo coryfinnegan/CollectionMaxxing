@@ -272,6 +272,81 @@ describe('the cue beside the read', () => {
     expect(reading).toEqual({ ...given, coverCue: expect.stringContaining('fmt=none') });
   });
 
+  describe('the second, looser look for a case the first search misses', () => {
+    const letter: Rect = { x: 0.4, y: 0.4, width: 0.1, height: 0.1 };
+    const hugging: Rect = { x: 0.005, y: 0.005, width: 0.99, height: 0.99 };
+    const first = { maximumAspectRatio: DEFAULT_COVER_FORMAT_TUNING.maxCaseAspectRatio };
+    const loose = {
+      ...first,
+      minimumConfidence: DEFAULT_COVER_FORMAT_TUNING.looseCaseConfidence,
+      quadratureTolerance: DEFAULT_COVER_FORMAT_TUNING.looseCaseQuadrature,
+    };
+
+    /** The search answers by call number (0 is the first search); a thrown error is a failed search. */
+    function setup(search: (call: number, still: Still) => Rect[]) {
+      const { still, scene } = realCover('bluray-01', { extract: rushmore('dvd') });
+      const { text, vision } = engines({ [still.uri]: scene });
+      let calls = 0;
+      const rectangles = jest.spyOn(vision, 'detectRectangles').mockImplementation(async () => search(calls++, still));
+      return { still, text, rectangles };
+    }
+
+    it('has the looser settings in the tuning', () => {
+      expect(DEFAULT_COVER_FORMAT_TUNING.looseCaseConfidence).toBe(0.3);
+      expect(DEFAULT_COVER_FORMAT_TUNING.looseCaseQuadrature).toBe(45);
+    });
+
+    it('looks again with the looser settings when the first search finds only small rectangles, and the case it finds gives the format', async () => {
+      const s = setup((call, still) => (call === 0 ? [letter] : [caseOn(still, 0.86)]));
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles.mock.calls.map((c) => c[1])).toEqual([first, loose]);
+      expect(asRead(reading.items)).toEqual(['RUSHMORE: film/bluray']);
+      expect(reading.coverCue).toContain('fmt=shape:bluray');
+    });
+
+    it('does not look again when the first search finds the case', async () => {
+      const s = setup((_call, still) => [caseOn(still, 0.86)]);
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(1);
+      expect(asRead(reading.items)).toEqual(['RUSHMORE: film/bluray']);
+    });
+
+    it('leaves the cue as the first search made it when the second finds nothing big enough', async () => {
+      const same = setup(() => [letter]);
+      const { reading } = await readWith(same.text, same.still);
+      expect(same.rectangles).toHaveBeenCalledTimes(2);
+      expect(reading.coverCue).toContain('fmt=none');
+      expect(reading.coverCue).toContain('rects=1 (1 too small)');
+    });
+
+    it('keeps the first search\'s cue when the second search throws', async () => {
+      const s = setup((call) => {
+        if (call === 1) throw new Error('Vision failed');
+        return [letter];
+      });
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(2);
+      expect(reading.coverCue).toContain('rects=1 (1 too small)');
+    });
+
+    it('makes no second search, and leaves the text cues, when the first search throws', async () => {
+      const s = setup(() => {
+        throw new Error('Vision failed');
+      });
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(1);
+      expect(reading.coverCue).toContain('fmt=none');
+      expect(reading.coverCue).toContain('rects=0');
+    });
+
+    it('does not take a rectangle that hugs the frame in the second search for the case', async () => {
+      const s = setup((call) => (call === 0 ? [letter] : [hugging]));
+      const { reading } = await readWith(s.text, s.still);
+      expect(s.rectangles).toHaveBeenCalledTimes(2);
+      expect(reading.coverCue).toContain('rects=1 (1 too small)');
+    });
+  });
+
   describe('when the cue is late', () => {
     afterEach(() => jest.useRealTimers());
 
