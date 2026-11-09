@@ -13,7 +13,7 @@ import { modelSchemaFor } from '@/features/scan/recognition/modelSchema';
 import { type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { KeyValueStore } from '@/features/scan/tray/trayStore';
-import type { RecognizeTextOptions, TextLine, ThermalState } from '@/native/cm-vision';
+import type { RecognizeTextOptions, Rect, TextLine, ThermalState } from '@/native/cm-vision';
 import { gridRegions } from '../../../modules/cm-vision/src/regions'; // only the geometry: the native entry is loaded on the phone alone
 import { RUN_GONE_CODES, type EvalApi } from './api';
 import { EvalOutbox, type PendingPhoto } from './outbox';
@@ -225,16 +225,44 @@ type OcrProbe = NonNullable<EvalPhotoResult['ocrProbes']>[number];
  * The extra reads of a shelf picture, none of them the scanner's own. They are read once, after the timed rows, and only the record reads them:
  * the PC keeps them so an OCR setting can be tried on real pictures later without the phone, and never scores them.
  */
-export const OCR_PROBES: readonly { name: string; options: RecognizeTextOptions }[] = [
+export const OCR_PROBES: readonly { name: string; options: RecognizeTextOptions; /** Read in the crops of this photo's Vision items (`spineRegions`) instead of whole: left out when there are none. */ spines?: true }[] = [
   // The scanner's three passes and the upside-down one, raw (nothing dropped or merged): what each pass reads, and what the confidence floor drops.
   { name: 'production', options: { orientations: [0, 90, 270, 180] } },
-  // Upright print only, and quicker: flat words stacked on a spine.
-  { name: 'fast0', options: { orientations: [0], level: 'fast' } },
-  // Vision corrects what it read against a dictionary: script and display type.
-  { name: 'corrected0', options: { orientations: [0], languageCorrection: true } },
+  // Each spine the Vision read found, on its own crop: more pixels per spine, upright print only.
+  { name: 'spines0', options: { orientations: [0] }, spines: true },
+  // The same crops, with Vision correcting what it read against a dictionary: script and display type.
+  { name: 'spinesCorrected0', options: { orientations: [0], languageCorrection: true }, spines: true },
   // Four tiles that overlap by a tenth, each read on its own: small print.
   { name: 'tiles0', options: { orientations: [0], regions: gridRegions(2, 2, 0.1) } },
 ];
+
+/** How far a spine's crop grows past its box, as a share of the box's short side, on every side. */
+export const SPINE_CROP_PAD = 0.25;
+/** A crop narrower or shorter than this (of the picture) is too small to read and is left out. */
+export const SPINE_CROP_MIN_SIDE = 0.002;
+
+/**
+ * The crops that read each spine on its own: every box grown by `SPINE_CROP_PAD` of its short side, clamped inside the picture. A crop under
+ * `SPINE_CROP_MIN_SIDE` on a side is dropped and two equal crops count once. The order is kept.
+ */
+export function spineRegions(boxes: readonly Rect[]): Rect[] {
+  const seen = new Set<string>();
+  const regions: Rect[] = [];
+  for (const box of boxes) {
+    const pad = SPINE_CROP_PAD * Math.min(box.width, box.height);
+    const left = Math.max(0, box.x - pad);
+    const top = Math.max(0, box.y - pad);
+    const right = Math.min(1, box.x + box.width + pad);
+    const bottom = Math.min(1, box.y + box.height + pad);
+    const region = { x: left, y: top, width: right - left, height: bottom - top };
+    if (!(region.width >= SPINE_CROP_MIN_SIDE) || !(region.height >= SPINE_CROP_MIN_SIDE)) continue;
+    const key = `${region.x},${region.y},${region.width},${region.height}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    regions.push(region);
+  }
+  return regions;
+}
 
 /** One probe shaped for the upload, cut to the PC's limits (a box or confidence a hair outside 0 to 1 is pulled in) instead of losing the photo. */
 export function probeRecord(name: string, ms: number, lines: TextLine[]): OcrProbe {
@@ -678,7 +706,8 @@ export class EvalRunner {
       const results = ENGINES.map(({ engine }) => read.get(engine) as EvalPhotoResult);
       // The probes come last, outside every row's timing, and only for a shelf. The scanner's own read is already done and recorded.
       if (shotKind === 'shelf_segment') {
-        const probes = await this.probe(still, epoch);
+        const boxes = (visionReading?.items ?? []).flatMap((item) => (item.box ? [item.box] : []));
+        const probes = await this.probe(still, epoch, boxes);
         if (this.epoch !== epoch) return;
         const vision = results.find((r) => r.engine === 'vision_pipeline');
         if (vision && probes.length > 0) vision.ocrProbes = probes;
@@ -690,13 +719,17 @@ export class EvalRunner {
   }
 
   /**
-   * Reads the picture's text once more for each of `OCR_PROBES`, one after another, and keeps each with the time it took. A probe that throws is left out. The owner's
+   * Reads the picture's text once more for each of `OCR_PROBES` (the crop probes in the crops of `boxes`, the Vision read's item boxes), one after another, and keeps each with the time it took. A probe that throws is left out. The owner's
    * stop and the app leaving end the list where it is (the photo is then kept with what was read, or read again, as it is for a row).
    */
-  private async probe(still: Still, epoch: number): Promise<OcrProbe[]> {
+  private async probe(still: Still, epoch: number, boxes: readonly Rect[]): Promise<OcrProbe[]> {
     const probes: OcrProbe[] = [];
-    for (const { name, options } of OCR_PROBES) {
+    const crops = spineRegions(boxes);
+    for (const { name, options: base, spines } of OCR_PROBES) {
       if (this.stopRequested || this.epoch !== epoch) break;
+      // A crop probe with no crops is left out: `regions: []` would read the whole picture under the wrong name.
+      if (spines && crops.length === 0) continue;
+      const options = spines ? { ...base, regions: crops } : base;
       const started = this.now();
       try {
         const lines = await this.deps.vision.recognizeText(still.uri, options);
