@@ -573,31 +573,33 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
     | Read | Titles (358) | Books (245) | Films (101) | Reads not in the truth | Seconds per photo |
     |---|---|---|---|---|---|
     | Scanner items today (Apple Vision) | 199 | 162 | 33 | 114 | about 1 |
-    | Apple on-device model | 65 | 35 | 29 | 125 | about 9 |
-    | Qwen3-VL 8B (Q4_K_M), on the PC | 306 | 215 | 85 | 41 | 5.7 to 10.9 |
-    | Qwen3-VL 2B (Q8_0), on the PC | 264 | 179 | 79 | 37 | 4.4 |
+    | Apple on-device model | 65 | 35 | 29 | 125 | about 7 |
+    | Qwen3-VL 8B (Q4_K_M), on the PC | 306 | 215 | 85 | 41 | 10.9 (5.7 with plain-line output, which reads 300) |
+    | Qwen3-VL 2B (Q8_0), on the PC, longer prompt and a repeat penalty | 264 | 179 | 79 | 37 | 4.4 |
     | PP-OCRv5 text lines (Apple's lines: 207) | 158 | 136 | 22 | | |
 
-  - The 8B model gave the same items on a second run for 20 of 20 photos, and read all 12 single-cover titles.
+  - The 8B model gave the same items on a second run for 20 of 20 photos, and read 11 of the 12 single-cover titles in full; the twelfth, a game box, lost its number ("IV").
   - Its reads and today's right rows only partly overlap: together they cover 331 of the 358 titles (books 236 of 245).
-  - Put through the server's matching in a scratch copy (Open Library asked for real; Google Books and TMDB answering anything not cached with "nothing found", so the figures understate), the 8B model alone gets 269 of 319 rows right, against 256 of 344 today. Used as the model engine in today's merge unchanged it gets 280, with books at 216 of 245 (88.2%).
+  - Put through the server's matching in a scratch copy (Open Library asked for real; Google Books and TMDB answering anything not cached with "nothing found", so the figures understate), the 8B model alone gets 269 of 319 rows right, against 256 of 344 for today's readings in the same scratch copy. Used as the model engine in today's merge unchanged it gets 280 of 401, with books at 216 of 245 (88.2%, one title over the bar) and films at 61 of 101. Precision falls from 74.4% to 69.8% (121 rows wrong or unmatched, against 88), so the merge needs work before the reader ships in the combined row.
 - **Decision:**
   - **Shelf photos may be read by an open-source vision-language model on the self-hosted server's own hardware.** The first model is Qwen3-VL 8B Instruct (Apache-2.0), 4-bit GGUF, served by llama.cpp's server. The API reaches it through a configured OpenAI-compatible endpoint: no model code in the API, and the model, its settings and the prompt are configuration.
-  - **The phone sends the shelf still to the owner's own server** (owner's go-ahead, 2026-11-10): at most 2048 px on the long edge, metadata stripped, read in memory and thrown away, as `:verify-cover` already does. Nothing goes to a third-party service.
+  - **The phone sends the shelf still to the server that hosts the library** (owner's go-ahead, 2026-11-10): at most 2048 px on the long edge, metadata stripped, read in memory and thrown away, as `:verify-cover` already does. Today that server is the owner's PC; for any other account it is the host's machine, and About must say so. Nothing goes to a third-party service.
   - **It is optional.** With no reader configured (a host without a graphics card, or the reader unreachable), the scanner works as it does today. Apple Vision's read still shows at once; the server's read upgrades the list when it arrives.
   - **The model's title stays a search query, never an answer.** Matching against the catalogue is unchanged.
   - **Evals:** the server reads the golden shelf photos with the configured reader itself and reports that as its own row, so a reader experiment needs no phone run.
   - **Cost stays $0:** free weights on the owner's graphics card. Each model or runtime download still needs the owner's go-ahead (name, source, size).
 - **Alternatives:**
-  - An open model inside the iPhone app (the 2B model through llama.rn): kept as a later option. It read 264 titles on the PC, but its speed on the phone is unmeasured, it adds about 1.6 GB to download in the app, and every experiment costs a TestFlight build and a phone eval run.
+  - An open model inside the iPhone app (the 2B model through llama.rn): kept as a later option. It read 264 titles on the PC, but its speed on the phone is unmeasured, it adds about 2.7 GB to download in the app as measured (a smaller 4-bit file is unmeasured), and every experiment costs a TestFlight build and a phone eval run.
   - A plain OCR engine (PP-OCRv5): rejected. It read fewer titles in full than Apple Vision's text lines do (158 against 207).
+  - Other models: Qwen3-VL 4B read 287 titles. With the 8B model's settings the 4B and 2B models repeat one title until the token cap on 3 of 20 photos each, and the 8B model did it once with the longer prompt, so the reader needs a token cap, a repeat guard and a timeout. MiniCPM-V 4.5 failed in this runtime (token cap on 16 of 20 photos).
+  - Asking the model for a box around each item: 288 titles in 17.5 seconds a photo, against 306 in 10.9, so the first build asks for no boxes.
   - Higher resolution, tiles, a longer prompt: measured, no gain worth the time (3072 px: 4 more titles for twice the time; 2 x 2 tiles: 35 fewer).
-  - Ternary (1.58-bit) models: none exists that reads pictures.
+  - Ternary (1.58-bit) models: none was found that reads printed text and runs in llama.cpp.
   - Stay Apple-only: rejected. No measured route reaches the bars.
 - **Consequences:**
-  - docs/02 and docs/08 said photos stay on the phone during recognition. A shelf snap now goes to the owner's server when a reader is configured, and About must say so.
-  - The PC's graphics card is used: about 7 GB of its 12 GB while the model is loaded, so the reader loads on demand and unloads when idle. The model file is 6.2 GB on disk.
-  - A shelf read takes 6 to 11 seconds on the PC, against about 1 second for Apple Vision, which is why Apple's read shows first.
+  - docs/02 and docs/08 said photos stay on the phone during recognition. A shelf snap will go to the server that hosts the library when a reader is configured, and About must say so. docs/00, docs/06 and the threat table in docs/08 (one read at a time, a rate limit, the reader reachable only from the API) change when it is built.
+  - The PC's graphics card is used: about 7 GB while the model is loaded, on top of about 2.4 GB the PC already uses, of its 12 GB. So the reader loads on demand and unloads when idle (llama.cpp's server has an idle timeout; the spike did not exercise it). The model is two files, 6.2 GB on disk.
+  - A shelf read takes 6 to 11 seconds on average on the PC (up to 23 on the fullest shelf, plus about 8 to load the model after it has been idle), against under 1 second for Apple Vision, which is why Apple's read shows first.
   - Hosting the app for other people (ADR-027) without a graphics card means they get today's Apple-only reading.
   - The matching figures above understate. The real ones come from the server-side eval row, which uses the PC's provider keys. The gate's bars (docs/02) are unchanged; the combined row is re-baselined when the reader ships in it (docs/09).
-  - Newer models (Qwen3.5-9B, GLM-4.6V-Flash) can be tried against the same photos by changing configuration.
+  - Newer models (Qwen3.5-9B, GLM-4.6V-Flash) can be tried against the same photos by changing configuration, once the owner approves each download; whether llama.cpp reads pictures with Qwen3.5 is not verified.

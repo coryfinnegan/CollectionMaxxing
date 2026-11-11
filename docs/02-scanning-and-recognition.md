@@ -41,7 +41,7 @@ No third-party AI, no vector database, and no cloud AI bill. **Decided, not buil
 **Privacy:** photos stay on the phone. Only the recognised text and structured fields are sent to our API. A photo leaves the phone only if
 
 - you pick "Use my photo" as an item's cover (it's uploaded to your own PC).
-- a shelf reader is set up on your PC (ADR-033, not built yet): a shelf snap is then sent to your own PC, read there in memory and thrown away.
+- a shelf reader is set up on your PC (ADR-033, not built yet): a shelf snap is then sent to the server that hosts your library (today, your own PC), read there in memory and thrown away.
 
 ### Two engines, one interface, no modes
 
