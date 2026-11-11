@@ -42,7 +42,8 @@ public sealed class EvalRunScoring(
     EvalGrounder grounder,
     IOptions<EvalsOptions> options,
     IOptionsMonitor<ScoringOptions> scoring,
-    ILogger<EvalRunScoring> logger)
+    ILogger<EvalRunScoring> logger,
+    IServerReadings? serverReadings = null)
 {
     /// <summary>Grounds the items one engine read in one photo, as a dry run (nothing is persisted), and keeps what the PC knows of the reading.</summary>
     private async Task<GroundedPhoto> GroundAsync(
@@ -100,7 +101,14 @@ public sealed class EvalRunScoring(
     /// those the app would send, the shelf's print backs or sitting on a Vision read), as <c>/identify</c> is on the phone when the model runs;
     /// that row's shot kind is no longer Vision's alone, and a model read the app would not send does not vote.
     /// </summary>
-    public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken)
+    /// <remarks>
+    /// With <paramref name="readOnServer"/> and a reader set up (<see cref="IServerReadings.IsConfigured"/>), the server also reads the photo itself and a
+    /// <see cref="ServerEngines.Model"/> row is added after every row above, grounded as the model's items are and with the printed kind lent too
+    /// (<see cref="GroundServerRowAsync"/>). It reads nothing the phone's rows are made from: no row above, and no <c>printedPlatforms</c>, changes for it.
+    /// A background job asks for it; the one-shot route, which runs inside a request, never does.
+    /// </remarks>
+    public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(
+        IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken, bool readOnServer = false)
     {
         results = [.. results.Select(EvalSpineLines.Rebuild)]; // a run from before the phone sent each spine's lines gets them from its pieces
         // The app sends one identify per snap holding both engines' reads, so a platform printed on any line of the shot is printed for every
@@ -137,16 +145,44 @@ public sealed class EvalRunScoring(
         var printKind = results.FirstOrDefault(r => r.Engine == ScanEngine.VisionPipeline && r.Outcome == EvalOutcome.Ok)?.PrintKind;
         if (apple is { Outcome: EvalOutcome.Ok } && printKind is { } kind)
         {
-            var lent = await grounder.GroundWithSkipsAsync(ScanEngine.AppleModel, apple.Items ?? [], memo, kind, cancellationToken, platformsOfTheSnap: printedPlatforms);
-            grounded[appleIndex] = grounded[appleIndex] with
-            {
-                ItemsLentPrint = lent.Items,
-                SkippedItemsLentPrint = lent.Skipped is { Count: > 0 } ? lent.Skipped : null,
-                SkippedSegmentsLentPrint = lent.SkippedSegments > 0 ? lent.SkippedSegments : null,
-            };
+            grounded[appleIndex] = await WithPrintLentAsync(grounded[appleIndex], apple, kind, memo, printedPlatforms, cancellationToken);
+        }
+
+        if (readOnServer && serverReadings is { IsConfigured: true } && results.Count > 0 && results[0].PhotoId is { } photoId
+            && await serverReadings.ReadAsync(photoId, cancellationToken) is { } reading)
+        {
+            grounded.Add(await GroundServerRowAsync(photoId, reading, printKind, memo, printedPlatforms, cancellationToken));
         }
 
         return grounded;
+    }
+
+    /// <summary>The row's own items stay as they are; its same items are grounded again with the shelf's printed kind lent (<see cref="GroundedPhoto.ItemsLentPrint"/>).</summary>
+    private async Task<GroundedPhoto> WithPrintLentAsync(
+        GroundedPhoto row, EvalPhotoInput input, WorkKind printKind, EvalGroundingMemo memo, IReadOnlyCollection<string> printedPlatforms, CancellationToken cancellationToken)
+    {
+        var lent = await grounder.GroundWithSkipsAsync(ScanEngine.AppleModel, input.Items ?? [], memo, printKind, cancellationToken, platformsOfTheSnap: printedPlatforms);
+        return row with
+        {
+            ItemsLentPrint = lent.Items,
+            SkippedItemsLentPrint = lent.Skipped is { Count: > 0 } ? lent.Skipped : null,
+            SkippedSegmentsLentPrint = lent.SkippedSegments > 0 ? lent.SkippedSegments : null,
+        };
+    }
+
+    /// <summary>
+    /// The <see cref="ServerEngines.Model"/> row of one photo: the reader's items grounded through the very call the model engine's items go through
+    /// (<see cref="GroundAsync"/>, the same memo), and, when the vision row named the shelf's printed kind and the read answered, grounded again with it lent
+    /// as the phone's model row is. Only the label differs. The reader's kinds feed nothing else: the platforms and the printed kind are the phone's.
+    /// </summary>
+    private async Task<GroundedPhoto> GroundServerRowAsync(
+        string photoId, ServerReading reading, WorkKind? printKind, EvalGroundingMemo memo, IReadOnlyCollection<string> printedPlatforms, CancellationToken cancellationToken)
+    {
+        var input = ServerReadInput.Of(photoId, reading);
+        var row = (await GroundAsync(input, memo, cancellationToken, platformsOfTheSnap: printedPlatforms)) with { Engine = ServerEngines.Model };
+        return input.Outcome == EvalOutcome.Ok && printKind is { } kind
+            ? await WithPrintLentAsync(row, input, kind, memo, printedPlatforms, cancellationToken)
+            : row;
     }
 
     /// <summary>
@@ -201,7 +237,8 @@ public sealed class EvalRunScoring(
         var baseline = results.LoadBaselineDoc();
         var evaluated = EvalReport.Evaluate(
             grounded, truthSet.Truths, baseline?.Metrics, BuildSha.Resolve(options.Value), skipped, truthSet.Listing.Count,
-            scoring.CurrentValue.Thresholds, baseline?.ThresholdHash, run.RegroundedFrom);
+            scoring.CurrentValue.Thresholds, baseline?.ThresholdHash, run.RegroundedFrom,
+            serverReadings is { IsConfigured: true } && run.Photos.Any(p => p.Engine == ServerEngines.Model) ? serverReadings.ReaderLabel : null);
 
         try
         {
@@ -241,7 +278,7 @@ public sealed class EvalRunScoring(
                 continue; // the owner may be correcting it
             }
 
-            var best = photos.Where(p => p.PhotoId == id && p.Outcome == "ok" && p.Items.Count > 0)
+            var best = photos.Where(p => p.PhotoId == id && !ServerEngines.Is(p.Engine) && p.Outcome == "ok" && p.Items.Count > 0)
                 .OrderByDescending(p => p.Items.Count(i => i.Verdict == "matched"))
                 .ThenByDescending(p => p.Items.Count)
                 .FirstOrDefault();

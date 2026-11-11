@@ -137,7 +137,7 @@ public static class EvalScorer
         var engines = new SortedDictionary<string, EngineSummary>(StringComparer.Ordinal);
 
         // The combination of the model and Vision (report only) is scored like an engine the phone read, from the same rows.
-        var everything = photos.Concat(EvalCombination.Of(photos, truths));
+        var everything = photos.Concat(EvalCombination.Of(photos, truths)).Concat(EvalCombination.OfServerRead(photos, truths));
         foreach (var byEngine in everything.Where(p => truths.ContainsKey(p.PhotoId)).GroupBy(p => p.Engine))
         {
             var entries = byEngine.Select(p => (Photo: p, Truth: truths[p.PhotoId])).ToList();

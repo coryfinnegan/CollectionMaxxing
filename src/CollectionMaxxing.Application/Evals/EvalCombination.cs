@@ -109,6 +109,21 @@ public static class EvalCombination
         return combined;
     }
 
+    /// <summary>
+    /// The same combination for the server's own reader (<see cref="ServerEngines.Vision"/>): the <see cref="ServerEngines.Model"/> row stands where the
+    /// <c>apple_model</c> row does, with Vision's row, and the rule is used unchanged. Empty when no photo has a server row.
+    /// </summary>
+    public static IReadOnlyList<GroundedPhoto> OfServerRead(IReadOnlyList<GroundedPhoto> photos, IReadOnlyDictionary<string, TruthEntry> truths)
+    {
+        var asModel = photos.Where(p => p.Engine == ServerEngines.Model).Select(p => p with { Engine = M3Gate.Engine }).ToList();
+        if (asModel.Count == 0)
+        {
+            return [];
+        }
+
+        return [.. Of([.. asModel, .. photos.Where(p => p.Engine == M3Gate.VisionEngine)], truths).Select(c => c with { Engine = ServerEngines.Vision })];
+    }
+
     /// <summary>The scanner combines the two engines on a shelf shot only: a single cover or a loose item is read by the model alone.</summary>
     private static bool IsShelfShot(TruthEntry truth) =>
         truth.Set == GoldenSets.Shelf && truth.ShotKind is not ("single_cover" or "loose_item");

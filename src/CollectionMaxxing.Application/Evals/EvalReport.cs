@@ -30,7 +30,8 @@ public static class EvalReport
         int photosInSet = 0,
         ScoringThresholds? scoring = null,
         string? baselineThresholdHash = null,
-        EvalRegroundedFrom? regroundedFrom = null)
+        EvalRegroundedFrom? regroundedFrom = null,
+        string? serverReader = null)
     {
         var scored = EvalScorer.Score(run.Photos, truths);
         var metrics = EvalRegression.Flatten(scored.Engines);
@@ -42,7 +43,7 @@ public static class EvalReport
             buildSha,
             run.ConfigVersion,
             run.Device,
-            run.Photos.Count(p => truths.ContainsKey(p.PhotoId)),
+            run.Photos.Count(p => truths.ContainsKey(p.PhotoId) && !ServerEngines.Is(p.Engine)),
             skipped,
             scored.Engines,
             M3Gate.Evaluate(scored.Engines, run.Partial),
@@ -55,11 +56,11 @@ public static class EvalReport
             thresholdHash,
             note,
             regroundedFrom);
-        return new EvaluatedRun(summary, scored.Misses, Markdown(summary, scored.Misses));
+        return new EvaluatedRun(summary, scored.Misses, Markdown(summary, scored.Misses, serverReader));
     }
 
     /// <summary>The report that stays on the PC: the gate table, the regression check and the worst misses by id (truth against what was read).</summary>
-    public static string Markdown(EvalSummary summary, IReadOnlyList<EvalMiss> misses)
+    public static string Markdown(EvalSummary summary, IReadOnlyList<EvalMiss> misses, string? serverReader = null)
     {
         var text = new StringBuilder();
         if (summary.RegroundedFrom is { } from)
@@ -134,6 +135,15 @@ public static class EvalReport
             if (engine == EvalCombination.Engine)
             {
                 text.AppendLine("The row the M3 gate measures, built from the rows above: the Vision text items first, then the Apple model's items Vision did not read (the scanner shows Vision's first). Shelf latency is Vision's plus the model's, a failed model's wait included (when it fails, Vision's items stand), since Vision reads and then the model does, and the first item is Vision's; single pictures are the model's own.").AppendLine();
+            }
+
+            if (ServerEngines.Is(engine))
+            {
+                text.Append("Outside the gate: the server read the golden photos itself with its own shelf reader")
+                    .Append(serverReader is null ? string.Empty : " (" + serverReader + ")")
+                    .AppendLine(engine == ServerEngines.Vision
+                        ? ". Built with the combination rule above from the `server_model` row and the `vision_pipeline` row. The regression check never judges it."
+                        : ". Its items are grounded as the phone model's are. The regression check never judges it.").AppendLine();
             }
 
             AppendSlice(text, "Shelf", numbers.Shelf);

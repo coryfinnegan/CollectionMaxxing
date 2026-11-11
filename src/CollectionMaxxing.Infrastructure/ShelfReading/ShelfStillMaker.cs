@@ -20,6 +20,16 @@ public sealed class ShelfStillMaker(IOptions<ShelfReaderOptions> options) : IShe
             return null;
         }
 
+        ShelfReaderOptions settings;
+        try
+        {
+            settings = options.Value;
+        }
+        catch (OptionsValidationException)
+        {
+            return null; // a bad setting refuses the picture, as the reader reports "unavailable"
+        }
+
         try
         {
             // Only the formats a phone or a golden photo set holds. The header is read first: Magick would also decode SVG, PDF and more.
@@ -30,7 +40,7 @@ public sealed class ShelfStillMaker(IOptions<ShelfReaderOptions> options) : IShe
 
             using var image = new MagickImage(picture);
             image.AutoOrient(); // turn the pixels upright, then the flag means nothing
-            var longEdge = (uint)Math.Max(1, options.Value.MaxLongEdge);
+            var longEdge = (uint)Math.Max(1, settings.MaxLongEdge);
             if (Math.Max(image.Width, image.Height) > longEdge)
             {
                 image.Resize(new MagickGeometry(longEdge, longEdge) { IgnoreAspectRatio = false });
