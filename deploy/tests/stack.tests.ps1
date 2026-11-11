@@ -4,9 +4,9 @@
 if (-not (Get-Command Get-RealComposeConfig -ErrorAction SilentlyContinue)) { throw 'stack.tests.ps1 must load after ops.tests.ps1 (it needs Get-RealComposeConfig)' }
 
 Test-Case 'compose: every service caps its json-file log at 5 files of 20 MB, so a chatty container cannot fill the disk' {
-    $config = Get-RealComposeConfig
+    $config = Get-RealComposeConfig -Profiles @('gpu')   # the shelf reader too
     $names = @($config.services.PSObject.Properties.Name)
-    Assert-True ($names.Count -ge 5) "the compose file has its five services (found $($names -join ', '))"
+    Assert-True ($names.Count -ge 6) "the compose file has its six services (found $($names -join ', '))"
     foreach ($name in $names) {
         $logging = $config.services.$name.logging
         Assert-True ($null -ne $logging) "service $name sets no logging block, so Docker's default (unbounded json-file) applies"
@@ -29,7 +29,7 @@ Test-Case 'compose: the API can write the golden folder, so a photo added from t
 Test-Case 'compose: the logging block does not trip the deployer''s config guard' {
     # The guard is called the way the deployer calls it (the .env values and the compose file's path), so the
     # stack's own bind mounts are allowed and only a logging problem could fail this.
-    $config = Get-RealComposeConfig
+    $config = Get-RealComposeConfig -Profiles @('gpu')
     $envMap = @{ CM_API_PORT = '5480'; CM_DASHBOARD_PORT = '18888' } + $script:LastRealComposeEnv
     Assert-Equal 0 @(Test-CmConfig -EnvMap $envMap -ComposeConfig $config -ComposeFile $script:LastRealComposeFile).Count
 }
