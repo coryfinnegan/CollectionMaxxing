@@ -4,6 +4,8 @@
 # Alerts as GitHub issues (Send-CmAlert and Complete-CmAlertChecks use it). Loaded from here so every script that
 # dot-sources this file gets it.
 . (Join-Path $PSScriptRoot 'Cm.Alerts.ps1')
+# The shelf reader on the graphics card (#795): switched on by the deployer after a good pass, never part of a deploy's health.
+. (Join-Path $PSScriptRoot 'Cm.ShelfReader.ps1')
 
 # A lock stamped longer ago than this means the run holding it is stuck (see New-CmBusyResult): the next run alerts
 # instead of quietly exiting. Polls run every 2 minutes and a healthy run takes a few minutes at most (pulls, one
@@ -201,12 +203,15 @@ function New-CmCtxAtCommit {
       Remove-CmCtxAtCommit deletes it. Invoke-CmReal merges stderr into the output, so a garbled copy (a git error in
       the text) is caught by the config guard run on it before anything migrates.
     #>
-    param($Ctx, [string]$Sha)
+    param($Ctx, [string]$Sha, [string]$Purpose = '')
     if ($Sha -cnotmatch '^[0-9a-f]{40}$') { return $null }
+    if ($Purpose -cnotmatch '^[a-z]*$') { return $null }
     $show = Invoke-Cm -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'show', "${Sha}:deploy/docker-compose.yml")
     if ($show.ExitCode -ne 0 -or -not (@($show.Output) -join '').Trim()) { return $null }
     $dir = Split-Path -Parent $Ctx.ComposeFile
-    $path = Join-Path $dir ".docker-compose.$($Sha.Substring(0, 12)).$PID.yml"
+    # A Purpose (the shelf reader's step) gets a name of its own, so its copy never collides with the deploy's.
+    $tagPart = if ($Purpose) { ".$Purpose" } else { '' }
+    $path = Join-Path $dir ".docker-compose.$($Sha.Substring(0, 12))$tagPart.$PID.yml"
     try { Set-Content -LiteralPath $path -Value (@($show.Output) -join "`n") -Encoding utf8 } catch { return $null }
     $copy = $Ctx.PSObject.Copy()
     $copy.ComposeFile = $path
@@ -219,8 +224,14 @@ function Remove-CmCtxAtCommit {
 }
 
 function Invoke-CmUp {
+    <#
+      Starts the stack's services at Tag. The api gets the shelf reader's endpoint only when the state file says the
+      deployer switched the reader on (Get-CmShelfReaderEndpoint), so a deploy or a rollback keeps what the reader pass
+      decided, and the first deploy (or any deploy with the reader off) brings the api up with the endpoint empty.
+    #>
     param($Ctx, [string]$Tag)
-    Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $Tag } -Arguments (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services))
+    $endpoint = Get-CmShelfReaderEndpoint -Ctx $Ctx
+    Invoke-Cm -Mutating -Command 'docker' -Env @{ CM_TAG = $Tag; CM_SHELF_READER_ENDPOINT = $endpoint } -Arguments (Get-CmComposeArgs $Ctx (@('up', '-d') + $Ctx.Services))
 }
 
 function Get-CmPlan {
@@ -261,6 +272,9 @@ function Get-CmPlan {
     $plan += Format-CmCommand 'docker' @('image', 'ls', '--no-trunc', '--format', '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}')
     $plan += Format-CmCommand 'docker' @('ps', '-a', '--no-trunc', '--format', '{{.Image}}')
     $plan += Format-CmCommand 'docker' @('image', 'rm', "$($Ctx.ImagePrefix)api:<old sha>")
+    $plan += '(then, on every quiet poll (never in a pass that just deployed), the shelf reader, unless CM_SHELF_READER=0 is set in .env: only on a host whose nvidia-smi lists a card; missing model files are fetched in the background from the pinned revision and verified on a later poll; once both verify, the llama.cpp image is pulled and the reader started; the api gets the endpoint only after the reader is healthy. A reader problem is an ALERT shelf-reader line, never a rollback)'
+    $plan += Format-CmCommand 'nvidia-smi' @('-L')
+    foreach ($line in Get-CmShelfReaderPlan -Ctx $Ctx) { $plan += $line }
     $plan += '(any refusal, failure or rollback exits non-zero, writes an ALERT line to the log and pings <CM_HEARTBEAT_URL>/fail)'
     $plan += '(and, unless CM_ALERT_ISSUES=0 is set in .env, files a GitHub issue through gh, once per problem: gh issue list/create/comment/close with the alert label; a quiet poll also reads the backup container health with docker inspect)'
     $plan += Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('ps', '-q', 'backup')) @{ CM_TAG = 'backup-health' }
@@ -296,7 +310,8 @@ function Get-CmComposeGuard {
     foreach ($name in 'POSTGRES_PASSWORD', 'CM_BACKUP_DIR') {
         if (-not $EnvMap.ContainsKey($name) -or -not $EnvMap[$name]) { return "$name is not set in $($Ctx.EnvFile)" }
     }
-    $r = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = 'guard-check' } -Arguments (Get-CmComposeArgs $Ctx @('config', '--format', 'json'))
+    # With the gpu profile on, so the shelf-reader service is checked too (a plain config leaves profiled services out).
+    $r = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = 'guard-check' } -Arguments (Get-CmGpuComposeArgs $Ctx @('config', '--format', 'json'))
     if ($r.ExitCode -ne 0) { return 'docker compose config failed (is the compose file path right?)' }
     try { $config = ($r.Output -join "`n") | ConvertFrom-Json } catch { return 'docker compose config did not return JSON' }
     Test-CmConfig -EnvMap $EnvMap -ComposeConfig $config -ComposeFile $Ctx.ComposeFile
@@ -404,6 +419,7 @@ function Complete-CmQuietRun {
     <# A run with nothing to deploy: the one-time clean-up of the retired .ipa, if it is still there, and the next batch of old images. Never turns a quiet run into a crash or an alert. #>
     param($Ctx, [string]$Outcome)
     Remove-CmRetiredIpa -Ctx $Ctx
+    Invoke-CmShelfReader -Ctx $Ctx
     Invoke-CmImagePrune -Ctx $Ctx
     New-CmResult $Outcome 0
 }
@@ -1051,6 +1067,7 @@ function Invoke-CmDeployCore {
             Write-CmState -Path $Ctx.StateFile -State $state
             Write-CmLog "deployed $($sha.Substring(0, 12)); smoke test passed"
             Remove-CmRetiredIpa -Ctx $Ctx
+            # No shelf reader step here: a pass that deployed has spent its time; the next quiet poll (2 minutes) does it.
             Invoke-CmImagePrune -Ctx $Ctx
             return New-CmResult 'deployed' 0 -Sha $sha
         }

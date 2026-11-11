@@ -126,6 +126,11 @@ services:
       # caller shares one rate-limit bucket and a stranger's bad pairing codes could lock the owner out.
       # Confirm at the install checkpoint: if pairing attempts all log the same address, widen or fix this range.
       Auth__RateLimit__TrustedProxies__0: 172.16.0.0/12
+      # The shelf reader (ADR-033, #795): the open vision model in the shelf-reader service below. The deployer sets
+      # CM_SHELF_READER_ENDPOINT on every call, to http://shelf-reader:8431 once it has switched the reader on and to
+      # empty otherwise; it is never set in .env. Empty = off, and the API behaves exactly as without a reader.
+      ShelfReader__Endpoint: ${CM_SHELF_READER_ENDPOINT:-}
+      ShelfReader__Model: Qwen3VL-8B-Instruct-Q4_K_M.gguf
     volumes:
       - files:/data/files
       - ${CM_SECRETS_DIR:?set in .env}:/secrets
@@ -133,6 +138,10 @@ services:
       - ${CM_EVALS_DIR:-../../evals}/golden:/evals/golden
       - ${CM_EVALS_DIR:-../../evals}/results:/evals/results
       - ../evals/baseline.json:/evals/baseline.json:ro
+    # default: postgres, the dashboard and the internet. reader: the shelf reader, which nothing else may reach.
+    networks:
+      - default
+      - reader
     depends_on:
       postgres:
         condition: service_healthy
@@ -179,6 +188,75 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # The shelf reader (ADR-033, #795): llama.cpp's server running Qwen3-VL 8B on the PC's graphics card, reached by the
+  # api over the compose network only. It sits behind the `gpu` profile, so a plain `up` never starts it: the deployer
+  # starts it by itself, after the api is healthy, on a host with an NVIDIA card and the two verified model files
+  # (deploy/README.md, "The shelf reader"). CM_SHELF_READER=0 in .env keeps it off. It can never take the app down: the
+  # api does not depend on it, its health is not part of a deploy's health check, and a reader that fails is logged and
+  # left off without a rollback.
+  shelf-reader:
+    <<: *hardening
+    # Pinned to an exact build AND digest (linux/amd64), like postgres. Bump deliberately.
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b12282@sha256:bb29527ecb3da442d9459591c252351d957b6e3ee1635e8d0406c0a4442eb08c
+    profiles: ["gpu"]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    cap_drop:
+      - ALL
+    # Deliberately no "ports". It sits only on the internal `reader` network, shared with the api alone: llama-server
+    # has no API key and allows every origin, so nothing else may reach it (and it has no way out to the internet). It listens on 8431 inside the
+    # container, passed explicitly (llama-server's own examples use 8080, which belongs to another app on this PC).
+    # --sleep-idle-seconds 300 unloads the model after five idle minutes, so the card's memory is free when nobody scans.
+    command:
+      - "-m"
+      - "/models/Qwen3VL-8B-Instruct-Q4_K_M.gguf"
+      - "--mmproj"
+      - "/models/mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8431"
+      - "-ngl"
+      - "99"
+      - "-c"
+      - "12288"
+      - "-np"
+      - "1"
+      - "--no-webui"
+      - "--jinja"
+      - "--sleep-idle-seconds"
+      - "300"
+    networks:
+      - reader
+    volumes:
+      # Read-only: the deployer downloads and verifies the files on the host; the container only reads them.
+      - ${CM_MODELS_DIR:-../../models}:/models:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      # /health answers without waking a sleeping model. start_period matches the deployer's 10-minute start window
+      # (CmShelfReaderStartMinutes): loading 6 GB through a Windows bind mount may take minutes, and failed checks
+      # inside it do not count.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8431/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 600s
+
+networks:
+  # The api and the shelf reader only (the config guard refuses any other service on it). Internal: no route out.
+  reader:
+    internal: true
 
 volumes:
   pgdata:

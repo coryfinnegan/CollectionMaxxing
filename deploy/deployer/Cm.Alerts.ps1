@@ -81,6 +81,8 @@ function Get-CmAlertKinds {
     $agent = @('alert', 'type:infra', 'agent-task', 'p1', 'sev:blocker')
     $owner = @('alert', 'type:infra', 'needs:cory', 'p1')
     $ownerLater = @('alert', 'type:infra', 'needs:cory', 'p2')
+    # Agent work that is not blocking: the app runs on while it waits (the shelf reader).
+    $agentLater = @('alert', 'type:infra', 'agent-task', 'p2')
     $fixIt = 'An agent can fix this: read the log lines below (the whole log is at {LOG} on the PC), find the cause in the repo and open a pull request with the fix and a test. Do not weaken the attestation check, the ancestry check or the config guard to make the alert go away.'
     [ordered]@{
         'deploy-rolled-back'      = @{
@@ -155,6 +157,18 @@ function Get-CmAlertKinds {
             Todo = 'Start Docker Desktop (it should start when you sign in) and check the internet connection. The deployer carries on by itself as soon as both answer.'
             Cleared = 'Docker and the registry answer again'
         }
+        'shelf-reader-failed'     = @{
+            Title = 'Shelf reader: the model on the graphics card is off after a failure'; Labels = $agentLater; After = 1
+            Summary = 'The shelf reader (llama.cpp on the PC''s graphics card, ADR-033) could not be pulled or started, was not healthy within its window, stopped answering, lost its graphics card, ran short of disk space, or a model file failed its SHA-256 check. It was stopped; the API keeps running and reports the reader as unavailable. Nothing was rolled back.'
+            Todo = "$fixIt The reason and the ALERT shelf-reader lines say which step failed (deploy/deployer/Cm.ShelfReader.ps1, deploy/docker-compose.yml, deploy/README.md 'The shelf reader'). The deployer tries again by itself: 6 hours after a failed start, a day after a bad download. If the cause is on the PC itself (no GPU access inside Docker Desktop, a full disk), say so in a comment and add the needs:cory label."
+            Cleared = 'the reader is switched on, or it is switched off on purpose (CM_SHELF_READER=0, or no graphics card)'
+        }
+        'shelf-reader-api-down'   = @{
+            Title = 'Deployer: the api did not answer after the shelf reader switch'; Labels = $agent; After = 1
+            Summary = 'The deployer restarted the api to give it the shelf reader''s endpoint; it failed its smoke test, and it still failed after a second restart without the endpoint. The api may be down.'
+            Todo = "$fixIt The reader is stopped and the api state says no reader, so the next deploy brings the api up without it. Find out why the api does not answer after a plain restart (docker compose logs api)."
+            Cleared = 'a later deploy succeeds'
+        }
         'main-tag-moving'         = @{
             Title = 'Deployer: the main image tag keeps moving during checks'; Labels = $ownerLater; After = 10
             Summary = 'The main image tag moved while the deployer was checking it, poll after poll for 10 polls, so it never settled on a version to deploy.'
@@ -206,7 +220,11 @@ function Get-CmAlertClears {
     $clears = @{}
     if ($outcome -in 'deployed', 'up-to-date') {
         $why = if ($outcome -eq 'deployed') { "the deploy of $(Get-CmShortSha $Result.Sha) succeeded" } else { 'main is the running version again, so there is nothing left to deploy' }
-        foreach ($kind in (Get-CmAlertKinds).Keys) { if ($kind -ne 'backup-unhealthy') { $clears[$kind] = $why } }
+        # Not the backup or the shelf reader: a good deploy says nothing about either (each clears itself when it is fine).
+        # The api-down kind clears only with a deploy, whose smoke test proves the api answers; a quiet poll proves nothing.
+        $keep = @('backup-unhealthy', 'shelf-reader-failed')
+        if ($outcome -ne 'deployed') { $keep += 'shelf-reader-api-down' }
+        foreach ($kind in (Get-CmAlertKinds).Keys) { if ($kind -notin $keep) { $clears[$kind] = $why } }
     }
     if ($outcome -eq 'known-bad') { $clears['main-tag-moving'] = 'the main image tag has settled on a version' }
     if (Test-CmDockerReached -Result $Result) { $clears['docker-unavailable'] = 'Docker and GHCR answered again' }
