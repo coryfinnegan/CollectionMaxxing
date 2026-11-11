@@ -227,6 +227,62 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
         _log.Messages.ShouldAllBe(m => !m.Contains("Secret") && !m.Contains(Convert.ToBase64String(Jpeg)));
     }
 
+    [Theory]
+    [InlineData("""{"choices":[]}""")]
+    [InlineData("""{}""")]
+    [InlineData("""{"choices":[{"finish_reason":"stop"}]}""")]
+    [InlineData("""[1,2]""")]
+    public async Task A_reply_with_no_usable_choice_is_unavailable_not_an_exception(string body)
+    {
+        _server.Given(Request.Create().WithPath(Path).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody(body));
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Unavailable);
+        result.Items.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("not a url")]
+    [InlineData("localhost:8081")]
+    [InlineData("ftp://127.0.0.1/")]
+    [InlineData("/relative/path")]
+    public async Task A_malformed_endpoint_is_unavailable_with_a_log_line_that_does_not_print_it(string endpoint)
+    {
+        var result = await Reader(endpoint: endpoint).ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Unavailable);
+        _log.Messages.ShouldNotBeEmpty();
+        _log.Messages.ShouldAllBe(m => !m.Contains(endpoint));
+    }
+
+    [Fact]
+    public async Task Invalid_options_make_a_read_unavailable_not_an_exception()
+    {
+        var invalid = new LlamaServerShelfReader(new HttpClient(), new ThrowingOptions(), _log);
+
+        var result = await invalid.ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Unavailable);
+    }
+
+    [Fact]
+    public async Task A_list_that_never_closes_without_the_token_cap_is_cut_short_and_its_repeated_tail_is_cut_to_one()
+    {
+        Reply("""{"items":[{"title":"Emma","creator":"","kind":"book"},{"title":"Dune","creator":"","kind":"book"},{"title":"Dune","creator":"","kind":"book"},{"title":"Du""", finish: "stop");
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.CutShort);
+        result.Items.Select(i => i.Title).ShouldBe(["Emma", "Dune"]);
+    }
+
+    private sealed class ThrowingOptions : IOptions<ShelfReaderOptions>
+    {
+        public ShelfReaderOptions Value => throw new OptionsValidationException("", typeof(ShelfReaderOptions), ["MaxTokens must be above 0."]);
+    }
+
     private static int UnusedPort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

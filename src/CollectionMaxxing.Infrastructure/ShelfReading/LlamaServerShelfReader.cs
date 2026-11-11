@@ -40,10 +40,26 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
 
     public async Task<ShelfReadResult> ReadAsync(byte[] jpeg, CancellationToken cancellationToken)
     {
-        var settings = options.Value;
+        ShelfReaderOptions settings;
+        try
+        {
+            settings = options.Value;
+        }
+        catch (OptionsValidationException)
+        {
+            LogBadSettings(); // the failures name settings, not values; they are left out of the log anyway
+            return ShelfReadResult.Empty(ShelfReadStatus.Unavailable);
+        }
+
         if (string.IsNullOrWhiteSpace(settings.Endpoint))
         {
             return ShelfReadResult.Empty(ShelfReadStatus.Off);
+        }
+
+        if (!ShelfReaderOptions.IsHttpUrl(settings.Endpoint))
+        {
+            LogBadSettings();
+            return ShelfReadResult.Empty(ShelfReadStatus.Unavailable);
         }
 
         var clock = Stopwatch.StartNew();
@@ -86,6 +102,9 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
     [LoggerMessage(Level = LogLevel.Information, Message = "Shelf read ended {Status} with {Count} items in {Milliseconds} ms (HTTP {HttpStatus}).")]
     private partial void LogRead(ShelfReadStatus status, int count, int milliseconds, int httpStatus);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Shelf reader settings are not valid (ShelfReader: Endpoint must be an http or https address; MaxTokens, MaxLongEdge, TimeoutSeconds and MaxRepeats above 0), so nothing was read.")]
+    private partial void LogBadSettings();
+
     private static object Body(byte[] jpeg, ShelfReaderOptions settings) => new
     {
         model = settings.Model,
@@ -108,7 +127,13 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
 
     private static ShelfReadResult Interpret(JsonElement reply, int maxRepeats)
     {
-        var choice = reply.GetProperty("choices")[0];
+        var choices = reply.GetProperty("choices");
+        if (choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0)
+        {
+            return ShelfReadResult.Empty(ShelfReadStatus.Unavailable);
+        }
+
+        var choice = choices[0];
         var content = choice.GetProperty("message").GetProperty("content").GetString() ?? "";
         var finish = choice.TryGetProperty("finish_reason", out var f) ? f.GetString() : null;
         var cut = string.Equals(finish, "length", StringComparison.Ordinal);
@@ -131,7 +156,7 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
             // Stopped without reaching the token cap and the list never closed: usable items are kept, none means a broken reply.
             return items.Count == 0
                 ? ShelfReadResult.Empty(ShelfReadStatus.Unavailable)
-                : new ShelfReadResult(items, ShelfReadStatus.CutShort);
+                : new ShelfReadResult(DropRepeatedTail(items), ShelfReadStatus.CutShort);
         }
 
         return new ShelfReadResult(items, ShelfReadStatus.Ok);

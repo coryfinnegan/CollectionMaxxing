@@ -46,8 +46,20 @@ public sealed class ShelfStillMakerTests
         using var source = Drawn(3000, 1500);
         var exif = new ExifProfile();
         exif.SetValue(ExifTag.Software, "a camera");
+        exif.SetValue(ExifTag.GPSLatitudeRef, "N");
         source.SetProfile(exif);
+        source.SetProfile(new XmpProfile("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><note>secret-xmp</note></x:xmpmeta>"u8.ToArray()));
+        source.SetProfile(ColorProfiles.SRGB);
+        source.SetAttribute("comment", "secret-comment");
         var bytes = Encode(source, MagickFormat.Jpeg);
+        using (var check = new MagickImage(bytes))
+        {
+            // the fixture really carries all four
+            check.GetExifProfile().ShouldNotBeNull();
+            check.GetXmpProfile().ShouldNotBeNull();
+            check.GetColorProfile().ShouldNotBeNull();
+            check.GetAttribute("comment").ShouldBe("secret-comment");
+        }
 
         var still = _maker.Make(bytes);
 
@@ -57,7 +69,18 @@ public sealed class ShelfStillMakerTests
         result.Width.ShouldBe(2048u);
         result.Height.ShouldBe(1024u);
         result.GetExifProfile().ShouldBeNull();
-        result.GetProfile("icc").ShouldBeNull();
+        result.GetXmpProfile().ShouldBeNull();
+        result.GetColorProfile().ShouldBeNull();
+        result.GetAttribute("comment").ShouldBeNull();
+        System.Text.Encoding.Latin1.GetString(still).ShouldNotContain("secret");
+    }
+
+    [Fact]
+    public void An_svg_is_refused_even_though_the_decoder_could_read_it()
+    {
+        var svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"40\"><rect width=\"40\" height=\"40\" fill=\"red\"/></svg>"u8.ToArray();
+
+        _maker.Make(svg).ShouldBeNull();
     }
 
     [Fact]

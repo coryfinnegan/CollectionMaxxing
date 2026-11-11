@@ -22,6 +22,12 @@ public sealed class ShelfStillMaker(IOptions<ShelfReaderOptions> options) : IShe
 
         try
         {
+            // Only the formats a phone or a golden photo set holds. The header is read first: Magick would also decode SVG, PDF and more.
+            if (new MagickImageInfo(picture).Format is not (MagickFormat.Jpeg or MagickFormat.Jpg or MagickFormat.Heic or MagickFormat.Heif or MagickFormat.Png))
+            {
+                return null;
+            }
+
             using var image = new MagickImage(picture);
             image.AutoOrient(); // turn the pixels upright, then the flag means nothing
             var longEdge = (uint)Math.Max(1, options.Value.MaxLongEdge);
