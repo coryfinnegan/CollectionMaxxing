@@ -202,7 +202,8 @@ Test-Case 'uninstall: dry run prints the delete and removes nothing; -Apply dele
 # ---- the compose file (real `docker compose config`, which needs the CLI but no daemon) -------------------------
 
 function Get-RealComposeConfig {
-    param([hashtable]$EnvValues = @{})
+    <# -Profiles gpu adds the services behind that profile (the shelf reader), the way the deployer's guard reads the file. #>
+    param([hashtable]$EnvValues = @{}, [string[]]$Profiles = @())
     $dir = Join-Path ([IO.Path]::GetTempPath()) ("cm-ops1-test-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     try {
@@ -214,7 +215,8 @@ function Get-RealComposeConfig {
         $compose = Join-Path $PSScriptRoot '../docker-compose.yml'
         $script:LastRealComposeEnv = $values       # for the tests that run the config guard on it
         $script:LastRealComposeFile = (Resolve-Path -LiteralPath $compose).Path
-        $r = Invoke-CmReal -Command 'docker' -Arguments @('compose', '--env-file', $envFile, '-f', $compose, '-p', 'collectionmaxxing', 'config', '--format', 'json') -Env @{}
+        $profileArgs = @($Profiles | ForEach-Object { '--profile', $_ })
+        $r = Invoke-CmReal -Command 'docker' -Arguments (@('compose') + $profileArgs + @('--env-file', $envFile, '-f', $compose, '-p', 'collectionmaxxing', 'config', '--format', 'json')) -Env @{}
         if ($r.ExitCode -ne 0) { throw "docker compose config failed: $($r.Output -join ' ')" }
         ($r.Output -join "`n") | ConvertFrom-Json
     }

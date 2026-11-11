@@ -155,6 +155,12 @@ function Get-CmAlertKinds {
             Todo = 'Start Docker Desktop (it should start when you sign in) and check the internet connection. The deployer carries on by itself as soon as both answer.'
             Cleared = 'Docker and the registry answer again'
         }
+        'shelf-reader-failed'     = @{
+            Title = 'Shelf reader: the model on the graphics card is off after a failure'; Labels = $ownerLater; After = 1
+            Summary = 'The shelf reader (llama.cpp on the PC''s graphics card, ADR-033) could not be pulled or started, stopped answering, ran short of disk space, or a model file failed its SHA-256 check. The API runs without it, exactly as before the reader existed; nothing was rolled back.'
+            Todo = 'Read the ALERT shelf-reader lines in the log below (the whole log is at {LOG} on the PC) and deploy/README.md, "The shelf reader". The deployer tries again by itself: 6 hours after a failed start, a day after a bad download. GPU access inside Docker Desktop is the usual suspect (docker run --rm --gpus all <the image> --version). To keep the reader off, set CM_SHELF_READER=0 in .env.'
+            Cleared = 'the reader is switched on, or it is switched off on purpose (CM_SHELF_READER=0, or no graphics card)'
+        }
         'main-tag-moving'         = @{
             Title = 'Deployer: the main image tag keeps moving during checks'; Labels = $ownerLater; After = 10
             Summary = 'The main image tag moved while the deployer was checking it, poll after poll for 10 polls, so it never settled on a version to deploy.'
@@ -206,7 +212,8 @@ function Get-CmAlertClears {
     $clears = @{}
     if ($outcome -in 'deployed', 'up-to-date') {
         $why = if ($outcome -eq 'deployed') { "the deploy of $(Get-CmShortSha $Result.Sha) succeeded" } else { 'main is the running version again, so there is nothing left to deploy' }
-        foreach ($kind in (Get-CmAlertKinds).Keys) { if ($kind -ne 'backup-unhealthy') { $clears[$kind] = $why } }
+        # Not the backup or the shelf reader: a good deploy says nothing about either (each clears itself when it is fine).
+        foreach ($kind in (Get-CmAlertKinds).Keys) { if ($kind -notin 'backup-unhealthy', 'shelf-reader-failed') { $clears[$kind] = $why } }
     }
     if ($outcome -eq 'known-bad') { $clears['main-tag-moving'] = 'the main image tag has settled on a version' }
     if (Test-CmDockerReached -Result $Result) { $clears['docker-unavailable'] = 'Docker and GHCR answered again' }

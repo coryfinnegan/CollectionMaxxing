@@ -28,6 +28,12 @@ function Test-Case {
         $global:CmAgentNow = $null
         $global:CmClaudePath = $null
         $global:CmNow = $null
+        # The shelf reader's seams (Cm.ShelfReader.ps1): the pinned files, the background download, free space and hashing.
+        $global:CmShelfReaderFiles = $null
+        $global:CmStartDetached = $null
+        $global:CmDetachedStarts = $null
+        $global:CmFreeBytes = $null
+        $global:CmFileHash = $null
     }
 }
 
@@ -160,6 +166,14 @@ function New-FakeMachine {
         BackupContainerMissing  `compose ps -q backup` lists no container
         BackupPsFails           make `compose ps -q backup` fail
         BackupInspectFails      make the `docker inspect` of the backup container fail
+        Gpu                     what `nvidia-smi -L` says: $true lists one card, 'empty' answers with no card, $false (default) is not found
+        ReaderHealth            the shelf-reader container: missing (default), healthy, starting, unhealthy, restarting, exited
+        ReaderStartsAs          what `up -d --no-deps shelf-reader` leaves it as (default healthy)
+        ReaderUpFails           make `up -d --no-deps shelf-reader` fail (no GPU access in Docker, say)
+        ReaderPullFails         make the pull of the llama.cpp image fail
+        ReaderImagePresent      the llama.cpp image is already local (default no; a good pull makes it so)
+        ApiUnhealthyWithReader  the api answers 503 while it has the reader's endpoint
+        ApiEndpoint             (read back) the endpoint the api was last started with
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -177,6 +191,8 @@ function New-FakeMachine {
     $m.ImageRows = [System.Collections.Generic.List[string]]::new(); $m.ContainerImages = @(); $m.RmFails = @(); $m.RmAllFail = $false; $m.ListFails = $false
     $m.Issues = [System.Collections.Generic.List[object]]::new(); $m.GhFails = $false; $m.GhThrows = $false; $m.PullThrows = $false
     $m.BackupHealth = 'healthy'; $m.BackupContainerMissing = $false; $m.BackupPsFails = $false; $m.BackupInspectFails = $false
+    $m.Gpu = $false; $m.ReaderHealth = 'missing'; $m.ReaderStartsAs = 'healthy'; $m.ReaderUpFails = $false; $m.ReaderPullFails = $false
+    $m.ReaderImagePresent = $false; $m.ApiUnhealthyWithReader = $false; $m.ApiEndpoint = ''
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
@@ -195,7 +211,23 @@ function New-FakeMachine {
         $fail = { param($code = 1) [pscustomobject]@{ ExitCode = $code; Output = @() } }
         $line = $Arguments -join ' '
         switch ($Command) {
+            'nvidia-smi' {
+                if ("$($m.Gpu)" -eq 'empty') { return & $ok }
+                if ($m.Gpu) { return & $ok @('GPU 0: NVIDIA GeForce RTX 4070 (UUID: GPU-00000000-0000-0000-0000-000000000000)') }
+                return & $fail 127
+            }
             'docker' {
+                # The shelf reader (llama.cpp image, the gpu profile's shelf-reader service).
+                if ($line -match '^pull .*ggml-org/llama\.cpp') { if ($m.ReaderPullFails) { return & $fail } $m.ReaderImagePresent = $true; return & $ok }
+                if ($line -match '^image inspect \S*ggml-org/llama\.cpp') { if ($m.ReaderImagePresent) { return & $ok @('{}') } return & $fail }
+                if ($line -match '^compose .* ps -a --format json shelf-reader$') {
+                    if ($m.ReaderHealth -eq 'missing') { return & $ok }
+                    $state = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { 'running' } else { $m.ReaderHealth }
+                    $health = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { $m.ReaderHealth } else { '' }
+                    return & $ok @(([pscustomobject]@{ Service = 'shelf-reader'; Name = 'collectionmaxxing-shelf-reader-1'; State = $state; Health = $health } | ConvertTo-Json -Compress))
+                }
+                if ($line -match '^compose .* up -d --no-deps shelf-reader$') { if ($m.ReaderUpFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: could not select device driver "nvidia" with capabilities: [[gpu]]') } } $m.ReaderHealth = $m.ReaderStartsAs; return & $ok }
+                if ($line -match '^compose .* stop shelf-reader$') { if ($m.ReaderHealth -ne 'missing') { $m.ReaderHealth = 'exited' } return & $ok }
                 if ($line -match '^pull') { if ($m.PullThrows) { throw 'docker exploded' }; if ($line -match ':main(\s|$)') { $m.MainPulls++ }; if ($m.PullFails) { return & $fail } return & $ok }
                 if ($line -match '^image inspect (\S+)') {
                     $ref = $Matches[1]
@@ -243,6 +275,7 @@ function New-FakeMachine {
                         $rows += [pscustomobject]@{ Service = $svc; Name = "collectionmaxxing-$svc-1"
                             State = $(if ($broken -contains $svc) { 'restarting' } else { 'running' }); Health = '' }
                     }
+                    if ($m.ReaderHealth -ne 'missing') { $rows += [pscustomobject]@{ Service = 'shelf-reader'; Name = 'collectionmaxxing-shelf-reader-1'; State = $(if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { 'running' } else { $m.ReaderHealth }); Health = $(if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { $m.ReaderHealth } else { '' }) } }
                     $rows += [pscustomobject]@{ Service = 'postgres'; Name = 'collectionmaxxing-postgres-1'; State = 'running'; Health = 'healthy' }
                     $rows += [pscustomobject]@{ Service = 'migrate'; Name = 'collectionmaxxing-migrate-1'; State = 'exited'; Health = ''; ExitCode = 0 }
                     return & $ok @(($rows | ConvertTo-Json -Depth 4 -Compress))
@@ -270,7 +303,11 @@ function New-FakeMachine {
                     foreach ($g in $gone) { [void]$m.ImageRows.Remove($g) }
                     return & $ok @("Untagged: $ref")
                 }
-                if ($line -match '^compose .* up -d') { $m.Up = $Env['CM_TAG']; return & $ok }
+                if ($line -match '^compose .* up -d') {
+                    $m.Up = $Env['CM_TAG']
+                    if ($line -match ' api( |$)') { $m.ApiEndpoint = "$($Env['CM_SHELF_READER_ENDPOINT'])" }
+                    return & $ok
+                }
                 if ($line -match '^run --rm') { if ($m.HelperFails) { return & $fail } return & $ok }
                 return & $ok
             }
@@ -351,7 +388,7 @@ function New-FakeMachine {
                     if ($m.AlertFails) { return & $fail 22 }
                     return & $ok @('')
                 }
-                $code = if ($m.UnhealthyTags -contains $m.Up) { '503' } else { '200' }
+                $code = if ($m.UnhealthyTags -contains $m.Up -or ($m.ApiUnhealthyWithReader -and $m.ApiEndpoint)) { '503' } else { '200' }
                 return & $ok @($code)
             }
             default { return & $ok }

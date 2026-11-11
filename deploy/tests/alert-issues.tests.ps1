@@ -608,8 +608,8 @@ Test-Case 'alert issues: no more than 10 issue writes a day, and the cap resets 
         Initialize-Cm -Apply $true
         $ctx = New-TestContext -Root $root
         $envMap = Initialize-CmRun -Ctx $ctx
-        $kinds = @((Get-CmAlertKinds).GetEnumerator() | Where-Object { $_.Value.After -le 1 } | ForEach-Object { $_.Key })
-        Assert-Equal 10 $kinds.Count 'ten kinds alert at once, so ten creates fill the day'
+        $kinds = @((Get-CmAlertKinds).GetEnumerator() | Where-Object { $_.Value.After -le 1 } | ForEach-Object { $_.Key } | Select-Object -First 10)
+        Assert-Equal 10 $kinds.Count 'ten kinds alert at once, so ten creates fill the day (there are more kinds than the cap)'
         $global:CmNow = $script:AlertT0
         foreach ($kind in $kinds) { Add-CmAlertIssue -Ctx $ctx -Result (New-CmResult 'refused' 4 'x' -Kind $kind) -EnvMap $envMap 6>$null }
         $issues = $global:CmMachine.Issues
@@ -647,7 +647,7 @@ Test-Case 'alert issues: every outcome maps to a kind, and manual rollbacks to n
 Test-Case 'alert issues: the labels of every kind follow the rules' {
     $kinds = Get-CmAlertKinds
     $agent = 'deploy-rolled-back', 'smoke-failed', 'migrate-failed', 'config-guard-refused', 'deployer-crashed'
-    $owner = 'attestation-failed', 'downgrade-refused', 'deployer-setup-refused', 'pre-migrate-dump-failed', 'deployer-stuck', 'backup-unhealthy', 'docker-unavailable', 'main-tag-moving'
+    $owner = 'attestation-failed', 'downgrade-refused', 'deployer-setup-refused', 'pre-migrate-dump-failed', 'deployer-stuck', 'backup-unhealthy', 'docker-unavailable', 'main-tag-moving', 'shelf-reader-failed'
     Assert-Equal ((@($agent) + @($owner) | Sort-Object) -join ',') (@($kinds.Keys | Sort-Object) -join ',') 'exactly these kinds'
     foreach ($k in $kinds.Keys) {
         $labels = @($kinds[$k].Labels)
@@ -658,7 +658,7 @@ Test-Case 'alert issues: the labels of every kind follow the rules' {
         else {
             Assert-True ($labels -contains 'needs:cory') "$k needs the owner"
             Assert-False ($labels -contains 'agent-task') "$k must never be handed to an agent"
-            $p = if ($k -in 'docker-unavailable', 'main-tag-moving') { 'p2' } else { 'p1' }
+            $p = if ($k -in 'docker-unavailable', 'main-tag-moving', 'shelf-reader-failed') { 'p2' } else { 'p1' }
             Assert-True ($labels -contains $p) "$k is $p"
         }
         Assert-True ($kinds[$k].Summary -and $kinds[$k].Todo -and $kinds[$k].Title -and $kinds[$k].Cleared) "$k has its texts"

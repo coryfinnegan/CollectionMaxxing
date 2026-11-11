@@ -270,6 +270,26 @@ function Get-CmAllowedMountRoots {
     $roots.ToArray()
 }
 
+function Get-CmModelsRoot {
+    <#
+      The folder that holds the shelf reader's model files (#795): CM_MODELS_DIR from .env (a relative one is read from the
+      compose file's folder, as compose reads it), else ../../models beside the compose file, which on the PC is
+      C:\CollectionMaxxing\models. A path key (ConvertTo-CmPathKey), or '' when it cannot be told.
+    #>
+    param([hashtable]$EnvMap = @{}, [string]$ComposeFile = '')
+    $composeDir = if ($ComposeFile) { (ConvertTo-CmPathKey $ComposeFile) -replace '/[^/]*$', '' } else { '' }
+    $absolute = { param($k) $k.StartsWith('/') -or $k -match '^[a-z]:' }
+    $value = if ($EnvMap.ContainsKey('CM_MODELS_DIR')) { "$($EnvMap['CM_MODELS_DIR'])".Trim() } else { '' }
+    if ($value) {
+        $key = ConvertTo-CmPathKey $value
+        if (& $absolute $key) { return $key }
+        if ($composeDir -and (& $absolute $composeDir)) { return (ConvertTo-CmPathKey "$composeDir/$value") }
+        return ''
+    }
+    if ($composeDir -and (& $absolute $composeDir)) { return (ConvertTo-CmPathKey "$composeDir/../../models") }
+    ''
+}
+
 function Test-CmConfig {
     <#
       The config guard. Takes the parsed .env and the output of `docker compose config --format json`.
@@ -280,6 +300,10 @@ function Test-CmConfig {
       folder that is not on the allow-list (Get-CmAllowedMountRoots; pass the compose file's path so its own default
       folders count), and a named volume that is really a bind of a host folder (driver_opts). Messages name the
       service and the container path, never a host path, because a host path may come from .env.
+      The shelf reader (#795): the models folder (Get-CmModelsRoot) may be bind-mounted read-only only; shelf-reader
+      may not publish a port; only shelf-reader may reserve a device (deploy.resources.reservations.devices, or gpus),
+      and its reservation must be exactly an nvidia device with the gpu capability; .env may not set
+      CM_SHELF_READER_ENDPOINT, which only the deployer passes.
     #>
     param([hashtable]$EnvMap = @{}, $ComposeConfig = $null, [string]$ComposeFile = '')
     $problems = [System.Collections.Generic.List[string]]::new()
@@ -289,8 +313,12 @@ function Test-CmConfig {
             if ($err) { $problems.Add($err) }
         }
     }
+    if ("$($EnvMap['CM_SHELF_READER_ENDPOINT'])".Trim()) {
+        $problems.Add('CM_SHELF_READER_ENDPOINT is set in .env; only the deployer sets it (to the shelf reader once it is on), so remove that line')
+    }
     if ($null -ne $ComposeConfig -and $ComposeConfig.services) {
         $allowed = @(Get-CmAllowedMountRoots -EnvMap $EnvMap -ComposeFile $ComposeFile)
+        $modelsRoot = Get-CmModelsRoot -EnvMap $EnvMap -ComposeFile $ComposeFile
         foreach ($service in $ComposeConfig.services.PSObject.Properties) {
             $name = $service.Name
             $def = $service.Value
@@ -300,6 +328,23 @@ function Test-CmConfig {
             if ("$($def.pid)" -eq 'host') { $problems.Add("service '$name' shares the host process namespace (pid: host)") }
             if ("$($def.ipc)" -eq 'host') { $problems.Add("service '$name' shares the host IPC namespace (ipc: host)") }
             if (@($def.devices | Where-Object { $_ }).Count -gt 0) { $problems.Add("service '$name' maps host devices (devices)") }
+            # Device reservations (the GPU): only the shelf reader, and only one plain NVIDIA GPU.
+            $reserved = @()
+            if ($def.deploy -and $def.deploy.resources -and $def.deploy.resources.reservations) { $reserved = @($def.deploy.resources.reservations.devices | Where-Object { $_ }) }
+            $gpus = @($def.gpus | Where-Object { $_ })
+            if ($name -ne 'shelf-reader') {
+                if ($reserved.Count -gt 0) { $problems.Add("service '$name' reserves a device (deploy.resources.reservations.devices); only shelf-reader may have the GPU") }
+                if ($gpus.Count -gt 0) { $problems.Add("service '$name' asks for a GPU (gpus); only shelf-reader may have the GPU") }
+            }
+            else {
+                if ($gpus.Count -gt 0) { $problems.Add("service 'shelf-reader' asks for a GPU with gpus; it must use deploy.resources.reservations.devices") }
+                foreach ($d in $reserved) {
+                    $caps = @($d.capabilities | ForEach-Object { "$_" })
+                    if ("$($d.driver)" -ne 'nvidia' -or ($caps -join ',') -ne 'gpu') {
+                        $problems.Add("service 'shelf-reader' reserves a device other than one nvidia GPU (driver '$($d.driver)', capabilities '$($caps -join ',')')")
+                    }
+                }
+            }
             foreach ($v in @($def.volumes | Where-Object { $_ })) {
                 $type = "$($v.type)"
                 $target = "$($v.target)"
@@ -310,14 +355,18 @@ function Test-CmConfig {
                     continue
                 }
                 if ($type -ne 'bind') { $problems.Add("service '$name' has a '$type' mount at $target, a kind of mount the guard does not allow"); continue }
+                if ($modelsRoot -and (Test-CmPathUnder -Path $source -Root $modelsRoot)) {
+                    if ($v.read_only -ne $true) { $problems.Add("service '$name' mounts the models folder writable (container path $target); it may only be mounted read-only") }
+                    continue
+                }
                 $inside = $false
                 foreach ($root in $allowed) { if (Test-CmPathUnder -Path $source -Root $root) { $inside = $true; break } }
                 if (-not $inside) {
-                    $problems.Add("service '$name' bind-mounts a host folder outside the folders it may use (container path $target); allowed are the backup, secrets, recognition and evals folders named in .env and the folders beside the compose file")
+                    $problems.Add("service '$name' bind-mounts a host folder outside the folders it may use (container path $target); allowed are the backup, secrets, recognition and evals folders named in .env, the folders beside the compose file, and the models folder (read-only)")
                 }
             }
             $ports = @($def.ports | Where-Object { $_ })
-            if ($name -eq 'postgres' -and $ports.Count -gt 0) { $problems.Add("service 'postgres' must not publish a port") }
+            if ($name -in 'postgres', 'shelf-reader' -and $ports.Count -gt 0) { $problems.Add("service '$name' must not publish a port") }
             foreach ($p in $ports) {
                 if ($p.host_ip -ne '127.0.0.1') {
                     $problems.Add("service '$name' publishes port $($p.published) on '$($p.host_ip)' instead of 127.0.0.1")
@@ -401,4 +450,10 @@ function Get-CmComposeArgs {
     <# The fixed front of every docker compose call. The deployer never edits .env; CM_TAG is passed in the environment. #>
     param($Ctx, [string[]]$Rest)
     @('compose', '--env-file', $Ctx.EnvFile, '-f', $Ctx.ComposeFile, '-p', 'collectionmaxxing') + $Rest
+}
+
+function Get-CmGpuComposeArgs {
+    <# The same with the gpu profile switched on, so the shelf-reader service (#795) is part of the file: the guard reads it this way, and only the reader's own calls start it. #>
+    param($Ctx, [string[]]$Rest)
+    @('compose', '--profile', 'gpu') + @(Get-CmComposeArgs $Ctx $Rest | Select-Object -Skip 1)
 }
