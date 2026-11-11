@@ -22,4 +22,9 @@
     <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" />
   </ItemGroup>
 
+  <!-- Shelf reader (ADR-033): makes the upright JPEG still from a HEIC or JPEG photo. -->
+  <ItemGroup>
+    <PackageReference Include="Magick.NET-Q8-x64" />
+  </ItemGroup>
+
 </Project>

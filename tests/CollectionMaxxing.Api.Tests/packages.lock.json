@@ -802,6 +802,11 @@
           "Json.More.Net": "2.2.0"
         }
       },
+      "Magick.NET.Core": {
+        "type": "Transitive",
+        "resolved": "15.1.0",
+        "contentHash": "WIaemRN4tJvw5BNUfsO8/V3LojV5FOCojQ/sQ4ruXme1o2frRYfcvHPhKV5E6TbYoEdVEvtGX+8Wbut0F2lJHg=="
+      },
       "MetadataReferenceService.Abstractions": {
         "type": "Transitive",
         "resolved": "0.0.1",
@@ -1866,6 +1871,7 @@
           "CollectionMaxxing.Application": "[1.0.0, )",
           "CollectionMaxxing.Domain": "[1.0.0, )",
           "EFCore.NamingConventions": "[10.0.1, )",
+          "Magick.NET-Q8-x64": "[15.1.0, )",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.14, )",
           "Microsoft.Extensions.Diagnostics.HealthChecks": "[10.0.14, )",
           "Microsoft.Extensions.Http.Resilience": "[10.11.0, )",
@@ -1906,6 +1912,15 @@
           "Microsoft.EntityFrameworkCore": "[10.0.1, 11.0.0)",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.1, 11.0.0)",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.1"
+        }
+      },
+      "Magick.NET-Q8-x64": {
+        "type": "CentralTransitive",
+        "requested": "[15.1.0, )",
+        "resolved": "15.1.0",
+        "contentHash": "Fo6mQGnG+MtO8ehF/vpGeN/4OlZRDLO7uv4v2yOlxJGxX0JurLMBt1nYMX4QzPVssdlnpI446W2PEw+27beHbQ==",
+        "dependencies": {
+          "Magick.NET.Core": "15.1.0"
         }
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
