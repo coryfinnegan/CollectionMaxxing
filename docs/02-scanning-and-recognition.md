@@ -34,13 +34,14 @@ Every recognition job has exactly one Apple tool:
 | **Compare artwork** (same item as one you confirmed before? which of these editions?) | **Vision** `VNGenerateImageFeaturePrintRequest` + `computeDistance` | phone | $0 |
 | **Ground everything** against the catalogue | our .NET API: trigram text search + free provider APIs (no AI) | server | $0 |
 
-No third-party AI, no open-source models to download, no vector database, and no cloud AI bill.
+No third-party AI, no vector database, and no cloud AI bill. **Decided, not built yet (ADR-033):** on a shelf, an open-source vision-language model on the server that hosts your library (today, your own PC) also reads the snap, because it reads far more spines than the phone does (#792). Apple's read still shows first.
 
 **The model never decides a match on its own.** Its title is a search query, not an answer. That contains the main weakness of a small on-device model, which can confidently invent a plausible title: an invented title either finds nothing in the catalogue (→ Fix it) or loses to the text, platform and artwork evidence.
 
 **Privacy:** photos stay on the phone. Only the recognised text and structured fields are sent to our API. A photo leaves the phone only if
 
 - you pick "Use my photo" as an item's cover (it's uploaded to your own PC).
+- a shelf reader is set up on your PC (ADR-033, not built yet): a shelf snap is then sent to the server that hosts your library (today, your own PC), read there in memory and thrown away.
 
 ### Two engines, one interface, no modes
 
