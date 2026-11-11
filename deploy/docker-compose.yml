@@ -138,6 +138,10 @@ services:
       - ${CM_EVALS_DIR:-../../evals}/golden:/evals/golden
       - ${CM_EVALS_DIR:-../../evals}/results:/evals/results
       - ../evals/baseline.json:/evals/baseline.json:ro
+    # default: postgres, the dashboard and the internet. reader: the shelf reader, which nothing else may reach.
+    networks:
+      - default
+      - reader
     depends_on:
       postgres:
         condition: service_healthy
@@ -204,7 +208,8 @@ services:
         max-file: "5"
     cap_drop:
       - ALL
-    # Deliberately no "ports": reachable only on the compose network, as postgres is. It listens on 8431 inside the
+    # Deliberately no "ports". It sits only on the internal `reader` network, shared with the api alone: llama-server
+    # has no API key and allows every origin, so nothing else may reach it (and it has no way out to the internet). It listens on 8431 inside the
     # container, passed explicitly (llama-server's own examples use 8080, which belongs to another app on this PC).
     # --sleep-idle-seconds 300 unloads the model after five idle minutes, so the card's memory is free when nobody scans.
     command:
@@ -226,6 +231,8 @@ services:
       - "--jinja"
       - "--sleep-idle-seconds"
       - "300"
+    networks:
+      - reader
     volumes:
       # Read-only: the deployer downloads and verifies the files on the host; the container only reads them.
       - ${CM_MODELS_DIR:-../../models}:/models:ro
@@ -237,12 +244,19 @@ services:
               count: 1
               capabilities: [gpu]
     healthcheck:
-      # /health answers without waking a sleeping model.
+      # /health answers without waking a sleeping model. start_period matches the deployer's 10-minute start window
+      # (CmShelfReaderStartMinutes): loading 6 GB through a Windows bind mount may take minutes, and failed checks
+      # inside it do not count.
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8431/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 120s
+      start_period: 600s
+
+networks:
+  # The api and the shelf reader only (the config guard refuses any other service on it). Internal: no route out.
+  reader:
+    internal: true
 
 volumes:
   pgdata:

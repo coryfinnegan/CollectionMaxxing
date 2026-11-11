@@ -646,19 +646,24 @@ Test-Case 'alert issues: every outcome maps to a kind, and manual rollbacks to n
 
 Test-Case 'alert issues: the labels of every kind follow the rules' {
     $kinds = Get-CmAlertKinds
-    $agent = 'deploy-rolled-back', 'smoke-failed', 'migrate-failed', 'config-guard-refused', 'deployer-crashed'
-    $owner = 'attestation-failed', 'downgrade-refused', 'deployer-setup-refused', 'pre-migrate-dump-failed', 'deployer-stuck', 'backup-unhealthy', 'docker-unavailable', 'main-tag-moving', 'shelf-reader-failed'
-    Assert-Equal ((@($agent) + @($owner) | Sort-Object) -join ',') (@($kinds.Keys | Sort-Object) -join ',') 'exactly these kinds'
+    $agent = 'deploy-rolled-back', 'smoke-failed', 'migrate-failed', 'config-guard-refused', 'deployer-crashed', 'shelf-reader-api-down'
+    # Agent work that does not block anything: the app runs on while it waits.
+    $agentLater = @('shelf-reader-failed')
+    $owner = 'attestation-failed', 'downgrade-refused', 'deployer-setup-refused', 'pre-migrate-dump-failed', 'deployer-stuck', 'backup-unhealthy', 'docker-unavailable', 'main-tag-moving'
+    Assert-Equal ((@($agent) + @($agentLater) + @($owner) | Sort-Object) -join ',') (@($kinds.Keys | Sort-Object) -join ',') 'exactly these kinds'
     foreach ($k in $kinds.Keys) {
         $labels = @($kinds[$k].Labels)
         Assert-True ($labels -contains 'alert' -and $labels -contains 'type:infra') "$k has alert and type:infra"
         if ($agent -contains $k) {
             Assert-Equal $script:AgentLabels ($labels -join ',') $k
         }
+        elseif ($agentLater -contains $k) {
+            Assert-Equal 'alert,type:infra,agent-task,p2' ($labels -join ',') $k
+        }
         else {
             Assert-True ($labels -contains 'needs:cory') "$k needs the owner"
             Assert-False ($labels -contains 'agent-task') "$k must never be handed to an agent"
-            $p = if ($k -in 'docker-unavailable', 'main-tag-moving', 'shelf-reader-failed') { 'p2' } else { 'p1' }
+            $p = if ($k -in 'docker-unavailable', 'main-tag-moving') { 'p2' } else { 'p1' }
             Assert-True ($labels -contains $p) "$k is $p"
         }
         Assert-True ($kinds[$k].Summary -and $kinds[$k].Todo -and $kinds[$k].Title -and $kinds[$k].Cleared) "$k has its texts"

@@ -203,12 +203,15 @@ function New-CmCtxAtCommit {
       Remove-CmCtxAtCommit deletes it. Invoke-CmReal merges stderr into the output, so a garbled copy (a git error in
       the text) is caught by the config guard run on it before anything migrates.
     #>
-    param($Ctx, [string]$Sha)
+    param($Ctx, [string]$Sha, [string]$Purpose = '')
     if ($Sha -cnotmatch '^[0-9a-f]{40}$') { return $null }
+    if ($Purpose -cnotmatch '^[a-z]*$') { return $null }
     $show = Invoke-Cm -Command 'git' -Arguments @('-C', $Ctx.RepoDir, 'show', "${Sha}:deploy/docker-compose.yml")
     if ($show.ExitCode -ne 0 -or -not (@($show.Output) -join '').Trim()) { return $null }
     $dir = Split-Path -Parent $Ctx.ComposeFile
-    $path = Join-Path $dir ".docker-compose.$($Sha.Substring(0, 12)).$PID.yml"
+    # A Purpose (the shelf reader's step) gets a name of its own, so its copy never collides with the deploy's.
+    $tagPart = if ($Purpose) { ".$Purpose" } else { '' }
+    $path = Join-Path $dir ".docker-compose.$($Sha.Substring(0, 12))$tagPart.$PID.yml"
     try { Set-Content -LiteralPath $path -Value (@($show.Output) -join "`n") -Encoding utf8 } catch { return $null }
     $copy = $Ctx.PSObject.Copy()
     $copy.ComposeFile = $path
@@ -269,7 +272,7 @@ function Get-CmPlan {
     $plan += Format-CmCommand 'docker' @('image', 'ls', '--no-trunc', '--format', '{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}')
     $plan += Format-CmCommand 'docker' @('ps', '-a', '--no-trunc', '--format', '{{.Image}}')
     $plan += Format-CmCommand 'docker' @('image', 'rm', "$($Ctx.ImagePrefix)api:<old sha>")
-    $plan += '(then, after a good deploy and on every quiet poll, the shelf reader, unless CM_SHELF_READER=0 is set in .env: only on a host whose nvidia-smi lists a card; missing model files are fetched in the background from the pinned revision and verified on a later poll; once both verify, the llama.cpp image is pulled and the reader started; the api gets the endpoint only after the reader is healthy. A reader problem is an ALERT shelf-reader line, never a rollback)'
+    $plan += '(then, on every quiet poll (never in a pass that just deployed), the shelf reader, unless CM_SHELF_READER=0 is set in .env: only on a host whose nvidia-smi lists a card; missing model files are fetched in the background from the pinned revision and verified on a later poll; once both verify, the llama.cpp image is pulled and the reader started; the api gets the endpoint only after the reader is healthy. A reader problem is an ALERT shelf-reader line, never a rollback)'
     $plan += Format-CmCommand 'nvidia-smi' @('-L')
     foreach ($line in Get-CmShelfReaderPlan -Ctx $Ctx) { $plan += $line }
     $plan += '(any refusal, failure or rollback exits non-zero, writes an ALERT line to the log and pings <CM_HEARTBEAT_URL>/fail)'
@@ -1064,8 +1067,7 @@ function Invoke-CmDeployCore {
             Write-CmState -Path $Ctx.StateFile -State $state
             Write-CmLog "deployed $($sha.Substring(0, 12)); smoke test passed"
             Remove-CmRetiredIpa -Ctx $Ctx
-            # Only now, with the new version proven and recorded: the reader can no longer change this deploy's outcome.
-            Invoke-CmShelfReader -Ctx $Ctx
+            # No shelf reader step here: a pass that deployed has spent its time; the next quiet poll (2 minutes) does it.
             Invoke-CmImagePrune -Ctx $Ctx
             return New-CmResult 'deployed' 0 -Sha $sha
         }

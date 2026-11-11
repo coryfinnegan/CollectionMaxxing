@@ -11,6 +11,14 @@
 # Ports other apps on this PC already use. The API is 5480; the Aspire dashboard is 18888.
 $script:CmForbiddenPorts = @(8080, 8409, 32400, 8096)
 
+# The shelf reader's image (#795), pinned by repository and digest. The config guard refuses any other image on
+# shelf-reader, and the deployer pulls exactly this reference. Bump deliberately, together with docker-compose.yml.
+$script:CmShelfReaderImageRepo = 'ghcr.io/ggml-org/llama.cpp'
+$script:CmShelfReaderImageDigest = 'sha256:bb29527ecb3da442d9459591c252351d957b6e3ee1635e8d0406c0a4442eb08c'
+$script:CmShelfReaderImage = "$($script:CmShelfReaderImageRepo):server-cuda-b12282@$($script:CmShelfReaderImageDigest)"
+# The compose network only the api and the reader share (llama-server has no API key and allows every origin).
+$script:CmShelfReaderNetwork = 'reader'
+
 function Initialize-Cm {
     <# Sets the run mode. Call once at the top of an entry script. #>
     param(
@@ -300,10 +308,13 @@ function Test-CmConfig {
       folder that is not on the allow-list (Get-CmAllowedMountRoots; pass the compose file's path so its own default
       folders count), and a named volume that is really a bind of a host folder (driver_opts). Messages name the
       service and the container path, never a host path, because a host path may come from .env.
-      The shelf reader (#795): the models folder (Get-CmModelsRoot) may be bind-mounted read-only only; shelf-reader
-      may not publish a port; only shelf-reader may reserve a device (deploy.resources.reservations.devices, or gpus),
-      and its reservation must be exactly an nvidia device with the gpu capability; .env may not set
-      CM_SHELF_READER_ENDPOINT, which only the deployer passes.
+      The shelf reader (#795): shelf-reader runs only the pinned image, publishes no port, sits only on the internal
+      `reader` network (which no service but the api may join), and binds nothing but folders inside the models folder
+      (Get-CmModelsRoot), read-only. The models folder is allowed for shelf-reader alone, never for another service, and
+      a models folder that is a drive root or holds the stack's own folders is refused. Only shelf-reader may reserve a
+      device (deploy.resources.reservations.devices, or gpus), and its reservation must be exactly one nvidia GPU (count
+      1, no device_ids, capabilities [gpu]). No service may set runtime:, and no other service may set
+      NVIDIA_VISIBLE_DEVICES or NVIDIA_DRIVER_CAPABILITIES. .env may not set CM_SHELF_READER_ENDPOINT (the deployer's).
     #>
     param([hashtable]$EnvMap = @{}, $ComposeConfig = $null, [string]$ComposeFile = '')
     $problems = [System.Collections.Generic.List[string]]::new()
@@ -319,6 +330,24 @@ function Test-CmConfig {
     if ($null -ne $ComposeConfig -and $ComposeConfig.services) {
         $allowed = @(Get-CmAllowedMountRoots -EnvMap $EnvMap -ComposeFile $ComposeFile)
         $modelsRoot = Get-CmModelsRoot -EnvMap $EnvMap -ComposeFile $ComposeFile
+        if ($modelsRoot) {
+            # The models folder must not widen what the reader can see: not a drive root, not the stack's own root or
+            # anything holding it, and not a folder that holds one of the allowed folders.
+            $composeDir = if ($ComposeFile) { (ConvertTo-CmPathKey $ComposeFile) -replace '/[^/]*$', '' } else { '' }
+            $holds = @($allowed)
+            if ($composeDir) { $holds += (ConvertTo-CmPathKey "$composeDir/../..") }
+            $wide = $modelsRoot -match '^([a-z]:)?/?$' -or @($holds | Where-Object { $_ -and (Test-CmPathUnder -Path $_ -Root $modelsRoot) }).Count -gt 0
+            if ($wide) {
+                $problems.Add('CM_MODELS_DIR names a drive root or a folder that holds the stack''s own folders; give the model files a folder of their own (default C:\CollectionMaxxing\models)')
+                $modelsRoot = ''
+            }
+        }
+        $services = @($ComposeConfig.services.PSObject.Properties.Name)
+        if ($services -contains 'shelf-reader') {
+            $net = $null
+            if ($ComposeConfig.networks) { $net = $ComposeConfig.networks.PSObject.Properties[$script:CmShelfReaderNetwork] }
+            if (-not $net -or $net.Value.internal -ne $true) { $problems.Add("the '$($script:CmShelfReaderNetwork)' network of the shelf reader must exist and be internal (internal: true)") }
+        }
         foreach ($service in $ComposeConfig.services.PSObject.Properties) {
             $name = $service.Name
             $def = $service.Value
@@ -328,6 +357,22 @@ function Test-CmConfig {
             if ("$($def.pid)" -eq 'host') { $problems.Add("service '$name' shares the host process namespace (pid: host)") }
             if ("$($def.ipc)" -eq 'host') { $problems.Add("service '$name' shares the host IPC namespace (ipc: host)") }
             if (@($def.devices | Where-Object { $_ }).Count -gt 0) { $problems.Add("service '$name' maps host devices (devices)") }
+            if ("$($def.runtime)".Trim()) { $problems.Add("service '$name' sets a container runtime (runtime: $($def.runtime))") }
+            $envNames = @()
+            if ($def.environment -is [System.Management.Automation.PSCustomObject]) { $envNames = @($def.environment.PSObject.Properties.Name) }
+            elseif ($def.environment) { $envNames = @($def.environment | ForEach-Object { ("$_" -split '=', 2)[0] }) }
+            if ($name -ne 'shelf-reader' -and @($envNames | Where-Object { $_ -in 'NVIDIA_VISIBLE_DEVICES', 'NVIDIA_DRIVER_CAPABILITIES' }).Count -gt 0) {
+                $problems.Add("service '$name' asks the NVIDIA runtime for the GPU (NVIDIA_VISIBLE_DEVICES or NVIDIA_DRIVER_CAPABILITIES); only shelf-reader may have the GPU")
+            }
+            $nets = if ($def.networks) { @($def.networks.PSObject.Properties.Name) } else { @('default') }
+            if ($name -eq 'shelf-reader') {
+                if (($nets -join ',') -ne $script:CmShelfReaderNetwork) { $problems.Add("service 'shelf-reader' must be on the '$($script:CmShelfReaderNetwork)' network only (it is on: $($nets -join ', '))") }
+                $pinned = '^' + [regex]::Escape($script:CmShelfReaderImageRepo) + '(:[A-Za-z0-9._-]+)?@' + [regex]::Escape($script:CmShelfReaderImageDigest) + '$'
+                if ("$($def.image)" -notmatch $pinned) { $problems.Add("service 'shelf-reader' must run the pinned image $($script:CmShelfReaderImageRepo)@$($script:CmShelfReaderImageDigest), not '$($def.image)'") }
+            }
+            elseif ($name -ne 'api' -and $nets -contains $script:CmShelfReaderNetwork) {
+                $problems.Add("service '$name' joins the '$($script:CmShelfReaderNetwork)' network; only the api may reach the shelf reader")
+            }
             # Device reservations (the GPU): only the shelf reader, and only one plain NVIDIA GPU.
             $reserved = @()
             if ($def.deploy -and $def.deploy.resources -and $def.deploy.resources.reservations) { $reserved = @($def.deploy.resources.reservations.devices | Where-Object { $_ }) }
@@ -340,10 +385,12 @@ function Test-CmConfig {
                 if ($gpus.Count -gt 0) { $problems.Add("service 'shelf-reader' asks for a GPU with gpus; it must use deploy.resources.reservations.devices") }
                 foreach ($d in $reserved) {
                     $caps = @($d.capabilities | ForEach-Object { "$_" })
-                    if ("$($d.driver)" -ne 'nvidia' -or ($caps -join ',') -ne 'gpu') {
-                        $problems.Add("service 'shelf-reader' reserves a device other than one nvidia GPU (driver '$($d.driver)', capabilities '$($caps -join ',')')")
+                    $ids = @($d.device_ids | Where-Object { $_ })
+                    if ("$($d.driver)" -ne 'nvidia' -or ($caps -join ',') -ne 'gpu' -or "$($d.count)" -ne '1' -or $ids.Count -gt 0) {
+                        $problems.Add("service 'shelf-reader' reserves a device other than one nvidia GPU (driver '$($d.driver)', count '$($d.count)', capabilities '$($caps -join ',')', device_ids '$($ids -join ',')')")
                     }
                 }
+                if ($reserved.Count -gt 1) { $problems.Add("service 'shelf-reader' reserves more than one device") }
             }
             foreach ($v in @($def.volumes | Where-Object { $_ })) {
                 $type = "$($v.type)"
@@ -355,14 +402,16 @@ function Test-CmConfig {
                     continue
                 }
                 if ($type -ne 'bind') { $problems.Add("service '$name' has a '$type' mount at $target, a kind of mount the guard does not allow"); continue }
-                if ($modelsRoot -and (Test-CmPathUnder -Path $source -Root $modelsRoot)) {
-                    if ($v.read_only -ne $true) { $problems.Add("service '$name' mounts the models folder writable (container path $target); it may only be mounted read-only") }
+                if ($name -eq 'shelf-reader') {
+                    # The reader binds the models folder and nothing else, read-only.
+                    if (-not $modelsRoot -or -not (Test-CmPathUnder -Path $source -Root $modelsRoot)) { $problems.Add("service 'shelf-reader' bind-mounts a host folder outside the models folder (container path $target)") }
+                    elseif ($v.read_only -ne $true) { $problems.Add("service 'shelf-reader' mounts the models folder writable (container path $target); it may only be mounted read-only") }
                     continue
                 }
                 $inside = $false
                 foreach ($root in $allowed) { if (Test-CmPathUnder -Path $source -Root $root) { $inside = $true; break } }
                 if (-not $inside) {
-                    $problems.Add("service '$name' bind-mounts a host folder outside the folders it may use (container path $target); allowed are the backup, secrets, recognition and evals folders named in .env, the folders beside the compose file, and the models folder (read-only)")
+                    $problems.Add("service '$name' bind-mounts a host folder outside the folders it may use (container path $target); allowed are the backup, secrets, recognition and evals folders named in .env and the folders beside the compose file (the models folder is the shelf reader's alone)")
                 }
             }
             $ports = @($def.ports | Where-Object { $_ })

@@ -34,6 +34,7 @@ function Test-Case {
         $global:CmDetachedStarts = $null
         $global:CmFreeBytes = $null
         $global:CmFileHash = $null
+        $global:CmFindDownload = $null
     }
 }
 
@@ -173,7 +174,8 @@ function New-FakeMachine {
         ReaderPullFails         make the pull of the llama.cpp image fail
         ReaderImagePresent      the llama.cpp image is already local (default no; a good pull makes it so)
         ApiUnhealthyWithReader  the api answers 503 while it has the reader's endpoint
-        ApiEndpoint             (read back) the endpoint the api was last started with
+        ApiEndpoint             (read back) the endpoint the api was last started with; `docker inspect --format {{json .Config.Env}}` reports it
+        ReaderThrows            make the reader's `compose ps` throw (an unexpected crash inside the reader step)
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -192,12 +194,12 @@ function New-FakeMachine {
     $m.Issues = [System.Collections.Generic.List[object]]::new(); $m.GhFails = $false; $m.GhThrows = $false; $m.PullThrows = $false
     $m.BackupHealth = 'healthy'; $m.BackupContainerMissing = $false; $m.BackupPsFails = $false; $m.BackupInspectFails = $false
     $m.Gpu = $false; $m.ReaderHealth = 'missing'; $m.ReaderStartsAs = 'healthy'; $m.ReaderUpFails = $false; $m.ReaderPullFails = $false
-    $m.ReaderImagePresent = $false; $m.ApiUnhealthyWithReader = $false; $m.ApiEndpoint = ''
+    $m.ReaderImagePresent = $false; $m.ApiUnhealthyWithReader = $false; $m.ApiEndpoint = ''; $m.ReaderThrows = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
     $global:CmRunner = {
-        param($Command, $Arguments, $Env, $Mutating, $InputText)
+        param($Command, $Arguments, $Env, $Mutating, $InputText, $TimeoutSeconds)
         $m = $global:CmMachine
         $display = Format-CmCommand -Command $Command -Arguments $Arguments -Env $Env
         # For a compose call, remember which file it was given and what was in it at that moment (the deployer deletes its temp copies).
@@ -206,7 +208,7 @@ function New-FakeMachine {
             $fi = [array]::IndexOf($Arguments, '-f')
             if ($fi -ge 0) { $composeFile = $Arguments[$fi + 1]; if (Test-Path -LiteralPath $composeFile) { $composeText = (Get-Content -LiteralPath $composeFile -Raw).Trim() } }
         }
-        $global:CmCalls.Add([pscustomobject]@{ Command = $Command; Arguments = $Arguments; Env = $Env; Mutating = $Mutating; Display = $display; ComposeFile = $composeFile; ComposeText = $composeText; InputText = $InputText })
+        $global:CmCalls.Add([pscustomobject]@{ Command = $Command; Arguments = $Arguments; Env = $Env; Mutating = $Mutating; Display = $display; ComposeFile = $composeFile; ComposeText = $composeText; InputText = $InputText; TimeoutSeconds = [int]$TimeoutSeconds })
         $ok = { param($lines = @()) [pscustomobject]@{ ExitCode = 0; Output = @($lines) } }
         $fail = { param($code = 1) [pscustomobject]@{ ExitCode = $code; Output = @() } }
         $line = $Arguments -join ' '
@@ -221,6 +223,7 @@ function New-FakeMachine {
                 if ($line -match '^pull .*ggml-org/llama\.cpp') { if ($m.ReaderPullFails) { return & $fail } $m.ReaderImagePresent = $true; return & $ok }
                 if ($line -match '^image inspect \S*ggml-org/llama\.cpp') { if ($m.ReaderImagePresent) { return & $ok @('{}') } return & $fail }
                 if ($line -match '^compose .* ps -a --format json shelf-reader$') {
+                    if ($m.ReaderThrows) { throw 'docker compose exploded' }
                     if ($m.ReaderHealth -eq 'missing') { return & $ok }
                     $state = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { 'running' } else { $m.ReaderHealth }
                     $health = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { $m.ReaderHealth } else { '' }
@@ -244,6 +247,11 @@ function New-FakeMachine {
                         Config      = @{ Labels = @{ 'org.opencontainers.image.revision' = $rev } }
                     } | ConvertTo-Json -Depth 6 -Compress
                     return & $ok @($json)
+                }
+                if ($line -match '^inspect \S+ --format \{\{json \.Config\.Env\}\}$') {
+                    # The running api's environment: what the shelf reader step reads to know whether it has the endpoint.
+                    if ($m.ApiInspectFails) { return & $fail 1 }
+                    return & $ok @((ConvertTo-Json -InputObject @('ASPNETCORE_HTTP_PORTS=5480', "ShelfReader__Endpoint=$($m.ApiEndpoint)") -Compress))
                 }
                 if ($line -match '^inspect \S+ --format \{\{json \.State\.Health\}\}') {
                     # The backup container's health (what its HEALTHCHECK, backup.sh health, last reported).
