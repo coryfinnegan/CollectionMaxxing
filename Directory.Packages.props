@@ -47,6 +47,11 @@
     <PackageVersion Include="OpenCvSharp4.official.runtime.linux-x64" Version="4.13.0.20260627" />
   </ItemGroup>
 
+  <!-- Shelf reader (ADR-033): decodes HEIC and JPEG photos into the upright JPEG the reader is sent. Apache-2.0. -->
+  <ItemGroup Label="Imaging">
+    <PackageVersion Include="Magick.NET-Q8-x64" Version="15.1.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Tests">
     <PackageVersion Include="xunit.v3.mtp-off" Version="4.0.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
