@@ -1,0 +1,255 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text.Json;
+using CollectionMaxxing.Application.ShelfReading;
+using CollectionMaxxing.Infrastructure.ShelfReading;
+using CollectionMaxxing.Infrastructure.Tests.Providers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Shouldly;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
+using Xunit;
+
+namespace CollectionMaxxing.Infrastructure.Tests.ShelfReading;
+
+/// <summary>The llama-server client, end to end against WireMock on a random loopback port. No live server, no model.</summary>
+public sealed class LlamaServerShelfReaderTests : IDisposable
+{
+    private const string Path = "/v1/chat/completions";
+
+    private static readonly byte[] Jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 0xFF, 0xD9];
+
+    private readonly WireMockServer _server = LoopbackWireMock.Start();
+
+    private readonly CapturingLogger _log = new();
+
+    public void Dispose() => _server.Dispose();
+
+    private LlamaServerShelfReader Reader(Action<ShelfReaderOptions>? tweak = null, string? endpoint = null)
+    {
+        var options = new ShelfReaderOptions { Endpoint = endpoint ?? _server.Url!, Model = "test-model", TimeoutSeconds = 30 };
+        tweak?.Invoke(options);
+        return new LlamaServerShelfReader(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, Options.Create(options), _log);
+    }
+
+    private void Reply(string content, string finish = "stop", int status = 200)
+    {
+        var body = JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content }, finish_reason = finish } } });
+        _server.Given(Request.Create().WithPath(Path).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(status).WithHeader("Content-Type", "application/json").WithBody(body));
+    }
+
+    private static string Items(params (string Title, string Creator, string Kind)[] items) =>
+        JsonSerializer.Serialize(new { items = items.Select(i => new { title = i.Title, creator = i.Creator, kind = i.Kind }) });
+
+    [Fact]
+    public async Task With_no_endpoint_the_reader_is_off_and_calls_nothing()
+    {
+        Reply(Items(("A", "", "book")));
+
+        var result = await Reader(endpoint: "").ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Off);
+        result.Items.ShouldBeEmpty();
+        _server.LogEntries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_read_posts_one_chat_completion_with_the_picture_prompt_model_schema_and_token_cap()
+    {
+        Reply(Items(("Dune", "Frank Herbert", "book")));
+
+        var result = await Reader(o => o.MaxTokens = 1234).ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        var request = _server.LogEntries.Single().RequestMessage!;
+        request.Path.ShouldBe(Path);
+        using var doc = JsonDocument.Parse(request.Body!);
+        var root = doc.RootElement;
+        root.GetProperty("model").GetString().ShouldBe("test-model");
+        root.GetProperty("temperature").GetDouble().ShouldBe(0);
+        root.GetProperty("max_tokens").GetInt32().ShouldBe(1234);
+        var content = root.GetProperty("messages").EnumerateArray().Single().GetProperty("content").EnumerateArray().ToArray();
+        var image = content.Single(c => c.GetProperty("type").GetString() == "image_url");
+        image.GetProperty("image_url").GetProperty("url").GetString()
+            .ShouldBe("data:image/jpeg;base64," + Convert.ToBase64String(Jpeg));
+        content.Single(c => c.GetProperty("type").GetString() == "text").GetProperty("text").GetString()
+            .ShouldBe(ShelfReaderOptions.DefaultPrompt);
+        var format = root.GetProperty("response_format");
+        format.GetProperty("type").GetString().ShouldBe("json_schema");
+        var schema = format.GetProperty("json_schema").GetProperty("schema");
+        var item = schema.GetProperty("properties").GetProperty("items").GetProperty("items");
+        item.GetProperty("properties").GetProperty("kind").GetProperty("enum").EnumerateArray().Select(k => k.GetString())
+            .ShouldBe(["book", "film", "tv", "game"]);
+        item.GetProperty("required").EnumerateArray().Select(k => k.GetString()).ShouldBe(["title", "creator", "kind"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public void The_default_prompt_is_the_spikes_prompt()
+    {
+        ShelfReaderOptions.DefaultPrompt.ShouldStartWith("This is a photo of a shelf of books, video tapes, discs or games.");
+        ShelfReaderOptions.DefaultPrompt.ShouldEndWith("repeat an entry if there are two copies.");
+    }
+
+    [Fact]
+    public async Task Items_come_back_in_order_with_unknown_kinds_as_none_blank_titles_dropped_and_text_trimmed()
+    {
+        Reply(Items(("  Dune ", " Frank Herbert  ", "book"), ("   ", "Nobody", "book"), ("Alien", "", "film"), ("Mystery", "", "podcast"), ("Halo", "", "GAME"), ("Lost", "", "tv")));
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.ShouldBe([
+            new ShelfReadItem("Dune", "Frank Herbert", ShelfItemKind.Book),
+            new ShelfReadItem("Alien", "", ShelfItemKind.Film),
+            new ShelfReadItem("Mystery", "", ShelfItemKind.None),
+            new ShelfReadItem("Halo", "", ShelfItemKind.Game),
+            new ShelfReadItem("Lost", "", ShelfItemKind.Tv),
+        ]);
+    }
+
+    [Fact]
+    public async Task A_title_repeated_more_than_the_limit_in_a_row_is_kept_only_up_to_the_limit()
+    {
+        Reply(Items(("Dune", "", "book"), ("Dune", "", "book"), ("dune", "", "book"), ("Dune", "", "book"), ("Emma", "", "book"), ("Dune", "", "book")));
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Dune", "Emma", "Dune"]);
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+    }
+
+    [Fact]
+    public async Task A_read_stopped_at_the_token_cap_keeps_complete_items_cuts_the_repeated_tail_to_one_and_says_cut_short()
+    {
+        const string cut = """{"items":[{"title":"Emma","creator":"Austen","kind":"book"},{"title":"Dune","creator":"","kind":"book"},{"title":"Dune","creator":"","kind":"book"},{"title":"Dune","creator":"","kind":"book"},{"title":"Du""";
+        Reply(cut, finish: "length");
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.CutShort);
+        result.Items.Select(i => i.Title).ShouldBe(["Emma", "Dune"]);
+    }
+
+    [Fact]
+    public async Task A_cut_short_read_with_no_repeats_keeps_every_complete_item()
+    {
+        Reply("""{"items":[{"title":"Emma","creator":"","kind":"book"},{"title":"Ali""", finish: "length");
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.CutShort);
+        result.Items.Select(i => i.Title).ShouldBe(["Emma"]);
+    }
+
+    [Fact]
+    public async Task A_slow_read_is_a_timeout_and_is_not_retried()
+    {
+        _server.Given(Request.Create().WithPath(Path).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}").WithDelay(TimeSpan.FromSeconds(4)));
+
+        var result = await Reader(o => o.TimeoutSeconds = 1).ReadAsync(Jpeg, default);
+        await Task.Delay(TimeSpan.FromSeconds(4)); // WireMock logs a request when its delayed reply ends
+
+        result.Status.ShouldBe(ShelfReadStatus.TimedOut);
+        result.Items.ShouldBeEmpty();
+        _server.LogEntries.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_server_that_is_down_is_unavailable_and_does_not_throw()
+    {
+        var result = await Reader(endpoint: $"http://127.0.0.1:{UnusedPort()}").ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Unavailable);
+        result.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_server_error_is_unavailable_and_is_not_retried()
+    {
+        Reply("oops", status: 500);
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Unavailable);
+        _server.LogEntries.Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("I can see some books on a shelf.")]
+    [InlineData("""{"items":[{"title":"Emma","crea""")]
+    [InlineData("""{"other":1}""")]
+    public async Task A_reply_that_is_not_the_schema_is_an_empty_read_marked_unavailable(string content)
+    {
+        Reply(content);
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Unavailable);
+        result.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_empty_items_list_is_a_good_empty_read()
+    {
+        Reply("""{"items":[]}""");
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Cancellation_propagates()
+    {
+        _server.Given(Request.Create().WithPath(Path).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}").WithDelay(TimeSpan.FromSeconds(4)));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+
+        await Should.ThrowAsync<OperationCanceledException>(() => Reader().ReadAsync(Jpeg, cts.Token));
+    }
+
+    [Fact]
+    public async Task Logs_carry_no_titles_and_no_picture_bytes()
+    {
+        Reply(Items(("Secret Title", "Secret Author", "book")));
+
+        await Reader().ReadAsync(Jpeg, default);
+        _server.Reset();
+        Reply("not json at all Secret Title");
+        await Reader().ReadAsync(Jpeg, default);
+
+        _log.Messages.ShouldNotBeEmpty();
+        _log.Messages.ShouldAllBe(m => !m.Contains("Secret") && !m.Contains(Convert.ToBase64String(Jpeg)));
+    }
+
+    private static int UnusedPort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            return ((IPEndPoint)listener.LocalEndpoint).Port;
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private sealed class CapturingLogger : ILogger<LlamaServerShelfReader>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception) + exception);
+    }
+}

@@ -13,6 +13,15 @@
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.1"
         }
       },
+      "Magick.NET-Q8-x64": {
+        "type": "Direct",
+        "requested": "[15.1.0, )",
+        "resolved": "15.1.0",
+        "contentHash": "Fo6mQGnG+MtO8ehF/vpGeN/4OlZRDLO7uv4v2yOlxJGxX0JurLMBt1nYMX4QzPVssdlnpI446W2PEw+27beHbQ==",
+        "dependencies": {
+          "Magick.NET.Core": "15.1.0"
+        }
+      },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
         "type": "Direct",
         "requested": "[10.0.14, )",
@@ -74,6 +83,11 @@
         "requested": "[4.13.0.20260627, )",
         "resolved": "4.13.0.20260627",
         "contentHash": "POIxR+CTpwHJIdam6wd8U2fprWv5QnIUw50jw79WEGb37He3T1h11SdtwSj9p2PLSfrzonMjO2t71wqi5uFsoQ=="
+      },
+      "Magick.NET.Core": {
+        "type": "Transitive",
+        "resolved": "15.1.0",
+        "contentHash": "WIaemRN4tJvw5BNUfsO8/V3LojV5FOCojQ/sQ4ruXme1o2frRYfcvHPhKV5E6TbYoEdVEvtGX+8Wbut0F2lJHg=="
       },
       "Microsoft.AspNetCore.Cryptography.Internal": {
         "type": "Transitive",

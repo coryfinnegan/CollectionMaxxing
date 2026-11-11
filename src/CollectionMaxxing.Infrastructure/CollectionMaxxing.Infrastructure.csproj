@@ -17,6 +17,7 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
     <!-- Cover verification (#438 stage 2): SIFT matching. Both runtimes so Windows dev and Linux containers/CI each load their native library. -->
+    <PackageReference Include="Magick.NET-Q8-x64" />
     <PackageReference Include="OpenCvSharp4" />
     <PackageReference Include="OpenCvSharp4.runtime.win" />
     <PackageReference Include="OpenCvSharp4.official.runtime.linux-x64" />
