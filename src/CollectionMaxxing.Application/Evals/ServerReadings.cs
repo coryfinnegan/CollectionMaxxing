@@ -19,6 +19,19 @@ public static class ServerEngines
     public static bool Is(string engine) => engine is Model or Vision;
 }
 
+/// <summary>Whether grounding a photo also asks for the server's own reading of it.</summary>
+public enum ServerReadMode
+{
+    /// <summary>No server row (the one-shot upload, which runs inside a request).</summary>
+    None,
+
+    /// <summary>A reading already kept for this photo and these settings, else no row; the reader and the still maker are never called (a live phone run).</summary>
+    CachedOnly,
+
+    /// <summary>A kept reading, else a read (the re-ground).</summary>
+    Read,
+}
+
 /// <summary>One reading of a golden photo: what the reader said and how long it took (the reader's own time; a cached reading keeps the time it took).</summary>
 public sealed record ServerReading(ShelfReadResult Result, long LatencyMs);
 
@@ -34,8 +47,11 @@ public interface IServerReadings
     /// <summary>The model and the prompt's hash the reader is set to, for the report.</summary>
     string ReaderLabel { get; }
 
-    /// <summary>The reading of the golden photo, or null when there is nothing to read (no reader, or the photo cannot be opened).</summary>
-    Task<ServerReading?> ReadAsync(string photoId, CancellationToken cancellationToken);
+    /// <summary>
+    /// The reading of the golden photo, or null when there is nothing to read (no reader, the photo cannot be opened, or <paramref name="cachedOnly"/> and none is kept).
+    /// With <paramref name="cachedOnly"/> the reader and the still maker are never called.
+    /// </summary>
+    Task<ServerReading?> ReadAsync(string photoId, bool cachedOnly, CancellationToken cancellationToken);
 }
 
 /// <summary>Shapes one reading as the phone's model would have uploaded it, so it is grounded by the very same code.</summary>

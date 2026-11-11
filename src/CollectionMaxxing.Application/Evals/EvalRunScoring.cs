@@ -1,5 +1,6 @@
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Application.ShelfReading;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -102,13 +103,14 @@ public sealed class EvalRunScoring(
     /// that row's shot kind is no longer Vision's alone, and a model read the app would not send does not vote.
     /// </summary>
     /// <remarks>
-    /// With <paramref name="readOnServer"/> and a reader set up (<see cref="IServerReadings.IsConfigured"/>), the server also reads the photo itself and a
+    /// With <paramref name="server"/> other than <see cref="ServerReadMode.None"/> and a reader set up (<see cref="IServerReadings.IsConfigured"/>), the server also reads the photo itself and a
     /// <see cref="ServerEngines.Model"/> row is added after every row above, grounded as the model's items are and with the printed kind lent too
     /// (<see cref="GroundServerRowAsync"/>). It reads nothing the phone's rows are made from: no row above, and no <c>printedPlatforms</c>, changes for it.
-    /// A background job asks for it; the one-shot route, which runs inside a request, never does.
+    /// A live phone run only uses a cached reading (<see cref="ServerReadMode.CachedOnly"/>), the re-ground reads on a miss, the one-shot route never asks.
+    /// A failure of the server row (anything but cancellation) gives that photo an error row and never touches the phone's rows.
     /// </remarks>
     public async Task<IReadOnlyList<GroundedPhoto>> GroundPhotoAsync(
-        IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken, bool readOnServer = false)
+        IReadOnlyList<EvalPhotoInput> results, EvalGroundingMemo memo, CancellationToken cancellationToken, ServerReadMode server = ServerReadMode.None)
     {
         results = [.. results.Select(EvalSpineLines.Rebuild)]; // a run from before the phone sent each spine's lines gets them from its pieces
         // The app sends one identify per snap holding both engines' reads, so a platform printed on any line of the shot is printed for every
@@ -148,10 +150,21 @@ public sealed class EvalRunScoring(
             grounded[appleIndex] = await WithPrintLentAsync(grounded[appleIndex], apple, kind, memo, printedPlatforms, cancellationToken);
         }
 
-        if (readOnServer && serverReadings is { IsConfigured: true } && results.Count > 0 && results[0].PhotoId is { } photoId
-            && await serverReadings.ReadAsync(photoId, cancellationToken) is { } reading)
+        if (server != ServerReadMode.None && serverReadings is { IsConfigured: true } && results.Count > 0 && results[0].PhotoId is { } photoId)
         {
-            grounded.Add(await GroundServerRowAsync(photoId, reading, printKind, memo, printedPlatforms, cancellationToken));
+            try
+            {
+                if (await serverReadings.ReadAsync(photoId, server == ServerReadMode.CachedOnly, cancellationToken) is { } reading)
+                {
+                    grounded.Add(await GroundServerRowAsync(photoId, reading, printKind, memo, printedPlatforms, cancellationToken));
+                }
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Only the type is logged: the message may name a title or a path. The phone's rows stand as they are.
+                logger.LogWarning("The server's reading of a photo failed ({Failure}); it has an error row.", exception.GetType().Name);
+                grounded.Add((await GroundAsync(ServerReadInput.Of(photoId, new ServerReading(ShelfReadResult.Empty(ShelfReadStatus.Unavailable), 0)), memo, cancellationToken)) with { Engine = ServerEngines.Model });
+            }
         }
 
         return grounded;

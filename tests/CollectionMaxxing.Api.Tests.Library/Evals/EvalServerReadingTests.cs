@@ -131,6 +131,31 @@ public class EvalServerReadingTests(ApiFixture api) : RegroundTest(api)
     }
 
     [Fact]
+    public async Task A_live_phone_run_never_waits_on_the_reader_and_shows_the_server_rows_only_from_a_warm_cache()
+    {
+        StarFoxGolden("c1");
+        var reader = new CountingReader(StarFox);
+        UseReader(reader);
+        SetUpReader(Settings);
+
+        var cold = await FirstRunAsync("c1");
+        var coldSummary = TryLatestSummary()!.Value;
+        RowsOf(coldSummary, _ => true).ShouldNotContain("server_");
+        coldSummary.GetProperty("partial").GetBoolean().ShouldBeFalse();
+        reader.Calls.ShouldBe(0, "a cold cache is no reason to call the reader during a phone run");
+
+        await File.WriteAllTextAsync(Path.Combine(Golden.Results, "reground.request"), string.Empty);
+        Wake(Factory);
+        var reground = (await NextLatestAfterAsync(cold)).GetProperty("runId").GetString()!;
+        reader.Calls.ShouldBe(1, "the re-ground reads on a miss");
+
+        await FirstRunAsync("c1");
+        (await BecomesTrueAsync(() => LatestRunId() is { } id && id != reground, Bounded)).ShouldBeTrue();
+        RowsOf(TryLatestSummary()!.Value, _ => true).ShouldContain("server_model");
+        reader.Calls.ShouldBe(1, "the second phone run used the cache");
+    }
+
+    [Fact]
     public async Task With_no_reader_set_up_a_re_ground_makes_no_server_row()
     {
         StarFoxGolden("c1");

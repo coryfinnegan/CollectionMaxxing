@@ -23,11 +23,18 @@ public sealed class ServerReadings(
     IOptions<ShelfReaderOptions> reading,
     IOptions<EvalsOptions> evals,
     TimeProvider time,
-    ILogger<ServerReadings> logger) : IServerReadings
+    ILogger<ServerReadings> logger,
+    int readerVersion = ServerReadings.ReaderVersion) : IServerReadings
 {
     private const string CacheFolder = "reader-cache";
     private const int MaxPictureBytes = 64 * 1024 * 1024;
     private const int MaxCacheBytes = 4 * 1024 * 1024;
+
+    /// <summary>
+    /// Part of the cache key. Bump it whenever the still maker (JPEG quality, orientation, resizing) or the reader's parsing of the model's answer changes, so a
+    /// reading made by the older code is not served. The server file llama-server runs is identified by <c>ShelfReader:Model</c> only: a swapped model file needs a new name.
+    /// </summary>
+    internal const int ReaderVersion = 1;
 
     private static readonly SemaphoreSlim OneAtATime = new(1, 1);
 
@@ -42,7 +49,7 @@ public sealed class ServerReadings(
         ? $"model {(string.IsNullOrWhiteSpace(s.Model) ? "(not named)" : s.Model)}, prompt hash {Hex(Sha(s.Prompt))[..12]}"
         : "reader settings not valid";
 
-    public async Task<ServerReading?> ReadAsync(string photoId, CancellationToken cancellationToken)
+    public async Task<ServerReading?> ReadAsync(string photoId, bool cachedOnly, CancellationToken cancellationToken)
     {
         if (!IsConfigured || Settings() is not { } settings)
         {
@@ -62,6 +69,11 @@ public sealed class ServerReadings(
             if (cachePath is not null && Cached(cachePath) is { } cached)
             {
                 return cached;
+            }
+
+            if (cachedOnly)
+            {
+                return null;
             }
 
             var still = stills.Make(picture);
@@ -136,7 +148,7 @@ public sealed class ServerReadings(
             return null;
         }
 
-        var key = JsonSerializer.Serialize(new { settings.Model, settings.Prompt, settings.MaxTokens, settings.MaxLongEdge, settings.MaxRepeats });
+        var key = JsonSerializer.Serialize(new { ReaderVersion = readerVersion, settings.Model, settings.Prompt, settings.MaxTokens, settings.MaxLongEdge, settings.MaxRepeats });
         return Path.Combine(Path.GetFullPath(evals.Value.ResultsPath), CacheFolder, Hex(SHA256.HashData(picture)) + "-" + Hex(Sha(key)) + ".json");
     }
 

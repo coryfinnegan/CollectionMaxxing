@@ -38,26 +38,29 @@ public class EvalGroundPhotoServerRowTests
         public Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<ProviderRelease>>(
                 string.Equals(query.Title, Title, StringComparison.OrdinalIgnoreCase)
-                    ?
-                    [
+                    ? [.. new[]
+                    {
                         new ProviderRelease { Provider = "tie", ExternalId = "b1", Title = Title, Kind = WorkKind.Book, Year = 2001 },
                         new ProviderRelease { Provider = "tie", ExternalId = "g1", Title = Title, Kind = WorkKind.Game, Platform = "PS2", Year = 2002 },
-                    ]
+                    }.Where(r => query.Kind is null || r.Kind == query.Kind)]
                     : []);
     }
 
-    private sealed class FakeServerReadings(ServerReading? reading, bool configured = true) : IServerReadings
+    private sealed class FakeServerReadings(ServerReading? reading, bool configured = true, Exception? throws = null) : IServerReadings
     {
         public int Calls { get; private set; }
+
+        public bool? LastCachedOnly { get; private set; }
 
         public bool IsConfigured => configured;
 
         public string ReaderLabel => "model example, prompt hash 000000000000";
 
-        public Task<ServerReading?> ReadAsync(string photoId, CancellationToken cancellationToken)
+        public Task<ServerReading?> ReadAsync(string photoId, bool cachedOnly, CancellationToken cancellationToken)
         {
             Calls++;
-            return Task.FromResult(reading);
+            LastCachedOnly = cachedOnly;
+            return throws is null ? Task.FromResult(reading) : Task.FromException<ServerReading?>(throws);
         }
     }
 
@@ -84,16 +87,16 @@ public class EvalGroundPhotoServerRowTests
     private static readonly EvalPhotoInput PhoneModel = Photo(ScanEngine.AppleModel, null, ModelItem("Lantern Row", null, WorkKind.Book));
     private static readonly EvalPhotoInput PhoneVision = Photo(ScanEngine.VisionPipeline, null, ModelItem("Lantern Row", null, null));
 
-    private static Task<IReadOnlyList<GroundedPhoto>> Ground(EvalRunScoring scoring, bool readOnServer, params EvalPhotoInput[] phone) =>
-        scoring.GroundPhotoAsync(phone, new EvalGroundingMemo(), CancellationToken.None, readOnServer);
+    private static Task<IReadOnlyList<GroundedPhoto>> Ground(EvalRunScoring scoring, ServerReadMode mode, params EvalPhotoInput[] phone) =>
+        scoring.GroundPhotoAsync(phone, new EvalGroundingMemo(), CancellationToken.None, mode);
 
     [Fact]
     public async Task With_a_reader_the_photo_gets_a_server_model_row_after_the_phones_rows_and_without_one_it_does_not()
     {
         var server = new FakeServerReadings(Read(items: new ShelfReadItem(Title, Creator, ShelfItemKind.Book)));
 
-        var with = await Ground(Scoring(server), true, PhoneModel, PhoneVision);
-        var without = await Ground(Scoring(null), true, PhoneModel, PhoneVision);
+        var with = await Ground(Scoring(server), ServerReadMode.Read, PhoneModel, PhoneVision);
+        var without = await Ground(Scoring(null), ServerReadMode.Read, PhoneModel, PhoneVision);
 
         with.Select(g => g.Engine).ShouldBe(["apple_model", "vision_pipeline", "server_model"]);
         without.Select(g => g.Engine).ShouldBe(["apple_model", "vision_pipeline"]);
@@ -110,9 +113,9 @@ public class EvalGroundPhotoServerRowTests
         var noPicture = new FakeServerReadings(null);
         var unasked = new FakeServerReadings(Read(items: item));
 
-        (await Ground(Scoring(off), true, PhoneModel)).ShouldHaveSingleItem();
-        (await Ground(Scoring(noPicture), true, PhoneModel)).ShouldHaveSingleItem();
-        (await Ground(Scoring(unasked), false, PhoneModel)).ShouldHaveSingleItem();
+        (await Ground(Scoring(off), ServerReadMode.Read, PhoneModel)).ShouldHaveSingleItem();
+        (await Ground(Scoring(noPicture), ServerReadMode.Read, PhoneModel)).ShouldHaveSingleItem();
+        (await Ground(Scoring(unasked), ServerReadMode.None, PhoneModel)).ShouldHaveSingleItem();
 
         off.Calls.ShouldBe(0);
         unasked.Calls.ShouldBe(0, "a request never waits for a reader");
@@ -122,23 +125,25 @@ public class EvalGroundPhotoServerRowTests
     public async Task Every_row_the_phone_made_is_identical_with_and_without_the_reader()
     {
         var server = new FakeServerReadings(Read(items: [new ShelfReadItem(Title, Creator, ShelfItemKind.Game), new ShelfReadItem("Lantern Row", "", ShelfItemKind.Book)]));
-        var vision = Photo(ScanEngine.VisionPipeline, WorkKind.Game, ModelItem("Lantern Row", null, null));
+        // The Vision item has a title the provider answers as a book and as a game, and the reader calls that title a game: were the reader's kinds
+        // to vote for the shot's kind, the Vision row's answer would change.
+        var vision = Photo(ScanEngine.VisionPipeline, null, ModelItem(Title, null, null));
         var model = Photo(ScanEngine.AppleModel, null, ModelItem("Lantern Row", null, WorkKind.Book));
 
-        var with = await Ground(Scoring(server), true, vision, model);
-        var without = await Ground(Scoring(null), true, vision, model);
+        var with = await Ground(Scoring(server), ServerReadMode.Read, vision, model);
+        var without = await Ground(Scoring(null), ServerReadMode.Read, vision, model);
 
         Json(with.Where(g => g.Engine != ServerEngines.Model)).ShouldBe(Json(without));
     }
 
     [Fact]
-    public async Task A_reader_item_grounds_exactly_as_a_model_item_with_the_same_title_creator_and_kind()
+    public async Task A_reader_item_with_the_same_title_creator_and_kind_as_a_model_item_gets_the_same_grounding()
     {
         var server = new FakeServerReadings(Read(items: new ShelfReadItem(Title, Creator, ShelfItemKind.Book)));
         var asTheModel = Photo(ScanEngine.AppleModel, null, ModelItem(Title, Creator, WorkKind.Book));
 
-        var grounded = await Ground(Scoring(server), true, PhoneVision);
-        var viaModel = (await Ground(Scoring(null), true, asTheModel)).Single();
+        var grounded = await Ground(Scoring(server), ServerReadMode.Read, PhoneVision);
+        var viaModel = (await Ground(Scoring(null), ServerReadMode.Read, asTheModel)).Single();
 
         Json(grounded.Single(g => g.Engine == ServerEngines.Model).Items).ShouldBe(Json(viaModel.Items));
     }
@@ -150,8 +155,8 @@ public class EvalGroundPhotoServerRowTests
         var visionNamingTheKind = Photo(ScanEngine.VisionPipeline, WorkKind.Game, ModelItem("Lantern Row", null, null));
         var asTheModel = Photo(ScanEngine.AppleModel, null, ModelItem(Title, null, null));
 
-        var grounded = await Ground(Scoring(server), true, visionNamingTheKind);
-        var viaModel = (await Ground(Scoring(null), true, visionNamingTheKind, asTheModel)).Single(g => g.Engine == "apple_model");
+        var grounded = await Ground(Scoring(server), ServerReadMode.Read, visionNamingTheKind);
+        var viaModel = (await Ground(Scoring(null), ServerReadMode.Read, visionNamingTheKind, asTheModel)).Single(g => g.Engine == "apple_model");
 
         var row = grounded.Single(g => g.Engine == ServerEngines.Model);
         row.ItemsLentPrint.ShouldNotBeNull();
@@ -161,11 +166,61 @@ public class EvalGroundPhotoServerRowTests
     }
 
     [Fact]
+    public async Task A_server_reading_that_throws_leaves_the_phones_rows_identical_and_gives_an_error_row()
+    {
+        var server = new FakeServerReadings(null, throws: new InvalidOperationException("broken"));
+
+        var with = await Ground(Scoring(server), ServerReadMode.Read, PhoneModel, PhoneVision);
+        var without = await Ground(Scoring(null), ServerReadMode.Read, PhoneModel, PhoneVision);
+
+        Json(with.Where(g => g.Engine != ServerEngines.Model)).ShouldBe(Json(without));
+        var row = with.Single(g => g.Engine == ServerEngines.Model);
+        row.Outcome.ShouldBe("error");
+        row.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_reading_that_cannot_be_shaped_or_grounded_throws_leaves_the_phones_rows_identical_and_gives_an_error_row()
+    {
+        var server = new FakeServerReadings(Read(items: [null!]));
+
+        var with = await Ground(Scoring(server), ServerReadMode.Read, PhoneModel, PhoneVision);
+        var without = await Ground(Scoring(null), ServerReadMode.Read, PhoneModel, PhoneVision);
+
+        Json(with.Where(g => g.Engine != ServerEngines.Model)).ShouldBe(Json(without));
+        with.Single(g => g.Engine == ServerEngines.Model).Outcome.ShouldBe("error");
+    }
+
+    [Fact]
+    public async Task Cancellation_still_propagates_from_the_server_reading()
+    {
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        var server = new FakeServerReadings(null, throws: new OperationCanceledException(cancelled.Token));
+
+        await Should.ThrowAsync<OperationCanceledException>(() => Scoring(server).GroundPhotoAsync([PhoneModel], new EvalGroundingMemo(), cancelled.Token, ServerReadMode.Read));
+    }
+
+    [Fact]
+    public async Task The_mode_decides_whether_the_reader_may_be_called()
+    {
+        var item = new ShelfReadItem(Title, "", ShelfItemKind.Book);
+        var cachedOnly = new FakeServerReadings(Read(items: item));
+        var read = new FakeServerReadings(Read(items: item));
+
+        await Ground(Scoring(cachedOnly), ServerReadMode.CachedOnly, PhoneModel);
+        await Ground(Scoring(read), ServerReadMode.Read, PhoneModel);
+
+        cachedOnly.LastCachedOnly.ShouldBe(true);
+        read.LastCachedOnly.ShouldBe(false);
+    }
+
+    [Fact]
     public async Task A_failed_read_is_an_error_row_with_no_items()
     {
         var server = new FakeServerReadings(Read(ShelfReadStatus.Unavailable));
 
-        var row = (await Ground(Scoring(server), true, PhoneModel)).Single(g => g.Engine == ServerEngines.Model);
+        var row = (await Ground(Scoring(server), ServerReadMode.Read, PhoneModel)).Single(g => g.Engine == ServerEngines.Model);
 
         row.Outcome.ShouldBe("error");
         row.Items.ShouldBeEmpty();
@@ -177,7 +232,7 @@ public class EvalGroundPhotoServerRowTests
     {
         var server = new FakeServerReadings(Read(ShelfReadStatus.CutShort, new ShelfReadItem(Title, "", ShelfItemKind.Book)));
 
-        var row = (await Ground(Scoring(server), true, PhoneModel)).Single(g => g.Engine == ServerEngines.Model);
+        var row = (await Ground(Scoring(server), ServerReadMode.Read, PhoneModel)).Single(g => g.Engine == ServerEngines.Model);
 
         row.Outcome.ShouldBe("ok");
         row.TimedOut.ShouldBe(true);
