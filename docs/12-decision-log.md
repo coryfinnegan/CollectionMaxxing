@@ -591,8 +591,8 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 - **Alternatives:**
   - An open model inside the iPhone app (the 2B model through llama.rn): kept as a later option. It read 264 titles on the PC, but its speed on the phone is unmeasured, it adds about 2.7 GB to download in the app as measured (a smaller 4-bit file is unmeasured), and every experiment costs a TestFlight build and a phone eval run.
   - A plain OCR engine (PP-OCRv5): rejected. It read fewer titles in full than Apple Vision's text lines do (158 against 207).
-  - Other models: Qwen3-VL 4B read 287 titles. With the 8B model's settings the 4B and 2B models repeat one title until the token cap on 3 of 20 photos each, and the 8B model did it once with the longer prompt, so the reader needs a token cap, a repeat guard and a timeout. MiniCPM-V 4.5 failed in this runtime (token cap on 16 of 20 photos).
-  - Asking the model for a box around each item: 288 titles in 17.5 seconds a photo, against 306 in 10.9, so the first build asks for no boxes.
+  - Other models: Qwen3-VL 4B read up to 287 titles (277 with the 8B model's settings). With those settings the 4B and 2B models repeat one title until the token cap on 3 of 20 photos each, and the 8B model did it once with the longer prompt and once when asked for boxes, so the reader needs a token cap, a repeat guard and a timeout. MiniCPM-V 4.5 failed in this runtime (token cap on 16 of 20 photos).
+  - Asking the model for a box around each item: 288 titles in 17.5 seconds a photo and 65 reads not in the truth, against 306, 10.9 and 41, so the first build asks for no boxes.
   - Higher resolution, tiles, a longer prompt: measured, no gain worth the time (3072 px: 4 more titles for twice the time; 2 x 2 tiles: 35 fewer).
   - Ternary (1.58-bit) models: none was found that reads printed text and runs in llama.cpp.
   - Stay Apple-only: rejected. No measured route reaches the bars.
