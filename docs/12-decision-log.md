@@ -228,7 +228,7 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 
 ## ADR-017: iPhone-only recognition with Apple frameworks only
 
-- **Status:** Accepted; PCC hard-case tier removed and builds moved off EAS by **ADR-019**. Narrow crop-storage exception granted by **ADR-030**. Originally accepted (your direction, 2026-10-12: "no vision work in the web app… only the Apple vision libraries on the mobile app… for simplicity and cost")
+- **Status:** Accepted; PCC hard-case tier removed and builds moved off EAS by **ADR-019**. Narrow crop-storage exception granted by **ADR-030**. Shelf reading by an open model on the self-hosted server added by **ADR-033**. Originally accepted (your direction, 2026-10-12: "no vision work in the web app… only the Apple vision libraries on the mobile app… for simplicity and cost")
 - **Context:** The plan had grown a cross-platform recognition stack:
   - ML Kit barcodes
   - SigLIP 2 via ONNX on phone and server
@@ -560,3 +560,44 @@ Short Architecture Decision Records. Status is **Proposed** until you approve th
 - **Consequences:**
   - Gate results before and after this change aren't comparable. The first report after the switch says so.
   - The model's own shelf accuracy is no longer a gate. A later change that makes the model worse on shelves shows up only through the combined row.
+
+## ADR-033: An open vision-language model on the self-hosted server reads shelf photos (owner decision; amends ADR-017)
+
+- **Status:** **Accepted** (owner decision, 2026-11-10; written by the lead). Amends ADR-017's "Apple frameworks only" and its "photos never reach our servers for recognition" for shelf photos. Spike and numbers: #792. Not built yet; the build issues link back here.
+- **Context:**
+  - On the 20 golden shelf photos (358 titles: 245 books, 101 films, 8 TV, 4 games; run 01a1c62d, build 165) the scanner gets 256 right. Book spine top-1 is 82.04% against a bar of 88%, and about half the films are right.
+  - Every Apple Vision route was measured and closed (#637, #781, #788): title rules, spine crops, tiles and full resolution each reach a handful of titles at most. The on-device model reads 65 of the 358 titles in full, invents titles, and changes its read between runs.
+  - On 2026-11-10 the owner reopened ADR-017: open-source models are welcome on the PC (RTX 4070 Ti, 12 GB) or the phone, as long as they are free.
+  - The spike ran open models on the PC against the same photos. Titles read in full, items paired one to one with the truth:
+
+    | Read | Titles (358) | Books (245) | Films (101) | Reads not in the truth | Seconds per photo |
+    |---|---|---|---|---|---|
+    | Scanner items today (Apple Vision) | 199 | 162 | 33 | 114 | about 1 |
+    | Apple on-device model | 65 | 35 | 29 | 125 | about 9 |
+    | Qwen3-VL 8B (Q4_K_M), on the PC | 306 | 215 | 85 | 41 | 5.7 to 10.9 |
+    | Qwen3-VL 2B (Q8_0), on the PC | 264 | 179 | 79 | 37 | 4.4 |
+    | PP-OCRv5 text lines (Apple's lines: 207) | 158 | 136 | 22 | | |
+
+  - The 8B model gave the same items on a second run for 20 of 20 photos, and read all 12 single-cover titles.
+  - Its reads and today's right rows only partly overlap: together they cover 331 of the 358 titles (books 236 of 245).
+  - Put through the server's matching in a scratch copy (Open Library asked for real; Google Books and TMDB answering anything not cached with "nothing found", so the figures understate), the 8B model alone gets 269 of 319 rows right, against 256 of 344 today. Used as the model engine in today's merge unchanged it gets 280, with books at 216 of 245 (88.2%).
+- **Decision:**
+  - **Shelf photos may be read by an open-source vision-language model on the self-hosted server's own hardware.** The first model is Qwen3-VL 8B Instruct (Apache-2.0), 4-bit GGUF, served by llama.cpp's server. The API reaches it through a configured OpenAI-compatible endpoint: no model code in the API, and the model, its settings and the prompt are configuration.
+  - **The phone sends the shelf still to the owner's own server** (owner's go-ahead, 2026-11-10): at most 2048 px on the long edge, metadata stripped, read in memory and thrown away, as `:verify-cover` already does. Nothing goes to a third-party service.
+  - **It is optional.** With no reader configured (a host without a graphics card, or the reader unreachable), the scanner works as it does today. Apple Vision's read still shows at once; the server's read upgrades the list when it arrives.
+  - **The model's title stays a search query, never an answer.** Matching against the catalogue is unchanged.
+  - **Evals:** the server reads the golden shelf photos with the configured reader itself and reports that as its own row, so a reader experiment needs no phone run.
+  - **Cost stays $0:** free weights on the owner's graphics card. Each model or runtime download still needs the owner's go-ahead (name, source, size).
+- **Alternatives:**
+  - An open model inside the iPhone app (the 2B model through llama.rn): kept as a later option. It read 264 titles on the PC, but its speed on the phone is unmeasured, it adds about 1.6 GB to download in the app, and every experiment costs a TestFlight build and a phone eval run.
+  - A plain OCR engine (PP-OCRv5): rejected. It read fewer titles in full than Apple Vision's text lines do (158 against 207).
+  - Higher resolution, tiles, a longer prompt: measured, no gain worth the time (3072 px: 4 more titles for twice the time; 2 x 2 tiles: 35 fewer).
+  - Ternary (1.58-bit) models: none exists that reads pictures.
+  - Stay Apple-only: rejected. No measured route reaches the bars.
+- **Consequences:**
+  - docs/02 and docs/08 said photos stay on the phone during recognition. A shelf snap now goes to the owner's server when a reader is configured, and About must say so.
+  - The PC's graphics card is used: about 7 GB of its 12 GB while the model is loaded, so the reader loads on demand and unloads when idle. The model file is 6.2 GB on disk.
+  - A shelf read takes 6 to 11 seconds on the PC, against about 1 second for Apple Vision, which is why Apple's read shows first.
+  - Hosting the app for other people (ADR-027) without a graphics card means they get today's Apple-only reading.
+  - The matching figures above understate. The real ones come from the server-side eval row, which uses the PC's provider keys. The gate's bars (docs/02) are unchanged; the combined row is re-baselined when the reader ships in it (docs/09).
+  - Newer models (Qwen3.5-9B, GLM-4.6V-Flash) can be tried against the same photos by changing configuration.

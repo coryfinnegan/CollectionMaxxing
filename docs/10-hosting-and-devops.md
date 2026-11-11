@@ -66,7 +66,7 @@ flowchart TB
 
 **Docker:** keep Docker Desktop (WSL2 backend), but **update it**. 24.0.7 is from 2023. Set it to start when you sign in, and turn on Windows' "Use my sign-in info to automatically finish setting up after an update", so the stack comes back after Windows Update reboots.
 
-**The GPU** isn't used: recognition runs on the iPhone with Apple's frameworks (ADR-017). It's there as a free upgrade path if the M3 evals ever show real misses, but that would mean going beyond Apple-only, so it'd be your call.
+**The GPU** will read shelf photos (ADR-033, your call of 2026-11-10; not built yet): an open model served by llama.cpp, about 7 GB of the card's 12 GB while it is loaded, loaded on demand and unloaded when idle. Everything else in recognition still runs on the iPhone (ADR-017).
 
 ## Availability: what if the PC is off?
 
