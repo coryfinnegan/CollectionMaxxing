@@ -34,7 +34,7 @@ public sealed class ServerReadings(
     /// Part of the cache key. Bump it whenever the still maker (JPEG quality, orientation, resizing) or the reader's parsing of the model's answer changes, so a
     /// reading made by the older code is not served. The server file llama-server runs is identified by <c>ShelfReader:Model</c> only: a swapped model file needs a new name.
     /// </summary>
-    internal const int ReaderVersion = 1;
+    public const int ReaderVersion = 1;
 
     private static readonly SemaphoreSlim OneAtATime = new(1, 1);
 
