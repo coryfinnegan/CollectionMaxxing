@@ -18,8 +18,13 @@ public sealed class ServerReadingsTests : IDisposable
 {
     private readonly SyntheticGolden _golden = new();
     private readonly FakeTimeProvider _clock = new();
+    private readonly ShelfReadGate _gate = new(Options.Create(new ShelfReadQueueOptions { QueueWaitSeconds = 1, QueueMaxWaiting = 0 }));
 
-    public void Dispose() => _golden.Dispose();
+    public void Dispose()
+    {
+        _gate.Dispose();
+        _golden.Dispose();
+    }
 
     private sealed class CountingReader(Func<ShelfReadResult> answer, FakeTimeProvider? clock = null, TimeSpan? takes = null) : IShelfReader
     {
@@ -68,6 +73,7 @@ public sealed class ServerReadingsTests : IDisposable
         new FileGoldenSet(Options.Create(new EvalsOptions { Enabled = enabled, GoldenPath = _golden.Golden, ResultsPath = _golden.Results })),
         reader,
         stills ?? new PassThrough(),
+        _gate,
         Options.Create(options ?? new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl" }),
         Options.Create(new EvalsOptions { Enabled = enabled, GoldenPath = _golden.Golden, ResultsPath = _golden.Results }),
         _clock,
@@ -275,6 +281,27 @@ public sealed class ServerReadingsTests : IDisposable
 
         reader.Calls.ShouldBe(2);
         reader.MostAtOnce.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_read_waits_while_the_scanner_has_the_reader_and_reads_once_it_is_free()
+    {
+        _golden.AddSingle("c1", null);
+        var reader = new CountingReader(Ok);
+        var scanner = await _gate.EnterAsync(CancellationToken.None); // a person's :read-shelf holds the one reader
+        scanner.ShouldNotBeNull();
+
+        var read = Readings(reader).ReadAsync("c1", false, CancellationToken.None);
+        await Task.Delay(1500); // longer than the queue lets a person wait: the re-ground is never told the reader is busy
+
+        read.IsCompleted.ShouldBeFalse("it waits its turn");
+        reader.Calls.ShouldBe(0);
+        scanner.Dispose();
+        var served = await read.WaitAsync(TimeSpan.FromSeconds(10));
+        served.ShouldNotBeNull().Result.Status.ShouldBe(ShelfReadStatus.Ok);
+        reader.Calls.ShouldBe(1);
+        using var next = await _gate.EnterAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        next.ShouldNotBeNull("the read gave the turn back");
     }
 
     [Fact]
