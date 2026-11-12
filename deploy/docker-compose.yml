@@ -236,6 +236,12 @@ services:
     volumes:
       # Read-only: the deployer downloads and verifies the files on the host; the container only reads them.
       - ${CM_MODELS_DIR:-../../models}:/models:ro
+      # The NVIDIA driver folder of Docker Desktop's WSL 2 VM (the read-only Windows driver store; driver binaries, no
+      # user data), read-only, at the same path (#802). Older Docker GPU hooks copy only five of its files into the
+      # container and leave out libnvdxgdmal.so.1, which this driver's libcuda needs, so CUDA fails and llama.cpp falls
+      # back to the processor. Harmless once Docker copies the whole folder. The path is inside the Linux VM, not on
+      # Windows; the config guard allows exactly this mount, on this service only.
+      - /usr/lib/wsl/drivers:/usr/lib/wsl/drivers:ro
     deploy:
       resources:
         reservations:
