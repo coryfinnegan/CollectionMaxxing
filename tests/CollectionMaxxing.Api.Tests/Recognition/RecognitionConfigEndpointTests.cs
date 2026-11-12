@@ -89,7 +89,7 @@ public sealed class RecognitionConfigEndpointTests(ApiFixture api) : IDisposable
             JsonNode.DeepEquals(body[key], defaults[key]).ShouldBeTrue(key);
         }
 
-        body.AsObject().Select(p => p.Key).ShouldBe(["version", "prompt", "extractionPrompt", "autoSnap", "engine", "splitting", "fingerprints"], ignoreOrder: true);
+        body.AsObject().Select(p => p.Key).ShouldBe(["version", "prompt", "extractionPrompt", "autoSnap", "engine", "splitting", "fingerprints", "shelfReader"], ignoreOrder: true);
     }
 
     [Fact]
