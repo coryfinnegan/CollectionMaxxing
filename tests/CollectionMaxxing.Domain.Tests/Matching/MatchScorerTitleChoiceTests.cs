@@ -38,12 +38,75 @@ public class MatchScorerTitleChoiceTests
     }
 
     [Fact]
-    public void Without_an_author_the_part_after_the_colon_still_wins()
+    public void The_credited_score_is_exactly_the_series_subtitle_credit_with_the_author_and_kind()
     {
-        var series = Release("series", "Crescent City", WorkKind.Book, 2022);
-        var book = Release("book", "House of Earth and Blood", WorkKind.Book, 2020);
+        var book = Release("book", "House of Earth and Blood", WorkKind.Book, 2020, "Sarah J. Maas");
 
-        Order(BookRead("Crescent City: House of Earth and Blood", creator: null), ScoringProfileKind.ShelfSpine, series, book)[0].ShouldBe("book");
+        var scored = MatchScorer.Evaluate(BookRead("Crescent City: House of Earth and Blood"), [book], Options.Profile(ScoringProfileKind.ShelfSpine)).Ranked.Single();
+
+        scored.Terms.Single(t => t.Name == "title").Value.ShouldBe(0.82);
+        scored.Score.ShouldBe(0.8875); // (0.5 x 0.82 + 0.1 + 0.2) / 0.8
+    }
+
+    // The verifier's reads (round 1): with no author read, the part after the colon names no other book, and main's top stands. ("The
+    // Hobbit" and "There and Back Again" tie at 0.8 on main already, so the order they come in is the one main keeps.)
+    [Theory]
+    [InlineData("Leaves of Grass: Poems", "Leaves of Grass", "Poems")]
+    [InlineData("Watchmen: The Graphic Novel", "Watchmen", "The Graphic Novel")]
+    [InlineData("The Wheel of Time: Book One", "The Wheel of Time", "Book One")]
+    [InlineData("Sapiens: A Brief History of Humankind", "Sapiens", "A Brief History of Humankind")]
+    [InlineData("The Hobbit: There and Back Again", "The Hobbit", "There and Back Again")]
+    [InlineData("Emma: A", "Emma", "A")]
+    public void Without_an_author_the_part_after_the_colon_earns_no_credit(string read, string main, string after)
+    {
+        var mainBook = Release("main", main, WorkKind.Book, 1900, "First Author");
+        var afterBook = Release("after", after, WorkKind.Book, 2000, "Other Author");
+
+        Order(BookRead(read, creator: null), ScoringProfileKind.ShelfSpine, mainBook, afterBook)[0].ShouldBe("main");
+        Order(BookRead(read, creator: null), ScoringProfileKind.Cover, mainBook, afterBook)[0].ShouldBe("main");
+    }
+
+    [Fact]
+    public void An_author_the_book_does_not_agree_with_earns_no_credit()
+    {
+        var series = Release("series", "Crescent City", WorkKind.Book, 2022, "Sarah J. Maas");
+        var book = Release("book", "House of Earth and Blood", WorkKind.Book, 2020, "Sarah J. Maas");
+
+        var ranked = MatchScorer.Evaluate(BookRead("Crescent City: House of Earth and Blood", "Tess Harrowgate"), [series, book], Options.Profile(ScoringProfileKind.ShelfSpine)).Ranked;
+
+        ranked[0].Release.Key.ShouldBe("series");
+        ranked.Single(r => r.Release.Key == "book").Terms.Single(t => t.Name == "title").Value.ShouldBeLessThan(TitleNormalizer.MainTitleCredit);
+    }
+
+    [Fact]
+    public void A_one_word_subtitle_earns_no_credit_even_from_the_same_author()
+    {
+        var main = Release("main", "Leaves of Grass", WorkKind.Book, 1855, "Walt Whitman");
+        var poems = Release("poems", "Poems", WorkKind.Book, 1900, "Walt Whitman");
+
+        Order(BookRead("Leaves of Grass: Poems", "Walt Whitman"), ScoringProfileKind.ShelfSpine, poems, main)[0].ShouldBe("main");
+    }
+
+    [Fact]
+    public void The_subtitle_is_what_follows_the_first_colon()
+    {
+        var thrawn = Release("thrawn", "Thrawn: Alliances", WorkKind.Book, 2018, "Timothy Zahn");
+
+        var scored = MatchScorer.Evaluate(BookRead("Star Wars: Thrawn: Alliances", "Timothy Zahn"), [thrawn], Options.Profile(ScoringProfileKind.ShelfSpine)).Ranked.Single();
+
+        scored.Terms.Single(t => t.Name == "title").Value.ShouldBe(TitleNormalizer.SeriesSubtitleCredit);
+    }
+
+    [Fact]
+    public void A_longer_title_that_only_holds_the_subtitle_gets_no_full_credit()
+    {
+        var book = Release("book", "House of Earth and Blood", WorkKind.Book, 2020, "Sarah J. Maas");
+        var companion = Release("companion", "House of Earth and Blood Companion", WorkKind.Book, 2021, "Sarah J. Maas");
+
+        var ranked = MatchScorer.Evaluate(BookRead("Crescent City: House of Earth and Blood"), [companion, book], Options.Profile(ScoringProfileKind.ShelfSpine)).Ranked;
+
+        ranked[0].Release.Key.ShouldBe("book");
+        ranked.Single(r => r.Release.Key == "companion").Terms.Single(t => t.Name == "title").Value.ShouldBeLessThan(TitleNormalizer.SeriesSubtitleCredit);
     }
 
     [Fact]
@@ -73,9 +136,9 @@ public class MatchScorerTitleChoiceTests
     {
         // A film's catalogue title carries its franchise ("Star Wars"), so a film titled only with the part after the colon is no better
         // a guess than the franchise film: the main title keeps its lead.
-        var franchise = Release("franchise", "Copper Lantern", WorkKind.Film, 1977);
-        var other = Release("other", "A Quiet Harbor", WorkKind.Film, 2015);
-        var read = new ReadItem { Title = "Copper Lantern: A Quiet Harbor", Kind = WorkKind.Film };
+        var franchise = Release("franchise", "Copper Lantern", WorkKind.Film, 1977, "Tess Harrowgate");
+        var other = Release("other", "A Quiet Harbor", WorkKind.Film, 2015, "Tess Harrowgate");
+        var read = new ReadItem { Title = "Copper Lantern: A Quiet Harbor", Kind = WorkKind.Film, Creator = "Tess Harrowgate" };
 
         Order(read, ScoringProfileKind.ShelfSpine, other, franchise)[0].ShouldBe("franchise");
     }

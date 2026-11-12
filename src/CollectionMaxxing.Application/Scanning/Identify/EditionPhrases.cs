@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Scanning.Identify;
 
@@ -29,8 +30,9 @@ public static partial class EditionPhrases
     private static readonly char[] Brackets = ['(', ')', '[', ']'];
 
     /// <summary>
-    /// The title without the edition phrase (or phrases) at its end, and the phrase, or null when the title does not end in one, or
-    /// when nothing with a letter in it would be left (a title that is only "Director's Cut" keeps its words: it may be the real title).
+    /// The title without the edition phrase (or phrases) at its end, and the phrase (its brackets taken off), or null when the title does
+    /// not end in one, or when no distinctive word would be left (a title that is only "Director's Cut", or "The Director's Cut", keeps its
+    /// words: it may be the real title).
     /// </summary>
     public static EditionSplit? Trailing(string? title)
     {
@@ -66,13 +68,15 @@ public static partial class EditionPhrases
             kept.RemoveAt(kept.Count - 1);
         }
 
-        if (kept.Count == 0 || !kept.Any(word => word.Any(char.IsLetter)))
+        // What is left must hold a word that tells one title from another (TitleWordSet: two letters or more, no stop word, not only
+        // digits): "The Director's Cut" is no "The", and "2 Special Edition" no "2". "Up Widescreen" is "Up".
+        if (kept.Count == 0 || !TitleWordSet.Of(string.Join(' ', kept)).Any(word => !word.All(char.IsAsciiDigit)))
         {
             return null;
         }
 
         kept[^1] = kept[^1].TrimEnd(Separators).TrimEnd();
-        var phrase = string.Join(' ', words[end..].Where(word => Plain(word).Length > 0)).Trim(Brackets).Trim();
+        var phrase = string.Join(' ', words[end..].Where(word => Plain(word).Length > 0).Select(word => word.Trim(Brackets)));
         return new EditionSplit(string.Join(' ', kept), phrase);
     }
 

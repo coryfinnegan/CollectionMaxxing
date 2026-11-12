@@ -86,7 +86,8 @@ public static class ServerReadInput
     /// endpoint turns the same items into reads with this, so the eval row and the app ground the very same read.
     /// </summary>
     public static IdentifyItemInput ReadOf(ShelfReadItem item) => new(
-        null, null, null, item.Title, string.IsNullOrWhiteSpace(item.Creator) ? null : item.Creator, null, null, KindOf(item.Kind), null, null, null, null);
+        null, null, null, item.Title, string.IsNullOrWhiteSpace(item.Creator) ? null : item.Creator, null, null, KindOf(item.Kind), null, null, null, null,
+        ServerRead: true);
 
     private static WorkKind? KindOf(ShelfItemKind kind) => kind switch
     {

@@ -81,13 +81,20 @@ public sealed class ComparableTitle
     /// <summary>The part after the first colon, or null when the title has none, or nothing (or nothing before it) would be left.</summary>
     private ComparableTitle? Subtitle { get; }
 
+    /// <summary>The fewest distinctive words the part after the colon must have to be a title of its own ("Poems", "A" are not).</summary>
+    private const int MinSubtitleWords = 2;
+
     /// <summary>
-    /// How alike the part of this title after its colon is to the whole other title, compared as titles are (<see cref="TitleSimilarity"/>
-    /// without the main-title and contained-title credits), or 0 when this title has no colon. "Crescent City: House of Earth and Blood"
-    /// against "House of Earth and Blood" is 1. Not scaled: the caller decides what it is worth (<see cref="TitleNormalizer.SeriesSubtitleCredit"/>).
+    /// How alike the part of this title after its first colon is to the whole other title, compared as titles are (<see cref="TitleSimilarity"/>
+    /// without the main-title and contained-title credits), or 0 when this title has no colon, or the part after it has fewer than
+    /// <see cref="MinSubtitleWords"/> distinctive words (<see cref="TitleWordSet"/> words that are not only digits): a bare "Poems" or
+    /// "A" after a colon describes the book, it does not name another. "Crescent City: House of Earth and Blood" against "House of Earth
+    /// and Blood" is 1. Not scaled: the caller decides what it is worth (<see cref="TitleNormalizer.SeriesSubtitleCredit"/>).
     /// </summary>
     public double SubtitleSimilarity(ComparableTitle other) =>
-        Subtitle is { } subtitle ? WholeSimilarity(subtitle, other, TitleNormalizer.ReorderedWordsCredit) : 0.0;
+        Subtitle is { } subtitle && TitleWordSet.Of(subtitle.Key).Count(word => !word.All(char.IsAsciiDigit)) >= MinSubtitleWords
+            ? WholeSimilarity(subtitle, other, TitleNormalizer.ReorderedWordsCredit)
+            : 0.0;
 
     /// <inheritdoc cref="TitleNormalizer.Similarity"/>
     public double Similarity(ComparableTitle other) => Alike(other, wordOrderCredit: 1.0, withContainment: false);

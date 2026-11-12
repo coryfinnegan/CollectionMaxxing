@@ -29,6 +29,8 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <see cref="CreatorIsAGuess"/> is set by <see cref="CreatorSwap"/> alone, on a book read or a read in a snap of books: the creator is the line the
 /// phone sent as the title, asked as the author. It reaches the scorer (<see cref="ToReadItem"/>) but not the providers (<see cref="ToQuery"/>),
 /// so ask text and cache keys are the same with or without it.
+/// <see cref="ServerRead"/> marks a read the server's own shelf reader made (<see cref="IdentifyItemInput.ServerRead"/>): its title is the
+/// reader's whole answer, with no stray print at its ends, which the trimmed-span retry relies on (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>).
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -46,7 +48,8 @@ public sealed record ReadFacts(
     string? CreatorAsRead = null,
     string? Lines = null,
     string? PlatformContext = null,
-    bool CreatorIsAGuess = false)
+    bool CreatorIsAGuess = false,
+    bool ServerRead = false)
 {
     /// <summary>The canonical platform names the shot prints, split from <see cref="PlatformContext"/>; none when it printed none.</summary>
     public IReadOnlyList<string> PrintedPlatforms => PlatformContext is { Length: > 0 } ? PlatformContext.Split('|') : [];
@@ -325,15 +328,14 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>
     /// For a span of a read that is only a reader's title: what the span finds is kept only when its best release carries the read's leading
     /// words (<see cref="TrimmedSpans.FindCarriesLeadingWords"/>: the read's first distinctive word and any the span dropped from its start,
-    /// in the release's title or a creator's name), and otherwise counts as having found nothing. A read with no legible text and no lines
-    /// (<see cref="ReadFacts.Text"/>, <see cref="ReadFacts.Lines"/>: the server's shelf reader sends neither, every phone read sends its
-    /// text) is the reader's answer, not a line of print with stray words at its ends: its leading word is the title's own, and a franchise
+    /// in the release's title or a creator's name), and otherwise counts as having found nothing. A read the server's own shelf reader made
+    /// (<see cref="ReadFacts.ServerRead"/>) is the reader's answer, not a line of print with stray words at its ends: its leading word is the title's own, and a franchise
     /// word is the one that tells the right film from the wrong one ("HIGHLANDER THE FINAL DIMENSION" found "The Final Destination" without
     /// it). An author's name in front of the title ("SARAH J. CROWN OF MIDNIGHT") is carried by the find's creator. Null (no test,
     /// the plain rule) for a read the phone sent, whose leading word may be print the spine carries beside its title.
     /// </summary>
     private static Func<BarcodeResolution, LocalPool, bool>? CarriesDroppedLeadingWords(ReadFacts facts, TrimmedSpan span) =>
-        !string.IsNullOrWhiteSpace(facts.Text) || facts.Lines is not null
+        !facts.ServerRead
             ? null
             : (found, pool) => found.Options.Count > 0
                 && TrimmedSpans.FindCarriesLeadingWords(facts.SearchText, span, TitleOf(found.Options[0], pool), CreatorsOf(found.Options[0], pool));

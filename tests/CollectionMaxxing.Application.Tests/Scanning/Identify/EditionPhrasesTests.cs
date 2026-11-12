@@ -16,6 +16,8 @@ public class EditionPhrasesTests
     [InlineData("COPPER LANTERN WIDESCREEN", "COPPER LANTERN", "WIDESCREEN")]
     [InlineData("Copper Lantern Special Edition Widescreen", "Copper Lantern", "Special Edition Widescreen")] // two phrases
     [InlineData("Copper Lantern 2 Special Edition", "Copper Lantern 2", "Special Edition")] // a bare number is the title's own
+    [InlineData("Up Widescreen", "Up", "Widescreen")] // a real two-letter title word is enough to be left
+    [InlineData("Highlander - Director's Cut [Widescreen]", "Highlander", "Director's Cut Widescreen")] // brackets go on both sides
     public void A_trailing_edition_phrase_is_split_off_the_title(string read, string title, string phrase)
     {
         var split = EditionPhrases.Trailing(read);
@@ -30,6 +32,11 @@ public class EditionPhrasesTests
     [InlineData("Director's Cut")] // a title that is exactly an edition phrase keeps its words
     [InlineData("DIRECTOR'S CUT")]
     [InlineData("25th Anniversary Edition")]
+    [InlineData("The Director's Cut")] // an article alone is no title
+    [InlineData("A Special Edition")]
+    [InlineData("The Collector's Edition")]
+    [InlineData("2 Special Edition")] // nor is a number alone
+    [InlineData("- Director's Cut")] // nor punctuation
     [InlineData("Special Edition: Copper Lantern")] // only a phrase at the end counts
     [InlineData("Highlander")]
     [InlineData("")]

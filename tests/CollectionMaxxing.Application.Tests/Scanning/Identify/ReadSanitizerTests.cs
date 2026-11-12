@@ -26,7 +26,8 @@ public class ReadSanitizerTests
     [InlineData("HIGHLANDER: DIRECTOR'S CUT", WorkKind.Film)]
     [InlineData("HIGHLANDER DIRECTOR'S CUT", WorkKind.Film)]
     [InlineData("HIGHLANDER WIDESCREEN", WorkKind.Film)]
-    [InlineData("HIGHLANDER: DIRECTOR'S CUT", null)]
+    [InlineData("HIGHLANDER: DIRECTOR'S CUT", WorkKind.Tv)]
+    [InlineData("HIGHLANDER SPECIAL EDITION", WorkKind.Book)]
     public void A_film_read_with_an_edition_phrase_after_its_title_is_asked_as_the_title_alone_and_keeps_the_phrase_as_its_edition(string read, WorkKind? kind)
     {
         var clean = ReadSanitizer.Sanitize(Read(read, kind));
@@ -54,6 +55,26 @@ public class ReadSanitizerTests
 
         clean.Title.ShouldBe(read);
         clean.Edition.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Copper Lantern Collector's Edition")]
+    [InlineData("Copper Lantern: Special Edition")]
+    [InlineData("HIGHLANDER: DIRECTOR'S CUT")]
+    public void A_read_that_names_no_kind_keeps_its_edition_phrase_as_it_may_be_a_game(string read)
+    {
+        var clean = ReadSanitizer.Sanitize(Read(read, kind: null));
+
+        clean.Title.ShouldBe(read);
+        clean.Edition.ShouldBeNull();
+    }
+
+    [Fact]
+    public void An_edition_in_brackets_is_kept_without_its_brackets()
+    {
+        ReadSanitizer.Sanitize(Read("Highlander - Director's Cut [Widescreen]", WorkKind.Film)).ShouldSatisfyAllConditions(
+            clean => clean.Title.ShouldBe("Highlander"),
+            clean => clean.Edition.ShouldBe("Director's Cut Widescreen"));
     }
 
     [Fact]

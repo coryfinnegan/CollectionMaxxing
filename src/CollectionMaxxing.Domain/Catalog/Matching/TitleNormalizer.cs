@@ -127,7 +127,8 @@ public static class TitleNormalizer
     /// off a cover against the book "House of Earth and Blood", where the part before the colon is the series. A hair above
     /// <see cref="MainTitleCredit"/>, so that of a book titled with the series alone and one titled with what follows it, the latter
     /// ranks first; under 0.845 for the same reason as the main title, so it never matches on title and kind alone. The scorer gives
-    /// it to books only (<see cref="MatchScorer"/>): a film's catalogue title carries its franchise.
+    /// it to books only, and only when the read names an author the book agrees with (<see cref="MatchScorer"/>): a film's catalogue
+    /// title carries its franchise, and a subtitle with no author behind it may be any book's title.
     /// </summary>
     public const double SeriesSubtitleCredit = 0.82;
 

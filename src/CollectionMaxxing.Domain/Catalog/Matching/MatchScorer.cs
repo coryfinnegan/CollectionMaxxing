@@ -193,8 +193,11 @@ public static class MatchScorer
 
                 // A book read as "Series: Title" is the book titled with what follows the colon: it ranks above the release titled
                 // with the series alone, which the main-title credit gives a hair less. Books only: a film's catalogue title
-                // carries its franchise, and the part after its colon alone is some other film.
-                if (release.Kind == WorkKind.Book)
+                // carries its franchise, and the part after its colon alone is some other film. And only when the read names an
+                // author this release agrees with: without that, "Sapiens: A Brief History of Humankind" would go to another
+                // author's book of that name, and "Leaves of Grass: Poems" to any book called "Poems" (the subtitle's own word
+                // floor, ComparableTitle.SubtitleSimilarity, catches the second too).
+                if (release.Kind == WorkKind.Book && AgreesOnCreator(read, release, titles))
                 {
                     similarity = Math.Max(similarity, TitleNormalizer.SeriesSubtitleCredit * titles.Read.SubtitleSimilarity(releaseTitle));
                 }
@@ -553,6 +556,17 @@ public static class MatchScorer
     // One point for the same year, a quarter less for each year apart, nothing from four years apart.
     private static double YearProximity(int readYear, int releaseYear) =>
         Math.Max(0.0, 1.0 - (0.25 * Math.Abs(readYear - releaseYear)));
+
+    /// <summary>
+    /// How alike a creator the read named must be to one of the release's for the two to be the same author (<see cref="CreatorSimilarity"/>,
+    /// the creator term's own comparison): a misread letter or two in a name still agrees, another name does not.
+    /// </summary>
+    private const double CreatorAgreement = 0.8;
+
+    /// <summary>The read names a creator and the release has one the creator term finds alike (<see cref="CreatorAgreement"/>).</summary>
+    private static bool AgreesOnCreator(ReadItem read, CandidateRelease release, TitleCache titles) =>
+        !string.IsNullOrWhiteSpace(read.Creator) && release.Creators.Count > 0
+        && CreatorSimilarity(read.Creator, release.Creators, titles) >= CreatorAgreement;
 
     private static double CreatorSimilarity(string readCreator, IReadOnlyList<string> creators, TitleCache titles)
     {

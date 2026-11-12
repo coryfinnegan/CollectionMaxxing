@@ -58,8 +58,9 @@ public class IdentifyGroundingLeadingWordTests
         ["THE FINAL"] = [FilmRelease("The Final", 3, 2010)],
     });
 
-    /// <summary>The server's reader sends a title and a kind, and no legible text; a phone's read always carries its text.</summary>
-    private static ReadFacts FilmRead(string? text = null) => new(Read, text, null, null, null, WorkKind.Film, null, null, null);
+    /// <summary>The server's reader sends a title and a kind, marked as its own read (ServerReadInput.ReadOf); a phone's read is not marked.</summary>
+    private static ReadFacts FilmRead(string? text = null, bool serverRead = true) =>
+        new(Read, text, null, null, null, WorkKind.Film, null, null, null) { ServerRead = serverRead };
 
     private static Task<BarcodeResolution> GroundAsync(ReadFacts facts, Films films, Catalogue? catalogue = null) =>
         new IdentifyGrounding(
@@ -92,13 +93,30 @@ public class IdentifyGroundingLeadingWordTests
         films.Titles.ShouldContain("THE FINAL DIMENSION"); // the span was asked; what it found was not kept
     }
 
-    [Fact]
-    public async Task A_read_the_phone_sent_keeps_the_first_spans_find_as_before()
+    [Theory]
+    [InlineData(Read)]
+    [InlineData("")] // a phone model read can send empty text and no lines: still a phone read
+    [InlineData(null)]
+    public async Task A_read_the_phone_sent_keeps_the_first_spans_find_as_before(string? text)
     {
-        // Control, and the rule's edge: a phone's read carries its text, and a spine's leading word may be stray print beside the
-        // title, so the plain rule stands.
-        var answer = await GroundAsync(FilmRead(text: Read), FinalFilms(), new Catalogue(Film("Highlander: The Final")));
+        // Control, and the rule's edge: a spine's leading word may be stray print beside the title, so a phone's read keeps the plain
+        // rule whatever text it carries.
+        var answer = await GroundAsync(FilmRead(text, serverRead: false), FinalFilms(), new Catalogue(Film("Highlander: The Final")));
 
         answer.Options[0].Provider!.Title.ShouldBe("The Final Destination");
+    }
+
+    [Fact]
+    public async Task A_span_that_drops_a_sticker_number_in_front_of_the_franchise_word_is_still_kept()
+    {
+        // Digits are never a distinctive word: the span without the "7" finds the Highlander film (only the catalogue holds it, under
+        // exactly the span's words, so the whole read found nothing), and it is kept.
+        var film = Film("Highlander: The Final Dimension");
+        var facts = FilmRead() with { Title = "7 HIGHLANDER THE FINAL DIMENSION" };
+
+        var answer = await GroundAsync(facts, new Films([]), new Catalogue(film));
+
+        answer.Options[0].LocalReleaseId.ShouldBe(film.Release.Id);
+        answer.Steps.ShouldContain(s => s.Provider == "trimmed");
     }
 }
