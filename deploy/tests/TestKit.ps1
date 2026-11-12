@@ -214,6 +214,15 @@ function New-FakeMachine {
         ReaderLogOnStart        the log every container that `up` starts gets (default: the card found)
         ReaderLogFails          make `docker logs` of the reader fail
         ReaderUpKeepsHash       `up` recreates the container but its label keeps the old hash (compose disagreeing with itself)
+        VolumeCreatedAt         the model volume's CreatedAt (`docker volume inspect`); '' (default) = there is no volume
+        VolumeFilled            the volume holds the verified model files (a good fill helper makes it so); a reader that
+                                `up` starts on a volume without them fails to load and crash-loops (restarting), like the real one
+        VolumeInspectFails      make `docker volume inspect` fail (docker not answering, not "no such volume")
+        VolumeCreateFails       make `docker volume create` fail
+        FillExit, FillOutput    exit code and output of the fill helper (`docker run --rm ... llama.cpp ... -c <script>`); 124 = timed out
+        FillLeftover            a helper container is left over under collectionmaxxing-models-fill: a run fails with 125
+                                ("name already in use") until `docker rm -f collectionmaxxing-models-fill` removes it
+        (read back) Fills, VolumeCreates   how many fill helpers ran to success and volumes were created
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -236,6 +245,8 @@ function New-FakeMachine {
     $m.ReaderId = 'reader-c0'; $m.ReaderStartedAt = '2026-11-12T08:00:00.123456789Z'; $m.ReaderStarts = 0
     $m.ReaderLabelHash = 'cfg-hash-1'; $m.ComposeHash = 'cfg-hash-1'; $m.ComposeHashFails = $false; $m.ReaderInspectFails = $false
     $m.ReaderLog = @(Get-TestReaderGpuLog); $m.ReaderLogOnStart = @(Get-TestReaderGpuLog); $m.ReaderLogFails = $false; $m.ReaderUpKeepsHash = $false
+    $m.VolumeCreatedAt = ''; $m.VolumeFilled = $false; $m.VolumeInspectFails = $false; $m.VolumeCreateFails = $false
+    $m.FillExit = 0; $m.FillOutput = @(); $m.Fills = 0; $m.VolumeCreates = 0; $m.FillLeftover = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
@@ -279,9 +290,37 @@ function New-FakeMachine {
                         $m.ReaderStartedAt = ([DateTime](Get-CmNow)).ToUniversalTime().AddSeconds($m.ReaderStarts).ToString('o', [Globalization.CultureInfo]::InvariantCulture)
                         if (-not $m.ReaderUpKeepsHash) { $m.ReaderLabelHash = $m.ComposeHash }
                         $m.ReaderLog = @($m.ReaderLogOnStart)
-                        $m.ReaderHealth = $m.ReaderStartsAs
+                        # Like llama-server: with no model files in /models it cannot load, exits, and Docker restarts it.
+                        $m.ReaderHealth = if ($m.VolumeFilled) { $m.ReaderStartsAs } else { 'restarting' }
                     }
                     return & $ok
+                }
+                # The model volume (#804) and the deployer's fill helper.
+                if ($line -match '^volume inspect ') {
+                    if ($m.VolumeInspectFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('Cannot connect to the Docker daemon at npipe:////./pipe/docker_engine. Is the docker daemon running?') } }
+                    if (-not $m.VolumeCreatedAt) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: get collectionmaxxing_models: no such volume') } }
+                    return & $ok @($m.VolumeCreatedAt)
+                }
+                if ($line -match '^volume create ') {
+                    if ($m.VolumeCreateFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: create failed') } }
+                    if (-not $m.VolumeCreatedAt) {
+                        $m.VolumeCreates++
+                        $m.VolumeCreatedAt = ([DateTime](Get-CmNow)).ToUniversalTime().AddSeconds($m.VolumeCreates).ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+                        $m.VolumeFilled = $false
+                    }
+                    return & $ok @('collectionmaxxing_models')
+                }
+                if ($line -match '^rm -f collectionmaxxing-models-fill$') {
+                    if (-not $m.FillLeftover) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: No such container: collectionmaxxing-models-fill') } }
+                    $m.FillLeftover = $false; return & $ok @('collectionmaxxing-models-fill')
+                }
+                if ($line -match '^run --rm .*ggml-org/llama\.cpp') {
+                    if ($m.FillLeftover) { return [pscustomobject]@{ ExitCode = 125; Output = @('docker: Error response from daemon: Conflict. The container name "/collectionmaxxing-models-fill" is already in use by container "0123abcd".') } }
+                    # The real script empties the volume first, so a failed copy leaves it without the files.
+                    if ($m.FillExit -ne 0) { $m.VolumeFilled = $false; return [pscustomobject]@{ ExitCode = $m.FillExit; Output = @($m.FillOutput) } }
+                    if (-not $m.VolumeCreatedAt) { $m.VolumeCreatedAt = '2026-11-12T06:00:00Z' }   # docker run makes a missing named volume
+                    $m.VolumeFilled = $true; $m.Fills++
+                    return & $ok @('cm-fill: done')
                 }
                 if ($line -match '^compose .* config --hash shelf-reader$') { if ($m.ComposeHashFails) { return & $fail } return & $ok @("shelf-reader $($m.ComposeHash)") }
                 if ($line -match '^inspect \S+ --format \{\{\.State\.StartedAt\}\}') { if ($m.ReaderInspectFails) { return & $fail } return & $ok @("$($m.ReaderStartedAt)|$($m.ReaderLabelHash)") }

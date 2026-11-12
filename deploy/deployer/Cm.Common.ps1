@@ -20,6 +20,10 @@ $script:CmShelfReaderImage = "$($script:CmShelfReaderImageRepo):server-cuda-b122
 $script:CmShelfReaderNetwork = 'reader'
 # The one host path shelf-reader may bind besides the models folder (#802): Docker Desktop's WSL 2 driver folder.
 $script:CmWslDriversPath = '/usr/lib/wsl/drivers'
+# The Docker volume the reader loads its model files from (#804): the compose key and the explicit `name:` it is given in
+# docker-compose.yml, so the deployer's fill helper and compose name the same volume without guessing compose's prefix.
+$script:CmModelsVolumeKey = 'models'
+$script:CmModelsVolume = 'collectionmaxxing_models'
 
 function Initialize-Cm {
     <# Sets the run mode. Call once at the top of an entry script. #>
@@ -300,6 +304,20 @@ function Get-CmModelsRoot {
     ''
 }
 
+function Get-CmComposeVolumeName {
+    <# The docker name of a top-level compose volume: its `name:` (compose config prints one for every volume), else compose's default <project>_<key>. #>
+    param($ComposeConfig, [string]$Key)
+    $p = if ($ComposeConfig -and $ComposeConfig.volumes) { $ComposeConfig.volumes.PSObject.Properties[$Key] } else { $null }
+    if ($p -and $p.Value -and "$($p.Value.name)".Trim()) { return "$($p.Value.name)".Trim() }
+    "collectionmaxxing_$Key"
+}
+
+function Test-CmIsModelsVolume {
+    <# True when a volume key (a service mount's source, or a top-level key) is the model volume (#804), by key or by docker name. #>
+    param($ComposeConfig, [string]$Key)
+    $Key -ceq $script:CmModelsVolumeKey -or $Key -ceq $script:CmModelsVolume -or (Get-CmComposeVolumeName -ComposeConfig $ComposeConfig -Key $Key) -ceq $script:CmModelsVolume
+}
+
 function Test-CmConfig {
     <#
       The config guard. Takes the parsed .env and the output of `docker compose config --format json`.
@@ -311,10 +329,12 @@ function Test-CmConfig {
       folders count), and a named volume that is really a bind of a host folder (driver_opts). Messages name the
       service and the container path, never a host path, because a host path may come from .env.
       The shelf reader (#795): shelf-reader runs only the pinned image, publishes no port, sits only on the internal
-      `reader` network (which no service but the api may join), and binds nothing but folders inside the models folder
-      (Get-CmModelsRoot), read-only, plus exactly one more bind (#802): /usr/lib/wsl/drivers at the same path, read-only
-      (Docker Desktop's WSL 2 driver folder). The models folder is allowed for shelf-reader alone, never for another service, and
-      a models folder that is a drive root or holds the stack's own folders is refused. Only shelf-reader may reserve a
+      `reader` network (which no service but the api may join), and mounts nothing but the model volume (#804: key `models`,
+      named collectionmaxxing_models, read-only at /models) and one bind (#802): /usr/lib/wsl/drivers at the same path,
+      read-only (Docker Desktop's WSL 2 driver folder). No other service may mount the model volume (under any key), and the
+      volume may not be external, carry driver options or use another driver. The host models folder (Get-CmModelsRoot) is
+      bound by no compose service at all (only the deployer's fill helper reads it), and a models folder that is a drive
+      root or holds the stack's own folders is refused. Only shelf-reader may reserve a
       device (deploy.resources.reservations.devices, or gpus), and its reservation must be exactly one nvidia GPU (count
       1, no device_ids, capabilities [gpu]). No service may set runtime:, and no other service may set
       NVIDIA_VISIBLE_DEVICES or NVIDIA_DRIVER_CAPABILITIES. .env may not set CM_SHELF_READER_ENDPOINT (the deployer's).
@@ -401,8 +421,18 @@ function Test-CmConfig {
             foreach ($v in @($def.volumes | Where-Object { $_ })) {
                 $type = "$($v.type)"
                 $target = "$($v.target)"
-                if ($type -in 'volume', 'tmpfs') { continue }
                 $source = "$($v.source)"
+                # The model volume (#804): shelf-reader alone, under its own key, read-only at /models.
+                if ($type -eq 'volume' -and $source -and (Test-CmIsModelsVolume -ComposeConfig $ComposeConfig -Key $source)) {
+                    if ($name -ne 'shelf-reader') { $problems.Add("service '$name' mounts the model volume (container path $target); only shelf-reader may"); continue }
+                    if ($source -cne $script:CmModelsVolumeKey) { $problems.Add("service 'shelf-reader' mounts the model volume under another key ('$source'); it may mount only '$($script:CmModelsVolumeKey)'"); continue }
+                    if ($target -cne '/models') { $problems.Add("service 'shelf-reader' mounts the model volume at $target; it may mount it only at /models") }
+                    elseif ($v.read_only -ne $true) { $problems.Add("service 'shelf-reader' mounts the model volume writable (container path $target); it may only be mounted read-only") }
+                    continue
+                }
+                # The reader mounts the model volume and the WSL driver folder, and nothing else (#804).
+                if ($name -eq 'shelf-reader' -and $type -ne 'bind') { $problems.Add("service 'shelf-reader' has a '$type' mount at $target; it may mount only the model volume at /models and the WSL driver folder"); continue }
+                if ($type -in 'volume', 'tmpfs') { continue }
                 if ($source -match '(?i)docker[._]?sock|docker_engine|[\\/]var[\\/]run[\\/]docker' -or $target -match '(?i)docker[._]?sock') {
                     $problems.Add("service '$name' mounts the Docker socket or engine pipe (container path $target)")
                     continue
@@ -418,9 +448,13 @@ function Test-CmConfig {
                         elseif ($v.read_only -ne $true) { $problems.Add("service 'shelf-reader' mounts the WSL driver folder writable (container path $target); it may only be mounted read-only") }
                         continue
                     }
-                    # Otherwise the reader binds the models folder and nothing else, read-only.
-                    if (-not $modelsRoot -or -not (Test-CmPathUnder -Path $source -Root $modelsRoot)) { $problems.Add("service 'shelf-reader' bind-mounts a host folder outside the models folder (container path $target)") }
-                    elseif ($v.read_only -ne $true) { $problems.Add("service 'shelf-reader' mounts the models folder writable (container path $target); it may only be mounted read-only") }
+                    # Any other bind, the host models folder included (#804: the model files come from the model volume).
+                    $problems.Add("service 'shelf-reader' bind-mounts a host folder (container path $target); it may bind only $($script:CmWslDriversPath), and reads the model files from the model volume")
+                    continue
+                }
+                # The host models folder is read by the deployer's fill helper alone, never by a compose service (#804).
+                if ($modelsRoot -and (Test-CmPathUnder -Path $source -Root $modelsRoot)) {
+                    $problems.Add("service '$name' bind-mounts the host models folder (container path $target); no compose service may, the deployer copies the model files into the model volume")
                     continue
                 }
                 $inside = $false
@@ -442,6 +476,18 @@ function Test-CmConfig {
     }
     if ($null -ne $ComposeConfig -and $ComposeConfig.volumes) {
         foreach ($volume in $ComposeConfig.volumes.PSObject.Properties) {
+            # The model volume (#804): compose's own local volume under its fixed name, never one from elsewhere.
+            $isModels = Test-CmIsModelsVolume -ComposeConfig $ComposeConfig -Key $volume.Name
+            if ($isModels -and $volume.Name -cne $script:CmModelsVolumeKey) {
+                $problems.Add("volume '$($volume.Name)' names the model volume ($($script:CmModelsVolume)); only the '$($script:CmModelsVolumeKey)' volume may")
+            }
+            if ($volume.Name -ceq $script:CmModelsVolumeKey) {
+                $vdef = $volume.Value
+                if ("$(Get-CmComposeVolumeName -ComposeConfig $ComposeConfig -Key $volume.Name)" -cne $script:CmModelsVolume) { $problems.Add("volume '$($volume.Name)' must be named '$($script:CmModelsVolume)' (name:), the volume the deployer fills") }
+                if ($vdef -and ($vdef.external -eq $true -or ($vdef.external -and $vdef.external -isnot [bool]))) { $problems.Add("volume '$($volume.Name)' must not be external; compose owns the model volume") }
+                if ($vdef -and $vdef.driver_opts -and @($vdef.driver_opts.PSObject.Properties).Count -gt 0) { $problems.Add("volume '$($volume.Name)' must not carry driver options (driver_opts)") }
+                if ($vdef -and "$($vdef.driver)".Trim() -and "$($vdef.driver)".Trim() -ne 'local') { $problems.Add("volume '$($volume.Name)' must use the local driver, not '$($vdef.driver)'") }
+            }
             $opts = $volume.Value.driver_opts
             if ($null -eq $opts) { continue }
             $names = @($opts.PSObject.Properties.Name)
