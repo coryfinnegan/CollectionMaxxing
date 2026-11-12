@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Application.Scanning.ShelfReading;
 using CollectionMaxxing.Domain.Scanning;
 
 namespace CollectionMaxxing.Application.Scanning;
@@ -23,6 +24,9 @@ public enum SkipReason
 
     /// <summary>The release is on the library's wishlist: Got it, on its card, is how it comes in.</summary>
     Wishlist,
+
+    /// <summary>The server's own read of the shelf left this phone read out (a fragment, a one-word or off-kind read, or one only the phone's model made).</summary>
+    ServerDidNotSee,
 }
 
 internal static class SkipReasons
@@ -58,6 +62,11 @@ internal static class SkipReasons
             if (step.Provider == UnfoundSpines.StepName)
             {
                 return SkipReason.UnfoundSpine;
+            }
+
+            if (step.Provider == ServerDidNotSee.StepName)
+            {
+                return SkipReason.ServerDidNotSee;
             }
         }
 

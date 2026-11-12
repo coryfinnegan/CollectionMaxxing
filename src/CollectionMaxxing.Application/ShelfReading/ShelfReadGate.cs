@@ -57,6 +57,17 @@ public sealed class ShelfReadGate(Microsoft.Extensions.Options.IOptions<ShelfRea
         }
     }
 
+    /// <summary>
+    /// Waits for the reader's turn for as long as it takes, outside the queue's limits: the eval's re-ground reads its photos through here,
+    /// one turn per photo, so a person's read never runs beside one and waits at most for the photo being read. It takes no place in the
+    /// queue, so it never makes a person's request be told the reader is busy. Throws <see cref="OperationCanceledException"/> when cancelled.
+    /// </summary>
+    public async Task<IDisposable> WaitTurnAsync(CancellationToken cancellationToken)
+    {
+        await _turn.WaitAsync(cancellationToken);
+        return new Turn(_turn);
+    }
+
     public void Dispose() => _turn.Dispose();
 
     private sealed class Turn(SemaphoreSlim turn) : IDisposable
