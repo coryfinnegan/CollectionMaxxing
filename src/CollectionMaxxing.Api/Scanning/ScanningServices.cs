@@ -3,6 +3,7 @@ using CollectionMaxxing.Api.Problems;
 using CollectionMaxxing.Api.Scanning.Artwork;
 using CollectionMaxxing.Api.Scanning.Events;
 using CollectionMaxxing.Api.Scanning.Identify;
+using CollectionMaxxing.Api.Scanning.ShelfRead;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Application.Ownership;
 using CollectionMaxxing.Application.Scanning;
@@ -54,6 +55,7 @@ public static class ScanningServices
         services.AddScanFollowUps();
         services.AddIdentify();
         services.AddArtwork();
+        services.AddShelfRead();
         return services;
     }
 }

@@ -79,11 +79,14 @@ public static class ServerReadInput
             TimedOut: status == ShelfReadStatus.CutShort ? true : null);
     }
 
-    private static EvalReadItemInput Item(ShelfReadItem item) => new(
-        new IdentifyItemInput(
-            null, null, null, item.Title, string.IsNullOrWhiteSpace(item.Creator) ? null : item.Creator, null, null, KindOf(item.Kind), null, null, null, null),
-        ResolvedStep.Model,
-        ScanTier.T1);
+    private static EvalReadItemInput Item(ShelfReadItem item) => new(ReadOf(item), ResolvedStep.Model, ScanTier.T1);
+
+    /// <summary>
+    /// What the reader's item says as a read: its title, its creator when printed and its kind, with no box. The server's own scan
+    /// endpoint turns the same items into reads with this, so the eval row and the app ground the very same read.
+    /// </summary>
+    public static IdentifyItemInput ReadOf(ShelfReadItem item) => new(
+        null, null, null, item.Title, string.IsNullOrWhiteSpace(item.Creator) ? null : item.Creator, null, null, KindOf(item.Kind), null, null, null, null);
 
     private static WorkKind? KindOf(ShelfItemKind kind) => kind switch
     {

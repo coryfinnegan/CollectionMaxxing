@@ -9,6 +9,9 @@ public enum CandidateSource
     PictureAppleModel,
     PictureText,
     Search,
+
+    /// <summary>A title the server's own shelf reader (ADR-033) read in the shelf snap; always unconfirmed, so never added by itself.</summary>
+    PictureServerModel,
 }
 
 public enum BoxSource

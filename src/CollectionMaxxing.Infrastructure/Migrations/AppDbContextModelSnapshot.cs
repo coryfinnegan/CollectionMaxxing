@@ -17,7 +17,7 @@ namespace CollectionMaxxing.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
@@ -1673,7 +1673,7 @@ namespace CollectionMaxxing.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_scan_candidates_shot_kind", "\"shot_kind\" in ('barcode', 'single_cover', 'shelf_segment', 'loose_item', 'unknown')");
 
-                            t.HasCheckConstraint("ck_scan_candidates_source", "\"source\" in ('barcode', 'picture_apple_model', 'picture_text', 'search')");
+                            t.HasCheckConstraint("ck_scan_candidates_source", "\"source\" in ('barcode', 'picture_apple_model', 'picture_text', 'search', 'picture_server_model')");
 
                             t.HasCheckConstraint("ck_scan_candidates_tier", "\"tier\" in ('T0', 'T1', 'T2')");
                         });
@@ -1824,6 +1824,10 @@ namespace CollectionMaxxing.Infrastructure.Migrations
                     b.Property<Guid>("LibraryId")
                         .HasColumnType("uuid")
                         .HasColumnName("library_id");
+
+                    b.Property<DateTimeOffset?>("ServerReadAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("server_read_at");
 
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid")
